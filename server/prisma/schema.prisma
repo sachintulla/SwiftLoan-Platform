@@ -72,6 +72,10 @@ model User {
   notifySecurityAlerts Boolean @default(true)
   notifyPromoOffers    Boolean @default(false)
 
+  // tracking fields
+  lastSeenAt       DateTime?
+  lastActiveScreen String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -82,6 +86,9 @@ model User {
   otps         OtpToken[]
   tickets      SupportTicket[]
   sessions     RefreshToken[]
+  trackingSessions    Session[]          @relation("SessionUser")
+  activityEvents      ActivityEvent[]    @relation("ActivityEventUser")
+  onboardingFunnel    OnboardingFunnel?  @relation("OnboardingFunnelUser")
 
   @@index([createdAt])
 }
@@ -170,6 +177,10 @@ model LoanApplication {
   residenceType ResidenceType?
   panNumber     String?
 
+  // tracking fields
+  stepsDetail    Json?    // [{ stepName, status, startedAt, completedAt, timeSpentSeconds, holdAtStep, holdReason }]
+  lastActivityAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -178,6 +189,7 @@ model LoanApplication {
   kyc    KycVerification[]
 
   @@index([userId, status])
+  @@index([lastActivityAt])
 }
 
 model LenderPartner {
@@ -332,4 +344,146 @@ model AuditLog {
 
   @@index([userId])
   @@index([action, createdAt])
+}
+
+// ─────────────────────── Tracking & Analytics ───────────────────────
+
+model Session {
+  id              String    @id @default(uuid())
+  userId          String
+  platform        String    // mobile | web
+  deviceInfo      Json?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  durationSeconds Int?
+  pagesVisited    Json?     // [{ screen, timestamp, timeSpentSeconds }]
+  isActive        Boolean   @default(true)
+  user            User      @relation("SessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  events          ActivityEvent[]
+
+  @@index([userId, isActive])
+  @@index([startedAt])
+}
+
+model ActivityEvent {
+  id          String   @id @default(uuid())
+  userId      String
+  sessionId   String?
+  eventType   String   // page_view | button_click | form_submit | onboarding_step
+                       // loan_step | idle | drop_off | error
+  eventName   String
+  screen      String
+  metadata    Json?
+  platform    String   // mobile | web
+  timestamp   DateTime @default(now())
+  user        User     @relation("ActivityEventUser", fields: [userId], references: [id], onDelete: Cascade)
+  session     Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, timestamp])
+  @@index([eventType, timestamp])
+  @@index([sessionId])
+}
+
+model OnboardingFunnel {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  currentStep          Int       @default(0)
+  totalSteps           Int       @default(5)
+  stepsDetail          Json?     // [{ stepNumber, stepName, status, startedAt, completedAt, timeSpentSeconds, dropOffReason, errorEncountered, retryCount }]
+  status               String    @default("not_started")
+                                 // not_started | in_progress | paused | completed | abandoned
+  pausedAtStep         Int?
+  pausedReason         String?   // user_left | session_timeout | error | incomplete_data | document_upload_pending | verification_pending
+  resumeCount          Int       @default(0)
+  totalTimeSpentSeconds Int      @default(0)
+  deviceSwitches       Int       @default(0)
+  dropOffScreen        String?
+  startedAt            DateTime?
+  lastActivityAt       DateTime?
+  completedAt          DateTime?
+  user                 User      @relation("OnboardingFunnelUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([lastActivityAt])
+}
+
+model AnonymousLead {
+  id              String    @id @default(uuid())
+  sessionId       String?
+  source          String    // contact_us | download_cta | landing_page | organic | referral | ad
+  name            String?
+  email           String?
+  phone           String?
+  message         String?
+  status          String    @default("anonymous")
+                            // anonymous | contacted | converted | unresponsive
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  pagesVisited    Json?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  deviceInfo      Json?
+  ipAddress       String?
+  location        Json?
+  convertedUserId String?
+  contactedAt     DateTime?
+  convertedAt     DateTime?
+  followUpNotes   String?
+  assignedTo      String?
+
+  @@index([status])
+  @@index([email])
+  @@index([source])
+}
+
+model AppDownload {
+  id              String    @id @default(uuid())
+  anonymousLeadId String?
+  platform        String    // ios | android
+  appVersion      String?
+  deviceInfo      Json?
+  ipAddress       String?
+  location        Json?
+  downloadedAt    DateTime  @default(now())
+  convertedUserId String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+
+  @@index([platform])
+  @@index([convertedUserId])
+  @@index([downloadedAt])
+}
+
+model AdminUser {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  password    String
+  fullName    String
+  role        String    @default("viewer")
+                        // super_admin | admin | viewer | support
+  lastLoginAt DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+  @@index([isActive])
+}
+
+model AdminNotification {
+  id          String    @id @default(uuid())
+  userId      String?
+  segment     String?
+  channel     String    // push | sms | email | in_app
+  title       String
+  body        String
+  status      String    @default("pending")
+                        // pending | sent | delivered | read | failed
+  sentAt      DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status])
+  @@index([createdAt])
 }
