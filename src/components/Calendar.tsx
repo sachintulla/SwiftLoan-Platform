@@ -1,0 +1,109 @@
+import React, { useState } from 'react';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import Icon from './Icon';
+import { colors, font } from '../theme/tokens';
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+export function formatDob(y: number, m: number, d: number) {
+  return `${d} ${MONTHS_SHORT[m]} ${y}`;
+}
+
+/** Inline month calendar for date-of-birth selection (mirrors the design picker). */
+export function Calendar({
+  year,
+  month,
+  selectedDay,
+  onSelect,
+}: {
+  year: number;
+  month: number;
+  selectedDay?: number | null;
+  onSelect: (y: number, m: number, d: number) => void;
+}) {
+  const [y, setY] = useState(year);
+  const [m, setM] = useState(month);
+
+  const firstDow = new Date(y, m, 1).getDay();
+  const days = new Date(y, m + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array.from({ length: firstDow }, () => null),
+    ...Array.from({ length: days }, (_, i) => i + 1),
+  ];
+
+  const stepMonth = (dir: number) => {
+    let nm = m + dir;
+    let ny = y;
+    if (nm < 0) { nm = 11; ny -= 1; }
+    if (nm > 11) { nm = 0; ny += 1; }
+    setM(nm); setY(ny);
+  };
+
+  return (
+    <View style={styles.wrap}>
+      <View style={styles.head}>
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          <NavBtn icon="keyboard_double_arrow_left" onPress={() => setY(y - 1)} />
+          <NavBtn icon="chevron_left" onPress={() => stepMonth(-1)} />
+        </View>
+        <Text style={[font(700), { fontSize: 14, color: colors.text }]}>{MONTHS[m]} {y}</Text>
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          <NavBtn icon="chevron_right" onPress={() => stepMonth(1)} />
+          <NavBtn icon="keyboard_double_arrow_right" onPress={() => setY(y + 1)} />
+        </View>
+      </View>
+
+      <View style={styles.dowRow}>
+        {DOW.map((d, i) => (
+          <Text key={i} style={[font(600), styles.dow]}>{d}</Text>
+        ))}
+      </View>
+
+      <View style={styles.grid}>
+        {cells.map((c, i) => {
+          const on = c != null && selectedDay === c && m === month && y === year;
+          return (
+            <View key={i} style={styles.cell}>
+              {c != null ? (
+                <Pressable
+                  onPress={() => onSelect(y, m, c)}
+                  style={[styles.day, on && { backgroundColor: colors.primary }]}
+                >
+                  <Text style={[font(on ? 700 : 500), { fontSize: 13, color: on ? '#fff' : colors.text }]}>{c}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function NavBtn({ icon, onPress }: { icon: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={6} style={styles.navBtn}>
+      <Icon name={icon} size={18} color={colors.textSoft} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+  },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  navBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSoft },
+  dowRow: { flexDirection: 'row' },
+  dow: { flex: 1, textAlign: 'center', color: colors.muted, fontSize: 11 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
+  cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
+  day: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+});

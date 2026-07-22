@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+server/node_modules/
+admin/node_modules/
+
+# Build outputs
+ios/build/
+android/build/
+android/.gradle/
+.expo/
+
+# Environment files — never commit these
+.env
+.env.local
+.env.production
+server/.env
+
+# iOS
+ios/Pods/
+ios/*.xcworkspace/
+ios/Podfile.lock
+
+# Android
+android/app/debug/
+android/app/release/
+*.keystore
+!debug.keystore
+
+# Metro
+.metro-health-check*
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Next.js (admin dashboard)
+admin/.next/
+admin/out/
+
+# Jest coverage
+coverage/

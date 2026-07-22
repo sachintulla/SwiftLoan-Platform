@@ -1,0 +1,156 @@
+Read CLAUDE.md fully before doing anything.
+The mobile app is already fully built — 29 screens, custom state machine,
+no Expo, no React Navigation, no Zustand, no NativeWind.
+DO NOT modify any screen files, DO NOT change navigation logic,
+DO NOT touch src/state/store.ts dispatch logic.
+
+Only task: add fire-and-forget tracking calls to src/api/client.ts
+and wire them at screen transition points in store.ts.
+
+---
+
+## What already exists — read these files first
+
+- src/api/client.ts — all API calls. Add new tracking functions here only.
+- src/state/store.ts — the go(), back(), set() reducer. This is where
+  screen transitions happen. Add tracking side-effects here only.
+- src/screens/ — already built. Do NOT modify any screen files.
+- src/theme/tokens.ts — colors (#079FA0 primary, #2FB183 mint, #0A3F41 ink)
+
+---
+
+## Step 1 — Add tracking functions to src/api/client.ts
+
+Add these functions to the existing client.ts file.
+They are fire-and-forget: call them with .catch(() => {}) and never await.
+They must not block any existing API call or UI action.
+
+```typescript
+// Fire-and-forget — call without await
+export function trackEvent(
+  eventType: string,
+  eventName: string,
+  screen: string,
+  metadata?: Record<string, unknown>
+): void {
+  post('/api/track/event', { event_type: eventType, event_name: eventName,
+    screen, metadata }).catch(() => {});
+}
+
+export function trackOnboardingStep(
+  stepNumber: number,
+  stepName: string,
+  status: 'completed' | 'paused',
+  timeSpentSeconds: number,
+  dropOffReason?: string
+): void {
+  post('/api/track/onboarding/step', {
+    step_number: stepNumber, step_name: stepName,
+    status, time_spent_seconds: timeSpentSeconds,
+    drop_off_reason: dropOffReason
+  }).catch(() => {});
+}
+
+export function trackLoanStep(
+  loanId: string,
+  stepName: string,
+  status: 'completed' | 'paused',
+  timeSpentSeconds: number,
+  holdReason?: string
+): void {
+  post('/api/track/loan/step', {
+    loan_id: loanId, step_name: stepName,
+    status, time_spent_seconds: timeSpentSeconds,
+    hold_reason: holdReason
+  }).catch(() => {});
+}
+
+export function trackSessionStart(deviceInfo?: Record<string, unknown>): void {
+  post('/api/track/session/start', {
+    platform: 'mobile', device_info: deviceInfo
+  }).catch(() => {});
+}
+
+export function trackSessionEnd(
+  sessionId: string,
+  pagesVisited?: Array<{ screen: string; timestamp: number; timeSpentSeconds: number }>
+): void {
+  post('/api/track/session/end', {
+    session_id: sessionId, pages_visited: pagesVisited
+  }).catch(() => {});
+}
+```
+
+---
+
+## Step 2 — Add tracking side-effects to src/state/store.ts
+
+In the go() dispatch handler (or wherever screen transitions are resolved),
+add a side-effect that calls trackEvent with event_type='page_view' each
+time the screen changes.
+
+Pattern to follow — find where state.screen is updated and add after it:
+```typescript
+trackEvent('page_view', `viewed_${nextScreen}`, nextScreen);
+```
+
+Additionally add these specific tracking calls at the right transitions.
+Find the action types / dispatch calls that correspond to each and add
+the tracking call as a side-effect only:
+
+Screen: basic (personal info step)
+  On completion → trackOnboardingStep(1, 'personal_info', 'completed', elapsed)
+
+Screen: basicpan (PAN / document step)
+  On completion → trackOnboardingStep(2, 'pan_details', 'completed', elapsed)
+
+Screen: finding (loan search / eligibility check)
+  On arrival → trackEvent('onboarding_step', 'finding_offers', 'finding')
+
+Screen: offers (loan offers list)
+  On arrival → trackOnboardingStep(3, 'offers_shown', 'completed', elapsed)
+
+Screen: handoff (offer selected / apply)
+  On offer selected → trackLoanStep(state.applicationId, 'offer_selected',
+                       'completed', elapsed)
+
+Screen: loan (active loan / disbursed)
+  On arrival → trackLoanStep(state.loanId, 'loan_disbursed', 'completed', elapsed)
+
+Screen: repay (repayment schedule)
+  On arrival → trackEvent('page_view', 'viewed_repayment', 'repay')
+
+KYC screens (aadhaar, panv, bankv, selfie)
+  On each completion → trackOnboardingStep(step, screen_name, 'completed', elapsed)
+
+On app launch (AppState change to active):
+  → trackSessionStart({ platform: 'mobile' })
+
+On app background (AppState change to background):
+  → trackSessionEnd(sessionId, pagesVisited)
+
+---
+
+## Rules
+
+- Do NOT create any new files
+- Do NOT modify any screen component files
+- Do NOT modify Router.tsx
+- Do NOT change any existing function signatures in client.ts
+- Do NOT change any reducer logic in store.ts — only add side-effects
+- All tracking calls are .catch(() => {}) — never let them throw
+- Never await a tracking call
+- Keep existing tests passing: npm test must still show 110 passing
+
+---
+
+## After making changes
+
+1. Run npm run typecheck — must pass with 0 errors
+2. Run npm test — must still show 110 tests passing
+3. Run npm run lint — must pass
+4. Update CLAUDE.md build progress
+
+/goal tracking functions added to client.ts, page_view events fire on
+every screen transition, onboarding and loan step events fire at correct
+points, npm test still shows 110 passing, npm run typecheck passes

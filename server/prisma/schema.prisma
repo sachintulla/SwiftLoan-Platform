@@ -1,0 +1,335 @@
+// SwiftLoan — data model, derived directly from the app flow.
+// Postgres provider; the schema is written to scale (indexes, enums, UUID PKs,
+// audit timestamps). Swap DATABASE_URL to point at any Postgres cluster.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Users & auth ───────────────────────────
+
+enum Gender {
+  male
+  female
+  other
+}
+
+enum ResidenceType {
+  own
+  rented
+  family
+  company
+}
+
+enum EmploymentType {
+  salaried
+  self_employed
+  business_owner
+  gig_worker
+  student
+  retired
+  other
+}
+
+enum Lang {
+  en
+  hi
+  te
+  hinglish
+  tenglish
+}
+
+model User {
+  id            String    @id @default(uuid())
+  phone         String    @unique
+  email         String?   @unique
+  passwordHash  String?
+  firstName     String?
+  lastName      String?
+  fullName      String?
+  dob           DateTime?
+  gender        Gender?
+  pincode       String?
+  residenceType ResidenceType?
+  employment    EmploymentType?
+  monthlyIncome Int?
+  company       String?
+  panNumber     String?
+  aadhaarLast4  String?
+  lang          Lang      @default(en)
+  creditScore   Int       @default(750)
+  phoneVerified Boolean   @default(false)
+  emailVerified Boolean   @default(false)
+  memberVerified Boolean  @default(false)
+
+  // notification preferences
+  notifyLoanUpdates    Boolean @default(true)
+  notifySecurityAlerts Boolean @default(true)
+  notifyPromoOffers    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications LoanApplication[]
+  loans        Loan[]
+  kyc          KycVerification[]
+  consents     Consent[]
+  otps         OtpToken[]
+  tickets      SupportTicket[]
+  sessions     RefreshToken[]
+
+  @@index([createdAt])
+}
+
+model OtpToken {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone     String
+  codeHash  String
+  purpose   String   @default("login") // login | verify_phone
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone, consumed])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum ConsentType {
+  terms
+  soft_pull        // CIBIL / CRIF soft enquiry
+  data_sharing     // share profile with lending partners
+  communications   // language / marketing
+}
+
+model Consent {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      ConsentType
+  granted   Boolean
+  createdAt DateTime    @default(now())
+
+  @@index([userId, type])
+}
+
+// ─────────────────────── Application funnel ───────────────────────
+
+enum ApplicationStatus {
+  draft            // Step 1 details captured
+  pan_pending      // Step 2
+  prequalifying    // "finding offers"
+  offers_ready     // Step 3
+  handoff          // Step 4 secure handoff
+  under_review     // submitted to lender
+  approved
+  rejected
+  disbursed
+  closed
+}
+
+enum LoanType {
+  personal
+  business
+  home
+  education
+  vehicle
+}
+
+model LoanApplication {
+  id            String            @id @default(uuid())
+  ref           String            @unique // e.g. SL-884021
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loanType      LoanType          @default(personal)
+  amount        Int
+  tenureMonths  Int               @default(12)
+  purpose       String?
+  status        ApplicationStatus @default(draft)
+
+  // snapshot of applicant details at submission
+  employment    EmploymentType?
+  monthlyIncome Int?
+  residenceType ResidenceType?
+  panNumber     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offers Offer[]
+  loan   Loan?
+  kyc    KycVerification[]
+
+  @@index([userId, status])
+}
+
+model LenderPartner {
+  id           String  @id @default(uuid())
+  name         String  @unique
+  icon         String  @default("account_balance")
+  baseApr      Float   // annual %
+  tagline      String?
+  processingFee Int    @default(0)
+  active       Boolean @default(true)
+
+  offers Offer[]
+}
+
+model Offer {
+  id            String  @id @default(uuid())
+  applicationId String
+  application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  partnerId     String
+  partner       LenderPartner   @relation(fields: [partnerId], references: [id])
+  amount        Int
+  apr           Float
+  emi           Int
+  tenureMonths  Int
+  processingFee Int
+  tag           String?
+  recommended   Boolean @default(false)
+  selected      Boolean @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([applicationId])
+}
+
+// ────────────────────────── KYC ──────────────────────────
+
+enum KycMethod {
+  aadhaar
+  pan
+  bank
+  selfie
+}
+
+enum KycStatus {
+  pending
+  verified
+  failed
+}
+
+model KycVerification {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String?
+  application   LoanApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  method        KycMethod
+  status        KycStatus @default(pending)
+  reference     String?   // masked id / doc ref
+  verifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([userId, method, applicationId])
+  @@index([userId])
+}
+
+// ─────────────────────── Loans & repayment ───────────────────────
+
+enum LoanStatus {
+  active
+  closed
+  defaulted
+}
+
+model Loan {
+  id             String     @id @default(uuid())
+  ref            String     @unique // e.g. SL-88429
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId  String     @unique
+  application    LoanApplication @relation(fields: [applicationId], references: [id])
+  partnerName    String
+  principal      Int
+  apr            Float
+  tenureMonths   Int
+  emiAmount      Int
+  accountLast4   String     @default("4291")
+  status         LoanStatus @default(active)
+  disbursedAt    DateTime   @default(now())
+  firstEmiDate   DateTime
+  outstanding    Int
+
+  repayments Repayment[]
+
+  @@index([userId, status])
+}
+
+enum RepaymentStatus {
+  scheduled
+  paid
+  pending
+  late
+}
+
+model Repayment {
+  id        String          @id @default(uuid())
+  loanId    String
+  loan      Loan            @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  ref       String          @unique
+  amount    Int
+  dueDate   DateTime
+  paidDate  DateTime?
+  status    RepaymentStatus @default(scheduled)
+  createdAt DateTime        @default(now())
+
+  @@index([loanId, status])
+}
+
+// ─────────────────────── Support / grievance ───────────────────────
+
+enum TicketType {
+  query
+  grievance
+}
+
+enum TicketStatus {
+  open
+  in_progress
+  resolved
+}
+
+model SupportTicket {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TicketType   @default(query)
+  subject   String
+  body      String?
+  status    TicketStatus @default(open)
+  createdAt DateTime     @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────── Audit (scalability) ───────────────────────
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action, createdAt])
+}

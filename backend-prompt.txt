@@ -1,0 +1,443 @@
+Read CLAUDE.md fully before doing anything.
+The existing server/ and src/ are already built — do NOT modify them except
+where CLAUDE.md explicitly says to extend them.
+Continue from the first unchecked item in "Server — tracking + admin extension".
+
+---
+
+You are extending the existing SwiftLoan backend (server/) with:
+1. A tracking layer so the mobile app can record user activity
+2. Admin API endpoints powering the admin dashboard
+3. New Prisma models (additive only — do not touch existing models)
+
+## What already exists in server/ — do not touch these
+
+- server/prisma/schema.prisma — has: User, LoanApplication, Offer, Loan, Repayment
+- server/src/modules/ — has: auth, users, applications, kyc, loans, catalog,
+  tools, support route modules
+- server/src/lib/prisma.ts — Prisma client (Prisma v6, keep it that way)
+- server/src/index.ts — Express app entry point
+- server/package.json — existing deps including express, prisma, JWT, typescript
+
+## Step 1 — Add new Prisma models to server/prisma/schema.prisma
+
+Add these models. Do NOT modify User, LoanApplication, Offer, Loan, Repayment.
+
+```prisma
+model Session {
+  id              String    @id @default(uuid())
+  userId          String
+  platform        String    // mobile | web
+  deviceInfo      Json?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  durationSeconds Int?
+  pagesVisited    Json?     // [{ screen, timestamp, timeSpentSeconds }]
+  isActive        Boolean   @default(true)
+  user            User      @relation(fields: [userId], references: [id])
+  events          ActivityEvent[]
+}
+
+model ActivityEvent {
+  id          String   @id @default(uuid())
+  userId      String
+  sessionId   String?
+  eventType   String   // page_view | button_click | form_submit | onboarding_step
+                       // loan_step | idle | drop_off | error
+  eventName   String
+  screen      String
+  metadata    Json?
+  platform    String   // mobile | web
+  timestamp   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+  session     Session? @relation(fields: [sessionId], references: [id])
+}
+
+model OnboardingFunnel {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  currentStep          Int       @default(0)
+  totalSteps           Int       @default(5)
+  stepsDetail          Json?     // [{ stepNumber, stepName, status, startedAt,
+                                 //    completedAt, timeSpentSeconds,
+                                 //    dropOffReason, errorEncountered, retryCount }]
+  status               String    @default("not_started")
+                                 // not_started | in_progress | paused |
+                                 // completed | abandoned
+  pausedAtStep         Int?
+  pausedReason         String?   // user_left | session_timeout | error |
+                                 // incomplete_data | document_upload_pending |
+                                 // verification_pending
+  resumeCount          Int       @default(0)
+  totalTimeSpentSeconds Int      @default(0)
+  deviceSwitches       Int       @default(0)
+  dropOffScreen        String?
+  startedAt            DateTime?
+  lastActivityAt       DateTime?
+  completedAt          DateTime?
+  user                 User      @relation(fields: [userId], references: [id])
+}
+
+model AnonymousLead {
+  id              String    @id @default(uuid())
+  sessionId       String?
+  source          String    // contact_us | download_cta | landing_page |
+                            // organic | referral | ad
+  name            String?
+  email           String?
+  phone           String?
+  message         String?
+  status          String    @default("anonymous")
+                            // anonymous | contacted | converted | unresponsive
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  pagesVisited    Json?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  deviceInfo      Json?
+  ipAddress       String?
+  location        Json?
+  convertedUserId String?
+  contactedAt     DateTime?
+  convertedAt     DateTime?
+  followUpNotes   String?
+  assignedTo      String?
+}
+
+model AppDownload {
+  id              String    @id @default(uuid())
+  anonymousLeadId String?
+  platform        String    // ios | android
+  appVersion      String?
+  deviceInfo      Json?
+  ipAddress       String?
+  location        Json?
+  downloadedAt    DateTime  @default(now())
+  convertedUserId String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+}
+
+model AdminUser {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  password    String
+  fullName    String
+  role        String    @default("viewer")
+                        // super_admin | admin | viewer | support
+  lastLoginAt DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+}
+
+model AdminNotification {
+  id          String    @id @default(uuid())
+  userId      String?
+  segment     String?
+  channel     String    // push | sms | email | in_app
+  title       String
+  body        String
+  status      String    @default("pending")
+                        // pending | sent | delivered | read | failed
+  sentAt      DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+}
+```
+
+After adding models run: `npm run prisma:push`
+
+---
+
+## Step 2 — Add tracking.routes.ts to server/src/modules/
+
+Create server/src/modules/tracking.routes.ts
+
+All endpoints require a valid auth token (use existing auth middleware from
+the auth module). Responses follow the existing server pattern.
+
+### POST /api/track/event
+body: { event_type, event_name, screen, metadata? }
+→ Create ActivityEvent record
+→ Update User.lastSeenAt and a lastActiveScreen field (add to User model if
+  not present — check first)
+→ 201 on success
+
+### POST /api/track/session/start
+body: { platform, device_info? }
+→ Create Session record with isActive: true
+→ Return { session_id }
+
+### POST /api/track/session/end
+body: { session_id, pages_visited? }
+→ Find Session by id, set endedAt = now, calculate durationSeconds,
+  set isActive: false, save pagesVisited
+→ 200 on success
+
+### POST /api/track/onboarding/step
+body: { step_number, step_name, status, time_spent_seconds, drop_off_reason? }
+→ Upsert OnboardingFunnel for this user
+→ Update currentStep, stepsDetail array, status, lastActivityAt
+→ If status = paused: set pausedAtStep, pausedReason, increment resumeCount
+  if previously paused
+→ If status = completed and step = totalSteps: set completedAt, status = completed
+→ 200 on success
+
+### POST /api/track/loan/step
+body: { loan_id, step_name, status, time_spent_seconds, hold_reason? }
+→ Find LoanApplication by loan_id (use existing model)
+→ Update stepsDetail JSON array — add or update the step entry
+→ Update lastActivityAt (add field to LoanApplication if not present)
+→ If status = paused: update status to paused, set holdAtStep and holdReason
+→ 200 on success
+
+### POST /api/track/lead
+body: { session_id?, source, name?, email?, phone?, message?,
+        utm_source?, utm_medium?, utm_campaign?, pages_visited? }
+→ If email exists: check for existing AnonymousLead with same email
+→ Upsert AnonymousLead record
+→ 201 on success, return { lead_id }
+
+### POST /api/track/download
+body: { platform, app_version?, utm_source?, utm_medium?, utm_campaign?,
+        anonymous_lead_id? }
+→ Create AppDownload record
+→ 201 on success
+
+---
+
+## Step 3 — Add adminAuth.routes.ts to server/src/modules/
+
+Create server/src/modules/adminAuth.routes.ts
+
+### POST /api/admin/auth/login
+body: { email, password }
+→ Find AdminUser by email, verify bcrypt password
+→ Return JWT access token (use same JWT setup as existing auth module)
+→ 200 with { token, admin: { id, email, fullName, role } }
+
+### POST /api/admin/auth/logout
+→ Invalidate token (add to a simple in-memory blocklist or just return 200)
+
+### GET /api/admin/auth/me
+→ Return current admin user from token
+
+---
+
+## Step 4 — Add admin.routes.ts to server/src/modules/
+
+Create server/src/modules/admin.routes.ts
+All routes require admin JWT (create adminAuth middleware that checks
+AdminUser role).
+
+### Users
+GET /api/admin/users
+  query: platform, status, onboarding_status, loan_status,
+         date_from, date_to, search, page=1, limit=25
+  → Paginated User list joining OnboardingFunnel and LoanApplication
+  → Each row: id, fullName, email, phone, platform, status,
+    lastSeenAt, lastActiveScreen, onboardingStatus, onboardingStep,
+    activeLoanStatus, activeLoanAmount, createdAt
+
+GET /api/admin/users/:id
+  → Full user: profile + all Sessions + all ActivityEvents (last 50) +
+    OnboardingFunnel + all LoanApplications
+
+GET /api/admin/users/:id/activity
+  query: event_type, page, limit
+  → Paginated ActivityEvents for this user, newest first
+
+GET /api/admin/users/:id/sessions
+  → All Sessions for this user with pagesVisited
+
+PUT /api/admin/users/:id/status
+  body: { status, reason }
+  → Update User.status
+
+### Onboarding
+GET /api/admin/onboarding/funnel
+  → For each step 1–5:
+    { step, stepName, reached, completed, dropOffCount, dropOffPct,
+      avgTimeSeconds, topDropOffReasons: [{ reason, count }] }
+
+GET /api/admin/onboarding/users
+  query: status, stuck_at_step, paused_for (24h|48h|7d),
+         date_from, date_to, search, page, limit
+  → Paginated OnboardingFunnel joined with User
+
+GET /api/admin/onboarding/users/:user_id
+  → Full OnboardingFunnel record + User + related Sessions
+
+### Loans
+GET /api/admin/loans
+  query: status, hold_only, hold_reason, date_from, date_to, search, page, limit
+  → Paginated LoanApplications joined with User
+  → Include holdAtStep, holdReason, lastActivityAt
+
+GET /api/admin/loans/stats
+  → { total, inProgress, paused, submitted, underReview,
+      approvedNotDisbursed, disbursed, rejected, approvalRate,
+      totalAmountApplied, totalAmountApproved, totalAmountDisbursed }
+
+GET /api/admin/loans/funnel
+  → Per step: { step, count, conversionPct, avgTimeSeconds, dropOffCount }
+
+GET /api/admin/loans/:id
+  → Full LoanApplication + User + stepsDetail + status history
+
+PUT /api/admin/loans/:id/status
+  body: { status, reason, agent_id? }
+  → Update LoanApplication status, append to a statusHistory JSON field
+
+### Leads
+GET /api/admin/leads
+  query: status, source, converted_only, not_contacted, date_from, date_to,
+         search, page, limit
+  → Paginated AnonymousLeads
+
+GET /api/admin/leads/funnel
+  → { websiteVisitors, contactSubmissions, appDownloads, registered,
+      onboardingComplete, loanApplied, loanApproved, loanDisbursed }
+    Each with count and conversionPctFromPrevious
+
+GET /api/admin/leads/:id
+  → Full AnonymousLead + AppDownload (if any) + User (if converted) +
+    OnboardingFunnel (if started) + LoanApplication (if applied)
+
+PUT /api/admin/leads/:id
+  body: { status, follow_up_notes, assigned_to }
+
+### Downloads
+GET /api/admin/downloads
+  query: platform, converted_only, source, date_from, date_to, page, limit
+  → Paginated AppDownloads
+
+GET /api/admin/downloads/stats
+  → { total, ios, android, converted, conversionToRegisteredPct,
+      conversionToLoanPct }
+
+GET /api/admin/downloads/by-source
+  → Per source: { source, downloads, registered, onboarded,
+                  loanApplied, loanApproved }
+
+### Dashboard
+GET /api/admin/dashboard/overview
+  → { acquisition: { visitorsToday, contactUsToday, downloadsToday, signupsToday },
+      onboarding: { started, completed, paused, abandoned, completionRate },
+      loans: { total, inProgress, paused, submitted, underReview,
+               approvedNotDisbursed, disbursed, rejected, approvalRate,
+               totalDisbursedAmount },
+      conversion: { contactToDownloadRate, downloadToRegisterRate,
+                    registerToLoanRate, loanToApprovalRate } }
+
+GET /api/admin/dashboard/realtime
+  → { usersOnlineNow, activeSessionsCount, eventsLast5Min,
+      loansSubmittedToday, signupsToday, downloadsToday }
+
+GET /api/admin/dashboard/charts
+  query: metric, period (7d|30d|90d), platform
+  metrics: signups | active_users | sessions | loan_applications |
+           onboarding_completions | downloads | contact_submissions
+  → [{ date: 'YYYY-MM-DD', count: number }]
+
+GET /api/admin/dashboard/live-feed
+  → Last 20 ActivityEvents across all users formatted as readable strings:
+    "Priya Kumar completed onboarding — 2 min ago"
+    "Ravi Sharma paused on loan step: Document Upload — 5 min ago"
+    etc.
+
+### Notifications
+POST /api/admin/notifications/send
+  body: { segment, user_ids?, channel, title, body }
+  segments: all | paused_onboarding | paused_loans |
+            downloaded_not_registered | not_started_onboarding |
+            contact_not_reached | custom
+  → Resolve user IDs from segment, create AdminNotification records,
+    queue in BullMQ notification-sender job
+
+GET /api/admin/notifications/history
+  query: page, limit
+  → Paginated AdminNotification records newest first
+
+---
+
+## Step 5 — Register new routes in server/src/index.ts
+
+Add these imports and app.use() calls to the existing index.ts.
+Do not modify any existing route registrations.
+
+```typescript
+import trackingRouter from './modules/tracking.routes';
+import adminAuthRouter from './modules/adminAuth.routes';
+import adminRouter from './modules/admin.routes';
+
+app.use('/api/track', trackingRouter);
+app.use('/api/admin/auth', adminAuthRouter);
+app.use('/api/admin', adminRouter);
+```
+
+---
+
+## Step 6 — Add BullMQ jobs
+
+Install BullMQ and Redis client if not already in server/package.json.
+Create server/src/jobs/:
+
+idle-detector.ts — runs every 15 minutes
+  Find Sessions where isActive=true and no ActivityEvent in last 30 min
+  Set Session.isActive=false, Session.endedAt=now
+
+loan-stale-checker.ts — runs every hour
+  Find LoanApplications where status=in_progress and
+  lastActivityAt < 24 hours ago
+  Update status to paused
+
+onboarding-stale-checker.ts — runs every hour
+  Find OnboardingFunnels where status=in_progress and
+  lastActivityAt < 24 hours ago
+  Update status to paused
+
+notification-sender.ts — processes AdminNotification queue
+  Reads queued notifications, logs send attempt
+  (actual push/SMS/email provider integration is out of scope —
+  log the payload and mark status=sent)
+
+Start all jobs from server/src/index.ts after the server starts listening.
+
+---
+
+## Step 7 — Seed new data
+
+Add to server/src/seed.ts (or create if it doesn't exist):
+- 50 users with varied onboarding and loan statuses
+- 5 admin users (1 super_admin, 2 admin, 2 viewer)
+- 30 anonymous leads across different sources and statuses
+- 20 app download records
+- OnboardingFunnel records for all 50 users (varied statuses and steps)
+- 200+ activity events spread across users and screens
+- LoanApplications in every status for realistic dashboard data
+
+Run with: cd server && npm run seed
+
+---
+
+## Instructions
+
+1. Read existing server/src/index.ts and server/prisma/schema.prisma first
+2. Add new Prisma models (Step 1) and run prisma:push
+3. Implement tracking.routes.ts (Step 2)
+4. Implement adminAuth.routes.ts (Step 3)
+5. Implement admin.routes.ts (Step 4) — build each section fully before next
+6. Register routes in index.ts (Step 5)
+7. Add BullMQ jobs (Step 6)
+8. Seed data (Step 7)
+9. Run `npm run smoke` — verify existing 21 checks still pass
+10. Write new smoke test calls for key admin endpoints in a separate
+    server/scripts/smoke-admin.sh
+11. After each step update CLAUDE.md build progress
+
+/goal all tracking endpoints working, all admin endpoints returning data,
+existing smoke tests still pass, seed data loaded,
+BullMQ jobs running, server starts cleanly on port 4000

@@ -1,0 +1,19 @@
+Read CLAUDE.md fully before doing anything.
+The existing mobile app (src/) and backend (server/) are already built — do NOT
+touch them. This prompt builds a brand new admin/ directory only.
+The admin dashboard is a separate Next.js 14 app that connects to the existing
+server running at http://localhost:4000. Admin runs on port 4001.
+Continue from the first unchecked item in "Admin Dashboard" in CLAUDE.md.
+
+---
+
+Read CLAUDE.md fully before doing anything.
+The existing mobile app and server/ are already built — do not touch them.
+This prompt builds a brand new admin/ directory (Next.js 14) that connects
+to the existing server running at http://localhost:4000.
+The admin dashboard runs on port 4001.
+Continue from the first unchecked item in "Admin Dashboard" in CLAUDE.md.
+
+---
+
+
