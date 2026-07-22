@@ -14,6 +14,9 @@ import { loansRouter } from './modules/loans.routes.js';
 import { catalogRouter } from './modules/catalog.routes.js';
 import { toolsRouter } from './modules/tools.routes.js';
 import { supportRouter } from './modules/support.routes.js';
+import { trackingRouter } from './modules/tracking.routes.js';
+import { adminAuthRouter } from './modules/adminAuth.routes.js';
+import { adminRouter } from './modules/admin.routes.js';
 
 export function createApp() {
   const app = express();
@@ -36,6 +39,9 @@ export function createApp() {
   app.use('/api/catalog', catalogRouter);
   app.use('/api/tools', toolsRouter);
   app.use('/api/support', supportRouter);
+  app.use('/api/track', trackingRouter);
+  app.use('/api/admin/auth', adminAuthRouter);
+  app.use('/api/admin', adminRouter);
 
   app.use(notFound);
   app.use(errorHandler);
