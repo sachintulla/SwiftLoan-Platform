@@ -100,6 +100,61 @@ export const api = {
 };
 
 /**
+ * Fire-and-forget tracking calls — never await, never block UI.
+ */
+export function trackEvent(
+  eventType: string,
+  eventName: string,
+  screen: string,
+  metadata?: Record<string, unknown>
+): void {
+  request('POST', '/track/event', { event_type: eventType, event_name: eventName, screen, metadata }).catch(() => {});
+}
+
+export function trackOnboardingStep(
+  stepNumber: number,
+  stepName: string,
+  status: 'completed' | 'paused',
+  timeSpentSeconds: number,
+  dropOffReason?: string
+): void {
+  request('POST', '/track/onboarding/step', {
+    step_number: stepNumber,
+    step_name: stepName,
+    status,
+    time_spent_seconds: timeSpentSeconds,
+    drop_off_reason: dropOffReason,
+  }).catch(() => {});
+}
+
+export function trackLoanStep(
+  loanId: string,
+  stepName: string,
+  status: 'completed' | 'paused',
+  timeSpentSeconds: number,
+  holdReason?: string
+): void {
+  request('POST', '/track/loan/step', {
+    loan_id: loanId,
+    step_name: stepName,
+    status,
+    time_spent_seconds: timeSpentSeconds,
+    hold_reason: holdReason,
+  }).catch(() => {});
+}
+
+export function trackSessionStart(deviceInfo?: Record<string, unknown>): void {
+  request('POST', '/track/session/start', { platform: 'mobile', device_info: deviceInfo }).catch(() => {});
+}
+
+export function trackSessionEnd(
+  sessionId: string,
+  pagesVisited?: Array<{ screen: string; timestamp: number; timeSpentSeconds: number }>
+): void {
+  request('POST', '/track/session/end', { session_id: sessionId, pages_visited: pagesVisited }).catch(() => {});
+}
+
+/**
  * Guarantee an authenticated session exists before an authed call. Used by the
  * "Skip for now — explore the app" path so the funnel/profile still work without
  * an explicit login: it provisions an anonymous demo account (dev OTP 123456).

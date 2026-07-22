@@ -6,6 +6,7 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
+import { trackEvent, trackOnboardingStep, trackLoanStep } from '../api/client';
 
 // The full list of screens, mirroring the design's state machine.
 export type Screen =
@@ -170,11 +171,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // owned by the finding screen so it can run the real prequalify() call first.
   useEffect(() => {
     clearAuto();
+
+    // Track page view for all screens
+    trackEvent('page_view', `viewed_${state.screen}`, state.screen);
+
+    // Track specific screen arrivals and onboarding/loan steps
+    if (state.screen === 'finding') {
+      trackEvent('onboarding_step', 'finding_offers', 'finding');
+    } else if (state.screen === 'offers') {
+      trackOnboardingStep(3, 'offers_shown', 'completed', 0);
+    } else if (state.screen === 'repay') {
+      trackEvent('page_view', 'viewed_repayment', 'repay');
+    } else if (state.screen === 'disbursed') {
+      trackLoanStep(state.loanId || '', 'loan_disbursed', 'completed', 0);
+    }
+
     if (state.screen === 'splash') {
       timers.current.auto = setTimeout(() => dispatch({ type: 'go', screen: 'language' }), 2600);
     }
     return clearAuto;
-  }, [state.screen]);
+  }, [state.screen, state.loanId]);
 
   const value: Ctx = { state, set, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
