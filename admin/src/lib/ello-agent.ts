@@ -93,6 +93,12 @@ export class ElloAgent {
   // The backend rejects `update-context` ("Unknown message type"). Once we see
   // that, stop sending it (and stop surfacing the rejection as a user error).
   private contextUpdatesUnsupported = false;
+  // This backend does NOT send a "speaking ended" / voice-audio-stream-end
+  // message. Without one, the half-duplex mic-mute (applied on `speaking`) would
+  // never lift and the mic stays dead after the agent's first utterance. We
+  // watchdog the audio-output stream: when it goes quiet, resume listening.
+  private speakingQuietTimer: ReturnType<typeof setTimeout> | null = null;
+  private static SPEAKING_QUIET_MS = 1200;
   // Live counters exposed to the debug panel.
   stats = { micFrames: 0, micSoundFrames: 0, audioOut: 0, toolsSent: 0, toolsAcked: null as number | null };
 
@@ -358,18 +364,31 @@ export class ElloAgent {
         if (b64) this.playPcm16(base64ToPcm16(b64));
         this.stats.audioOut++;
         if (this.stats.audioOut % 10 === 1) this.dbg("in", "voice-audio-output", `chunk #${this.stats.audioOut}`);
-        if (this.status === "listening") this.setStatus("speaking");
+        if (this.status !== "speaking") this.setStatus("speaking");
+        // Watchdog: this backend never emits a stream-end. Each chunk pushes the
+        // deadline out; when audio stops arriving for SPEAKING_QUIET_MS we assume
+        // the turn ended and go back to listening (which un-mutes the mic).
+        if (this.speakingQuietTimer) clearTimeout(this.speakingQuietTimer);
+        this.speakingQuietTimer = setTimeout(() => {
+          this.speakingQuietTimer = null;
+          if (this.status === "speaking") {
+            this.dbg("info", "audio-output quiet", "no chunk for " + ElloAgent.SPEAKING_QUIET_MS + "ms -> listening");
+            this.setStatus("listening");
+          }
+        }, ElloAgent.SPEAKING_QUIET_MS);
         break;
       }
       // Barge-in: user interrupted — drop everything still queued to play.
       case "voice-audio-purge":
         this.dbg("in", "voice-audio-purge", "barge-in, clearing playback");
+        if (this.speakingQuietTimer) { clearTimeout(this.speakingQuietTimer); this.speakingQuietTimer = null; }
         this.purgePlayback();
         this.setStatus("listening");
         break;
       // Agent finished its turn — back to listening.
       case "voice-audio-stream-end":
         this.dbg("in", "voice-audio-stream-end");
+        if (this.speakingQuietTimer) { clearTimeout(this.speakingQuietTimer); this.speakingQuietTimer = null; }
         if (this.status === "speaking") this.setStatus("listening");
         break;
       // Documented explicitly in the SDK guide's architecture section.
@@ -740,6 +759,7 @@ export class ElloAgent {
   }
 
   stop() {
+    if (this.speakingQuietTimer) { clearTimeout(this.speakingQuietTimer); this.speakingQuietTimer = null; }
     // Tell the backend the session is ending (matches the working app) before
     // tearing down the socket.
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
