@@ -53,3 +53,11 @@ services:
         value: https://api-dev.getello.ai
       - key: NEXT_PUBLIC_ELLO_WS_URL
         value: wss://connect-dev.getello.ai/ws-ello
+
+  # ── Marketing website (static swiftloan.ai site + Ello voice guide) ──────
+  - type: web
+    name: swiftloan-website
+    runtime: static
+    rootDir: website
+    buildCommand: "echo static site, no build step"
+    staticPublishPath: .
