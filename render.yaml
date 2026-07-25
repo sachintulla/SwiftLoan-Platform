@@ -1,0 +1,43 @@
+# Render Blueprint — deploys the SwiftLoan API (server/) and admin dashboard (admin/).
+# One-time setup: Render dashboard → New → Blueprint → connect this repo.
+# Then set the two `sync: false` secrets (DATABASE_URL, NEXT_PUBLIC_API_BASE) in the UI.
+services:
+  # ── API (Express + Prisma) ──────────────────────────────────────────────
+  - type: web
+    name: swiftloan-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install --include=dev && npx prisma generate
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL          # paste your Neon URL here in the Render UI
+        sync: false
+      - key: NODE_ENV
+        value: production
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ADMIN_JWT_SECRET
+        generateValue: true
+      - key: ACCESS_TTL
+        value: "900"
+      - key: REFRESH_TTL_DAYS
+        value: "30"
+
+  # ── Admin dashboard (Next.js) ───────────────────────────────────────────
+  - type: web
+    name: swiftloan-admin
+    runtime: node
+    plan: free
+    rootDir: admin
+    buildCommand: npm install --include=dev && npm run build
+    # Next reads $PORT from the environment; Render provides it.
+    startCommand: npx next start -p $PORT
+    envVars:
+      # Set this to the API service's public URL after its first deploy,
+      # e.g. https://swiftloan-api.onrender.com  (then redeploy this service).
+      - key: NEXT_PUBLIC_API_BASE
+        sync: false
