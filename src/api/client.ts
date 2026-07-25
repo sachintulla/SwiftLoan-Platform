@@ -185,6 +185,30 @@ export function trackOnboardingStep(
   });
 }
 
+// WS3: resolve a context token (from an install deep link) into the saved
+// journey — name, product, amount, and a ready-to-speak greeting. Returns null
+// if the token is unknown/expired. Never throws.
+export interface ContextPayload {
+  token: string;
+  name: string | null;
+  city: string | null;
+  product: string | null;
+  amount: number | null; // paise
+  summary: string | null;
+  source: string;
+  greeting: string;
+}
+export async function fetchContext(token: string): Promise<ContextPayload | null> {
+  try {
+    const res = await fetch(`${API_BASE}/context/${encodeURIComponent(token)}`);
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    return (json && json.data) ? (json.data as ContextPayload) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function trackLoanStep(
   loanId: string | null,
   stepName: string,

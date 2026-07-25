@@ -563,3 +563,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   .reveal{opacity:1;transform:none}
   .match-row{opacity:1;transform:none}
 }
+
+/* WS3: context-aware "continue in the app" CTA in the form-success panel */
+.app-continue { margin: 14px 0 4px; }
+.app-continue__loading { color: #5b6b6b; font-size: 13px; margin: 6px 0; }
+.app-continue__card { display: flex; gap: 12px; align-items: flex-start; background: #e4f7f4; border: 1px solid #bfeae4; border-radius: 14px; padding: 14px 16px; text-align: left; }
+.app-continue__ic { font-size: 26px; color: #079FA0; line-height: 1; }
+.app-continue__body { display: flex; flex-direction: column; gap: 4px; }
+.app-continue__body strong { font-size: 14.5px; color: #0A3F41; }
+.app-continue__body span { font-size: 12.5px; color: #5b6b6b; line-height: 1.5; }
+.app-continue__body .btn { margin-top: 10px; }

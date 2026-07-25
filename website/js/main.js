@@ -277,6 +277,36 @@
     if (loanAmountEl.classList.contains('invalid')) setErr('loanAmount', validate('loanAmount', loanAmountEl.value));
   };
 
+  // WS3: POST the captured details to the backend, then render a "continue in
+  // the app" download CTA whose link carries the (opaque) context token.
+  var CONTEXT_API = (window.SWIFTLOAN_API_BASE || 'https://swiftloan-api.onrender.com') + '/api/context/create';
+  function createContextLink(details) {
+    var box = $('#appContinue');
+    if (!box) return;
+    box.hidden = false;
+    box.innerHTML = '<p class="app-continue__loading">Preparing your app link…</p>';
+    fetch(CONTEXT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(details),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var d = j && j.data;
+        if (!d || !d.landingUrl) { box.hidden = true; return; }
+        var name = (details.name || '').split(' ')[0];
+        box.innerHTML =
+          '<div class="app-continue__card">' +
+          '<div class="app-continue__ic msi msi--fill">smartphone</div>' +
+          '<div class="app-continue__body">' +
+          '<strong>Continue on the SwiftLoan app' + (name ? ', ' + name : '') + '</strong>' +
+          '<span>Your details are saved. Download the app and pick up right where you left off — no re-typing.</span>' +
+          '<a class="btn btn--primary btn--block" href="' + d.landingUrl + '" target="_blank" rel="noopener">Download the app & continue →</a>' +
+          '</div></div>';
+      })
+      .catch(function () { box.hidden = true; });
+  }
+
   if (leadForm) {
     FIELD_NAMES.forEach(name => {
       const f = $('#' + name);
@@ -330,6 +360,18 @@
         leadForm.classList.add('is-done');   // hides inputs via CSS (fully reversible)
         formSuccess.hidden = false;
         formSuccess.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        // WS3: hand the captured context to the backend and surface an in-app
+        // "continue your journey" download link (context-aware install).
+        createContextLink({
+          name: ($('#fullName') && $('#fullName').value) || '',
+          phone: ($('#phone') && $('#phone').value) || '',
+          city: ($('#city') && $('#city').value) || '',
+          product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
+          amount: amtNum * 100, // paise
+          summary: `Interested in a ${fmtINR(amtNum)} ${(loanTypeEl && loanTypeEl.value) || 'loan'} — submitted on swiftloan.ai (ref ${id}).`,
+          source: 'website',
+        });
       }, 1100);
     });
 

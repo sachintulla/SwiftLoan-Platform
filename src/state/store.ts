@@ -6,10 +6,12 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
-import { Platform, AppState as RNAppState } from 'react-native';
+import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
+  fetchContext, type ContextPayload,
 } from '../api/client';
+import { BUILD } from '../config/build';
 
 // The full list of screens, mirroring the design's state machine.
 export type Screen =
@@ -67,6 +69,9 @@ export interface AppState {
   applicationId: string | null;
   selectedOfferId: string | null;
   loanId: string | null;
+  // WS3 context-aware install (context build only)
+  contextLoaded: boolean;
+  contextData: ContextPayload | null;
 }
 
 export const initialState: AppState = {
@@ -92,6 +97,7 @@ export const initialState: AppState = {
   pdPhone: '+91 98765 43210', pdDob: '1988-05-15',
   pdDobOpen: false, pdCalY: 1988, pdCalM: 4,
   authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
+  contextLoaded: false, contextData: null,
 };
 
 type Action =
@@ -228,6 +234,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const stepNum = ONBOARDING_STEPS[screen];
     if (stepNum) trackOnboardingStep(stepNum, screen, 'completed', spent);
   }, [state.screen]);
+
+  // ── WS3: context-aware install ──
+  // If this is the context build and the app was opened via a tracked link
+  // (swiftloan://onboard?token=XXX), resolve the saved journey server-side and
+  // continue it: prefill what the user told the website/agent, greet them, and
+  // jump straight into the loan application instead of neutral onboarding.
+  useEffect(() => {
+    if (!BUILD.CONTEXT_ENABLED) return;
+    let done = false;
+
+    const applyContext = async (url: string | null) => {
+      if (done || !url) return;
+      const m = url.match(/[?&]token=([^&#]+)/i);
+      if (!m) return;
+      const token = decodeURIComponent(m[1]);
+      const ctx = await fetchContext(token);
+      if (!ctx || done) return;
+      done = true;
+
+      const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);
+      const rupees = ctx.amount ? Math.round(ctx.amount / 100) : undefined;
+      dispatch({
+        type: 'set',
+        patch: {
+          contextLoaded: true,
+          contextData: ctx,
+          ...(first ? { basicFirst: first, aboutName: ctx.name ?? '', pdName: ctx.name ?? '' } : {}),
+          ...(rest.length ? { basicLast: rest.join(' ') } : {}),
+          ...(rupees ? { appAmount: rupees, fareAmount: rupees } : {}),
+        },
+      });
+      trackEvent('funnel', 'agent_context_loaded', 'basic', { token, source: ctx.source });
+      // Continue the journey: land on the loan-application start, pre-filled.
+      dispatch({ type: 'go', screen: 'basic' });
+      showToast(ctx.greeting);
+    };
+
+    Linking.getInitialURL().then(applyContext).catch(() => {});
+    const sub = Linking.addEventListener('url', (e) => applyContext(e.url));
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const value: Ctx = { state, set, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);

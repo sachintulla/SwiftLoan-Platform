@@ -500,3 +500,25 @@ model Notification {
   @@index([read, createdAt])
   @@index([type])
 }
+
+// ─────────────────── WS3: context-aware install handoff ───────────────────
+// Captures what a visitor told the website widget / voice agent, keyed by a
+// short opaque token. The token (NOT the PII) travels in the app-download deep
+// link; the context APK resolves it server-side on first open and the in-app
+// agent continues the journey ("as we discussed, your ₹5L personal loan…").
+model ContextSession {
+  id         String    @id @default(uuid())
+  token      String    @unique // short opaque code carried in the deep link
+  name       String?
+  phone      String?
+  city       String?
+  product    String? // Personal Loan | Business Loan
+  amount     Int? // paise
+  summary    String? // one-line of what the user said / wants
+  source     String    @default("website") // website | call | widget
+  transcript Json? // optional richer context (turns, fields captured)
+  claimedAt  DateTime? // set when the app first resolves it
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
+}

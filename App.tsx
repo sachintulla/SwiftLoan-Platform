@@ -6,12 +6,14 @@ import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider } from './src/state/store';
 import Router from './src/Router';
+import ContextBanner from './src/components/ContextBanner';
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <StoreProvider>
         <Router />
+        <ContextBanner />
       </StoreProvider>
     </SafeAreaProvider>
   );

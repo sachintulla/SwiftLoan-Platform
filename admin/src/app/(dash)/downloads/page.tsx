@@ -5,6 +5,7 @@ import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { num, pct, dateStr } from '@/lib/format';
 import { DonutChart } from '@/components/charts';
+import AppBuilds from '@/components/AppBuilds';
 
 interface Payload {
   rows: { id: string; platform: string; source: string; campaignId?: string; contextLoaded: boolean; installedAt: string }[];
@@ -24,7 +25,9 @@ export default function DownloadsPage() {
   return (
     <div className="page">
       <h1 className="page-title">App Downloads & Attribution</h1>
-      <p className="page-sub">Tracked-link (context) installs vs organic — and which campaigns drive them.</p>
+      <p className="page-sub">Download the two app builds, generate context links, and track tracked-link vs organic installs.</p>
+
+      <div style={{ marginTop: 16 }}><AppBuilds /></div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', marginTop: 16 }}>
         <StatCard label="Total Installs" value={num(total)} icon="⭳" tone="blue" />
