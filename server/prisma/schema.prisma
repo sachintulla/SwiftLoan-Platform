@@ -333,3 +333,170 @@ model AuditLog {
   @@index([userId])
   @@index([action, createdAt])
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WS4 — Activity tracking + Admin dashboard  (ADDITIVE, new models only)
+//  Nothing above this line is modified. These power /api/track and
+//  /api/admin used by the admin/ Next.js dashboard.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─────────────────────── Session & event tracking ───────────────────────
+
+model Session {
+  id           String    @id @default(uuid())
+  userId       String? // null = anonymous / pre-login session
+  deviceInfo   Json? // { platform, osVersion, model, appVersion, ... }
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  pagesVisited Int       @default(0)
+  durationSec  Int? // filled on session end
+
+  events ActivityEvent[]
+
+  @@index([userId])
+  @@index([startedAt])
+}
+
+model ActivityEvent {
+  id        String   @id @default(uuid())
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId    String?
+  eventType String // navigation | action | funnel | system | error
+  eventName String // snake_case, e.g. application_started, kyc_submitted
+  screen    String? // route name the event fired on
+  metadata  Json?
+  ts        DateTime @default(now())
+
+  @@index([userId, ts])
+  @@index([eventName, ts])
+  @@index([sessionId])
+}
+
+// ─────────────────────── Onboarding funnel ───────────────────────
+
+enum StepStatus {
+  started
+  completed
+  skipped
+  abandoned
+  failed
+}
+
+model OnboardingFunnel {
+  id           String     @id @default(uuid())
+  userId       String? // null for anonymous onboarding
+  sessionId    String?
+  stepNumber   Int
+  stepName     String // language | mobile | otp | permissions | aboutyou | home
+  status       StepStatus @default(started)
+  timeSpentSec Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([userId])
+  @@index([stepNumber, status])
+}
+
+// ─────────────────────── Anonymous leads ───────────────────────
+
+enum LeadStatus {
+  new
+  contacted
+  qualified
+  converted
+  lost
+}
+
+model AnonymousLead {
+  id              String     @id @default(uuid())
+  name            String?
+  phone           String?
+  city            String?
+  productInterest String?
+  amount          Int? // paise
+  source          String     @default("app") // widget | app | campaign | organic
+  campaignId      String?
+  referrer        String?
+  status          LeadStatus @default(new)
+  convertedUserId String? // set when the lead becomes a real User
+  note            String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+}
+
+// ─────────────────────── App downloads / attribution ───────────────────────
+
+model AppDownload {
+  id            String   @id @default(uuid())
+  platform      String // ios | android
+  source        String   @default("organic") // organic | campaign | referral | partner
+  campaignId    String?
+  referrer      String?
+  matchedUserId String? // filled when the install is attributed to a user
+  contextLoaded Boolean  @default(false) // deferred deep-link context resolved on first open
+  installedAt   DateTime @default(now())
+
+  @@index([source])
+  @@index([platform])
+  @@index([installedAt])
+}
+
+// ─────────────────────── Admin users & notifications ───────────────────────
+
+enum AdminRole {
+  super_admin
+  admin
+  analyst
+}
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         AdminRole @default(admin)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  refreshTokens AdminRefreshToken[]
+}
+
+model AdminRefreshToken {
+  id        String   @id @default(uuid())
+  adminId   String
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+}
+
+enum NotificationSeverity {
+  info
+  success
+  warning
+  critical
+}
+
+model Notification {
+  id        String               @id @default(uuid())
+  type      String // loan_stale | onboarding_stale | new_lead | disbursed | system
+  title     String
+  body      String?
+  severity  NotificationSeverity @default(info)
+  entityId  String? // related loan/lead/user id for drill-down
+  read      Boolean              @default(false)
+  createdAt DateTime             @default(now())
+
+  @@index([read, createdAt])
+  @@index([type])
+}

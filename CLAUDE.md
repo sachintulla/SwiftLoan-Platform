@@ -192,17 +192,17 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
 ### Build progress
 
 #### Server — tracking + admin extension
-- [ ] Add new Prisma models (Session, ActivityEvent, OnboardingFunnel,
-      AnonymousLead, AppDownload, AdminUser, Notification)
-- [ ] Run prisma:push
-- [ ] tracking.routes.ts — /api/track/* endpoints
-- [ ] admin.routes.ts — users, onboarding, loans, leads, downloads,
+- [x] Add new Prisma models (Session, ActivityEvent, OnboardingFunnel,
+      AnonymousLead, AppDownload, AdminUser, Notification)  + AdminRefreshToken
+- [ ] Run prisma:push   (BLOCKED: needs DATABASE_URL for hosted Postgres)
+- [x] tracking.routes.ts — /api/track/* endpoints
+- [x] admin.routes.ts — users, onboarding, loans, leads, downloads,
       dashboard overview, dashboard realtime, dashboard charts, live feed
-- [ ] adminAuth.routes.ts — admin login/logout/me
-- [ ] BullMQ jobs: idle-detector, loan-stale, onboarding-stale,
-      notification-sender
-- [ ] Seed: 50 users, 200 events, 20 onboarding records, 15 loans,
-      30 leads, 20 downloads, 5 admin users
+- [x] adminAuth.routes.ts — admin login/logout/me (+ refresh)
+- [x] BullMQ jobs: idle-detector, loan-stale, onboarding-stale,
+      notification-sender  (Redis-optional; in-process fallback)
+- [x] Seed: 50 users, 200 events, 20 onboarding records, 15 loans,
+      30 leads, 20 downloads, 5 admin users  (npm run seed:ws4)
 
 #### Mobile app — tracking side-effects only
 - [ ] Add trackEvent, trackOnboardingStep, trackLoanStep,
@@ -210,21 +210,25 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
 - [ ] Add fire-and-forget tracking calls at screen transitions
       (store.ts dispatch points — no screen file changes)
 
-#### Admin Dashboard (admin/ — Next.js 14)
-- [ ] Project setup + dependencies
-- [ ] Auth (login page + middleware)
-- [ ] Layout (sidebar with badge counts + topbar)
-- [ ] Shared components (StatCard, DataTable, StatusBadge,
-      StepTracker, FunnelChart, PipelineBar, LiveFeed, etc.)
-- [ ] Page: Master Overview
-- [ ] Page: Onboarding List
-- [ ] Page: Single Onboarding Journey
-- [ ] Page: Loan Pipeline
-- [ ] Page: Single Loan Journey
-- [ ] Page: Leads & Contact Us
-- [ ] Page: Single Lead Journey
-- [ ] Page: App Downloads
-- [ ] Page: All Users
-- [ ] Page: User Profile
-- [ ] Page: Analytics
-- [ ] Page: Notifications
+#### Admin Dashboard (admin/ — Next.js 14)   [builds clean, port 4001]
+- [x] Project setup + dependencies (Next 14, SWR, Recharts)
+- [x] Auth (login page + token-guarded Shell)
+- [x] Layout (sidebar with live badge counts + topbar)
+- [x] Shared components (StatCard, StatusBadge, FunnelChart, PipelineBar,
+      LiveFeed, StepTracker, charts, DataTable-style tables, etc.)
+- [x] Page: Master Overview
+- [x] Page: Onboarding List
+- [x] Page: Single Onboarding Journey
+- [x] Page: Loan Pipeline
+- [x] Page: Single Loan Journey
+- [x] Page: Leads & Contact Us  (inline status edit)
+- [~] Page: Single Lead Journey (folded into Leads list w/ inline detail; standalone TODO)
+- [x] Page: App Downloads
+- [x] Page: All Users
+- [x] Page: User Profile
+- [x] Page: Analytics
+- [x] Page: Notifications
+
+GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
+`cd server && npm run prisma:push && npm run seed:ws4 && npm start` →
+`cd admin && npm run dev` (http://localhost:4001, login admin@swiftloan.com / admin123).

@@ -23,6 +23,9 @@ ios/Podfile.lock
 # Android
 android/app/debug/
 android/app/release/
+android/app/build/
+android/app/.cxx/
+android/local.properties
 *.keystore
 !debug.keystore
 

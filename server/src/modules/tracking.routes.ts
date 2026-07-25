@@ -1,0 +1,119 @@
+import { Router } from 'express';
+import { prisma } from '../lib/prisma.js';
+import { ah } from '../middleware/error.js';
+import { ok, created, fail } from '../lib/http.js';
+
+// Public tracking endpoints. The mobile app calls these fire-and-forget, so they
+// must be cheap, tolerant of missing fields, and never throw back something the
+// app would surface. An optional Bearer user token is read if present but not
+// required (anonymous sessions are first-class).
+export const trackingRouter = Router();
+
+// Best-effort: pull userId from a user JWT if one was attached, else null.
+function softUserId(req: { headers: Record<string, unknown> }): string | null {
+  const header = String(req.headers['authorization'] || '');
+  if (!header.startsWith('Bearer ')) return null;
+  try {
+    // Lazy import avoids a hard dependency cycle; verify uses the user secret.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { verifyAccess } = require('../lib/jwt.js');
+    return verifyAccess(header.slice(7)).sub as string;
+  } catch {
+    return null;
+  }
+}
+
+// POST /api/track/session/start  { device_info }
+trackingRouter.post('/session/start', ah(async (req, res) => {
+  const userId = softUserId(req) ?? (req.body?.user_id ?? null);
+  const session = await prisma.session.create({
+    data: { userId, deviceInfo: req.body?.device_info ?? req.body?.deviceInfo ?? undefined },
+  });
+  return created(res, { session_id: session.id }, 'Session started');
+}));
+
+// POST /api/track/session/end  { session_id, pages_visited }
+trackingRouter.post('/session/end', ah(async (req, res) => {
+  const sessionId = req.body?.session_id ?? req.body?.sessionId;
+  if (!sessionId) return fail(res, 400, 'session_id required');
+  const existing = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!existing) return fail(res, 404, 'Session not found');
+  const endedAt = new Date();
+  const durationSec = Math.max(0, Math.round((endedAt.getTime() - existing.startedAt.getTime()) / 1000));
+  const session = await prisma.session.update({
+    where: { id: sessionId },
+    data: {
+      endedAt,
+      durationSec,
+      pagesVisited: Number(req.body?.pages_visited ?? req.body?.pagesVisited ?? existing.pagesVisited) || existing.pagesVisited,
+    },
+  });
+  return ok(res, { session_id: session.id, durationSec }, 'Session ended');
+}));
+
+// POST /api/track/event  { event_type, event_name, screen, metadata?, session_id? }
+trackingRouter.post('/event', ah(async (req, res) => {
+  const b = req.body ?? {};
+  const eventName = b.event_name ?? b.eventName;
+  if (!eventName) return fail(res, 400, 'event_name required');
+  const userId = softUserId(req) ?? (b.user_id ?? null);
+  const event = await prisma.activityEvent.create({
+    data: {
+      sessionId: b.session_id ?? b.sessionId ?? null,
+      userId,
+      eventType: b.event_type ?? b.eventType ?? 'action',
+      eventName,
+      screen: b.screen ?? null,
+      metadata: b.metadata ?? undefined,
+    },
+  });
+  // Keep the session's page counter roughly current for navigation events.
+  if (event.sessionId && (event.eventType === 'navigation')) {
+    await prisma.session.update({ where: { id: event.sessionId }, data: { pagesVisited: { increment: 1 } } }).catch(() => {});
+  }
+  return created(res, { event_id: event.id }, 'Event recorded');
+}));
+
+// POST /api/track/onboarding/step  { step_number, step_name, status, time_spent_seconds, session_id? }
+trackingRouter.post('/onboarding/step', ah(async (req, res) => {
+  const b = req.body ?? {};
+  const stepName = b.step_name ?? b.stepName;
+  if (stepName == null) return fail(res, 400, 'step_name required');
+  const userId = softUserId(req) ?? (b.user_id ?? null);
+  const row = await prisma.onboardingFunnel.create({
+    data: {
+      userId,
+      sessionId: b.session_id ?? b.sessionId ?? null,
+      stepNumber: Number(b.step_number ?? b.stepNumber ?? 0) || 0,
+      stepName,
+      status: b.status ?? 'started',
+      timeSpentSec: Number(b.time_spent_seconds ?? b.timeSpentSeconds ?? 0) || 0,
+    },
+  });
+  return created(res, { id: row.id }, 'Onboarding step recorded');
+}));
+
+// POST /api/track/loan/step  { loan_id, step_name, status, time_spent_seconds, hold_reason? }
+// Recorded as an activity event tagged to the loan (no schema change to Loan).
+trackingRouter.post('/loan/step', ah(async (req, res) => {
+  const b = req.body ?? {};
+  const stepName = b.step_name ?? b.stepName;
+  if (!stepName) return fail(res, 400, 'step_name required');
+  const userId = softUserId(req) ?? (b.user_id ?? null);
+  const event = await prisma.activityEvent.create({
+    data: {
+      userId,
+      eventType: 'funnel',
+      eventName: `loan_${stepName}`,
+      screen: b.screen ?? null,
+      metadata: {
+        loan_id: b.loan_id ?? b.loanId ?? null,
+        step_name: stepName,
+        status: b.status ?? 'started',
+        time_spent_seconds: Number(b.time_spent_seconds ?? b.timeSpentSeconds ?? 0) || 0,
+        hold_reason: b.hold_reason ?? b.holdReason ?? null,
+      },
+    },
+  });
+  return created(res, { event_id: event.id }, 'Loan step recorded');
+}));

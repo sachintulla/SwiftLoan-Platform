@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "seed": "tsx prisma/seed.ts",
+    "seed:ws4": "tsx prisma/seed.ws4.ts",
     "smoke": "tsx src/smoke.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
