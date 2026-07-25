@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession } from '@/lib/api';
+import VoiceWidget from '@/components/VoiceWidget';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' }
 
@@ -86,6 +87,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
         {children}
       </div>
+      <VoiceWidget />
     </div>
   );
 }

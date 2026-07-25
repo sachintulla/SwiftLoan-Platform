@@ -230,6 +230,15 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
 - [x] Page: Analytics
 - [x] Page: Notifications
 
+#### Ello voice-navigation widget (admin/)
+- [x] Ported self-contained Getello client (admin/src/lib/ello-agent.ts)
+- [x] Dashboard navigation tools (ello-tools-admin.ts): go_to_page, open_loan,
+      open_lead, open_user, go_back — Next router + admin API search
+- [x] Floating mic VoiceWidget mounted in Shell (env-gated)
+- [x] Env wired (admin/.env.local + render.yaml NEXT_PUBLIC_ELLO_*)
+- [x] Assistant system prompt: prompts/ello-admin-navigator-prompt.md
+      (needs a Native Mode / Gemini Live assistant on the ello dashboard)
+
 GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
 `cd server && npm run prisma:push && npm run seed:ws4 && npm start` →
 `cd admin && npm run dev` (http://localhost:4001, login admin@swiftloan.com / admin123).
