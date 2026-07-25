@@ -41,13 +41,14 @@ services:
       # e.g. https://swiftloan-api.onrender.com  (then redeploy this service).
       - key: NEXT_PUBLIC_API_BASE
         sync: false
-      # Ello voice-navigation widget (optional). Set the API key + assistant id
-      # in the Render UI to enable the mic on the deployed dashboard. Leave blank
-      # to ship without it. NEXT_PUBLIC_* are baked at build time.
+      # Ello voice-navigation widget. NEXT_PUBLIC_* are baked into the client
+      # bundle at build time (already client-exposed), so they're set here to make
+      # the mic live on the deployed dashboard without a manual Render step.
+      # The assistant must stay "Native Mode (Gemini Live)" for tool-calling.
       - key: NEXT_PUBLIC_ELLO_API_KEY
-        sync: false
+        value: ak_txW3kjj3L-xpYACyvGn8K9ua9pvnHyYBaSeXc15H3DI.OASqN2c_yaFbkuYl
       - key: NEXT_PUBLIC_ELLO_ASSISTANT_ID
-        sync: false
+        value: 6a64d273a4fc43f6203cd3cc
       - key: NEXT_PUBLIC_ELLO_API_BASE
         value: https://api-dev.getello.ai
       - key: NEXT_PUBLIC_ELLO_WS_URL
