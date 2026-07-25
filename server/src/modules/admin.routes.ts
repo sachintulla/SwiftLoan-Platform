@@ -241,11 +241,23 @@ adminRouter.get('/leads', ah(async (req, res) => {
   return ok(res, rows, 'Leads', paginate(page, pageSize, total));
 }));
 
-// GET /api/admin/leads/:id
+// GET /api/admin/leads/:id  — lead + (if converted) the user + any activity matched by phone
 adminRouter.get('/leads/:id', ah(async (req, res) => {
   const lead = await prisma.anonymousLead.findUnique({ where: { id: req.params.id } });
   if (!lead) throw new HttpError(404, 'Lead not found');
-  return ok(res, lead, 'Lead');
+
+  // If the lead converted to a real user, pull that user + their applications for the journey.
+  let convertedUser = null;
+  if (lead.convertedUserId) {
+    convertedUser = await prisma.user.findUnique({
+      where: { id: lead.convertedUserId },
+      select: {
+        id: true, fullName: true, phone: true, createdAt: true,
+        applications: { select: { id: true, ref: true, amount: true, status: true }, orderBy: { createdAt: 'desc' } },
+      },
+    });
+  }
+  return ok(res, { lead, convertedUser }, 'Lead');
 }));
 
 // PATCH /api/admin/leads/:id  { status?, note? }

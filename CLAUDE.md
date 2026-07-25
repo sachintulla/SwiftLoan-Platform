@@ -222,7 +222,8 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
 - [x] Page: Loan Pipeline
 - [x] Page: Single Loan Journey
 - [x] Page: Leads & Contact Us  (inline status edit)
-- [~] Page: Single Lead Journey (folded into Leads list w/ inline detail; standalone TODO)
+- [x] Page: Single Lead Journey (/leads/[id]: stage tracker, attribution,
+      status+note editor, converted-user link)
 - [x] Page: App Downloads
 - [x] Page: All Users
 - [x] Page: User Profile

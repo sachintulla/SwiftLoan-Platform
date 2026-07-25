@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
@@ -13,6 +14,7 @@ const FILTERS = [
 interface Lead { id: string; name?: string; phone?: string; city?: string; productInterest?: string; amount?: number; source: string; campaignId?: string; status: string; createdAt: string }
 
 export default function LeadsPage() {
+  const router = useRouter();
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -40,14 +42,15 @@ export default function LeadsPage() {
           <div className="table-wrap"><table className="data">
             <thead><tr><th>Name</th><th>Phone</th><th>City</th><th>Interest</th><th>Amount</th><th>Source</th><th>Status</th><th>Created</th></tr></thead>
             <tbody>{rows.map((l) => (
-              <tr key={l.id}>
+              <tr key={l.id} onClick={() => router.push(`/leads/${l.id}`)}>
                 <td>{l.name || <span className="muted">Anonymous</span>}</td>
                 <td className="mono">{l.phone || '—'}</td>
                 <td>{l.city || '—'}</td>
                 <td style={{ textTransform: 'capitalize' } as React.CSSProperties}>{l.productInterest || '—'}</td>
                 <td className="mono">{l.amount ? inr(l.amount) : '—'}</td>
                 <td><span className="badge tone-grey">{l.source}{l.campaignId ? ` · ${l.campaignId}` : ''}</span></td>
-                <td>
+                {/* stop row navigation when using the inline status control */}
+                <td onClick={(e) => e.stopPropagation()}>
                   <select className="input" style={{ padding: '4px 8px', width: 'auto', fontSize: 12 }} value={l.status} onChange={(e) => setLeadStatus(l.id, e.target.value)}>
                     {['new', 'contacted', 'qualified', 'converted', 'lost'].map((s) => <option key={s} value={s}>{humanStatus(s)}</option>)}
                   </select>
