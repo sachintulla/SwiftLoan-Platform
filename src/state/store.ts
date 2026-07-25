@@ -6,6 +6,10 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
+import { Platform, AppState as RNAppState } from 'react-native';
+import {
+  trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
+} from '../api/client';
 
 // The full list of screens, mirroring the design's state machine.
 export type Screen =
@@ -95,6 +99,19 @@ type Action =
   | { type: 'go'; screen: Screen }
   | { type: 'reset' };
 
+// WS4 tracking maps — screen → funnel event, and onboarding step numbers.
+// Used only to emit fire-and-forget analytics; no effect on navigation.
+const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
+  language: 1, mobile: 2, otp: 3, permissions: 4, aboutyou: 5, home: 6,
+};
+const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
+  basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
+  offers: 'offers_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
+  aadhaar: 'kyc_submitted', panv: 'kyc_submitted', bankv: 'kyc_submitted', selfie: 'kyc_submitted',
+  status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
+  creditscore: 'credit_score_viewed',
+};
+
 // Exposed for unit tests.
 export const PREV_MAP = PREV;
 export function parentScreen(s: Screen): Screen {
@@ -133,6 +150,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const timers = useRef<{ [k: string]: ReturnType<typeof setTimeout> }>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WS4 tracking bookkeeping (fire-and-forget analytics only).
+  const pagesVisited = useRef(0);
+  const screenEnteredAt = useRef(Date.now());
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
 
@@ -174,6 +194,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       timers.current.auto = setTimeout(() => dispatch({ type: 'go', screen: 'language' }), 2600);
     }
     return clearAuto;
+  }, [state.screen]);
+
+  // ── WS4: start a tracking session on app boot; end it when backgrounded ──
+  useEffect(() => {
+    trackSessionStart({
+      platform: Platform.OS,
+      osVersion: String(Platform.Version),
+      appVersion: '1.0',
+    });
+    const sub = RNAppState.addEventListener('change', (s) => {
+      if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
+    });
+    return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
+  }, []);
+
+  // ── WS4: emit an event on every screen transition (fire-and-forget) ──
+  useEffect(() => {
+    const screen = state.screen;
+    pagesVisited.current += 1;
+    const spent = Math.max(0, Math.round((Date.now() - screenEnteredAt.current) / 1000));
+    screenEnteredAt.current = Date.now();
+
+    trackEvent('navigation', 'screen_view', screen);
+
+    const funnelName = FUNNEL_EVENTS[screen];
+    if (funnelName) {
+      trackEvent('funnel', funnelName, screen, {
+        applicationId: stateRef.current.applicationId,
+        loanId: stateRef.current.loanId,
+      });
+    }
+    const stepNum = ONBOARDING_STEPS[screen];
+    if (stepNum) trackOnboardingStep(stepNum, screen, 'completed', spent);
   }, [state.screen]);
 
   const value: Ctx = { state, set, go, back, showToast, reset, parentOf };

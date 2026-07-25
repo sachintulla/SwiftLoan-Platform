@@ -10,7 +10,7 @@ const config = {
   // The backend lives in ./server with its own node_modules — keep Metro out of it
   // to avoid haste-module name collisions.
   resolver: {
-    blockList: [/\/server\/.*/],
+    blockList: [/\/server\/.*/, /\/admin\/.*/],
   },
 };
 
