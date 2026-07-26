@@ -49,3 +49,7 @@ admin/out/
 
 # Jest coverage
 coverage/
+
+# APK build outputs (hosted on GitHub Releases, not git — 100MB limit)
+dist/
+android/app/src/main/assets/index.android.bundle

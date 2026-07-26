@@ -7,7 +7,7 @@
 // phone (localhost is unreachable there). Tracking already uses the same host.
 
 export const BUILD = {
-  // Flipped by scripts/set-build-variant.mjs for each APK.
+  // Flipped between builds (generic -> false, context -> true).
   CONTEXT_ENABLED: true,
   VARIANT: 'context' as 'context' | 'generic',
   APP_LABEL: 'SwiftLoan',
