@@ -98,6 +98,14 @@ free tier sleeps after ~15 min idle (~50s cold start). Local dev: `server` on
 
 Add a dated line every time you complete something.
 
+- **2026-07-27** — Wrote the **4 voice-agent system prompts**
+  (`prompts/voice-agent-prompts.md`): outbound convince-call, in-app co-pilot WITH
+  context, website S2S guide, in-app co-pilot WITHOUT context — all interactive /
+  proactive / screen-aware. Ready to paste into the voice dashboard. *Next: create
+  the 4 assistants (Native Mode), and wire the Ello voice SDK into the mobile app
+  so the in-app co-pilots can actually navigate screens (currently only admin +
+  website have the SDK wired).*
+
 - **2026-07-26** — WS3 context install **verified on a physical device** (OnePlus
   Nord): installed `swiftloan-context.apk`, fired `swiftloan://onboard?token=…`,
   app opened standalone and showed the "Continuing your journey" banner + greeting
