@@ -4,7 +4,7 @@
 > Whoever picks up the work: read this first. Update the **Update log** at the
 > bottom whenever you finish something, and adjust **Next steps**.
 >
-> **Last updated:** 2026-07-26 — by the overnight build session.
+> **Last updated:** 2026-07-26 — WS3 context install verified on a physical device.
 
 ---
 
@@ -50,7 +50,7 @@ free tier sleeps after ~15 min idle (~50s cold start). Local dev: `server` on
 ### WS2 — Mobile app ✅ built, emitting events
 - Existing RN app (com.swiftloan) builds & installs. Fire-and-forget tracking wired into `src/api/client.ts` + `src/state/store.ts` (session, screen_view, funnel, onboarding). Verified events flow to the dashboard.
 
-### WS3 — Context-aware install ✅ DONE & LIVE (device test pending)
+### WS3 — Context-aware install ✅ DONE & LIVE (device-verified)
 - Two APKs (context `com.swiftloan.ctx` / generic `com.swiftloan`), both public.
 - Backend: `ContextSession` model, `POST /api/context/create`, `GET /api/context/:token`, `/api/downloads/manifest`, `/d/:token` landing page.
 - Context passed via opaque token in a `swiftloan://onboard?token=…` deep link (no PII). App resolves it, greets, prefills, continues the journey.
@@ -67,11 +67,7 @@ free tier sleeps after ~15 min idle (~50s cold start). Local dev: `server` on
 
 ## 4. Next steps (prioritized)
 
-1. **[WS3] On-device test the context app.** Install `swiftloan-context.apk` on a
-   phone, generate a context link (Admin → App Downloads or website form), open
-   `swiftloan://onboard?token=…` → confirm it greets + continues. *(Only thing
-   built overnight that hasn't been tried on real hardware.)*
-2. **[WS3] Production release APKs.** Current APKs are debug-signed. Produce
+1. **[WS3] Production release APKs.** Current APKs are debug-signed. Produce
    Play-ready signed release builds on CI/Linux/macOS (Windows can't bundle a
    release through the `subst` drive). See `scripts/build-apks.md`.
 3. **[WS2] Wire real app events into the funnel** beyond the current screen
@@ -102,6 +98,11 @@ free tier sleeps after ~15 min idle (~50s cold start). Local dev: `server` on
 
 Add a dated line every time you complete something.
 
+- **2026-07-26** — WS3 context install **verified on a physical device** (OnePlus
+  Nord): installed `swiftloan-context.apk`, fired `swiftloan://onboard?token=…`,
+  app opened standalone and showed the "Continuing your journey" banner + greeting
+  ("Hi Veerendra! …₹5,00,000 personal loan…") with amount + name prefilled on the
+  loan-application screen. On-device test item closed.
 - **2026-07-26** — WS3 context-aware install shipped: two coexisting APKs
   (context/generic) on public release, backend context handoff + landing pages,
   admin App Downloads section + context-link generator, website continue-in-app
