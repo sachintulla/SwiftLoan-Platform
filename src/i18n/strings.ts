@@ -106,6 +106,13 @@ export const STR: Record<string, Record<string, string>> = {
         aboutBody: 'SwiftLoan is a loan eligibility and marketplace platform. We are not a lender — loans are provided by our regulated lending partners, who make all final credit decisions.',
         aboutGrievance: 'Grievance officer: grievance@swiftloan.example · Response within 7 working days',
         logout: 'Log out', startFresh: 'Start fresh — clear all app data',
+        voiceMicPermissionTitle: 'Allow microphone access',
+        voiceMicPermissionBody: 'SwiftLoan uses your microphone so you can navigate the app and fill in forms by voice.',
+        voiceMicPermissionAllow: 'Allow',
+        voiceMicPermissionDenied: 'Microphone access is off. Turn it on in Settings to use voice commands.',
+        voiceStatusIdle: 'Tap to talk', voiceStatusConnecting: 'Connecting…', voiceStatusListening: 'Listening…',
+        voiceStatusSpeaking: 'Speaking…', voiceStatusExecuting: 'Working on it…',
+        voiceConfirmAllow: 'Allow', voiceConfirmDeny: 'Deny',
       },
       hi: {
         greeting: 'नमस्ते', greetingSub: 'आपकी लोन यात्रा, एक ही जगह।',
@@ -210,6 +217,13 @@ export const STR: Record<string, Record<string, string>> = {
         aboutBody: 'स्विफ्टलोन एक लोन पात्रता और मार्केटप्लेस प्लेटफ़ॉर्म है। हम लेंडर नहीं हैं — लोन हमारे विनियमित लेंडिंग पार्टनरों द्वारा प्रदान किए जाते हैं।',
         aboutGrievance: 'शिकायत अधिकारी: grievance@swiftloan.example · 7 कार्य दिवसों में प्रतिक्रिया',
         logout: 'लॉग आउट', startFresh: 'नए सिरे से — सभी ऐप डेटा साफ़ करें',
+        voiceMicPermissionTitle: 'माइक्रोफ़ोन एक्सेस की अनुमति दें',
+        voiceMicPermissionBody: 'स्विफ्टलोन आपके माइक्रोफ़ोन का उपयोग करता है ताकि आप आवाज़ से ऐप में नेविगेट कर सकें और फ़ॉर्म भर सकें।',
+        voiceMicPermissionAllow: 'अनुमति दें',
+        voiceMicPermissionDenied: 'माइक्रोफ़ोन एक्सेस बंद है। वॉइस कमांड का उपयोग करने के लिए सेटिंग्स में इसे चालू करें।',
+        voiceStatusIdle: 'बोलने के लिए टैप करें', voiceStatusConnecting: 'कनेक्ट हो रहा है…', voiceStatusListening: 'सुन रहा है…',
+        voiceStatusSpeaking: 'बोल रहा है…', voiceStatusExecuting: 'काम कर रहा है…',
+        voiceConfirmAllow: 'अनुमति दें', voiceConfirmDeny: 'अस्वीकार करें',
       },
     };
 

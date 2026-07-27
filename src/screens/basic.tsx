@@ -57,7 +57,14 @@ export default function Basic() {
         <View style={{ marginTop: 22 }}>
           <FieldLabel text="Desired loan amount" required />
           <Text style={[font(800), { fontSize: 26, color: colors.primary, marginVertical: 4 }]}>₹ {inr(state.appAmount)}</Text>
-          <Slider value={state.appAmount} min={25000} max={1500000} step={25000} onChange={v => set({ appAmount: v })} />
+          <Slider
+            label="Desired loan amount"
+            value={state.appAmount}
+            min={25000}
+            max={1500000}
+            step={25000}
+            onChange={v => set({ appAmount: v })}
+          />
           <RangeLabels min="₹25,000" max="₹15,00,000" />
         </View>
 

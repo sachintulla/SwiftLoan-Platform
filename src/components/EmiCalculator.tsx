@@ -4,6 +4,7 @@ import { Pressable } from 'react-native';
 import { Slider } from './Controls';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 // Ported from fareCalc(): amortised EMI with ±spread, shown as an indicative range.
 function fareCalc(P: number, n: number, ratePct: number) {
@@ -25,6 +26,10 @@ export function EmiCalculator({ onApply }: { onApply: () => void }) {
   const { fareAmount, fareTenure, fareRate } = state;
   const calc = fareCalc(fareAmount, fareTenure, fareRate);
 
+  // Raw <Pressable> inside a child component, so the screen-level element walk
+  // cannot see it — register it directly.
+  useVoiceTarget(t.fareApply, { kind: 'button', onTap: onApply }, [onApply]);
+
   return (
     <View style={{ gap: 14 }}>
       <View style={styles.panel}>
@@ -34,13 +39,34 @@ export function EmiCalculator({ onApply }: { onApply: () => void }) {
           min="₹25,000"
           max="₹5,00,000"
         >
-          <Slider value={fareAmount} min={25000} max={500000} step={5000} onChange={v => set({ fareAmount: v })} />
+          <Slider
+            label={t.fareAmountLabel}
+            value={fareAmount}
+            min={25000}
+            max={500000}
+            step={5000}
+            onChange={v => set({ fareAmount: v })}
+          />
         </SliderRow>
         <SliderRow label={t.fareTenureLabel} value={`${fareTenure} ${t.months}`} min="6" max="60">
-          <Slider value={fareTenure} min={6} max={60} step={1} onChange={v => set({ fareTenure: v })} />
+          <Slider
+            label={t.fareTenureLabel}
+            value={fareTenure}
+            min={6}
+            max={60}
+            step={1}
+            onChange={v => set({ fareTenure: v })}
+          />
         </SliderRow>
         <SliderRow label={t.fareRateLabel} value={`${fareRate}% p.a.`} min="8%" max="36%">
-          <Slider value={fareRate} min={8} max={36} step={0.5} onChange={v => set({ fareRate: v })} />
+          <Slider
+            label={t.fareRateLabel}
+            value={fareRate}
+            min={8}
+            max={36}
+            step={0.5}
+            onChange={v => set({ fareRate: v })}
+          />
         </SliderRow>
         <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 4 }]}>{t.fareNote}</Text>
       </View>
