@@ -43,6 +43,19 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
     // is only a floor for actions that trigger no re-render at all.
     await waitForNextPublish(250);
     const now = getCurrentScreen();
+    // Trigger the page-context push HERE, synchronously before this function
+    // returns, rather than leaving it to store.ts's/Frame.tsx's own effects.
+    // Those fire on their own schedule and were consistently landing AFTER this
+    // tool's client-tool-result — missing the server's merge-into-tool-result
+    // window (native_orchestrator.py's _pending_context_injection only merges
+    // while the tool call is still pending) and paying for a slow standalone
+    // turn on every navigation instead. agent.updatePageContext() queues its
+    // send on a microtask; because it's called before this function's own
+    // return (which is what lets executeToolCall's continuation send the tool
+    // result), that send is queued — and therefore delivered over the socket —
+    // first, so the server still sees the tool call as pending when the
+    // context update arrives and can merge them into one turn.
+    agent.updatePageContext();
     return {
       ...base,
       screen_after: now,

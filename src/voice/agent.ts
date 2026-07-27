@@ -205,11 +205,22 @@ export class ElloAgent {
     for (const controller of this.inflight.values()) controller.abort();
     this.inflight.clear();
     this.socket?.send({ type: 'voice-session-end' });
-    this.socket?.close();
     this.teardown();
   }
 
+  // Closes the socket itself rather than relying on every caller to do it first —
+  // this is also called from handleMessage()'s "session-ended" case (the SERVER
+  // ending the session, e.g. the model calling disconnect_call), which previously
+  // only dropped our reference and left the underlying WebSocket open. That left
+  // the whole chain behind it (ai-voice-agent's bridge to assistant-service, and
+  // the native Gemini Live session) alive for minutes after the call was logically
+  // over — observed server-side as the native session staying open ~5.5 minutes
+  // past disconnect until Gemini itself killed it with a 1008 policy violation,
+  // during which usage/recording/duration data never got attached to the already-
+  // finalized call log. socket.close() on an already-closing/closed socket is a
+  // safe no-op, so this is fine to call unconditionally from either path.
   private teardown(): void {
+    this.socket?.close();
     this.socket = null;
     this.conversationId = null;
     this.setStatus('idle');
