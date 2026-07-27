@@ -6,7 +6,6 @@ import { colors, font } from '../theme/tokens';
 
 /** The SwiftLoan glyph (the "swift" arrow + ledger lines), ported from the design SVG. */
 export function LogoGlyph({ size = 52, color = '#FFFFFF' }: { size?: number; color?: string }) {
-  const s = size / 48;
   return (
     <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
       <Path d="M10 30 L22 30" stroke="rgba(255,255,255,0.55)" strokeWidth={3.5} strokeLinecap="round" />

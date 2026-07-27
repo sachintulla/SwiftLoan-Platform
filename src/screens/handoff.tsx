@@ -95,7 +95,7 @@ export default function Handoff() {
 }
 
 function SlideToConfirm({ onConfirm }: { onConfirm: () => void }) {
-  const [w, setW] = useState(0);
+  const [, setW] = useState(0);
   const wRef = useRef(0);
   const x = useRef(new Animated.Value(0)).current;
   const KNOB = 52;
