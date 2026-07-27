@@ -5,7 +5,7 @@ import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { api, ensureSession, ApiError } from '../api/client';
+import { api, ensureSession, ApiError, isOfflineDemo, DEMO_OTP } from '../api/client';
 
 export default function Mobile() {
   const { state, set, go, showToast } = useStore();
@@ -146,6 +146,11 @@ export default function Mobile() {
             <Text style={styles.sub}>
               Enter the 6-digit code sent to <Text style={font(700)}>{masked}</Text>
             </Text>
+            {isOfflineDemo() ? (
+              <Text style={[font(600), { fontSize: 12.5, color: colors.mint, marginTop: 4 }]}>
+                Offline demo — use code {DEMO_OTP}
+              </Text>
+            ) : null}
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>Edit phone number</Text>
@@ -161,6 +166,12 @@ export default function Mobile() {
                   style={[styles.otpBox, font(700), d ? { borderColor: colors.primary } : null]}
                   keyboardType="number-pad"
                   maxLength={1}
+                  // Marks these as a one-time code: enables OS autofill, and makes
+                  // the voice layer treat them as sensitive so the agent will not
+                  // fill them. The user types the OTP; the agent taps Verify.
+                  textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
+                  accessibilityLabel={`OTP digit ${i + 1}`}
                   value={d}
                   onChangeText={v => setDigit(i, v)}
                 />

@@ -6,6 +6,8 @@ admin/node_modules/
 # Build outputs
 ios/build/
 android/build/
+android/app/build/
+android/app/.cxx/
 android/.gradle/
 .expo/
 
@@ -14,6 +16,7 @@ android/.gradle/
 .env.local
 .env.production
 server/.env
+voiceCredentials.local.js
 
 # iOS
 ios/Pods/
@@ -21,6 +24,7 @@ ios/*.xcworkspace/
 ios/Podfile.lock
 
 # Android
+android/local.properties
 android/app/debug/
 android/app/release/
 android/app/build/

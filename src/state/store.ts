@@ -9,18 +9,24 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  fetchContext, type ContextPayload,
+  trackLoanStep, fetchContext, type ContextPayload,
 } from '../api/client';
 import { BUILD } from '../config/build';
+import { agent, ensureToolsRegistered } from '../voice';
+import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
-// The full list of screens, mirroring the design's state machine.
-export type Screen =
-  | 'splash' | 'language' | 'intro' | 'mobile' | 'otp' | 'permissions' | 'aboutyou'
-  | 'home' | 'loans' | 'fare' | 'help' | 'profile'
-  | 'basic' | 'basicpan' | 'finding' | 'offers' | 'handoff'
-  | 'apply' | 'income' | 'residence' | 'consent' | 'prequalify'
-  | 'kyc' | 'aadhaar' | 'panv' | 'bankv' | 'selfie'
-  | 'status' | 'disbursed' | 'repay' | 'creditscore';
+// The full list of screens, mirroring the design's state machine. Kept as a
+// const array (rather than a hand-written union) so the voice agent's
+// navigate_screen tool can validate an incoming screen name at runtime.
+export const SCREEN_NAMES = [
+  'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
+  'home', 'loans', 'fare', 'help', 'profile',
+  'basic', 'basicpan', 'finding', 'offers', 'handoff',
+  'apply', 'income', 'residence', 'consent', 'prequalify',
+  'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
+  'status', 'disbursed', 'repay', 'creditscore',
+] as const;
+export type Screen = (typeof SCREEN_NAMES)[number];
 
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
@@ -196,11 +202,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // owned by the finding screen so it can run the real prequalify() call first.
   useEffect(() => {
     clearAuto();
+
+    // Keep the voice agent's view of the current screen + available actions fresh.
+    setCurrentScreen(state.screen);
+    agent.updatePageContext();
+
+    // Track page view for all screens
+    trackEvent('page_view', `viewed_${state.screen}`, state.screen);
+
+    // Track specific screen arrivals and onboarding/loan steps
+    if (state.screen === 'finding') {
+      trackEvent('onboarding_step', 'finding_offers', 'finding');
+    } else if (state.screen === 'offers') {
+      trackOnboardingStep(3, 'offers_shown', 'completed', 0);
+    } else if (state.screen === 'repay') {
+      trackEvent('page_view', 'viewed_repayment', 'repay');
+    } else if (state.screen === 'disbursed') {
+      trackLoanStep(state.loanId || '', 'loan_disbursed', 'completed', 0);
+    }
+
     if (state.screen === 'splash') {
       timers.current.auto = setTimeout(() => dispatch({ type: 'go', screen: 'language' }), 2600);
     }
     return clearAuto;
-  }, [state.screen]);
+  }, [state.screen, state.loanId]);
+
+  // One-time voice-agent setup: register the generic UI-action tools (bound to
+  // this provider's own go()) and the page-context source the agent sends on
+  // every update. Reads stateRef so the closure never goes stale.
+  useEffect(() => {
+    ensureToolsRegistered((screenName: string) => {
+      if (!(SCREEN_NAMES as readonly string[]).includes(screenName)) return false;
+      go(screenName as Screen);
+      return true;
+    });
+    agent.registerPageContext(() => buildPageContext(stateRef.current.screen));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── WS4: start a tracking session on app boot; end it when backgrounded ──
   useEffect(() => {

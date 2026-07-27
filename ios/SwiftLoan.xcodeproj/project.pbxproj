@@ -18,6 +18,8 @@
 		A8BD834A7EC64CBAB5ACA118 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */; };
 		B5A3D717026D42C8993D02CD /* Inter-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */; };
 		CA9AB8BC0E2265FEE0562B7B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		F00DFACE00000000000B0001 /* VoiceAudioModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0001 /* VoiceAudioModule.swift */; };
+		F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0002 /* VoiceAudioModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +38,8 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = SwiftLoan/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Regular.ttf"; path = "../assets/fonts/Inter-Regular.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		F00DFACE00000000000A0001 /* VoiceAudioModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceAudioModule.swift; path = Voice/VoiceAudioModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
 		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -59,6 +63,8 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
+				F00DFACE00000000000A0001 /* VoiceAudioModule.swift */,
+				F00DFACE00000000000A0002 /* VoiceAudioModule.m */,
 			);
 			name = SwiftLoan;
 			sourceTree = "<group>";
@@ -280,6 +286,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				F00DFACE00000000000B0001 /* VoiceAudioModule.swift in Sources */,
+				F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

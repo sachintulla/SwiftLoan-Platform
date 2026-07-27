@@ -205,9 +205,9 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
       30 leads, 20 downloads, 5 admin users  (npm run seed:ws4)
 
 #### Mobile app — tracking side-effects only
-- [ ] Add trackEvent, trackOnboardingStep, trackLoanStep,
+- [x] Add trackEvent, trackOnboardingStep, trackLoanStep,
       trackSessionStart, trackSessionEnd to src/api/client.ts
-- [ ] Add fire-and-forget tracking calls at screen transitions
+- [x] Add fire-and-forget tracking calls at screen transitions
       (store.ts dispatch points — no screen file changes)
 
 #### Admin Dashboard (admin/ — Next.js 14)   [builds clean, port 4001]

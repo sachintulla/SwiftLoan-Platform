@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,10 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from './Icon';
 import { colors, font, navGradient, radius } from '../theme/tokens';
+import { useStore } from '../state/store';
+import { registerTarget } from '../voice/actionRegistry';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { isSensitiveField } from '../voice/sensitive';
 
 /* Card — white rounded surface with soft border + shadow. */
 export function Card({
@@ -36,7 +40,9 @@ export function Card({
   return body;
 }
 
-/* Primary CTA — filled teal→mint gradient pill with optional trailing icon. */
+/* Primary CTA — filled teal→mint gradient pill with optional trailing icon.
+ * voiceId (or the label, if omitted) registers this button as a voice-agent
+ * tappable target on the current screen — see src/voice/actionRegistry.ts. */
 export function PrimaryButton({
   label,
   onPress,
@@ -44,6 +50,7 @@ export function PrimaryButton({
   disabled = false,
   style,
   solid = false,
+  voiceId,
 }: {
   label: string;
   onPress?: () => void;
@@ -51,7 +58,20 @@ export function PrimaryButton({
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
   solid?: boolean;
+  voiceId?: string;
 }) {
+  const { state } = useStore();
+  useEffect(() => {
+    // Registered even when disabled, so the agent can see the control exists and
+    // be told it isn't pressable yet rather than getting a bare "not_found".
+    return registerTarget(state.screen, voiceId || label, {
+      kind: 'button',
+      label,
+      disabled,
+      onTap: onPress,
+    });
+  }, [state.screen, voiceId, label, onPress, disabled]);
+
   const content = (
     <View style={styles.btnInner}>
       <Text style={[font(700), styles.btnLabel]}>{label}</Text>
@@ -86,12 +106,19 @@ export function GhostButton({
   onPress,
   icon,
   style,
+  voiceId,
 }: {
   label: string;
   onPress?: () => void;
   icon?: string;
   style?: StyleProp<ViewStyle>;
+  voiceId?: string;
 }) {
+  const { state } = useStore();
+  useEffect(() => {
+    return registerTarget(state.screen, voiceId || label, { kind: 'button', label, onTap: onPress });
+  }, [state.screen, voiceId, label, onPress]);
+
   return (
     <Pressable
       onPress={onPress}
@@ -103,8 +130,33 @@ export function GhostButton({
   );
 }
 
-/* Toggle switch — track on #2FB183 / off #D3DDDD, 46×27, knob 21. */
-export function Toggle({ value, onChange }: { value: boolean; onChange?: (v: boolean) => void }) {
+/* Toggle switch — track on #2FB183 / off #D3DDDD, 46×27, knob 21.
+ * Toggle has no visible text of its own (the label lives in the parent
+ * screen's own <Text>), so it needs an explicit voiceId or label prop to be
+ * voice-addressable — the one Controls primitive that isn't covered for free. */
+export function Toggle({
+  value,
+  onChange,
+  label,
+  voiceId,
+}: {
+  value: boolean;
+  onChange?: (v: boolean) => void;
+  label?: string;
+  voiceId?: string;
+}) {
+  const { state } = useStore();
+  useEffect(() => {
+    const id = voiceId || label;
+    if (!id) return undefined;
+    return registerTarget(state.screen, id, {
+      kind: 'toggle',
+      label: id,
+      getValue: () => value,
+      setValue: v => onChange?.(!!v),
+    });
+  }, [state.screen, voiceId, label, value, onChange]);
+
   return (
     <Pressable onPress={() => onChange?.(!value)} hitSlop={8}>
       <View style={[styles.track, { backgroundColor: value ? colors.mint : colors.trackOff }]}>
@@ -114,7 +166,8 @@ export function Toggle({ value, onChange }: { value: boolean; onChange?: (v: boo
   );
 }
 
-/* Segmented chips (single-select), e.g. Male / Female / Other. */
+/* Segmented chips (single-select), e.g. Male / Female / Other. Each option
+ * registers as its own voice-tappable target under its own visible label. */
 export function Chips({
   options,
   value,
@@ -126,6 +179,14 @@ export function Chips({
   onChange?: (v: string) => void;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { state } = useStore();
+  useEffect(() => {
+    const unregisters = options.map(o =>
+      registerTarget(state.screen, `chip:${o.label}`, { kind: 'chips', label: o.label, onTap: () => onChange?.(o.value) }),
+    );
+    return () => unregisters.forEach(u => u());
+  }, [state.screen, options, onChange]);
+
   return (
     <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, style]}>
       {options.map(o => {
@@ -146,16 +207,31 @@ export function Chips({
   );
 }
 
-/* Consent checkbox row. */
+/* Consent checkbox row. Registers under voiceId, or its children text when
+ * that's a plain string — otherwise it's skipped (same rationale as Toggle). */
 export function ConsentRow({
   checked,
   onChange,
   children,
+  voiceId,
 }: {
   checked: boolean;
   onChange?: (v: boolean) => void;
   children: React.ReactNode;
+  voiceId?: string;
 }) {
+  const { state } = useStore();
+  useEffect(() => {
+    const id = voiceId || (typeof children === 'string' ? children : undefined);
+    if (!id) return undefined;
+    return registerTarget(state.screen, id, {
+      kind: 'consent',
+      label: id,
+      getValue: () => checked,
+      setValue: v => onChange?.(!!v),
+    });
+  }, [state.screen, voiceId, children, checked, onChange]);
+
   return (
     <Pressable onPress={() => onChange?.(!checked)} style={styles.consent}>
       <View style={[styles.box, checked && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
@@ -166,16 +242,43 @@ export function ConsentRow({
   );
 }
 
-/* Labeled text field. */
+/* Labeled text field. Forwards secureTextEntry/textContentType/autoComplete so
+ * the voice agent can detect + refuse to fill sensitive fields (OTP/PIN/etc.)
+ * the same way the web SDK's isSensitiveInput did, just via real RN props
+ * instead of DOM attribute sniffing. */
 export function Field({
   label,
   hint,
   style,
+  voiceId,
+  value,
+  onChangeText,
   ...props
 }: {
   label?: string;
   hint?: string;
+  voiceId?: string;
 } & React.ComponentProps<typeof TextInput>) {
+  const { state } = useStore();
+  const id = voiceId || label || hint;
+
+  useEffect(() => {
+    if (!id) return undefined;
+    const sensitive = isSensitiveField(id, {
+      secureTextEntry: props.secureTextEntry,
+      textContentType: props.textContentType as string | undefined,
+      autoComplete: props.autoComplete as string | undefined,
+    });
+    return registerTarget(state.screen, id, {
+      kind: 'field',
+      label: id,
+      sensitive,
+      getValue: () => value as string,
+      setValue: v => onChangeText?.(String(v)),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.screen, id, value, onChangeText, props.secureTextEntry, props.textContentType, props.autoComplete]);
+
   return (
     <View style={{ gap: 6 }}>
       {label ? <Text style={[font(600), styles.fieldLabel]}>{label}</Text> : null}
@@ -183,6 +286,8 @@ export function Field({
         placeholderTextColor={colors.muted}
         style={[styles.input, font(500), style as StyleProp<TextStyle>]}
         {...props}
+        value={value}
+        onChangeText={onChangeText}
       />
       {hint ? <Text style={[font(400), { color: colors.muted, fontSize: 11.5 }]}>{hint}</Text> : null}
     </View>
@@ -190,20 +295,52 @@ export function Field({
 }
 
 /* Custom slider (PanResponder) — track + teal fill + thumb. Matches the design's
- * bespoke range inputs (amount / tenure / rate). */
+ * bespoke range inputs (amount / tenure / rate).
+ *
+ * `label` makes the slider voice-addressable. It is registered via a hook rather
+ * than left to the element-tree walk because sliders live inside EmiCalculator,
+ * and that walk cannot see inside child components. Values are clamped to
+ * min/max/step so a spoken "set tenure to 500" can't push state out of range. */
 export function Slider({
   value,
   min,
   max,
   step = 1,
   onChange,
+  label,
 }: {
   value: number;
   min: number;
   max: number;
   step?: number;
   onChange?: (v: number) => void;
+  label?: string;
 }) {
+  // A Slider is driven by PanResponder, so it exposes no onPress/onChangeText for
+  // the element-tree walk to detect — without `label` it is completely invisible to
+  // voice, silently. Warn in dev so a new slider can't ship unreachable.
+  if (__DEV__ && !label) {
+    console.warn(
+      '[voice] <Slider> is missing a `label` prop, so it cannot be controlled by voice. ' +
+        'Pass the visible label, e.g. label="Desired loan amount".',
+    );
+  }
+
+  useVoiceTarget(
+    label,
+    {
+      kind: 'slider',
+      getValue: () => value,
+      setValue: v => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return;
+        const snapped = Math.round(n / step) * step;
+        onChange?.(Math.max(min, Math.min(max, snapped)));
+      },
+    },
+    [value, min, max, step, onChange],
+  );
+
   const [w, setW] = useState(0);
   const wRef = useRef(0);
   const onLayout = (e: LayoutChangeEvent) => {

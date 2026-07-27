@@ -7,6 +7,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider } from './src/state/store';
 import Router from './src/Router';
 import ContextBanner from './src/components/ContextBanner';
+import VoiceWidget from './src/voice/ui/VoiceWidget';
+import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 
 export default function App() {
   return (
@@ -14,6 +16,8 @@ export default function App() {
       <StoreProvider>
         <Router />
         <ContextBanner />
+        <VoiceWidget />
+        <ConfirmationSheet />
       </StoreProvider>
     </SafeAreaProvider>
   );
