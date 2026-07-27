@@ -4,7 +4,7 @@
 > Whoever picks up the work: read this first. Update the **Update log** at the
 > bottom whenever you finish something, and adjust **Next steps**.
 >
-> **Last updated:** 2026-07-26 — WS3 context install verified on a physical device.
+> **Last updated:** 2026-07-27 — added the 4 voice-agent system prompts.
 
 ---
 
