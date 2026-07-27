@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0A3F41" />
+  <title>SwiftLoan.ai — Fast · Fair · Secure loans, matched to the right lender</title>
+  <meta name="description" content="SwiftLoan.ai uses intelligent qualification and AI lender matching to help you access personal and business loans faster — with transparent terms, bank-grade security, and full consent control." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..0&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="apple-touch-icon" href="icon.png" />
+  <meta property="og:image" content="icon.png" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230CB6A6'/%3E%3Cstop offset='1' stop-color='%232FB183'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='120' height='120' rx='30' fill='url(%23g)'/%3E%3Cg stroke='white' stroke-linecap='round'%3E%3Cline x1='14' y1='52' x2='36' y2='52' stroke-width='7' opacity='.5'/%3E%3Cline x1='16' y1='72' x2='38' y2='72' stroke-width='7' opacity='.85'/%3E%3C/g%3E%3Ctext x='78' y='88' text-anchor='middle' fill='white' font-family='Arial,sans-serif' font-size='82' font-weight='bold'%3E₹%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ============ AURORA BACKGROUND ============ -->
+  <div class="aurora" aria-hidden="true">
+    <span class="motif" style="top:8%;left:5%;transform:rotate(-12deg)">currency_rupee</span>
+    <span class="motif motif--fill" style="top:14%;right:7%;transform:rotate(14deg)">savings</span>
+    <span class="motif" style="top:46%;left:2%;transform:rotate(8deg)">trending_up</span>
+    <span class="motif motif--fill" style="top:62%;right:4%;transform:rotate(-8deg)">account_balance</span>
+    <span class="motif" style="top:82%;left:12%;transform:rotate(10deg)">shield</span>
+    <span class="motif" style="top:34%;right:22%;transform:rotate(-6deg)">payments</span>
+  </div>
+
+  <!-- ============ TOP DISCLAIMER STRIP ============ -->
+  <div class="topbar">
+    <span class="msi">verified_user</span>
+    SwiftLoan.ai is a loan aggregator &amp; matchmaking platform — we connect you with RBI-registered lending partners. We do not lend directly.
+  </div>
+
+  <!-- ============ NAVBAR ============ -->
+  <header class="nav" id="nav">
+    <div class="container nav__inner">
+      <a href="#top" class="brand" aria-label="SwiftLoan.ai home">
+        <span class="brand__mark" aria-hidden="true">
+          <svg width="30" height="30" viewBox="0 0 120 120" fill="none">
+            <g stroke="#fff" stroke-linecap="round">
+              <line x1="16" y1="43" x2="40" y2="43" stroke-width="6" opacity=".32"/>
+              <line x1="12" y1="60" x2="38" y2="60" stroke-width="6" opacity=".55"/>
+              <line x1="18" y1="77" x2="42" y2="77" stroke-width="6" opacity=".82"/>
+            </g>
+            <g transform="skewX(-7)">
+              <text x="82" y="87" text-anchor="middle" fill="#fff" font-family="'Public Sans',Arial,sans-serif" font-size="84" font-weight="800">&#8377;</text>
+            </g>
+          </svg>
+        </span>
+        <span class="brand__name"><span class="brand__swift">Swift</span>Loan<span class="brand__ai">.ai</span></span>
+      </a>
+
+      <nav class="nav__links" id="navLinks" aria-label="Primary">
+        <a href="#services" data-i18n="nav.loans">Loans</a>
+        <a href="#how" data-i18n="nav.how">How it works</a>
+        <a href="#calculator" data-i18n="nav.emi">EMI Calculator</a>
+        <a href="#track" data-i18n="nav.track">Track application</a>
+        <a href="#partners" data-i18n="nav.partners">Partners</a>
+        <a href="#compliance" data-i18n="nav.compliance">Compliance</a>
+        <a href="#faq" data-i18n="nav.faq">FAQs</a>
+        <a href="#apply" class="btn btn--primary nav__cta-mobile" data-i18n="nav.getStarted">Get started</a>
+      </nav>
+
+      <div class="nav__actions">
+        <div class="langtoggle" role="group" aria-label="Language">
+          <button class="langtoggle__btn is-active" data-lang="EN">EN</button>
+          <button class="langtoggle__btn" data-lang="HI">HI</button>
+        </div>
+        <a href="#apply" class="btn btn--primary" data-i18n="nav.checkRate">Check your rate <span class="msi">arrow_forward</span></a>
+        <button class="nav__toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ============ HERO ============ -->
+    <section class="hero">
+      <div class="container hero__grid">
+        <div class="hero__copy">
+          <span class="pill"><span class="msi msi--fill">bolt</span> <span data-i18n="hero.pill">AI lender matching · Approvals in minutes</span></span>
+          <h1 class="hero__title"><span data-i18n="hero.title1">Smarter borrowing,</span><br><span class="grad-text" data-i18n="hero.title2">matched to the right lender.</span></h1>
+          <p class="hero__sub" data-i18n="hero.sub">
+            SwiftLoan.ai reads your profile, checks eligibility across dozens of RBI-registered
+            lenders, and matches you with the offer you're most likely to get approved for —
+            personal or business. No guesswork. No spam calls. Full control of your data.
+          </p>
+
+          <div class="hero__cta">
+            <a href="#apply" class="btn btn--primary btn--lg" data-i18n="hero.cta1">Check your eligibility <span class="msi">arrow_forward</span></a>
+            <a href="#calculator" class="btn btn--secondary btn--lg"><span class="msi">calculate</span> <span data-i18n="hero.cta2">Calculate my EMI</span></a>
+          </div>
+
+          <ul class="hero__trust">
+            <li><span class="msi">shield</span><div><strong data-i18n="hero.trust1">Soft check</strong><span data-i18n="hero.trust1s">No impact on credit score</span></div></li>
+            <li><span class="msi">speed</span><div><strong data-i18n="hero.trust2">3 min</strong><span data-i18n="hero.trust2s">Average application time</span></div></li>
+            <li><span class="msi">lock</span><div><strong data-i18n="hero.trust3">256-bit</strong><span data-i18n="hero.trust3s">Bank-grade encryption</span></div></li>
+          </ul>
+        </div>
+
+        <div class="hero__visual">
+          <div class="glass float-card--main">
+            <div class="fc__head"><span class="fc__dot"></span> <span data-i18n="fc.match">Your best match found</span></div>
+            <div class="fc__amount">₹5,00,000<span data-i18n="fc.limit">approved limit</span></div>
+            <div class="fc__stats">
+              <div class="fc__stat"><span data-i18n="fc.rate">Interest rate</span><b>from 10.49%</b></div>
+              <div class="fc__stat"><span data-i18n="fc.tenure">Tenure</span><b>up to 60 mo</b></div>
+            </div>
+            <div class="fc__bar"><i style="width:82%"></i></div>
+            <div class="fc__match"><span class="fc__score">92%</span> <span data-i18n="fc.conf">match confidence</span></div>
+            <a href="#apply" class="btn btn--primary btn--block" data-i18n="fc.accept">Accept &amp; continue <span class="msi">arrow_forward</span></a>
+          </div>
+
+          <div class="glass float-card--mini fc-mini-1">
+            <span class="icon-tile icon-tile--teal"><span class="msi msi--fill">account_balance</span></span>
+            <div><b data-i18n="fc.lenders">18 lenders</b><span data-i18n="fc.checked">checked instantly</span></div>
+          </div>
+          <div class="glass float-card--mini fc-mini-2">
+            <span class="icon-tile icon-tile--green"><span class="msi msi--fill">verified_user</span></span>
+            <div><b data-i18n="fc.consent">Consent-first</b><span data-i18n="fc.consentSub">You approve every share</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- trust logo strip -->
+      <div class="container">
+        <div class="logostrip">
+          <span class="logostrip__label">Powering loan journeys with</span>
+          <div class="logostrip__row">
+            <span><span class="msi">account_balance</span> NBFC Partners</span>
+            <span><span class="msi">api</span> Banking APIs</span>
+            <span><span class="msi">hub</span> Account Aggregator</span>
+            <span><span class="msi">analytics</span> Credit Bureaus</span>
+            <span><span class="msi">badge</span> eKYC / DigiLocker</span>
+            <span><span class="msi">payments</span> UPI AutoPay</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ STATS BAND ============ -->
+    <section class="stats" aria-label="Key metrics">
+      <div class="container stats__grid">
+        <div class="stat"><div class="stat__num" data-count="2400" data-suffix="Cr+">₹0</div><div class="stat__label" data-i18n="stats.1">Loan value facilitated</div></div>
+        <div class="stat"><div class="stat__num" data-count="18" data-suffix="+">0</div><div class="stat__label" data-i18n="stats.2">Lending partners</div></div>
+        <div class="stat"><div class="stat__num" data-count="94" data-suffix="%">0</div><div class="stat__label" data-i18n="stats.3">Match acceptance rate</div></div>
+        <div class="stat"><div class="stat__num" data-count="500000" data-suffix="+">0</div><div class="stat__label" data-i18n="stats.4">Customers served</div></div>
+      </div>
+    </section>
+
+    <!-- ============ SERVICES ============ -->
+    <section class="section" id="services">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.services.ey">What we offer</span>
+          <h2 data-i18n="sec.services.h">One platform. The right loan for every goal.</h2>
+          <p class="section__lead" data-i18n="sec.services.lead">Whether it's a personal milestone or fuelling your business, our AI finds the offer that fits your profile and your repayment comfort.</p>
+        </div>
+
+        <div class="services__grid">
+          <!-- Personal -->
+          <article class="glass svc-card">
+            <div class="svc-card__top">
+              <span class="icon-tile icon-tile--teal icon-tile--lg"><span class="msi msi--fill">person</span></span>
+              <span class="tag" data-i18n="svc.personal.tag">For individuals</span>
+            </div>
+            <h3 data-i18n="svc.personal.title">Personal Loans</h3>
+            <p>Instant, collateral-free funds for the moments that matter — weddings, medical needs, travel, education, or consolidating debt.</p>
+            <ul class="svc-card__list">
+              <li><span class="msi">check_circle</span> ₹50,000 – ₹25,00,000 loan amounts</li>
+              <li><span class="msi">check_circle</span> Interest from 10.49% p.a.</li>
+              <li><span class="msi">check_circle</span> Flexible tenure: 3 to 60 months</li>
+              <li><span class="msi">check_circle</span> 100% paperless eKYC &amp; disbursal</li>
+            </ul>
+            <div class="svc-card__uses">
+              <span><span class="msi">celebration</span> Wedding</span>
+              <span><span class="msi">local_hospital</span> Medical</span>
+              <span><span class="msi">flight</span> Travel</span>
+              <span><span class="msi">school</span> Education</span>
+              <span><span class="msi">credit_card</span> Debt consolidation</span>
+            </div>
+            <a href="#apply" data-loan="Personal Loan" class="btn btn--primary btn--block" data-i18n="svc.personal.cta">Check my personal loan offer <span class="msi">arrow_forward</span></a>
+          </article>
+
+          <!-- Business -->
+          <article class="glass svc-card svc-card--feat">
+            <span class="ribbon" data-i18n="svc.business.ribbon">Most popular</span>
+            <div class="svc-card__top">
+              <span class="icon-tile icon-tile--green icon-tile--lg"><span class="msi msi--fill">storefront</span></span>
+              <span class="tag tag--green" data-i18n="svc.business.tag">For businesses</span>
+            </div>
+            <h3 data-i18n="svc.business.title">Business Loans</h3>
+            <p>Working capital and growth funding for MSMEs, startups and self-employed professionals — matched to your cash-flow reality.</p>
+            <ul class="svc-card__list">
+              <li><span class="msi">check_circle</span> ₹1,00,000 – ₹75,00,000 funding</li>
+              <li><span class="msi">check_circle</span> Rates tailored to vintage &amp; turnover</li>
+              <li><span class="msi">check_circle</span> Tenure: 6 to 48 months</li>
+              <li><span class="msi">check_circle</span> GST &amp; bank-statement assessment</li>
+            </ul>
+            <div class="svc-card__uses">
+              <span><span class="msi">inventory_2</span> Inventory</span>
+              <span><span class="msi">receipt_long</span> Working capital</span>
+              <span><span class="msi">construction</span> Equipment</span>
+              <span><span class="msi">trending_up</span> Expansion</span>
+              <span><span class="msi">groups</span> Payroll</span>
+            </div>
+            <a href="#apply" data-loan="Business Loan" class="btn btn--primary btn--block" data-i18n="svc.business.cta">Check my business loan offer <span class="msi">arrow_forward</span></a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ GOALS / JOURNEY ============ -->
+    <section class="section" id="how">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.how.ey">Your journey</span>
+          <h2 data-i18n="sec.how.h">From goal to disbursal in four simple steps</h2>
+          <p class="section__lead" data-i18n="sec.how.lead">We designed the whole flow around one idea: you should always know what's happening and why.</p>
+        </div>
+
+        <ol class="journey">
+          <li class="glass journey__step">
+            <div class="journey__num">01</div>
+            <h3 data-i18n="how.1t">Tell us your goal</h3>
+            <p>Pick personal or business, your amount and purpose. Takes under a minute — no documents yet.</p>
+          </li>
+          <li class="glass journey__step">
+            <div class="journey__num">02</div>
+            <h3 data-i18n="how.2t">Get instantly qualified</h3>
+            <p>Our AI runs a soft eligibility check across our lender network. Zero impact on your credit score.</p>
+          </li>
+          <li class="glass journey__step">
+            <div class="journey__num">03</div>
+            <h3 data-i18n="how.3t">Compare matched offers</h3>
+            <p>See personalised offers ranked by approval confidence, rate and EMI — you choose what fits.</p>
+          </li>
+          <li class="glass journey__step">
+            <div class="journey__num">04</div>
+            <h3 data-i18n="how.4t">eKYC &amp; get funded</h3>
+            <p>Complete paperless verification and consent. Approved funds land directly in your bank account.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============ AI QUALIFICATION / MATCHING ============ -->
+    <section class="section" id="ai">
+      <div class="container ai__grid">
+        <div class="ai__copy">
+          <span class="eyebrow" data-i18n="sec.ai.ey">The intelligence layer</span>
+          <h2 data-i18n="sec.ai.h">Intelligent qualification &amp; lender matching</h2>
+          <p class="section__lead" data-i18n="sec.ai.lead">Applying to lenders one by one hurts your credit score and wastes time. SwiftLoan.ai flips the model — we assess you once, then match you to lenders whose criteria you actually meet.</p>
+
+          <div class="ai__feats">
+            <div class="ai__feat">
+              <span class="icon-tile icon-tile--teal"><span class="msi msi--fill">ads_click</span></span>
+              <div><h4 data-i18n="ai.1t">Approval-first matching</h4><p>We rank lenders by your real likelihood of approval, not by who pays us the most.</p></div>
+            </div>
+            <div class="ai__feat">
+              <span class="icon-tile icon-tile--green"><span class="msi msi--fill">insights</span></span>
+              <div><h4 data-i18n="ai.2t">Multi-signal underwriting</h4><p>Income, cash-flow, bureau data and Account Aggregator signals — analysed in seconds.</p></div>
+            </div>
+            <div class="ai__feat">
+              <span class="icon-tile icon-tile--teal"><span class="msi msi--fill">shield</span></span>
+              <div><h4 data-i18n="ai.3t">Soft-check protection</h4><p>Eligibility is checked with soft pulls, so shopping for the best rate never dents your score.</p></div>
+            </div>
+            <div class="ai__feat">
+              <span class="icon-tile icon-tile--green"><span class="msi msi--fill">balance</span></span>
+              <div><h4 data-i18n="ai.4t">Transparent ranking</h4><p>Every offer shows the rate, fees, EMI and total cost up-front. No hidden surprises.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai__panel">
+          <div class="glass match-demo">
+            <div class="match-demo__head">
+              <span><span class="msi msi--fill">smart_toy</span> Matching engine</span>
+              <span class="live"><span class="live__dot"></span> live</span>
+            </div>
+            <div class="match-demo__profile">
+              <span class="mdp__avatar">RS</span>
+              <div><b>Profile analysed</b><span>Income · Bureau · Bank flow · GST</span></div>
+              <span class="mdp__ok msi msi--fill">check_circle</span>
+            </div>
+            <div class="match-list" id="matchList">
+              <div class="match-row"><span class="ml__bank">Aditya Finance</span><span class="ml__rate">10.49%</span><span class="ml__score high">96%</span></div>
+              <div class="match-row"><span class="ml__bank">MetroCredit NBFC</span><span class="ml__rate">11.25%</span><span class="ml__score high">91%</span></div>
+              <div class="match-row"><span class="ml__bank">Prime Capital</span><span class="ml__rate">12.10%</span><span class="ml__score mid">78%</span></div>
+              <div class="match-row"><span class="ml__bank">UrbanLend</span><span class="ml__rate">13.00%</span><span class="ml__score mid">64%</span></div>
+            </div>
+            <p class="match-demo__foot">Ranked by approval confidence · updated in real time</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ EMI CALCULATOR ============ -->
+    <section class="section section--dark" id="calculator">
+      <div class="container">
+        <div class="section__head section__head--light">
+          <span class="eyebrow eyebrow--light" data-i18n="sec.calc.ey">Plan with clarity</span>
+          <h2 data-i18n="sec.calc.h">EMI Calculator</h2>
+          <p class="section__lead" data-i18n="sec.calc.lead">Know your monthly commitment before you apply. Move the sliders to see how amount, rate and tenure change your EMI.</p>
+        </div>
+
+        <div class="calc">
+          <div class="calc__controls">
+            <div class="calc__field">
+              <div class="calc__label"><label for="amount" data-i18n="calc.amount">Loan amount</label><output id="amountOut">₹5,00,000</output></div>
+              <input type="range" id="amount" min="50000" max="7500000" step="10000" value="500000" />
+              <div class="calc__range"><span>₹50K</span><span>₹75L</span></div>
+            </div>
+
+            <div class="calc__field">
+              <div class="calc__label"><label for="rate" data-i18n="calc.rate">Interest rate (p.a.)</label><output id="rateOut">11.5%</output></div>
+              <input type="range" id="rate" min="9" max="28" step="0.1" value="11.5" />
+              <div class="calc__range"><span>9%</span><span>28%</span></div>
+            </div>
+
+            <div class="calc__field">
+              <div class="calc__label"><label for="tenure" data-i18n="calc.tenure">Tenure</label><output id="tenureOut">36 months</output></div>
+              <input type="range" id="tenure" min="3" max="60" step="1" value="36" />
+              <div class="calc__range"><span>3 mo</span><span>60 mo</span></div>
+            </div>
+          </div>
+
+          <div class="glass calc__result">
+            <div class="calc__emi">
+              <span data-i18n="calc.emiLabel">Your monthly EMI</span>
+              <strong id="emiOut">₹16,489</strong>
+            </div>
+            <div class="calc__donut">
+              <svg viewBox="0 0 120 120" width="150" height="150" aria-hidden="true">
+                <circle cx="60" cy="60" r="52" class="donut-track"/>
+                <circle cx="60" cy="60" r="52" class="donut-fill" id="donut"/>
+              </svg>
+              <div class="calc__legend">
+                <span><i class="dot dot--p"></i>Principal <b id="principalOut">₹5,00,000</b></span>
+                <span><i class="dot dot--i"></i>Interest <b id="interestOut">₹93,604</b></span>
+              </div>
+            </div>
+            <div class="calc__total">
+              <span data-i18n="calc.total">Total payable</span><strong id="totalOut">₹5,93,604</strong>
+            </div>
+            <a href="#apply" class="btn btn--primary btn--block" data-i18n="calc.cta">Get this loan matched <span class="msi">arrow_forward</span></a>
+            <p class="calc__note">Indicative only. Actual EMI depends on the lender's final approved rate &amp; fees.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ APPLICATION TRACKING ============ -->
+    <section class="section" id="track">
+      <div class="container track__grid">
+        <div class="track__copy">
+          <span class="eyebrow" data-i18n="sec.track.ey">Always in the loop</span>
+          <h2 data-i18n="sec.track.h">Track your application in real time</h2>
+          <p class="section__lead" data-i18n="sec.track.lead">No more wondering "what's happening with my loan?". Enter your reference ID to see exactly where you are — from submission to money in the bank.</p>
+
+          <form class="track__form" id="trackForm" novalidate>
+            <label for="appId" class="sr-only">Application ID</label>
+            <input type="text" id="appId" placeholder="Enter application ID (try SL-2048)" data-i18n-ph="track.ph" autocomplete="off" />
+            <button type="submit" class="btn btn--primary" data-i18n="track.btn"><span class="msi">search</span> Track</button>
+          </form>
+          <p class="track__hint">Demo IDs: <button class="linkbtn" data-demo="SL-2048">SL-2048</button> · <button class="linkbtn" data-demo="SL-3110">SL-3110</button></p>
+        </div>
+
+        <div class="track__panel">
+          <div class="glass tracker" id="tracker" aria-live="polite">
+            <div class="tracker__empty" id="trackerEmpty">
+              <span class="msi tracker__empty-ic">manage_search</span>
+              <p>Enter an application ID to see live status</p>
+            </div>
+            <div class="tracker__body" id="trackerBody" hidden>
+              <div class="tracker__meta">
+                <div><span>Application</span><b id="tkId">SL-2048</b></div>
+                <div><span>Type</span><b id="tkType">Personal Loan</b></div>
+                <div><span>Amount</span><b id="tkAmount">₹5,00,000</b></div>
+              </div>
+              <ol class="steps" id="tkSteps"></ol>
+              <div class="tracker__foot" id="tkFoot"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PARTNERS ============ -->
+    <section class="section" id="partners">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.partners.ey">Ecosystem</span>
+          <h2 data-i18n="sec.partners.h">Built with trusted lending &amp; business partners</h2>
+          <p class="section__lead" data-i18n="sec.partners.lead">We're a technology bridge — the actual lending is done by our regulated partners, and we help great businesses embed credit into their platforms.</p>
+        </div>
+
+        <div class="partners__cols">
+          <div class="glass partners__col">
+            <span class="icon-tile icon-tile--teal icon-tile--lg"><span class="msi msi--fill">account_balance</span></span>
+            <h3 data-i18n="partners.lend.title">For lending partners</h3>
+            <p>Reach pre-qualified, intent-rich borrowers and reduce acquisition cost. Our engine sends you only applicants who fit your credit box.</p>
+            <ul class="checklist">
+              <li><span class="msi">arrow_forward</span> Pre-filtered, consented applications</li>
+              <li><span class="msi">arrow_forward</span> Lower rejection &amp; underwriting cost</li>
+              <li><span class="msi">arrow_forward</span> API-first integration &amp; real-time decisioning</li>
+              <li><span class="msi">arrow_forward</span> Portfolio-quality lead scoring</li>
+            </ul>
+            <a href="#apply" class="btn btn--secondary" data-i18n="partners.lend.cta">Become a lending partner</a>
+          </div>
+
+          <div class="glass partners__col">
+            <span class="icon-tile icon-tile--green icon-tile--lg"><span class="msi msi--fill">handshake</span></span>
+            <h3 data-i18n="partners.biz.title">For business partners</h3>
+            <p>Embed SwiftLoan.ai credit into your app or checkout. Offer your customers instant financing — we handle matching, compliance and disbursal.</p>
+            <ul class="checklist">
+              <li><span class="msi">arrow_forward</span> Plug-and-play embedded lending SDK</li>
+              <li><span class="msi">arrow_forward</span> Co-branded borrower experience</li>
+              <li><span class="msi">arrow_forward</span> Revenue share on funded loans</li>
+              <li><span class="msi">arrow_forward</span> Full compliance &amp; consent handled for you</li>
+            </ul>
+            <a href="#apply" class="btn btn--secondary" data-i18n="partners.biz.cta">Partner with us</a>
+          </div>
+        </div>
+
+        <div class="partner-logos" aria-label="Partner categories">
+          <span>NBFCs</span><span>Fintech lenders</span><span>Marketplaces</span><span>SaaS platforms</span><span>Retail &amp; POS</span><span>Neobanks</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SECURITY & CONSENT ============ -->
+    <section class="section" id="security">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.security.ey">Trust &amp; safety</span>
+          <h2 data-i18n="sec.security.h">Your data, your consent, always</h2>
+          <p class="section__lead" data-i18n="sec.security.lead">We built SwiftLoan.ai to a higher bar than we're required to — because trust is the whole product.</p>
+        </div>
+
+        <div class="security__grid">
+          <div class="glass sec-card"><span class="icon-tile icon-tile--teal"><span class="msi msi--fill">lock</span></span><h4 data-i18n="sec.1t">256-bit encryption</h4><p>Every byte in transit and at rest is encrypted to bank-grade standards.</p></div>
+          <div class="glass sec-card"><span class="icon-tile icon-tile--green"><span class="msi msi--fill">verified_user</span></span><h4 data-i18n="sec.2t">Consent-first sharing</h4><p>Your data is only shared with a lender after you explicitly approve — via Account Aggregator.</p></div>
+          <div class="glass sec-card"><span class="icon-tile icon-tile--teal"><span class="msi msi--fill">do_not_disturb_on</span></span><h4 data-i18n="sec.3t">No spam, ever</h4><p>We don't sell your number. You won't be buried in cold calls after applying.</p></div>
+          <div class="glass sec-card"><span class="icon-tile icon-tile--green"><span class="msi msi--fill">account_balance</span></span><h4 data-i18n="sec.4t">RBI-aligned partners</h4><p>All lending is done by RBI-registered banks &amp; NBFCs following fair-practice codes.</p></div>
+          <div class="glass sec-card"><span class="icon-tile icon-tile--teal"><span class="msi msi--fill">visibility</span></span><h4 data-i18n="sec.5t">Full transparency</h4><p>See every fee, rate and term before you commit. No fine-print traps.</p></div>
+          <div class="glass sec-card"><span class="icon-tile icon-tile--green"><span class="msi msi--fill">delete</span></span><h4 data-i18n="sec.6t">Data control</h4><p>Revoke consent or request data deletion any time from your dashboard.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ COMPLIANCE & REGULATORY ============ -->
+    <section class="section" id="compliance">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.compliance.ey">Regulatory &amp; compliance</span>
+          <h2 data-i18n="sec.compliance.h">Built for the RBI Digital Lending framework</h2>
+          <p class="section__lead" data-i18n="sec.compliance.lead">SwiftLoan.ai operates as a Lending Service Provider aligned with the RBI's Digital Lending Directions. Here's exactly how we protect you.</p>
+        </div>
+
+        <!-- role disclosure -->
+        <div class="disclosure">
+          <span class="msi msi--fill disclosure__ic">gavel</span>
+          <div>
+            <h3>Our role: Lending Service Provider (LSP), not a lender</h3>
+            <p>SwiftLoan.ai is a technology platform / Digital Lending App that operates <b>on behalf of RBI-regulated banks and NBFCs (the lenders)</b>. We do not lend from our own books, we <b>never disburse, hold or route your money</b>, and we <b>never charge you any fee</b> — all charges are borne by the regulated lender and disclosed to you up-front. Your loan agreement is always directly with the lender.</p>
+          </div>
+        </div>
+
+        <!-- RBI DLG pillars -->
+        <div class="comp-grid">
+          <div class="comp-card"><span class="msi msi--fill">description</span><h4>Key Fact Statement</h4><p>Before you accept, you get a standardised KFS showing the all-inclusive APR, total cost, every fee and penal charge, and the cooling-off period.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">event_available</span><h4>Cooling-off period</h4><p>You may exit a disbursed loan within the RBI-prescribed cooling-off window by repaying principal + proportionate APR, with no penalty.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">account_balance_wallet</span><h4>Direct disbursal &amp; repayment</h4><p>Funds are credited straight to your bank account and repayments go directly to the lender. Money never flows through SwiftLoan.ai.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">money_off</span><h4>No borrower-side fees</h4><p>We charge you nothing. Any fee payable to us is paid by the lender — never collected from you, in line with RBI norms.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">encrypted</span><h4>Data minimisation</h4><p>We collect only need-based data with your explicit consent, store it in India, take no access to your contacts, media or files, and store no biometrics.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">balance</span><h4>Impartial matching</h4><p>Offers are ranked by your genuine likelihood of approval and cost to you — not by commercials. No dark patterns, no pre-ticked consents.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">handshake</span><h4>Fair recovery</h4><p>Recovery follows the lender's RBI Fair Practices Code — respectful hours, no harassment, and a named recovery contact shared with you.</p></div>
+          <div class="comp-card"><span class="msi msi--fill">delete_forever</span><h4>Consent &amp; deletion</h4><p>You can review, revoke consent, or request deletion of your data at any time. Consent is logged and auditable.</p></div>
+        </div>
+
+        <div class="comp-split">
+          <!-- KFS / representative example -->
+          <div class="glass" style="padding:24px">
+            <div class="kfs__head"><span class="msi msi--fill">receipt_long</span><h3>Rates, fees &amp; a representative example</h3></div>
+            <div class="kfs__row"><span>Annual Percentage Rate (APR)</span><b>10.49% – 28.00% p.a.</b></div>
+            <div class="kfs__row"><span>Processing fee</span><b>up to 3% + GST</b></div>
+            <div class="kfs__row"><span>Penal charges (on overdue)</span><b>as per lender KFS</b></div>
+            <div class="kfs__row"><span>Foreclosure / part-payment</span><b>as per lender, often nil</b></div>
+            <div class="kfs__row"><span>Loan tenure</span><b>3 – 60 months</b></div>
+            <p class="kfs__note"><b>Illustrative example:</b> On a ₹1,00,000 personal loan for 12 months at 18% p.a. (reducing balance), the EMI is ≈ ₹9,168, total interest ≈ ₹10,016, and a one-time processing fee of 2% + GST (₹2,360) applies — an all-inclusive APR of ≈ 22.4%. Actual figures are set by the lender and shown in your Key Fact Statement before you accept. This example is for illustration only and is not an offer.</p>
+          </div>
+
+          <!-- grievance redressal -->
+          <div class="glass grievance" style="padding:24px">
+            <div class="grievance__head"><span class="msi msi--fill">support_agent</span><h3>Grievance redressal</h3></div>
+            <p>Not happy with something? Our Nodal Grievance Redressal Officer is here to help.</p>
+            <div class="grievance__rows">
+              <div class="grievance__row"><span class="msi">person</span> Grievance Officer — SwiftLoan.ai</div>
+              <div class="grievance__row"><span class="msi">mail</span> <a href="mailto:grievance@swiftloan.ai">grievance@swiftloan.ai</a></div>
+              <div class="grievance__row"><span class="msi">call</span> 1800-000-0000 · Mon–Sat, 10am–6pm</div>
+            </div>
+            <div class="grievance__steps">
+              <div class="grievance__step">We acknowledge within 48 hours and aim to resolve within the RBI-prescribed timeline.</div>
+              <div class="grievance__step">If unresolved, escalate to the lender's Grievance Officer (named in your KFS).</div>
+              <div class="grievance__step">Still unresolved after 30 days? Escalate to the RBI under the Integrated Ombudsman Scheme (RB-IOS) at <a href="https://cms.rbi.org.in" target="_blank" rel="noopener">cms.rbi.org.in</a>.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="comp-actions">
+          <a href="compliance.html" class="btn btn--primary">Read full compliance &amp; policies <span class="msi">arrow_forward</span></a>
+          <a href="compliance.html#partners" class="btn btn--secondary">Our lending partners</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TESTIMONIALS ============ -->
+    <section class="section" id="reviews">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.reviews.ey">Loved by borrowers</span>
+          <h2 data-i18n="sec.reviews.h">Real people. Real approvals.</h2>
+          <div class="rating">
+            <span class="rating__stars"><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span></span>
+            <span class="rating__text"><b>4.8/5</b> from 12,400+ verified reviews</span>
+          </div>
+        </div>
+
+        <div class="reviews__grid">
+          <figure class="glass review">
+            <div class="review__stars"><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span></div>
+            <blockquote>"I compared 4 lenders in one place and got a rate 3% lower than my bank offered. Money hit my account the next morning."</blockquote>
+            <figcaption><span class="review__av">PN</span><div><b>Priya N.</b><span>Personal loan · Pune</span></div></figcaption>
+          </figure>
+          <figure class="glass review">
+            <div class="review__stars"><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span></div>
+            <blockquote>"As a small manufacturer, cash flow is everything. SwiftLoan.ai matched me with a working-capital line that actually understood my GST numbers."</blockquote>
+            <figcaption><span class="review__av">RK</span><div><b>Rakesh K.</b><span>Business loan · Surat</span></div></figcaption>
+          </figure>
+          <figure class="glass review">
+            <div class="review__stars"><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span><span class="msi msi--fill">star</span></div>
+            <blockquote>"What sold me was the soft check. I could shop around without wrecking my credit score. Transparent the whole way through."</blockquote>
+            <figcaption><span class="review__av">AM</span><div><b>Aisha M.</b><span>Personal loan · Bengaluru</span></div></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LEAD FORM / APPLY ============ -->
+    <section class="section section--dark" id="apply">
+      <div class="container apply__grid">
+        <div class="apply__copy">
+          <span class="eyebrow eyebrow--light" data-i18n="sec.apply.ey">Get started</span>
+          <h2 data-i18n="sec.apply.h">Check your rate in 3 minutes</h2>
+          <p class="section__lead" data-i18n="sec.apply.lead">It's free, it's a soft check, and it won't affect your credit score. See your matched offers instantly.</p>
+          <ul class="apply__points">
+            <li><span class="msi msi--fill">check_circle</span> No impact on credit score</li>
+            <li><span class="msi msi--fill">check_circle</span> No obligation to accept</li>
+            <li><span class="msi msi--fill">check_circle</span> Compare offers from 18+ lenders</li>
+            <li><span class="msi msi--fill">check_circle</span> 100% paperless</li>
+          </ul>
+          <div class="apply__trust">
+            <span class="msi">lock</span> Your details are encrypted and shared only with your consent.
+          </div>
+        </div>
+
+        <form class="glass apply__form" id="leadForm" novalidate>
+          <div class="apply__form-head">
+            <h3 data-i18n="apply.formhead">Find my best offer</h3>
+            <span class="pill pill--soft"><span class="msi">shield</span> Soft check</span>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="loanType" data-i18n="f.loanType">I need a</label>
+              <select id="loanType" name="loanType" required>
+                <option value="">Select loan type</option>
+                <option value="Personal Loan">Personal Loan</option>
+                <option value="Business Loan">Business Loan</option>
+              </select>
+              <span class="err" data-for="loanType"></span>
+            </div>
+            <div class="field">
+              <label for="loanAmount" data-i18n="f.loanAmount">Amount (₹)</label>
+              <input type="number" id="loanAmount" name="loanAmount" min="50000" placeholder="e.g. 500000" required />
+              <span class="err" data-for="loanAmount"></span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="fullName" data-i18n="f.fullName">Full name</label>
+            <input type="text" id="fullName" name="fullName" placeholder="As per your PAN" required />
+            <span class="err" data-for="fullName"></span>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="phone" data-i18n="f.phone">Mobile number</label>
+              <input type="tel" id="phone" name="phone" placeholder="10-digit mobile" required />
+              <span class="err" data-for="phone"></span>
+            </div>
+            <div class="field">
+              <label for="email" data-i18n="f.email">Email</label>
+              <input type="email" id="email" name="email" placeholder="you@email.com" required />
+              <span class="err" data-for="email"></span>
+            </div>
+          </div>
+
+          <div class="field field--city">
+            <label for="city" data-i18n="f.city">City</label>
+            <input type="text" id="city" name="city" placeholder="Your city" />
+          </div>
+
+          <label class="consent">
+            <input type="checkbox" id="consent" required />
+            <span>I authorise SwiftLoan.ai to run a soft eligibility check and share my details with matched lending partners. I agree to the <a href="#" onclick="return false">Terms</a> &amp; <a href="#" onclick="return false">Privacy Policy</a>.</span>
+          </label>
+          <span class="err" data-for="consent"></span>
+
+          <button type="submit" class="btn btn--primary btn--lg btn--block" id="leadSubmit" data-i18n="apply.submit">See my matched offers <span class="msi">arrow_forward</span></button>
+          <p class="apply__disclaimer">By submitting, you consent to being contacted about your application. This is not a guarantee of loan approval.</p>
+
+          <div class="form-success" id="formSuccess" hidden>
+            <span class="form-success__ic msi msi--fill">check_circle</span>
+            <h3 data-i18n="apply.successTitle">You're all set!</h3>
+            <p>We're matching you with lenders now. Your reference ID is <b id="genId">SL-0000</b>. We'll show your offers shortly — check status anytime in <a href="#track">Track application</a>.</p>
+            <div class="app-continue" id="appContinue" hidden></div>
+            <button type="button" class="btn btn--secondary form-success__reset" id="resetLead" data-i18n="apply.reset">Check another rate</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section class="section" id="faq">
+      <div class="container">
+        <div class="section__head">
+          <span class="eyebrow" data-i18n="sec.faq.ey">Questions?</span>
+          <h2 data-i18n="sec.faq.h">Frequently asked questions</h2>
+        </div>
+
+        <div class="faq" id="faqList">
+          <details class="glass faq__item">
+            <summary>Does SwiftLoan.ai lend money directly?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>No. SwiftLoan.ai is a loan aggregation and matchmaking platform. We use technology to match you with RBI-registered banks and NBFCs who do the actual lending. The final loan agreement is always between you and the lender.</p></div>
+          </details>
+          <details class="glass faq__item">
+            <summary>Will checking my eligibility affect my credit score?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>No. Our initial eligibility check uses a "soft pull" which is not visible to other lenders and does not impact your credit score. A "hard pull" only happens later, with your explicit consent, when you proceed with a specific lender.</p></div>
+          </details>
+          <details class="glass faq__item">
+            <summary>How long does approval and disbursal take?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>Matching and indicative offers are instant. Once you pick an offer and complete eKYC, many of our partners approve and disburse within a few hours to 2 working days, depending on the loan type and verification.</p></div>
+          </details>
+          <details class="glass faq__item">
+            <summary>What documents will I need?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>Typically your PAN, Aadhaar (for eKYC), and bank statements or GST returns for business loans. Most verification is paperless via DigiLocker and Account Aggregator — you rarely need to upload anything manually.</p></div>
+          </details>
+          <details class="glass faq__item">
+            <summary>Are there any charges to use SwiftLoan.ai?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>Using SwiftLoan.ai to check eligibility and compare offers is free for borrowers. Lenders may charge processing fees on the loan you accept — these are always shown transparently before you commit.</p></div>
+          </details>
+          <details class="glass faq__item">
+            <summary>Is my personal data safe?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>Yes. We use 256-bit encryption, follow a consent-first model via the RBI's Account Aggregator framework, and never sell your data. You can revoke consent or request deletion at any time.</p></div>
+          </details>
+          <details class="glass faq__item">
+            <summary>What if I have a low credit score?<span class="msi faq__ic">add</span></summary>
+            <div class="faq__a"><p>Because we match across many lenders with different credit criteria, you may still find offers even with a limited or lower score. We rank options by your real likelihood of approval — but approval and final terms are always at the lender's discretion.</p></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CTA BANNER ============ -->
+    <section class="section">
+      <div class="container">
+        <div class="ctaband">
+          <div class="ctaband__glow" aria-hidden="true"></div>
+          <div class="ctaband__inner">
+            <div>
+              <h2 data-i18n="cta.h">Ready to find your best loan offer?</h2>
+              <p data-i18n="cta.p">Join 500,000+ people who borrowed smarter with SwiftLoan.ai. Fast · Fair · Secure.</p>
+            </div>
+            <a href="#apply" class="btn btn--light btn--lg" data-i18n="cta.btn">Check your rate now <span class="msi">arrow_forward</span></a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="footer">
+    <div class="container footer__grid">
+      <div class="footer__brand">
+        <a href="#top" class="brand brand--footer">
+          <span class="brand__mark">
+            <svg width="28" height="28" viewBox="0 0 120 120" fill="none">
+              <g stroke="#fff" stroke-linecap="round">
+                <line x1="16" y1="43" x2="40" y2="43" stroke-width="6" opacity=".32"/>
+                <line x1="12" y1="60" x2="38" y2="60" stroke-width="6" opacity=".55"/>
+                <line x1="18" y1="77" x2="42" y2="77" stroke-width="6" opacity=".82"/>
+              </g>
+              <g transform="skewX(-7)">
+                <text x="82" y="87" text-anchor="middle" fill="#fff" font-family="'Public Sans',Arial,sans-serif" font-size="84" font-weight="800">&#8377;</text>
+              </g>
+            </svg>
+          </span>
+          <span class="brand__name"><span class="brand__swift">Swift</span>Loan<span class="brand__ai">.ai</span></span>
+        </a>
+        <p>AI-powered loan matching that puts borrowers first. Compare, choose, and get funded — with total transparency and control.</p>
+        <div class="footer__social" aria-label="Social links">
+          <a href="#" onclick="return false" aria-label="LinkedIn"><span class="msi">group</span></a>
+          <a href="#" onclick="return false" aria-label="Twitter / X"><span class="msi">tag</span></a>
+          <a href="#" onclick="return false" aria-label="Email"><span class="msi">mail</span></a>
+        </div>
+      </div>
+
+      <div class="footer__col">
+        <h4 data-i18n="footer.products">Products</h4>
+        <a href="#services">Personal Loans</a>
+        <a href="#services">Business Loans</a>
+        <a href="#calculator">EMI Calculator</a>
+        <a href="#track">Track application</a>
+      </div>
+      <div class="footer__col">
+        <h4 data-i18n="footer.company">Company</h4>
+        <a href="#partners">Partners</a>
+        <a href="#security">Security</a>
+        <a href="#reviews">Reviews</a>
+        <a href="#faq">FAQs</a>
+      </div>
+      <div class="footer__col">
+        <h4 data-i18n="footer.legal">Legal</h4>
+        <a href="compliance.html">Compliance &amp; Regulatory</a>
+        <a href="compliance.html#kfs">Key Fact Statement</a>
+        <a href="compliance.html#fair-practices">Fair Practices Code</a>
+        <a href="compliance.html#grievance">Grievance Redressal</a>
+        <a href="compliance.html#privacy">Privacy &amp; Data Protection</a>
+        <a href="compliance.html#partners">Lending Partners</a>
+      </div>
+    </div>
+
+    <div class="container footer__disclaimer">
+      <p><b>Regulatory disclosure:</b> SwiftLoan.ai is a Lending Service Provider (LSP) / Digital Lending App that facilitates loans on behalf of RBI-regulated banks and Non-Banking Financial Companies (NBFCs). SwiftLoan.ai is <b>not a bank or an NBFC and does not lend from its own funds</b>. We do not disburse, hold, or route borrower funds, and we do not charge borrowers any fee — all fees payable to the LSP are borne by the lending partner in accordance with the RBI's Digital Lending Directions. Loan disbursal is made directly to the borrower's bank account and repayments are collected directly by the lender.</p>
+      <p><b>Disclaimer:</b> All loans are provided by RBI-registered lending partners at their sole discretion, subject to their credit policies, terms and conditions. Loan approval, sanctioned amount, interest rate, fees, penal charges and disbursal are determined solely by the lending partner and are set out in the Key Fact Statement (KFS) provided before you accept any offer. Interest rates shown on this site are indicative starting/representative rates; your actual Annual Percentage Rate (APR) depends on your credit profile and the lender's assessment and ranges from 10.49% to 28% p.a. Please read the KFS and all loan documents carefully before signing. This website is for informational purposes and does not constitute financial advice or a loan offer. For grievances, write to <a href="mailto:grievance@swiftloan.ai">grievance@swiftloan.ai</a>; unresolved complaints may be escalated to the RBI under the Integrated Ombudsman Scheme at <a href="https://cms.rbi.org.in" target="_blank" rel="noopener">cms.rbi.org.in</a>.</p>
+      <p class="footer__copyright">© <span id="year">2026</span> SwiftLoan.ai — All rights reserved. Illustrative brand for demonstration.</p>
+    </div>
+  </footer>
+
+  <!-- back to top -->
+  <button class="totop" id="toTop" aria-label="Back to top"><span class="msi">arrow_upward</span></button>
+
+  <script src="js/core.js?v=3"></script>
+  <script src="js/i18n.js?v=3"></script>
+  <script src="js/main.js?v=4"></script>
+  <!-- Ello voice guide: navigate the site + fill the rate-check form by voice -->
+  <script src="js/ello-agent.js?v=1"></script>
+  <script src="js/voice-widget.js?v=1"></script>
+</body>
+</html>

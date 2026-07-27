@@ -14,6 +14,11 @@ import { loansRouter } from './modules/loans.routes.js';
 import { catalogRouter } from './modules/catalog.routes.js';
 import { toolsRouter } from './modules/tools.routes.js';
 import { supportRouter } from './modules/support.routes.js';
+import { trackingRouter } from './modules/tracking.routes.js';
+import { adminRouter } from './modules/admin.routes.js';
+import { adminAuthRouter } from './modules/adminAuth.routes.js';
+import { contextRouter } from './modules/context.routes.js';
+import { downloadsRouter } from './modules/downloads.routes.js';
 
 export function createApp() {
   const app = express();
@@ -36,6 +41,18 @@ export function createApp() {
   app.use('/api/catalog', catalogRouter);
   app.use('/api/tools', toolsRouter);
   app.use('/api/support', supportRouter);
+
+  // ── WS4: activity tracking + admin dashboard (additive) ──
+  app.use('/api/track', trackingRouter);
+  app.use('/api/admin/auth', authLimiter, adminAuthRouter);
+  app.use('/api/admin', adminRouter);
+
+  // ── WS3: context handoff + app-download landing pages ──
+  app.use('/api/context', contextRouter);
+  app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
+
+  // Allow the admin dashboard (localhost:4001) to call this API in the browser.
+  // (cors() above is permissive; this comment marks the intended consumer.)
 
   app.use(notFound);
   app.use(errorHandler);

@@ -1,0 +1,142 @@
+/* =========================================================
+   SwiftLoan.ai — Brand Theme Tokens
+   Single source of truth for colour, type, spacing, radius,
+   elevation and glass. Import this before component styles:
+       <link rel="stylesheet" href="css/theme.css">
+   All tokens are namespaced --sl-*.
+   ========================================================= */
+
+:root {
+  /* ---------- Brand ---------- */
+  --sl-teal:            #079FA0;   /* primary */
+  --sl-teal-hover:      #057C7D;
+  --sl-teal-deep:       #0B6E6F;
+  --sl-teal-bright:     #0CB6A6;
+  --sl-green:           #2FB183;   /* secondary */
+  --sl-green-hover:     #0E8A66;
+  --sl-green-verify:    #1E7D5A;   /* "verified" text */
+  --sl-mint:            #6FEBBE;
+  --sl-mint-word:       #7DEBC0;   /* wordmark accent on dark */
+
+  /* ---------- Dark accent panel stops ---------- */
+  --sl-dark-1:          #0C2B2C;
+  --sl-dark-2:          #0A3F41;
+  --sl-dark-3:          #083E40;
+  --sl-dark-4:          #0E6E5C;
+
+  /* ---------- Ink & text ramp (never pure black) ---------- */
+  --sl-ink:             #0F2A2B;   /* headings */
+  --sl-ink-section:     #12302F;   /* section headings */
+  --sl-ink-strong:      #3A4C4C;   /* strong body */
+  --sl-ink-sub:         #5C6E6E;   /* sub-labels */
+  --sl-ink-body:        #6E8080;   /* body copy */
+  --sl-ink-muted:       #93A3A3;   /* muted / hints */
+  --sl-ink-legal:       #7E9291;   /* legal / fine print */
+  --sl-ink-caption:     #8A9A9A;   /* captions */
+  --sl-ink-disabled:    #A6B4B4;
+
+  /* ---------- Surfaces ---------- */
+  --sl-surface-warm:    #FCFBF8;
+  --sl-surface-cool:    #EFF6F4;
+  --sl-surface-mint:    #E7F6F3;
+  --sl-surface-card:    #F5F9F8;
+  --sl-border:          #E4EEED;
+  --sl-border-soft:     #EDF1F1;
+  --sl-body-bg:         #E8EEED;
+  --sl-tile-teal:       #E1F3F3;   /* icon tile fill */
+  --sl-tile-green:      #E3F6EE;
+
+  /* ---------- Status ---------- */
+  --sl-amber:           #DD8A0B;
+  --sl-amber-1:         #F59E0B;
+  --sl-amber-2:         #EAB308;
+  --sl-amber-3:         #B4740A;
+  --sl-alert:           #D9524E;
+  --sl-alert-strong:    #EF4444;
+
+  /* ---------- Gradients ---------- */
+  --sl-grad-brand:  linear-gradient(140deg, #079FA0 0%, #2FB183 100%);
+  --sl-grad-tile:   linear-gradient(145deg, #0CB6A6 0%, #2FB183 100%);
+  --sl-grad-dark:   linear-gradient(150deg, #0C2B2C 0%, #0A3F41 60%, #0E6E5C 130%);
+  --sl-grad-bar:    linear-gradient(90deg, #079FA0, #2FB183);
+  --sl-aurora:
+    radial-gradient(58% 40% at 0% 0%,   rgba(47,177,131,.16), transparent 55%),
+    radial-gradient(60% 44% at 100% 3%, rgba(245,201,150,.18), transparent 54%),
+    radial-gradient(72% 52% at 100% 100%, rgba(7,159,160,.16), transparent 60%),
+    linear-gradient(155deg, #FCFBF8 0%, #F5F9F8 52%, #EDF5F3 100%);
+
+  /* ---------- Typography ---------- */
+  --sl-font-head: 'Public Sans', system-ui, sans-serif;
+  --sl-font-body: 'Inter', system-ui, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --sl-track-display: -.035em;   /* tightest, display sizes */
+  --sl-track-head:    -.02em;
+  --sl-track-body:    -.01em;
+
+  /* size ramp */
+  --sl-t-display: 52px;
+  --sl-t-h1:      33px;
+  --sl-t-h2:      27px;
+  --sl-t-h3:      19px;
+  --sl-t-card:    16px;
+  --sl-t-body:    15px;
+  --sl-t-label:   13px;
+  --sl-t-micro:   11px;
+
+  /* ---------- Spacing ---------- */
+  --sl-pad-screen: 20px;
+  --sl-gap-section: 28px;
+  --sl-pad-card: 24px;
+  --sl-gap-el: 12px;
+  --sl-gap-icon: 10px;
+
+  /* ---------- Radius ---------- */
+  --sl-r-input:  16px;
+  --sl-r-card:   22px;
+  --sl-r-card-lg:28px;
+  --sl-r-big:    32px;
+  --sl-r-pill:   9999px;
+
+  /* ---------- Elevation (cool-tinted, never gray/black) ---------- */
+  --sl-sh-rest: 0 12px 28px -18px rgba(20,60,58,.30);
+  --sl-sh-card: 0 22px 46px -28px rgba(20,60,58,.34);
+  --sl-sh-hero: 0 26px 52px -30px rgba(20,60,58,.40);
+  --sl-sh-cta:  0 12px 26px -10px rgba(47,177,131,.80);
+  --sl-sh-nav:  0 14px 36px -10px rgba(15,42,43,.30);
+
+  /* ---------- Glass ---------- */
+  --sl-glass-bg:     rgba(255,255,255,.40);
+  --sl-glass-bg-mint:rgba(231,246,243,.38);
+  --sl-glass-border: rgba(255,255,255,.55);
+  --sl-glass-blur:   blur(20px) saturate(150%);
+
+  /* ---------- Motion ---------- */
+  --sl-ease: cubic-bezier(.22,.61,.36,1);
+  --sl-t-fast: .18s;
+  --sl-press: scale(.97);
+}
+
+/* Optional helper classes ---------------------------------- */
+.sl-glass{
+  background: var(--sl-glass-bg);
+  -webkit-backdrop-filter: var(--sl-glass-blur);
+  backdrop-filter: var(--sl-glass-blur);
+  border: 1px solid var(--sl-glass-border);
+  border-radius: var(--sl-r-card);
+  box-shadow: var(--sl-sh-card);
+}
+.sl-tile{
+  display:grid;place-items:center;
+  width:52px;height:52px;border-radius:14px;
+  background: var(--sl-tile-teal); color: var(--sl-teal);
+}
+.sl-tile--green{ background: var(--sl-tile-green); color: var(--sl-green); }
+.sl-btn{
+  display:inline-flex;align-items:center;gap:.5rem;
+  font-family:var(--sl-font-body);font-weight:700;font-size:15px;
+  padding:14px 24px;border-radius:var(--sl-r-input);border:none;cursor:pointer;
+  background:var(--sl-green);color:#fff;box-shadow:var(--sl-sh-cta);
+  transition:transform var(--sl-t-fast) var(--sl-ease);
+}
+.sl-btn:active{ transform: var(--sl-press); }
