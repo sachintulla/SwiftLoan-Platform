@@ -4,7 +4,7 @@
 > Whoever picks up the work: read this first. Update the **Update log** at the
 > bottom whenever you finish something, and adjust **Next steps**.
 >
-> **Last updated:** 2026-07-27 — added the 4 voice-agent system prompts.
+> **Last updated:** 2026-07-28 — screen drop-off tracking + real OTP SMS integration.
 
 ---
 
@@ -97,6 +97,18 @@ free tier sleeps after ~15 min idle (~50s cold start). Local dev: `server` on
 ## 6. Update log
 
 Add a dated line every time you complete something.
+
+- **2026-07-28** — **Screen drop-off tracking** + **real OTP SMS integration**.
+  Drop-off: `Session` now records `lastScreen`/`lastActiveAt`/`reachedEnd` (schema
+  pushed to Neon); `tracking.routes` updates them from the navigation events the
+  app already sends (no APK rebuild); admin `GET /analytics/dropoff` aggregates
+  abandoned sessions by last screen with an idle-window threshold; Analytics page
+  gained a Drop-off section (rate, top screen, bar chart + ranked table). OTP:
+  new `server/src/lib/sms.ts` pluggable sender (MSG91/Twilio) — `createOtp` sends
+  a real SMS and stops surfacing the code once `SMS_PROVIDER`+creds are set in
+  Render (`render.yaml` has the placeholders); demo 123456 remains the fallback.
+  Deployed to `main`. *Next: set SMS_PROVIDER + provider creds in Render to turn
+  on real OTP; optionally add drop-off to the per-user profile page.*
 
 - **2026-07-27** — Wrote the **4 voice-agent system prompts**
   (`prompts/voice-agent-prompts.md`): outbound convince-call, in-app co-pilot WITH
