@@ -155,11 +155,20 @@ export class ElloAgent {
       vlog('WS OPEN');
 
       const tools = this.registry.toWire();
+      const fullContext = this.pageContextFn?.() ?? {};
+      // The initial payload keeps `page`/`interactionGuide` (the backend's
+      // speak-first path is gated on a non-empty `page`) but withholds the raw
+      // `screen_overview`/`available_actions` data — otherwise the model's very
+      // first turn (the greeting) has raw screen data sitting right next to the
+      // system prompt's greeting instructions and tends to lean on reciting the
+      // former instead of following the latter. The real, full context follows
+      // moments later via updatePageContext() below, once the mic is live — in
+      // time for everything the model does after the greeting.
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
         client_tools: tools,
-        page_context: this.pageContextFn?.() ?? {},
+        page_context: { ...fullContext, screen_overview: '', available_actions: [] },
       });
       vlog('sent voice-session-start; tools=', tools.map(t => t.name));
 
@@ -187,6 +196,10 @@ export class ElloAgent {
       }
       vlog('mic.start() resolved — streaming audio');
       this.setStatus('listening');
+      // Deliver the full page_context (withheld above) shortly after the
+      // greeting-triggering message — enough of a beat that the model's first
+      // utterance is already underway before it has screen specifics to work with.
+      setTimeout(() => this.updatePageContext(), 500);
     } catch (e: any) {
       vlog('START FAILED:', e?.message || String(e));
       this.emitter.emit('error', e instanceof Error ? e : new Error(String(e)));

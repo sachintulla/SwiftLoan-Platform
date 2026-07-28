@@ -12,6 +12,37 @@ export function formatDob(y: number, m: number, d: number) {
   return `${d} ${MONTHS_SHORT[m]} ${y}`;
 }
 
+type Dob = { y: number; m: number; d: number };
+
+/**
+ * Registers the "Date" voice target for a screen's date-of-birth field,
+ * independent of whether the calendar grid is currently open on screen.
+ * Setting a date by voice should apply instantly — it shouldn't require
+ * visually opening the picker UI first just so a target exists to set.
+ */
+export function useDobVoiceTarget(dob: Dob | null, setDob: (v: Dob) => void) {
+  useVoiceTarget(
+    'Date',
+    {
+      kind: 'date',
+      getValue: () => (dob ? formatDob(dob.y, dob.m, dob.d) : ''),
+      setValue: v => {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
+        if (!match) return;
+        const [, yy, mm, dd] = match;
+        const year = Number(yy);
+        const month = Number(mm) - 1; // JS months are 0-based
+        const day = Number(dd);
+        if (month < 0 || month > 11) return;
+        // Reject impossible dates (e.g. 31 Feb) rather than letting Date roll over.
+        if (day < 1 || day > new Date(year, month + 1, 0).getDate()) return;
+        setDob({ y: year, m: month, d: day });
+      },
+    },
+    [dob, setDob],
+  );
+}
+
 /** Inline month calendar for date-of-birth selection (mirrors the design picker). */
 export function Calendar({
   year,
@@ -26,32 +57,6 @@ export function Calendar({
 }) {
   const [y, setY] = useState(year);
   const [m, setM] = useState(month);
-
-  // The date grid is built from raw <Pressable> cells inside this component, so
-  // the screen-level element walk can't reach them. One "Date" target accepting
-  // YYYY-MM-DD is far more useful to a voice agent than 31 numbered day buttons.
-  useVoiceTarget(
-    'Date',
-    {
-      kind: 'date',
-      getValue: () => (selectedDay ? formatDob(y, m, selectedDay) : ''),
-      setValue: v => {
-        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
-        if (!match) return;
-        const [, yy, mm, dd] = match;
-        const year2 = Number(yy);
-        const month2 = Number(mm) - 1; // JS months are 0-based
-        const day2 = Number(dd);
-        if (month2 < 0 || month2 > 11) return;
-        // Reject impossible dates (e.g. 31 Feb) rather than letting Date roll over.
-        if (day2 < 1 || day2 > new Date(year2, month2 + 1, 0).getDate()) return;
-        setY(year2);
-        setM(month2);
-        onSelect(year2, month2, day2);
-      },
-    },
-    [y, m, selectedDay, onSelect],
-  );
 
   const firstDow = new Date(y, m, 1).getDay();
   const days = new Date(y, m + 1, 0).getDate();

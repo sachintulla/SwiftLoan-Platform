@@ -3,7 +3,9 @@
 // has no DOM, but Field already forwards real TextInput signals
 // (secureTextEntry/textContentType/autoComplete), which are more reliable than
 // the web version's string-sniffing ever was.
-const SENSITIVE_LABEL_RE = /otp|one.?time.?code|pin\b|cvv|cvc|password|passcode|pan\b|aadhaar|card.?number/i;
+// pin(?!\s*code)\b: a postal PIN code ("Pin code", "Pincode") isn't a secret —
+// only bare "PIN" (an ATM/card/UPI PIN) should refuse.
+const SENSITIVE_LABEL_RE = /otp|one.?time.?code|pin(?!\s*code)\b|cvv|cvc|password|passcode|pan\b|aadhaar|card.?number/i;
 
 /**
  * Labels that merely *mention* a sensitive document while asking for something

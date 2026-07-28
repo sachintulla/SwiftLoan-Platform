@@ -235,7 +235,7 @@ export function ConsentRow({
   return (
     <Pressable onPress={() => onChange?.(!checked)} style={styles.consent}>
       <View style={[styles.box, checked && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
-        {checked ? <Icon name="check" size={15} color="#fff" weight={700} /> : null}
+        {checked ? <Icon name="check" size={15} color="#fff" /> : null}
       </View>
       <Text style={[font(500), { flex: 1, color: colors.textSoft, fontSize: 12.5, lineHeight: 18 }]}>{children}</Text>
     </Pressable>

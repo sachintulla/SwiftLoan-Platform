@@ -125,7 +125,7 @@ export default function Mobile() {
 
             <Pressable style={styles.terms} onPress={() => set({ terms: !state.terms })}>
               <View style={[styles.box, state.terms && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
-                {state.terms ? <Icon name="check" size={14} color="#fff" weight={700} /> : null}
+                {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
               </View>
               <Text style={[font(500), { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSoft }]}>
                 I agree to the <Text style={{ color: colors.primary }}>Terms of Service</Text> and{' '}

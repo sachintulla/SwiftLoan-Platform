@@ -3,13 +3,14 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Chips, PrimaryButton, GhostButton } from '../components/Controls';
-import { Calendar, formatDob } from '../components/Calendar';
+import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
 
 export default function AboutYou() {
   const { state, set, go, showToast } = useStore();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
+  useDobVoiceTarget(dob, setDob);
 
   const dobText = dob ? formatDob(dob.y, dob.m, dob.d) : 'Select date';
 

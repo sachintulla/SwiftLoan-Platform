@@ -1,4 +1,8 @@
 fileignoreconfig:
+- filename: __tests__/voice.test.tsx
+  checksum: 5409e8c16e90631f3bb914ab52fa0cdcc3053bd56734bfd00152a53fee37933d
+- filename: prompts/ello-inapp-copilot-prompt.md
+  checksum: a8c26573ee7110e103124584ce6e735bd1a034bdaa42dea224d2d0f6eeb4e366
 - filename: voiceCredentials.local.example.js
   checksum: db3db77450bad95b90739759c74a92121c03d3ec45837c8bcc6e4295c8c3f8d7
 - filename: src/voice/types.ts
