@@ -1,0 +1,348 @@
+import type { Metadata } from 'next';
+
+/**
+ * Brand Theme & Logo reference page — faithful mirror of website/brand.html.
+ * Ported as static markup with its own scoped styles (prefixed to a
+ * `.brand-page` wrapper) so it doesn't leak into other routes, using the
+ * shared --sl-* tokens from src/app/theme.css.
+ */
+export const metadata: Metadata = {
+  title: 'SwiftLoan.ai — Brand Theme & Logo',
+};
+
+const PAGE_STYLE = `
+  .brand-page{font-family:var(--sl-font-body);color:var(--sl-ink);background:var(--sl-aurora);background-attachment:fixed;min-height:100vh;padding-bottom:80px;-webkit-font-smoothing:antialiased}
+  .brand-page .msi{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;line-height:1;font-variation-settings:'FILL' 1,'wght' 500}
+  .brand-page .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+  .brand-page h1,.brand-page h2,.brand-page h3,.brand-page h4{font-family:var(--sl-font-head);letter-spacing:var(--sl-track-head)}
+  .brand-page .mono{font-family:var(--sl-font-mono)}
+
+  .brand-page .hero{background:var(--sl-grad-dark);color:#fff;padding:56px 0 64px;position:relative;overflow:hidden;margin-bottom:56px}
+  .brand-page .hero::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 100% 0%,rgba(47,177,131,.32),transparent 60%);pointer-events:none}
+  .brand-page .hero .wrap{position:relative;z-index:1}
+  .brand-page .hero__logo{display:flex;align-items:center;gap:16px;margin-bottom:36px}
+  .brand-page .hero__tile{width:60px;height:60px;border-radius:18px;background:var(--sl-grad-tile);box-shadow:var(--sl-sh-cta);flex-shrink:0}
+  .brand-page .hero__wm{font-size:26px;font-weight:800;letter-spacing:-.02em}
+  .brand-page .hero__wm .sw{color:var(--sl-mint-word)}
+  .brand-page .hero__eyebrow{font-size:12px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--sl-mint);margin-bottom:14px}
+  .brand-page .hero h1{font-size:clamp(2.4rem,5vw,3.4rem);font-weight:800;letter-spacing:var(--sl-track-display);line-height:1.02;margin-bottom:18px}
+  .brand-page .hero p{font-size:1.05rem;line-height:1.6;color:rgba(255,255,255,.82);max-width:60ch}
+  .brand-page .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+  .brand-page .chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 15px;font-size:12.5px;font-weight:600}
+
+  .brand-page section{margin-bottom:56px}
+  .brand-page .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--sl-teal);margin-bottom:10px}
+  .brand-page .eyebrow .n{color:var(--sl-green)}
+  .brand-page h2{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:8px}
+  .brand-page .lead{color:var(--sl-ink-sub);font-size:15px;line-height:1.6;margin-bottom:24px;max-width:70ch}
+
+  .brand-page .card{background:#fff;border:1px solid var(--sl-border);border-radius:var(--sl-r-card);padding:26px;box-shadow:var(--sl-sh-card)}
+  .brand-page .card--dark{background:var(--sl-grad-dark);border:none;color:#fff}
+  .brand-page .grid{display:grid;gap:16px}
+  .brand-page .g2{grid-template-columns:1fr 1fr}
+  .brand-page .g3{grid-template-columns:repeat(3,1fr)}
+  .brand-page .g4{grid-template-columns:repeat(4,1fr)}
+  .brand-page .g5{grid-template-columns:repeat(5,1fr)}
+
+  .brand-page .lockup{display:inline-flex;align-items:center;gap:16px}
+  .brand-page .wordmark{font-family:var(--sl-font-head);font-weight:800;font-size:2.4rem;letter-spacing:-.03em;line-height:1}
+  .brand-page .wordmark .sw{color:var(--sl-teal)} .brand-page .wordmark .ln{color:var(--sl-ink)}
+  .brand-page .wordmark small{display:block;font-family:var(--sl-font-body);font-size:.68rem;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:var(--sl-ink-muted);margin-top:6px}
+  .brand-page .card--dark .wordmark .sw{color:var(--sl-mint-word)} .brand-page .card--dark .wordmark .ln{color:#fff} .brand-page .card--dark .wordmark small{color:#9fc4bf}
+  .brand-page .sizes{display:flex;align-items:flex-end;gap:26px;flex-wrap:wrap}
+  .brand-page .sizes figure{text-align:center} .brand-page .sizes figcaption{font-family:var(--sl-font-mono);font-size:.72rem;color:var(--sl-ink-muted);margin-top:8px}
+
+  .brand-page .sw-chip{border:1px solid var(--sl-border);border-radius:14px;overflow:hidden;background:#fff}
+  .brand-page .sw-chip .fill{height:70px}
+  .brand-page .sw-chip .meta{padding:9px 12px}
+  .brand-page .sw-chip .n{font-size:13px;font-weight:700}
+  .brand-page .sw-chip .h{font-family:var(--sl-font-mono);font-size:11.5px;color:var(--sl-ink-muted)}
+  .brand-page .ramp{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .brand-page .ramp .col{text-align:center}
+  .brand-page .ramp .fill{height:56px;border-radius:10px;border:1px solid var(--sl-border)}
+  .brand-page .ramp .h{font-family:var(--sl-font-mono);font-size:10.5px;color:var(--sl-ink-muted);margin-top:5px}
+  .brand-page .ramp .lbl{font-size:10.5px;color:var(--sl-ink-sub)}
+
+  .brand-page .type-row{display:flex;align-items:baseline;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--sl-border-soft);gap:16px}
+  .brand-page .type-row:last-child{border-bottom:none}
+  .brand-page .type-row .spec{font-family:var(--sl-font-mono);font-size:12px;color:var(--sl-ink-muted);white-space:nowrap}
+
+  .brand-page .kv{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px dotted var(--sl-border);font-size:13.5px}
+  .brand-page .kv:last-child{border:none}
+  .brand-page .kv .k{font-weight:600;color:var(--sl-ink-strong)}
+  .brand-page .kv .v{font-family:var(--sl-font-mono);font-size:12px;color:var(--sl-ink-muted);text-align:right}
+
+  .brand-page .demo-row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+  .brand-page .rad{text-align:center}
+  .brand-page .rad .box{width:64px;height:64px;background:#fff;border:1.5px solid var(--sl-teal)}
+  .brand-page .rad .h{font-family:var(--sl-font-mono);font-size:11px;color:var(--sl-ink-muted);margin-top:7px}
+  .brand-page .rad .l{font-size:10.5px;color:var(--sl-ink-sub)}
+  .brand-page .elev{flex:1;min-width:150px;background:#fff;border-radius:16px;padding:18px}
+  .brand-page .elev .n{font-size:13px;font-weight:800;margin-bottom:5px}
+  .brand-page .elev .h{font-family:var(--sl-font-mono);font-size:10.5px;color:var(--sl-ink-muted);line-height:1.5}
+
+  .brand-page .glass-stage{position:relative;border-radius:var(--sl-r-card);padding:24px;background:radial-gradient(60% 50% at 100% 0%,rgba(7,159,160,.25),transparent 60%),var(--sl-grad-tile);overflow:hidden}
+  .brand-page .glass-card{background:var(--sl-glass-bg);-webkit-backdrop-filter:var(--sl-glass-blur);backdrop-filter:var(--sl-glass-blur);border:1px solid var(--sl-glass-border);border-radius:20px;padding:18px;box-shadow:var(--sl-sh-card)}
+  .brand-page .glass-card .n{font-size:14px;font-weight:800;margin-bottom:6px}
+  .brand-page .glass-card .h{font-family:var(--sl-font-mono);font-size:10.5px;color:var(--sl-ink-strong);line-height:1.6}
+
+  .brand-page .btns{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .brand-page .b{font-family:var(--sl-font-body);font-weight:700;font-size:15px;padding:14px 24px;border-radius:var(--sl-r-input);border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+  .brand-page .b-primary{background:var(--sl-green);color:#fff;box-shadow:var(--sl-sh-cta)}
+  .brand-page .b-secondary{background:transparent;color:var(--sl-ink);border:1.5px solid #CBD6D5}
+  .brand-page .b-dark{background:var(--sl-ink);color:#fff;border-radius:14px;padding:12px 22px;font-size:14px}
+  .brand-page .b-ghost{background:rgba(7,159,160,.1);color:var(--sl-teal);border-radius:999px;padding:9px 16px;font-size:13px}
+  .brand-page .b-disabled{background:#CBD6D5;color:#fff;cursor:not-allowed}
+
+  .brand-page .tiles{display:flex;flex-wrap:wrap;gap:10px}
+  .brand-page .tile{width:52px;height:52px;border-radius:14px;display:grid;place-items:center}
+  .brand-page .tile .msi{font-size:26px}
+  .brand-page .tile.teal{background:var(--sl-tile-teal)} .brand-page .tile.teal .msi{color:var(--sl-teal)}
+  .brand-page .tile.green{background:var(--sl-tile-green)} .brand-page .tile.green .msi{color:var(--sl-green)}
+  .brand-page .tile.dark{background:var(--sl-ink)} .brand-page .tile.dark .msi{color:var(--sl-mint)}
+
+  .brand-page .do-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .brand-page .do{display:flex;gap:12px;align-items:flex-start;font-size:14px;color:var(--sl-ink-sub)}
+  .brand-page .do b{color:var(--sl-ink)}
+  .brand-page .badge{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;color:#fff;font-size:13px}
+  .brand-page .badge .msi{font-size:15px}
+  .brand-page .ok{background:var(--sl-green)} .brand-page .no{background:var(--sl-alert)}
+
+  .brand-page .note{font-size:12.5px;color:var(--sl-ink-muted);margin-top:12px}
+  .brand-page code{font-family:var(--sl-font-mono);font-size:.9em;background:var(--sl-surface-card);padding:1px 6px;border-radius:6px;color:var(--sl-teal)}
+
+  @media(max-width:820px){.brand-page .g2,.brand-page .g3,.brand-page .g4,.brand-page .g5,.brand-page .ramp,.brand-page .do-grid{grid-template-columns:1fr 1fr}.brand-page .wordmark{font-size:2rem}}
+  @media(max-width:520px){.brand-page .g3,.brand-page .g4,.brand-page .g5,.brand-page .ramp{grid-template-columns:1fr 1fr}}
+
+  @media print{
+    @page{ size:A4; margin:12mm 12mm 14mm; }
+    .brand-page *,.brand-page *::before,.brand-page *::after{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .brand-page{ background:#fff !important; padding-bottom:0; }
+    .brand-page .wrap{ max-width:none; padding:0; }
+    .brand-page .hero{ margin:0 0 24px; border-radius:16px; padding:34px 30px 40px; }
+    .brand-page .hero::after{ border-radius:16px; }
+    .brand-page section{ break-inside:avoid; margin-bottom:26px; }
+    .brand-page .card,.brand-page .sw-chip,.brand-page .glass-card,.brand-page .elev,.brand-page figure,.brand-page .type-row,.brand-page .do{ break-inside:avoid; }
+    .brand-page h2,.brand-page h4,.brand-page .eyebrow{ break-after:avoid; }
+    .brand-page .glass-stage{ break-inside:avoid; }
+    .brand-page .glass-card{ background:rgba(255,255,255,.72) !important; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  }
+`;
+
+const BODY_HTML = `
+<header class="hero">
+  <div class="wrap">
+    <div class="hero__logo">
+      <svg class="hero__tile" viewBox="0 0 120 120" width="60" height="60">
+        <g stroke="#fff" stroke-linecap="round" fill="none">
+          <line x1="16" y1="43" x2="40" y2="43" stroke-width="6" opacity=".32"/>
+          <line x1="12" y1="60" x2="38" y2="60" stroke-width="6" opacity=".55"/>
+          <line x1="18" y1="77" x2="42" y2="77" stroke-width="6" opacity=".82"/>
+        </g>
+        <g transform="skewX(-7)"><text x="82" y="87" text-anchor="middle" fill="#fff" font-family="'Public Sans',Arial,sans-serif" font-size="84" font-weight="800">&#8377;</text></g>
+      </svg>
+      <span class="hero__wm"><span class="sw">Swift</span>Loan.ai</span>
+    </div>
+    <div class="hero__eyebrow">Brand Theme &amp; Logo</div>
+    <h1>The rupee,<br>disbursed swiftly.</h1>
+    <p>SwiftLoan's visual language: light &amp; airy, liquid-glass surfaces floating over a soft aurora, expressive Public Sans headings, and a teal→green identity that signals fast, fair, secure lending.</p>
+    <div class="chips">
+      <span class="chip">Liquid glass · Aurora</span>
+      <span class="chip">Teal #079FA0 · Green #2FB183</span>
+      <span class="chip">Public Sans · Inter</span>
+      <span class="chip">Fast · Fair · Secure</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <span class="eyebrow"><span class="n">01</span> · Logo</span>
+    <h2>The mark &amp; wordmark</h2>
+    <p class="lead">The exact ₹ symbol leans forward ~7° with three trailing speed streaks — money in motion — inside the 145° teal→green tile. Wordmark is Public&nbsp;Sans 800, "Swift" in teal, "Loan" in ink (mint + white on dark).</p>
+
+    <div class="grid g2" style="margin-bottom:16px">
+      <div class="card">
+        <div class="lockup">
+          <svg viewBox="0 0 120 120" width="72" height="72" style="border-radius:18px;background:var(--sl-grad-tile)">
+            <g stroke="#fff" stroke-linecap="round" fill="none"><line x1="16" y1="43" x2="40" y2="43" stroke-width="6" opacity=".32"/><line x1="12" y1="60" x2="38" y2="60" stroke-width="6" opacity=".55"/><line x1="18" y1="77" x2="42" y2="77" stroke-width="6" opacity=".82"/></g>
+            <g transform="skewX(-7)"><text x="82" y="87" text-anchor="middle" fill="#fff" font-family="'Public Sans',Arial,sans-serif" font-size="84" font-weight="800">&#8377;</text></g>
+          </svg>
+          <span class="wordmark"><span class="sw">Swift</span><span class="ln">Loan</span><small>Fast · Fair · Secure</small></span>
+        </div>
+      </div>
+      <div class="card card--dark">
+        <div class="lockup">
+          <svg viewBox="0 0 120 120" width="72" height="72" style="border-radius:18px;background:var(--sl-grad-tile)">
+            <g stroke="#fff" stroke-linecap="round" fill="none"><line x1="16" y1="43" x2="40" y2="43" stroke-width="6" opacity=".32"/><line x1="12" y1="60" x2="38" y2="60" stroke-width="6" opacity=".55"/><line x1="18" y1="77" x2="42" y2="77" stroke-width="6" opacity=".82"/></g>
+            <g transform="skewX(-7)"><text x="82" y="87" text-anchor="middle" fill="#fff" font-family="'Public Sans',Arial,sans-serif" font-size="84" font-weight="800">&#8377;</text></g>
+          </svg>
+          <span class="wordmark"><span class="sw">Swift</span><span class="ln">Loan</span><small>Fast · Fair · Secure</small></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sizes">
+        <figure><img src="/icon.png" width="96" height="96" alt="SwiftLoan icon"><figcaption>icon.png · 96</figcaption></figure>
+        <figure><img src="/icon.png" width="64" height="64" alt=""><figcaption>64</figcaption></figure>
+        <figure><img src="/icon.png" width="48" height="48" alt=""><figcaption>48</figcaption></figure>
+        <figure><img src="/icon.png" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+        <figure><img src="/icon.png" width="16" height="16" alt=""><figcaption>16 · favicon</figcaption></figure>
+      </div>
+      <p class="note">Assets: <code>assets/swiftloan-mark.svg</code> (icon), <code>assets/swiftloan-logo.svg</code> (lockup), <code>icon.png</code> (512²). Clear space = the tile's corner radius on all sides.</p>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow"><span class="n">02</span> · Colour</span>
+    <h2>Palette</h2>
+    <p class="lead">Teal leads, green supports. Warm off-whites and cool mints for surfaces. Status colours used sparingly. Positive states always use Secondary Green.</p>
+
+    <h4 style="margin:0 0 12px">Brand &amp; gradients</h4>
+    <div class="grid g4" style="margin-bottom:14px">
+      <div class="sw-chip"><div class="fill" style="background:#079FA0"></div><div class="meta"><div class="n">Primary Teal</div><div class="h">#079FA0</div></div></div>
+      <div class="sw-chip"><div class="fill" style="background:#2FB183"></div><div class="meta"><div class="n">Secondary Green</div><div class="h">#2FB183</div></div></div>
+      <div class="sw-chip"><div class="fill" style="background:#0CB6A6"></div><div class="meta"><div class="n">Teal Bright</div><div class="h">#0CB6A6</div></div></div>
+      <div class="sw-chip"><div class="fill" style="background:#6FEBBE"></div><div class="meta"><div class="n">Mint</div><div class="h">#6FEBBE</div></div></div>
+    </div>
+    <div class="grid g3">
+      <div class="sw-chip"><div class="fill" style="background:var(--sl-grad-tile)"></div><div class="meta"><div class="n">Tile gradient</div><div class="h">145° #0CB6A6→#2FB183</div></div></div>
+      <div class="sw-chip"><div class="fill" style="background:var(--sl-grad-brand)"></div><div class="meta"><div class="n">Brand gradient</div><div class="h">140° #079FA0→#2FB183</div></div></div>
+      <div class="sw-chip"><div class="fill" style="background:var(--sl-grad-dark)"></div><div class="meta"><div class="n">Dark accent panel</div><div class="h">150° #0C2B2C→#0E6E5C</div></div></div>
+    </div>
+
+    <h4 style="margin:26px 0 12px">Ink &amp; text ramp</h4>
+    <div class="ramp">
+      <div class="col"><div class="fill" style="background:#0F2A2B"></div><div class="h">#0F2A2B</div><div class="lbl">Headings</div></div>
+      <div class="col"><div class="fill" style="background:#3A4C4C"></div><div class="h">#3A4C4C</div><div class="lbl">Strong body</div></div>
+      <div class="col"><div class="fill" style="background:#5C6E6E"></div><div class="h">#5C6E6E</div><div class="lbl">Sub-labels</div></div>
+      <div class="col"><div class="fill" style="background:#6E8080"></div><div class="h">#6E8080</div><div class="lbl">Body copy</div></div>
+      <div class="col"><div class="fill" style="background:#93A3A3"></div><div class="h">#93A3A3</div><div class="lbl">Muted / hints</div></div>
+    </div>
+
+    <h4 style="margin:26px 0 12px">Surfaces &amp; status</h4>
+    <div class="ramp">
+      <div class="col"><div class="fill" style="background:#FCFBF8"></div><div class="h">#FCFBF8</div><div class="lbl">Warm base</div></div>
+      <div class="col"><div class="fill" style="background:#EFF6F4"></div><div class="h">#EFF6F4</div><div class="lbl">Cool base</div></div>
+      <div class="col"><div class="fill" style="background:#E7F6F3"></div><div class="h">#E7F6F3</div><div class="lbl">Mint tint</div></div>
+      <div class="col"><div class="fill" style="background:#DD8A0B"></div><div class="h">#DD8A0B</div><div class="lbl">Amber warn</div></div>
+      <div class="col"><div class="fill" style="background:#D9524E"></div><div class="h">#D9524E</div><div class="lbl">Alert / req'd</div></div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow"><span class="n">03</span> · Typography</span>
+    <h2>Type system</h2>
+    <p class="lead"><b style="color:var(--sl-ink)">Public Sans</b> for display &amp; headings (400–800, tight tracking). <b style="color:var(--sl-ink)">Inter</b> for body &amp; UI (400–700). <b style="color:var(--sl-ink)">JetBrains Mono</b> for code &amp; values. Numbers use tabular figures; currency is ₹ with Indian grouping (₹1,00,000).</p>
+    <div class="card">
+      <div class="type-row"><span style="font-size:33px;font-weight:800;letter-spacing:-.03em">Hello, User!</span><span class="spec">Public Sans 800 · 33px · −.03em</span></div>
+      <div class="type-row"><span style="font-size:27px;font-weight:800;letter-spacing:-.03em">Screen title</span><span class="spec">800 · 27px</span></div>
+      <div class="type-row"><span style="font-size:19px;font-weight:800;letter-spacing:-.02em;color:var(--sl-ink-section)">Section heading</span><span class="spec">800 · 19px · #12302F</span></div>
+      <div class="type-row"><span style="font-size:16px;font-weight:800">Card title</span><span class="spec">800 · 16–18px</span></div>
+      <div class="type-row"><span style="font-family:var(--sl-font-body);font-size:15px;color:var(--sl-ink-body)">Body paragraph copy in Inter.</span><span class="spec">Inter 400 · 15px</span></div>
+      <div class="type-row"><span style="font-family:var(--sl-font-body);font-size:13px;font-weight:600;color:var(--sl-ink-sub)">Field label / button</span><span class="spec">Inter 600–700 · 13px</span></div>
+      <div class="type-row"><span style="font-family:var(--sl-font-body);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--sl-ink-muted)">Micro-label / eyebrow</span><span class="spec">Inter 700 · 11px · .1em</span></div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow"><span class="n">04</span> · Shape &amp; depth</span>
+    <h2>Radius, spacing &amp; elevation</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="margin-bottom:16px">Corner radii</h4>
+        <div class="demo-row">
+          <div class="rad"><div class="box" style="border-radius:16px"></div><div class="h">16px</div><div class="l">Buttons/inputs</div></div>
+          <div class="rad"><div class="box" style="border-radius:22px"></div><div class="h">22px</div><div class="l">Cards</div></div>
+          <div class="rad"><div class="box" style="border-radius:32px"></div><div class="h">32px</div><div class="l">Big cards</div></div>
+          <div class="rad"><div class="box" style="border-radius:9999px"></div><div class="h">pill</div><div class="l">Chips/CTAs</div></div>
+        </div>
+        <div class="kv" style="margin-top:18px"><span class="k">Screen padding</span><span class="v">20px sides</span></div>
+        <div class="kv"><span class="k">Section gap</span><span class="v">24–30px</span></div>
+        <div class="kv"><span class="k">Card padding</span><span class="v">22–28px</span></div>
+        <div class="kv"><span class="k">Element / icon gap</span><span class="v">10–14px</span></div>
+      </div>
+      <div class="card">
+        <h4 style="margin-bottom:16px">Elevation <span style="font-weight:400;font-size:13px;color:var(--sl-ink-muted)">— cool-tinted, never gray</span></h4>
+        <div class="demo-row" style="align-items:stretch">
+          <div class="elev" style="box-shadow:var(--sl-sh-rest)"><div class="n">Resting</div><div class="h">0 12px 28px −18px<br>rgba(20,60,58,.30)</div></div>
+          <div class="elev" style="box-shadow:var(--sl-sh-card)"><div class="n">Card</div><div class="h">0 22px 46px −28px<br>rgba(20,60,58,.34)</div></div>
+        </div>
+        <div class="demo-row" style="align-items:stretch;margin-top:16px">
+          <div class="elev" style="box-shadow:var(--sl-sh-hero)"><div class="n">Hero card</div><div class="h">0 26px 52px −30px<br>rgba(20,60,58,.40)</div></div>
+          <div class="elev" style="box-shadow:var(--sl-sh-cta)"><div class="n">CTA / colored</div><div class="h">0 12px 26px −10px<br>rgba(47,177,131,.80)</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow"><span class="n">05</span> · Glass &amp; background</span>
+    <h2>Liquid glass surfaces</h2>
+    <p class="lead">Cards are ~40% white with a 20px blur so the aurora reads through — never opaque boxes. Borders are translucent white. Always paired with a soft cool shadow.</p>
+    <div class="glass-stage">
+      <div class="grid g2">
+        <div class="glass-card"><div class="n">Standard glass card</div><div class="h">background: rgba(255,255,255,.40)<br>backdrop-filter: blur(20px) saturate(150%)<br>border: 1px rgba(255,255,255,.55)</div></div>
+        <div class="glass-card" style="background:var(--sl-glass-bg-mint)"><div class="n">Mint-tinted glass</div><div class="h">background: rgba(231,246,243,.38)<br>blur(20px) saturate(150%)<br>border: 1px rgba(255,255,255,.50)</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow"><span class="n">06</span> · Components &amp; icons</span>
+    <h2>Buttons, tiles &amp; iconography</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="margin-bottom:16px">Buttons</h4>
+        <div class="btns">
+          <button class="b b-primary">Primary <span class="msi">arrow_forward</span></button>
+          <button class="b b-secondary">Secondary</button>
+          <button class="b b-dark">Dark action</button>
+          <button class="b b-ghost"><span class="msi">edit</span> Ghost pill</button>
+          <button class="b b-disabled" disabled>Disabled</button>
+        </div>
+        <p class="note">Primary = green fill + colored shadow, one per screen. Press: <code>scale(.97)</code>.</p>
+      </div>
+      <div class="card">
+        <h4 style="margin-bottom:16px">Icon tiles <span style="font-weight:400;font-size:13px;color:var(--sl-ink-muted)">— Material Symbols</span></h4>
+        <div class="tiles">
+          <span class="tile teal"><span class="msi">bolt</span></span>
+          <span class="tile green"><span class="msi">verified_user</span></span>
+          <span class="tile teal"><span class="msi">calculate</span></span>
+          <span class="tile green"><span class="msi">payments</span></span>
+          <span class="tile teal"><span class="msi">speed</span></span>
+          <span class="tile green"><span class="msi">account_balance</span></span>
+          <span class="tile dark"><span class="msi">smart_toy</span></span>
+        </div>
+        <p class="note">44–54px rounded-square tile, tinted fill (<code>#E1F3F3</code>/<code>#E3F6EE</code>), glyph in matching brand colour. No emoji.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow"><span class="n">07</span> · Usage</span>
+    <h2>Do &amp; don't</h2>
+    <div class="card">
+      <div class="do-grid">
+        <div class="do"><span class="badge ok"><span class="msi">check</span></span><div><b>Keep the streaks behind the ₹.</b> They read left-to-right as motion — the rupee arriving fast.</div></div>
+        <div class="do"><span class="badge ok"><span class="msi">check</span></span><div><b>Light &amp; airy by default.</b> Soft off-white backgrounds, generous whitespace, large diffuse shadows.</div></div>
+        <div class="do"><span class="badge ok"><span class="msi">check</span></span><div><b>Trust everywhere.</b> Encryption notes, RBI/compliance badges, "no impact on credit score".</div></div>
+        <div class="do"><span class="badge no"><span class="msi">close</span></span><div><b>Don't</b> recolour the ₹, rotate the tile, use pure black text, or make surfaces opaque grey boxes.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="note" style="text-align:center;margin-top:40px">SwiftLoan.ai — Brand Theme &amp; Logo · tokens in <code>css/theme.css</code></p>
+</div>
+`;
+
+export default function BrandPage() {
+  return (
+    <div className="brand-page">
+      <style dangerouslySetInnerHTML={{ __html: PAGE_STYLE }} />
+      <div dangerouslySetInnerHTML={{ __html: BODY_HTML }} />
+    </div>
+  );
+}

@@ -1,0 +1,85 @@
+/*!*******************************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ./node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[12].use[2]!./node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[12].use[3]!./src/app/compliance/compliance.css ***!
+  \*******************************************************************************************************************************************************************************************************************************************************************************/
+.compliancePage *,
+.compliancePage *::before,
+.compliancePage *::after { box-sizing: border-box; }
+.compliancePage {
+  font-family: var(--sl-font-body);
+  color: var(--sl-ink);
+  background: var(--sl-aurora);
+  background-attachment: fixed;
+  min-height: 100vh;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 60px;
+}
+.compliancePage .msi { font-family: 'Material Symbols Outlined'; font-weight: normal; font-style: normal; line-height: 1; vertical-align: middle; font-variation-settings: 'FILL' 1, 'wght' 500; }
+.compliancePage a { color: var(--sl-teal); text-decoration: none; }
+.compliancePage a:hover { text-decoration: underline; }
+.compliancePage .mono { font-family: var(--sl-font-mono); }
+.compliancePage h1, .compliancePage h2, .compliancePage h3, .compliancePage h4 { font-family: var(--sl-font-head); letter-spacing: -.02em; line-height: 1.2; }
+
+/* top bar */
+.compliancePage .topbar { background: var(--sl-dark-1); color: #c7d9d6; font-size: .8rem; text-align: center; padding: .55rem 20px; }
+.compliancePage .nav { position: -webkit-sticky; position: sticky; top: 0; z-index: 50; background: rgba(252,251,248,.82); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--sl-border); }
+.compliancePage .nav__in { max-width: 960px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+.compliancePage .brand { display: flex; align-items: center; gap: 10px; font-family: var(--sl-font-head); font-weight: 800; font-size: 1.2rem; color: var(--sl-ink); }
+.compliancePage .brand svg { border-radius: 11px; background: var(--sl-grad-tile); }
+.compliancePage .brand .sw { color: var(--sl-teal); }
+.compliancePage .brand .ai { color: var(--sl-teal); }
+.compliancePage .back { font-weight: 600; font-size: .9rem; display: inline-flex; align-items: center; gap: 6px; }
+
+.compliancePage .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+/* hero */
+.compliancePage .head { background: var(--sl-grad-dark); color: #fff; border-radius: 0 0 28px 28px; padding: 46px 0 40px; margin-bottom: 38px; }
+.compliancePage .head .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--sl-mint); margin-bottom: 12px; display: block; }
+.compliancePage .head h1 { font-size: clamp(2rem,4.5vw,2.9rem); font-weight: 800; letter-spacing: -.03em; margin-bottom: 14px; }
+.compliancePage .head p { color: rgba(255,255,255,.85); max-width: 64ch; font-size: 1.02rem; }
+.compliancePage .updated { margin-top: 18px; font-size: .82rem; color: #9fc4bf; }
+
+/* table of contents */
+.compliancePage .toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 34px; }
+.compliancePage .toc a { background: #fff; border: 1px solid var(--sl-border); border-radius: var(--sl-r-pill); padding: 8px 15px; font-size: .85rem; font-weight: 600; color: var(--sl-ink-strong); }
+.compliancePage .toc a:hover { border-color: var(--sl-teal); color: var(--sl-teal); text-decoration: none; }
+
+.compliancePage section.block { background: #fff; border: 1px solid var(--sl-border); border-radius: var(--sl-r-card); padding: 28px 30px; box-shadow: var(--sl-sh-card); margin-bottom: 20px; scroll-margin-top: 80px; }
+.compliancePage section.block > h2 { font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.compliancePage section.block > h2 .msi { color: var(--sl-teal); font-size: 1.6rem; }
+.compliancePage .sublead { color: var(--sl-ink-sub); margin-bottom: 16px; font-size: .95rem; }
+.compliancePage section.block h3 { font-size: 1.05rem; font-weight: 800; margin: 18px 0 6px; color: var(--sl-ink-head); }
+.compliancePage section.block p { color: var(--sl-ink-body); font-size: .94rem; margin-bottom: 10px; }
+.compliancePage section.block p b { color: var(--sl-ink-strong); }
+.compliancePage ul.list { list-style: none; margin: 8px 0 6px; }
+.compliancePage ul.list li { position: relative; padding: .4rem 0 .4rem 1.8rem; font-size: .92rem; color: var(--sl-ink-body); border-bottom: 1px solid var(--sl-border-soft); }
+.compliancePage ul.list li:last-child { border-bottom: none; }
+.compliancePage ul.list li .msi { position: absolute; left: 0; top: .45rem; color: var(--sl-green); font-size: 1.15rem; }
+.compliancePage .callout { background: var(--sl-surface-mint); border: 1px solid var(--sl-border); border-left: 3px solid var(--sl-green); border-radius: 12px; padding: 14px 16px; font-size: .9rem; color: var(--sl-ink-strong); margin: 14px 0; }
+
+.compliancePage table.tbl { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: .9rem; }
+.compliancePage table.tbl th, .compliancePage table.tbl td { text-align: left; padding: .65rem .8rem; border-bottom: 1px solid var(--sl-border); }
+.compliancePage table.tbl th { font-family: var(--sl-font-head); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--sl-ink-muted); background: var(--sl-surface-card); }
+.compliancePage table.tbl td:last-child { font-family: var(--sl-font-head); font-weight: 700; color: var(--sl-ink); text-align: right; }
+.compliancePage .wrap-x { overflow-x: auto; }
+
+.compliancePage .grid2 { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 10px 24px; gap: 10px 24px; }
+.compliancePage .partner { display: flex; align-items: center; gap: 12px; padding: .7rem 0; border-bottom: 1px solid var(--sl-border-soft); font-size: .92rem; }
+.compliancePage .partner .msi { color: var(--sl-teal); }
+.compliancePage .partner span.type { margin-left: auto; font-size: .72rem; color: var(--sl-ink-muted); background: var(--sl-surface-card); padding: .2rem .55rem; border-radius: 99px; }
+
+.compliancePage .contact-row { display: flex; gap: 10px; align-items: flex-start; font-size: .92rem; color: var(--sl-ink-body); padding: .4rem 0; }
+.compliancePage .contact-row .msi { color: var(--sl-green); margin-top: 2px; }
+.compliancePage .steps { counter-reset: s; margin-top: 8px; }
+.compliancePage .steps li { list-style: none; position: relative; padding: .5rem 0 .5rem 2rem; font-size: .92rem; color: var(--sl-ink-body); }
+.compliancePage .steps li::before { counter-increment: s; content: counter(s); position: absolute; left: 0; top: .5rem; width: 22px; height: 22px; border-radius: 50%; background: var(--sl-grad-tile); color: #fff; font-size: .72rem; font-weight: 800; display: grid; place-items: center; font-family: var(--sl-font-head); }
+
+.compliancePage .fine { font-size: .78rem; color: var(--sl-ink-muted); line-height: 1.55; margin-top: 8px; }
+.compliancePage footer.f { max-width: 960px; margin: 30px auto 0; padding: 22px 24px 0; border-top: 1px solid var(--sl-border); font-size: .8rem; color: var(--sl-ink-muted); }
+.compliancePage footer.f a { color: var(--sl-ink-sub); }
+
+@media (max-width: 640px) {
+  .compliancePage .grid2 { grid-template-columns: 1fr; }
+  .compliancePage section.block { padding: 22px 20px; }
+}
+
