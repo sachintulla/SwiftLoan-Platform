@@ -6,19 +6,22 @@ import { MATERIAL_FONT } from '../theme/tokens';
  * Material Symbols icon, rendered from the exact icon font extracted from the design
  * bundle. The font uses ligatures, so the icon *name* (e.g. "chevron_right") is typed
  * directly as the glyph text — identical to the source prototype.
+ *
+ * Never apply a custom fontWeight here: only one static weight was extracted into
+ * assets/fonts (no bold companion), so requesting e.g. 700 makes Android fall back
+ * off this custom typeface entirely — the glyph then renders as literal text
+ * ("check") instead of the ligature-substituted icon.
  */
 export function Icon({
   name,
   size = 24,
   color = '#000',
   style,
-  weight,
 }: {
   name: string;
   size?: number;
   color?: string;
   style?: StyleProp<TextStyle>;
-  weight?: number;
 }) {
   return (
     <Text
@@ -34,7 +37,6 @@ export function Icon({
           letterSpacing: 0,
           ...Platform.select({ android: { includeFontPadding: false } }),
         },
-        weight != null ? { fontWeight: String(weight) as TextStyle['fontWeight'] } : null,
         style,
       ]}
     >

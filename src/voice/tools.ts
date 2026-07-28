@@ -20,6 +20,7 @@ interface PerformUiActionArgs {
   target: string;
   value?: string;
   amount?: 'small' | 'page' | 'top' | 'bottom';
+  direction?: 'up' | 'down';
 }
 
 /** Words that identify a screen's main forward action, for `continue_next`. */
@@ -43,6 +44,19 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
     // is only a floor for actions that trigger no re-render at all.
     await waitForNextPublish(250);
     const now = getCurrentScreen();
+    // Trigger the page-context push HERE, synchronously before this function
+    // returns, rather than leaving it to store.ts's/Frame.tsx's own effects.
+    // Those fire on their own schedule and were consistently landing AFTER this
+    // tool's client-tool-result — missing the server's merge-into-tool-result
+    // window (native_orchestrator.py's _pending_context_injection only merges
+    // while the tool call is still pending) and paying for a slow standalone
+    // turn on every navigation instead. agent.updatePageContext() queues its
+    // send on a microtask; because it's called before this function's own
+    // return (which is what lets executeToolCall's continuation send the tool
+    // result), that send is queued — and therefore delivered over the socket —
+    // first, so the server still sees the tool call as pending when the
+    // context update arrives and can merge them into one turn.
+    agent.updatePageContext();
     return {
       ...base,
       screen_after: now,
@@ -180,8 +194,8 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
       case 'scroll': {
         const scroller = target.scrollBy ? target : findTarget(screen, 'page', 'scroll');
         if (!scroller?.scrollBy) return { ok: false, reason: 'not_scrollable' };
-        scroller.scrollBy(args.amount || 'page');
-        return { ok: true, scrolled: args.amount || 'page' };
+        scroller.scrollBy(args.amount || 'page', args.direction || 'down');
+        return { ok: true, scrolled: args.amount || 'page', direction: args.direction || 'down' };
       }
 
       default:
@@ -223,7 +237,7 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
       'Act on ONE control on the current screen when no dedicated tool fits. Use the control\'s ' +
       'visible label as "target" (call read_screen first if unsure). Actions: "tap" a button/row/chip; ' +
       '"set_input" to type into a text field; "set_toggle" with "true"/"false"; "set_value" for a slider ' +
-      'or date (dates as YYYY-MM-DD); "scroll" to move the page.',
+      'or date (dates as YYYY-MM-DD); "scroll" to move the page (pass "direction" to scroll back up).',
     schema: {
       type: 'object',
       properties: {
@@ -231,6 +245,11 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
         target: { type: 'string', description: 'the control\'s visible on-screen label' },
         value: { type: 'string', description: 'text, "true"/"false", a number, or YYYY-MM-DD' },
         amount: { type: 'string', enum: ['small', 'page', 'top', 'bottom'], description: 'for scroll only' },
+        direction: {
+          type: 'string',
+          enum: ['up', 'down'],
+          description: 'for scroll only, with amount "small"/"page"; defaults to "down". Use "up" to scroll back up.',
+        },
       },
       required: ['action', 'target'],
     },

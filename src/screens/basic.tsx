@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Chips, Slider, ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
-import { Calendar, formatDob } from '../components/Calendar';
+import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore } from '../state/store';
@@ -15,6 +15,7 @@ const EMPS = ['Salaried', 'Self-employed', 'Business owner', 'Gig worker', 'Stud
 export default function Basic() {
   const { state, set, go, showToast } = useStore();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
+  useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
 
   const onContinue = async () => {

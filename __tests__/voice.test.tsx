@@ -198,6 +198,16 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
     expect(isSensitiveField('Enter OTP', {})).toBe(true);
   });
 
+  it('does NOT treat a postal "Pin code" as a secret, but a real PIN stays refused', () => {
+    // basic.tsx labels its field "Pin code (current address)" — a bare /pin\b/
+    // match flagged it, so the agent refused to type the user's own postal code.
+    expect(isSensitiveField('Pin code (current address)', {})).toBe(false);
+    expect(isSensitiveField('Pincode', {})).toBe(false);
+    // A real security PIN (ATM/card/UPI) must stay refused.
+    expect(isSensitiveField('ATM PIN', {})).toBe(true);
+    expect(isSensitiveField('Card PIN', {})).toBe(true);
+  });
+
   it('exposes the name, email, pincode fields and gender chips', () => {
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
@@ -233,14 +243,19 @@ describe('UC-V10 date of birth is settable in one step', () => {
     expect(labels).toContain('Pincode');
   });
 
-  it('resolves the date picker by kind, not by fuzzy-matching "Select date"', () => {
+  it('the date target is settable immediately, without opening the picker first', () => {
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
-    // The collapsed picker: only the opener button exists up front.
+    // Setting a DOB by voice should apply instantly — it shouldn't require
+    // visually opening the calendar grid first just so a settable target exists.
+    const dateTarget = listTargets('aboutyou').find(t => t.kind === 'date');
+    expect(dateTarget).toBeDefined();
+    act(() => dateTarget!.setValue!('1991-12-29'));
+    const afterSet = listTargets('aboutyou').find(t => t.kind === 'date');
+    expect(afterSet!.getValue!()).toBe('29 Dec 1991');
+    // Resolving by kind still wins over fuzzy-matching the "Select date" button.
     const byFuzzy = findTarget('aboutyou', 'Date');
-    expect(byFuzzy?.kind).toBe('button'); // this is what used to break set_date
-    // Nothing of kind 'date' until the picker is opened.
-    expect(listTargets('aboutyou').some(t => t.kind === 'date')).toBe(false);
+    expect(byFuzzy?.kind).toBe('date');
   });
 });
 
@@ -268,6 +283,15 @@ describe('UC-V11 loan amount slider on the application screen', () => {
 
     act(() => currentSlider().setValue!(99999999)); // above the 15,00,000 max
     expect(Number(currentSlider().getValue!())).toBeLessThanOrEqual(1500000);
+  });
+
+  it('the pincode field is fillable by voice, not refused as a secret', () => {
+    const Basic = require('../src/screens/basic').default;
+    renderAt('basic', <Basic />);
+    const pin = listTargets('basic').find(t => /pin code/i.test(t.label));
+    expect(pin).toBeTruthy();
+    expect(pin?.sensitive).toBeFalsy();
+    expect(pin?.setValue).toBeInstanceOf(Function);
   });
 });
 
@@ -305,5 +329,22 @@ describe('UC-V12 post-action state is reported event-driven, not on a fixed dela
     const started = Date.now();
     await waitForNextPublish(60);
     expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+  });
+});
+
+describe('UC-V13 scroll direction is respected, not just magnitude', () => {
+  it('produces a negative delta for "up" and positive for "down"', () => {
+    const { scrollDelta } = require('../src/components/Frame');
+    // Previously the delta was always positive regardless of any requested
+    // direction, so an incremental "scroll up" was structurally impossible —
+    // only jumping to the absolute top worked. Pin the sign here.
+    expect(scrollDelta('page', 'up')).toBeLessThan(0);
+    expect(scrollDelta('small', 'up')).toBeLessThan(0);
+    expect(scrollDelta('page', 'down')).toBeGreaterThan(0);
+    expect(scrollDelta('small', 'down')).toBeGreaterThan(0);
+    // Defaults to "down" when direction is omitted, for backwards compatibility.
+    expect(scrollDelta('page')).toBeGreaterThan(0);
+    // "page" moves further than "small", in either direction.
+    expect(Math.abs(scrollDelta('page', 'up'))).toBeGreaterThan(Math.abs(scrollDelta('small', 'up')));
   });
 });

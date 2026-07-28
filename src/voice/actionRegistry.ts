@@ -21,7 +21,7 @@ export interface ActionTarget {
   // as YYYY-MM-DD strings.
   setValue?: (v: string | boolean | number) => void;
   getValue?: () => string | boolean | number | undefined;
-  scrollBy?: (amount: 'small' | 'page' | 'top' | 'bottom') => void;
+  scrollBy?: (amount: 'small' | 'page' | 'top' | 'bottom', direction?: 'up' | 'down') => void;
 }
 
 const targetsByScreen = new Map<string, Map<string, ActionTarget>>();
@@ -175,10 +175,26 @@ export function buildPageContext(screen: string): Record<string, unknown> {
     // instruction, which is what the integration guide's step 3 intends.
     interactionGuide: {
       goal: `Help the user do what the SwiftLoan "${screen}" screen is for, by calling tools rather than describing steps.`,
+      // Same reasoning as `opening` below: a rule sitting only in the (much
+      // larger, static) dashboard system prompt loses out to whatever's
+      // structurally closest to the model at generation time. Observed
+      // failure this fixes: model calls select_option, sees a result whose
+      // controls_now already lists the newly-enabled "Continue with X"
+      // button, then still stops and asks the user "what else can I help
+      // with" instead of pressing it. Repeating the instruction here, fresh
+      // every turn, gives it the same recency the opening instruction has.
+      autoAdvance:
+        'If the tool result you just received shows this screen\'s forward button now enabled ' +
+        '(e.g. "Continue with X" appearing in controls_now/available_actions) because of the ' +
+        'action you just took, call continue_next yourself immediately, in this same turn — ' +
+        'before saying anything else to the user. Do not stop to ask "shall I continue?" or ' +
+        '"what else can I help with?" and wait for them to say "continue."',
       opening:
-        'As soon as the call connects, speak first without waiting for the user. ' +
-        'In one short sentence, say which SwiftLoan screen they are on and name one or two ' +
-        'things they can do here. Then stop and listen.',
+        'Speak first, right away, before the user says anything. Open warmly, like ' +
+        '"Welcome to SwiftLoan!" — then in the same short sentence, name this screen in ' +
+        'plain everyday words (never speak an internal screen id like "basicpan" or ' +
+        '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
+        'Then stop and listen.',
     },
     available_actions: targets.map(t => ({
       kind: t.kind,

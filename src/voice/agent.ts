@@ -155,11 +155,20 @@ export class ElloAgent {
       vlog('WS OPEN');
 
       const tools = this.registry.toWire();
+      const fullContext = this.pageContextFn?.() ?? {};
+      // The initial payload keeps `page`/`interactionGuide` (the backend's
+      // speak-first path is gated on a non-empty `page`) but withholds the raw
+      // `screen_overview`/`available_actions` data — otherwise the model's very
+      // first turn (the greeting) has raw screen data sitting right next to the
+      // system prompt's greeting instructions and tends to lean on reciting the
+      // former instead of following the latter. The real, full context follows
+      // moments later via updatePageContext() below, once the mic is live — in
+      // time for everything the model does after the greeting.
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
         client_tools: tools,
-        page_context: this.pageContextFn?.() ?? {},
+        page_context: { ...fullContext, screen_overview: '', available_actions: [] },
       });
       vlog('sent voice-session-start; tools=', tools.map(t => t.name));
 
@@ -187,6 +196,10 @@ export class ElloAgent {
       }
       vlog('mic.start() resolved — streaming audio');
       this.setStatus('listening');
+      // Deliver the full page_context (withheld above) shortly after the
+      // greeting-triggering message — enough of a beat that the model's first
+      // utterance is already underway before it has screen specifics to work with.
+      setTimeout(() => this.updatePageContext(), 500);
     } catch (e: any) {
       vlog('START FAILED:', e?.message || String(e));
       this.emitter.emit('error', e instanceof Error ? e : new Error(String(e)));
@@ -205,11 +218,22 @@ export class ElloAgent {
     for (const controller of this.inflight.values()) controller.abort();
     this.inflight.clear();
     this.socket?.send({ type: 'voice-session-end' });
-    this.socket?.close();
     this.teardown();
   }
 
+  // Closes the socket itself rather than relying on every caller to do it first —
+  // this is also called from handleMessage()'s "session-ended" case (the SERVER
+  // ending the session, e.g. the model calling disconnect_call), which previously
+  // only dropped our reference and left the underlying WebSocket open. That left
+  // the whole chain behind it (ai-voice-agent's bridge to assistant-service, and
+  // the native Gemini Live session) alive for minutes after the call was logically
+  // over — observed server-side as the native session staying open ~5.5 minutes
+  // past disconnect until Gemini itself killed it with a 1008 policy violation,
+  // during which usage/recording/duration data never got attached to the already-
+  // finalized call log. socket.close() on an already-closing/closed socket is a
+  // safe no-op, so this is fine to call unconditionally from either path.
   private teardown(): void {
+    this.socket?.close();
     this.socket = null;
     this.conversationId = null;
     this.setStatus('idle');

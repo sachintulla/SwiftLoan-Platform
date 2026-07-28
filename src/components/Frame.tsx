@@ -18,6 +18,12 @@ import { LogoLockup } from './Logo';
 import { colors, font, heroGradient, navGradient } from '../theme/tokens';
 import { useStore, Screen as ScreenName } from '../state/store';
 import { publishScreenGraph, registerTarget } from '../voice/actionRegistry';
+
+/** Pure so it's directly unit-testable without mounting a ScrollView. */
+export function scrollDelta(amount: 'small' | 'page', direction: 'up' | 'down' = 'down'): number {
+  const magnitude = amount === 'page' ? 700 : 220;
+  return direction === 'up' ? -magnitude : magnitude;
+}
 import { buildScreenGraph } from '../voice/screenGraph';
 import { agent } from '../voice';
 import { vlog } from '../voice/log';
@@ -141,7 +147,7 @@ export function Screen({
     return registerTarget(state.screen, 'scroll', {
       kind: 'scroll',
       label: 'page',
-      scrollBy: amount => {
+      scrollBy: (amount, direction = 'down') => {
         const node = scrollRef.current;
         if (!node) return;
         if (amount === 'top') {
@@ -152,8 +158,7 @@ export function Screen({
           node.scrollToEnd({ animated: true });
           return;
         }
-        const delta = amount === 'page' ? 700 : 220;
-        node.scrollTo({ y: Math.max(0, scrollOffsetRef.current + delta), animated: true });
+        node.scrollTo({ y: Math.max(0, scrollOffsetRef.current + scrollDelta(amount, direction)), animated: true });
       },
     });
   }, [scroll, state.screen]);
@@ -204,7 +209,7 @@ export function BrandMark({ size = 34, light = false }: { size?: number; light?:
         justifyContent: 'center',
       }}
     >
-      <Icon name="check" size={size * 0.68} color={light ? colors.primary : '#08312A'} weight={700} />
+      <Icon name="check" size={size * 0.68} color={light ? colors.primary : '#08312A'} />
     </View>
   );
 }
