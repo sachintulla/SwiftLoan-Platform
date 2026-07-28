@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">SwiftLoan</string>
+    <!-- app_name is provided by build.gradle resValue (see defaultConfig) so the
+         context build can override the label via -PappLabel. -->
 </resources>

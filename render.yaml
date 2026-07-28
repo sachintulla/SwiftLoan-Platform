@@ -1,0 +1,67 @@
+# Render Blueprint — deploys the SwiftLoan API (server/) and admin dashboard (admin/).
+# One-time setup: Render dashboard → New → Blueprint → connect this repo.
+# Then set the two `sync: false` secrets (DATABASE_URL, NEXT_PUBLIC_API_BASE) in the UI.
+services:
+  # ── API (Express + Prisma) ──────────────────────────────────────────────
+  - type: web
+    name: swiftloan-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install --include=dev && npx prisma generate
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL          # paste your Neon URL here in the Render UI
+        sync: false
+      - key: NODE_ENV
+        value: production
+      # Demo/mock loan app: accept a fixed OTP (123456) and surface it to the client
+      # so testers can log in without real SMS. Remove for a real production launch.
+      - key: DEMO_LOGIN
+        value: "true"
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ADMIN_JWT_SECRET
+        generateValue: true
+      - key: ACCESS_TTL
+        value: "900"
+      - key: REFRESH_TTL_DAYS
+        value: "30"
+
+  # ── Admin dashboard (Next.js) ───────────────────────────────────────────
+  - type: web
+    name: swiftloan-admin
+    runtime: node
+    plan: free
+    rootDir: admin
+    buildCommand: npm install --include=dev && npm run build
+    # Next reads $PORT from the environment; Render provides it.
+    startCommand: npx next start -p $PORT
+    envVars:
+      # Set this to the API service's public URL after its first deploy,
+      # e.g. https://swiftloan-api.onrender.com  (then redeploy this service).
+      - key: NEXT_PUBLIC_API_BASE
+        sync: false
+      # Ello voice-navigation widget. NEXT_PUBLIC_* are baked into the client
+      # bundle at build time (already client-exposed), so they're set here to make
+      # the mic live on the deployed dashboard without a manual Render step.
+      # The assistant must stay "Native Mode (Gemini Live)" for tool-calling.
+      - key: NEXT_PUBLIC_ELLO_API_KEY
+        value: ak_txW3kjj3L-xpYACyvGn8K9ua9pvnHyYBaSeXc15H3DI.OASqN2c_yaFbkuYl
+      - key: NEXT_PUBLIC_ELLO_ASSISTANT_ID
+        value: 6a64d273a4fc43f6203cd3cc
+      - key: NEXT_PUBLIC_ELLO_API_BASE
+        value: https://api-dev.getello.ai
+      - key: NEXT_PUBLIC_ELLO_WS_URL
+        value: wss://connect-dev.getello.ai/ws-ello
+
+  # ── Marketing website (static swiftloan.ai site + Ello voice guide) ──────
+  - type: web
+    name: swiftloan-website
+    runtime: static
+    rootDir: website
+    buildCommand: "echo static site, no build step"
+    staticPublishPath: .

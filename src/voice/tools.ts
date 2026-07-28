@@ -348,8 +348,8 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
     'Navigate to a named app screen: home, loans, fare, help, profile, basic, basicpan, offers, ' +
-    'kyc, aadhaar, panv, bankv, selfie, status, disbursed, repay, creditscore, mobile, permissions, ' +
-    'aboutyou, language, intro. Prefer tapping a visible control when one exists.';
+    'handoff, kyc, aadhaar, panv, bankv, selfie, status, disbursed, repay, creditscore, mobile, ' +
+    'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
 
   const navHandler = ({ screen }: { screen: string }) => {
     const went = navigateToScreen(screen);

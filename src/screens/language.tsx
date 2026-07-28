@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';

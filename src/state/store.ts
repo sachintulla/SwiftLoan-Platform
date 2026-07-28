@@ -6,7 +6,12 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
-import { trackEvent, trackOnboardingStep, trackLoanStep } from '../api/client';
+import { Platform, AppState as RNAppState, Linking } from 'react-native';
+import {
+  trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
+  trackLoanStep, fetchContext, type ContextPayload,
+} from '../api/client';
+import { BUILD } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
@@ -70,6 +75,9 @@ export interface AppState {
   applicationId: string | null;
   selectedOfferId: string | null;
   loanId: string | null;
+  // WS3 context-aware install (context build only)
+  contextLoaded: boolean;
+  contextData: ContextPayload | null;
 }
 
 export const initialState: AppState = {
@@ -95,12 +103,26 @@ export const initialState: AppState = {
   pdPhone: '+91 98765 43210', pdDob: '1988-05-15',
   pdDobOpen: false, pdCalY: 1988, pdCalM: 4,
   authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
+  contextLoaded: false, contextData: null,
 };
 
 type Action =
   | { type: 'set'; patch: Partial<AppState> }
   | { type: 'go'; screen: Screen }
   | { type: 'reset' };
+
+// WS4 tracking maps — screen → funnel event, and onboarding step numbers.
+// Used only to emit fire-and-forget analytics; no effect on navigation.
+const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
+  language: 1, mobile: 2, otp: 3, permissions: 4, aboutyou: 5, home: 6,
+};
+const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
+  basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
+  offers: 'offers_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
+  aadhaar: 'kyc_submitted', panv: 'kyc_submitted', bankv: 'kyc_submitted', selfie: 'kyc_submitted',
+  status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
+  creditscore: 'credit_score_viewed',
+};
 
 // Exposed for unit tests.
 export const PREV_MAP = PREV;
@@ -140,6 +162,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const timers = useRef<{ [k: string]: ReturnType<typeof setTimeout> }>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WS4 tracking bookkeeping (fire-and-forget analytics only).
+  const pagesVisited = useRef(0);
+  const screenEnteredAt = useRef(Date.now());
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
 
@@ -212,6 +237,81 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return true;
     });
     agent.registerPageContext(() => buildPageContext(stateRef.current.screen));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── WS4: start a tracking session on app boot; end it when backgrounded ──
+  useEffect(() => {
+    trackSessionStart({
+      platform: Platform.OS,
+      osVersion: String(Platform.Version),
+      appVersion: '1.0',
+    });
+    const sub = RNAppState.addEventListener('change', (s) => {
+      if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
+    });
+    return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
+  }, []);
+
+  // ── WS4: emit an event on every screen transition (fire-and-forget) ──
+  useEffect(() => {
+    const screen = state.screen;
+    pagesVisited.current += 1;
+    const spent = Math.max(0, Math.round((Date.now() - screenEnteredAt.current) / 1000));
+    screenEnteredAt.current = Date.now();
+
+    trackEvent('navigation', 'screen_view', screen);
+
+    const funnelName = FUNNEL_EVENTS[screen];
+    if (funnelName) {
+      trackEvent('funnel', funnelName, screen, {
+        applicationId: stateRef.current.applicationId,
+        loanId: stateRef.current.loanId,
+      });
+    }
+    const stepNum = ONBOARDING_STEPS[screen];
+    if (stepNum) trackOnboardingStep(stepNum, screen, 'completed', spent);
+  }, [state.screen]);
+
+  // ── WS3: context-aware install ──
+  // If this is the context build and the app was opened via a tracked link
+  // (swiftloan://onboard?token=XXX), resolve the saved journey server-side and
+  // continue it: prefill what the user told the website/agent, greet them, and
+  // jump straight into the loan application instead of neutral onboarding.
+  useEffect(() => {
+    if (!BUILD.CONTEXT_ENABLED) return;
+    let done = false;
+
+    const applyContext = async (url: string | null) => {
+      if (done || !url) return;
+      const m = url.match(/[?&]token=([^&#]+)/i);
+      if (!m) return;
+      const token = decodeURIComponent(m[1]);
+      const ctx = await fetchContext(token);
+      if (!ctx || done) return;
+      done = true;
+
+      const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);
+      const rupees = ctx.amount ? Math.round(ctx.amount / 100) : undefined;
+      dispatch({
+        type: 'set',
+        patch: {
+          contextLoaded: true,
+          contextData: ctx,
+          ...(first ? { basicFirst: first, aboutName: ctx.name ?? '', pdName: ctx.name ?? '' } : {}),
+          ...(rest.length ? { basicLast: rest.join(' ') } : {}),
+          ...(rupees ? { appAmount: rupees, fareAmount: rupees } : {}),
+        },
+      });
+      trackEvent('funnel', 'agent_context_loaded', 'basic', { token, source: ctx.source });
+      // Continue the journey: land on the loan-application start, pre-filled.
+      dispatch({ type: 'go', screen: 'basic' });
+      showToast(ctx.greeting);
+    };
+
+    Linking.getInitialURL().then(applyContext).catch(() => {});
+    const sub = Linking.addEventListener('url', (e) => applyContext(e.url));
+    return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

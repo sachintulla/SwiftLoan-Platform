@@ -109,4 +109,14 @@ fileignoreconfig:
   checksum: d55930fd2a94480bd76c72bc1362fa61f2d7133febd1413fea23da8f5a398b7a
 - filename: website/css/styles.css
   checksum: df987503cbe1f7f01b00eddd898e9b76ea0b4ab181e6e5a0a951e91760aedca1
+- filename: PROJECT-STATUS.md
+  checksum: 2b6d7101f08e525c7780cc8ecea8533f15b71639d95cd8e4474cefe05492c63f
+- filename: render.yaml
+  checksum: a6eade70f599e0c532e9019a4314e09e536edbe7af1482f07af38b247c6a639b
+- filename: prompts/ello-admin-navigator-prompt.md
+  checksum: 80397febe39839a08dbfdcfef2792b7c793d5a278de87f64e4aef3b925941056
+- filename: WS3-CONTEXT-INSTALL.md
+  checksum: 6a5e8cde7bd831b2f429fea87eaef922b3c0f8dc58a638cdaea848109c3deb16
+- filename: prompts/voice-agent-prompts.md
+  checksum: 2cb9e4fe68b67502c6e74f88ab1754204c8bf860d4a31f160c01295e34705d28
 version: "1.0"

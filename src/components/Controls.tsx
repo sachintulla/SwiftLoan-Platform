@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from './Icon';
-import { colors, font, navGradient, radius } from '../theme/tokens';
+import { colors, font, navGradient } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { registerTarget } from '../voice/actionRegistry';
 import { useVoiceTarget } from '../voice/useVoiceTarget';

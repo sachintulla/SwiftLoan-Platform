@@ -117,7 +117,7 @@ export default function Basic() {
 
         {/* Consent */}
         <View style={{ marginTop: 22 }}>
-          <ConsentRow checked={state.panConsent} onChange={v => set({ panConsent: v })}>
+          <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>
             I agree to the Terms & Conditions and consent to SwiftLoan fetching my credit information from{' '}
             <Text style={{ color: colors.primary }}>TransUnion CIBIL</Text> and <Text style={{ color: colors.primary }}>CRIF Highmark</Text>, and sharing it with lending partners for this application.
           </ConsentRow>

@@ -25,8 +25,9 @@ async function createOtp(phone: string, userId?: string) {
   await prisma.otpToken.create({
     data: { phone, userId, codeHash: sha256(code), expiresAt: new Date(Date.now() + 5 * 60_000) },
   });
-  // In production this is sent via SMS. In dev we surface it for the demo login (123456).
-  return env.isProd ? undefined : code;
+  // In production this is sent via SMS. In dev (or when DEMO_LOGIN=true) we surface
+  // it so the app can show the demo OTP (123456).
+  return env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
 }
 
 /** Register a new user by phone (+ optional email/password) and send an OTP. */

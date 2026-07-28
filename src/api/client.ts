@@ -210,61 +210,6 @@ export const api = {
 };
 
 /**
- * Fire-and-forget tracking calls — never await, never block UI.
- */
-export function trackEvent(
-  eventType: string,
-  eventName: string,
-  screen: string,
-  metadata?: Record<string, unknown>
-): void {
-  request('POST', '/track/event', { event_type: eventType, event_name: eventName, screen, metadata }).catch(() => {});
-}
-
-export function trackOnboardingStep(
-  stepNumber: number,
-  stepName: string,
-  status: 'completed' | 'paused',
-  timeSpentSeconds: number,
-  dropOffReason?: string
-): void {
-  request('POST', '/track/onboarding/step', {
-    step_number: stepNumber,
-    step_name: stepName,
-    status,
-    time_spent_seconds: timeSpentSeconds,
-    drop_off_reason: dropOffReason,
-  }).catch(() => {});
-}
-
-export function trackLoanStep(
-  loanId: string,
-  stepName: string,
-  status: 'completed' | 'paused',
-  timeSpentSeconds: number,
-  holdReason?: string
-): void {
-  request('POST', '/track/loan/step', {
-    loan_id: loanId,
-    step_name: stepName,
-    status,
-    time_spent_seconds: timeSpentSeconds,
-    hold_reason: holdReason,
-  }).catch(() => {});
-}
-
-export function trackSessionStart(deviceInfo?: Record<string, unknown>): void {
-  request('POST', '/track/session/start', { platform: 'mobile', device_info: deviceInfo }).catch(() => {});
-}
-
-export function trackSessionEnd(
-  sessionId: string,
-  pagesVisited?: Array<{ screen: string; timestamp: number; timeSpentSeconds: number }>
-): void {
-  request('POST', '/track/session/end', { session_id: sessionId, pages_visited: pagesVisited }).catch(() => {});
-}
-
-/**
  * Guarantee an authenticated session exists before an authed call. Used by the
  * "Skip for now — explore the app" path so the funnel/profile still work without
  * an explicit login: it provisions an anonymous demo account (dev OTP 123456).
@@ -292,4 +237,117 @@ export async function ensureSession(): Promise<void> {
     }
     throw e;
   }
+}
+
+// ─────────────────────────── WS4 activity tracking ───────────────────────────
+// Fire-and-forget instrumentation feeding the admin dashboard's funnel/analytics.
+// These NEVER throw and NEVER block the UI — every call is wrapped and swallowed.
+//
+// Tracking posts to the deployed API by default so events from a physical device
+// reach the live dashboard. Override with (globalThis).SWIFTLOAN_TRACK_BASE for
+// local testing, e.g. 'http://10.0.2.2:4000/api'.
+export const TRACK_BASE: string =
+  (globalThis as any).SWIFTLOAN_TRACK_BASE || 'https://swiftloan-api.onrender.com/api';
+
+let sessionId: string | null = null;
+export const getSessionId = () => sessionId;
+
+// Low-level fire-and-forget POST. Short timeout; errors are silently ignored.
+function trackPost(path: string, body: Record<string, unknown>): Promise<any> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
+  return fetch(TRACK_BASE + path, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: ctrl ? ctrl.signal : undefined,
+  })
+    .then((r) => r.json().catch(() => ({})))
+    .catch(() => ({}))
+    .finally(() => { if (timer) clearTimeout(timer); });
+}
+
+export function trackSessionStart(deviceInfo: Record<string, unknown>): void {
+  trackPost('/track/session/start', { device_info: deviceInfo }).then((r) => {
+    const id = r?.data?.session_id ?? r?.session_id;
+    if (id) sessionId = id;
+  });
+}
+
+export function trackSessionEnd(pagesVisited?: number): void {
+  if (!sessionId) return;
+  trackPost('/track/session/end', { session_id: sessionId, pages_visited: pagesVisited });
+}
+
+export function trackEvent(
+  eventType: string,
+  eventName: string,
+  screen?: string,
+  metadata?: Record<string, unknown>,
+): void {
+  trackPost('/track/event', {
+    event_type: eventType,
+    event_name: eventName,
+    screen,
+    session_id: sessionId,
+    metadata,
+  });
+}
+
+export function trackOnboardingStep(
+  stepNumber: number,
+  stepName: string,
+  status: 'started' | 'completed' | 'skipped' | 'abandoned' | 'failed',
+  timeSpentSeconds = 0,
+): void {
+  trackPost('/track/onboarding/step', {
+    step_number: stepNumber,
+    step_name: stepName,
+    status,
+    time_spent_seconds: timeSpentSeconds,
+    session_id: sessionId,
+  });
+}
+
+// WS3: resolve a context token (from an install deep link) into the saved
+// journey — name, product, amount, and a ready-to-speak greeting. Returns null
+// if the token is unknown/expired. Never throws.
+export interface ContextPayload {
+  token: string;
+  name: string | null;
+  city: string | null;
+  product: string | null;
+  amount: number | null; // paise
+  summary: string | null;
+  source: string;
+  greeting: string;
+}
+export async function fetchContext(token: string): Promise<ContextPayload | null> {
+  try {
+    const res = await fetch(`${API_BASE}/context/${encodeURIComponent(token)}`);
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    return (json && json.data) ? (json.data as ContextPayload) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function trackLoanStep(
+  loanId: string | null,
+  stepName: string,
+  status: string,
+  timeSpentSeconds = 0,
+  holdReason?: string,
+): void {
+  trackPost('/track/loan/step', {
+    loan_id: loanId,
+    step_name: stepName,
+    status,
+    time_spent_seconds: timeSpentSeconds,
+    hold_reason: holdReason,
+  });
 }

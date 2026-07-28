@@ -27,6 +27,9 @@ ios/Podfile.lock
 android/local.properties
 android/app/debug/
 android/app/release/
+android/app/build/
+android/app/.cxx/
+android/local.properties
 *.keystore
 !debug.keystore
 
@@ -50,3 +53,7 @@ admin/out/
 
 # Jest coverage
 coverage/
+
+# APK build outputs (hosted on GitHub Releases, not git — 100MB limit)
+dist/
+android/app/src/main/assets/index.android.bundle

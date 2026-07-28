@@ -23,6 +23,14 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- WS3 context handoff: swiftloan://onboard?token=XXX opens the app with
+             the visitor's saved journey (resolved server-side by lead token). -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="swiftloan" android:host="onboard" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>
