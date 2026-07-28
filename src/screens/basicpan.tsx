@@ -79,7 +79,7 @@ export default function BasicPan() {
         <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 6 }]}>Type your PAN, or upload the card above to auto-fill it.</Text>
 
         <View style={styles.consentBox}>
-          <ConsentRow checked={state.panConsent} onChange={v => set({ panConsent: v })}>
+          <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>
             <Text style={[font(700), { color: colors.text }]}>🔒 This will NOT affect your credit score{'\n'}</Text>
             We run a soft enquiry only — it does not hit your CIBIL or impact your score in any way. I authorise SwiftLoan to share these details with its lending partners to find the best offers for me.
           </ConsentRow>

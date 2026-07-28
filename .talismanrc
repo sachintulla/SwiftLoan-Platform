@@ -1,0 +1,34 @@
+fileignoreconfig:
+- filename: voiceCredentials.local.example.js
+  checksum: db3db77450bad95b90739759c74a92121c03d3ec45837c8bcc6e4295c8c3f8d7
+- filename: src/voice/types.ts
+  checksum: bb8f2d2d82b29ffa4df5aa99415fdc4fb7867f2dfc7a5525e08379a024bbbfdc
+- filename: src/voice/transport/sessionApi.ts
+  checksum: e14bad244663e13ca8b77774a30115cccc7484d96e90b820d6e2f0b15f1d1777
+- filename: src/voice/index.ts
+  checksum: 4129e2a82bb1f51827656314b634847f3df3a3705e2463296e7ff76a7182e634
+- filename: src/voice/events.ts
+  checksum: 4ce02342006846db989db7c8edabcb4f4c6720633901021dbe6b74c038fb347d
+- filename: src/voice/registry.ts
+  checksum: 612ff6e342d40bb09c7a8b041aec57e99862deba44deb17de1814cbdc061601b
+- filename: ios/SwiftLoan/Info.plist
+  checksum: dd75f06d4fbda116fc1eab501c4b4a32a5f656a495809374fc16be2f7276ff20
+- filename: src/voice/sensitive.ts
+  checksum: 968238190dbb80b102f9a0f3b665fe77aaafbcd38ca0ce41096d0efeb558fe04
+- filename: src/voice/config.ts
+  checksum: c07d8cfcf4913a6421f745bccecb282fe7d31e0057bd611c8f003422a31d7406
+- filename: ios/SwiftLoan/Voice/VoiceAudioModule.swift
+  checksum: f2411ea5f11b001c21f52031d670a011b35b463e501de0f0857b99f9f1b8e7c8
+- filename: __tests__/voice.test.tsx
+  checksum: 7b0541b9a2ea73541b83d14f7b5b5ffac612a230aeb1c7a9aaba2d5596164b75
+- filename: src/components/Controls.tsx
+  checksum: c92223d97d1cd6c8ee029355852e8f79cf744a1f5b165d862b2e54101d8f4bd5
+- filename: src/voice/tools.ts
+  checksum: b1f330e76f9b11e1e517bac1f188722f6f6435e4242fc75734baa11a49bc5f28
+- filename: src/api/client.ts
+  checksum: 443ff368ee745bbbbcaae4793299dbdb15780e4504034cc230f6864737624183
+- filename: src/voice/agent.ts
+  checksum: c86034ec655a8e9336a6261316e08a8afd4983eb87dff50d0154988cb58bba25
+- filename: src/voice/actionRegistry.ts
+  checksum: aab69ffb51956e601774f6d1aefd6b81689abb04db8e028f296a744df44de425
+version: "1.0"

@@ -1,0 +1,7 @@
+# GitHub Pages (Jekyll) build config.
+# These paths are kept in version control but NOT published to the live website
+# (internal / non-web assets). Everything else is served normally.
+exclude:
+  - prompts/
+  - tests/
+  - README.md

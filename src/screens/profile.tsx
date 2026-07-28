@@ -256,7 +256,7 @@ function ToggleRow({ title, sub, value, onChange, last }: { title: string; sub: 
         <Text style={[font(600), { fontSize: 14, color: colors.text }]}>{title}</Text>
         <Text style={[font(400), { fontSize: 11.5, color: colors.textSoft }]}>{sub}</Text>
       </View>
-      <Toggle value={value} onChange={onChange} />
+      <Toggle value={value} onChange={onChange} label={title} />
     </View>
   );
 }

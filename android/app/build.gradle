@@ -84,6 +84,11 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // WS3: build two coexisting installs from one codebase. Pass
+        //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
+        // for the context build; defaults give the standard app.
+        if (project.hasProperty("appIdSuffix")) { applicationIdSuffix project.getProperty("appIdSuffix") }
+        resValue "string", "app_name", (project.findProperty("appLabel") ?: "SwiftLoan")
     }
     signingConfigs {
         debug {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,13 +10,17 @@ import {
   StyleProp,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient, navGradient } from '../theme/tokens';
-import { useStore, useT, Screen as ScreenName } from '../state/store';
+import { useStore, Screen as ScreenName } from '../state/store';
+import { publishScreenGraph, registerTarget } from '../voice/actionRegistry';
+import { buildScreenGraph } from '../voice/screenGraph';
+import { agent } from '../voice';
+import { vlog } from '../voice/log';
 
 /* ─────────────────────────────────────────────────────────────
  * App background — the layered radial + linear gradient ground used on all
@@ -96,14 +100,71 @@ export function Screen({
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const { state } = useStore();
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
   const Bg =
     variant === 'hero' ? HeroBackground : variant === 'plain' ? React.Fragment : AppBackground;
   const barStyle = variant === 'hero' ? 'light-content' : 'dark-content';
   const pad = padded ? { paddingHorizontal: 18 } : null;
   const bottomPad = { paddingBottom: (bottomNav ? 92 : 24) + insets.bottom };
 
+  // Auto-discover every interactive element this screen rendered, so the voice
+  // agent can address controls the shared primitives never wrap (most screens
+  // build their rows from raw <Pressable>). Runs whenever the tree changes.
+  useEffect(() => {
+    try {
+      const graph = buildScreenGraph(children);
+      // Only notify the agent when the control set actually changed — otherwise
+      // every keystroke would push a client-tools-update over the socket.
+      if (publishScreenGraph(state.screen, graph.elements, graph.texts)) {
+        vlog(
+          'discovered',
+          graph.elements.length,
+          'controls on',
+          state.screen,
+          '->',
+          graph.elements.map(e => `${e.kind}:${e.label}`).slice(0, 14),
+        );
+        agent.updatePageContext();
+      }
+    } catch {
+      // discovery is best-effort — never break rendering over it
+    }
+  }, [children, state.screen]);
+
+  // Registers this screen's scroll container as a voice-agent target — the RN
+  // equivalent of the web SDK never needing one (browsers already scroll by
+  // dispatching wheel/key events at the DOM; RN has no such generic hook).
+  useEffect(() => {
+    if (!scroll) return undefined;
+    return registerTarget(state.screen, 'scroll', {
+      kind: 'scroll',
+      label: 'page',
+      scrollBy: amount => {
+        const node = scrollRef.current;
+        if (!node) return;
+        if (amount === 'top') {
+          node.scrollTo({ y: 0, animated: true });
+          return;
+        }
+        if (amount === 'bottom') {
+          node.scrollToEnd({ animated: true });
+          return;
+        }
+        const delta = amount === 'page' ? 700 : 220;
+        node.scrollTo({ y: Math.max(0, scrollOffsetRef.current + delta), animated: true });
+      },
+    });
+  }, [scroll, state.screen]);
+
   const inner = scroll ? (
     <ScrollView
+      ref={scrollRef}
+      onScroll={e => {
+        scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+      }}
+      scrollEventThrottle={16}
       style={{ flex: 1 }}
       contentContainerStyle={[{ paddingTop: insets.top + 8 }, pad, bottomPad, contentStyle]}
       showsVerticalScrollIndicator={false}
@@ -173,8 +234,17 @@ export function AppHeader({
   right?: React.ReactNode;
   light?: boolean;
 }) {
-  const { back } = useStore();
+  const { state, back } = useStore();
   const tint = light ? '#fff' : colors.text;
+  // The back button lives inside AppHeader (not in <Screen>'s children), so the
+  // screen-graph walk can't see it. Register it so the go_back voice tool resolves.
+  useEffect(() => {
+    return registerTarget(state.screen, 'header:back', {
+      kind: 'button',
+      label: 'Back',
+      onTap: onBack || back,
+    });
+  }, [state.screen, onBack, back]);
   return (
     <View style={styles.header}>
       <Pressable
@@ -212,6 +282,18 @@ const NAV_TABS: { key: ScreenName; icon: string; label: string }[] = [
 export function BottomNav() {
   const { state, go } = useStore();
   const insets = useSafeAreaInsets();
+  // BottomNav is rendered as a sibling of <Screen>'s children, so the screen-graph
+  // walk never discovers it. Self-register the tabs so voice can "tap Home/Loans/Profile".
+  useEffect(() => {
+    const cleanups = NAV_TABS.map(tab =>
+      registerTarget(state.screen, `nav:${tab.key}`, {
+        kind: 'button',
+        label: tab.label,
+        onTap: () => go(tab.key),
+      }),
+    );
+    return () => cleanups.forEach(fn => fn());
+  }, [state.screen, go]);
   return (
     <View style={[styles.navWrap, { paddingBottom: insets.bottom || 16 }]} pointerEvents="box-none">
       <View style={styles.navBar}>
