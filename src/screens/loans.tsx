@@ -91,8 +91,8 @@ export default function Loans() {
                 ref_={`Ref ${app.ref}`}
                 status={meta.label}
                 statusColor={meta.color}
-                left={{ label: 'Amount', value: rupee(app.amount) }}
-                right={app.loan ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) } : { label: 'Applied', value: applied }}
+                left={{ label: 'Amount', value: rupee(app.amount / 100) }}
+                right={app.loan ? { label: 'Next EMI', value: rupee(app.loan.emiAmount / 100) } : { label: 'Applied', value: applied }}
                 onPress={() => open(app)}
               />
             );

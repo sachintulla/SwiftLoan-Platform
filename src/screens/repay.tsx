@@ -39,15 +39,15 @@ export default function Repay() {
   const summary = L?.summary;
   const nextDue = loan?.repayments?.find((r: any) => r.status !== 'paid');
   const refLabel = loan ? `Active Loan · #${loan.ref}` : 'Active Loan · #SL-88429';
-  const nextAmount = nextDue ? `${rupee(nextDue.amount)}.00` : '₹1,240.00';
+  const nextAmount = nextDue ? `${rupee(nextDue.amount / 100)}.00` : '₹1,240.00';
   const nextDueLabel = nextDue
     ? 'Due ' + new Date(nextDue.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'Due Oct 15, 2023';
   const pctTarget = summary ? summary.progressPct : 65;
   const repaidPct = Math.round(pctTarget * t);
-  const principalTarget = summary ? summary.repaid : 32500;
-  const remainingTarget = summary ? summary.outstanding : 17500;
-  const interestTarget = loan ? Math.round(loan.principal * 0.027) : 4120;
+  const principalTarget = summary ? summary.repaid / 100 : 32500; // server = paise
+  const remainingTarget = summary ? summary.outstanding / 100 : 17500;
+  const interestTarget = loan ? Math.round((loan.principal / 100) * 0.027) : 4120;
 
   return (
     <Screen scroll padded={false}>

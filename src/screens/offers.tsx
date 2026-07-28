@@ -40,11 +40,11 @@ export default function Offers() {
         tag: o.tag || '',
         verified: o.recommended,
         recommended: o.recommended,
-        amount: rupee(o.amount),
+        amount: rupee(o.amount / 100), // server amounts are paise
         apr: `${o.apr}%`,
-        emi: rupee(o.emi),
+        emi: rupee(o.emi / 100),
         tenure: `${o.tenureMonths} Months`,
-        fee: `₹${o.processingFee.toFixed(2)}`,
+        fee: `₹${o.processingFee.toFixed(2)}`, // processingFee is already rupees
       }));
       setOffers(vm);
     } catch (e: any) {
