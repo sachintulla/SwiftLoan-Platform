@@ -17,9 +17,28 @@ services:
       - key: NODE_ENV
         value: production
       # Demo/mock loan app: accept a fixed OTP (123456) and surface it to the client
-      # so testers can log in without real SMS. Remove for a real production launch.
+      # so testers can log in without real SMS. IGNORED once an SMS provider below
+      # is configured (real OTP takes priority). Remove for a real production launch.
       - key: DEMO_LOGIN
         value: "true"
+      # ── Real OTP delivery (optional) ──────────────────────────────────
+      # Set SMS_PROVIDER to "msg91" (India) or "twilio", then fill the matching
+      # secrets in the Render UI. Once set, OTPs are sent by SMS and never
+      # returned to the client. Leave unset for the demo OTP path above.
+      - key: SMS_PROVIDER
+        sync: false
+      - key: MSG91_AUTHKEY
+        sync: false
+      - key: MSG91_SENDER
+        sync: false
+      - key: MSG91_TEMPLATE_ID
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET

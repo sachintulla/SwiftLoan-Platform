@@ -222,6 +222,78 @@ adminRouter.get('/onboarding/:userId', ah(async (req, res) => {
   return ok(res, { steps, events }, 'Onboarding journey');
 }));
 
+// ─────────────────────────── drop-off ───────────────────────────
+
+// Human labels for the app's route names, so the dashboard reads sensibly.
+const SCREEN_LABELS: Record<string, string> = {
+  splash: 'Splash', language: 'Language select', intro: 'Intro',
+  mobile: 'Mobile number', otp: 'OTP verification', permissions: 'Permissions',
+  aboutyou: 'About you', home: 'Home', basic: 'Loan details', basicpan: 'PAN details',
+  finding: 'Finding offers', offers: 'Offers', handoff: 'Lender handoff',
+  kyc: 'KYC', aadhaar: 'Aadhaar', panv: 'PAN verify', bankv: 'Bank verify',
+  selfie: 'Selfie', disbursed: 'Disbursed', repay: 'Repayment', creditscore: 'Credit score',
+  loans: 'My loans', profile: 'Profile', help: 'Help', fare: 'EMI calculator', status: 'Status',
+};
+
+// GET /api/admin/analytics/dropoff?idleMinutes=30
+// Where users abandon: sessions grouped by the last screen they were on, that
+// never reached a terminal screen and are either ended or idle past a threshold.
+adminRouter.get('/analytics/dropoff', ah(async (req, res) => {
+  const idleMinutes = Math.max(1, Number(req.query.idleMinutes ?? 30) || 30);
+  const idleBefore = new Date(Date.now() - idleMinutes * 60_000);
+
+  // A drop-off = not completed (reachedEnd false), has a known lastScreen, and is
+  // no longer active (explicitly ended OR idle past the threshold).
+  const where = {
+    reachedEnd: false,
+    lastScreen: { not: null },
+    OR: [{ endedAt: { not: null } }, { lastActiveAt: { lt: idleBefore } }],
+  };
+
+  const [grouped, droppedTotal, allSessions] = await Promise.all([
+    prisma.session.groupBy({ by: ['lastScreen'], where, _count: { _all: true } }),
+    prisma.session.count({ where }),
+    prisma.session.count(),
+  ]);
+
+  const byScreen = grouped
+    .map((g) => ({
+      screen: g.lastScreen as string,
+      label: SCREEN_LABELS[g.lastScreen as string] ?? (g.lastScreen as string),
+      count: g._count._all,
+      pctOfDropped: droppedTotal > 0 ? Math.round((g._count._all / droppedTotal) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  return ok(res, {
+    idleMinutes,
+    droppedTotal,
+    totalSessions: allSessions,
+    dropOffRate: allSessions > 0 ? Math.round((droppedTotal / allSessions) * 1000) / 10 : 0,
+    topDropScreen: byScreen[0] ?? null,
+    byScreen,
+  }, 'Drop-off by screen');
+}));
+
+// GET /api/admin/analytics/dropoff/sessions?screen=&page=&pageSize=
+// The individual abandoned sessions (optionally for one screen) — who dropped and where.
+adminRouter.get('/analytics/dropoff/sessions', ah(async (req, res) => {
+  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const idleMinutes = Math.max(1, Number(req.query.idleMinutes ?? 30) || 30);
+  const idleBefore = new Date(Date.now() - idleMinutes * 60_000);
+  const where: Record<string, unknown> = {
+    reachedEnd: false,
+    lastScreen: req.query.screen ? String(req.query.screen) : { not: null },
+    OR: [{ endedAt: { not: null } }, { lastActiveAt: { lt: idleBefore } }],
+  };
+  const [rows, total] = await Promise.all([
+    prisma.session.findMany({ where, orderBy: { lastActiveAt: 'desc' }, skip, take }),
+    prisma.session.count({ where }),
+  ]);
+  const withLabels = rows.map((s) => ({ ...s, lastScreenLabel: SCREEN_LABELS[s.lastScreen ?? ''] ?? s.lastScreen }));
+  return ok(res, { rows: withLabels }, 'Drop-off sessions', paginate(page, pageSize, total));
+}));
+
 // ─────────────────────────── leads ───────────────────────────
 
 // GET /api/admin/leads?status=&source=&search=&page=&pageSize=
