@@ -16,6 +16,10 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+      # Demo/mock loan app: accept a fixed OTP (123456) and surface it to the client
+      # so testers can log in without real SMS. Remove for a real production launch.
+      - key: DEMO_LOGIN
+        value: "true"
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
