@@ -84,9 +84,16 @@ export default function Mobile() {
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, '').slice(-1);
-    const next = [...otp];
-    next[i] = d;
-    setOtp(next);
+    // Functional update: several digits can be set back-to-back in the same
+    // tick (the voice agent fills all 6 boxes in one batch), and building
+    // `next` off the `otp` closure instead of the latest pending state meant
+    // each call clobbered the previous one — only the last-applied digit
+    // ever stuck. This composes correctly regardless of call order/timing.
+    setOtp(prev => {
+      const next = [...prev];
+      next[i] = d;
+      return next;
+    });
     if (d && i < 5) boxes.current[i + 1]?.focus();
   };
 

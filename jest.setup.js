@@ -35,6 +35,25 @@ jest.mock('react-native-svg', () => {
   };
 });
 
+// react-native-webrtc → its real module wraps a native NativeEventEmitter
+// that doesn't exist in the Jest env (throws "requires a non-null argument").
+// Only src/voice/transports/webrtc/ imports this; nothing in it is exercised
+// by the existing test suite, so a minimal no-op stub is enough.
+jest.mock('react-native-webrtc', () => ({
+  __esModule: true,
+  RTCPeerConnection: class {
+    createOffer() { return Promise.resolve({ type: 'offer', sdp: '' }); }
+    setLocalDescription() { return Promise.resolve(); }
+    setRemoteDescription() { return Promise.resolve(); }
+    addIceCandidate() { return Promise.resolve(); }
+    addTrack() {}
+    close() {}
+  },
+  RTCSessionDescription: class {},
+  RTCIceCandidate: class {},
+  mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [], getAudioTracks: () => [] }) },
+}));
+
 // Silence the animation frame warnings in the jsdom-less RN test env.
 global.requestAnimationFrame = global.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
 global.cancelAnimationFrame = global.cancelAnimationFrame || ((id) => clearTimeout(id));

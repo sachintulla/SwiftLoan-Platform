@@ -102,3 +102,20 @@ export interface PcmPlayer {
 }
 
 export type ConfirmFn = (message: string) => Promise<boolean>;
+
+// Structural contract both ./agent.ts's ElloAgent and any alternate transport
+// (e.g. transports/webrtc/WebRTCAgent) implement, so tool-registration code
+// (tools.ts) works with either without depending on a concrete transport
+// class — the thing that actually needs to stay swappable per transport is
+// audio/session plumbing, not this surface.
+export interface AgentLike {
+  registerTool<TArgs>(def: ClientToolOptions<TArgs>): void;
+  unregisterTool(name: string): void;
+  registerPageContext(fn: PageContextProvider): void;
+  updatePageContext(): void;
+  on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void;
+  setMuted(muted: boolean): void;
+  getStatus(): AgentStatus;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}

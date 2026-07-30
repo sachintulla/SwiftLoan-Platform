@@ -10,10 +10,9 @@
 // auto-discovered from the rendered tree (screenGraph.ts) with controls that
 // register themselves via useVoiceTarget. So new screens and controls become
 // voice-addressable without adding tools.
-import type { ElloAgent } from './agent';
 import { buildPageContext, findTarget, getCurrentScreen, listTargets, waitForNextPublish } from './actionRegistry';
 import type { TargetKind } from './actionRegistry';
-import type { JSONSchema } from './types';
+import type { AgentLike, JSONSchema } from './types';
 
 interface PerformUiActionArgs {
   action: 'tap' | 'set_input' | 'set_toggle' | 'set_value' | 'scroll';
@@ -26,11 +25,20 @@ interface PerformUiActionArgs {
 /** Words that identify a screen's main forward action, for `continue_next`. */
 const FORWARD_WORDS = ['continue', 'next', 'get started', 'proceed', 'send otp', 'verify', 'submit', 'apply'];
 
+// Screens where continue_next must not fire immediately — personal details
+// (name/DOB/gender/email/pincode) are entered here, so the agent is required
+// to read them back and get explicit verbal confirmation before saving.
+// A single boolean (not per-screen state) is enough: it's set once continuing
+// is actually allowed, and reset the moment the user isn't on this screen, so
+// a later re-visit (e.g. going back to fix a field) re-triggers the review.
+const CONFIRM_BEFORE_CONTINUE_SCREENS = new Set(['aboutyou']);
+let reviewConfirmed = false;
+
 function describeScreen(screen: string) {
   return listTargets(screen).map(t => t.label);
 }
 
-export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: string) => boolean): void {
+export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: string) => boolean): void {
   /**
    * Reports the state the app is ACTUALLY in after an action, rather than letting
    * the model assume. Tapping "English" only selects a language — it does not
@@ -68,6 +76,31 @@ export function registerCoreTools(agent: ElloAgent, navigateToScreen: (screen: s
   /** The one executor every tool funnels into. */
   async function performAction(args: PerformUiActionArgs): Promise<Record<string, unknown>> {
     const screen = getCurrentScreen();
+    if (!CONFIRM_BEFORE_CONTINUE_SCREENS.has(screen)) reviewConfirmed = false;
+
+    // Block the forward action on a details-review screen until the model has
+    // read the entered data back to the user and gotten explicit confirmation.
+    // The model gets this instruction as the tool RESULT (same pattern as the
+    // 'disabled' precondition message below) rather than a native popup, since
+    // "read back and confirm" is a conversational step, not a yes/no dialog.
+    if (
+      CONFIRM_BEFORE_CONTINUE_SCREENS.has(screen) &&
+      args.action === 'tap' &&
+      args.target === 'continue' &&
+      !reviewConfirmed
+    ) {
+      reviewConfirmed = true; // the retry immediately after this is allowed through
+      return {
+        ok: false,
+        reason: 'confirm_before_continue',
+        message:
+          'Before continuing, read back every entered detail on this screen (name, date of birth, ' +
+          'gender, email, pincode) to the user and ask them to confirm it is correct. Call this ' +
+          'action again only after they explicitly confirm — do not proceed on silence or an ' +
+          'unrelated reply.',
+      };
+    }
+
     const wantKind: TargetKind | undefined =
       args.action === 'set_input'
         ? 'field'
