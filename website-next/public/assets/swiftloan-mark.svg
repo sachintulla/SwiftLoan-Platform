@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="SwiftLoan">
+  <defs>
+    <linearGradient id="sl" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0CB6A6"/>
+      <stop offset="1" stop-color="#2FB183"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="30" fill="url(#sl)"/>
+  <g stroke="#fff" stroke-linecap="round" fill="none">
+    <line x1="16" y1="43" x2="40" y2="43" stroke-width="6" opacity=".32"/>
+    <line x1="12" y1="60" x2="38" y2="60" stroke-width="6" opacity=".55"/>
+    <line x1="18" y1="77" x2="42" y2="77" stroke-width="6" opacity=".82"/>
+  </g>
+  <g transform="skewX(-7)">
+    <text x="82" y="87" text-anchor="middle" fill="#fff"
+      font-family="'Public Sans','Segoe UI',Arial,sans-serif" font-size="84" font-weight="800">&#8377;</text>
+  </g>
+</svg>
