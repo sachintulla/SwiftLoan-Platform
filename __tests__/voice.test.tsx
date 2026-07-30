@@ -107,7 +107,6 @@ describe('UC-V3 varied control types across screens', () => {
 
 describe('UC-V4 sensitive fields are never voice-fillable', () => {
   it.each([
-    ['OTP', {}],
     ['PAN Number', {}],
     ['Card PIN', {}],
     ['CVV', {}],
@@ -121,6 +120,9 @@ describe('UC-V4 sensitive fields are never voice-fillable', () => {
     ['Full Name', {}],
     ['Email Address', {}],
     ['Company', {}],
+    // OTP is a deliberate exception — product decision: the agent may enter
+    // it itself (dummy app, fixed test code, no real 2FA secret at stake).
+    ['OTP', {}],
   ])('leaves %s fillable', (label, props) => {
     expect(isSensitiveField(label, props)).toBe(false);
   });
@@ -193,9 +195,9 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
     // the agent refuse to type the user's own name.
     expect(isSensitiveField('Full name (as per PAN)', {})).toBe(false);
     expect(isSensitiveField('Card holder name', {})).toBe(false);
-    // Actual secrets stay refused.
+    // Actual secrets stay refused. OTP is deliberately fillable — see UC-V9.
     expect(isSensitiveField('PAN Number', {})).toBe(true);
-    expect(isSensitiveField('Enter OTP', {})).toBe(true);
+    expect(isSensitiveField('Enter OTP', {})).toBe(false);
   });
 
   it('does NOT treat a postal "Pin code" as a secret, but a real PIN stays refused', () => {
@@ -224,10 +226,12 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
   });
 });
 
-describe('UC-V9 OTP digits are user-only, Verify is agent-tappable', () => {
-  it('refuses OTP fields but exposes the Verify button', () => {
-    expect(isSensitiveField('OTP digit 1', { textContentType: 'oneTimeCode' })).toBe(true);
-    expect(isSensitiveField('anything', { autoComplete: 'sms-otp' })).toBe(true);
+describe('UC-V9 OTP is agent-fillable, Verify is agent-tappable', () => {
+  it('does not refuse OTP fields regardless of platform signal', () => {
+    // Product decision: the agent may enter the OTP itself (dummy app, fixed
+    // test code) — oneTimeCode/sms-otp no longer trigger a refusal.
+    expect(isSensitiveField('OTP digit 1', { textContentType: 'oneTimeCode' })).toBe(false);
+    expect(isSensitiveField('anything', { autoComplete: 'sms-otp' })).toBe(false);
   });
 });
 

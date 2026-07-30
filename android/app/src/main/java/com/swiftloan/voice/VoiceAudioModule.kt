@@ -117,13 +117,6 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
   /**
    * Logs the media-stream volume so an inaudible-agent report can be checked
    * against the actual device level.
-   *
-   * NOTE: deliberately does NOT set MODE_IN_COMMUNICATION. Measured on-device,
-   * communication mode engaged aggressive AEC/noise-suppression that dropped mic
-   * peaks from ~14500 to ~600 — the agent then couldn't hear the user at all.
-   * Playback audibility is instead achieved with USAGE_MEDIA (see
-   * ensurePlaybackTrack), which plays out the loudspeaker at media volume and
-   * leaves the capture path untouched.
    */
   private fun logAudioState() {
     try {
@@ -134,6 +127,57 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       )
     } catch (e: Exception) {
       Log.e("VoiceAudioModule", "logAudioState failed: ${e.message}")
+    }
+  }
+
+  /**
+   * Puts capture AND playback on the same voice-call audio lane so the
+   * platform's hardware AEC actually engages — it only cancels echo when it
+   * can see the playback stream as its own reference signal, which requires
+   * both sides to be in MODE_IN_COMMUNICATION together (confirmed on-device:
+   * with playback on USAGE_MEDIA instead, dumpsys reported "Enable Aec: 0" for
+   * our capture stream despite AcousticEchoCanceler.create() reporting
+   * enabled=true — the effect was attached but never actually fed a reference).
+   *
+   * MODE_IN_COMMUNICATION defaults routing to the earpiece, so speakerphone is
+   * forced on explicitly — this app is held at arm's length, not to the ear.
+   *
+   * Previously avoided: measured drop in mic peaks (~14500 -> ~600) in this
+   * mode. That drop is compensated for by always running the software AGC
+   * below (previously it only engaged when there was no hardware AGC).
+   */
+  private fun enterCallAudioMode() {
+    try {
+      val am = audioManager
+      am.mode = AudioManager.MODE_IN_COMMUNICATION
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val speaker = am.availableCommunicationDevices.firstOrNull {
+          it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        }
+        val set = speaker?.let { am.setCommunicationDevice(it) } ?: false
+        dlog("enterCallAudioMode: setCommunicationDevice(speaker) ok=$set")
+      } else {
+        @Suppress("DEPRECATION")
+        am.isSpeakerphoneOn = true
+        dlog("enterCallAudioMode: isSpeakerphoneOn=true (legacy)")
+      }
+    } catch (e: Exception) {
+      Log.e("VoiceAudioModule", "enterCallAudioMode failed: ${e.message}")
+    }
+  }
+
+  private fun exitCallAudioMode() {
+    try {
+      val am = audioManager
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        am.clearCommunicationDevice()
+      } else {
+        @Suppress("DEPRECATION")
+        am.isSpeakerphoneOn = false
+      }
+      am.mode = AudioManager.MODE_NORMAL
+    } catch (e: Exception) {
+      Log.e("VoiceAudioModule", "exitCallAudioMode failed: ${e.message}")
     }
   }
 
@@ -173,6 +217,7 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       return
     }
     logAudioState()
+    enterCallAudioMode()
     try {
       val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
       val bufferSize = max(minBuf, CHUNK_SAMPLES * 2 * 4)
@@ -196,8 +241,10 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
         var totalBytesSent = 0L
         var envelope = 0.0
         var lastGain = 1.0
-        // Only level in software when the device gave us no hardware AGC.
-        val needSoftwareAgc = hardwareAgc == null
+        // Always level in software: MODE_IN_COMMUNICATION's own mic calibration
+        // (not just the AutomaticGainControl effect) measurably quiets the input
+        // on some devices, so hardware AGC being present isn't sufficient here.
+        val needSoftwareAgc = true
         while (isRecording) {
           val read = record.read(chunk, 0, CHUNK_SAMPLES)
           if (read > 0) {
@@ -279,6 +326,11 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
     audioRecord = null
     releaseVoiceEffects()
     playChunkCount = 0
+    audioTrack?.let {
+      try { it.stop(); it.release() } catch (_: Exception) {}
+    }
+    audioTrack = null
+    exitCallAudioMode()
   }
 
   private var playChunkCount = 0
@@ -309,13 +361,14 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
     val track = AudioTrack.Builder()
       .setAudioAttributes(
         AudioAttributes.Builder()
-          // USAGE_MEDIA -> STREAM_MUSIC -> loudspeaker at media volume, which the
-          // volume rocker controls. Chosen over USAGE_VOICE_COMMUNICATION because
-          // the latter defaults to the earpiece and needs MODE_IN_COMMUNICATION to
-          // reach the speaker — and that mode cripples mic sensitivity (see
-          // logAudioState). Never _SIGNALLING: that's for DTMF tones and is
+          // USAGE_VOICE_COMMUNICATION so playback shares the same audio lane as
+          // capture (see enterCallAudioMode) — the platform's hardware AEC only
+          // treats this stream as its echo-reference signal when both sides are
+          // in the voice-communication path together. Speakerphone is forced on
+          // in enterCallAudioMode so this still comes out the loud speaker, not
+          // the earpiece. Never _SIGNALLING: that's for DTMF tones and is
           // silently inaudible outside a real telephony call.
-          .setUsage(AudioAttributes.USAGE_MEDIA)
+          .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
           .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
           .build(),
       )

@@ -5,7 +5,12 @@
 // the web version's string-sniffing ever was.
 // pin(?!\s*code)\b: a postal PIN code ("Pin code", "Pincode") isn't a secret —
 // only bare "PIN" (an ATM/card/UPI PIN) should refuse.
-const SENSITIVE_LABEL_RE = /otp|one.?time.?code|pin(?!\s*code)\b|cvv|cvc|password|passcode|pan\b|aadhaar|card.?number/i;
+//
+// OTP is deliberately NOT in this list — per product decision, the agent may
+// enter the OTP itself (this is a dummy app with a fixed test code; there is
+// no real SMS/2FA secret at stake). Everything else that IS a real credential
+// (password, card PIN, CVV, PAN, Aadhaar, card number) still refuses.
+const SENSITIVE_LABEL_RE = /pin(?!\s*code)\b|cvv|cvc|password|passcode|pan\b|aadhaar|card.?number/i;
 
 /**
  * Labels that merely *mention* a sensitive document while asking for something
@@ -23,8 +28,10 @@ export interface SensitiveFieldProps {
 export function isSensitiveField(label: string, props: SensitiveFieldProps): boolean {
   // Explicit platform signals are authoritative and always win.
   if (props.secureTextEntry) return true;
-  if (props.textContentType && /password|oneTimeCode/i.test(props.textContentType)) return true;
-  if (props.autoComplete && /password|sms-otp|one-time-code/i.test(props.autoComplete)) return true;
+  // oneTimeCode/sms-otp deliberately excluded — see SENSITIVE_LABEL_RE's
+  // comment: the agent is allowed to enter the OTP itself in this app.
+  if (props.textContentType && /password/i.test(props.textContentType)) return true;
+  if (props.autoComplete && /password/i.test(props.autoComplete)) return true;
   // A field asking for a NAME is never the secret itself.
   if (NOT_ACTUALLY_SECRET_RE.test(label)) return false;
   return SENSITIVE_LABEL_RE.test(label);
