@@ -27,7 +27,9 @@ export default function Basic() {
     try {
       await ensureSession();
       const { application }: any = await api.createApplication({
-        amount: state.appAmount,
+        // appAmount is held in rupees for the slider UI; the backend stores
+        // money in paise (server convention), so convert at the boundary.
+        amount: state.appAmount * 100,
         tenureMonths: state.appTenure || 12,
         loanType: 'personal',
       });

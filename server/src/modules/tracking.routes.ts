@@ -9,6 +9,10 @@ import { ok, created, fail } from '../lib/http.js';
 // required (anonymous sessions are first-class).
 export const trackingRouter = Router();
 
+// Screens that mean the user completed the journey — a session sitting on one of
+// these is NOT a drop-off. Everything else mid-funnel counts as a drop-off point.
+const TERMINAL_SCREENS = new Set(['disbursed', 'home', 'loans', 'repay', 'creditscore', 'profile']);
+
 // Best-effort: pull userId from a user JWT if one was attached, else null.
 function softUserId(req: { headers: Record<string, unknown> }): string | null {
   const header = String(req.headers['authorization'] || '');
@@ -40,12 +44,16 @@ trackingRouter.post('/session/end', ah(async (req, res) => {
   if (!existing) return fail(res, 404, 'Session not found');
   const endedAt = new Date();
   const durationSec = Math.max(0, Math.round((endedAt.getTime() - existing.startedAt.getTime()) / 1000));
+  const lastScreen = req.body?.last_screen ?? req.body?.lastScreen ?? existing.lastScreen ?? null;
   const session = await prisma.session.update({
     where: { id: sessionId },
     data: {
       endedAt,
       durationSec,
       pagesVisited: Number(req.body?.pages_visited ?? req.body?.pagesVisited ?? existing.pagesVisited) || existing.pagesVisited,
+      lastScreen,
+      lastActiveAt: endedAt,
+      ...(lastScreen && TERMINAL_SCREENS.has(lastScreen) ? { reachedEnd: true } : {}),
     },
   });
   return ok(res, { session_id: session.id, durationSec }, 'Session ended');
@@ -67,9 +75,19 @@ trackingRouter.post('/event', ah(async (req, res) => {
       metadata: b.metadata ?? undefined,
     },
   });
-  // Keep the session's page counter roughly current for navigation events.
-  if (event.sessionId && (event.eventType === 'navigation')) {
-    await prisma.session.update({ where: { id: event.sessionId }, data: { pagesVisited: { increment: 1 } } }).catch(() => {});
+  // Keep the session's page counter + drop-off pointer current for navigation
+  // events. lastScreen/lastActiveAt let us know WHERE a session was when it went
+  // idle (= the drop-off screen); reachedEnd marks completed journeys.
+  if (event.sessionId && event.eventType === 'navigation' && event.screen) {
+    await prisma.session.update({
+      where: { id: event.sessionId },
+      data: {
+        pagesVisited: { increment: 1 },
+        lastScreen: event.screen,
+        lastActiveAt: new Date(),
+        ...(TERMINAL_SCREENS.has(event.screen) ? { reachedEnd: true } : {}),
+      },
+    }).catch(() => {});
   }
   return created(res, { event_id: event.id }, 'Event recorded');
 }));

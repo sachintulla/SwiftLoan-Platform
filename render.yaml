@@ -16,10 +16,20 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
-      # Demo/mock loan app: accept a fixed OTP (123456) and surface it to the client
-      # so testers can log in without real SMS. Remove for a real production launch.
-      - key: DEMO_LOGIN
-        value: "true"
+      # ── Real OTP delivery (Twilio) ────────────────────────────────────
+      # Provider + sender are non-secret and set here. The SID/token are secrets
+      # (sync:false) — paste them once in the Render UI. Real OTP activates only
+      # when BOTH SID and token are present; until then the DEMO_LOGIN path above
+      # keeps login working. NOTE: on a Twilio TRIAL, SMS only reaches verified
+      # numbers — upgrade the Twilio account before removing DEMO_LOGIN.
+      - key: SMS_PROVIDER
+        value: twilio
+      - key: TWILIO_FROM
+        value: "+16208774660"
+      - key: TWILIO_ACCOUNT_SID
+        sync: false # paste in Render UI (ACc05f...)
+      - key: TWILIO_AUTH_TOKEN
+        sync: false # paste in Render UI
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET

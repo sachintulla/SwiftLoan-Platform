@@ -351,10 +351,19 @@ model Session {
   pagesVisited Int       @default(0)
   durationSec  Int? // filled on session end
 
+  // Drop-off tracking: the last screen the user was on and when they were last
+  // active. If a session goes idle / never reaches a terminal screen, lastScreen
+  // is where they dropped off. `reachedEnd` marks a session that completed the
+  // funnel (so it is NOT counted as a drop-off).
+  lastScreen   String? // most-recent route name seen in this session
+  lastActiveAt DateTime? // updated on every navigation event
+  reachedEnd   Boolean   @default(false) // hit a success/terminal screen
+
   events ActivityEvent[]
 
   @@index([userId])
   @@index([startedAt])
+  @@index([lastScreen])
 }
 
 model ActivityEvent {
