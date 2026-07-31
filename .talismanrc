@@ -6,11 +6,11 @@ fileignoreconfig:
 - filename: voiceCredentials.local.example.js
   checksum: db3db77450bad95b90739759c74a92121c03d3ec45837c8bcc6e4295c8c3f8d7
 - filename: src/voice/types.ts
-  checksum: bb8f2d2d82b29ffa4df5aa99415fdc4fb7867f2dfc7a5525e08379a024bbbfdc
+  checksum: fc9fc51e79cc3b719954df837e5d940ead4d4f873f5e7d7cde2925b03eb46373
 - filename: src/voice/transport/sessionApi.ts
   checksum: e14bad244663e13ca8b77774a30115cccc7484d96e90b820d6e2f0b15f1d1777
 - filename: src/voice/index.ts
-  checksum: 4129e2a82bb1f51827656314b634847f3df3a3705e2463296e7ff76a7182e634
+  checksum: 241132a1d79c265875f7d7482d6aeb60c72e6123ebb6e29e4451b5a30b9c8dee
 - filename: src/voice/events.ts
   checksum: 4ce02342006846db989db7c8edabcb4f4c6720633901021dbe6b74c038fb347d
 - filename: src/voice/registry.ts
@@ -18,9 +18,9 @@ fileignoreconfig:
 - filename: ios/SwiftLoan/Info.plist
   checksum: dd75f06d4fbda116fc1eab501c4b4a32a5f656a495809374fc16be2f7276ff20
 - filename: src/voice/sensitive.ts
-  checksum: 968238190dbb80b102f9a0f3b665fe77aaafbcd38ca0ce41096d0efeb558fe04
+  checksum: 8b890474b8b013cf67ebab83731810b7ede788aefd15f09e631f4f6bc2f1900f
 - filename: src/voice/config.ts
-  checksum: c07d8cfcf4913a6421f745bccecb282fe7d31e0057bd611c8f003422a31d7406
+  checksum: 9802c32cf4e3c3baaf000df0b59027abbc7790a48a46b238d0733dc3b51dbb3b
 - filename: ios/SwiftLoan/Voice/VoiceAudioModule.swift
   checksum: f2411ea5f11b001c21f52031d670a011b35b463e501de0f0857b99f9f1b8e7c8
 - filename: __tests__/voice.test.tsx
@@ -123,4 +123,12 @@ fileignoreconfig:
   checksum: 6a5e8cde7bd831b2f429fea87eaef922b3c0f8dc58a638cdaea848109c3deb16
 - filename: prompts/voice-agent-prompts.md
   checksum: 2cb9e4fe68b67502c6e74f88ab1754204c8bf860d4a31f160c01295e34705d28
+- filename: package-lock.json
+  checksum: 60aab025b2a18f4029d8ee7aba57301b69c08a9e0967b1d434a49e63cd85a0b7
+- filename: src/voice/transports/webrtc/config.ts
+  checksum: 9802c32cf4e3c3baaf000df0b59027abbc7790a48a46b238d0733dc3b51dbb3b
+- filename: src/voice/transports/webrtc/index.ts
+  checksum: c588fad87196720455fdbb53b6fff343dbdfc0187c9f39659ce44ac31b9d3712
+- filename: src/voice/transports/webrtc/WebRTCAgent.ts
+  checksum: deee7d6c7fb19d25319c2876b14445aa649520efb1737cdf389d131be12a373c
 version: "1.0"

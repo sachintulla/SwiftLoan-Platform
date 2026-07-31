@@ -86,8 +86,13 @@ export class ElloAgent {
   private setStatus(s: AgentStatus) {
     if (this.status === s) return;
     this.status = s;
-    if (s === 'speaking') this.setMuted(true);
-    else if (s === 'listening') this.setMuted(false);
+    // The mic deliberately stays live throughout the whole call, including
+    // while the agent is speaking — muting it here was killing barge-in:
+    // the user's interrupting speech never reached the server, so its VAD
+    // had nothing to detect and voice-audio-purge never fired. Echo is
+    // handled by getUserMedia's echoCancellation/noiseSuppression (see
+    // acquireMic) instead of muting, matching the mobile app's client
+    // (src/voice/agent.ts), which documents this exact tradeoff.
     this.emit('statusChange', s);
   }
 
@@ -392,20 +397,26 @@ export class ElloAgent {
     const d = msg.data ?? msg;
     const name = String(d.name ?? d.tool_name ?? '');
     const args = d.arguments ?? d.args ?? {};
-    const callId = d.call_id ?? d.id ?? null;
+    // tool_call_id is the field name confirmed against the real backend
+    // (native_orchestrator.py's _client_tool_result_for_model) — the mobile
+    // app's src/voice/agent.ts uses it directly. call_id/id are kept as
+    // fallbacks only in case an older backend revision used them.
+    const callId = d.tool_call_id ?? d.call_id ?? d.id ?? null;
     this.emit('toolCall', { name, args });
     const tool = this.tools.get(name);
-    let status = 'ok';
+    // Status vocabulary matches the server exactly: 'ok' -> result payload,
+    // 'denied' -> user declined a confirmation, anything else -> error.{code,message}.
+    let status: 'ok' | 'denied' | 'error' = 'ok';
     let result: unknown = null;
+    let error: { code: string; message: string } | undefined;
     if (!tool) {
-      status = 'unavailable';
-      result = { error: `Unknown tool: ${name}` };
-    } else if (tool.availableWhen && !tool.availableWhen()) {
-      status = 'unavailable';
-      result = { error: `Tool ${name} is not available on this page right now.` };
-    } else if (tool.requiresConfirmation && !(await this.confirm(tool))) {
       status = 'error';
-      result = { denied: true, message: 'User declined the action.' };
+      error = { code: 'unknown_tool', message: `Unknown tool: ${name}` };
+    } else if (tool.availableWhen && !tool.availableWhen()) {
+      status = 'error';
+      error = { code: 'tool_unavailable', message: `Tool ${name} is not available on this page right now.` };
+    } else if (tool.requiresConfirmation && !(await this.confirm(tool))) {
+      status = 'denied';
       this.setStatus('listening');
     } else {
       this.setStatus('executingTool');
@@ -413,7 +424,7 @@ export class ElloAgent {
         result = await this.withTimeout(Promise.resolve(tool.handler(args)), tool.timeoutMs);
       } catch (err) {
         status = 'error';
-        result = { error: String(err) };
+        error = { code: 'tool_handler_failed', message: String(err) };
       }
       this.setStatus('listening');
     }
@@ -421,10 +432,10 @@ export class ElloAgent {
     this.ws?.send(
       JSON.stringify({
         type: 'client-tool-result',
-        call_id: callId,
-        name,
+        tool_call_id: callId,
         status,
         result: tool?.sensitive ? '[redacted]' : result,
+        error,
       })
     );
   }
@@ -598,12 +609,6 @@ export class ElloAgent {
     this.micStream = null;
     this.audioCtx?.close();
     this.audioCtx = null;
-  }
-
-  private setMuted(muted: boolean) {
-    if (this.micStream) {
-      this.micStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
-    }
   }
 
   stop() {

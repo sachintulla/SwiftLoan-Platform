@@ -2,10 +2,10 @@
 @import "./styles.css";
 
 :root {
-  --sl-font-head: var(--font-public-sans), system-ui, sans-serif;
-  --sl-font-body: var(--font-inter), system-ui, sans-serif;
+  --sl-font-head: var(--font-open-sans), system-ui, sans-serif;
+  --sl-font-body: var(--font-open-sans), system-ui, sans-serif;
   --sl-font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
-  --font-head: var(--font-public-sans), system-ui, sans-serif;
-  --font-body: var(--font-inter), system-ui, sans-serif;
+  --font-head: var(--font-open-sans), system-ui, sans-serif;
+  --font-body: var(--font-open-sans), system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono), monospace;
 }

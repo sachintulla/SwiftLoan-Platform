@@ -56,8 +56,8 @@
   --radius:16px; --radius-md:22px; --radius-lg:28px; --radius-xl:32px; --pill:9999px;
   --maxw:1180px;
   --ease:cubic-bezier(.22,.61,.36,1);
-  --font-head:'Public Sans',system-ui,sans-serif;
-  --font-body:'Inter',system-ui,sans-serif;
+  --font-head:'Open Sans',system-ui,sans-serif;
+  --font-body:'Open Sans',system-ui,sans-serif;
   --font-mono:'JetBrains Mono',monospace;
 }
 

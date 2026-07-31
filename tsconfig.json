@@ -4,5 +4,5 @@
     "types": ["jest"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods", "server", "admin"]
+  "exclude": ["**/node_modules", "**/Pods", "server", "admin", "website-next"]
 }

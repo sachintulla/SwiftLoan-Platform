@@ -47,9 +47,11 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Next.js (admin dashboard)
+# Next.js (admin dashboard, website-next)
 admin/.next/
 admin/out/
+website-next/.next/
+website-next/out/
 
 # Jest coverage
 coverage/
