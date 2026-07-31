@@ -1,22 +1,26 @@
 import type { Metadata, Viewport } from 'next';
-import { Public_Sans, Inter, JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
+import VoiceWidget from '@/components/VoiceWidget';
 import './globals.css';
 
-const publicSans = Public_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-  variable: '--font-public-sans',
+// Self-hosted (not next/font/google) so builds don't depend on reaching
+// fonts.googleapis.com — that fetch fails behind some corporate proxies/MITM certs.
+const openSans = localFont({
+  src: [
+    { path: './fonts/OpenSans-400.ttf', weight: '400', style: 'normal' },
+    { path: './fonts/OpenSans-500.ttf', weight: '500', style: 'normal' },
+    { path: './fonts/OpenSans-600.ttf', weight: '600', style: 'normal' },
+    { path: './fonts/OpenSans-700.ttf', weight: '700', style: 'normal' },
+    { path: './fonts/OpenSans-800.ttf', weight: '800', style: 'normal' },
+  ],
+  variable: '--font-open-sans',
   display: 'swap',
 });
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
+const jetbrainsMono = localFont({
+  src: [
+    { path: './fonts/JetBrainsMono-400.ttf', weight: '400', style: 'normal' },
+    { path: './fonts/JetBrainsMono-500.ttf', weight: '500', style: 'normal' },
+  ],
   variable: '--font-jetbrains-mono',
   display: 'swap',
 });
@@ -51,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className={`${publicSans.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
+      <body className={`${openSans.variable} ${jetbrainsMono.variable}`}>
         <div className="aurora" aria-hidden="true">
           <span className="motif" style={{ top: '8%', left: '5%', transform: 'rotate(-12deg)' }}>currency_rupee</span>
           <span className="motif motif--fill" style={{ top: '14%', right: '7%', transform: 'rotate(14deg)' }}>savings</span>
@@ -61,6 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <span className="motif" style={{ top: '34%', right: '22%', transform: 'rotate(-6deg)' }}>payments</span>
         </div>
         {children}
+        <VoiceWidget />
       </body>
     </html>
   );

@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import SiteScripts from '@/components/SiteScripts';
-import VoiceWidget from '@/components/VoiceWidget';
 
 export default function HomePage() {
   return (
@@ -861,7 +860,6 @@ export default function HomePage() {
       <button className="totop" id="toTop" aria-label="Back to top"><span className="msi">arrow_upward</span></button>
 
       <SiteScripts />
-      <VoiceWidget />
     </>
   );
 }
