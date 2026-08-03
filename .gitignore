@@ -18,6 +18,15 @@ android/.gradle/
 server/.env
 voiceCredentials.local.js
 
+# Firebase client config. Kept out of the repo because this one is PUBLIC — the
+# file embeds a GCP API key, which gitleaks flags (rule: gcp-api-key). Each dev
+# and the release pipeline should fetch it from the Firebase console instead.
+# The Android build needs it present on disk; it just must not be committed.
+android/app/google-services.json
+ios/GoogleService-Info.plist
+# Firebase service-account keys — real private keys. Never commit these.
+**/*-firebase-adminsdk-*.json
+
 # iOS
 ios/Pods/
 ios/*.xcworkspace/
