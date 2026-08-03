@@ -6,6 +6,7 @@ import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api, ensureSession, ApiError, isOfflineDemo, DEMO_OTP } from '../api/client';
+import { upshotIdentify, upshotEvent } from '../analytics/upshot';
 
 export default function Mobile() {
   const { state, set, go, showToast } = useStore();
@@ -40,7 +41,19 @@ export default function Mobile() {
     setBusy(true);
     try {
       const r = await api.verifyOtp(state.mobileVal, otp.join(''));
-      set({ authUser: r.user, otpSent: false });
+      set({ authUser: r.user, otpSent: false, priorInquiries: r.priorInquiries });
+
+      // Upshot: this is the first moment we know who this person is. Identify
+      // with the same E.164 phone the website and server use, so all three
+      // resolve to one Upshot profile rather than three.
+      upshotIdentify({
+        userId: String(r.user?.id ?? state.mobileVal),
+        phone: state.mobileVal,
+        name: (r.user?.fullName as string | undefined) ?? null,
+        email: (r.user?.email as string | undefined) ?? null,
+      });
+      upshotEvent('otp_verified', { priorInquiryCount: r.priorInquiries?.length ?? 0 });
+
       go('permissions');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Verification failed.');

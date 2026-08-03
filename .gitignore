@@ -50,6 +50,7 @@ Thumbs.db
 # Next.js (admin dashboard, website-next)
 admin/.next/
 admin/out/
+website-next/node_modules/
 website-next/.next/
 website-next/out/
 

@@ -6,6 +6,7 @@ import { signAccess } from '../lib/jwt.js';
 import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
+import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from '../lib/journey.js';
 
 export const authRouter = Router();
 
@@ -60,6 +61,14 @@ authRouter.post(
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) user = await prisma.user.create({ data: { phone } });
     const devOtp = await createOtp(phone, user.id);
+
+    // WS5: OTP_REQUESTED had no event at all before — without it there is no
+    // way to see the "asked for an OTP but never entered it" drop-off.
+    trackJourney(
+      { phone, userId: user.id, source: 'app' },
+      { channel: 'app', name: JOURNEY_EVENTS.OTP_REQUESTED, screen: 'mobile' },
+    ).catch(() => {});
+
     res.json({ otpSent: true, devOtp });
   }),
 );
@@ -67,7 +76,17 @@ authRouter.post(
 /** Verify an OTP and issue tokens (this is the app's primary login). */
 authRouter.post(
   '/otp/verify',
-  validate(z.object({ phone: phoneSchema, code: z.string().length(6) })),
+  // session_id must be declared here: validate() replaces req.body with Zod's
+  // parsed output, and Zod strips unknown keys — so an undeclared field arrives
+  // as undefined no matter what the client sent.
+  validate(
+    z.object({
+      phone: phoneSchema,
+      code: z.string().length(6),
+      session_id: z.string().optional(),
+      sessionId: z.string().optional(),
+    }),
+  ),
   ah(async (req, res) => {
     const { phone, code } = req.body;
     const otp = await prisma.otpToken.findFirst({
@@ -78,7 +97,57 @@ authRouter.post(
     await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
     const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
     const tokens = await issueTokens(user.id, user.phone);
-    res.json({ user: publicUser(user), ...tokens });
+
+    // Website inquiries made under this phone number before the app was
+    // installed. All matches are surfaced (not just the newest) so the voice
+    // agent can ask which one the caller meant instead of guessing.
+    const matchingLeads = await prisma.anonymousLead.findMany({
+      where: { phone },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (matchingLeads.length) {
+      await prisma.anonymousLead.updateMany({
+        where: { id: { in: matchingLeads.map((l) => l.id) } },
+        data: { status: 'converted', convertedUserId: user.id },
+      });
+    }
+    const priorInquiries = matchingLeads.map((l) => ({
+      productInterest: l.productInterest,
+      amount: l.amount,
+      createdAt: l.createdAt,
+    }));
+
+    // WS5: bind this phone's Customer row to the now-known userId. This is the
+    // join that makes pre-login website/campaign activity and post-login app
+    // activity resolve to one person — everything the 360 view shows depends on
+    // it. Fire-and-forget: journey bookkeeping must never fail a login.
+    const sessionId: string | null = req.body.session_id ?? req.body.sessionId ?? null;
+
+    void (async () => {
+      const customer = await resolveCustomer({
+        phone,
+        userId: user.id,
+        name: user.fullName ?? matchingLeads[0]?.name ?? null,
+        email: user.email,
+        source: matchingLeads.length ? 'website' : 'app',
+        campaignId: matchingLeads.find((l) => l.campaignId)?.campaignId ?? null,
+      });
+      if (!customer) return;
+
+      // Claim the pre-login app activity FIRST, so install / app-open /
+      // language land on the timeline before OTP_VERIFIED and the journey reads
+      // in the order it actually happened.
+      if (sessionId) await claimAnonymousSession(customer.id, sessionId, user.id);
+
+      await recordJourneyEvent(customer.id, {
+        channel: 'app',
+        name: JOURNEY_EVENTS.OTP_VERIFIED,
+        screen: 'otp',
+        metadata: { priorInquiryCount: priorInquiries.length },
+      });
+    })().catch(() => {});
+
+    res.json({ user: publicUser(user), ...tokens, priorInquiries });
   }),
 );
 

@@ -66,6 +66,19 @@ async function ensurePartners() {
 }
 
 async function main() {
+  // This seed deletes data (clearWs4) AND creates five admin accounts with the
+  // published password `admin123`. Running it against production would both
+  // destroy real records and leave a super_admin backdoor open. It is named in
+  // the setup docs, so an accidental run is one command away.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'yes-really') {
+    console.error(
+      '[seed:ws4] REFUSING to run: NODE_ENV=production.\n' +
+        '  This seed deletes data and creates admins with a public password.\n' +
+        '  If you genuinely mean it: ALLOW_DEMO_SEED=yes-really npm run seed:ws4',
+    );
+    process.exit(1);
+  }
+
   console.log('[seed:ws4] clearing existing WS4 data…');
   await clearWs4();
   const partners = await ensurePartners();

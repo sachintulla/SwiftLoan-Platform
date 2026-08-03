@@ -11,14 +11,21 @@ import { apiFetch } from './api';
 
 // Every navigable dashboard screen, with human labels + spoken aliases.
 export const PAGES: { id: string; path: string; label: string; aliases: string[] }[] = [
-  { id: 'overview', path: '/overview', label: 'Master Overview', aliases: ['overview', 'home', 'dashboard', 'summary', 'main', 'start'] },
-  { id: 'onboarding', path: '/onboarding', label: 'Onboarding Journeys', aliases: ['onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
+  // Analytics was merged into Overview's "Trends" section, so its aliases live
+  // here now — an operator saying "show analytics" should still land somewhere.
+  { id: 'overview', path: '/overview', label: 'Master Overview', aliases: ['overview', 'home', 'dashboard', 'summary', 'main', 'start', 'analytics', 'charts', 'trends', 'reports', 'graphs'] },
   { id: 'loans', path: '/loans', label: 'Loan Pipeline', aliases: ['loans', 'loan pipeline', 'pipeline', 'applications', 'loan applications'] },
   { id: 'leads', path: '/leads', label: 'Leads & Contact', aliases: ['leads', 'contacts', 'enquiries', 'contact us', 'lead list'] },
   { id: 'downloads', path: '/downloads', label: 'App Downloads & Attribution', aliases: ['downloads', 'installs', 'app downloads', 'attribution'] },
-  { id: 'users', path: '/users', label: 'All Users', aliases: ['users', 'customers', 'borrowers', 'all users', 'people'] },
-  { id: 'analytics', path: '/analytics', label: 'Analytics', aliases: ['analytics', 'charts', 'trends', 'reports', 'graphs'] },
+  // "customers" deliberately belongs to the 360 view, not /users. Since WS5 an
+  // operator saying "customers" means the cross-channel journey record, not the
+  // list of registered app accounts — /users keeps the app-account wording.
+  { id: 'users', path: '/users', label: 'All Users', aliases: ['users', 'app users', 'registered users', 'borrowers', 'all users', 'people', 'accounts'] },
   { id: 'notifications', path: '/notifications', label: 'Notifications', aliases: ['notifications', 'alerts', 'notification'] },
+  // ── WS5: unified customer journey ──
+  { id: 'customers', path: '/customers', label: 'Customers 360', aliases: ['customers', 'customer 360', '360', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
+  { id: 'campaigns', path: '/campaigns', label: 'Campaigns', aliases: ['campaigns', 'campaign', 'outbound', 'calling', 'call campaign', 'dialer', 'bulk calls'] },
+  { id: 'integrations', path: '/integrations', label: 'Integrations', aliases: ['integrations', 'integration', 'settings', 'config', 'configuration', 'api keys', 'ello', 'upshot', 'providers'] },
 ];
 
 function resolvePage(query: string): (typeof PAGES)[number] | null {
@@ -148,6 +155,51 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
       } catch (e) {
         return { success: false, reason: (e as Error).message };
       }
+    },
+  });
+
+  // ---- open a specific customer's 360 journey (WS5) -------------------------
+  agent.registerTool<{ query: string }>({
+    name: 'open_customer',
+    description:
+      "Open a customer's full cross-channel journey (the 360 view) by name, phone or email — e.g. 'open Demo Kumar', 'show me the journey for 9876500011', 'what happened to Anita'. This is the record that spans website, calls, campaign and app activity, so prefer it over open_user whenever someone asks about a person's journey, where they came from, or where they dropped off.",
+    schema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'customer name, phone, or email' } },
+      required: ['query'],
+    },
+    handler: async ({ query }) => {
+      try {
+        const res = await apiFetch<{ id: string; name?: string; currentStage?: string }[]>(
+          `/api/admin/customers?pageSize=1&search=${encodeURIComponent(query)}`,
+        );
+        const row = res.data?.[0];
+        if (!row) return { success: false, reason: `No customer matching "${query}"` };
+        deps.navigate(`/customers/${row.id}`);
+        return { success: true, name: row.name ?? 'customer', stage: row.currentStage };
+      } catch (e) {
+        return { success: false, reason: (e as Error).message };
+      }
+    },
+  });
+
+  // ---- show customers stalled at a stage (the drop-off question) ------------
+  agent.registerTool<{ minutes?: number; stage?: string }>({
+    name: 'show_stalled_customers',
+    description:
+      "List customers who have been stuck at their current stage for a while — e.g. 'who's stalled?', 'show me drop-offs from the last hour', 'anyone stuck in KYC?'. Opens the Customers 360 list filtered accordingly.",
+    schema: {
+      type: 'object',
+      properties: {
+        minutes: { type: 'number', description: 'stalled for at least this many minutes (default 60)' },
+        stage: { type: 'string', description: "optional journey stage, e.g. 'kyc_started', 'lead_captured'" },
+      },
+    },
+    handler: ({ minutes, stage }) => {
+      const qs = new URLSearchParams({ stalledMinutes: String(minutes && minutes > 0 ? Math.round(minutes) : 60) });
+      if (stage) qs.set('stage', stage);
+      deps.navigate(`/customers?${qs.toString()}`);
+      return { success: true, stalledMinutes: qs.get('stalledMinutes'), stage: stage ?? 'any' };
     },
   });
 

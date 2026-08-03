@@ -50,7 +50,7 @@ services:
       # the mic live on the deployed dashboard without a manual Render step.
       # The assistant must stay "Native Mode (Gemini Live)" for tool-calling.
       - key: NEXT_PUBLIC_ELLO_API_KEY
-        value: ak_txW3kjj3L-xpYACyvGn8K9ua9pvnHyYBaSeXc15H3DI.OASqN2c_yaFbkuYl
+        value: ak_REPLACE_ME.setViaEnvOrDashboard
       - key: NEXT_PUBLIC_ELLO_ASSISTANT_ID
         value: 6a64d273a4fc43f6203cd3cc
       - key: NEXT_PUBLIC_ELLO_API_BASE

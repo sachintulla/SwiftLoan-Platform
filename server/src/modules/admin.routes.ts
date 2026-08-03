@@ -2,11 +2,15 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
-import { requireAdmin } from '../middleware/adminAuth.js';
+import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 
 // All routes require an authenticated admin.
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+adminRouter.use(requireActiveAdmin);
+adminRouter.use(auditAdmin);
+
+
 
 // ─────────────────────────── helpers ───────────────────────────
 

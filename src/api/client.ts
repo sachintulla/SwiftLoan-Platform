@@ -118,7 +118,14 @@ function demoAuth(phone: string): AuthResult {
     accessToken: 'offline-demo-token',
     refreshToken: 'offline-demo-refresh',
     expiresIn: 3600,
+    priorInquiries: [],
   };
+}
+
+export interface PriorInquiry {
+  productInterest: string | null;
+  amount: number | null; // paise
+  createdAt: string;
 }
 
 export interface AuthResult {
@@ -126,6 +133,8 @@ export interface AuthResult {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** Website leads matched to this phone number, oldest first. `[]` when none. */
+  priorInquiries: PriorInquiry[];
 }
 
 export const api = {
@@ -160,7 +169,15 @@ export const api = {
     // verifying is instant instead of waiting on another request that must fail.
     if (DEMO_ALLOWED && offline) return acceptDemo();
     try {
-      const r = await request<AuthResult>('POST', '/auth/otp/verify', { phone, code });
+      // WS5: hand over the anonymous tracking session so the server can claim
+      // everything done before login (install, app_opened, language) onto this
+      // person's journey. Without it those steps are recorded but orphaned, and
+      // the 360 timeline starts abruptly at "OTP verified".
+      const r = await request<AuthResult>('POST', '/auth/otp/verify', {
+        phone,
+        code,
+        session_id: getTrackingSessionId(),
+      });
       setTokens(r.accessToken, r.refreshToken);
       return r;
     } catch (e) {
@@ -277,9 +294,38 @@ export function trackSessionStart(deviceInfo: Record<string, unknown>): void {
   });
 }
 
+/**
+ * The current anonymous tracking session id, if a session has started. Sent with
+ * OTP verify so the server can attribute pre-login activity to the person who
+ * just identified themselves.
+ */
+export function getTrackingSessionId(): string | null {
+  return sessionId;
+}
+
 export function trackSessionEnd(pagesVisited?: number): void {
   if (!sessionId) return;
   trackPost('/track/session/end', { session_id: sessionId, pages_visited: pagesVisited });
+}
+
+/**
+ * WS5: report the install once, on first launch. Nothing wrote AppDownload
+ * before this, so install attribution ("did this person come from a campaign
+ * link?") had no data at all. `contextToken` is the WS3 deep-link token when
+ * the user arrived via a tracked link.
+ */
+export function trackInstall(
+  platform: string,
+  opts: { source?: string; campaignId?: string; referrer?: string; contextToken?: string } = {},
+): void {
+  trackPost('/track/install', {
+    platform,
+    source: opts.source ?? 'organic',
+    campaign_id: opts.campaignId,
+    referrer: opts.referrer,
+    context_token: opts.contextToken,
+    session_id: sessionId,
+  });
 }
 
 export function trackEvent(

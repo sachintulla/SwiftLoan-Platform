@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
+import UpshotWeb from '@/components/UpshotWeb';
 import VoiceWidget from '@/components/VoiceWidget';
 import './globals.css';
 
@@ -65,6 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <span className="motif" style={{ top: '34%', right: '22%', transform: 'rotate(-6deg)' }}>payments</span>
         </div>
         {children}
+        <UpshotWeb />
         <VoiceWidget />
       </body>
     </html>

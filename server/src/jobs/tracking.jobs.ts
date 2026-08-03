@@ -1,5 +1,11 @@
 import { prisma } from '../lib/prisma.js';
 import type { ApplicationStatus } from '@prisma/client';
+import { TERMINAL_STAGES, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
+import { nudgeCustomer, runDispatchQueue } from '../lib/dispatch.js';
+import { campaignScheduler } from '../lib/campaignRunner.js';
+import { leadAutoCaller } from '../lib/leadCaller.js';
+import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
+import { reconcileStaleCalls } from '../lib/callReconcile.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -77,13 +83,58 @@ export async function onboardingStaleDetector() {
   }
 }
 
-// Placeholder for a real push/email sender — logs unsent notifications.
+// WS5: this used to be a no-op counter. Real delivery now happens through the
+// OutboundRequest queue, so the sender simply drains it.
 export async function notificationSender() {
-  const pending = await prisma.notification.count({ where: { read: false } });
-  if (pending > 0 && process.env.NODE_ENV !== 'production') {
-    // In production this would dispatch to FCM/email; here we just surface the count.
-    // console kept quiet to avoid log spam.
+  await runDispatchQueue().catch(() => undefined);
+}
+
+// ─────────────────────────── WS5 jobs ───────────────────────────
+
+const STAGE_STALL_MINUTES = Number(process.env.STAGE_STALL_MINUTES ?? 20) || 20;
+const NUDGE_COOLDOWN_MINUTES = Number(process.env.NUDGE_COOLDOWN_MINUTES ?? 120) || 120;
+const STALL_SCAN_CAP = 200;
+
+// Find customers who have sat in a non-terminal stage too long and re-engage
+// them through Upshot — respecting a per-customer cooldown so a slow funnel
+// cannot turn into a message storm.
+export async function stageStallDetector() {
+  const now = new Date();
+  const stalledBefore = new Date(now.getTime() - STAGE_STALL_MINUTES * 60_000);
+  const cooldownBefore = new Date(now.getTime() - NUDGE_COOLDOWN_MINUTES * 60_000);
+
+  const stalled = await prisma.customer.findMany({
+    where: {
+      currentStage: { notIn: TERMINAL_STAGES },
+      stageEnteredAt: { lt: stalledBefore },
+      OR: [{ lastNudgedAt: null }, { lastNudgedAt: { lt: cooldownBefore } }],
+    },
+    orderBy: { stageEnteredAt: 'asc' },
+    take: STALL_SCAN_CAP,
+  });
+
+  for (const customer of stalled) {
+    try {
+      await nudgeCustomer(customer, customer.currentStage);
+      await prisma.customer.update({ where: { id: customer.id }, data: { lastNudgedAt: new Date() } });
+      await recordJourneyEvent(customer.id, {
+        channel: 'system',
+        name: JOURNEY_EVENTS.STAGE_STALLED,
+        metadata: {
+          stage: customer.currentStage,
+          stalledMinutes: Math.round((now.getTime() - customer.stageEnteredAt.getTime()) / 60_000),
+          thresholdMinutes: STAGE_STALL_MINUTES,
+        },
+      });
+    } catch {
+      // One bad customer must never abort the scan.
+    }
   }
+}
+
+// Drain the outbound queue frequently so a queued nudge goes out promptly.
+export async function dispatchWorker() {
+  await runDispatchQueue().catch(() => undefined);
 }
 
 const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = [
@@ -91,6 +142,19 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'loan-stale', fn: loanStaleDetector, everyMs: 15 * 60_000 },
   { name: 'onboarding-stale', fn: onboardingStaleDetector, everyMs: 15 * 60_000 },
   { name: 'notification-sender', fn: notificationSender, everyMs: 60_000 },
+  // WS5
+  { name: 'stage-stall', fn: stageStallDetector, everyMs: 5 * 60_000 },
+  { name: 'dispatch-worker', fn: dispatchWorker, everyMs: 30_000 },
+  // WS5b — every minute, so a campaign starts within a minute of its window
+  // opening. tickCampaign() guards against overlapping runs itself.
+  { name: 'campaign-scheduler', fn: () => campaignScheduler(), everyMs: 60_000 },
+  // WS5c — auto-call a website lead ~1 min after they submit the form.
+  { name: 'lead-autocaller', fn: async () => { await leadAutoCaller(); }, everyMs: 60_000 },
+  // WS5d — step-level stall rules: "did the next step happen?" -> Upshot event.
+  { name: 'step-stall', fn: async () => { await stepStallDetector(); }, everyMs: 2 * 60_000 },
+  // ADM-016 — close calls whose terminal webhook never arrived, so a lost
+  // callback cannot pin a contact in `queued` and stall the whole campaign.
+  { name: 'call-reconcile', fn: async () => { await reconcileStaleCalls(); }, everyMs: 10 * 60_000 },
 ];
 
 let timers: NodeJS.Timeout[] = [];
@@ -98,6 +162,12 @@ let timers: NodeJS.Timeout[] = [];
 // Start the maintenance jobs. Uses BullMQ if REDIS_URL is set, otherwise a simple
 // setInterval scheduler in-process (fine for a single API node / dev).
 export async function startJobs() {
+  // Install the starter stall rules once, so a fresh database has working
+  // drop-off detection instead of an empty table nobody thinks to populate.
+  await seedStallRules()
+    .then((n) => n && console.log(`[jobs] seeded ${n} stall rule(s)`))
+    .catch(() => undefined);
+
   const redisUrl = process.env.REDIS_URL;
   if (redisUrl) {
     try {

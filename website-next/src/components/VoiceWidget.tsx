@@ -166,7 +166,28 @@ export default function VoiceWidget() {
 
   useEffect(() => {
     if (!CONFIG.apiKey || !CONFIG.assistantId) {
-      console.warn('[VoiceWidget] NEXT_PUBLIC_ELLO_API_KEY/ASSISTANT_ID not set — voice widget disabled.');
+      const missing = [
+        !CONFIG.apiKey && 'NEXT_PUBLIC_ELLO_API_KEY',
+        !CONFIG.assistantId && 'NEXT_PUBLIC_ELLO_ASSISTANT_ID',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      console.warn(`[VoiceWidget] ${missing} not set — voice widget disabled. Copy .env.local.example to .env.local and restart.`);
+
+      // In development, say so on the page too. A console warning is invisible
+      // unless devtools happen to be open, so a missing .env.local silently
+      // removes the whole voice experience and looks like it was never built.
+      if (process.env.NODE_ENV === 'development') {
+        const note = document.createElement('div');
+        note.dataset.voiceDisabledNotice = '1';
+        note.style.cssText =
+          'position:fixed;right:22px;bottom:22px;z-index:9999;max-width:300px;padding:11px 14px;' +
+          'border-radius:12px;background:#fff4e5;border:1px solid #ffd8a8;color:#8a4b00;' +
+          'font:500 12.5px/1.5 system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
+        note.textContent = `Voice widget disabled — ${missing} not set. Copy .env.local.example to .env.local and restart.`;
+        document.body.appendChild(note);
+        return () => note.remove();
+      }
       return;
     }
 

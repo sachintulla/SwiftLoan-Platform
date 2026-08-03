@@ -1,0 +1,33 @@
+"ID",Main Task,Sub Task,Status,%,Priority,Owner,Blocked By,Notes
+WEB-001,Migration,Port static site to Next.js 14 (4 pages),Done,100,P0,Dev,,"website-next/, port 4002"
+WEB-002,Migration,Port core.ts / i18n.ts / SiteScripts,Done,100,P0,Dev,,"EMI calc, tracker, lead form, language toggle"
+WEB-003,Migration,Convert brand + logo pages to real JSX,In Progress,30,P2,Dev,,Currently dangerouslySetInnerHTML for fidelity
+WEB-004,Migration,Retire the old static website/ folder,Not Started,0,P2,Dev,,Still tracked; key already scrubbed from it
+WEB-005,Lead capture,Lead form → /api/context/create,Done,100,P0,Dev,,
+WEB-006,Lead capture,UTM + referrer attribution captured and persisted,Done,100,P0,Dev,,sessionStorage so it survives in-page nav
+WEB-007,Lead capture,Creates Customer at lead_captured with campaign,Done,100,P0,Dev,,Verified end to end
+WEB-008,Lead capture,Rate limit (5/min) on the lead endpoint,Done,100,P0,Dev,,Verified: 201×5 then 429
+WEB-009,Lead capture,Bot protection (captcha / honeypot),Not Started,0,P0,Dev,,Rate limit alone will not stop a determined spammer
+WEB-010,Voice widget,Ello widget ported and mounted,Done,100,P1,Dev,,"17 tools: navigation, form fill, calculator, tracking"
+WEB-011,Voice widget,Fix dead stage host (connect-stage does not resolve),Done,100,P0,Dev,,Socket died 1006 while publish returned 200
+WEB-012,Voice widget,Dev-only notice when env vars missing,Done,100,P2,Dev,,Silent no-op previously hid the whole widget
+WEB-013,Voice widget,Point website widget at api-in.getello.ai (India),Not Started,0,P1,Dev,,Currently api-dev
+WEB-014,Upshot,Web SDK loader + init (CDN v1.4),Done,100,P0,Dev,,"Mounted in layout, guards double-injection"
+WEB-015,Upshot,App SDK ID configured (0664adf7-…),Done,100,P0,Dev,,Separate app from mobile
+WEB-016,Upshot,Page views on route change,Done,100,P1,Dev,,
+WEB-017,Upshot,Identify + website_lead_submitted on form submit,Done,100,P0,Dev,,E.164 phone to match server + mobile
+WEB-018,Upshot,dataRegion parameter wired,In Progress,50,P0,Dev,India region code,"Blank = USA. Data-residency issue, not latency"
+WEB-019,Upshot,Event catalogue page (/dev/upshot),Done,100,P1,Dev,,"25 events, dev-only"
+WEB-020,Upshot,Fire catalogue so events appear on the dashboard,Not Started,0,P1,Ops,,One click on /dev/upshot
+WEB-021,Upshot,Web push (service worker + VAPID),Not Started,0,P2,Dev,,subscribePush deliberately false today
+WEB-022,SEO & performance,"Per-page metadata, Open Graph, canonical URLs",Not Started,0,P1,Dev,,Only the home page has real metadata
+WEB-023,SEO & performance,sitemap.xml + robots.txt,Not Started,0,P1,Dev,,
+WEB-024,SEO & performance,"Lighthouse pass (LCP, CLS, a11y)",Not Started,0,P1,Dev,,Aurora background + fonts are the likely costs
+WEB-025,SEO & performance,Image optimisation (next/image),Not Started,0,P2,Dev,,
+WEB-026,Compliance,Cookie / tracking consent banner,Not Started,0,P0,Legal,,DPDP Act — we load Upshot + Ello before any consent today
+WEB-027,Compliance,"Privacy policy + terms pages (real, not placeholder)",Not Started,0,P0,Legal,,Footer links currently onClick=preventDefault
+WEB-028,Compliance,Compliance page reviewed by legal,Not Started,0,P0,Legal,,"Content exists; placeholders (CIN, GSTIN, address) unfilled"
+WEB-029,Compliance,Grievance officer details filled in,Not Started,0,P0,Legal,,Currently 1800-000-0000 placeholder
+WEB-030,Deployment,Hosting + custom domain + SSL,Not Started,0,P0,Ops,,
+WEB-031,Deployment,Env vars set in the hosting platform,Not Started,0,P0,Ops,,Ello + Upshot keys must not be committed
+WEB-032,Deployment,Production build verified,Done,100,P1,Dev,,"npm run build passes, 5 routes"

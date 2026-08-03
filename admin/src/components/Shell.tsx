@@ -3,36 +3,52 @@ import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
-import { swrFetcher, getToken, getAdmin, clearSession } from '@/lib/api';
+import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
 
-interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' }
+interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs'; superAdminOnly?: boolean }
 
 const NAV: { section?: string; items: NavDef[] }[] = [
-  { items: [{ href: '/overview', label: 'Master Overview', icon: '▚' }] },
+  { items: [
+    { href: '/overview', label: 'Master Overview', icon: '▚' },
+    { href: '/customers', label: 'Customers 360', icon: '◉' },
+  ] },
   {
     section: 'Funnel',
     items: [
-      { href: '/onboarding', label: 'Onboarding', icon: '◔' },
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
       { href: '/leads', label: 'Leads', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
+      { href: '/campaigns', label: 'Campaigns', icon: '📣' },
     ],
   },
   {
     section: 'People & Insight',
     items: [
       { href: '/users', label: 'All Users', icon: '☺' },
-      { href: '/analytics', label: 'Analytics', icon: '◫' },
+      // Analytics merged into Master Overview's "Trends" section; /analytics
+      // still resolves via a redirect for old links.
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
+    ],
+  },
+  {
+    section: 'Configuration',
+    items: [
+      { href: '/integrations', label: 'Integrations', icon: '⚙' },
+      { href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' },
+      { href: '/account', label: 'Account', icon: '☖' },
+      { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
     ],
   },
 ];
 
 const TITLES: Record<string, string> = {
-  '/overview': 'Master Overview', '/onboarding': 'Onboarding Journeys', '/loans': 'Loan Pipeline',
+  '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Leads & Contact', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
   '/analytics': 'Analytics', '/notifications': 'Notifications',
+  '/customers': 'Customers 360', '/campaigns': 'Campaigns', '/integrations': 'Integrations',
+  '/notifications-rules': 'Notification Rules',
+  '/account': 'Account & Security', '/audit': 'Audit Log',
 };
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -40,8 +56,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!getToken()) router.replace('/login');
-  }, [router]);
+    if (!getToken()) { router.replace('/login'); return; }
+    // 428 / login told us this admin must rotate their password — pin them to /account.
+    if (mustChangePassword() && !pathname.startsWith('/account')) {
+      router.replace('/account?mustChange=1');
+    }
+  }, [router, pathname]);
+
+  const locked = mustChangePassword();
 
   const { data: realtime } = useSWR('/api/admin/dashboard/realtime', swrFetcher, { refreshInterval: 8000 });
   const rt = (realtime?.data ?? {}) as { unreadNotifs?: number; activeSessions?: number };
@@ -59,14 +81,28 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {NAV.map((group, gi) => (
           <React.Fragment key={gi}>
             {group.section && <div className="nav-section">{group.section}</div>}
-            {group.items.map((it) => {
+            {group.items
+              // Audit is a super_admin surface — hide it for everyone else (the API 403s anyway).
+              .filter((it) => !it.superAdminOnly || admin?.role === 'super_admin')
+              .map((it) => {
               const active = pathname === it.href || pathname.startsWith(it.href + '/');
               const badge = it.badgeKey ? rt[it.badgeKey] : undefined;
-              return (
-                <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`}>
+              const inner = (
+                <>
                   <span className="row" style={{ gap: 10 }}><span style={{ width: 18, textAlign: 'center', opacity: .9 }}>{it.icon}</span>{it.label}</span>
                   {badge ? <span className="nav-badge">{badge}</span> : null}
-                </Link>
+                </>
+              );
+              // While a password change is required, everything except /account is inert.
+              if (locked && !it.href.startsWith('/account')) {
+                return (
+                  <span key={it.href} className="nav-item" style={{ opacity: .4, cursor: 'not-allowed' }} title="Change your password first">
+                    {inner}
+                  </span>
+                );
+              }
+              return (
+                <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`}>{inner}</Link>
               );
             })}
           </React.Fragment>

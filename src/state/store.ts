@@ -9,9 +9,10 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, fetchContext, type ContextPayload,
+  trackLoanStep, trackInstall, fetchContext, type ContextPayload, type PriorInquiry,
 } from '../api/client';
 import { BUILD } from '../config/build';
+import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
@@ -78,6 +79,8 @@ export interface AppState {
   // WS3 context-aware install (context build only)
   contextLoaded: boolean;
   contextData: ContextPayload | null;
+  // Website inquiries matched to this phone at OTP verify; fed to the voice agent.
+  priorInquiries: PriorInquiry[];
 }
 
 export const initialState: AppState = {
@@ -104,6 +107,7 @@ export const initialState: AppState = {
   pdDobOpen: false, pdCalY: 1988, pdCalM: 4,
   authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
   contextLoaded: false, contextData: null,
+  priorInquiries: [],
 };
 
 type Action =
@@ -123,6 +127,9 @@ const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
   creditscore: 'credit_score_viewed',
 };
+
+/** WS5: one install report per app process (see the boot effect below). */
+let installReported = false;
 
 // Exposed for unit tests.
 export const PREV_MAP = PREV;
@@ -165,6 +172,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // WS4 tracking bookkeeping (fire-and-forget analytics only).
   const pagesVisited = useRef(0);
   const screenEnteredAt = useRef(Date.now());
+  /** The onboarding step the user is currently ON, completed when they leave it. */
+  const prevOnboardingStep = useRef<{ step: number; screen: Screen } | null>(null);
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
 
@@ -236,7 +245,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       go(screenName as Screen);
       return true;
     });
-    agent.registerPageContext(() => buildPageContext(stateRef.current.screen));
+    agent.registerPageContext(() => ({
+      ...buildPageContext(stateRef.current.screen),
+      priorInquiries: stateRef.current.priorInquiries,
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -247,6 +259,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       osVersion: String(Platform.Version),
       appVersion: '1.0',
     });
+    // WS5: report the install exactly once per device. AsyncStorage isn't a
+    // dependency here, so the flag lives on the module-level `installReported`
+    // guard — good enough because a reinstall genuinely is a new install.
+    if (!installReported) {
+      installReported = true;
+      trackInstall(Platform.OS, {});
+      trackEvent('app_lifecycle', 'app_opened');
+    }
+
+    // Upshot: boot once per process. No-ops entirely unless the SDK is
+    // installed AND credentials are set, so this is safe on every build.
+    if (initUpshot()) {
+      upshotEvent('app_opened', { platform: Platform.OS });
+      // Ask for POST_NOTIFICATIONS. Required from Android 13 — without it the
+      // OS drops every notification silently, so push looks "delivered" on the
+      // Upshot dashboard while nothing ever appears on the handset.
+      //
+      // Deferred a tick because the SDK requests the permission through the
+      // *current Activity*, which is not attached yet at this point in boot.
+      setTimeout(() => registerUpshotPush(), 1500);
+    }
     const sub = RNAppState.addEventListener('change', (s) => {
       if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
     });
@@ -261,6 +294,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     screenEnteredAt.current = Date.now();
 
     trackEvent('navigation', 'screen_view', screen);
+    // Same screen name to Upshot, so IAM/activity campaigns can be targeted at
+    // a screen ("show the offers survey on `offers`") using the names the rest
+    // of our analytics already uses.
+    upshotScreen(screen);
 
     const funnelName = FUNNEL_EVENTS[screen];
     if (funnelName) {
@@ -269,8 +306,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         loanId: stateRef.current.loanId,
       });
     }
+    // WS5: onboarding steps used to be marked 'completed' the moment the user
+    // ARRIVED at a screen, with `spent` (time on the previous screen) attributed
+    // to the new one. Both were wrong: landing on `language` reported step 1
+    // complete before anything was picked, so drop-off was unmeasurable.
+    //
+    // Correct model: leaving a screen completes THAT step with the time actually
+    // spent on it; arriving marks the new step in_progress.
+    const prev = prevOnboardingStep.current;
+    if (prev) trackOnboardingStep(prev.step, prev.screen, 'completed', spent);
+
     const stepNum = ONBOARDING_STEPS[screen];
-    if (stepNum) trackOnboardingStep(stepNum, screen, 'completed', spent);
+    if (stepNum) {
+      // 'started' — the StepStatus enum has no in_progress.
+      trackOnboardingStep(stepNum, screen, 'started', 0);
+      prevOnboardingStep.current = { step: stepNum, screen };
+    } else {
+      prevOnboardingStep.current = null;
+    }
   }, [state.screen]);
 
   // ── WS3: context-aware install ──

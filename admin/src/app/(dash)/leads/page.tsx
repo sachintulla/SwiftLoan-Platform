@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
-import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
+import { Card, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { inr, dateStr, humanStatus } from '@/lib/format';
 
 const FILTERS = [

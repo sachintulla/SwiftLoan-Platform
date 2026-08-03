@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { contextLinks } from '../config/downloads.js';
+import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 // WS3 context handoff. The website widget / voice agent posts what it learned
 // about the visitor here; we mint a short opaque token and return the links the
@@ -42,13 +43,45 @@ contextRouter.post('/create', ah(async (req, res) => {
   });
 
   // Best-effort: also drop a lead row so it shows in the admin Leads funnel.
+  // Campaign/UTM attribution is carried through from the website query string.
   prisma.anonymousLead.create({
     data: {
       name: session.name, phone: session.phone, city: session.city,
       productInterest: session.product, amount: session.amount ?? undefined,
       source: session.source, note: session.summary ?? undefined, status: 'new',
+      campaignId: b.campaignId ?? b.utmCampaign ?? null,
+      referrer: b.referrer ?? null,
     },
   }).catch(() => {});
+
+  // WS5: this is the first touch of the customer journey. Resolve (or create)
+  // the Customer for this phone and open their timeline at `lead_captured`, so
+  // the same person is recognisable when they later install the app or get a
+  // call. Fire-and-forget — a journey write must never fail lead capture.
+  trackJourney(
+    {
+      phone: session.phone,
+      name: session.name,
+      email: b.email ?? null,
+      city: session.city,
+      source: b.campaignId || b.utmCampaign ? 'campaign' : 'website',
+      campaignId: b.campaignId ?? b.utmCampaign ?? null,
+      utmSource: b.utmSource ?? null,
+      utmMedium: b.utmMedium ?? null,
+      utmCampaign: b.utmCampaign ?? null,
+      referrer: b.referrer ?? null,
+    },
+    {
+      channel: 'website',
+      name: JOURNEY_EVENTS.LEAD_CAPTURED,
+      metadata: {
+        product: session.product,
+        amount: session.amount,
+        summary: session.summary,
+        contextToken: session.token,
+      },
+    },
+  ).catch(() => {});
 
   return created(res, { token, ...contextLinks(token), context: publicContext(session) }, 'Context saved');
 }));

@@ -49,6 +49,9 @@ const STATUS_TONE: Record<string, StatusTone> = {
   // application / loan
   completed: 'green', approved: 'green', disbursed: 'green', paid: 'green', verified: 'green', closed: 'green',
   in_progress: 'blue', submitted: 'blue', active: 'blue', under_review: 'blue', prequalifying: 'blue', offers_ready: 'blue', started: 'blue',
+  // campaigns / outbound calling
+  running: 'blue', dialing: 'blue', calling: 'blue', called: 'blue',
+  answered: 'green', queued: 'amber', no_answer: 'amber', busy: 'amber', retrying: 'amber',
   paused: 'amber', on_hold: 'amber', pending: 'amber', pan_pending: 'amber', handoff: 'amber', draft: 'amber', scheduled: 'amber', late: 'amber', contacted: 'amber',
   abandoned: 'red', rejected: 'red', failed: 'red', defaulted: 'red', lost: 'red',
   anonymous: 'grey', not_started: 'grey', new: 'grey', skipped: 'grey',
