@@ -184,40 +184,9 @@ enquiry), and **SMS/notification** providers.
 
 ### 3.3 Component / data-flow diagram (system context)
 
-```mermaid
-flowchart TB
-  subgraph Client["Customer surfaces (untrusted device)"]
-    RN["React Native App\n(iOS/Android, RN 0.86)\nnav state machine + in-memory store"]
-    WEB["Marketing Website\n(static + website-next)\nlead capture + voice widget"]
-  end
+![Figure 1 — System context and data flows](diagrams/tad-fig1-system-context.png)
 
-  subgraph Internal["First-party (Render-hosted)"]
-    API["Backend API\nExpress + Prisma\nauth / funnel / KYC / tracking / admin"]
-    ADMIN["Admin Dashboard\nNext.js 14 + SWR"]
-    DB[("PostgreSQL\nsystem of record")]
-  end
-
-  subgraph External["Third parties / partners"]
-    ELLO["Ello / Getello Voice AI\n'Ruby' (processor)\nx-api-key over WSS"]
-    LEND["RBI-regulated Lenders\n(offers, handoff, disbursal)"]
-    BUREAU["Credit Bureaus\nCIBIL / CRIF (CICRA soft-pull)"]
-    SMS["SMS / OTP provider"]
-  end
-
-  RN -->|"HTTPS JWT (B1)\nPII incl. PAN today"| API
-  WEB -->|"HTTPS lead capture (B1)"| API
-  ADMIN -->|"HTTPS Bearer, token in localStorage (B3)"| API
-  API --> DB
-  API -->|OTP send| SMS
-  API -->|"server-to-server\nconsent-gated (target)"| LEND
-  API -->|"soft enquiry (CICRA)"| BUREAU
-  RN -.->|"ws:// + live field values incl. PAN (B2, gaps C2/C13)"| ELLO
-  WEB -.->|"voice lead / context session"| ELLO
-  ADMIN -.->|"voice navigation widget"| ELLO
-
-  classDef gap stroke:#c0392b,stroke-width:2px,stroke-dasharray:4 3;
-  class ELLO gap;
-```
+*Figure rendered to a real image; editable source: `docs/compliance/diagrams/tad-fig1-system-context.mmd`.*
 
 ---
 
@@ -429,29 +398,9 @@ currently never purged (gap C9).
 
 ### 7.5 Sequence diagram — OTP login flow
 
-```mermaid
-sequenceDiagram
-  actor U as User
-  participant RN as RN App (client.ts)
-  participant API as Backend API (auth.routes)
-  participant DB as PostgreSQL
-  participant SMS as SMS provider
+![Figure 2 — OTP login sequence](diagrams/tad-fig2-otp-sequence.png)
 
-  U->>RN: Enter phone, tap "Send OTP"
-  RN->>API: POST /api/auth/otp/request { phone }
-  API->>DB: upsert User(phone); create OtpToken(codeHash=SHA256(otp))
-  API->>SMS: send OTP (prod) — dev/DEMO returns devOtp
-  API-->>RN: { otpSent: true, devOtp? }
-  Note over RN,API: Gap C3 — fixed OTP 123456 accepted in prod path
-  U->>RN: Enter OTP code
-  RN->>API: POST /api/auth/otp/verify { phone, code }
-  API->>DB: find unconsumed OtpToken; compare SHA256(code)
-  API->>DB: mark consumed; set phoneVerified=true
-  API->>DB: create RefreshToken(tokenHash=SHA256(refresh))
-  API-->>RN: { user, accessToken(JWT,900s), refreshToken }
-  RN->>RN: setTokens(access, refresh) — in-memory
-  Note over RN: Access token attached as Bearer on subsequent calls
-```
+*Figure rendered to a real image; editable source: `docs/compliance/diagrams/tad-fig2-otp-sequence.mmd`.*
 
 ---
 
