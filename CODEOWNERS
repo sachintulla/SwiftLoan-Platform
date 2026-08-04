@@ -1,0 +1,29 @@
+# CODEOWNERS — mandatory review for security-, privacy-, and compliance-sensitive
+# code. GitHub requires a matching owner's approval before merge when branch
+# protection has "Require review from Code Owners" enabled.
+#
+# Evidence for: ISO/IEC 27001:2022 A.8.4 (access to source code), A.8.28 (secure
+# coding), A.8.32 (change management); SOC 2 CC8.1. Replace the placeholder teams
+# with real GitHub teams and enable Code Owner review in branch protection.
+
+# Default owners
+*                                   @swiftloan/maintainers
+
+# Data model / PII at rest — requires security review
+/server/prisma/                     @swiftloan/security @swiftloan/backend
+
+# Backend services, auth, secrets config
+/server/src/                        @swiftloan/backend @swiftloan/security
+/server/src/config/                 @swiftloan/security
+/server/src/lib/                    @swiftloan/security @swiftloan/backend
+
+# Voice / third-party data egress (privacy-sensitive)
+/src/voice/                         @swiftloan/security @swiftloan/mobile
+
+# Deployment, CI, and secrets/config surfaces
+/.github/                           @swiftloan/security @swiftloan/devops
+/render.yaml                        @swiftloan/security @swiftloan/devops
+
+# Compliance documentation & controls — requires compliance sign-off
+/docs/compliance/                   @swiftloan/compliance @swiftloan/security
+/scripts/compliance/                @swiftloan/compliance @swiftloan/security

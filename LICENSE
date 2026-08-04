@@ -1,0 +1,21 @@
+SwiftLoan — Proprietary and Confidential
+
+Copyright (c) 2026 SwiftLoan. All rights reserved.
+
+This software and its source code, documentation, and associated materials
+(the "Software") are the confidential and proprietary property of SwiftLoan
+and/or its licensors. The Software is NOT open source.
+
+No part of the Software may be copied, reproduced, modified, published,
+distributed, sublicensed, or disclosed to any third party without the prior
+written permission of SwiftLoan, except as expressly permitted under a separate
+written agreement.
+
+Unauthorized use, reproduction, or distribution of the Software, or any portion
+of it, may result in severe civil and criminal penalties, and will be prosecuted
+to the maximum extent possible under law.
+
+Third-party components are governed by their respective licenses; see the
+dependency manifests (package.json / package-lock.json) and NOTICE, if present.
+
+(ISO/IEC 27001:2022 A.5.32 Intellectual property rights.)

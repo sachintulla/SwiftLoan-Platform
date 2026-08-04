@@ -1,0 +1,17 @@
+commit,generated,id,title,status,iso_27001,soc2_tsc,evidence,remediation
+5c1deff,2026-08-04 16:44 UTC,C1,PAN encrypted/tokenized at rest (not plaintext),Open,"A.8.24, A.8.11","CC6.1, C1.1","server/prisma/schema.prisma:62,171",Tokenize/field-encrypt PAN; de-duplicate to one source.
+5c1deff,2026-08-04 16:44 UTC,C2,Voice page_context redacts sensitive field values,Open,"A.8.11, A.5.34","C1.1, P4",src/voice/actionRegistry.ts:204; src/voice/screenGraph.ts:207,Redact sensitive values from page_context/read_screen.
+5c1deff,2026-08-04 16:44 UTC,C3,Fixed demo-OTP disabled in production,Open,A.8.5,CC6.1,render.yaml DEMO_LOGIN; lib/crypto.ts:9-11,Set DEMO_LOGIN=false in prod; remove client bypass.
+5c1deff,2026-08-04 16:44 UTC,C4,No default/shared admin credential,Open,"A.8.5, A.5.17",CC6.1,"server/prisma/seed.ws4.ts:74,82-83",Remove admin123 seed; force reset + MFA.
+5c1deff,2026-08-04 16:44 UTC,C5,No live API key committed to source,Open,"A.8.24, A.5.19","CC6.1, CC9.2",render.yaml:53; website/js/voice-widget.js:17,Rotate key; move to secrets manager; purge history.
+5c1deff,2026-08-04 16:44 UTC,C6,Secrets fail-closed (no dev fallback),Open,"A.8.9, A.8.24","CC6.1, CC8.1",server/src/config/env.ts:12-13,Remove dev-access/dev-refresh fallbacks; fail on boot.
+5c1deff,2026-08-04 16:44 UTC,C7,CORS restricted to allow-list,Open,"A.8.20, A.8.23",CC6.6,server/src/app.ts:27,Replace open cors() with an origin allow-list.
+5c1deff,2026-08-04 16:44 UTC,C11,Admin tokens not in localStorage (httpOnly),Open,"A.8.3, A.8.5",CC6.1,admin/src/lib/api.ts:12-22,Move admin tokens to httpOnly cookies.
+5c1deff,2026-08-04 16:44 UTC,C13,"Voice transport TLS-only (no ws://,http://)",Open,"A.8.24, A.8.20","CC6.7, C1.1",src/voice/config.ts,Force wss:// and https:// for voice transport.
+5c1deff,2026-08-04 16:44 UTC,G5,Secret scanning in CI (gitleaks),Implemented,"A.8.8, A.8.4",CC7.1,.github/workflows/security-scan.yml,Keep gitleaks in CI; enable GitHub push protection.
+5c1deff,2026-08-04 16:44 UTC,G6,SAST in CI (CodeQL),Implemented,"A.8.25, A.8.28",CC8.1,.github/workflows/security-scan.yml,Keep CodeQL; triage findings.
+5c1deff,2026-08-04 16:44 UTC,G7,Dependency/SCA scanning (Dependabot + npm audit),Implemented,A.8.8,CC7.1,.github/dependabot.yml,Keep Dependabot; act on advisories.
+5c1deff,2026-08-04 16:44 UTC,G8,Mandatory code-owner review,Implemented,"A.8.4, A.8.32",CC8.1,CODEOWNERS,Enable 'Require Code Owner review' in branch protection.
+5c1deff,2026-08-04 16:44 UTC,G9,Vulnerability disclosure policy,Implemented,"A.5.5, A.5.24",CC2.3,SECURITY.md,Keep current; staff the security mailbox.
+5c1deff,2026-08-04 16:44 UTC,G10,PR governance (security/compliance checklist),Implemented,A.8.32,CC8.1,.github/pull_request_template.md,Keep; enforce checklist in review.
+5c1deff,2026-08-04 16:44 UTC,G11,IP / licensing clarity,Implemented,A.5.32,CC1.1,LICENSE,Keep proprietary notice current.
