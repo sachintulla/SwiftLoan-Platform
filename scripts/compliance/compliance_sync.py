@@ -13,7 +13,10 @@ controls) against the current codebase, then:
      (only if openpyxl is installed and the file exists).
   4. Detects DRIFT: if any monitored source file changed since the last sync
      (tracked in .code-manifest.json), it flags the affected controls and the
-     six compliance documents for human review.
+     compliance documents for human review.
+  5. Auto-appends newly-merged pull requests (via `gh pr list`, or a `git log`
+     merge-commit fallback) to the "Change Log" sheet of the SDLC tracker
+     (07-*.xlsx) — idempotent: PRs already referenced in the sheet are skipped.
 
 SCOPE / HONESTY
 ---------------
@@ -42,6 +45,7 @@ MANIFEST = DOCS / ".code-manifest.json"
 STATUS_MD = DOCS / "COMPLIANCE-STATUS.md"
 STATUS_CSV = DOCS / "compliance-status.csv"
 EVIDENCE_XLSX = DOCS / "06-Compliance-Evidence-Pack-and-Claims-Matrix.xlsx"
+SDLC_XLSX = DOCS / "07-SDLC-Change-Management-Tracker.xlsx"
 
 THE_SIX_DOCS = [
     "01-Product-Requirements-Document",
@@ -263,6 +267,98 @@ def update_xlsx(rows, head, stamp):
     wb.save(EVIDENCE_XLSX)
     return True
 
+def _merged_prs():
+    """Merged PRs via `gh` (preferred), else parse merge-commits from `git log`.
+    Returns list of dicts: number, title, author, createdAt, mergedAt, head, oid."""
+    try:
+        out = subprocess.run(
+            ["gh", "pr", "list", "--state", "merged", "--limit", "300", "--json",
+             "number,title,author,createdAt,mergedAt,headRefName,mergeCommit"],
+            cwd=REPO, capture_output=True, text=True, timeout=90)
+        if out.returncode == 0 and out.stdout.strip():
+            res = []
+            for p in json.loads(out.stdout):
+                res.append(dict(
+                    number=p.get("number"), title=(p.get("title") or "").strip(),
+                    author=(p.get("author") or {}).get("login", "") or "",
+                    createdAt=(p.get("createdAt") or "")[:10],
+                    mergedAt=(p.get("mergedAt") or "")[:10],
+                    head=p.get("headRefName", "") or "",
+                    oid=((p.get("mergeCommit") or {}).get("oid", "") or "")[:8]))
+            return res
+    except Exception:
+        pass
+    # fallback: git log merge commits ("Merge pull request #N ...")
+    try:
+        out = subprocess.run(["git", "log", "--merges", "--date=short",
+                              "--pretty=%h|%ad|%an|%s", "-n", "300"],
+                             cwd=REPO, capture_output=True, text=True)
+        res = []
+        for line in out.stdout.splitlines():
+            parts = line.split("|", 3)
+            if len(parts) < 4:
+                continue
+            h, d, an, subj = parts
+            m = re.search(r"Merge pull request #(\d+)", subj)
+            if not m:
+                continue
+            res.append(dict(number=int(m.group(1)), title=subj, author=an,
+                            createdAt="", mergedAt=d, head="", oid=h))
+        return res
+    except Exception:
+        return []
+
+def append_merged_prs():
+    """Idempotently append merged PRs not already referenced in the SDLC Change Log.
+    Returns count appended, or -1 if skipped (no xlsx / no openpyxl / no sheet)."""
+    if not SDLC_XLSX.exists():
+        return -1
+    try:
+        import openpyxl
+        from openpyxl.styles import Alignment, Border, Side, PatternFill
+    except ImportError:
+        return -1
+    prs = _merged_prs()
+    if not prs:
+        return 0
+    wb = openpyxl.load_workbook(SDLC_XLSX)
+    if "Change Log" not in wb.sheetnames:
+        return -1
+    ws = wb["Change Log"]
+    # PR numbers already present anywhere in the sheet (manual rows included)
+    seen = set()
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        for v in row:
+            if v is None:
+                continue
+            for m in re.finditer(r"#(\d+)", str(v)):
+                seen.add(int(m.group(1)))
+    thin = Side(style="thin", color="CBD5E1")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    green = PatternFill("solid", fgColor="DCFCE7")
+    added = 0
+    for p in sorted(prs, key=lambda x: (x["number"] or 0)):
+        num = p["number"]
+        if not num or num in seen:
+            continue
+        impl = (f"{p['oid']} ({p['head']})" if p["oid"] and p["head"]
+                else p["oid"] or p["head"] or "-")
+        rowvals = [f"CL-PR{num}", p["title"], "PR (merged)", p["head"] or "-",
+                   p["createdAt"] or "", "Yes", "Yes", p["author"] or "-",
+                   impl, "CI / review", "PR review + merge", f"PR #{num}",
+                   f"Merged {p['mergedAt']}".strip()]
+        ws.append(rowvals)
+        rr = ws.max_row
+        for c in range(1, len(rowvals) + 1):
+            ws.cell(row=rr, column=c).border = border
+            ws.cell(row=rr, column=c).alignment = Alignment(vertical="top", wrap_text=True)
+        ws.cell(row=rr, column=13).fill = green
+        seen.add(num)
+        added += 1
+    if added:
+        wb.save(SDLC_XLSX)
+    return added
+
 def main():
     mode = "update"
     if "--check" in sys.argv: mode = "check"
@@ -286,9 +382,12 @@ def main():
         write_status_md(rows, changed, affected, head, stamp)
         write_status_csv(rows, head, stamp)
         xlsx = update_xlsx(rows, head, stamp)
+        pr_added = append_merged_prs()
         MANIFEST.write_text(json.dumps({"commit": head, "generated": stamp, "files": cur}, indent=2))
         print(f"[compliance-sync] wrote {STATUS_MD.name}, {STATUS_CSV.name}"
-              + (f", updated {EVIDENCE_XLSX.name}" if xlsx else ""))
+              + (f", updated {EVIDENCE_XLSX.name}" if xlsx else "")
+              + (f", appended {pr_added} merged PR(s) to SDLC Change Log" if pr_added and pr_added > 0
+                 else (", SDLC Change Log up to date" if pr_added == 0 else "")))
         if changed:
             print("[compliance-sync] Documents flagged for REVIEW (see COMPLIANCE-STATUS.md).")
 

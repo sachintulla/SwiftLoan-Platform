@@ -40,8 +40,10 @@ jobs:
         run: python3 scripts/compliance/compliance_sync.py --check
 
       # --- Push-to-main path: regenerate artifacts and commit them back ---
-      - name: Regenerate compliance status (main)
+      - name: Regenerate compliance status + append merged PRs (main)
         if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}   # lets the script call `gh pr list` to auto-append merged PRs
         run: python3 scripts/compliance/compliance_sync.py --update
 
       - name: Commit regenerated compliance artifacts (main)
@@ -52,7 +54,8 @@ jobs:
           git add docs/compliance/COMPLIANCE-STATUS.md \
                   docs/compliance/compliance-status.csv \
                   docs/compliance/.code-manifest.json \
-                  docs/compliance/06-Compliance-Evidence-Pack-and-Claims-Matrix.xlsx 2>/dev/null || true
+                  docs/compliance/06-Compliance-Evidence-Pack-and-Claims-Matrix.xlsx \
+                  docs/compliance/07-SDLC-Change-Management-Tracker.xlsx 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No compliance-status changes to commit."
           else
