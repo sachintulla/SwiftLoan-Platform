@@ -1,3 +1,35 @@
+/**
+ * Turn any provider error body into a sentence a human can act on.
+ *
+ * Ello nests differently per status: a 401 gives `{ message: "..." }` (a string),
+ * but a 402 gives `{ message: { success, message, error_code, ... } }` — an
+ * OBJECT. The old code did `new Error(json.message)`, so `String(err)` rendered
+ * the useless "Error: [object Object]" and hid the real cause ("No active
+ * subscription"), which cost real debugging time. Anything that reaches a user
+ * must be unwrapped, never stringified blindly.
+ */
+export function readProviderError(json: unknown, status: number): string {
+  const seen = new Set<unknown>();
+  const dig = (v: unknown, depth = 0): string | null => {
+    if (v == null || depth > 5 || seen.has(v)) return null;
+    if (typeof v === 'string') return v.trim() || null;
+    if (typeof v !== 'object') return String(v);
+    seen.add(v);
+    const o = v as Record<string, unknown>;
+    // Most specific first: a human-facing reason beats a generic wrapper.
+    for (const k of ['message', 'error_message', 'detail', 'error', 'reason', 'error_code']) {
+      if (k in o) {
+        const found = dig(o[k], depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  const msg = dig(json);
+  const code = (json as any)?.message?.error_code ?? (json as any)?.error_code;
+  if (msg) return code && !msg.includes(String(code)) ? `${msg} (${code})` : msg;
+  return `request failed with HTTP ${status}`;
+}
 // Minimal hand-written client for the Getello ("Ello") voice-widget protocol,
 // modelled on the @ello/agent-sdk integration guide. The real SDK isn't
 // published anywhere we can install it from, so this reimplements the wire
@@ -64,19 +96,24 @@ type AgentEventMap = {
 type Listener<K extends keyof AgentEventMap> = (payload: AgentEventMap[K]) => void;
 
 export type ElloAgentOptions = {
-  apiKey: string;
-  assistantId: string;
+  /** No longer sent to Ello from the browser; kept optional for existing callers. */
+  apiKey?: string;
+  /** Informational only — the server maps a role to an agent. */
+  assistantId?: string;
   apiBaseUrl?: string;
   wsUrl?: string;
+  /** Our own API, which brokers the Ello session. */
+  sessionUrl?: string;
+  role?: "websiteCompanion" | "companion" | "adminNavigator";
   widget?: { position?: "bottom-right" | "bottom-left"; hidden?: boolean };
   debug?: boolean;
 };
 
-const DEFAULT_API_BASE = "https://api-dev.getello.ai";
-const DEFAULT_WS_URL = "wss://connect-dev.getello.ai/ws-ello";
+const DEFAULT_API_BASE = "https://api-in.getello.ai";
+const DEFAULT_WS_URL = "wss://connect-in.getello.ai/ws-ello";
 
 export class ElloAgent {
-  private opts: Required<Pick<ElloAgentOptions, "apiBaseUrl" | "wsUrl">> & ElloAgentOptions;
+  private opts: Required<Pick<ElloAgentOptions, "apiBaseUrl" | "wsUrl" | "sessionUrl">> & ElloAgentOptions;
   private tools = new Map<string, ClientToolOptions>();
   private pageContextFn: (() => Record<string, unknown>) | null = null;
   private ws: WebSocket | null = null;
@@ -108,6 +145,9 @@ export class ElloAgent {
     this.opts = {
       apiBaseUrl: options.apiBaseUrl ?? DEFAULT_API_BASE,
       wsUrl: options.wsUrl ?? DEFAULT_WS_URL,
+      // Our own API brokers the Ello session (see start()).
+      sessionUrl:
+        options.sessionUrl ?? process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000",
       ...options,
     };
   }
@@ -222,26 +262,34 @@ export class ElloAgent {
       return;
     }
     try {
-      const resp = await fetch(`${this.opts.apiBaseUrl}/api/agents/publish`, {
+      // Brokered by OUR server, not Ello directly. Ello's api-in returns no
+      // `Access-Control-Allow-Origin` and does not allow the `X-API-Key` header
+      // cross-origin, so a browser preflight always fails — that is the
+      // "Failed to fetch" this replaces. It also keeps the Ello key off the
+      // client, where it was readable by anyone with devtools.
+      //
+      // A ROLE is sent, never an agent id, so the server decides which agent that
+      // means and a caller cannot repoint our key at a different one.
+      const resp = await fetch(`${this.opts.sessionUrl}/api/voice/session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": this.opts.apiKey },
-        body: JSON.stringify({
-          assistant_id: this.opts.assistantId,
-          agent_type: "webcall",
-          source: "sdk",
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: this.opts.role ?? "adminNavigator" }),
       });
       const json = await resp.json();
-      this.log("publish response", json);
-      const conversationId = json?.data?.conversation_id ?? json?.conversation_id;
+      this.log("session response", json);
+      const conversationId = json?.data?.conversationId ?? json?.data?.conversation_id;
       if (!resp.ok || !conversationId) {
-        throw new Error(json?.message ?? `publish failed: ${resp.status}`);
+        throw new Error(readProviderError(json, resp.status));
       }
       this.conversationId = conversationId;
-      this.dbg("info", "publish ok", `conversation_id=${conversationId}`);
+      // The server owns which Ello environment we use.
+      if (json?.data?.wsUrl) this.opts.wsUrl = json.data.wsUrl;
+      this.dbg("info", "session ok", `conversation_id=${conversationId}`);
     } catch (err) {
       this.dbg("error", "publish failed", String(err));
-      this.emit("error", { message: String(err) });
+      // `String(err)` on an Error yields "Error: <message>", and on a non-Error
+      // object "[object Object]" — neither belongs in front of a user.
+      this.emit("error", { message: err instanceof Error ? err.message : readProviderError(err, 0) });
       this.setStatus("idle");
       return;
     }

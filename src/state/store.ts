@@ -9,7 +9,8 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, trackInstall, fetchContext, type ContextPayload, type PriorInquiry,
+  trackLoanStep, trackInstall, fetchContext, fetchUserContext,
+  type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
@@ -81,6 +82,11 @@ export interface AppState {
   contextData: ContextPayload | null;
   // Website inquiries matched to this phone at OTP verify; fed to the voice agent.
   priorInquiries: PriorInquiry[];
+  // WS8: everything the backend already knows about this phone (website
+  // enquiries, the outbound call, an application in flight). Fetched once the
+  // user is signed in and handed to the in-app agent so it opens from where they
+  // left off rather than from scratch. Null until fetched, or when they are new.
+  userContext: UserContext | null;
 }
 
 export const initialState: AppState = {
@@ -108,6 +114,7 @@ export const initialState: AppState = {
   authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
   contextLoaded: false, contextData: null,
   priorInquiries: [],
+  userContext: null,
 };
 
 type Action =
@@ -248,6 +255,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     agent.registerPageContext(() => ({
       ...buildPageContext(stateRef.current.screen),
       priorInquiries: stateRef.current.priorInquiries,
+      // WS8: the history behind this phone number. `brief` is a one-line summary
+      // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
+      // personal loan; spoke to us on the phone yesterday"), so it continues the
+      // conversation instead of restarting it. Read from stateRef so this closure
+      // never goes stale.
+      userContext: stateRef.current.userContext ?? undefined,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -285,6 +298,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
+
+  // ── WS8: load what the backend already knows about this phone ──────────
+  //
+  // Runs when the user becomes authenticated, by either route (OTP verify or the
+  // anonymous "Skip" session). This is the non-deep-link path: an organic
+  // Play Store install arrives with just a phone number, so without this the
+  // in-app agent greets a returning customer as a stranger and re-asks what they
+  // already told the website and the phone agent.
+  //
+  // Fire-and-forget and never awaited by a screen: if it fails or the user is
+  // brand new, `userContext` stays null and the agent behaves exactly as before.
+  const contextFetched = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || contextFetched.current) return;
+    contextFetched.current = true;
+    fetchUserContext()
+      .then((ctx) => {
+        // Only store it when there is something to say. An empty context would
+        // put `hasHistory: false` in front of the agent, which is noise.
+        if (!ctx?.hasHistory) return;
+        dispatch({ type: 'set', patch: { userContext: ctx } });
+        trackEvent('funnel', 'user_context_loaded', 'home', {
+          inquiries: ctx.inquiries.length,
+          hadCall: !!ctx.lastCall,
+          stage: ctx.stage,
+        });
+      })
+      .catch(() => undefined);
+  }, [state.authUser]);
 
   // ── WS4: emit an event on every screen transition (fire-and-forget) ──
   useEffect(() => {

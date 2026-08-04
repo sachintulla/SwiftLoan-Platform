@@ -397,3 +397,65 @@ export function trackLoanStep(
     hold_reason: holdReason,
   });
 }
+
+/* ── WS8: what the backend already knows about the signed-in user ──────────
+ *
+ * The non-deep-link path. Someone fills the website form, takes our callback,
+ * then installs from the Play Store — arriving with only a phone number. This
+ * fetches their history so the in-app voice agent can continue the conversation
+ * instead of greeting them as a stranger.
+ *
+ * Phone is taken from the access token server-side, never sent by us: passing a
+ * number would make it an open lookup of anyone's loan history.
+ */
+export interface UserContextInquiry {
+  product: string | null;
+  amount: number | null; // paise
+  amountLabel: string | null;
+  city: string | null;
+  summary: string | null;
+  createdAt: string;
+  source: string | null;
+  campaign: string | null;
+}
+
+export interface UserContext {
+  hasHistory: boolean;
+  name: string | null;
+  city: string | null;
+  email: string | null;
+  stage: string | null;
+  stageLabel: string | null;
+  nextAction: string | null;
+  inquiries: UserContextInquiry[];
+  lastCall: {
+    at: string;
+    outcome: string | null;
+    outcomeSource: string | null;
+    summary: string | null;
+    answered: boolean;
+    durationSec: number | null;
+  } | null;
+  application: {
+    id: string; ref: string; status: string;
+    amount: number | null; loanType: string | null; offerCount: number;
+  } | null;
+  loan: { id: string; principal: number | null; status: string | null } | null;
+  /** One-line brief the agent can open from. */
+  brief: string | null;
+}
+
+/**
+ * Never throws and never blocks a screen: a missing context just means the agent
+ * opens generically, which is exactly how the app behaved before this existed.
+ */
+export async function fetchUserContext(): Promise<UserContext | null> {
+  if (!accessToken) return null;
+  try {
+    const json = await request<{ data?: UserContext }>('GET', '/context/me');
+    const data = (json as any)?.data ?? json;
+    return data && typeof data === 'object' && 'hasHistory' in data ? (data as UserContext) : null;
+  } catch {
+    return null;
+  }
+}

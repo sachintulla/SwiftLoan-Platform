@@ -3,7 +3,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
-import { Card, StatCard, StatusBadge, TableSkeleton } from '@/components/ui';
+import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
+import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { inr, dateStr, timeAgo, humanStatus } from '@/lib/format';
 
 interface Lead {
@@ -27,6 +28,16 @@ export default function LeadJourney() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (lead?.note != null) setNote(lead.note); }, [lead?.note]);
+
+  // The lead payload carries no calls of its own (and no customer id), so match the
+  // voice-call log on this lead's phone number — that is the same key the dialler used.
+  const leadDigits = (lead?.phone ?? '').replace(/\D/g, '');
+  const {
+    data: callsRes, error: callsError, isLoading: callsLoading, mutate: refetchCalls,
+  } = useSWR(leadDigits ? `/api/admin/calls?search=${leadDigits}&pageSize=25` : null, swrFetcher);
+  // Defensive: the list may arrive bare or nested under data.items.
+  const callsPayload = callsRes?.data as CallAttemptDetail[] | { items?: CallAttemptDetail[] } | undefined;
+  const calls: CallAttemptDetail[] = Array.isArray(callsPayload) ? callsPayload : (callsPayload?.items ?? []);
 
   if (isLoading || !lead) return <div className="page"><TableSkeleton rows={8} /></div>;
 
@@ -100,9 +111,29 @@ export default function LeadJourney() {
         </Card>
       </div>
 
+      {/* voice calls matched by phone */}
+      <div style={{ marginTop: 16 }}>
+        <Card
+          title={`Voice calls (${calls.length})`}
+          sub={leadDigits ? `Outbound attempts matched to ${lead.phone}` : undefined}
+          right={callsError ? <button className="btn" onClick={() => refetchCalls()}>Retry</button> : undefined}
+        >
+          {!leadDigits ? (
+            <Empty label="This lead has no phone number, so no calls can be matched" />
+          ) : callsLoading ? (
+            <TableSkeleton rows={3} cols={4} />
+          ) : callsError ? (
+            <div className="empty" style={{ color: 'var(--red)' }}>Could not load calls — {(callsError as Error).message}</div>
+          ) : (
+            <CallList calls={calls} emptyLabel="No voice calls placed to this lead yet" />
+          )}
+        </Card>
+      </div>
+
       {/* converted user (if any) */}
       {convertedUser && (
-        <Card title="Converted to customer" sub="This lead became a registered user" className="">
+        <div style={{ marginTop: 16 }}>
+        <Card title="Converted to customer" sub="This lead became a registered user">
           <div className="row between wrap" style={{ marginBottom: 12 }}>
             <div className="row" style={{ gap: 10 }}>
               <StatusBadge status="converted" label="Converted" />
@@ -120,6 +151,7 @@ export default function LeadJourney() {
             </table></div>
           )}
         </Card>
+        </div>
       )}
     </div>
   );

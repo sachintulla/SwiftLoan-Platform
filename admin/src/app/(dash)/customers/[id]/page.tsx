@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress } from '@/components/journey';
+import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { inr, dateStr, timeAgo, humanStatus } from '@/lib/format';
 
 interface Customer {
@@ -17,10 +18,6 @@ interface Customer {
 interface TimelineEntry {
   id: string; channel: string; name: string; stage?: string | null; stageLabel?: string | null;
   screen?: string | null; metadata?: Record<string, unknown> | null; occurredAt: string;
-}
-interface CallRow {
-  id: string; status?: string | null; outcome?: string | null; durationSeconds?: number | null;
-  summary?: string | null; recordingUrl?: string | null; startedAt?: string | null; campaignId?: string | null;
 }
 interface CampaignRef { id: string; name: string; code?: string; state?: string | null }
 interface LeadRef { id: string; name?: string | null; phone?: string | null; source: string; status: string; createdAt: string }
@@ -35,7 +32,7 @@ interface Detail {
   timeline?: TimelineEntry[];
   stageProgress?: StageProgress[];
   dropOff?: { stage: string; label?: string; stalledMinutes?: number; isTerminal?: boolean } | null;
-  calls?: CallRow[];
+  calls?: CallAttemptDetail[];
   campaigns?: CampaignRef[];
   user?: LinkedUser | null;
   leads?: LeadRef[];
@@ -43,12 +40,6 @@ interface Detail {
 }
 
 const CHANNELS = ['push', 'whatsapp', 'sms', 'email', 'voice'] as const;
-
-function secs(n: number | null | undefined) {
-  if (!n) return '—';
-  const m = Math.floor(n / 60);
-  return m > 0 ? `${m}m ${n % 60}s` : `${n}s`;
-}
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
@@ -197,26 +188,15 @@ export default function CustomerDetail() {
         </Card>
       </div>
 
-      {/* calls */}
-      <Card title={`Calls (${calls.length})`} sub="Outbound voice attempts">
-        {calls.length === 0 ? <Empty label="No calls placed to this customer" /> : (
-          <div className="table-wrap"><table className="data">
-            <thead><tr><th>When</th><th>Status</th><th>Outcome</th><th>Duration</th><th>Summary</th><th>Recording</th></tr></thead>
-            <tbody>{calls.map((cl) => (
-              <tr key={cl.id}>
-                <td className="muted">{cl.startedAt ? dateStr(cl.startedAt) : '—'}</td>
-                <td><StatusBadge status={cl.status} /></td>
-                <td>{cl.outcome ? <StatusBadge status={cl.outcome} /> : <span className="muted">—</span>}</td>
-                <td className="mono">{secs(cl.durationSeconds)}</td>
-                <td style={{ fontSize: 12, maxWidth: 380 }}>{cl.summary || <span className="muted">—</span>}</td>
-                <td>{cl.recordingUrl ? <a className="btn" style={{ padding: '3px 9px', fontSize: 11.5 }} href={cl.recordingUrl} target="_blank" rel="noreferrer">Listen</a> : <span className="muted">—</span>}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
-        )}
-      </Card>
+      {/* voice calls */}
+      <div style={{ marginTop: 16 }}>
+        <Card title={`Voice calls (${calls.length})`} sub="Every outbound voice attempt, with what the agent knew and what it reported back">
+          <CallList calls={calls} emptyLabel="No voice calls placed to this customer" />
+        </Card>
+      </div>
 
       {/* linked app account */}
+      <div style={{ marginTop: 16 }}>
       <Card
         title="App account"
         sub={user ? 'Applications, loans and KYC for the linked user' : undefined}
@@ -265,8 +245,10 @@ export default function CustomerDetail() {
           </>
         )}
       </Card>
+      </div>
 
       {/* matched website leads */}
+      <div style={{ marginTop: 16 }}>
       <Card title={`Website leads (${leads.length})`} sub="Leads matched to this customer by phone">
         {leads.length === 0 ? <Empty label="No website leads matched" /> : (
           <div className="table-wrap"><table className="data">
@@ -283,6 +265,7 @@ export default function CustomerDetail() {
           </table></div>
         )}
       </Card>
+      </div>
     </div>
   );
 }

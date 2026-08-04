@@ -358,8 +358,15 @@ export async function parseElloWebhook(raw: any) {
     transcript,
     recordingUrl: get('recordingUrl') != null ? String(get('recordingUrl')) : null,
     durationSec: Number.isFinite(Number(durationRaw)) ? Number(durationRaw) : null,
-    // A call that connected has a connected_at and a non-zero duration.
-    answered: Boolean(raw?.connected_at) || Number(durationRaw) > 0,
+    // A call that connected has a connected_at and a non-zero duration. An
+    // explicit `answered` boolean is honoured too — without it, a provider that
+    // reports connection that way (and omits duration) has an answered call
+    // recorded as `no_answer`, which then reads as `unreachable` in the funnel.
+    answered:
+      raw?.answered === true ||
+      raw?.answered === 'true' ||
+      Boolean(raw?.connected_at) ||
+      Number(durationRaw) > 0,
     errorCode: get('errorCode') ?? null,
     errorReason: get('errorReason') != null ? String(get('errorReason')) : null,
   };

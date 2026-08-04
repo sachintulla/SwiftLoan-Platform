@@ -25,8 +25,8 @@ var ElloSDK = (() => {
     fillInput: () => fillInput,
     isSensitiveInput: () => isSensitiveInput
   });
-  var DEFAULT_API_BASE = "https://api-dev.getello.ai";
-  var DEFAULT_WS_URL = "wss://connect-dev.getello.ai/ws-ello";
+  var DEFAULT_API_BASE = "https://api-in.getello.ai";
+  var DEFAULT_WS_URL = "wss://connect-in.getello.ai/ws-ello";
   var ElloAgent = class _ElloAgent {
     constructor(options) {
       this.tools = /* @__PURE__ */ new Map();

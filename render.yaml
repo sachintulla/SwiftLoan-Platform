@@ -54,9 +54,9 @@ services:
       - key: NEXT_PUBLIC_ELLO_ASSISTANT_ID
         value: 6a64d273a4fc43f6203cd3cc
       - key: NEXT_PUBLIC_ELLO_API_BASE
-        value: https://api-dev.getello.ai
+        value: https://api-in.getello.ai
       - key: NEXT_PUBLIC_ELLO_WS_URL
-        value: wss://connect-dev.getello.ai/ws-ello
+        value: wss://connect-in.getello.ai/ws-ello
 
   # ── Marketing website (static swiftloan.ai site + Ello voice guide) ──────
   - type: web

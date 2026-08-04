@@ -360,9 +360,29 @@ export default function SiteScripts() {
 
     // WS3: POST the captured details to the backend, then render a "continue in
     // the app" download CTA whose link carries the (opaque) context token.
-    const CONTEXT_API =
-      ((window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE || 'https://swiftloan-api.onrender.com') +
-      '/api/context/create';
+    // Resolution order matters. `window.SWIFTLOAN_API_BASE` stays first so a
+    // deployed page can be repointed without a rebuild; NEXT_PUBLIC_API_BASE is
+    // the normal per-environment setting. The Render URL is the last resort —
+    // note that without the env var, a form submitted on localhost used to post
+    // straight to PRODUCTION, so the lead vanished from the local database and no
+    // call was ever queued. That is a confusing failure, so it now warns loudly
+    // in development instead of silently crossing environments.
+    const API_BASE =
+      (window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE ||
+      process.env.NEXT_PUBLIC_API_BASE ||
+      'https://swiftloan-api.onrender.com';
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      /^https?:\/\/(localhost|127\.0\.0\.1)/.test(window.location.origin) &&
+      !/localhost|127\.0\.0\.1/.test(API_BASE)
+    ) {
+      console.warn(
+        `[swiftloan] This page is on ${window.location.origin} but posts leads to ${API_BASE}. ` +
+          'Set NEXT_PUBLIC_API_BASE=http://localhost:4000 in website-next/.env.local, ' +
+          'or your submissions will land in the production database.',
+      );
+    }
+    const CONTEXT_API = API_BASE + '/api/context/create';
     function createContextLink(details: Record<string, unknown>) {
       const box = $<HTMLElement>('#appContinue');
       if (!box) return;

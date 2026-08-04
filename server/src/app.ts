@@ -27,6 +27,7 @@ import { campaignsRouter } from './modules/campaigns.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
+import { voiceRouter } from './modules/voice.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
 
 export function createApp() {
@@ -106,6 +107,9 @@ export function createApp() {
   app.use('/api/admin/ops', adminOpsRouter);
   app.use('/api/admin/customers', customersRouter);
   app.use('/api/admin/integrations', integrationsRouter);
+  // PUBLIC — the marketing site has no login. Rate-limited because each call
+  // starts a billable Ello session.
+  app.use('/api/voice', limiter(60_000, 20, 'Too many voice session requests'), voiceRouter);
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
   app.use('/api/admin', adminRouter);

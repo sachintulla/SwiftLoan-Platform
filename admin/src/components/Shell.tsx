@@ -35,6 +35,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     section: 'Configuration',
     items: [
       { href: '/integrations', label: 'Integrations', icon: '⚙' },
+      { href: '/agents', label: 'Agents', icon: '☎' },
       { href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' },
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
@@ -47,6 +48,7 @@ const TITLES: Record<string, string> = {
   '/leads': 'Leads & Contact', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
   '/analytics': 'Analytics', '/notifications': 'Notifications',
   '/customers': 'Customers 360', '/campaigns': 'Campaigns', '/integrations': 'Integrations',
+  '/agents': 'Voice Agents',
   '/notifications-rules': 'Notification Rules',
   '/account': 'Account & Security', '/audit': 'Audit Log',
 };

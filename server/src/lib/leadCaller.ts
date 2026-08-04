@@ -13,6 +13,18 @@
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
 import { localParts } from './campaignSchedule.js';
+import { buildLeadCallContext, compactContext } from './callContext.js';
+import { agentIdFor } from './agents.js';
+
+/**
+ * The agent that handles website-lead callbacks.
+ *
+ * Resolved per call rather than cached so an operator can point the flow at a
+ * different agent from the dashboard without a restart.
+ */
+async function leadCallbackAgentId(): Promise<string | null> {
+  return agentIdFor('leadCallback');
+}
 
 const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
 /** How long after the form submit to call. The brief asks for ~1 minute. */
@@ -101,15 +113,23 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     if (recent > 0) continue;
 
     try {
+      // The whole point of the ~1-minute delay is that the call lands while the
+      // visit is still fresh, so the agent must open with what they just typed.
+      // These variables are what make that possible — see lib/callContext.ts.
+      const context = compactContext(
+        await buildLeadCallContext(lead, { purpose: 'website_lead_followup', now }),
+      );
+
       const result = await placeCall({
         customerId: lead.id,
         phone: lead.phone!,
-        assistantId: null, // falls back to the configured default agent
+        // Prefer the agent dedicated to website callbacks; falls back to the
+        // workspace default when that id is not configured yet.
+        assistantId: await leadCallbackAgentId(),
         metadata: {
+          ...context,
+          // Kept for the admin UI and older log readers, which look for these.
           name: lead.name ?? undefined,
-          city: lead.city ?? undefined,
-          source: lead.firstSource,
-          campaign: lead.campaignId ?? undefined,
           reason: 'website_lead_followup',
         },
       });

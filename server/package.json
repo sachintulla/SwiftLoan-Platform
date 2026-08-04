@@ -18,7 +18,9 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:status": "prisma migrate status",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ello:sync": "tsx scripts/ello-sync-agent.ts",
+    "ello:agents": "tsx scripts/ello-agents.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

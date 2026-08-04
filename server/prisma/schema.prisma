@@ -708,8 +708,28 @@ model CallAttempt {
   providerCallId String?      @unique
   status         CallStatus   @default(queued)
   outcome        CallOutcome?
+  /// How `outcome` was determined: "agent" (the agent reported it via the
+  /// report_call_outcome tool), "inferred" (matched from the transcript — a
+  /// guess), "status" (derived from a failure status), or null. Ello sends no
+  /// outcome field, so without this an operator cannot tell a real disposition
+  /// from a keyword match, and the two carry very different confidence.
+  outcomeSource  String?
+  /// The phrase that triggered an inference, so the dashboard can show its work.
+  outcomeEvidence String?
   /// Free-text disposition or summary returned by the agent.
   summary        String?
+
+  // ── Details the agent captured on the call (all optional; only ever set
+  // from an explicit agent report, never inferred) ──────────────────────
+  incomeRange      String?
+  employment       String?
+  preferredChannel String?
+  /// When the customer asked to be called back.
+  callbackAt       DateTime?
+  /// The context_data variables sent to the agent for this call. Kept so an
+  /// operator can see exactly what the agent knew when it dialled — the usual
+  /// first question when a call goes wrong.
+  callContext      Json?
   transcript     Json?
   recordingUrl   String?
   durationSec    Int?

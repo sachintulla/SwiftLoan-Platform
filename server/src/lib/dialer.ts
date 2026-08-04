@@ -9,7 +9,7 @@
  * Nothing here throws: a provider outage must degrade a call to `failed`, never
  * take down a request handler or a background loop.
  */
-import type { CallAttempt } from '@prisma/client';
+import type { CallAttempt, Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { triggerElloCall } from './integrations.js';
 import { recordJourneyEvent, resolveCustomer, JOURNEY_EVENTS } from './journey.js';
@@ -52,6 +52,12 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
       campaignId: input.campaignId ?? null,
       phone: input.phone,
       status: 'queued',
+      // Persist what the agent will be told. When a call goes wrong the first
+      // question is always "what did it know?", and the provider does not keep
+      // this for us.
+      ...(input.metadata && Object.keys(input.metadata).length
+        ? { callContext: input.metadata as Prisma.InputJsonValue }
+        : {}),
     },
   });
 

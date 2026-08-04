@@ -24,8 +24,8 @@
   var CONFIG = {
     apiKey: window.ELLO_API_KEY || meta('ello-api-key') || '',
     assistantId: '6a64d273a4fc43f6203cd3cc',
-    apiBaseUrl: 'https://api-dev.getello.ai',
-    wsUrl: 'wss://connect-dev.getello.ai/ws-ello',
+    apiBaseUrl: 'https://api-in.getello.ai',
+    wsUrl: 'wss://connect-in.getello.ai/ws-ello',
   };
   // Allow override via <meta name="ello-assistant-id" content="..."> without editing JS.
   var metaAssistant = document.querySelector('meta[name="ello-assistant-id"]');

@@ -5,6 +5,8 @@ import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { contextLinks } from '../config/downloads.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { requireAuth } from '../middleware/auth.js';
+import { buildUserContext } from '../lib/userContext.js';
 
 // WS3 context handoff. The website widget / voice agent posts what it learned
 // about the visitor here; we mint a short opaque token and return the links the
@@ -121,3 +123,29 @@ function buildGreeting(s: { name: string | null; product: string | null; amount:
   if (amt) return `${who}As we discussed, you're interested in a ${amt} ${prod}. Let's continue your application from here.`;
   return `${who}Let's continue your ${prod} application from where we left off.`;
 }
+
+/**
+ * GET /api/context/me
+ *
+ * Everything we already know about the signed-in user, keyed on their phone.
+ *
+ * This is the non-deep-link path. A visitor who fills the website form, takes
+ * our callback, then installs the app from the Play Store arrives with nothing
+ * but a phone number — so the in-app agent used to greet them as a stranger and
+ * re-ask what they had already told us twice. This endpoint is what lets it open
+ * from where they left off.
+ *
+ * Authenticated: the phone comes from the access token, never from the query
+ * string. Accepting a phone parameter here would turn this into an open lookup
+ * of anyone's loan history by number.
+ */
+contextRouter.get('/me', requireAuth, ah(async (req, res) => {
+  const phone = req.user?.phone;
+  if (!phone) return fail(res, 401, 'No phone on the session');
+
+  const ctx = await buildUserContext(phone, req.user?.sub);
+
+  // 200 with hasHistory:false rather than 404 — "we know nothing about you" is a
+  // normal answer for a brand-new user, not an error the app should log.
+  return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+}));

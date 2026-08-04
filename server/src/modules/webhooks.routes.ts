@@ -15,6 +15,14 @@ import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { parseElloWebhook } from '../lib/integrations.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
+import {
+  inferOutcome, shouldReplaceOutcome, parseAgentOutcome, type OutcomeSource,
+} from '../lib/callOutcome.js';
+
+/** A call that reached a human — the only kind worth inferring an outcome from. */
+function isConnected(status: CallStatus): boolean {
+  return status === 'completed' || status === 'in_progress';
+}
 
 export const webhooksRouter = Router();
 
@@ -148,15 +156,36 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
     else status = 'completed';
   }
 
-  const outcome =
-    mapOutcome(parsed.outcome) ??
-    // No explicit outcome from Ello — infer what we safely can. A human still
-    // sets the real disposition; this only fills the obvious machine cases.
-    (status === 'no_answer'
-      ? 'unreachable'
-      : status === 'failed'
-        ? mapOutcome(parsed.errorReason) ?? null
-        : null);
+  // Outcome, in order of trust:
+  //  1. an explicit field, if the provider ever grows one
+  //  2. the machine-obvious failure cases (no answer / provider error)
+  //  3. inference from what was actually said on the call
+  // Ello sends no outcome field today, so in practice (3) is what fills this in
+  // until the agent's report_call_outcome tool arrives on its own endpoint.
+  let outcome: CallOutcome | null = mapOutcome(parsed.outcome);
+  let outcomeSource: OutcomeSource = outcome ? 'agent' : null;
+  let outcomeEvidence: string | null = null;
+
+  if (!outcome) {
+    if (status === 'no_answer') {
+      outcome = 'unreachable';
+      outcomeSource = 'status';
+    } else if (status === 'failed') {
+      outcome = mapOutcome(parsed.errorReason) ?? null;
+      if (outcome) outcomeSource = 'status';
+    }
+  }
+
+  // Only infer for calls that actually connected, and never overwrite something
+  // the agent itself reported.
+  if (!outcome && isConnected(status)) {
+    const derived = inferOutcome(parsed.transcript, parsed.summary);
+    if (shouldReplaceOutcome(attempt.outcome, attempt.outcomeSource as OutcomeSource, derived)) {
+      outcome = derived.outcome;
+      outcomeSource = derived.source;
+      outcomeEvidence = derived.evidence ?? null;
+    }
+  }
 
   const isCompleted = status === 'completed' || status === 'in_progress';
   // Terminal for journey purposes: only record the timeline entry once, on the
@@ -171,7 +200,7 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
     where: { id: attempt.id },
     data: {
       status,
-      ...(outcome ? { outcome } : {}),
+      ...(outcome ? { outcome, outcomeSource, outcomeEvidence } : {}),
       ...(parsed.summary ? { summary: parsed.summary } : {}),
       ...(parsed.transcript != null ? { transcript: parsed.transcript as Prisma.InputJsonValue } : {}),
       ...(parsed.recordingUrl ? { recordingUrl: parsed.recordingUrl } : {}),
@@ -230,4 +259,109 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   }
 
   return ok(res, { matched: true, callId: updated.id, status: updated.status, outcome: updated.outcome }, 'Recorded');
+}));
+
+/* ─────────────── agent-reported outcome (the authoritative path) ─────────────── */
+
+/**
+ * POST /api/webhooks/ello/call-outcome-report
+ *
+ * Target for the agent's `report_call_outcome` tool. This is the ONLY source of
+ * a trustworthy disposition: Ello's own webhooks carry no outcome field, so
+ * everything else is inference from the transcript.
+ *
+ * Separate from /call-outcome on purpose — that route is the provider's
+ * lifecycle feed and is shaped by Ello; this one is our contract with the agent
+ * and also carries the qualification details captured on the call.
+ *
+ * Deliberately forgiving about identifiers (either the provider's
+ * conversation_id or our own call id) and never 4xx for an unmatched body, for
+ * the same reason as the main webhook: a retry loop is worse than a logged miss.
+ */
+webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
+  const expected = process.env.ELLO_WEBHOOK_SECRET;
+  const provided = String(req.headers['x-webhook-secret'] ?? '');
+  if (expected) {
+    if (provided !== expected) return fail(res, 401, 'Invalid webhook secret');
+  } else if (process.env.NODE_ENV === 'production') {
+    // This endpoint writes a disposition that drives outreach — an unverified
+    // caller could mark a real customer do_not_call, or mark a refusal as
+    // interested and keep messaging them.
+    console.error('[webhook] ELLO_WEBHOOK_SECRET is not set — rejecting call-outcome-report');
+    return fail(res, 503, 'Webhook is not configured');
+  }
+
+  const b = (req.body ?? {}) as Record<string, any>;
+  const providerId = b.conversation_id ?? b.conversationId ?? b.call_id ?? null;
+  const ourId = b.swiftloan_call_id ?? b.swiftloanCallId ?? null;
+
+  const attempt =
+    (ourId ? await prisma.callAttempt.findUnique({ where: { id: String(ourId) } }) : null) ??
+    (providerId
+      ? await prisma.callAttempt.findUnique({ where: { providerCallId: String(providerId) } })
+      : null);
+
+  if (!attempt) {
+    console.warn('[webhook] unmatched call-outcome-report', { providerId, ourId });
+    return ok(res, { matched: false }, 'No matching call attempt');
+  }
+
+  const outcome = parseAgentOutcome(b.outcome);
+  if (!outcome) {
+    // An unrecognised label is recorded as a note rather than silently dropped —
+    // the summary is still useful to a human even if the enum value is not.
+    console.warn('[webhook] call-outcome-report with unusable outcome', b.outcome);
+  }
+
+  // Only accept a callback time that parses and is in the future; an agent
+  // mis-hearing "next Tuesday" must not schedule something in 1970.
+  let callbackAt: Date | null = null;
+  if (b.callback_at ?? b.callbackAt) {
+    const d = new Date(String(b.callback_at ?? b.callbackAt));
+    if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now()) callbackAt = d;
+  }
+
+  const str = (v: unknown, max = 120): string | undefined => {
+    const s = String(v ?? '').trim();
+    return s ? s.slice(0, max) : undefined;
+  };
+
+  const updated = await prisma.callAttempt.update({
+    where: { id: attempt.id },
+    data: {
+      ...(outcome ? { outcome, outcomeSource: 'agent', outcomeEvidence: null } : {}),
+      ...(str(b.summary, 2000) ? { summary: str(b.summary, 2000) } : {}),
+      ...(str(b.income_range ?? b.incomeRange) ? { incomeRange: str(b.income_range ?? b.incomeRange) } : {}),
+      ...(str(b.employment) ? { employment: str(b.employment) } : {}),
+      ...(str(b.preferred_channel ?? b.preferredChannel) ? { preferredChannel: str(b.preferred_channel ?? b.preferredChannel) } : {}),
+      ...(callbackAt ? { callbackAt } : {}),
+      answered: true, // the agent could only report if it spoke to someone
+    },
+  });
+
+  // The disposition is the part that changes what happens next, so it gets its
+  // own timeline entry even though the call already recorded one.
+  await recordJourneyEvent(updated.customerId, {
+    channel: 'voice',
+    name: JOURNEY_EVENTS.CALL_COMPLETED,
+    // A refusal ends the journey; nothing else here overrides the stage, so an
+    // interested lead keeps whatever stage the funnel gave it.
+    ...(outcome === 'do_not_call' ? { stage: 'lost' as const } : {}),
+    metadata: {
+      callAttemptId: updated.id,
+      reportedBy: 'agent',
+      outcome: outcome ?? String(b.outcome ?? 'unrecognised'),
+      summary: updated.summary ?? null,
+      incomeRange: updated.incomeRange ?? null,
+      employment: updated.employment ?? null,
+      preferredChannel: updated.preferredChannel ?? null,
+      callbackAt: callbackAt?.toISOString() ?? null,
+    },
+  }).catch((e) => console.error('[webhook] journey write failed', e));
+
+  return ok(
+    res,
+    { matched: true, callId: updated.id, outcome: updated.outcome },
+    'Outcome recorded',
+  );
 }));
