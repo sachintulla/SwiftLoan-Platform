@@ -612,6 +612,16 @@ client-exposed by design — no server secret may ever be placed there.
 
 ## 11. Current-state vs target-state architecture
 
+The two views below summarise the platform's **as-built** data-protection posture and the **recommended target** posture. The gap table that follows maps each verified concern (C1–C14) to the architectural change that closes it.
+
+**Figure 3 — Current as-built architecture (data-protection view).** Red boxes/labels mark data-protection concerns.
+
+![Figure 3 — SwiftLoan current as-built architecture](diagrams/arch-current.png)
+
+**Figure 4 — Recommended target architecture.** Green marks new/changed controls; blue tags indicate the ISO 27001:2022 / SOC 2 TSC / DPDP / RBI obligation each control satisfies, inside an India data-residency boundary.
+
+![Figure 4 — SwiftLoan recommended target architecture](diagrams/arch-recommended.png)
+
 | ID | Verified gap (current) | Ref | Architectural change (target) |
 |---|---|---|---|
 | C1 | PAN stored full + plaintext, **duplicated** across two models | schema:62,171 | Tokenise/field-encrypt PAN via KMS; **de-duplicate** to one authoritative store; mask on read |

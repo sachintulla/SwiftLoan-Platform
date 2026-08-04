@@ -70,6 +70,18 @@ SwiftLoan is a digital **loan marketplace / recommendation** application for the
 
 **SOC 2 system scope:** the "system" for the SOC 2 examination is the SwiftLoan loan-marketplace service described above (mobile app, backend API, admin dashboard, website/voice widget, PostgreSQL data store, and the Ello voice-AI sub-processor interface). The **trust categories in scope are Security (Common Criteria — mandatory), Confidentiality, Privacy, and Availability**; Processing Integrity is included on a limited basis for the recommendation/lead-routing flow. The ISO 27001 ISMS boundary and the SOC 2 system boundary are intentionally aligned so a single control set serves both.
 
+### 2.4a System architecture — as-built and target (ISMS scope illustration)
+
+The as-built architecture below shows the attack surface and PII/SPDI data flows in scope (red = data-protection concern); the target architecture shows the control set the ISMS drives toward, tagged to the ISO 27001:2022 / SOC 2 TSC / DPDP / RBI obligation each control satisfies, inside an India data-residency boundary.
+
+**Figure A — Current as-built architecture (data-protection view).**
+
+![Figure A — SwiftLoan current as-built architecture](diagrams/arch-current.png)
+
+**Figure B — Recommended target architecture (control set mapped to ISO 27001 / SOC 2 / DPDP / RBI).**
+
+![Figure B — SwiftLoan recommended target architecture](diagrams/arch-recommended.png)
+
 ### 2.5 Context of the organization (ISO 27001 Clause 4)
 
 **Internal issues:** early-stage product with several security controls already in place (bcrypt password hashing, hashed OTP/refresh tokens, Aadhaar/bank reduced to last-4, ATS enforced) but with material gaps in PII protection (PAN plaintext), secrets management, and privacy operations (no DSAR beyond self-delete, AuditLog never written).

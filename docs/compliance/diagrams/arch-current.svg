@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1020" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#475569"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#dc2626"/>
+    </marker>
+    <style>
+      .tier{fill:#f1f5f9;stroke:#cbd5e1;stroke-width:1.5;rx:14}
+      .tierlbl{fill:#64748b;font-size:13px;font-weight:700;letter-spacing:1px}
+      .box{fill:#ffffff;stroke:#94a3b8;stroke-width:1.5;rx:9}
+      .boxh{fill:#0f766e;font-size:15px;font-weight:700}
+      .t{fill:#334155;font-size:12.5px}
+      .tm{fill:#64748b;font-size:11.5px}
+      .ext{fill:#fff7ed;stroke:#fb923c;stroke-width:2;rx:10}
+      .db{fill:#eff6ff;stroke:#3b82f6;stroke-width:1.5}
+      .risk{fill:#dc2626;font-size:12px;font-weight:700}
+      .riskbox{fill:#fef2f2;stroke:#dc2626;stroke-width:1.3;rx:7}
+      .badge{fill:#dc2626}
+      .badgetxt{fill:#fff;font-size:12px;font-weight:700}
+      .flow{stroke:#475569;stroke-width:1.6;fill:none}
+      .flowred{stroke:#dc2626;stroke-width:2;fill:none;stroke-dasharray:6 4}
+      .flbl{fill:#475569;font-size:11px}
+      .flblred{fill:#dc2626;font-size:11px;font-weight:700}
+      .title{fill:#0f172a;font-size:26px;font-weight:800}
+      .sub{fill:#64748b;font-size:14px}
+      .pii{fill:#7c2d12;font-size:11px;font-weight:600}
+    </style>
+  </defs>
+
+  <rect width="1480" height="1020" fill="#ffffff"/>
+  <text x="40" y="46" class="title">SwiftLoan — Current Architecture (as built)</text>
+  <text x="40" y="70" class="sub">Loan marketplace · React Native app + Node/Express/Prisma/PostgreSQL + Next.js admin + external Ello voice AI. Red = data-protection concern.</text>
+
+  <!-- ============ CLIENT TIER ============ -->
+  <rect x="30" y="95" width="430" height="835" class="tier"/>
+  <text x="50" y="120" class="tierlbl">CLIENT / EDGE</text>
+
+  <!-- Mobile app -->
+  <rect x="50" y="135" width="390" height="330" class="box"/>
+  <text x="66" y="160" class="boxh">📱 Mobile App (React Native, iOS + Android)</text>
+  <rect x="66" y="176" width="358" height="70" class="box"/>
+  <text x="80" y="197" class="t" font-weight="700">PII collection screens</text>
+  <text x="80" y="214" class="tm">mobile/otp · aboutyou · basic · basicpan · kyc</text>
+  <text x="80" y="230" class="pii">phone · name · DOB/age · income · PAN · Aadhaar · selfie · bank</text>
+
+  <rect x="66" y="254" width="175" height="74" class="box"/>
+  <text x="80" y="274" class="t" font-weight="700">In-memory store</text>
+  <text x="80" y="291" class="tm">useReducer — holds</text>
+  <text x="80" y="306" class="tm">all form PII in RAM</text>
+  <text x="80" y="321" class="tm">(no local encryption)</text>
+
+  <rect x="249" y="254" width="175" height="74" class="riskbox"/>
+  <text x="263" y="274" class="t" font-weight="700">api/client.ts</text>
+  <text x="263" y="291" class="tm">prod → HTTPS (Render)</text>
+  <text x="263" y="306" class="tm">dev → http cleartext</text>
+  <text x="263" y="321" class="risk">DEMO OTP 123456 in release</text>
+
+  <rect x="66" y="336" width="358" height="118" class="riskbox"/>
+  <text x="80" y="357" class="t" font-weight="700">🎙 Voice copilot "Ruby" (Ello client)</text>
+  <text x="80" y="375" class="tm">src/voice/ — streams mic audio + reads screen</text>
+  <text x="80" y="391" class="tm">contents / form values to drive the UI by voice</text>
+  <text x="80" y="409" class="risk">→ sends transcripts + screen PII to 3rd-party</text>
+  <text x="80" y="427" class="tm">vlog() can emit transcripts to device logs (DEV)</text>
+  <text x="80" y="445" class="pii">key in voiceCredentials.local.js (gitignored, but risk)</text>
+
+  <!-- Admin dashboard -->
+  <rect x="50" y="485" width="390" height="150" class="box"/>
+  <text x="66" y="510" class="boxh">🖥 Admin Dashboard (Next.js :4001)</text>
+  <text x="66" y="532" class="t">Pages render full customer PII:</text>
+  <text x="66" y="550" class="pii">users · leads · loans · onboarding (name/phone/PAN/income)</text>
+  <text x="66" y="572" class="risk">Default login admin@swiftloan.com / admin123</text>
+  <text x="66" y="590" class="tm">Embeds same Ello voice widget → getello.ai</text>
+  <text x="66" y="612" class="tm">NEXT_PUBLIC_ELLO_* exposed to browser bundle</text>
+
+  <!-- Website -->
+  <rect x="50" y="655" width="390" height="95" class="box"/>
+  <text x="66" y="680" class="boxh">🌐 Marketing site (website / website-next)</text>
+  <text x="66" y="702" class="t">Lead capture forms</text>
+  <text x="66" y="720" class="pii">name · phone · email → AnonymousLead</text>
+  <text x="66" y="740" class="tm">Attribution/UTM context via deep-link token</text>
+
+  <text x="50" y="790" class="tm" font-weight="700">PII inventory in scope:</text>
+  <text x="50" y="810" class="pii">phone · name · age/DOB · monthly income · PAN card</text>
+  <text x="50" y="828" class="tm">also: Aadhaar (last-4 stored) · selfie · bank acct (last-4)</text>
+  <rect x="50" y="845" width="390" height="70" class="riskbox"/>
+  <text x="64" y="867" class="risk">No client-side field masking / secure input flags</text>
+  <text x="64" y="885" class="tm">PAN & income typed as plain text fields; screen</text>
+  <text x="64" y="903" class="tm">contents readable by the voice layer.</text>
+
+  <!-- ============ APPLICATION TIER ============ -->
+  <rect x="500" y="95" width="500" height="835" class="tier"/>
+  <text x="520" y="120" class="tierlbl">APPLICATION / API</text>
+
+  <rect x="520" y="135" width="460" height="330" class="box"/>
+  <text x="536" y="160" class="boxh">⚙ Express API server (:4000)</text>
+  <text x="536" y="182" class="t" font-weight="700">Route modules (src/modules/*.routes.ts)</text>
+  <text x="536" y="202" class="tm">auth · users · applications · kyc · loans · catalog</text>
+  <text x="536" y="219" class="tm">tools · support · tracking · admin · adminAuth</text>
+  <rect x="536" y="234" width="215" height="86" class="box"/>
+  <text x="550" y="255" class="t" font-weight="700">Auth</text>
+  <text x="550" y="273" class="tm">JWT access token +</text>
+  <text x="550" y="289" class="tm">rotating refresh (hashed)</text>
+  <text x="550" y="305" class="tm">OTP codeHash ✓</text>
+  <rect x="759" y="234" width="205" height="86" class="riskbox"/>
+  <text x="773" y="255" class="risk">Concerns</text>
+  <text x="773" y="273" class="tm">JWT secret / DB URL via</text>
+  <text x="773" y="289" class="tm">env — check defaults</text>
+  <text x="773" y="305" class="tm">CORS / rate-limit / TLS?</text>
+
+  <rect x="536" y="334" width="428" height="118" class="riskbox"/>
+  <text x="550" y="356" class="t" font-weight="700">Tracking & analytics pipeline</text>
+  <text x="550" y="374" class="tm">/api/track/* → ActivityEvent · OnboardingFunnel</text>
+  <text x="550" y="392" class="risk">event metadata may capture PII + screen/field values</text>
+  <text x="550" y="410" class="tm">BullMQ jobs (idle/stale detectors) — Redis optional</text>
+  <text x="550" y="432" class="tm">No PII redaction layer before persistence / logs</text>
+
+  <!-- DB -->
+  <rect x="520" y="485" width="460" height="430" class="box db"/>
+  <text x="536" y="512" class="boxh">🗄 PostgreSQL (Prisma) — data at rest</text>
+  <rect x="536" y="528" width="428" height="150" class="riskbox"/>
+  <text x="550" y="549" class="t" font-weight="700">User / LoanApplication</text>
+  <text x="550" y="567" class="risk">panNumber stored as PLAINTEXT String</text>
+  <text x="550" y="585" class="pii">phone · email · fullName · dob · monthlyIncome · company</text>
+  <text x="550" y="603" class="t">aadhaarLast4 ✓ (masked) · bank accountLast4 ✓</text>
+  <text x="550" y="621" class="risk">PII duplicated across User + LoanApplication</text>
+  <text x="550" y="639" class="risk">No column-level encryption / tokenization at rest</text>
+  <text x="550" y="661" class="tm">passwordHash present ✓ (verify algorithm)</text>
+
+  <rect x="536" y="690" width="210" height="95" class="box"/>
+  <text x="550" y="711" class="t" font-weight="700">Consent model ✓</text>
+  <text x="550" y="729" class="tm">terms · soft_pull</text>
+  <text x="550" y="745" class="tm">data_sharing · comms</text>
+  <text x="550" y="763" class="risk">wired end-to-end?</text>
+
+  <rect x="754" y="690" width="210" height="95" class="box"/>
+  <text x="768" y="711" class="t" font-weight="700">AuditLog ✓</text>
+  <text x="768" y="729" class="tm">exists in schema</text>
+  <text x="768" y="745" class="risk">coverage of PII</text>
+  <text x="768" y="763" class="risk">access / export?</text>
+
+  <rect x="536" y="797" width="428" height="98" class="riskbox"/>
+  <text x="550" y="818" class="t" font-weight="700">Also holds PII, unauthenticated origin</text>
+  <text x="550" y="836" class="pii">AnonymousLead (name, phone) · ContextSession (name, phone)</text>
+  <text x="550" y="856" class="risk">No data-retention / TTL · no right-to-erasure endpoint</text>
+  <text x="550" y="876" class="tm">Backups / DB encryption-at-rest not defined in repo</text>
+
+  <!-- ============ EXTERNAL TIER ============ -->
+  <rect x="1040" y="95" width="410" height="835" class="tier"/>
+  <text x="1060" y="120" class="tierlbl">EXTERNAL / THIRD-PARTY</text>
+
+  <rect x="1060" y="145" width="370" height="250" class="ext"/>
+  <text x="1076" y="172" class="boxh">🔊 Ello / Getello Voice AI</text>
+  <text x="1076" y="195" class="t">api-stage.getello.ai (staging)</text>
+  <text x="1076" y="213" class="t">connect-stage.getello.ai (wss)</text>
+  <text x="1076" y="231" class="tm">Receives, to power "Ruby":</text>
+  <text x="1076" y="249" class="pii">• live mic audio / voice</text>
+  <text x="1076" y="267" class="pii">• transcripts of user speech</text>
+  <text x="1076" y="285" class="pii">• on-screen field values / context</text>
+  <text x="1076" y="307" class="risk">3rd-party PII processor —</text>
+  <text x="1076" y="325" class="risk">no DPA / consent gate / residency</text>
+  <text x="1076" y="343" class="tm">Prompt pushed via PUT /api/agents</text>
+  <text x="1076" y="361" class="tm">System prompt DOES forbid reading</text>
+  <text x="1076" y="379" class="tm">back OTP/PAN/Aadhaar aloud ✓</text>
+
+  <rect x="1060" y="415" width="370" height="150" class="ext"/>
+  <text x="1076" y="442" class="boxh">🏦 Lending partners (RBI-regulated)</text>
+  <text x="1076" y="465" class="t">Loan handoff / offers</text>
+  <text x="1076" y="483" class="risk">profile data shared for soft-pull &amp;</text>
+  <text x="1076" y="501" class="risk">underwriting — consent + DPA needed</text>
+  <text x="1076" y="523" class="tm">CIBIL/CRIF soft enquiry (soft_pull consent)</text>
+  <text x="1076" y="545" class="tm">Actual lender does KYC / disbursal</text>
+
+  <rect x="1060" y="585" width="370" height="330" class="riskbox"/>
+  <text x="1076" y="609" class="risk" font-size="14px">⚠ Top data-protection concerns</text>
+  <text x="1076" y="633" class="t">1 · Cleartext http transport (dev)</text>
+  <text x="1076" y="655" class="t">2 · PAN stored plaintext at rest</text>
+  <text x="1076" y="677" class="t">3 · PII sent to 3rd-party voice AI</text>
+  <text x="1076" y="699" class="t">4 · No DPA / data-residency (India)</text>
+  <text x="1076" y="721" class="t">5 · Default admin creds (admin123)</text>
+  <text x="1076" y="743" class="t">6 · Real Ello key committed (render.yaml, web JS)</text>
+  <text x="1076" y="765" class="t">7 · PII in tracking metadata / logs</text>
+  <text x="1076" y="787" class="t">8 · No retention limit / erasure</text>
+  <text x="1076" y="809" class="t">9 · No field masking / secure input</text>
+  <text x="1076" y="831" class="t">10 · PII duplicated across tables</text>
+  <text x="1076" y="853" class="t">11 · Consent model not verified wired</text>
+  <text x="1076" y="875" class="t">12 · DB encryption-at-rest undefined</text>
+  <text x="1076" y="899" class="tm">See companion plan for DPDP / RBI mapping.</text>
+
+  <!-- ============ FLOWS ============ -->
+  <!-- mobile -> API -->
+  <path class="flowred" d="M424 290 C 470 290, 480 300, 520 300" marker-end="url(#arrowRed)"/>
+  <text x="430" y="284" class="flblred">http · PII</text>
+  <!-- admin -> API -->
+  <path class="flow" d="M440 545 C 480 545, 486 400, 520 400" marker-end="url(#arrow)"/>
+  <text x="446" y="560" class="flbl">REST (PII)</text>
+  <!-- website -> API -->
+  <path class="flow" d="M440 700 C 490 700, 500 430, 536 430" marker-end="url(#arrow)"/>
+  <!-- voice -> Ello -->
+  <path class="flowred" d="M424 395 C 720 470, 760 250, 1060 250" marker-end="url(#arrowRed)"/>
+  <text x="700" y="330" class="flblred">wss/https · voice + screen PII → 3rd-party</text>
+  <!-- API -> Ello (prompt push) -->
+  <path class="flow" d="M980 210 C 1020 210, 1030 230, 1060 235" marker-end="url(#arrow)"/>
+  <!-- API -> partners -->
+  <path class="flowred" d="M980 470 C 1020 480, 1030 490, 1060 490" marker-end="url(#arrowRed)"/>
+  <text x="905" y="466" class="flblred">profile share</text>
+  <!-- API <-> DB -->
+  <path class="flow" d="M750 465 L 750 485" marker-end="url(#arrow)"/>
+  <text x="758" y="480" class="flbl">read/write PII</text>
+</svg>
