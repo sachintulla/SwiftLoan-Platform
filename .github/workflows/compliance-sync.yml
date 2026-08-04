@@ -1,0 +1,69 @@
+name: Compliance Doc Sync
+
+# Keeps the six compliance documents aligned with the code.
+# Runs ONLY on the main / master branch (per requirement).
+#  - push to main/master:   regenerate live control status + drift flags, commit back.
+#  - PR targeting main/master: run as a GATE (fails if drift is undocumented).
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: write        # needed to commit regenerated status back to main
+
+concurrency:
+  group: compliance-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compliance-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for git grep)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install optional xlsx support
+        run: pip install --quiet openpyxl || true
+
+      # --- Pull-request path: GATE only, do not write back ---
+      - name: Compliance drift gate (PR)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/compliance/compliance_sync.py --check
+
+      # --- Push-to-main path: regenerate artifacts and commit them back ---
+      - name: Regenerate compliance status (main)
+        if: github.event_name == 'push'
+        run: python3 scripts/compliance/compliance_sync.py --update
+
+      - name: Commit regenerated compliance artifacts (main)
+        if: github.event_name == 'push'
+        run: |
+          git config user.name  "compliance-bot"
+          git config user.email "compliance-bot@users.noreply.github.com"
+          git add docs/compliance/COMPLIANCE-STATUS.md \
+                  docs/compliance/compliance-status.csv \
+                  docs/compliance/.code-manifest.json \
+                  docs/compliance/06-Compliance-Evidence-Pack-and-Claims-Matrix.xlsx 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No compliance-status changes to commit."
+          else
+            git commit -m "chore(compliance): sync live control status to code [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+
+      - name: Summarize drift for reviewers
+        if: always()
+        run: |
+          if [ -f docs/compliance/COMPLIANCE-STATUS.md ]; then
+            echo "### Compliance control status" >> "$GITHUB_STEP_SUMMARY"
+            sed -n '1,40p' docs/compliance/COMPLIANCE-STATUS.md >> "$GITHUB_STEP_SUMMARY"
+          fi
