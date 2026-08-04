@@ -55,6 +55,9 @@ THE_SIX_DOCS = [
     "05-Statement-of-Applicability",
     "06-Compliance-Evidence-Pack-and-Claims-Matrix",
     "07-SDLC-Change-Management-Tracker",
+    "08-ISMS-Manual-Policies-and-Governance",
+    "09-Security-and-Privacy-by-Design-Principles",
+    "10-Certification-Readiness-and-Gap-Assessment",
 ]
 
 def read(rel: str) -> str:
@@ -119,6 +122,16 @@ def c11_admin_token_httponly():
 def c13_voice_tls_only():
     return not grep("src/voice/config.ts", r"ws://|http://")
 
+# Governance / CI security-automation artifacts (added this pass) — present => Implemented.
+def _exists(rel): return (REPO / rel).exists()
+def g_secret_scan():   return _exists(".github/workflows/security-scan.yml") and grep(".github/workflows/security-scan.yml", r"gitleaks")
+def g_sast():          return grep(".github/workflows/security-scan.yml", r"codeql")
+def g_sca():           return _exists(".github/dependabot.yml")
+def g_codeowners():    return _exists("CODEOWNERS") or _exists(".github/CODEOWNERS")
+def g_security_md():   return _exists("SECURITY.md")
+def g_pr_template():   return _exists(".github/pull_request_template.md")
+def g_license():       return _exists("LICENSE")
+
 CHECKS = [
     dict(id="C1",  title="PAN encrypted/tokenized at rest (not plaintext)",
          iso="A.8.24, A.8.11", soc2="CC6.1, C1.1", fn=c1_pan_encrypted,
@@ -156,6 +169,34 @@ CHECKS = [
          iso="A.8.24, A.8.20", soc2="CC6.7, C1.1", fn=c13_voice_tls_only,
          evidence="src/voice/config.ts",
          remediation="Force wss:// and https:// for voice transport."),
+    dict(id="G5",  title="Secret scanning in CI (gitleaks)",
+         iso="A.8.8, A.8.4", soc2="CC7.1", fn=g_secret_scan,
+         evidence=".github/workflows/security-scan.yml",
+         remediation="Keep gitleaks in CI; enable GitHub push protection."),
+    dict(id="G6",  title="SAST in CI (CodeQL)",
+         iso="A.8.25, A.8.28", soc2="CC8.1", fn=g_sast,
+         evidence=".github/workflows/security-scan.yml",
+         remediation="Keep CodeQL; triage findings."),
+    dict(id="G7",  title="Dependency/SCA scanning (Dependabot + npm audit)",
+         iso="A.8.8", soc2="CC7.1", fn=g_sca,
+         evidence=".github/dependabot.yml",
+         remediation="Keep Dependabot; act on advisories."),
+    dict(id="G8",  title="Mandatory code-owner review",
+         iso="A.8.4, A.8.32", soc2="CC8.1", fn=g_codeowners,
+         evidence="CODEOWNERS",
+         remediation="Enable 'Require Code Owner review' in branch protection."),
+    dict(id="G9",  title="Vulnerability disclosure policy",
+         iso="A.5.5, A.5.24", soc2="CC2.3", fn=g_security_md,
+         evidence="SECURITY.md",
+         remediation="Keep current; staff the security mailbox."),
+    dict(id="G10", title="PR governance (security/compliance checklist)",
+         iso="A.8.32", soc2="CC8.1", fn=g_pr_template,
+         evidence=".github/pull_request_template.md",
+         remediation="Keep; enforce checklist in review."),
+    dict(id="G11", title="IP / licensing clarity",
+         iso="A.5.32", soc2="CC1.1", fn=g_license,
+         evidence="LICENSE",
+         remediation="Keep proprietary notice current."),
 ]
 
 # Files whose change should trigger a doc-review flag, mapped to control ids.

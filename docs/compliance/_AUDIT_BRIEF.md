@@ -88,3 +88,30 @@ onboarding funnels, downloads, analytics, notifications.
 - **A.6 People** (screening, awareness, responsibilities, remote work).
 - **A.7 Physical** (secure areas, equipment, media — largely cloud-provider inherited).
 - **A.8 Technological** (access control, crypto A.8.24, secure dev A.8.25-28, logging A.8.15, data masking A.8.11, DLP A.8.12, backup A.8.13, network security A.8.20-23, config A.8.9, vulnerability mgmt A.8.8).
+
+---
+
+## 9. Certification-readiness gap analysis (repo-wide, added this pass)
+
+Whole-repo scan for ISO 27001 / SOC 2 certification readiness and "by-design" principles.
+
+### 9.1 Governance / management-system gaps (were MISSING; must exist for certification)
+- **G1 · ISMS management system (ISO Clauses 4–10)** not documented as records: information security policy, risk-management methodology, risk treatment plan, security objectives & KPIs, internal audit program, management review, nonconformity/corrective action (CAPA), continual improvement, competence/training & awareness, control of documented information.
+- **G2 · Policy set** absent: Access Control, Cryptography & Key Management, Data Classification & Handling, Data Retention & Disposal, Backup, Logging & Monitoring, Vulnerability & Patch Management, Secure Development, Supplier/Vendor Management, Incident Response Plan, Business Continuity & DR, HR Security (screening/onboarding/offboarding), Acceptable Use, Password/Authentication, Remote Working, Physical Security (cloud-inherited), Privacy Policy & Notice, Consent Management, DSAR Procedure, RoPA, DPIA.
+- **G3 · SOC 2 specifics** missing: formal System Description, Complementary User Entity Controls (CUECs), sub-service organizations & carve-out method (Ello/Getello, Render/host), continuous control monitoring.
+- **G4 · By-design principles** not stated or embedded: security-by-design, privacy-by-design, compliance-by-design, secure defaults, least privilege, data minimization, fail-closed, threat modeling, DPIA-by-default.
+
+### 9.2 Repo / CI security-automation gaps (were MISSING → NOW ADDED this pass)
+- **G5 · Secret scanning** — none (would have caught C5, the committed Ello key). → **ADDED** `.github/workflows/security-scan.yml` (gitleaks).
+- **G6 · SAST** — none. → **ADDED** CodeQL (javascript-typescript) in `security-scan.yml`.
+- **G7 · Dependency/SCA scanning** — none. → **ADDED** `.github/dependabot.yml` + `npm audit` matrix in CI (A.8.8).
+- **G8 · Mandatory code review / ownership** — none. → **ADDED** `CODEOWNERS` (enable "Require Code Owner review" in branch protection).
+- **G9 · Vulnerability disclosure policy** — none. → **ADDED** `SECURITY.md` (CERT-In 6-hr + DPDP alignment).
+- **G10 · PR governance** — none. → **ADDED** `.github/pull_request_template.md` with a security/compliance checklist + SoD reminder.
+- **G11 · IP/licensing clarity** — none. → **ADDED** proprietary `LICENSE` (A.5.32).
+- **G12 · Branch protection / secret-scanning enablement** — repo settings (require PR review + Code Owners + status checks on `main`, enable GitHub secret scanning & push protection) — **config action for the team** (documented, not code).
+
+### 9.3 New documents being added this pass
+- **Doc 08 — ISMS Manual, Policies & Governance** (ISO Clauses 4–10 + policy set + SOC 2 system description / CUECs / sub-service orgs).
+- **Doc 09 — Secure-by-Design, Privacy-by-Design & Compliance-by-Design Principles** (principles, secure defaults, threat model summary, DPIA, embedding into SDLC/PRD).
+- **Doc 10 — ISO 27001 & SOC 2 Certification Readiness & Gap Assessment** (Clauses 4–10 checklist + Annex A + TSC + repo-hygiene gaps G1–G12 + remediation owners/dates).

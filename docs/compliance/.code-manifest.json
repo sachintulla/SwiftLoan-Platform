@@ -1,6 +1,6 @@
 {
-  "commit": "9cce13f",
-  "generated": "2026-08-04 16:26 UTC",
+  "commit": "5c1deff",
+  "generated": "2026-08-04 16:44 UTC",
   "files": {
     "server/prisma/schema.prisma": "b40f9ea3f010015e",
     "server/src/config/env.ts": "b933a0766bd92bf4",
