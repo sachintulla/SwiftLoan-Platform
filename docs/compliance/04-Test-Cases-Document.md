@@ -1,6 +1,6 @@
 # SwiftLoan — Test Cases & Test Plan Document
 
-> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product / Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
 
 **Classification: CONFIDENTIAL** — Audit evidence. Restricted to QA, Engineering, Security, DPO, and appointed auditors.
 

@@ -1,6 +1,6 @@
 # SwiftLoan — Product Requirements Document (PRD)
 
-> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product / Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
 
 **Classification: CONFIDENTIAL**
 _Prepared for ISO/IEC 27001:2022 ISMS documentation and compliance audit._
@@ -68,7 +68,7 @@ This PRD covers the SwiftLoan mobile application (React Native, iOS + Android), 
 
 | Audience | Uses this document to |
 |---|---|
-| Product managers | Confirm scope, priorities, and acceptance criteria |
+| Product / Technical Head | Confirm scope, priorities, and acceptance criteria |
 | Engineers & architects | Derive design and implementation from requirements |
 | Security / ISMS team | Confirm control coverage and SoA linkage |
 | DPO / privacy team | Confirm DPDP Act and RBI privacy obligations are captured |

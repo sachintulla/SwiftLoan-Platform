@@ -1,6 +1,6 @@
 # SwiftLoan — ISMS Manual, Policies & Governance (Doc 08)
 
-> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product / Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
 
 **Classification: Restricted** · Prepared for ISO/IEC 27001:2022 certification and SOC 2 (Type II) examination.
 
@@ -91,7 +91,7 @@ This single manual is the SwiftLoan ISMS Manual. It is deliberately consolidated
 |---|---|---|
 | **CISO** (ISMS owner) | Owns the ISMS, risk register, SoA, policy set; chairs management review; approves risk treatment and exceptions | Accept/reject risk within criteria (§6.2); halt releases on unmitigated critical risk |
 | **DPO / Grievance Officer** | Privacy compliance, RoPA, DPIA, DSAR handling, consent governance, breach notice to Data Protection Board and data principals; grievance redressal under RBI DLG | Direct data-processing changes; act as DPDP contact point |
-| **Release Manager** | Change control, release gates, segregation of duties, deployment approvals (Doc 07) | Block releases failing security/CI gates |
+| **Head of Engineering** | Change control, release gates, segregation of duties, deployment approvals (Doc 07) | Block releases failing security/CI gates |
 | **Engineering Lead** | Secure development, code ownership (CODEOWNERS), remediation ownership, competence of engineers | Assign remediation; approve/reject PRs in owned areas |
 | **All staff/contractors** | Acceptable use, awareness training, incident reporting | — |
 
@@ -181,7 +181,7 @@ Residual risk above "Medium" requires documented CISO acceptance with expiry. Th
 |---|---|---|---|
 | Full ISMS internal audit | All clauses + Annex A via SoA | Annual (pre-certification and each cycle) | Internal auditor / external consultant |
 | Access review | User/admin/RBAC access, least privilege | Quarterly | Security |
-| Change/CI-gate audit | PRs, Code Owner reviews, release approvals | Quarterly | Release Manager peer |
+| Change/CI-gate audit | PRs, Code Owner reviews, release approvals | Quarterly | Head of Engineering peer |
 | Privacy audit | RoPA, consent, DSAR, retention | Semi-annual | DPO |
 | Supplier review | Ello/Getello, lenders, Render — DPAs & controls | Annual | DPO + Security |
 
@@ -391,7 +391,7 @@ Automated, continuous evidence: CI security gates (CodeQL, gitleaks, npm audit) 
 | 04 | Test Cases Document | QA Lead | Internal |
 | 05 | Statement of Applicability (SoA) | CISO | Restricted |
 | 06 | Compliance Evidence Pack & Claims Matrix | CISO | Restricted |
-| 07 | SDLC & Change Management Tracker | Release Manager | Confidential |
+| 07 | SDLC & Change Management Tracker | Head of Engineering | Confidential |
 | 08 | ISMS Manual, Policies & Governance (this document) | CISO | Restricted |
 | 09 | Secure-/Privacy-/Compliance-by-Design Principles | CISO | Restricted |
 | 10 | ISO 27001 & SOC 2 Certification Readiness & Gap Assessment | CISO | Restricted |
