@@ -1,10 +1,10 @@
 commit,generated,id,title,status,iso_27001,soc2_tsc,evidence,remediation
-df5d2ea,2026-08-04 14:15 UTC,C1,PAN encrypted/tokenized at rest (not plaintext),Open,"A.8.24, A.8.11","CC6.1, C1.1","server/prisma/schema.prisma:62,171",Tokenize/field-encrypt PAN; de-duplicate to one source.
-df5d2ea,2026-08-04 14:15 UTC,C2,Voice page_context redacts sensitive field values,Open,"A.8.11, A.5.34","C1.1, P4",src/voice/actionRegistry.ts:204; src/voice/screenGraph.ts:207,Redact sensitive values from page_context/read_screen.
-df5d2ea,2026-08-04 14:15 UTC,C3,Fixed demo-OTP disabled in production,Open,A.8.5,CC6.1,render.yaml DEMO_LOGIN; lib/crypto.ts:9-11,Set DEMO_LOGIN=false in prod; remove client bypass.
-df5d2ea,2026-08-04 14:15 UTC,C4,No default/shared admin credential,Open,"A.8.5, A.5.17",CC6.1,"server/prisma/seed.ws4.ts:74,82-83",Remove admin123 seed; force reset + MFA.
-df5d2ea,2026-08-04 14:15 UTC,C5,No live API key committed to source,Open,"A.8.24, A.5.19","CC6.1, CC9.2",render.yaml:53; website/js/voice-widget.js:17,Rotate key; move to secrets manager; purge history.
-df5d2ea,2026-08-04 14:15 UTC,C6,Secrets fail-closed (no dev fallback),Open,"A.8.9, A.8.24","CC6.1, CC8.1",server/src/config/env.ts:12-13,Remove dev-access/dev-refresh fallbacks; fail on boot.
-df5d2ea,2026-08-04 14:15 UTC,C7,CORS restricted to allow-list,Open,"A.8.20, A.8.23",CC6.6,server/src/app.ts:27,Replace open cors() with an origin allow-list.
-df5d2ea,2026-08-04 14:15 UTC,C11,Admin tokens not in localStorage (httpOnly),Open,"A.8.3, A.8.5",CC6.1,admin/src/lib/api.ts:12-22,Move admin tokens to httpOnly cookies.
-df5d2ea,2026-08-04 14:15 UTC,C13,"Voice transport TLS-only (no ws://,http://)",Open,"A.8.24, A.8.20","CC6.7, C1.1",src/voice/config.ts,Force wss:// and https:// for voice transport.
+2a082f8,2026-08-04 16:21 UTC,C1,PAN encrypted/tokenized at rest (not plaintext),Open,"A.8.24, A.8.11","CC6.1, C1.1","server/prisma/schema.prisma:62,171",Tokenize/field-encrypt PAN; de-duplicate to one source.
+2a082f8,2026-08-04 16:21 UTC,C2,Voice page_context redacts sensitive field values,Open,"A.8.11, A.5.34","C1.1, P4",src/voice/actionRegistry.ts:204; src/voice/screenGraph.ts:207,Redact sensitive values from page_context/read_screen.
+2a082f8,2026-08-04 16:21 UTC,C3,Fixed demo-OTP disabled in production,Open,A.8.5,CC6.1,render.yaml DEMO_LOGIN; lib/crypto.ts:9-11,Set DEMO_LOGIN=false in prod; remove client bypass.
+2a082f8,2026-08-04 16:21 UTC,C4,No default/shared admin credential,Open,"A.8.5, A.5.17",CC6.1,"server/prisma/seed.ws4.ts:74,82-83",Remove admin123 seed; force reset + MFA.
+2a082f8,2026-08-04 16:21 UTC,C5,No live API key committed to source,Open,"A.8.24, A.5.19","CC6.1, CC9.2",render.yaml:53; website/js/voice-widget.js:17,Rotate key; move to secrets manager; purge history.
+2a082f8,2026-08-04 16:21 UTC,C6,Secrets fail-closed (no dev fallback),Open,"A.8.9, A.8.24","CC6.1, CC8.1",server/src/config/env.ts:12-13,Remove dev-access/dev-refresh fallbacks; fail on boot.
+2a082f8,2026-08-04 16:21 UTC,C7,CORS restricted to allow-list,Open,"A.8.20, A.8.23",CC6.6,server/src/app.ts:27,Replace open cors() with an origin allow-list.
+2a082f8,2026-08-04 16:21 UTC,C11,Admin tokens not in localStorage (httpOnly),Open,"A.8.3, A.8.5",CC6.1,admin/src/lib/api.ts:12-22,Move admin tokens to httpOnly cookies.
+2a082f8,2026-08-04 16:21 UTC,C13,"Voice transport TLS-only (no ws://,http://)",Open,"A.8.24, A.8.20","CC6.7, C1.1",src/voice/config.ts,Force wss:// and https:// for voice transport.

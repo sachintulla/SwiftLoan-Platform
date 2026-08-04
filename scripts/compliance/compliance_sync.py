@@ -50,6 +50,7 @@ THE_SIX_DOCS = [
     "04-Test-Cases-Document",
     "05-Statement-of-Applicability",
     "06-Compliance-Evidence-Pack-and-Claims-Matrix",
+    "07-SDLC-Change-Management-Tracker",
 ]
 
 def read(rel: str) -> str:
@@ -224,7 +225,7 @@ def write_status_md(rows, changed, affected, head, stamp):
                      f"{r['iso']} | {r['soc2']} | `{r['evidence']}` | {r['remediation']} |")
     lines.append("")
     if changed:
-        lines.append("## ⚠ Drift detected — the six compliance documents may need review\n")
+        lines.append("## ⚠ Drift detected — the compliance documents may need review\n")
         lines.append(f"Monitored source files changed since last sync: {', '.join('`'+c+'`' for c in changed)}\n")
         lines.append(f"**Affected controls:** {', '.join(affected) or 'n/a'}\n")
         lines.append("**REVIEW REQUIRED** in these documents (verify narrative + tables still match code):")
