@@ -1,6 +1,6 @@
 # SwiftLoan — Technical Architecture Document (TAD)
 
-> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical & Security Head: **Sachin Tulla**.
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical Head: **Sachin Tulla** · Head of Engineering: **Hari PS** · Security Head: **Anil M**.
 
 > **Classification: CONFIDENTIAL** — Internal / auditor distribution only. Do not
 > circulate outside the ISMS scope or the engaged assessment body.
