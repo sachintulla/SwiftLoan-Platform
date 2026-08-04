@@ -1,5 +1,7 @@
 # SwiftLoan — SDLC & Change-Management Tracker
 
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical & Security Head: **Sachin Tulla**.
+
 | | |
 |---|---|
 | **Document ID** | SL-CMP-07 |

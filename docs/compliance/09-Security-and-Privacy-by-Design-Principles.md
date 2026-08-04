@@ -1,5 +1,7 @@
 # SwiftLoan — Secure-by-Design, Privacy-by-Design & Compliance-by-Design Principles
 
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical & Security Head: **Sachin Tulla**.
+
 **Engineering principles for a secure system architecture (ISO/IEC 27001:2022 A.8.25 / A.8.27 / A.8.28), Privacy-by-Design (DPDP Act 2023), and Compliance-by-Design (RBI DLG / CERT-In / SOC 2)**
 
 ---

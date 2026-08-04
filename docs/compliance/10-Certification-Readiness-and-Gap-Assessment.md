@@ -1,5 +1,7 @@
 # SwiftLoan — ISO/IEC 27001 & SOC 2 Certification Readiness & Gap Assessment
 
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical & Security Head: **Sachin Tulla**.
+
 **Internal readiness assessment against ISO/IEC 27001:2022 (Clauses 4–10 + Annex A) and the AICPA SOC 2 Trust Services Criteria**
 
 ---

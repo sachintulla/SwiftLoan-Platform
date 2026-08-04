@@ -1,5 +1,7 @@
 # SwiftLoan — Security & Compliance Document (ISMS)
 
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical & Security Head: **Sachin Tulla**.
+
 **Information Security Management System — ISO/IEC 27001:2022 Certification Support Document**
 
 ---

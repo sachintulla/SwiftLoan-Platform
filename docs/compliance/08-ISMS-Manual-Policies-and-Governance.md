@@ -1,5 +1,7 @@
 # SwiftLoan — ISMS Manual, Policies & Governance (Doc 08)
 
+> **Document ownership & accountable roles** — Product Owner: **Sridhar Muppidi** · Product Head: **Sachin Tulla** · Technical & Security Head: **Sachin Tulla**.
+
 **Classification: Restricted** · Prepared for ISO/IEC 27001:2022 certification and SOC 2 (Type II) examination.
 
 ---
