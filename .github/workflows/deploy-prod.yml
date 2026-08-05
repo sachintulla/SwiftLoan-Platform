@@ -1,0 +1,32 @@
+name: Deploy Prod
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & deploy server
+        run: |
+          cd server
+          docker build -t swiftloan-api .
+          docker stop swiftloan-api || true
+          docker rm swiftloan-api || true
+          docker run -d --name swiftloan-api --restart unless-stopped \
+            --env-file /home/ubuntu/secrets/server.env -p 4000:4000 swiftloan-api
+          docker run --rm --env-file /home/ubuntu/secrets/server.env swiftloan-api npx prisma migrate deploy
+      - name: Build & deploy admin
+        run: |
+          cd admin
+          docker build -t swiftloan-admin .
+          docker stop swiftloan-admin || true
+          docker rm swiftloan-admin || true
+          docker run -d --name swiftloan-admin --restart unless-stopped -p 4001:4001 swiftloan-admin
+      - name: Build & deploy website
+        run: |
+          cd website-next
+          docker build -t swiftloan-website .
+          docker stop swiftloan-website || true
+          docker rm swiftloan-website || true
+          docker run -d --name swiftloan-website --restart unless-stopped -p 4002:4002 swiftloan-website

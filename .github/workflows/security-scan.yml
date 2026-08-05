@@ -1,0 +1,59 @@
+name: Security Scan
+
+# Static analysis, secret scanning, and dependency audit.
+# Evidence for ISO/IEC 27001:2022 A.8.8 (technical vulnerabilities),
+# A.8.25/A.8.28 (secure development / coding), A.8.4 (source-code protection);
+# SOC 2 CC7.1 (vulnerability detection), CC8.1.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: "0 3 * * 1"   # weekly, Mondays 03:00 UTC
+
+permissions:
+  contents: read
+  security-events: write   # for CodeQL SARIF upload
+
+jobs:
+  codeql:
+    name: CodeQL (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  dependency-audit:
+    name: Dependency audit (npm)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [".", "server", "admin", "website-next"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: npm audit (high+)
+        working-directory: ${{ matrix.dir }}
+        run: |
+          if [ -f package.json ]; then
+            npm audit --audit-level=high || echo "::warning::npm audit found issues in ${{ matrix.dir }} — review required"
+          fi

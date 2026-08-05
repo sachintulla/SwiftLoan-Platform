@@ -1,0 +1,26 @@
+# Dependabot — automated dependency & security updates.
+# Evidence for ISO/IEC 27001:2022 A.8.8 (management of technical vulnerabilities);
+# SOC 2 CC7.1. Covers each package ecosystem in the monorepo plus GitHub Actions.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"                 # React Native mobile app
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "npm"
+    directory: "/server"
+    schedule: { interval: "weekly" }
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "npm"
+    directory: "/admin"
+    schedule: { interval: "weekly" }
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "npm"
+    directory: "/website-next"
+    schedule: { interval: "weekly" }
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly" }
+    labels: ["ci", "security"]

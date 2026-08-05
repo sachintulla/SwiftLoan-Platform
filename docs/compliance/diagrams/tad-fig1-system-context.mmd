@@ -1,0 +1,32 @@
+flowchart TB
+  subgraph Client["Customer surfaces (untrusted device)"]
+    RN["React Native App\n(iOS/Android, RN 0.86)\nnav state machine + in-memory store"]
+    WEB["Marketing Website\n(static + website-next)\nlead capture + voice widget"]
+  end
+
+  subgraph Internal["First-party (Render-hosted)"]
+    API["Backend API\nExpress + Prisma\nauth / funnel / KYC / tracking / admin"]
+    ADMIN["Admin Dashboard\nNext.js 14 + SWR"]
+    DB[("PostgreSQL\nsystem of record")]
+  end
+
+  subgraph External["Third parties / partners"]
+    ELLO["Ello / Getello Voice AI\n'Ruby' (processor)\nx-api-key over WSS"]
+    LEND["RBI-regulated Lenders\n(offers, handoff, disbursal)"]
+    BUREAU["Credit Bureaus\nCIBIL / CRIF (CICRA soft-pull)"]
+    SMS["SMS / OTP provider"]
+  end
+
+  RN -->|"HTTPS JWT (B1)\nPII incl. PAN today"| API
+  WEB -->|"HTTPS lead capture (B1)"| API
+  ADMIN -->|"HTTPS Bearer, token in localStorage (B3)"| API
+  API --> DB
+  API -->|OTP send| SMS
+  API -->|"server-to-server\nconsent-gated (target)"| LEND
+  API -->|"soft enquiry (CICRA)"| BUREAU
+  RN -.->|"ws:// + live field values incl. PAN (B2, gaps C2/C13)"| ELLO
+  WEB -.->|"voice lead / context session"| ELLO
+  ADMIN -.->|"voice navigation widget"| ELLO
+
+  classDef gap stroke:#c0392b,stroke-width:2px,stroke-dasharray:4 3;
+  class ELLO gap;
