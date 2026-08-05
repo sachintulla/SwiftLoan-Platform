@@ -1,5 +1,10 @@
 /* Test environment mocks for native modules. */
 
+// AsyncStorage ships a ready-made jest mock (in-memory, no native bridge).
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest'),
+);
+
 // Safe-area context ships a ready-made jest mock.
 jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default,

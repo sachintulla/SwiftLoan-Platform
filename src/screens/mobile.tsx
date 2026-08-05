@@ -65,7 +65,8 @@ export default function Mobile() {
       /* offline: fall through to the local demo experience */
     } finally {
       setBusy(false);
-      go('home');
+      set({ exploreFromHome: false });
+      go('explore');
     }
   };
 

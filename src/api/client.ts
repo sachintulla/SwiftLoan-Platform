@@ -128,6 +128,27 @@ export interface AuthResult {
   expiresIn: number;
 }
 
+// Admin-curated, pre-application eligibility catalog — see server's
+// PreApprovedPlan model. Amounts are in paise.
+export interface PreApprovedPlan {
+  id: string;
+  lenderName: string;
+  logoUrl?: string | null;
+  icon: string;
+  exploreUrl?: string | null;
+  badge?: string | null;
+  maxAmount?: number | null;
+  amountAtApproval: boolean;
+  rateMin?: number | null;
+  rateMax?: number | null;
+  rateAtApproval: boolean;
+  tenureMinMonths?: number | null;
+  tenureMaxMonths?: number | null;
+  tags: string[];
+  displayOrder: number;
+  active: boolean;
+}
+
 export const api = {
   health: () => request('GET', '/health'),
 
@@ -203,6 +224,7 @@ export const api = {
   getLoan: (id: string) => request('GET', `/loans/${id}`),
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
+  preApprovedPlans: (): Promise<{ data: PreApprovedPlan[] }> => request('GET', '/preapproved-plans'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>

@@ -17,6 +17,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
       { href: '/leads', label: 'Leads', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
+      { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
     ],
   },
   {
@@ -32,7 +33,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/onboarding': 'Onboarding Journeys', '/loans': 'Loan Pipeline',
   '/leads': 'Leads & Contact', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications',
+  '/analytics': 'Analytics', '/notifications': 'Notifications', '/preapproved': 'Pre-Approved Plans',
 };
 
 export function Shell({ children }: { children: React.ReactNode }) {

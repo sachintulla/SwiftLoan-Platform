@@ -12,7 +12,7 @@ export const BUILD = {
   VARIANT: 'context' as 'context' | 'generic',
   APP_LABEL: 'SwiftLoan',
   // Deployed API (all app API calls + context resolve go here).
-  API_BASE: 'https://swiftloan-api.onrender.com/api',
+  API_BASE: 'http://localhost:4000/api', // TEMP: local testing only — revert before commit
 };
 
 // Point the api-client + tracking at the deployed backend by default. Screens

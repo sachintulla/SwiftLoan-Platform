@@ -19,6 +19,7 @@ import { adminRouter } from './modules/admin.routes.js';
 import { adminAuthRouter } from './modules/adminAuth.routes.js';
 import { contextRouter } from './modules/context.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
+import { preapprovedRouter } from './modules/preapproved.routes.js';
 
 export function createApp() {
   const app = express();
@@ -50,6 +51,7 @@ export function createApp() {
   // ── WS3: context handoff + app-download landing pages ──
   app.use('/api/context', contextRouter);
   app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
+  app.use('/', preapprovedRouter); // /api/preapproved-plans + /api/admin/preapproved-plans
 
   // Allow the admin dashboard (localhost:4001) to call this API in the browser.
   // (cors() above is permissive; this comment marks the intended consumer.)
