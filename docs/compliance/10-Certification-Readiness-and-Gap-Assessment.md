@@ -302,7 +302,7 @@ set is skewed toward *operating records* (audits, reviews, logs, DPAs) that only
   by a repository/organization administrator. Retain screenshots of the enabled settings as audit
   evidence for CC8.1 / A.8.32.
 
-**Also present this pass:** `.github/workflows/compliance-sync.yml` + `scripts/compliance/compliance_sync.py`
+**Also present this pass:** `scripts/compliance/compliance_sync.py` + the `compliance-doc-sync` Claude skill (`.claude/skills/compliance-doc-sync/`) — verify docs vs the latest `main` (no CI runner)
 generate `COMPLIANCE-STATUS.md` / `compliance-status.csv`, giving continuous control-status monitoring
 (ISO 9.1 / SOC 2 CC4.1).
 
