@@ -64,7 +64,7 @@ Three disciplines are treated as **design inputs**, not review-time afterthought
   reviewer (who, per segregation of duties, is not the author) confirms it before merge.
 - **Enforced in CI.** Secret scanning (gitleaks), SAST (CodeQL), and dependency audit
   (`.github/workflows/security-scan.yml`) plus the compliance-drift gate
-  (`.github/workflows/compliance-sync.yml`) are the automated mechanisms that keep the principles true.
+  (the `compliance-doc-sync` Claude skill + `scripts/compliance/compliance_sync.py`, run against the latest `main`) are the mechanisms that keep the principles true.
 - **Honest baseline.** §9 lists, without euphemism, where the **current build** violates these
   principles (findings C1–C14). This document describes the target architecture and the present gap; it
   does **not** claim the current build is fully by-design.
@@ -368,7 +368,7 @@ non-compliant design is caught at a gate rather than discovered in an audit or b
 
 ### 5.2 Compliance gates in CI (compliance-by-design mechanisms)
 
-- **Compliance-sync engine.** `.github/workflows/compliance-sync.yml` + `scripts/compliance/compliance_sync.py`.
+- **Compliance-sync engine.** `scripts/compliance/compliance_sync.py`, run via the `compliance-doc-sync` Claude skill (`.claude/skills/compliance-doc-sync/`) to verify docs vs the latest `main` — no CI runner.
   On **PR to main** it runs as a **gate** (`--check`) that fails if control status drifts from the code
   without documentation; on **push to main** it regenerates `COMPLIANCE-STATUS.md` / CSV and appends
   merged PRs. This makes "the docs match the code" a build requirement — compliance cannot silently rot.

@@ -157,7 +157,7 @@ Residual risk above "Medium" requires documented CISO acceptance with expiry. Th
 **7.5 Control of documented information — document register.** All ISMS documents are version-controlled in the repository under `docs/compliance/`, owned per the register in §5, classified, and reviewed at least annually. Changes follow change control (Doc 07). The full document register is in **§5 of this manual**. Auto-generated status (`COMPLIANCE-STATUS.md`) is produced by `scripts/compliance/compliance_sync.py` and must not be hand-edited.
 
 - **Annex A:** A.5.10, A.5.37, A.6.3 (awareness), A.7.7 · **SOC 2 TSC:** CC1.4, CC2.1–CC2.3, CC5.3
-- **Evidencing artifacts:** training register, `SECURITY.md`, this manual's document register, compliance-sync automation.
+- **Evidencing artifacts:** training register, `SECURITY.md`, this manual's document register, the `compliance-doc-sync` skill + `scripts/compliance/compliance_sync.py`.
 
 ## Clause 8 — Operation
 

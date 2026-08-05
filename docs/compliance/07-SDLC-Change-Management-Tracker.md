@@ -63,7 +63,7 @@ manager via the GitHub Pull Request review, satisfying SoD (SOC 2 CC5.x, ISO A.5
 **Definition of Done:** a change is Done only when it has passed all eight gates —
 tested, peer-approved, merged to `main`, and (for security-relevant changes)
 reflected in the compliance documents (Docs 01–06) and the live control status
-(`COMPLIANCE-STATUS.md`, auto-checked by the compliance-sync CI on `main`).
+(`COMPLIANCE-STATUS.md`, verified via the `compliance-doc-sync` Claude skill against the latest `main`).
 
 ---
 
@@ -77,7 +77,7 @@ reflected in the compliance documents (Docs 01–06) and the live control status
 | CI / build / lint / typecheck | GitHub Actions | Workflow runs, pass/fail status |
 | Test | Jest (110 tests), API smoke, security test cases (Doc 04) | Test run logs, coverage |
 | Deployment | GitHub Actions (`deploy-prod.yml`, dev deploy) | Deployment run history |
-| Compliance drift control | `compliance-sync` workflow (main only) | `COMPLIANCE-STATUS.md`, CSV, PR gate |
+| Compliance drift control | `compliance-doc-sync` skill + `compliance_sync.py` (verify docs vs latest `main`) | `COMPLIANCE-STATUS.md`, CSV, drift report |
 
 ---
 

@@ -29,10 +29,12 @@ This avoids silently fabricating audit prose.
 USAGE
 -----
   python3 scripts/compliance/compliance_sync.py --update   # run + write artifacts
-  python3 scripts/compliance/compliance_sync.py --check    # CI gate: exit 1 on undocumented drift
+  python3 scripts/compliance/compliance_sync.py --check    # exit 1 on undocumented drift (local / skill use)
   python3 scripts/compliance/compliance_sync.py            # dry-run (print only)
 
-Runs on push to main/master via .github/workflows/compliance-sync.yml.
+Invoked by the `compliance-doc-sync` Claude skill (.claude/skills/compliance-doc-sync/)
+to verify the documents against the latest `main`. This is NOT a CI job and never
+commits — the skill proposes edits for human review.
 """
 from __future__ import annotations
 import json, os, re, subprocess, sys
