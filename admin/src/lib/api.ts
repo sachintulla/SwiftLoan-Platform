@@ -69,7 +69,52 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<ApiResult<T>> {
+/**
+ * Exchange the stored refresh token for a fresh access token.
+ *
+ * Access tokens last 15 minutes. Without this the dashboard hard-logged-out every
+ * 15 minutes: the next request 401'd, we cleared the session and redirected to
+ * /login — mid-task, and mid-voice-call, which is what made the voice agent look
+ * broken ("opens a page then says it's having trouble" — the page it opened was
+ * /login, and the widget died with the navigation).
+ *
+ * Shared promise so a burst of parallel requests triggers ONE refresh rather than
+ * a stampede that invalidates its own rotating token.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = window.localStorage.getItem(REFRESH_KEY);
+    if (!refreshToken) return false;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return false;
+      const body = await res.json().catch(() => null);
+      const next = body?.data?.accessToken;
+      if (!next) return false;
+      window.localStorage.setItem(TOKEN_KEY, next);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      // Cleared on the next tick so callers awaiting this same promise all see
+      // the result before another refresh can start.
+      setTimeout(() => { refreshInFlight = null; }, 0);
+    }
+  })();
+
+  return refreshInFlight;
+}
+
+export async function apiFetch<T>(path: string, opts: RequestInit = {}, _retried = false): Promise<ApiResult<T>> {
   const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
@@ -79,6 +124,13 @@ export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise
       ...(opts.headers || {}),
     },
   });
+
+  // Expired access token — refresh once and replay before giving up. Only once,
+  // so a genuinely revoked session still ends in a clean logout rather than a
+  // loop. Never for /auth/ itself, which would recurse.
+  if (res.status === 401 && !_retried && !path.includes('/auth/')) {
+    if (await refreshAccessToken()) return apiFetch<T>(path, opts, true);
+  }
   // Parse tolerantly: 440/428 must still be handled even if the body is not JSON.
   let body = null as unknown as ApiResult<T>;
   let parsed = true;
