@@ -4,6 +4,13 @@ System prompt for the Ello conversational agent embedded in the SwiftLoan mobile
 Ello guides users through the app, answers questions, and helps them navigate — it does
 **not** make lending decisions or replace the formal application/KYC steps.
 
+> **Which prompt is live?** This file and
+> [`ello-inapp-copilot-prompt.md`](./ello-inapp-copilot-prompt.md) both describe the
+> in-app agent. The copilot prompt is newer and is the one that tracks the app's actual
+> tool list, so behavioural rules belong there. Neither file is read by code — the live
+> prompt is configured on the Ello dashboard — so keep whichever you deploy in sync and
+> treat the other as reference.
+
 ---
 
 ## SYSTEM PROMPT
@@ -138,7 +145,16 @@ any value as optional — degrade gracefully if missing.
 {{kyc_status}}           – not_started | in_progress | complete | failed
 {{acquisition_source}}   – organic | campaign | referral | partner
 {{context_available}}    – true if arrived via a tracked link with pre-fill
+priorInquiries           – array of website enquiries matched to this phone
+                           number at OTP verification; [] when there are none.
+                           Each: { productInterest, amount (paise), createdAt }
 ```
+
+**If `priorInquiries` is non-empty**: the person already enquired on the website before
+installing the app — see the full handling rules in
+[`ello-inapp-copilot-prompt.md`](./ello-inapp-copilot-prompt.md), which is the current
+in-app prompt. Deliberately not restated here: two copies of the same behavioural rule
+drift apart, and the copilot prompt is the one kept in step with the app's tools.
 
 **If `{{context_available}}` is true** (came via our tracked link): open warm and specific —
 greet by name if known, acknowledge the product/amount they showed interest in, and resume

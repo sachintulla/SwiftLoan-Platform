@@ -15,7 +15,18 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Firebase Cloud Messaging is the transport Upshot push rides on.
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+allprojects {
+    repositories {
+        // Upshot ships through JitPack (com.github.Upshot-AI), not Maven Central.
+        // react-native-upshotsdk declares the artifact but only registers jitpack
+        // inside its own buildscript block, so :app cannot resolve it without this.
+        maven { url 'https://jitpack.io' }
+    }
+}

@@ -12,11 +12,17 @@ import { ElloAgent, fillInput } from '@/lib/ello-agent';
 // client-side route changes (the agent/WebSocket connection is not torn down
 // when the visitor navigates between pages).
 
+// No Ello API key here, deliberately.
+//
+// NEXT_PUBLIC_* values are compiled into the client bundle, so the key used to be
+// downloadable by any visitor — enough to run up call charges on the account or
+// reconfigure agents. The session is now brokered by our own API
+// (POST /api/voice/session), which holds the key server-side and resolves which
+// agent a role maps to. The browser needs neither the key nor an agent id.
 const CONFIG = {
-  apiKey: process.env.NEXT_PUBLIC_ELLO_API_KEY || '',
-  assistantId: process.env.NEXT_PUBLIC_ELLO_ASSISTANT_ID || '',
-  apiBaseUrl: process.env.NEXT_PUBLIC_ELLO_API_BASE || 'https://api-dev.getello.ai',
-  wsUrl: process.env.NEXT_PUBLIC_ELLO_WS_URL || 'wss://connect-dev.getello.ai/ws-ello',
+  /** Our API, which starts the Ello session. Same resolution order as the lead form. */
+  sessionUrl: process.env.NEXT_PUBLIC_API_BASE || 'https://swiftloan-api.onrender.com',
+  wsUrl: process.env.NEXT_PUBLIC_ELLO_WS_URL || 'wss://connect-in.getello.ai/ws-ello',
 };
 
 interface SectionDef {
@@ -165,8 +171,28 @@ export default function VoiceWidget() {
   }, [pathname]);
 
   useEffect(() => {
-    if (!CONFIG.apiKey || !CONFIG.assistantId) {
-      console.warn('[VoiceWidget] NEXT_PUBLIC_ELLO_API_KEY/ASSISTANT_ID not set — voice widget disabled.');
+    // Only our own API base is required now — the key and agent id live server-side.
+    if (!CONFIG.sessionUrl) {
+      console.warn(
+        '[VoiceWidget] NEXT_PUBLIC_API_BASE not set — voice widget disabled. ' +
+          'Copy .env.local.example to .env.local and restart.',
+      );
+
+      // In development, say so on the page too. A console warning is invisible
+      // unless devtools happen to be open, so a missing .env.local silently
+      // removes the whole voice experience and looks like it was never built.
+      if (process.env.NODE_ENV === 'development') {
+        const note = document.createElement('div');
+        note.dataset.voiceDisabledNotice = '1';
+        note.style.cssText =
+          'position:fixed;right:22px;bottom:22px;z-index:9999;max-width:300px;padding:11px 14px;' +
+          'border-radius:12px;background:#fff4e5;border:1px solid #ffd8a8;color:#8a4b00;' +
+          'font:500 12.5px/1.5 system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
+        note.textContent =
+          'Voice widget disabled — NEXT_PUBLIC_API_BASE not set. Copy .env.local.example to .env.local and restart.';
+        document.body.appendChild(note);
+        return () => note.remove();
+      }
       return;
     }
 
@@ -212,9 +238,8 @@ export default function VoiceWidget() {
     }
 
     const agent = new ElloAgent({
-      apiKey: CONFIG.apiKey,
-      assistantId: CONFIG.assistantId,
-      apiBaseUrl: CONFIG.apiBaseUrl,
+      sessionUrl: CONFIG.sessionUrl,
+      role: 'websiteCompanion',
       wsUrl: CONFIG.wsUrl,
       debug: window.location.hostname === 'localhost' || window.location.search.indexOf('voicedebug') >= 0,
     });

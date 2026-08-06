@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { emiBreakdown, fmtINR, validateField, amountBounds, lookupApp, makeRefId, TrackedApp } from '@/lib/core';
+import { upshotIdentify, upshotEvent } from '@/components/UpshotWeb';
 import { dict } from '@/lib/i18n';
 
 // Imperative port of website/js/main.js. Deliberately querySelector-style
@@ -324,11 +325,64 @@ export default function SiteScripts() {
       if (loanAmountEl.classList.contains('invalid')) setErr('loanAmount', validate('loanAmount', loanAmountEl.value));
     };
 
+    // WS5: campaign/UTM attribution for this visit. Captured once on load and
+    // stashed in sessionStorage, because the visitor usually lands on a UTM'd
+    // URL and only submits the form later, by which point the query string is
+    // often gone (in-page anchor navigation rewrites it).
+    function attribution(): Record<string, string> {
+      const KEY = 'sl_attribution';
+      try {
+        const stored = sessionStorage.getItem(KEY);
+        if (stored) return JSON.parse(stored) as Record<string, string>;
+      } catch {
+        /* private mode / storage disabled — fall through to a fresh read */
+      }
+      const qs = new URLSearchParams(window.location.search);
+      const out: Record<string, string> = {};
+      const utmSource = qs.get('utm_source');
+      const utmMedium = qs.get('utm_medium');
+      const utmCampaign = qs.get('utm_campaign') || qs.get('campaign');
+      if (utmSource) out.utmSource = utmSource;
+      if (utmMedium) out.utmMedium = utmMedium;
+      if (utmCampaign) {
+        out.utmCampaign = utmCampaign;
+        out.campaignId = utmCampaign;
+      }
+      if (document.referrer) out.referrer = document.referrer;
+      try {
+        sessionStorage.setItem(KEY, JSON.stringify(out));
+      } catch {
+        /* not fatal — attribution just won't survive an in-page navigation */
+      }
+      return out;
+    }
+    attribution(); // capture on load, while the query string is still present
+
     // WS3: POST the captured details to the backend, then render a "continue in
     // the app" download CTA whose link carries the (opaque) context token.
-    const CONTEXT_API =
-      ((window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE || 'https://swiftloan-api.onrender.com') +
-      '/api/context/create';
+    // Resolution order matters. `window.SWIFTLOAN_API_BASE` stays first so a
+    // deployed page can be repointed without a rebuild; NEXT_PUBLIC_API_BASE is
+    // the normal per-environment setting. The Render URL is the last resort —
+    // note that without the env var, a form submitted on localhost used to post
+    // straight to PRODUCTION, so the lead vanished from the local database and no
+    // call was ever queued. That is a confusing failure, so it now warns loudly
+    // in development instead of silently crossing environments.
+    const API_BASE =
+      (window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE ||
+      process.env.NEXT_PUBLIC_API_BASE ||
+      'https://swiftloan-api.onrender.com';
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      /^https?:\/\/(localhost|127\.0\.0\.1)/.test(window.location.origin) &&
+      !/localhost|127\.0\.0\.1/.test(API_BASE)
+    ) {
+      console.warn(
+        `[swiftloan] This page is on ${window.location.origin} but posts leads to ${API_BASE}. ` +
+          'Set NEXT_PUBLIC_API_BASE=http://localhost:4000 in website-next/.env.local, ' +
+          'or your submissions will land in the production database.',
+      );
+    }
+    const CONTEXT_API = API_BASE + '/api/context/create';
     function createContextLink(details: Record<string, unknown>) {
       const box = $<HTMLElement>('#appContinue');
       if (!box) return;
@@ -427,14 +481,34 @@ export default function SiteScripts() {
             formSuccess.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
 
+          // Upshot: identify the visitor and record the conversion, so IAM /
+          // activity campaigns can target them and so this person resolves to
+          // the same Upshot profile as their later app login (same E.164 key).
+          upshotIdentify({
+            name: $<HTMLInputElement>('#fullName')?.value || '',
+            phone: $<HTMLInputElement>('#phone')?.value || '',
+            email: $<HTMLInputElement>('#email')?.value || '',
+            city: $<HTMLInputElement>('#city')?.value || '',
+          });
+          upshotEvent('website_lead_submitted', {
+            product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
+            amount: amtNum,
+            ref: id,
+            ...attribution(),
+          });
+
           createContextLink({
             name: $<HTMLInputElement>('#fullName')?.value || '',
             phone: $<HTMLInputElement>('#phone')?.value || '',
+            email: $<HTMLInputElement>('#email')?.value || '',
             city: $<HTMLInputElement>('#city')?.value || '',
             product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
             amount: amtNum * 100, // paise
             summary: `Interested in a ${fmtINR(amtNum)} ${(loanTypeEl && loanTypeEl.value) || 'loan'} — submitted on swiftloan.ai (ref ${id}).`,
             source: 'website',
+            // WS5: campaign attribution. Without these the admin dashboard can
+            // never answer "which campaign did this customer come from".
+            ...attribution(),
           });
         }, 1100);
       });

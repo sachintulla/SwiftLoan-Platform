@@ -6,6 +6,7 @@ import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { trackEvent } from '../api/client';
 
 const GREETINGS = [
   'Welcome to SwiftLoan',
@@ -82,7 +83,16 @@ export default function Language() {
         <PrimaryButton
           label={contEnabled ? `Continue with ${state.selectedLang}` : 'Select a language'}
           disabled={!contEnabled}
-          onPress={() => contEnabled && go('intro')}
+          onPress={() => {
+            if (!contEnabled) return;
+            // WS5: the language event used to fire on arrival at this screen,
+            // before anything was picked, and never carried which language.
+            trackEvent('onboarding', 'language_selected', 'language', {
+              language: state.lang ?? 'en',
+              label: state.selectedLang,
+            });
+            go('intro');
+          }}
         />
       </View>
     </Screen>

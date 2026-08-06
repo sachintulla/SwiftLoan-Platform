@@ -1,0 +1,39 @@
+"ID",Main Task,Sub Task,Status,%,Priority,Owner,Blocked By,Notes
+ADM-001,Core,"Next.js 14 dashboard, 16 routes",Done,100,P0,Dev,,Port 4001
+ADM-002,Core,Admin auth (JWT + rotating refresh),Done,100,P0,Dev,,
+ADM-003,Core,"Shell, nav, shared components",Done,100,P0,Dev,,
+ADM-004,Core,TypeScript 0 errors + production build passes,Done,100,P0,Dev,,
+ADM-005,Customers 360,List with stage / source / campaign / stalled filters,Done,100,P0,Dev,,Drop-off is a first-class filter
+ADM-006,Customers 360,Full cross-channel timeline,Done,100,P0,Dev,,website / voice / app / campaign / system
+ADM-007,Customers 360,Stage tracker with honest inferred vs confirmed,Done,100,P1,Dev,,Channel-entry stages never inferred
+ADM-008,Customers 360,"Linked user, applications, loans, KYC, leads",Done,100,P0,Dev,,
+ADM-009,Customers 360,Manual nudge control,Done,100,P1,Dev,,
+ADM-010,Campaigns,"Campaign builder (schedule, cadence, agent, concurrency)",Done,100,P0,Dev,,"4 sections, live plain-English summary"
+ADM-011,Campaigns,Spreadsheet upload with dedup + per-row errors,Done,100,P0,Dev,,Verified: 4 inserted / 3 skipped with reasons
+ADM-012,Campaigns,"Scheduler honouring window, weekday, retry cadence",Done,100,P0,Dev,,24 unit tests; verified it refused to dial on a Saturday
+ADM-013,Campaigns,Agent picker from Ello,Done,100,P0,Dev,,Live against api-in.getello.ai
+ADM-014,Campaigns,Auto-generated campaign code,Done,100,P2,Dev,,Removed the field from the form
+ADM-015,Campaigns,Live progress + schedule-preview indicator,Done,100,P1,Dev,,
+ADM-016,Campaigns,Reconcile against Ello call-status endpoints,Done,100,P2,Dev,,"Timeout sweep, NOT a vendor lookup: Ello exposes no per-conversation status endpoint (verified — /api/campaign/:id/call-status is keyed by their campaign id; per-conversation paths 404). Closes calls stuck >30m as failed with no outcome + releases the contact. Runs every 10m as the call-reconcile job, plus a manual button."
+ADM-017,Notification rules,Step-stall rules engine (did X but not Y),Done,100,P0,Dev,,"Event-pair, not stage — catches OTP-not-verified"
+ADM-018,Notification rules,6 default rules seeded on boot,Done,100,P0,Dev,,
+ADM-019,Notification rules,Rules admin page + run-now + outbound queue,Done,100,P0,Dev,,
+ADM-020,Notification rules,Cooldown / dedup per customer per rule,Done,100,P0,Dev,,Verified: second run reported nobody stuck
+ADM-021,Notification rules,Verify a real push arrives from a rule,Blocked,0,P0,QA,Upshot REST host,Events queue as pending today
+ADM-022,Integrations,"Config page (Ello + Upshot), secrets write-only",Done,100,P0,Dev,,Verified secret values never returned
+ADM-023,Integrations,Ello wired to api-in.getello.ai with real agent,Done,100,P0,Dev,,"Loan_campaign_agent, +919247519113"
+ADM-024,Integrations,Upshot server-side REST,Blocked,30,P0,Dev,api.goupshot.com 503,Host returns 503 on every path from India
+ADM-025,Integrations,Per-platform Upshot app selection (mobile vs web),Done,100,P1,Dev,,Push must go under the app the user installed
+ADM-026,Consolidation,Analytics merged into Master Overview,Done,100,P2,Dev,,/analytics redirects
+ADM-027,Consolidation,Onboarding Journeys folded into Customers 360,Done,100,P2,Dev,,/onboarding redirects; voice aliases moved
+ADM-028,Consolidation,Review Loan Pipeline + Leads pages (older WS4),Done,100,P2,Dev,,"Reviewed. Loan Pipeline only offered 6 of 10 ApplicationStatus values — added pan_pending / prequalifying / handoff / closed, the mid-funnel states where applications go quiet. Leads filters already matched LeadStatus."
+ADM-029,Security,Role-based access enforced per route,Done,100,P0,Dev,,CAN_WRITE (super_admin+admin) and CAN_ADMINISTER (super_admin) applied across 11 mutating routes; requireActiveAdmin re-checks the DB per request. Verified: analyst gets 403 on the audit log.
+ADM-030,Security,Remove default admin123 seed path from prod,Done,100,P0,Dev,,Refuses to run unless ALLOW_DEMO_SEED=yes-really
+ADM-031,Security,Force password change on first login,Done,100,P0,Dev,,"mustChangePassword returned at login; 428 handled centrally in the dashboard, which locks navigation until the password is rotated. Change revokes all refresh tokens."
+ADM-032,Security,Admin action audit log,Done,100,P1,Dev,,"AdminAuditLog + auditAdmin middleware on all 8 admin routers (writes only, bodies redacted). Query API at /api/admin/ops/audit with action facets; /audit page is super_admin only."
+ADM-033,Security,Session timeout + idle logout,Done,100,P1,Dev,,"lastActivityAt tracked per request; idle sessions rejected with 440, handled centrally in the dashboard (clears session -> /login?reason=idle)."
+ADM-034,Security,2FA for admin accounts,Done,100,P2,Dev,,"TOTP (RFC 6238) on node crypto, no new dependency. Setup/enable/disable + 10 single-use recovery codes shown once. Caveat: enrolment shows a copyable setup key, not a scannable QR."
+ADM-035,Security,Password reset flow,In Progress,80,P1,Dev,,"Flow is complete and tested (single-use, 1h expiry, no account enumeration) BUT no email provider is wired — in production the token is generated and never delivered. Needs an email provider before this is usable."
+ADM-036,Operations,Export / CSV download of customers and calls,Done,100,P2,Dev,,"CSV export for customers and calls honouring current filters. 10k row cap, UTF-8 BOM for Excel, and formula-injection guarded (a lead named ""=cmd|..."" would otherwise execute on open)."
+ADM-037,Operations,Pagination performance at 100k+ rows,Done,100,P1,Dev,,"Campaign list N+1 replaced with a single groupBy. Also bounded the customer-detail reads (journey events 200, calls/contacts 50) — they were unpaginated and grow without limit. All other list endpoints audited and already paginated."
+ADM-038,Operations,Empty/error states reviewed on older pages,In Progress,60,P2,Dev,,New pages done; WS4 pages not re-checked

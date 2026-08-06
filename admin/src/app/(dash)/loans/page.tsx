@@ -6,10 +6,22 @@ import { swrFetcher } from '@/lib/api';
 import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { inr, dateStr } from '@/lib/format';
 
+// Every ApplicationStatus, in funnel order. The mid-funnel states
+// (pan_pending / prequalifying / handoff) were previously unfilterable even
+// though they are exactly where applications go quiet — an operator chasing
+// drop-offs could not isolate them.
 const STATUS_FILTERS = [
-  { key: '', label: 'All' }, { key: 'draft', label: 'Draft' }, { key: 'offers_ready', label: 'Offers' },
-  { key: 'under_review', label: 'In Review' }, { key: 'approved', label: 'Approved' },
-  { key: 'disbursed', label: 'Disbursed' }, { key: 'rejected', label: 'Rejected' },
+  { key: '', label: 'All' },
+  { key: 'draft', label: 'Draft' },
+  { key: 'pan_pending', label: 'PAN Pending' },
+  { key: 'prequalifying', label: 'Prequalifying' },
+  { key: 'offers_ready', label: 'Offers' },
+  { key: 'handoff', label: 'Handoff' },
+  { key: 'under_review', label: 'In Review' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'disbursed', label: 'Disbursed' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'closed', label: 'Closed' },
 ] as const;
 
 interface Row { id: string; ref: string; amount: number; loanType: string; status: string; createdAt: string; user?: { fullName?: string; phone?: string }; loan?: { id: string } | null; _count?: { offers: number } }
@@ -30,7 +42,7 @@ export default function LoansPage() {
       <h1 className="page-title">Loan Pipeline</h1>
       <p className="page-sub">Every loan application with its current stage. Click a row for the full journey.</p>
 
-      <Card className="" >
+      <Card>
         <div className="row between wrap" style={{ gap: 12, marginBottom: 14 }}>
           <FilterChips options={STATUS_FILTERS as unknown as { key: string; label: string }[]} value={status} onChange={(v) => { setStatus(v); setPage(1); }} />
           <SearchBox value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search ref, name, phone…" />

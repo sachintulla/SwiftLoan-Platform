@@ -13,5 +13,5 @@
  */
 global.SWIFTLOAN_ELLO_API_KEY = 'ak_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 global.SWIFTLOAN_ELLO_ASSISTANT_ID = 'your-assistant-id';
-global.SWIFTLOAN_ELLO_API_BASE = 'https://api-stage.getello.ai';
+global.SWIFTLOAN_ELLO_API_BASE = 'https://api-in.getello.ai';
 global.SWIFTLOAN_ELLO_WS_URL = 'wss://opensips-stage.getello.ai/ws-ello';

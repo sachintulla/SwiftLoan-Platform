@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
+import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 // Public tracking endpoints. The mobile app calls these fire-and-forget, so they
 // must be cheap, tolerant of missing fields, and never throw back something the
@@ -116,4 +117,58 @@ trackingRouter.post('/loan/step', ah(async (req, res) => {
     },
   });
   return created(res, { event_id: event.id }, 'Loan step recorded');
+}));
+
+// POST /api/track/install  { platform, source?, campaign_id?, referrer?, context_token?, session_id? }
+// WS5: nothing wrote AppDownload before this, so install attribution had no
+// data at all. When the install carries a WS3 context token we can resolve the
+// person's phone from the ContextSession and attach the install to their
+// journey immediately; otherwise it is recorded anonymously and gets attributed
+// retroactively at OTP verify (auth.routes.ts), which links phone -> Customer.
+trackingRouter.post('/install', ah(async (req, res) => {
+  const b = req.body ?? {};
+  const platform = String(b.platform ?? '').toLowerCase();
+  if (!platform) return fail(res, 400, 'platform required');
+
+  const contextToken = b.context_token ?? b.contextToken ?? null;
+  const ctx = contextToken
+    ? await prisma.contextSession.findUnique({ where: { token: String(contextToken).toUpperCase() } })
+    : null;
+
+  const userId = softUserId(req) ?? (b.user_id ?? null);
+
+  const download = await prisma.appDownload.create({
+    data: {
+      platform,
+      source: b.source ?? (ctx ? ctx.source : 'organic'),
+      campaignId: b.campaign_id ?? b.campaignId ?? null,
+      referrer: b.referrer ?? null,
+      matchedUserId: userId,
+      contextLoaded: !!ctx,
+      installedAt: new Date(),
+    },
+  });
+
+  // Only resolvable when we already know who this is (context token or an
+  // authenticated session); a cold organic install is anonymous by definition.
+  if (ctx?.phone || userId) {
+    trackJourney(
+      {
+        phone: ctx?.phone ?? null,
+        userId,
+        name: ctx?.name ?? null,
+        city: ctx?.city ?? null,
+        source: b.campaign_id ? 'campaign' : ctx ? 'website' : 'app',
+        campaignId: b.campaign_id ?? b.campaignId ?? null,
+        referrer: b.referrer ?? null,
+      },
+      {
+        channel: 'app',
+        name: JOURNEY_EVENTS.APP_INSTALLED,
+        metadata: { platform, contextLoaded: !!ctx, downloadId: download.id },
+      },
+    ).catch(() => {});
+  }
+
+  return created(res, { download_id: download.id, context_loaded: !!ctx }, 'Install recorded');
 }));

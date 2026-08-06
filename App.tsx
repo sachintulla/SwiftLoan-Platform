@@ -8,7 +8,7 @@ import { StoreProvider } from './src/state/store';
 import Router from './src/Router';
 import ContextBanner from './src/components/ContextBanner';
 // Voice UI temporarily disabled; re-enable later when needed.
-// import VoiceWidget from './src/voice/ui/VoiceWidget';
+import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 
 export default function App() {
@@ -17,7 +17,7 @@ export default function App() {
       <StoreProvider>
         <Router />
         <ContextBanner />
-        {/* <VoiceWidget /> */}
+        <VoiceWidget />
         <ConfirmationSheet />
       </StoreProvider>
     </SafeAreaProvider>

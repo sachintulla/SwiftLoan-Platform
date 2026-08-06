@@ -1,6 +1,10 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Reads android/app/google-services.json (Firebase project swiftloan-de051) and
+// generates the resources FCM needs. Upshot push is delivered over FCM, so
+// without this the device never gets a token and no push can arrive.
+apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -121,4 +125,38 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Upshot SDK, on the app module's own compile classpath.
+    //
+    // react-native-upshotsdk declares this as `implementation`, not `api`, so its
+    // classes are NOT exposed transitively. MainApplication extends
+    // UpshotApplication, whose supertype is BKAppStatusListener, so :app must be
+    // able to see BrandKinesis at compile time or Kotlin fails with
+    // "Cannot access 'BKAppStatusListener' which is a supertype".
+    // Version must stay in step with node_modules/react-native-upshotsdk/android/build.gradle.
+    implementation 'com.github.Upshot-AI:upshot-android-sdk:v1.8.4x'
+
+    // Upshot's required runtime libraries, per
+    // https://www.upshot.ai/documentation/sdk/android/guide/installation
+    //
+    // The Upshot AAR does NOT bring these transitively. Without work-runtime the
+    // app crashes on launch with NoClassDefFoundError: androidx.work.WorkManager,
+    // thrown from BrandKinesis.createWorkScheduler() inside Application.onCreate()
+    // — i.e. before any JS runs, so it is a hard startup crash, not a degraded
+    // feature. The UI libraries below are needed by the activity/IAM/mini-game
+    // screens and would fail the same way, only later and only when one is shown.
+    implementation 'androidx.work:work-runtime:2.9.1'
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+
+    // Firebase Cloud Messaging — the transport Upshot push rides on.
+    // Declared explicitly (not relied on transitively through the RN module) so
+    // SwiftLoanMessagingService compiles against it and the version is ours to
+    // control. The BOM keeps messaging/analytics on matching versions.
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    implementation 'com.google.firebase:firebase-analytics'
 }

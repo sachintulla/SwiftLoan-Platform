@@ -45,27 +45,27 @@ enum Lang {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  phone         String    @unique
-  email         String?   @unique
-  passwordHash  String?
-  firstName     String?
-  lastName      String?
-  fullName      String?
-  dob           DateTime?
-  gender        Gender?
-  pincode       String?
-  residenceType ResidenceType?
-  employment    EmploymentType?
-  monthlyIncome Int?
-  company       String?
-  panNumber     String?
-  aadhaarLast4  String?
-  lang          Lang      @default(en)
-  creditScore   Int       @default(750)
-  phoneVerified Boolean   @default(false)
-  emailVerified Boolean   @default(false)
-  memberVerified Boolean  @default(false)
+  id             String          @id @default(uuid())
+  phone          String          @unique
+  email          String?         @unique
+  passwordHash   String?
+  firstName      String?
+  lastName       String?
+  fullName       String?
+  dob            DateTime?
+  gender         Gender?
+  pincode        String?
+  residenceType  ResidenceType?
+  employment     EmploymentType?
+  monthlyIncome  Int?
+  company        String?
+  panNumber      String?
+  aadhaarLast4   String?
+  lang           Lang            @default(en)
+  creditScore    Int             @default(750)
+  phoneVerified  Boolean         @default(false)
+  emailVerified  Boolean         @default(false)
+  memberVerified Boolean         @default(false)
 
   // notification preferences
   notifyLoanUpdates    Boolean @default(true)
@@ -114,9 +114,9 @@ model RefreshToken {
 
 enum ConsentType {
   terms
-  soft_pull        // CIBIL / CRIF soft enquiry
-  data_sharing     // share profile with lending partners
-  communications   // language / marketing
+  soft_pull // CIBIL / CRIF soft enquiry
+  data_sharing // share profile with lending partners
+  communications // language / marketing
 }
 
 model Consent {
@@ -133,12 +133,12 @@ model Consent {
 // ─────────────────────── Application funnel ───────────────────────
 
 enum ApplicationStatus {
-  draft            // Step 1 details captured
-  pan_pending      // Step 2
-  prequalifying    // "finding offers"
-  offers_ready     // Step 3
-  handoff          // Step 4 secure handoff
-  under_review     // submitted to lender
+  draft // Step 1 details captured
+  pan_pending // Step 2
+  prequalifying // "finding offers"
+  offers_ready // Step 3
+  handoff // Step 4 secure handoff
+  under_review // submitted to lender
   approved
   rejected
   disbursed
@@ -154,15 +154,15 @@ enum LoanType {
 }
 
 model LoanApplication {
-  id            String            @id @default(uuid())
-  ref           String            @unique // e.g. SL-884021
-  userId        String
-  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  loanType      LoanType          @default(personal)
-  amount        Int
-  tenureMonths  Int               @default(12)
-  purpose       String?
-  status        ApplicationStatus @default(draft)
+  id           String            @id @default(uuid())
+  ref          String            @unique // e.g. SL-884021
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loanType     LoanType          @default(personal)
+  amount       Int
+  tenureMonths Int               @default(12)
+  purpose      String?
+  status       ApplicationStatus @default(draft)
 
   // snapshot of applicant details at submission
   employment    EmploymentType?
@@ -181,19 +181,19 @@ model LoanApplication {
 }
 
 model LenderPartner {
-  id           String  @id @default(uuid())
-  name         String  @unique
-  icon         String  @default("account_balance")
-  baseApr      Float   // annual %
-  tagline      String?
-  processingFee Int    @default(0)
-  active       Boolean @default(true)
+  id            String  @id @default(uuid())
+  name          String  @unique
+  icon          String  @default("account_balance")
+  baseApr       Float // annual %
+  tagline       String?
+  processingFee Int     @default(0)
+  active        Boolean @default(true)
 
   offers Offer[]
 }
 
 model Offer {
-  id            String  @id @default(uuid())
+  id            String          @id @default(uuid())
   applicationId String
   application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   partnerId     String
@@ -204,9 +204,9 @@ model Offer {
   tenureMonths  Int
   processingFee Int
   tag           String?
-  recommended   Boolean @default(false)
-  selected      Boolean @default(false)
-  createdAt     DateTime @default(now())
+  recommended   Boolean         @default(false)
+  selected      Boolean         @default(false)
+  createdAt     DateTime        @default(now())
 
   @@index([applicationId])
 }
@@ -227,16 +227,16 @@ enum KycStatus {
 }
 
 model KycVerification {
-  id            String    @id @default(uuid())
+  id            String           @id @default(uuid())
   userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   applicationId String?
   application   LoanApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   method        KycMethod
-  status        KycStatus @default(pending)
-  reference     String?   // masked id / doc ref
+  status        KycStatus        @default(pending)
+  reference     String? // masked id / doc ref
   verifiedAt    DateTime?
-  createdAt     DateTime  @default(now())
+  createdAt     DateTime         @default(now())
 
   @@unique([userId, method, applicationId])
   @@index([userId])
@@ -251,22 +251,22 @@ enum LoanStatus {
 }
 
 model Loan {
-  id             String     @id @default(uuid())
-  ref            String     @unique // e.g. SL-88429
-  userId         String
-  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicationId  String     @unique
-  application    LoanApplication @relation(fields: [applicationId], references: [id])
-  partnerName    String
-  principal      Int
-  apr            Float
-  tenureMonths   Int
-  emiAmount      Int
-  accountLast4   String     @default("4291")
-  status         LoanStatus @default(active)
-  disbursedAt    DateTime   @default(now())
-  firstEmiDate   DateTime
-  outstanding    Int
+  id            String          @id @default(uuid())
+  ref           String          @unique // e.g. SL-88429
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId String          @unique
+  application   LoanApplication @relation(fields: [applicationId], references: [id])
+  partnerName   String
+  principal     Int
+  apr           Float
+  tenureMonths  Int
+  emiAmount     Int
+  accountLast4  String          @default("4291")
+  status        LoanStatus      @default(active)
+  disbursedAt   DateTime        @default(now())
+  firstEmiDate  DateTime
+  outstanding   Int
 
   repayments Repayment[]
 
@@ -462,20 +462,78 @@ model AdminUser {
   role         AdminRole @default(admin)
   active       Boolean   @default(true)
   lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+
+  // ── WS6: account security ──
+  /// Set on seeded/reset accounts; the UI blocks everything until cleared.
+  mustChangePassword Boolean   @default(false)
+  passwordChangedAt  DateTime?
+  /// Base32 TOTP secret. Present only once 2FA setup has begun.
+  totpSecret         String?
+  totpEnabled        Boolean   @default(false)
+  /// Hashed single-use recovery codes, so a lost device is not a lockout.
+  totpRecoveryCodes  String[]  @default([])
+  /// Drives idle logout without trusting the client's clock.
+  lastActivityAt     DateTime?
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   refreshTokens AdminRefreshToken[]
+  auditLogs     AdminAuditLog[]
+  resetTokens   AdminPasswordReset[]
+}
+
+/// WS6 — who did what in the dashboard.
+///
+/// Campaigns dial real people and integration settings hold live API keys, so
+/// "who paused this / who changed that key" has to be answerable after the fact.
+model AdminAuditLog {
+  id         String     @id @default(uuid())
+  adminId    String?
+  admin      AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  /// Kept alongside adminId so the record survives the account being deleted.
+  adminEmail String?
+  action     String // e.g. campaign.start, integration.update
+  entity     String? // campaign | customer | integration | stallRule | admin
+  entityId   String?
+  method     String
+  path       String
+  status     Int
+  ip         String?
+  userAgent  String?
+  /// Request body with secrets stripped.
+  metadata   Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@index([entity, entityId])
+}
+
+/// WS6 — single-use password reset tokens.
+model AdminPasswordReset {
+  id        String    @id @default(uuid())
+  adminId   String
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  /// Only the hash is stored; the raw token goes out in the reset link.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
 }
 
 model AdminRefreshToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   adminId   String
   admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  revoked   Boolean   @default(false)
+  createdAt DateTime  @default(now())
 
   @@index([adminId])
 }
@@ -521,4 +579,512 @@ model ContextSession {
   createdAt  DateTime  @default(now())
 
   @@index([createdAt])
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// WS5 — Unified customer journey (website / voice / app / campaigns)
+//
+// Additive only. Nothing above this line changes. ActivityEvent, Session and
+// OnboardingFunnel keep serving the existing analytics pages unchanged; these
+// models add the cross-channel identity spine those cannot provide.
+// ══════════════════════════════════════════════════════════════════════
+
+/// Canonical journey stages, in forward order. Customer.currentStage only ever
+/// advances through this list, so an out-of-order event never regresses a stage.
+enum JourneyStage {
+  lead_captured
+  contacted
+  app_installed
+  registered
+  eligibility_checked
+  offers_viewed
+  offer_selected
+  kyc_started
+  kyc_completed
+  application_submitted
+  approved
+  rejected
+  disbursed
+  lost
+}
+
+/// One row per human, across every channel. This is the identity spine: it is
+/// what makes a website enquiry, an outbound call and in-app behaviour resolve
+/// to the same person. `phone` is the natural join key, and needs no
+/// normalisation: the website form validates a 10-digit number starting 6-9 and
+/// the app OTP schema validates 10 digits, so string equality is safe.
+model Customer {
+  id             String       @id @default(uuid())
+  phone          String?      @unique
+  email          String?
+  name           String?
+  city           String?
+  /// Set once at creation and never overwritten: "where did they come from".
+  firstSource    String       @default("website") // website | campaign | app | phone_call | organic
+  userId         String?      @unique // linked at OTP verify
+  campaignId     String?
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  referrer       String?
+  currentStage   JourneyStage @default(lead_captured)
+  stageEnteredAt DateTime     @default(now())
+  firstSeenAt    DateTime     @default(now())
+  /// Drives drop-off detection and re-engagement scans.
+  lastActivityAt DateTime     @default(now())
+  /// Set when a re-engagement nudge fires, so a scan cannot spam the customer.
+  lastNudgedAt   DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  events    JourneyEvent[]
+  calls     CallAttempt[]
+  conversations Conversation[]
+  campaigns CampaignContact[]
+
+  @@index([currentStage, stageEnteredAt])
+  @@index([lastActivityAt])
+  @@index([campaignId])
+  @@index([firstSource])
+}
+
+/// The narrative timeline a human reads on a customer record. Deliberately
+/// distinct from ActivityEvent (raw telemetry: different cardinality, retention
+/// and consumers). Both are written from recordJourneyEvent() so they cannot
+/// drift apart.
+model JourneyEvent {
+  id         String        @id @default(uuid())
+  customerId String
+  customer   Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  channel    String // website | voice | app | campaign | admin | system
+  name       String // canonical name from lib/journey.ts
+  stage      JourneyStage? // the stage this event moved them into, if any
+  screen     String?
+  /// Never store a full PAN or Aadhaar here; redactMetadata() enforces that.
+  metadata   Json?
+  occurredAt DateTime      @default(now())
+
+  @@index([customerId, occurredAt])
+  @@index([name, occurredAt])
+  @@index([channel, occurredAt])
+}
+
+// ─────────────────────── Outbound calling (Ello) ───────────────────────
+
+enum CallStatus {
+  queued
+  dialing
+  in_progress
+  completed
+  failed
+  no_answer
+  busy
+  cancelled
+}
+
+/// WS10 — one conversation with one person, on ANY channel.
+///
+/// Why this exists separately from CallAttempt: CallAttempt only models an
+/// *outbound telephone call we placed*. It has no room for a website-widget
+/// session, an in-app voice session, or an inbound call — and until now those
+/// were never persisted at all, so a person could talk to three of our agents
+/// and the fourth would greet them as a stranger.
+///
+/// Keyed on `phone` (bare 10 digits) as well as customerId, because that is the
+/// only identifier every channel shares, and because an agent asking "what do we
+/// know about this number?" has nothing else to ask with.
+model Conversation {
+  id         String    @id @default(uuid())
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// Bare 10-digit Indian mobile. The cross-channel join key.
+  phone      String
+
+  /// Which surface this happened on.
+  /// phone_outbound | phone_inbound | website_widget | mobile_app | admin
+  channel String
+  /// Which agent role handled it (leadCallback, campaign, companion,
+  /// websiteCompanion, adminNavigator) — null for non-agent conversations.
+  agentRole String?
+  /// Ello's conversation_id, so a late webhook can find this row.
+  providerConversationId String? @unique
+  /// Set when this conversation was an outbound call we placed.
+  callAttemptId          String?
+
+  /// Human-readable recap. This is what the next agent actually reads.
+  summary     String?
+  /// Structured turns, whatever shape the provider gave us.
+  transcript  Json?
+  outcome     CallOutcome?
+  /// "agent" (reported) | "inferred" (guessed from transcript) | "status" | null.
+  /// Same provenance rule as CallAttempt: a guess must never read as a fact.
+  outcomeSource String?
+  /// Anything the agent captured — income, employment, preferred channel…
+  details     Json?
+  recordingUrl String?
+
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  durationSec Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([phone, startedAt])
+  @@index([customerId, startedAt])
+  @@index([channel, startedAt])
+}
+
+/// WS10 — the rolling cross-channel brief for one phone number.
+///
+/// Denormalised on purpose. Every agent fetches this at the START of every
+/// conversation, so it must be one indexed read, not an aggregation over the
+/// whole Conversation history while a customer waits on the line.
+model ConversationSummary {
+  /// Bare 10-digit phone — the primary key, since this is per-number.
+  phone      String   @id
+  customerId String?
+
+  /// One paragraph covering everything across every channel. What the agent reads.
+  summary          String
+  /// Count and span, for the dashboard list.
+  conversationCount Int      @default(0)
+  channels         String[] @default([])
+  firstAt          DateTime?
+  lastAt           DateTime?
+  /// Channel and agent of the most recent conversation.
+  lastChannel      String?
+  lastAgentRole    String?
+  /// Most recent known outcome, with its provenance.
+  lastOutcome      CallOutcome?
+  lastOutcomeSource String?
+
+  updatedAt DateTime @updatedAt
+
+  @@index([lastAt])
+}
+
+enum CallOutcome {
+  interested
+  not_interested
+  callback_requested
+  wrong_number
+  voicemail
+  unreachable
+  do_not_call
+  installed_app
+  other
+}
+
+/// One outbound call placed through Ello. Created when queued, then updated by
+/// the Ello outcome webhook.
+model CallAttempt {
+  id         String    @id @default(uuid())
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  phone String
+
+  /// Ello's own identifier, so an inbound webhook can find this row.
+  providerCallId String?      @unique
+  status         CallStatus   @default(queued)
+  outcome        CallOutcome?
+  /// How `outcome` was determined: "agent" (the agent reported it via the
+  /// report_call_outcome tool), "inferred" (matched from the transcript — a
+  /// guess), "status" (derived from a failure status), or null. Ello sends no
+  /// outcome field, so without this an operator cannot tell a real disposition
+  /// from a keyword match, and the two carry very different confidence.
+  outcomeSource  String?
+  /// The phrase that triggered an inference, so the dashboard can show its work.
+  outcomeEvidence String?
+  /// Free-text disposition or summary returned by the agent.
+  summary        String?
+
+  // ── Details the agent captured on the call (all optional; only ever set
+  // from an explicit agent report, never inferred) ──────────────────────
+  incomeRange      String?
+  employment       String?
+  preferredChannel String?
+  /// When the customer asked to be called back.
+  callbackAt       DateTime?
+  /// The context_data variables sent to the agent for this call. Kept so an
+  /// operator can see exactly what the agent knew when it dialled — the usual
+  /// first question when a call goes wrong.
+  callContext      Json?
+  transcript     Json?
+  recordingUrl   String?
+  durationSec    Int?
+  answered       Boolean      @default(false)
+  attempt        Int          @default(1)
+  error          String?
+
+  /// Raw webhook body, kept verbatim so provider-shape drift is debuggable.
+  rawPayload Json?
+
+  queuedAt    DateTime  @default(now())
+  dialedAt    DateTime?
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([customerId, queuedAt])
+  @@index([campaignId, status])
+  @@index([status])
+}
+
+// ─────────────────────── Campaigns ───────────────────────
+
+enum CampaignStatus {
+  draft
+  running
+  paused
+  completed
+  failed
+}
+
+/// A bulk outbound-calling campaign, seeded from an uploaded spreadsheet.
+model Campaign {
+  id     String         @id @default(uuid())
+  name   String
+  /// Short human code used for attribution; matches Customer.campaignId.
+  code   String         @unique
+  status CampaignStatus @default(draft)
+
+  /// How many calls may be in flight at once for this campaign.
+  concurrency   Int     @default(1)
+  /// Ello agent that runs the calls; falls back to the integration default.
+  assistantId   String?
+  /// Display name of the chosen agent, cached so the UI need not re-query Ello.
+  assistantName String?
+  note          String?
+
+  // ── Schedule ──────────────────────────────────────────────────────────
+  /// When the campaign may begin dialling (date + time).
+  startAt      DateTime?
+  /// When it must stop entirely (date + time).
+  endAt        DateTime?
+  scheduleType CampaignScheduleType @default(one_time)
+
+  /// Daily calling window, stored as minutes from local midnight so it is
+  /// trivially comparable and free of DST/date arithmetic. 540 = 09:00,
+  /// 1140 = 19:00. Interpreted in `timezone`.
+  dailyStartMinute Int    @default(540)
+  dailyEndMinute   Int    @default(1140)
+  /// IANA zone the window and day-of-week are evaluated in.
+  timezone         String @default("Asia/Kolkata")
+  /// Allowed weekdays, 0=Sunday..6=Saturday. Empty means every day.
+  daysOfWeek       Int[]  @default([])
+
+  // ── Retry cadence ─────────────────────────────────────────────────────
+  retryStrategy         RetryStrategy @default(once)
+  /// Hard ceiling on attempts per contact, whatever the strategy.
+  maxAttemptsPerContact Int           @default(1)
+  /// Used by n_per_day / until_answered.
+  attemptsPerDay        Int           @default(1)
+  /// Used by every_n_days.
+  retryIntervalDays     Int           @default(1)
+  /// Minimum gap between two attempts on the same contact.
+  retryIntervalMinutes  Int           @default(60)
+  /// Stop attempting a contact once a call is answered.
+  stopOnAnswer          Boolean       @default(true)
+
+  /// Last time the scheduler processed this campaign (observability).
+  lastRunAt DateTime?
+
+  totalContacts Int @default(0)
+  queuedCount   Int @default(0)
+  calledCount   Int @default(0)
+  failedCount   Int @default(0)
+
+  createdBy   String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  contacts CampaignContact[]
+  calls    CallAttempt[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum ContactState {
+  pending
+  queued
+  called
+  failed
+  skipped
+}
+
+/// One spreadsheet row, deduped per campaign on phone.
+model CampaignContact {
+  id         String    @id @default(uuid())
+  campaignId String
+  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  name    String?
+  phone   String
+  email   String?
+  city    String?
+  product String?
+  amount  Int? // paise
+  /// Any extra spreadsheet columns, preserved as uploaded.
+  extra   Json?
+
+  state ContactState @default(pending)
+  error String?
+
+  // ── Attempt tracking (drives the retry cadence) ───────────────────────
+  /// Total attempts ever made for this contact.
+  attempts       Int       @default(0)
+  /// Attempts made on `attemptDayKey`; reset when the local day rolls over.
+  attemptsToday  Int       @default(0)
+  /// Local (campaign-timezone) YYYY-MM-DD the daily counter belongs to.
+  /// Stored rather than derived so the reset needs no cron and no tz maths.
+  attemptDayKey  String?
+  lastAttemptAt  DateTime?
+  /// Earliest moment the next attempt may be made; null means "eligible now".
+  nextEligibleAt DateTime?
+  /// Set once any call for this contact connects.
+  answered       Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, phone])
+  @@index([campaignId, state])
+  /// The scheduler's hot path: eligible contacts for a running campaign.
+  @@index([campaignId, state, nextEligibleAt])
+}
+
+// ───────────────── Integration config + outbound dispatch ─────────────────
+
+/// Admin-editable configuration for external providers (Ello, Upshot). Held in
+/// the database rather than env so the dashboard can change endpoints and keys
+/// without a redeploy. Secret values are write-only over the API: they are set
+/// through the admin UI but never returned by a read.
+model IntegrationConfig {
+  id        String   @id @default(uuid())
+  /// ello | upshot
+  provider  String   @unique
+  enabled   Boolean  @default(false)
+  /// Non-secret settings: base urls, paths, assistant ids, field mappings.
+  settings  Json     @default("{}")
+  /// Secret values such as api keys. Never returned by the read API.
+  secrets   Json     @default("{}")
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+enum DispatchChannel {
+  push
+  whatsapp
+  sms
+  email
+  voice
+}
+
+enum DispatchStatus {
+  pending
+  sent
+  failed
+  cancelled
+}
+
+/// A re-engagement message the dashboard decided to send. The mobile app never
+/// decides this. Upshot is the delivery platform; this row is our own record of
+/// the attempt, with retry and idempotency so the first outbound HTTP this
+/// backend has ever made is not fire-and-forget.
+model OutboundRequest {
+  id             String          @id @default(uuid())
+  customerId     String?
+  channel        DispatchChannel
+  /// upshot_user_upsert | upshot_event | ello_call
+  kind           String
+  /// Dedup key: one nudge per customer, stage and kind within a cooldown window.
+  idempotencyKey String          @unique
+  payload        Json
+  status         DispatchStatus  @default(pending)
+  attempts       Int             @default(0)
+  lastError      String?
+  providerRef    String?
+  response       Json?
+  sentAt         DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status, createdAt])
+  @@index([customerId])
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// WS5b — campaign scheduling
+//
+// Ello's own campaign API accepts only a name, an assistant, a CSV and a
+// single `scheduleTime` — it cannot express a daily calling window, retry
+// cadence or per-contact attempt caps. So the schedule lives here and our
+// scheduler drives Ello one call at a time via POST /api/agents/{id}/calls.
+// ══════════════════════════════════════════════════════════════════════
+
+enum CampaignScheduleType {
+  /// Runs once over the date range; each contact is attempted per the retry rule.
+  one_time
+  /// Repeats across the date range on the configured cadence.
+  recurring
+}
+
+/// How often a contact may be re-attempted until they answer or the caps are hit.
+enum RetryStrategy {
+  /// Exactly one attempt per contact, ever.
+  once
+  /// Up to `attemptsPerDay` attempts each active day.
+  n_per_day
+  /// One attempt every `retryIntervalDays` days.
+  every_n_days
+  /// Keep attempting on every eligible slot until answered or maxAttempts is hit.
+  until_answered
+}
+
+/// WS5d — "did the next step happen?" rules, editable from the dashboard.
+///
+/// A stage-level stall check was too coarse: "entered a phone number but never
+/// verified the OTP" happens entirely inside one stage, so it was invisible.
+/// Each rule watches for a step (`triggerEvent`) that was NOT followed by the
+/// step it should lead to (`expectedEvent`) within `delayMinutes`, then fires a
+/// named event into Upshot. The notification content itself is authored on the
+/// Upshot dashboard — we only tell it what happened and to whom.
+model StallRule {
+  id              String          @id @default(uuid())
+  /// Human label shown in the dashboard, e.g. "OTP requested but not verified".
+  name            String
+  /// Canonical JOURNEY_EVENTS name the customer already did.
+  triggerEvent    String
+  /// The event that would mean they moved on. Absence of it is the stall.
+  expectedEvent   String
+  /// How long to wait before deciding they are stuck.
+  delayMinutes    Int             @default(15)
+  /// Event name sent to Upshot; matched to a campaign on their dashboard.
+  upshotEvent     String
+  /// Informational — Upshot decides the real channel from the campaign.
+  channel         DispatchChannel @default(push)
+  /// Don't re-fire the same rule for the same customer inside this window.
+  cooldownMinutes Int             @default(1440)
+  enabled         Boolean         @default(true)
+  /// Observability, so the dashboard can show whether a rule ever matches.
+  lastFiredAt     DateTime?
+  firedCount      Int             @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Channel is part of the key so the SAME drop-off can have both a push rule
+  /// and a (later, longer-cooldown) voice rule — push at 15 minutes, call at 45 if
+  /// they still have not moved. With the old two-column key the voice rule
+  /// collided with the push one and could never be created.
+  @@unique([triggerEvent, expectedEvent, channel])
+  @@index([enabled])
 }

@@ -1,0 +1,237 @@
+{
+  "status": 200,
+  "message": "agent retrieved successfully",
+  "data": {
+    "_id": "6a71988489c98da763e29b24",
+    "workspaceId": "6a6c622916da6133db8057a7",
+    "userId": "6a6c622916da6133db8057a6",
+    "name": "Admin companion app",
+    "type": "hybrid",
+    "category": [
+      "general"
+    ],
+    "description": "AI assistant for voice calls",
+    "image": "1",
+    "features": [],
+    "popularity": 0,
+    "voiceConfig": {
+      "provider": "elevenlabs",
+      "voiceId": "pwMBn0SsmN1220Aorv15",
+      "language": "en-IN",
+      "patienceLevel": 1,
+      "speed": 1,
+      "pitch": 1,
+      "latency": 0.5,
+      "stability": 0.5,
+      "styleExaggeration": 0,
+      "similarity": 0.8,
+      "numberOfWords": 0,
+      "voiceSeconds": 0.2,
+      "backOfSeconds": 0.1
+    },
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 200
+    },
+    "sttConfig": {
+      "utterance_end_ms": 1500,
+      "on_punctuation_second": 0,
+      "vadEnabled": false,
+      "ncEnabled": false,
+      "keyterms": [],
+      "waitseconds": 1.2
+    },
+    "voicemailConfig": {
+      "isEnabled": false
+    },
+    "backChannelConfig": {
+      "isEnabled": false,
+      "backchannelWords": []
+    },
+    "timeoutConfig": {
+      "silenceTimeout": 30,
+      "maximumDuration": 600
+    },
+    "callConfig": {
+      "timeZone": "UTC",
+      "maxDuration": 600,
+      "voicemailDetection": {
+        "enabled": true,
+        "type": "ml-based"
+      },
+      "recordingEnabled": true,
+      "transcriptionEnabled": true,
+      "speakerBoost": false,
+      "idleReminders": [
+        false,
+        0.75
+      ],
+      "limitCallDuration": [
+        false,
+        20
+      ],
+      "backGroundNoiseThreshold": 0.75,
+      "backGroundNoiseTimeout": 10,
+      "backGroundNoiseTimeoutThreshold": 0.75,
+      "backGroundNoiseTimeoutInterval": 10
+    },
+    "fillerWords": false,
+    "DND": true,
+    "status": true,
+    "customVocabulary": [],
+    "timezone": "Asia/Kolkata",
+    "countryName": "India",
+    "greeting": "Hi! How can I assist you today?",
+    "prompt": "# Ello — SwiftLoan Admin Dashboard Navigator (voice assistant system prompt)\r\n\r\nPaste this as the **system prompt** of a **Native Mode (Gemini Live)** assistant on\r\nthe ello dashboard, then put that assistant's ID + API key into the admin app's\r\n`NEXT_PUBLIC_ELLO_ASSISTANT_ID` / `NEXT_PUBLIC_ELLO_API_KEY`. Native Mode is required —\r\nother assistant types can't call the client tools, so the mic would talk but never\r\nnavigate.\r\n\r\n---\r\n\r\nYou are **Ello**, the voice co-pilot embedded in the **SwiftLoan Admin dashboard** — an\r\ninternal tool that operations staff use to track loan applications, leads, users, and the\r\nconversion funnel. You control the dashboard by voice: you move between screens and open\r\nspecific records so the operator can work hands-free.\r\n\r\n## Always use tools immediately\r\nWhen the operator says something actionable, call the matching tool right away — don't\r\nexplain first, just do it, then briefly confirm in one short sentence.\r\n\r\n- \"take me to the loan pipeline\" / \"show loans\" → `go_to_page({page:\"loans\"})` → \"Here's the loan pipeline.\"\r\n- \"open leads\" / \"contact us\" → `go_to_page({page:\"leads\"})`\r\n- \"show analytics\" / \"trends\" → `go_to_page({page:\"analytics\"})`\r\n- \"notifications\" / \"alerts\" → `go_to_page({page:\"notifications\"})`\r\n- \"back to overview\" / \"home\" / \"dashboard\" → `go_to_page({page:\"overview\"})`\r\n- \"onboarding\" → `go_to_page({page:\"onboarding\"})`, \"downloads\" → `go_to_page({page:\"downloads\"})`, \"users\" / \"customers\" → `go_to_page({page:\"users\"})`\r\n- \"open loan SL-800042\" / \"show me Rahul's application\" → `open_loan({query:\"...\"})`\r\n- \"open Meera's lead\" / \"the lead from Pune\" → `open_lead({query:\"...\"})`\r\n- \"find user Rahul\" / \"customer 98765...\" → `open_user({query:\"...\"})`\r\n- \"go back\" → `go_back()`\r\n\r\n## Available screens\r\noverview (Master Overview), onboarding, loans (Loan Pipeline), leads, downloads,\r\nusers, analytics, notifications. The current screen is in the page context under\r\n`currentScreen`; the full list is under `screens`.\r\n\r\n## Style\r\n- You're an internal operations tool, not a salesperson — be concise, calm, and efficient.\r\n- Greet briefly on connect, say which screen the operator is on, and ask where they'd like to go.\r\n- After each navigation, confirm in a few words (\"Opened loan SL-800042.\").\r\n- If a request is ambiguous or a record isn't found, say so briefly and offer the closest screens/matches.\r\n\r\n## Never\r\n- Never invent a screen or record that isn't real — if `open_loan`/`open_lead`/`open_user`\r\n  returns no match, tell the operator plainly.\r\n- Never ask the operator to speak passwords, tokens, or security codes.\r\n- Don't read long lists aloud — navigate to the screen and let them see it.",
+    "knowledgeBases": [],
+    "actions": [],
+    "deployment": {
+      "status": "draft",
+      "version": 1,
+      "deployedAt": "2026-08-04T07:45:08.732000",
+      "lastUpdated": "2026-08-04T07:45:08.732000"
+    },
+    "stats": {
+      "totalCalls": 0,
+      "successRate": 1,
+      "avgCallDuration": 0
+    },
+    "recommendedActions": [],
+    "widget": true,
+    "createdAt": "2026-08-04T07:45:08.732000",
+    "updatedAt": "2026-08-04T08:14:52.613000",
+    "multiLingual": false,
+    "primaryLanguage": "en-IN",
+    "tools": [],
+    "callTransfers": [],
+    "dynamic_variables": [],
+    "long_term_memory_prompt": "You are an AI system that maintains a long-term profile of the user,written as natural, flowing paragraphs. The long-term profile should never use lists, bullets, numbers, or structured formatting. It should read like a clear, friendly description of who the user is, what matters to them, and any meaningful information that would help a future conversation feel personalized. Always keep the writing conversational and human.\n\nYou will be given the latest conversation transcript. You may also be given an existing long-term profile. If there is no existing profile,create a new one entirely from the transcript. If there is an existing profile, merge the new information into it. When merging, you should avoid repetition by absorbing new details, refining old ones, and removing anything that is outdated or contradicted. If the transcript provides important personal facts, correct or update the profile naturally.\n\nThe long-term profile should reflect stable information about the user, such as meaningful personal details, family context,preferences, goals, values, personality cues, recurring themes in their life, and anything that would help a future AI interact with them more deeply or empathetically. Do not include short-term or irrelevant details. Only include things with long-term significance.\n\nReturn the final updated long-term profile as a set of simple conversational paragraphs with no formatting, no lists, and no sections. The final profile should feel cohesive, refined, and up to date.",
+    "rolling_summary_prompt": "You are an AI system that maintains a rolling summary of the user’s recent conversations. This summary should always be written in plain conversational paragraphs without any lists, bullets, numbers, or structured formatting. The tone should feel like a natural explanation someone might give when summarizing what has been going on lately.\n\nYou will be given the latest conversation transcript. You may also receive an existing rolling summary. If no summary exists, create a new one from the transcript alone. If a summary exists, merge the new transcript into it by blending the new information into the ongoing story. Update the summary so it reflects the user’s current concerns,the themes they have been discussing, any changes in their situation,and what direction the conversations seem to be moving. Keep it coherent and avoid repeating older information unless it matters to the current context.\n\nThe rolling summary should feel like a living narrative that keeps track of what the user has been exploring recently. It should not include long-term biographical details unless they are relevant to the current arc of conversation. Keep it concise but meaningful, and make sure it captures the emotional and thematic flow of the user’s ongoing discussions.\n\nReturn the updated rolling summary as natural paragraphs with no formatting or structure.",
+    "transcripts_limit": 100,
+    "long_term_memory_enabled": false,
+    "enable_guardrails": false,
+    "guardrailsConfig": {
+      "contentFiltering": {
+        "hate": "High",
+        "insults": "Medium",
+        "sexual": "High",
+        "violence": "High",
+        "misconduct": "Medium"
+      },
+      "personaGuidelines": {
+        "do": [
+          "Be polite and respectful.",
+          "Stay factual about clinic workflows.",
+          "Clarify when you are unsure."
+        ],
+        "dont": [
+          "Do not provide medical diagnosis.",
+          "Do not give legal or financial advice.",
+          "Do not argue or express personal opinions."
+        ]
+      },
+      "escalationHandoffLogic": {
+        "maxViolations": 2,
+        "escalationOption": "Route to human agent",
+        "initialWarningAlert": "I'm not able to continue with that request. Let's move to something else I can help you with.",
+        "preEscalationMessage": "I'm going to connect you to a human agent who can help you further."
+      },
+      "recommendedTerminology": {
+        "terminology": [
+          "Appointments",
+          "Billing",
+          "Insurance",
+          "Clinic Hours",
+          "Location"
+        ]
+      },
+      "disallowedTerminology": {
+        "terminology": [
+          "Politics",
+          "Religion",
+          "Personal Opinions"
+        ]
+      }
+    },
+    "enable_agent_Personality": false,
+    "agentPersonalityConfig": {
+      "personalityDimensions": {
+        "calmEnergetic": "Medium",
+        "collaborativeAssertive": "Medium",
+        "casualProfessional": "Medium",
+        "empathy": "Medium",
+        "proactiveness": "Medium"
+      },
+      "conversationStyle": {
+        "conciseness": "Balanced",
+        "expertiseLevel": "Intermediate",
+        "complianceStrictness": "Normal",
+        "escalationBias": "Normal"
+      },
+      "languageTone": {
+        "languageStyle": "Simple everyday language",
+        "examplePhrases": [],
+        "disallowedPhrases": []
+      }
+    },
+    "filler_config": {
+      "outbound_agent": {
+        "filler_type": 0,
+        "messages": [],
+        "interval": 15
+      },
+      "inbound_agent": {
+        "filler_type": 0,
+        "messages": [],
+        "interval": 15
+      }
+    },
+    "greeting_config": {
+      "outbound_agent": {
+        "greeting_type": 0,
+        "greeting_message": "Hello! ",
+        "first_speaker": 0,
+        "message_delay_seconds": 10
+      },
+      "inbound_agent": {
+        "greeting_type": 0,
+        "greeting_message": "Hi! How can I assist you today?",
+        "first_speaker": 0,
+        "message_delay_seconds": 10
+      }
+    },
+    "webhooks": [],
+    "metaData": {
+      "type": 1,
+      "placement": 4,
+      "varient": 1,
+      "colorPalette": {
+        "widgetBackground": "#005871",
+        "widgetText": "#ffffff",
+        "insideWidgetCallIconBg": "#005871",
+        "insideWidgetCallIconColor": "#ffffff",
+        "endCallColor": "#fe5151",
+        "buttonRadius": 12
+      },
+      "allowList": [
+        "https://getello.ai",
+        "https://dashboard-in.getello.ai",
+        "https://deploy-in.getello.ai",
+        "https://dashboard-india.getello.ai",
+        "https://deploy-india.getello.ai"
+      ]
+    },
+    "generatedSystemPrompt": {
+      "persona_section": "You maintain a calm, collaborative, and assertive tone. Speak in simple, everyday language, balancing conciseness and expertise. Acknowledge emotions in your responses and offer alternatives when refusing requests. Maintain a medium level of empathy and proactiveness in conversations.",
+      "guardrails_section": "You will allow borderline content related to hate, insults, sexual themes, violence, and misconduct once, gently redirecting the user. After two violations, escalate the issue to a human. Provide polite refusals with brief explanations for all refusals, ensuring to redirect where possible."
+    },
+    "nativeConfig": {
+      "disconnectDrainSec": 1.2,
+      "idleMaxStrikes": 4,
+      "toolDelayNoticeSec": 10,
+      "transferHoldDrainSec": 1.5,
+      "vadRmsThreshold": 200
+    },
+    "native_mode": true
+  }
+}
