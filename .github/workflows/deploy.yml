@@ -14,11 +14,11 @@ jobs:
         run: |
           cd server
           docker build -t swiftloan-api .
+          docker run --rm --env-file /home/ubuntu/secrets/server.env swiftloan-api npx prisma migrate deploy
           docker stop swiftloan-api || true
           docker rm swiftloan-api || true
           docker run -d --name swiftloan-api --restart unless-stopped \
             --env-file /home/ubuntu/secrets/server.env -p 4000:4000 swiftloan-api
-          docker run --rm --env-file /home/ubuntu/secrets/server.env swiftloan-api npx prisma migrate deploy
 
       - name: Build & deploy admin
         run: |
