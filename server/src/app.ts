@@ -29,6 +29,7 @@ import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
+import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
 
@@ -115,6 +116,9 @@ export function createApp() {
   app.use('/api/voice', limiter(60_000, 20, 'Too many voice session requests'), voiceRouter);
   // WS10 — agent-facing conversation memory. Secret-authenticated (see the module).
   app.use('/api/conversations', limiter(60_000, 120, 'Too many conversation API requests'), conversationsRouter);
+  // PUBLIC — an Upshot journey posts here to place a call. Every guard
+  // (calling hours, cooldown, do-not-call) is enforced server-side.
+  app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
   app.use('/api/admin', adminRouter);

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { STALL_REASONS, stallReasonFor, LEAD_CALL_VARIABLES, compactContext } from './callContext.js';
+import {
+  STALL_REASONS, STALL_HELP, stallReasonFor, stallHelpFor,
+  LEAD_CALL_VARIABLES, compactContext,
+} from './callContext.js';
 
 /**
  * These guard things a customer would actually hear on a phone call, which is why
@@ -42,6 +45,52 @@ describe('stall reasons', () => {
     expect(r).toContain('some new event');
     expect(r).toContain('another new event');
     expect(`I noticed you ${r}`).not.toMatch(/\btheir\b/);
+  });
+});
+
+describe('stall help', () => {
+  it('offers something specific for every drop-off we describe', () => {
+    // A reason without matching help produces a call that names the problem and
+    // then has nothing to say about it — worse than not calling.
+    for (const key of Object.keys(STALL_REASONS)) {
+      expect(STALL_HELP[key], `no help text for ${key}`).toBeTruthy();
+    }
+  });
+
+  it('reads grammatically after "you can offer to"', () => {
+    for (const [key, help] of Object.entries(STALL_HELP)) {
+      expect(`you can offer to ${help}`, key).not.toMatch(/\btheir\b/);
+      expect(help[0], key).toBe(help[0].toLowerCase());
+    }
+  });
+
+  it('never tells the agent to obtain the OTP code from the customer', () => {
+    // The one instruction that would turn our own call into a phishing script.
+    //
+    // Matches only the dangerous DIRECTION — code travelling from customer to
+    // agent. "tell them to request a fresh code" is the opposite and correct, and
+    // an explicit "NEVER ask them to read the code" prohibition must not trip it,
+    // which a blunter pattern did.
+    const asksForCode = /\b(read|say|share|give|tell)\b[^.]{0,40}\b(otp|code)\b[^.]{0,20}\b(to|with)\s+(you|me|us)\b/i;
+    for (const [key, help] of Object.entries(STALL_HELP)) {
+      // Strip explicit prohibitions before checking — they mention the phrase in
+      // order to forbid it.
+      const withoutWarnings = help.replace(/\bNEVER\b[^.]*/gi, '');
+      expect(withoutWarnings, key).not.toMatch(asksForCode);
+    }
+    // And the OTP entry must carry that prohibition explicitly.
+    expect(stallHelpFor('otp_requested', 'otp_verified')).toMatch(/NEVER ask/i);
+  });
+
+  it('never has the agent quote a rate on the offers drop-off', () => {
+    // Quoting a rate on a recorded line is a mis-selling problem for a lender.
+    expect(stallHelpFor('offer_viewed', 'offer_selected')).toMatch(/not quote|Do NOT quote/i);
+  });
+
+  it('falls back to something usable for an unmapped rule', () => {
+    const h = stallHelpFor('new_event', 'other_event');
+    expect(h.length).toBeGreaterThan(20);
+    expect(`you can offer to ${h}`).not.toMatch(/\btheir\b/);
   });
 });
 
