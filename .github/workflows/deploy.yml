@@ -13,7 +13,7 @@ jobs:
       - name: Build & deploy server
         run: |
           cd server
-          docker build -t swiftloan-api .
+          docker build --no-cache -t swiftloan-api .
           docker stop swiftloan-api || true
           docker rm swiftloan-api || true
           docker run -d --name swiftloan-api --restart unless-stopped \
@@ -23,7 +23,7 @@ jobs:
       - name: Build & deploy admin
         run: |
           cd admin
-          docker build -t swiftloan-admin .
+          docker build --no-cache -t swiftloan-admin .
           docker stop swiftloan-admin || true
           docker rm swiftloan-admin || true
           docker run -d --name swiftloan-admin --restart unless-stopped -p 4001:4001 swiftloan-admin
@@ -31,7 +31,7 @@ jobs:
       - name: Build & deploy website
         run: |
           cd website-next
-          docker build -t swiftloan-website .
+          docker build --no-cache -t swiftloan-website .
           docker stop swiftloan-website || true
           docker rm swiftloan-website || true
           docker run -d --name swiftloan-website --restart unless-stopped -p 4002:4002 swiftloan-website
