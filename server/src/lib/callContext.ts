@@ -44,6 +44,25 @@ export const LEAD_CALL_VARIABLES = [
   'lead_prior_inquiries',
   'lead_is_returning',
   'agent_purpose',
+  /**
+   * The cross-channel conversation brief, pushed at dial time.
+   *
+   * The agent can also fetch this itself via the get_customer_history tool, but
+   * sending it here means every outbound call carries the history even when that
+   * tool has not been configured yet — and it removes a round-trip while a
+   * customer is listening to silence.
+   */
+  'conversation_history',
+  'conversation_count',
+  // ── Drop-off follow-up (agent_purpose = app_dropoff_followup) ────────────
+  // Only populated when the call was triggered by a stall rule. They are what
+  // let the agent say "you entered your number but never reached the OTP screen"
+  // instead of a generic "how can I help".
+  'stall_reason',
+  'stall_last_step',
+  'stall_expected_step',
+  'stall_minutes',
+  'stall_channel',
 ] as const;
 
 export type LeadCallVariable = (typeof LEAD_CALL_VARIABLES)[number];
@@ -82,9 +101,18 @@ function agoWords(from: Date | null | undefined, now: Date): string {
  * safe absent value: the prompt is written so a blank variable makes the agent
  * ask the question instead of asserting something false.
  */
+export interface StallContext {
+  reason: string;
+  lastStep: string;
+  expectedStep: string;
+  minutes: number;
+  /** Which surface they dropped off on, e.g. "the app". */
+  channel?: string;
+}
+
 export async function buildLeadCallContext(
   customer: Customer,
-  opts: { purpose?: string; now?: Date } = {},
+  opts: { purpose?: string; now?: Date; stall?: StallContext } = {},
 ): Promise<LeadCallContext> {
   const now = opts.now ?? new Date();
 
@@ -111,6 +139,12 @@ export async function buildLeadCallContext(
   const product = lead?.productInterest ?? '';
   const full = (customer.name ?? '').trim();
 
+  // Everything we have already discussed with this number, on any channel.
+  // Best-effort: a missing brief must not stop the call being placed.
+  const memory = customer.phone
+    ? await prisma.conversationSummary.findUnique({ where: { phone: customer.phone } }).catch(() => null)
+    : null;
+
   const str = (v: unknown): string => (v == null ? '' : String(v));
 
   return {
@@ -130,7 +164,59 @@ export async function buildLeadCallContext(
     lead_prior_inquiries: priorCount ? String(priorCount) : '',
     lead_is_returning: priorCount > 0 ? 'yes' : 'no',
     agent_purpose: opts.purpose ?? 'website_lead_followup',
+    conversation_history: memory?.summary ?? '',
+    conversation_count: memory?.conversationCount ? String(memory.conversationCount) : '',
+    // Empty unless a stall rule triggered this call; compactContext() then drops
+    // them, and the prompt's drop-off branch never activates.
+    stall_reason: opts.stall?.reason ?? '',
+    stall_last_step: opts.stall?.lastStep ?? '',
+    stall_expected_step: opts.stall?.expectedStep ?? '',
+    stall_minutes: opts.stall?.minutes != null ? String(opts.stall.minutes) : '',
+    stall_channel: opts.stall?.channel ?? '',
   };
+}
+
+/**
+ * Plain-English descriptions of each drop-off, spoken by the agent.
+ *
+ * SECOND PERSON, and no leading pronoun — the prompt says "I noticed you
+ * {{stall_reason}}", so a third-person phrasing produced "I noticed you entered
+ * THEIR phone number". Keep every entry grammatical after the word "you".
+ *
+ * Phrased as a question about a *problem*, not a chase: someone who abandoned a
+ * loan form at the OTP screen most likely hit something that did not work, and
+ * opening as if they were merely lazy is both wrong and off-putting.
+ */
+export const STALL_REASONS: Record<string, string> = {
+  [`${'otp_requested'}→${'otp_verified'}`]:
+    'entered your phone number in the app but never got past the OTP screen',
+  [`${'app_opened'}→${'otp_requested'}`]:
+    'opened the app but never entered your phone number',
+  [`${'language_selected'}→${'otp_requested'}`]:
+    'chose a language in the app but never entered your phone number',
+  [`${'otp_verified'}→${'eligibility_started'}`]:
+    'signed in to the app but never started the loan application',
+  [`${'otp_verified'}→${'eligibility_completed'}`]:
+    'signed in to the app but did not finish the eligibility check',
+  [`${'eligibility_started'}→${'eligibility_completed'}`]:
+    'started the eligibility form but did not finish it',
+  [`${'offer_viewed'}→${'offer_selected'}`]:
+    'saw your loan offers but did not choose one',
+  [`${'kyc_started'}→${'kyc_completed'}`]:
+    'started your KYC but did not complete it',
+  [`${'app_installed'}→${'otp_verified'}`]:
+    'installed the app but never signed in',
+  [`${'lead_captured'}→${'app_installed'}`]:
+    'enquired on our website but have not installed the app yet',
+};
+
+/** Fall back to a readable sentence for any rule we have no wording for. */
+export function stallReasonFor(triggerEvent: string, expectedEvent: string): string {
+  const key = `${triggerEvent}→${expectedEvent}`;
+  if (STALL_REASONS[key]) return STALL_REASONS[key];
+  // Also second person, for the same reason as the table above.
+  const nice = (s: string) => s.replace(/_/g, ' ');
+  return `got as far as "${nice(triggerEvent)}" but did not go on to "${nice(expectedEvent)}"`;
 }
 
 /**

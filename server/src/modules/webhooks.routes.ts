@@ -18,10 +18,28 @@ import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import {
   inferOutcome, shouldReplaceOutcome, parseAgentOutcome, type OutcomeSource,
 } from '../lib/callOutcome.js';
+import { recordConversation } from '../lib/conversations.js';
 
 /** A call that reached a human — the only kind worth inferring an outcome from. */
 function isConnected(status: CallStatus): boolean {
   return status === 'completed' || status === 'in_progress';
+}
+
+/**
+ * The shared secret, accepted under either header name.
+ *
+ * ONE credential covers both directions — the push webhooks here and the pull
+ * endpoints in conversations.routes.ts — so Ello has a single value to configure
+ * rather than two that must be kept in step. `x-webhook-secret` is the original
+ * name and stays supported; `x-api-key` is accepted so the same header works for
+ * every call in either direction.
+ */
+function webhookSecret(): string {
+  return process.env.ELLO_WEBHOOK_SECRET || process.env.CONVERSATION_API_KEY || '';
+}
+
+function providedSecret(req: import('express').Request): string {
+  return String(req.headers['x-webhook-secret'] ?? '') || String(req.headers['x-api-key'] ?? '');
 }
 
 export const webhooksRouter = Router();
@@ -101,8 +119,8 @@ export function mapStatus(raw?: string | null): CallStatus | null {
 
 // POST /api/webhooks/ello/call-outcome
 webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
-  const expected = process.env.ELLO_WEBHOOK_SECRET;
-  const provided = String(req.headers['x-webhook-secret'] ?? '');
+  const expected = webhookSecret();
+  const provided = providedSecret(req);
 
   if (expected) {
     if (provided !== expected) return fail(res, 401, 'Invalid webhook secret');
@@ -218,6 +236,28 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   // call, so an unguarded write would append two entries and double the
   // campaign counters. Later events still update the row above (recording url,
   // transcript, insights) — they just don't re-emit.
+  // WS10 — mirror every phone call into the cross-channel conversation memory, so
+  // the website and in-app agents can see it later. Upserted on the provider id,
+  // so the several webhooks Ello fires per call update one conversation row.
+  // Fire-and-forget: this is a read model, and failing it must never break the
+  // webhook the provider is retrying.
+  recordConversation({
+    phone: updated.phone,
+    channel: 'phone_outbound',
+    agentRole: updated.campaignId ? 'campaign' : 'leadCallback',
+    providerConversationId: updated.providerCallId ?? `call:${updated.id}`,
+    callAttemptId: updated.id,
+    customerId: updated.customerId,
+    summary: updated.summary,
+    transcript: updated.transcript,
+    outcome: updated.outcome,
+    outcomeSource: updated.outcomeSource,
+    recordingUrl: updated.recordingUrl,
+    startedAt: updated.dialedAt ?? updated.queuedAt,
+    endedAt: updated.completedAt,
+    durationSec: updated.durationSec,
+  }).catch((e) => console.error('[webhook] conversation mirror failed', e));
+
   if (isTerminal && !alreadyFinalised) {
     // CALL_COMPLETED advances the customer to `contacted`; do_not_call ends the
     // journey outright and is passed as an explicit stage override.
@@ -279,8 +319,8 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
  * the same reason as the main webhook: a retry loop is worse than a logged miss.
  */
 webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
-  const expected = process.env.ELLO_WEBHOOK_SECRET;
-  const provided = String(req.headers['x-webhook-secret'] ?? '');
+  const expected = webhookSecret();
+  const provided = providedSecret(req);
   if (expected) {
     if (provided !== expected) return fail(res, 401, 'Invalid webhook secret');
   } else if (process.env.NODE_ENV === 'production') {
@@ -338,6 +378,28 @@ webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
       answered: true, // the agent could only report if it spoke to someone
     },
   });
+
+  // WS10 — push the agent-reported disposition into the conversation memory too.
+  // This is the authoritative version (`outcomeSource: 'agent'`), so it upgrades
+  // whatever the lifecycle webhook inferred for the same conversation.
+  recordConversation({
+    phone: updated.phone,
+    channel: 'phone_outbound',
+    agentRole: updated.campaignId ? 'campaign' : 'leadCallback',
+    providerConversationId: updated.providerCallId ?? `call:${updated.id}`,
+    callAttemptId: updated.id,
+    customerId: updated.customerId,
+    summary: updated.summary,
+    outcome: outcome ?? undefined,
+    outcomeSource: outcome ? 'agent' : undefined,
+    details: {
+      incomeRange: updated.incomeRange ?? null,
+      employment: updated.employment ?? null,
+      preferredChannel: updated.preferredChannel ?? null,
+      callbackAt: callbackAt?.toISOString() ?? null,
+    },
+    durationSec: updated.durationSec,
+  }).catch((e) => console.error('[webhook] conversation mirror failed', e));
 
   // The disposition is the part that changes what happens next, so it gets its
   // own timeline entry even though the call already recorded one.

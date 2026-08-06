@@ -30,8 +30,23 @@ const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
 /** How long after the form submit to call. The brief asks for ~1 minute. */
 const DELAY_MINUTES = Number(process.env.LEAD_CALL_DELAY_MINUTES ?? 1) || 1;
 /** Calling hours, minutes from local midnight. Default 09:00–21:00 IST. */
-const WINDOW_START = Number(process.env.LEAD_CALL_WINDOW_START ?? 540) || 540;
-const WINDOW_END = Number(process.env.LEAD_CALL_WINDOW_END ?? 1260) || 1260;
+/**
+ * Minutes from local midnight.
+ *
+ * NOT `Number(x) || default` — 0 is a legitimate value (midnight) and falsy, so
+ * that form silently ignored `LEAD_CALL_WINDOW_START=0` and snapped back to 09:00.
+ * The docs three lines below tell you to set exactly that to disable the window,
+ * so the bug made its own instructions not work.
+ */
+function minuteEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 1439 ? n : fallback;
+}
+
+const WINDOW_START = minuteEnv('LEAD_CALL_WINDOW_START', 540);
+const WINDOW_END = minuteEnv('LEAD_CALL_WINDOW_END', 1260);
 const TIMEZONE = process.env.LEAD_CALL_TIMEZONE ?? 'Asia/Kolkata';
 /** Cap per tick so one bad batch cannot dial a whole table. */
 const MAX_PER_TICK = 25;

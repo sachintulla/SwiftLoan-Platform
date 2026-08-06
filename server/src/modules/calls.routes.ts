@@ -13,6 +13,8 @@ import { ok, created, fail, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { resolveCustomer } from '../lib/journey.js';
 import { placeCall, normalisePhone } from '../lib/dialer.js';
+import { buildLeadCallContext, compactContext } from '../lib/callContext.js';
+import { agentIdFor } from '../lib/agents.js';
 
 export const callsRouter = Router();
 callsRouter.use(requireAdmin);
@@ -67,12 +69,30 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
       if (!campaign) return fail(res, 404, 'Campaign not found');
     }
 
+    // Build the same context an automatic call gets — including the
+    // cross-channel conversation brief — so a one-click call from the dashboard
+    // opens knowing the history rather than as a cold call. Without this the
+    // manual button would be the *worst* of the four ways we ring someone.
+    const context = compactContext(
+      await buildLeadCallContext(customer, { purpose: 'manual_dashboard_call' }).catch(
+        () => ({}) as Record<string, string>,
+      ),
+    );
+
     const result = await placeCall({
       customerId: customer.id,
       phone: dialPhone,
       campaignId: campaignId ?? null,
-      assistantId: assistantId ?? null,
-      metadata: { ...(metadata ?? {}), name: customer.name ?? undefined, triggeredBy: req.admin?.sub ?? 'admin' },
+      // Fall back to the configured outbound agent rather than the workspace
+      // default, so a manual call uses the same prompt as an automatic one.
+      assistantId: assistantId ?? (await agentIdFor('leadCallback')),
+      metadata: {
+        ...context,
+        ...(metadata ?? {}),
+        name: customer.name ?? undefined,
+        reason: 'manual_dashboard_call',
+        triggeredBy: req.admin?.sub ?? 'admin',
+      },
     });
 
     const attempt = await prisma.callAttempt.findUnique({

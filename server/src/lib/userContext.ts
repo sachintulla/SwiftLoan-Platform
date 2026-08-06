@@ -17,6 +17,7 @@
 import { prisma } from './prisma.js';
 import { STAGE_LABELS } from './journey.js';
 import { nextActionFor } from './nextAction.js';
+import { getConversationContext } from './conversations.js';
 
 export interface UserContext {
   /** True when we know anything at all — the app skips the handoff if false. */
@@ -63,12 +64,34 @@ export interface UserContext {
   /** One-line brief the agent can open from. Built server-side so every
    *  channel phrases the history the same way. */
   brief: string | null;
+  /**
+   * The cross-channel CONVERSATION brief — every exchange on this number across
+   * website, phone and app. Distinct from `brief` above, which summarises the
+   * funnel journey (enquiries, application, loan). An in-app agent wants both:
+   * one tells it where they are, the other what was already said.
+   */
+  conversationBrief: string | null;
+  conversationCount: number;
+  conversationChannels: string[];
+  /** Recent conversations, newest first, for an agent that wants specifics. */
+  conversations: Array<{
+    channel: string;
+    channelLabel: string;
+    agentRole: string | null;
+    at: string;
+    durationSec: number | null;
+    summary: string | null;
+    outcome: string | null;
+    /** False = we inferred it from the transcript. Do not state it as fact. */
+    outcomeConfirmed: boolean;
+  }>;
 }
 
 const EMPTY: UserContext = {
   hasHistory: false, name: null, city: null, email: null,
   stage: null, stageLabel: null, nextAction: null,
   inquiries: [], lastCall: null, application: null, loan: null, brief: null,
+  conversationBrief: null, conversationCount: 0, conversationChannels: [], conversations: [],
 };
 
 /** ₹3,00,000 → "3 lakh rupees". Spoken form, since an agent reads this aloud. */
@@ -133,7 +156,14 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
     campaign: l.campaignId,
   }));
 
-  const hasHistory = !!(customer || inquiries.length || call || app || loan);
+  // A number can have conversations and nothing else — someone who talked to the
+  // website widget before ever submitting a form. Counting that as "no history"
+  // would throw away exactly the context this endpoint exists to provide.
+  const conversationCount = await prisma.conversation
+    .count({ where: { phone: clean } })
+    .catch(() => 0);
+
+  const hasHistory = !!(customer || inquiries.length || call || app || loan || conversationCount);
   if (!hasHistory) return EMPTY;
 
   const latest = inquiries[inquiries.length - 1] ?? null;
@@ -167,9 +197,34 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
       : null,
     loan: loan ? { id: loan.id, principal: loan.principal ?? null, status: loan.status ?? null } : null,
     brief: null,
+    conversationBrief: null,
+    conversationCount: 0,
+    conversationChannels: [],
+    conversations: [],
   };
 
   ctx.brief = buildBrief(ctx, leads?.[leads.length - 1]?.createdAt, call?.queuedAt);
+
+  // WS10 — the cross-channel conversation memory. Fetched separately (and
+  // tolerantly) because it is additive: if it fails, the agent still gets the
+  // funnel context it always had rather than nothing at all.
+  const conv = await getConversationContext(clean, 6).catch(() => null);
+  if (conv?.known) {
+    ctx.conversationBrief = conv.brief;
+    ctx.conversationCount = conv.conversationCount;
+    ctx.conversationChannels = conv.channels;
+    ctx.conversations = conv.conversations.map((c) => ({
+      channel: c.channel,
+      channelLabel: c.channelLabel,
+      agentRole: c.agentRole,
+      at: c.at.toISOString(),
+      durationSec: c.durationSec,
+      summary: c.summary,
+      outcome: c.outcome,
+      outcomeConfirmed: c.outcomeConfirmed,
+    }));
+  }
+
   return ctx;
 }
 

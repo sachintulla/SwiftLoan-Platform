@@ -639,6 +639,7 @@ model Customer {
 
   events    JourneyEvent[]
   calls     CallAttempt[]
+  conversations Conversation[]
   campaigns CampaignContact[]
 
   @@index([currentStage, stageEnteredAt])
@@ -679,6 +680,87 @@ enum CallStatus {
   no_answer
   busy
   cancelled
+}
+
+/// WS10 — one conversation with one person, on ANY channel.
+///
+/// Why this exists separately from CallAttempt: CallAttempt only models an
+/// *outbound telephone call we placed*. It has no room for a website-widget
+/// session, an in-app voice session, or an inbound call — and until now those
+/// were never persisted at all, so a person could talk to three of our agents
+/// and the fourth would greet them as a stranger.
+///
+/// Keyed on `phone` (bare 10 digits) as well as customerId, because that is the
+/// only identifier every channel shares, and because an agent asking "what do we
+/// know about this number?" has nothing else to ask with.
+model Conversation {
+  id         String    @id @default(uuid())
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// Bare 10-digit Indian mobile. The cross-channel join key.
+  phone      String
+
+  /// Which surface this happened on.
+  /// phone_outbound | phone_inbound | website_widget | mobile_app | admin
+  channel String
+  /// Which agent role handled it (leadCallback, campaign, companion,
+  /// websiteCompanion, adminNavigator) — null for non-agent conversations.
+  agentRole String?
+  /// Ello's conversation_id, so a late webhook can find this row.
+  providerConversationId String? @unique
+  /// Set when this conversation was an outbound call we placed.
+  callAttemptId          String?
+
+  /// Human-readable recap. This is what the next agent actually reads.
+  summary     String?
+  /// Structured turns, whatever shape the provider gave us.
+  transcript  Json?
+  outcome     CallOutcome?
+  /// "agent" (reported) | "inferred" (guessed from transcript) | "status" | null.
+  /// Same provenance rule as CallAttempt: a guess must never read as a fact.
+  outcomeSource String?
+  /// Anything the agent captured — income, employment, preferred channel…
+  details     Json?
+  recordingUrl String?
+
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  durationSec Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([phone, startedAt])
+  @@index([customerId, startedAt])
+  @@index([channel, startedAt])
+}
+
+/// WS10 — the rolling cross-channel brief for one phone number.
+///
+/// Denormalised on purpose. Every agent fetches this at the START of every
+/// conversation, so it must be one indexed read, not an aggregation over the
+/// whole Conversation history while a customer waits on the line.
+model ConversationSummary {
+  /// Bare 10-digit phone — the primary key, since this is per-number.
+  phone      String   @id
+  customerId String?
+
+  /// One paragraph covering everything across every channel. What the agent reads.
+  summary          String
+  /// Count and span, for the dashboard list.
+  conversationCount Int      @default(0)
+  channels         String[] @default([])
+  firstAt          DateTime?
+  lastAt           DateTime?
+  /// Channel and agent of the most recent conversation.
+  lastChannel      String?
+  lastAgentRole    String?
+  /// Most recent known outcome, with its provenance.
+  lastOutcome      CallOutcome?
+  lastOutcomeSource String?
+
+  updatedAt DateTime @updatedAt
+
+  @@index([lastAt])
 }
 
 enum CallOutcome {
@@ -999,6 +1081,10 @@ model StallRule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([triggerEvent, expectedEvent])
+  /// Channel is part of the key so the SAME drop-off can have both a push rule
+  /// and a (later, longer-cooldown) voice rule — push at 15 minutes, call at 45 if
+  /// they still have not moved. With the old two-column key the voice rule
+  /// collided with the push one and could never be created.
+  @@unique([triggerEvent, expectedEvent, channel])
   @@index([enabled])
 }

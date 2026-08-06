@@ -12,7 +12,18 @@ android/.gradle/
 .expo/
 
 # Environment files — never commit these
+# Env files. The patterns below are deliberately wildcards: exact names like
+# `server/.env` did not match a `server/.env.bak-callwindow` copy made while
+# testing, which held DATABASE_URL (with password) and the Ello key and was
+# staged for commit to this PUBLIC repo. Match any variant, anywhere.
 .env
+.env.*
+!.env.example
+!.env.local.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.local.example
 .env.local
 .env.production
 server/.env

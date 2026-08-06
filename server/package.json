@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "ello:sync": "tsx scripts/ello-sync-agent.ts",
-    "ello:agents": "tsx scripts/ello-agents.ts"
+    "ello:agents": "tsx scripts/ello-agents.ts",
+    "conversations:backfill": "tsx scripts/backfill-conversations.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

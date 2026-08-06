@@ -3,7 +3,7 @@ MOB-001,Core app,"React Native 0.86 app, 25 screens / 26 routes",Done,100,P0,Dev
 MOB-002,Core app,Hand-rolled navigation state machine (store.ts),Done,100,P0,Dev,,No React Navigation by design
 MOB-003,Core app,Jest suite — 143 tests passing,Done,100,P0,Dev,,Run: npx jest
 MOB-004,Core app,TypeScript strict — 0 errors,Done,100,P0,Dev,,npm run typecheck
-MOB-005,Core app,Android debug build + install on device,Done,100,P0,Dev,,OnePlus Nord AC2001. Needed C:\pg17-style short paths (MAX_PATH)
+MOB-005,Core app,Android debug build + install on device,Done,100,P0,Dev,,Realme RMX2170 (Android 12). Needed C:\pg17-style short paths (Windows MAX_PATH).
 MOB-006,Core app,iOS build + device test,Not Started,0,P1,Dev,Mac + Xcode,pod install needs UTF-8 locale (see CLAUDE.md)
 MOB-007,Journey tracking,trackInstall + AppDownload write (new endpoint),Done,100,P0,Dev,,Nothing wrote AppDownload before this
 MOB-008,Journey tracking,app_opened event on first launch,Done,100,P0,Dev,,
@@ -30,11 +30,11 @@ MOB-028,Push notifications,Firebase Messaging deps + POST_NOTIFICATIONS permissi
 MOB-029,Push notifications,Call registerUpshotPush() after permission granted,Not Started,0,P0,Dev,FCM setup,Wrapper function already exists
 MOB-030,Push notifications,Forward FCM payloads via forwardPushToUpshot(),Not Started,0,P0,Dev,FCM setup,
 MOB-031,Push notifications,APNs key/cert for iOS,Not Started,0,P2,Ops,Apple account,
-MOB-032,Push notifications,End-to-end push test to a real handset,Not Started,0,P0,QA,All of the above,
+MOB-032,Push notifications,End-to-end push test to a real handset,Done,100,P0,QA,,VERIFIED on a real handset: FCM accepted the send (HTTP 200) and the notification rendered in the tray. Sent via FCM HTTP v1 with the service-account key.
 MOB-033,Voice agent,Ello in-app voice agent (WebRTC transport),Done,100,P1,Dev,,Pre-existing; not modified
 MOB-034,Voice agent,Credentials moved out of source into gitignored file,Done,100,P0,Dev,,
-MOB-035,Voice agent,Point in-app agent at api-in.getello.ai (India),Not Started,0,P1,Dev,,Currently api-dev; server already switched
-MOB-036,Voice agent,Update in-app assistant prompt for priorInquiries,Not Started,0,P1,Ops,,"Prompt lives on the Ello dashboard, not in the repo"
+MOB-035,Voice agent,Point in-app agent at api-in.getello.ai (India),Done,100,P1,Dev,,"All four clients now on api-in + connect-in with the production key: mobile app, website, admin, server. WebSocket handshake to connect-in verified OPEN."
+MOB-036,Voice agent,Update in-app assistant prompt for priorInquiries,Not Started,0,P1,Dev,,Prompts now live in prompts/ and are pushed with `npm run ello:sync -- --role companion` — no longer dashboard-only. Still to do: teach the prompt to open from the new userContext brief (MOB-047).
 MOB-037,Release readiness,Release signing config + keystore,Not Started,0,P0,Dev,,Debug build only today
 MOB-038,Release readiness,ProGuard/R8 rules for Upshot + Ello SDKs,Not Started,0,P0,Dev,,Release builds will strip SDK classes without them
 MOB-039,Release readiness,Version/build number strategy,Not Started,0,P1,Dev,,"Currently hardcoded appVersion ""1.0"""
@@ -45,3 +45,7 @@ MOB-043,Release readiness,DEV_API_BASE reset to empty before release build,Not S
 MOB-044,Release readiness,Deep-link (context token) verification,Not Started,0,P1,QA,,swiftloan://onboard?token=…
 MOB-045,Release readiness,Offline / poor-network behaviour test,Not Started,0,P1,QA,,Demo fallback path exists but is untested on-device
 MOB-046,Release readiness,Accessibility pass,Not Started,0,P2,Dev,,
+MOB-047,Journey tracking,"GET /api/context/me — full history for the signed-in phone, handed to the in-app agent",Done,100,P1,Dev,,"The non-deep-link path: a Play Store install arrives with only a phone number. Returns stage, website enquiries, last call + outcome, application/loan, and a one-line brief the agent can open from. Fetched on login (either route) and passed via registerPageContext."
+MOB-048,Upshot SDK,Fix Upshot native wiring (auth was failing outright),Done,100,P0,Dev,,"Four hard blockers, not polish: (1) init keys must be bkApplicationID/bkApplicationOwnerID, not AppId/OwnerId — the bridge copies them verbatim, so auth returned ""Invalid parameters""; (2) MainApplication must extend UpshotApplication or its static application field stays null; (3) androidx.work missing → NoClassDefFoundError crash on launch; (4) no FirebaseMessagingService existed, so data-only Upshot pushes were silently dropped. Auth now returns status:true."
+MOB-049,Notifications,SMS OTP delivery in production,Not Started,0,P0,Dev,SMS provider + DLT registration,"LAUNCH BLOCKER. createOtp() says ""in production this is sent via SMS"" but NO SMS sender exists (no Twilio/MSG91/Gupshup/Kaleyra/Exotel anywhere). Today the code is returned in the API response for dev/demo and is undefined in production — so nobody can log in to the production app. Needs a DLT-registered Indian sender; template pre-registration takes days (TRAI)."
+MOB-050,Notifications,"WhatsApp messaging (app link, nudges)",Not Started,0,P1,Dev,Upshot WhatsApp channel,"StallRule already accepts whatsapp/sms as channels, but the dispatch queue only handles upshot_event and upshot_user_upsert — nothing sends WhatsApp directly. Delivery is delegated to Upshot campaigns, so it is only as configured as those are. Decide: keep delegating, or add a direct send path alongside MOB-049."
