@@ -30,12 +30,26 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          ELLO_API_KEY: ${{ secrets.ELLO_API_KEY }}
+          ELLO_AGENT_ID: ${{ vars.ELLO_AGENT_ID }}
+          ELLO_BASE_URL: ${{ vars.ELLO_BASE_URL }}
+          ELLO_WEBHOOK_URL: ${{ vars.ELLO_WEBHOOK_URL }}
         run: |
           cd server
           docker build --no-cache -t swiftloan-api .
           docker run --rm \
             -e DATABASE_URL="$DATABASE_URL" \
             swiftloan-api npx prisma migrate deploy
+          # Bootstraps IntegrationConfig (Ello telephonic calling) from these env
+          # vars — merges, never clears a secret left blank. The admin dashboard's
+          # /integrations page remains the real place to manage these afterward.
+          docker run --rm \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e ELLO_API_KEY="$ELLO_API_KEY" \
+            -e ELLO_AGENT_ID="$ELLO_AGENT_ID" \
+            -e ELLO_BASE_URL="$ELLO_BASE_URL" \
+            -e ELLO_WEBHOOK_URL="$ELLO_WEBHOOK_URL" \
+            swiftloan-api npx tsx prisma/seed.integrations.ts
           docker stop swiftloan-api || true
           docker rm swiftloan-api || true
           docker run -d --name swiftloan-api --restart unless-stopped \
