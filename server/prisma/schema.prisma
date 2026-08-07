@@ -1122,36 +1122,3 @@ model StallRule {
   @@unique([triggerEvent, expectedEvent, channel])
   @@index([enabled])
 }
-
-// Admin-curated, pre-application eligibility catalog shown on the app's
-// "Explore your loan options" screen (skip-login path) — distinct from Offer,
-// which is computed per-application after a user actually applies.
-model PreApprovedPlan {
-  id               String   @id @default(uuid())
-  lenderName       String
-  logoUrl          String?                          // hosted brand logo image URL
-  icon             String   @default("account_balance") // fallback glyph if no logo set
-  exploreUrl       String?                          // opened in-browser from the "Explore Plan" button (demo)
-
-  badge            String?                          // e.g. "Best rate"
-
-  maxAmount        Int?                             // "Up to ₹X", in paise; null if amountAtApproval
-  amountAtApproval Boolean  @default(false)          // e.g. MoneyView: no amount shown
-
-  rateMin          Float?
-  rateMax          Float?
-  rateAtApproval   Boolean  @default(false)          // e.g. UnitySFB: "Rate at approval"
-
-  tenureMinMonths  Int?
-  tenureMaxMonths  Int?
-
-  tags             String[]                         // free-text pills for outlier cards
-
-  displayOrder     Int      @default(0)
-  active           Boolean  @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([active, displayOrder])
-}
