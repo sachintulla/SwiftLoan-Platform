@@ -19,10 +19,14 @@ const FAB_GRADIENT: [string, string] = [colors.primary, '#0CB6A6'];
 // Listening (the user's turn) and speaking (the agent's turn) are deliberately
 // different hues — mint vs. blue — not just shades of one color, since that's
 // the one distinction that matters most to see at a glance.
+// Listening intentionally stays white rather than mint — mint against this
+// button's teal gradient is two close shades of green, too low-contrast to
+// read clearly. White reads clearly against any state; speaking's blue still
+// carries the real listening-vs-speaking distinction.
 const STATE_ACCENT: Record<AgentStatus, string> = {
   idle: '#fff',
   connecting: colors.amber,
-  listening: colors.mint,
+  listening: '#fff',
   speaking: colors.blue,
   executingTool: colors.amber,
   ended: '#fff',
