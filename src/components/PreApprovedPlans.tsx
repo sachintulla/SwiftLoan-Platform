@@ -6,6 +6,7 @@ import { Skeleton } from './common/Loading';
 import { colors, font, inr } from '../theme/tokens';
 import { api, PreApprovedPlan } from '../api/client';
 import { saveSelectedPlan } from '../state/selectedPlan';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 function amountLine(p: PreApprovedPlan) {
   if (p.amountAtApproval) return { label: 'Amount at approval', value: '' };
@@ -22,44 +23,66 @@ function rateTenureLine(p: PreApprovedPlan): string[] {
 function PlanCard({ plan, selected, onSelect }: { plan: PreApprovedPlan; selected: boolean; onSelect: () => void }) {
   const amount = amountLine(plan);
   const meta = rateTenureLine(plan);
+  // Rendered inside a child component of the Explore screen, so the screen's
+  // element-tree auto-discovery (screenGraph.ts) never sees this card — it only
+  // walks what Explore itself passes to <Screen>. Self-register instead.
+  useVoiceTarget(plan.lenderName, { kind: 'button', onTap: onSelect }, [onSelect]);
   return (
     <Pressable onPress={onSelect} style={[styles.card, selected && styles.cardSelected]}>
+      {plan.badge ? (
+        <View style={styles.ribbon}>
+          <Text style={[font(700), { fontSize: 10.5, color: '#fff', letterSpacing: 0.3 }]}>{plan.badge}</Text>
+        </View>
+      ) : null}
       <View style={styles.cardTop}>
-        <View style={styles.cardLender}>
+        <View style={styles.iconChip}>
           {plan.logoUrl ? (
             <Image source={{ uri: plan.logoUrl }} style={styles.logo} resizeMode="contain" />
           ) : (
-            <Icon name={plan.icon} size={20} color={colors.textSoft} />
+            <Icon name={plan.icon} size={22} color={colors.primary} />
           )}
-          <Text style={[font(600), { fontSize: 15, color: colors.text }]}>{plan.lenderName}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {plan.badge ? (
-            <View style={styles.badge}>
-              <Text style={[font(600), { fontSize: 11, color: colors.primary }]}>{plan.badge}</Text>
+        <Text style={[font(800), { fontSize: 16, color: colors.text, flex: 1 }]}>{plan.lenderName}</Text>
+        <View style={[styles.radio, selected && styles.radioOn]}>
+          {selected ? <Icon name="check" size={13} color="#fff" /> : null}
+        </View>
+      </View>
+
+      <View style={styles.metrics}>
+        {amount.value ? (
+          <Metric label={amount.label} value={amount.value} highlight />
+        ) : (
+          <Metric label="Amount" value={amount.label} highlight />
+        )}
+        {meta.length === 2 ? (
+          <>
+            <Metric label="Rate" value={meta[0]} />
+            <Metric label="Tenure" value={meta[1]} />
+          </>
+        ) : meta.length === 1 ? (
+          <Metric label="Rate / Tenure" value={meta[0]} />
+        ) : null}
+      </View>
+
+      {plan.tags.length ? (
+        <View style={styles.tagsRow}>
+          {plan.tags.map((t, i) => (
+            <View key={i} style={styles.tagPill}>
+              <Text style={[font(600), { fontSize: 11, color: colors.textMid }]}>{t}</Text>
             </View>
-          ) : null}
-          <View style={[styles.radio, selected && styles.radioOn]}>
-            {selected ? <Icon name="check" size={13} color="#fff" /> : null}
-          </View>
+          ))}
         </View>
-      </View>
-
-      {amount.value ? (
-        <View style={{ marginVertical: 8, flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-          <Text style={[font(500), { fontSize: 12, color: colors.muted }]}>{amount.label}</Text>
-          <Text style={[font(700), { fontSize: 20, color: colors.text }]}>{amount.value}</Text>
-        </View>
-      ) : (
-        <Text style={[font(600), { fontSize: 15, color: colors.text, marginVertical: 8 }]}>{amount.label}</Text>
-      )}
-
-      <View style={{ flexDirection: 'row', gap: 14, flexWrap: 'wrap' }}>
-        {(meta.length ? meta : plan.tags).map((s, i) => (
-          <Text key={i} style={[font(400), { fontSize: 12, color: colors.textSoft }]}>{s}</Text>
-        ))}
-      </View>
+      ) : null}
     </Pressable>
+  );
+}
+
+function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <View style={{ flex: 1 }}>
+      <Text style={[font(500), { fontSize: 10.5, color: colors.muted }]}>{label}</Text>
+      <Text style={[font(800), { fontSize: highlight ? 16 : 13.5, color: highlight ? colors.primary : colors.text, marginTop: 2 }]}>{value}</Text>
+    </View>
   );
 }
 
@@ -111,6 +134,9 @@ export function PreApprovedPlans({ mode = 'guest', onApply }: { mode?: 'guest' |
     }
     onApply();
   };
+
+  const continueLabel = mode === 'home' ? 'Save selection' : 'Sign up to continue';
+  useVoiceTarget(plans && plans.length > 0 ? continueLabel : undefined, { kind: 'button', onTap: onContinue }, [onContinue]);
 
   return (
     <View style={{ gap: 16 }}>
@@ -177,30 +203,43 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   card: {
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
     backgroundColor: colors.surface,
   },
   cardSelected: {
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: colors.primary,
+    backgroundColor: 'rgba(7,159,160,0.05)',
   },
-  cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardLender: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logo: { width: 20, height: 20, borderRadius: 5 },
-  badge: {
-    backgroundColor: colors.chip,
-    borderRadius: 20,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+  ribbon: {
+    position: 'absolute',
+    top: -1,
+    right: 16,
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  iconChip: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#E1F3F3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  logo: { width: 28, height: 28, borderRadius: 6 },
   radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
     borderColor: colors.line,
     alignItems: 'center',
@@ -210,6 +249,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
+  metrics: { flexDirection: 'row', marginTop: 14, gap: 4 },
+  tagsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
+  tagPill: { backgroundColor: colors.chip, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
 });
 
 export default PreApprovedPlans;
