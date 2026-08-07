@@ -133,6 +133,8 @@ export const api = {
 
   // Users
   me: () => request('GET', '/users/me'),
+  /** Right to erasure — irreversible, cascades every record tied to this user. */
+  deleteAccount: () => request('DELETE', '/users/me'),
   updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
