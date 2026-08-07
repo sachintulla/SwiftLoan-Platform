@@ -7,9 +7,11 @@
 // only bare "PIN" (an ATM/card/UPI PIN) should refuse.
 //
 // OTP is deliberately NOT in this list — per product decision, the agent may
-// enter the OTP itself (this is a dummy app with a fixed test code; there is
-// no real SMS/2FA secret at stake). Everything else that IS a real credential
-// (password, card PIN, CVV, PAN, Aadhaar, card number) still refuses.
+// enter the OTP itself when the user speaks it. OTP delivery is real (Twilio),
+// so this is a genuine trade-off (the code briefly enters the conversation
+// transcript/voice pipeline) accepted for convenience — revisit if that
+// changes. Everything else that IS a real credential (password, card PIN,
+// CVV, PAN, Aadhaar, card number) still refuses.
 const SENSITIVE_LABEL_RE = /pin(?!\s*code)\b|cvv|cvc|password|passcode|pan\b|aadhaar|card.?number/i;
 
 /**

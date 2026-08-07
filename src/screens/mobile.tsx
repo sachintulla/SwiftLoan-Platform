@@ -53,7 +53,11 @@ export default function Mobile() {
       });
       upshotEvent('otp_verified', { priorInquiryCount: r.priorInquiries?.length ?? 0 });
 
-      go('permissions');
+      // Returning user who already completed About You in a previous session
+      // (fullName + pincode on file) — skip the permissions explainer and
+      // About You form entirely and land straight on the dashboard.
+      const alreadyOnboarded = !!(r.user?.fullName && r.user?.pincode);
+      go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Verification failed.');
     } finally {
