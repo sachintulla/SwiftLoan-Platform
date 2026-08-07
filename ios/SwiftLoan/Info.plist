@@ -37,6 +37,10 @@
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SwiftLoan uses your microphone so you can navigate the app and fill in forms by voice.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SwiftLoan uses your camera to take a profile photo.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SwiftLoan needs access to your photos to set a profile photo.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

@@ -16,12 +16,6 @@ interface OfferVM {
   amount: string; apr: string; emi: string; tenure: string; fee: string;
 }
 
-const FALLBACK: OfferVM[] = [
-  { icon: 'account_balance', name: 'BlueChip Finance', tag: 'Instant Approval', verified: true, recommended: true, amount: '₹45,000', apr: '5.4%', emi: '₹850', tenure: '60 Months', fee: '₹150.00' },
-  { icon: 'savings', name: 'NeoVault Digital', tag: 'No Prepayment Penalty', verified: false, recommended: false, amount: '₹50,000', apr: '6.1%', emi: '₹968', tenure: '72 Months', fee: '₹0.00' },
-  { icon: 'domain', name: 'Heritage Trust', tag: 'Lowest Fixed Rate', verified: false, recommended: false, amount: '₹40,000', apr: '5.8%', emi: '₹769', tenure: '60 Months', fee: '₹200.00' },
-];
-
 export default function Offers() {
   const { state, set, go, showToast } = useStore();
   const [offers, setOffers] = useState<OfferVM[]>([]);
@@ -29,7 +23,7 @@ export default function Offers() {
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!state.applicationId) { setOffers(FALLBACK); setLoading(false); return; }
+    if (!state.applicationId) { setOffers([]); setLoading(false); return; }
     setErr(null); setLoading(true);
     try {
       const { offers: raw }: any = await api.getApplication(state.applicationId).then((r: any) => ({ offers: r.application.offers }));
@@ -74,7 +68,9 @@ export default function Offers() {
         <StepDots total={4} active={3} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Review Your Offers</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
-          We found {offers.length || 3} partners matching your profile. Choose the best fit.
+          {offers.length > 0
+            ? `We found ${offers.length} partner${offers.length === 1 ? '' : 's'} matching your profile. Choose the best fit.`
+            : 'Start an application to see your personalised offers.'}
         </Text>
 
         {loading ? (
@@ -82,7 +78,11 @@ export default function Offers() {
         ) : err ? (
           <ErrorState message={err} onRetry={load} />
         ) : offers.length === 0 ? (
-          <Empty icon="search_off" title="No offers yet" message="We couldn't match a partner to this profile. Try adjusting your amount." />
+          !state.applicationId ? (
+            <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
+          ) : (
+            <Empty icon="search_off" title="No offers yet" message="We couldn't match a partner to this profile. Try adjusting your amount." />
+          )
         ) : (
         <View style={{ gap: 14, marginTop: 18 }}>
           {offers.map((o, i) => (

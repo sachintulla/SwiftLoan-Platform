@@ -54,6 +54,14 @@ jest.mock('react-native-webrtc', () => ({
   mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [], getAudioTracks: () => [] }) },
 }));
 
+// react-native-image-picker → its native module doesn't exist in the Jest env.
+// Only src/screens/profile.tsx imports it; no test drives the picker itself.
+jest.mock('react-native-image-picker', () => ({
+  __esModule: true,
+  launchCamera: jest.fn(),
+  launchImageLibrary: jest.fn(),
+}));
+
 // Silence the animation frame warnings in the jsdom-less RN test env.
 global.requestAnimationFrame = global.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
 global.cancelAnimationFrame = global.cancelAnimationFrame || ((id) => clearTimeout(id));

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { hash, compare, sha256, genOtp, randomToken } from '../lib/crypto.js';
+import { sendOtpSms, smsConfigured } from '../lib/sms.js';
 import { signAccess } from '../lib/jwt.js';
 import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
@@ -26,8 +27,15 @@ async function createOtp(phone: string, userId?: string) {
   await prisma.otpToken.create({
     data: { phone, userId, codeHash: sha256(code), expiresAt: new Date(Date.now() + 5 * 60_000) },
   });
-  // In production this is sent via SMS. In dev (or when DEMO_LOGIN=true) we surface
-  // it so the app can show the demo OTP (123456).
+
+  // Real OTP system: when an SMS provider is configured, deliver the code by SMS
+  // and NEVER return it to the client (a real one-time secret). Demo/dev keeps
+  // surfacing the fixed code so testing works without a live SMS account.
+  if (smsConfigured()) {
+    await sendOtpSms(phone, code); // fire-and-forget; failure is logged in sms.ts
+    return undefined;
+  }
+  // No SMS provider: dev, or explicit DEMO_LOGIN, surfaces the code (123456).
   return env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
 }
 

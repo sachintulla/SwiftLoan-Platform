@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { publicUser } from './auth.routes.js';
+import { presignAvatarUpload, s3Configured } from '../lib/s3.js';
 
 export const usersRouter = Router();
 usersRouter.use(requireAuth);
@@ -39,6 +40,29 @@ usersRouter.patch('/me', validate(profilePatch), ah(async (req, res) => {
   res.json({ user: publicUser(user) });
 }));
 
+/** Get a presigned S3 PUT URL for a profile photo upload. */
+usersRouter.post('/me/avatar/presign',
+  validate(z.object({ contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']) })),
+  ah(async (req, res) => {
+    if (!s3Configured()) throw new HttpError(503, 'Photo upload is not configured yet.');
+    const { uploadUrl, publicUrl } = await presignAvatarUpload(req.user!.sub, req.body.contentType);
+    res.json({ uploadUrl, publicUrl });
+  }));
+
+/** Confirm a photo upload (after the client PUTs the file to the presigned URL). */
+usersRouter.patch('/me/avatar',
+  validate(z.object({ avatarUrl: z.string().url() })),
+  ah(async (req, res) => {
+    // The URL must be one we just handed out for this exact user — an object
+    // key under avatars/{userId}/ in our own bucket — never an arbitrary URL
+    // the client makes up.
+    const bucket = process.env.S3_BUCKET_NAME;
+    const expectedPrefix = `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/avatars/${req.user!.sub}/`;
+    if (!req.body.avatarUrl.startsWith(expectedPrefix)) throw new HttpError(400, 'Invalid avatar URL.');
+    const user = await prisma.user.update({ where: { id: req.user!.sub }, data: { avatarUrl: req.body.avatarUrl } });
+    res.json({ user: publicUser(user) });
+  }));
+
 /** Set display language. */
 usersRouter.patch('/me/language', validate(z.object({ lang: z.enum(['en', 'hi', 'te', 'hinglish', 'tenglish']) })),
   ah(async (req, res) => {
@@ -70,21 +94,21 @@ usersRouter.post('/me/consents',
     res.status(201).json({ consent });
   }));
 
-/** Credit score (with mock factors matching the app's Credit Score screen). */
+/** Real score band thresholds — no bureau vendor is integrated yet, so this is
+ * the only per-user thing we can report: the stored score and a classification
+ * of it. Factors/delta/bureau are NOT reported because we have no real data to
+ * back those claims. */
+function scoreBand(score: number): 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' {
+  if (score >= 800) return 'EXCELLENT';
+  if (score >= 700) return 'GOOD';
+  if (score >= 600) return 'FAIR';
+  return 'POOR';
+}
+
 usersRouter.get('/me/credit-score', ah(async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
-  res.json({
-    score: user?.creditScore ?? 750,
-    band: 'GOOD',
-    delta: 12,
-    factors: [
-      { key: 'payment_history', rating: 'EXCELLENT', detail: '100% on-time payments in the last 36 months.' },
-      { key: 'credit_mix', rating: 'FAIR', detail: 'You mostly have unsecured personal loans.' },
-      { key: 'hard_enquiries', rating: 'HIGH_IMPACT', detail: '3 enquiries in the last 30 days.' },
-    ],
-    updatedAt: '2023-10-12',
-    bureau: 'TransUnion CIBIL',
-  });
+  const score = user?.creditScore ?? 750;
+  res.json({ score, band: scoreBand(score) });
 }));
 
 /** Delete account (right to erasure). */

@@ -61,6 +61,7 @@ model User {
   company        String?
   panNumber      String?
   aadhaarLast4   String?
+  avatarUrl      String?
   lang           Lang            @default(en)
   creditScore    Int             @default(750)
   phoneVerified  Boolean         @default(false)

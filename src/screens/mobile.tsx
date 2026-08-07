@@ -5,7 +5,7 @@ import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { api, ensureSession, ApiError, isOfflineDemo, DEMO_OTP } from '../api/client';
+import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent } from '../analytics/upshot';
 
 export default function Mobile() {
@@ -25,9 +25,8 @@ export default function Mobile() {
     setErr(null);
     setBusy(true);
     try {
-      const r: any = await api.requestOtp(state.mobileVal);
+      await api.requestOtp(state.mobileVal);
       set({ otpSent: true });
-      if (r?.devOtp) showToast(`Dev OTP: ${r.devOtp}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Could not send OTP. Check the API server.');
     } finally {
@@ -67,20 +66,10 @@ export default function Mobile() {
     await api.requestOtp(state.mobileVal).catch(() => {});
   };
 
-  // "Skip" still provisions an anonymous session so the rest of the app works.
-  const skip = async () => {
-    setBusy(true);
-    try {
-      await ensureSession();
-      const me: any = await api.me().catch(() => null);
-      if (me?.user) set({ authUser: me.user });
-    } catch {
-      /* offline: fall through to the local demo experience */
-    } finally {
-      setBusy(false);
-      go('home');
-    }
-  };
+  // Browse without signing in. No session is created — screens that need auth
+  // (starting an application, profile, loans) prompt for real verification
+  // when the user actually reaches them.
+  const skip = () => go('home');
 
   useEffect(() => {
     if (!otpSent) return;
@@ -166,11 +155,6 @@ export default function Mobile() {
             <Text style={styles.sub}>
               Enter the 6-digit code sent to <Text style={font(700)}>{masked}</Text>
             </Text>
-            {isOfflineDemo() ? (
-              <Text style={[font(600), { fontSize: 12.5, color: colors.mint, marginTop: 4 }]}>
-                Offline demo — use code {DEMO_OTP}
-              </Text>
-            ) : null}
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>Edit phone number</Text>
@@ -235,8 +219,6 @@ export default function Mobile() {
           <Text style={[font(800), { color: '#4285F4', fontSize: 16 }]}>G</Text>
           <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>Continue with Google</Text>
         </Pressable>
-
-        <Text style={styles.demo}>Demo login (mock environment): mobile 9999999999 · OTP 123456</Text>
 
         <Pressable style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }} onPress={skip}>
           <Text style={[font(600), { color: colors.textSoft, fontSize: 13.5 }]}>Skip for now — explore the app</Text>
@@ -317,6 +299,5 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: '#fff',
   },
-  demo: { ...font(400), fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 14 },
   errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(239,106,94,0.1)', borderRadius: 12, padding: 12, marginTop: 4 },
 });
