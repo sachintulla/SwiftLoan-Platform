@@ -7,21 +7,15 @@
 // phone (localhost is unreachable there). Tracking already uses the same host.
 
 /**
- * Local-development override. Set back to '' for any real build.
+ * Local-development override. Set back to '' to fall back to the deployed
+ * dev API below.
  *
- * Currently pointed at the laptop's local server/ backend over the USB bridge,
- * so journey events land in the LOCAL admin dashboard instead of the deployed
- * one. `localhost` works on the device only because of:
- *
- *     adb reverse tcp:4000 tcp:4000     # API
- *     adb reverse tcp:8081 tcp:8081     # Metro
- *
- * Re-run those after replugging the phone or restarting adb — the tunnels do
- * not survive either. A LAN IP would avoid the cable, but only if the phone and
- * laptop share a subnet; here they do not (phone 192.168.0.x, laptop Wi-Fi
- * 172.18.6.x), so the USB bridge is the reliable route.
+ * Set this to 'http://localhost:4000/api' + `adb reverse tcp:4000 tcp:4000`
+ * (+ `adb reverse tcp:8081 tcp:8081` for Metro) when iterating against a
+ * local server/ over the USB bridge. Left empty so a standalone build talks
+ * to the real deployed dev API and needs no cable/tunnel at all.
  */
-const DEV_API_BASE = 'http://localhost:4000/api';
+const DEV_API_BASE = '';
 
 export const BUILD = {
   // Flipped between builds (generic -> false, context -> true).
@@ -29,7 +23,7 @@ export const BUILD = {
   VARIANT: 'context' as 'context' | 'generic',
   APP_LABEL: 'SwiftLoan',
   // Deployed API (all app API calls + context resolve go here).
-  API_BASE: DEV_API_BASE || 'https://swiftloan-api.onrender.com/api',
+  API_BASE: DEV_API_BASE || 'http://dev-api.swiftloan.ai/api',
 };
 
 // Point the api-client + tracking at the same backend.

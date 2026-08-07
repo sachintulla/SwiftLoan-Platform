@@ -111,6 +111,29 @@ export default function Profile() {
     reset();
   };
 
+  const deleteAccount = () => {
+    if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
+    Alert.alert(
+      'Delete your account?',
+      'This permanently removes your profile, applications, loans, and KYC records. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deleteAccount();
+              reset();
+            } catch (e) {
+              showToast(e instanceof ApiError ? e.message : 'Could not delete your account. Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const uploadPickedAsset = async (asset: Asset) => {
     if (!asset.uri) return;
     const ext = (asset.fileName?.split('.').pop() || asset.type?.split('/').pop() || 'jpg').toLowerCase();
@@ -280,7 +303,11 @@ export default function Profile() {
       {/* Links */}
       <View style={[styles.card, { padding: 6, marginTop: 16 }]}>
         {LINKS.map((l, i) => (
-          <Pressable key={l.key} onPress={() => (l.help ? go('help') : showToast(t.tSoon))} style={[styles.linkRow, i < LINKS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}>
+          <Pressable
+            key={l.key}
+            onPress={() => (l.help ? go('help') : l.key === 'linkDelete' ? deleteAccount() : showToast(t.tSoon))}
+            style={[styles.linkRow, i < LINKS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}
+          >
             <Icon name={l.icon} size={20} color={colors.textMid} />
             <Text style={[font(600), { flex: 1, fontSize: 14, color: colors.text }]}>{(t as any)[l.key]}</Text>
             <Icon name="chevron_right" size={18} color={colors.muted} />

@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { saveTokens, clearTokens } from '../state/session';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
@@ -15,6 +16,10 @@ let refreshToken: string | null = null;
 export function setTokens(access: string | null, refresh?: string | null) {
   accessToken = access;
   if (refresh !== undefined) refreshToken = refresh;
+  // Persisted so a returning user stays logged in across app restarts, not
+  // just within one in-memory session.
+  if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
+  else if (!access) clearTokens();
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
@@ -128,6 +133,8 @@ export const api = {
 
   // Users
   me: () => request('GET', '/users/me'),
+  /** Right to erasure — irreversible, cascades every record tied to this user. */
+  deleteAccount: () => request('DELETE', '/users/me'),
   updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>

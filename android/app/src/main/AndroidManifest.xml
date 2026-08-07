@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- react-native-image-picker: profile photo "Take Photo" flow -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Permissions screen: profile enrichment / fraud checks -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- react-native-webrtc / react-native-incall-manager (transports/webrtc) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -21,6 +23,7 @@
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:networkSecurityConfig="@xml/network_security_config"
       android:supportsRtl="true">
 
       <!-- Upshot push. The Upshot AAR ships no messaging service, so without

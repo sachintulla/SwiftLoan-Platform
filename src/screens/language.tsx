@@ -12,16 +12,12 @@ const GREETINGS = [
   'Welcome to SwiftLoan',
   'SwiftLoan में आपका स्वागत है',
   'SwiftLoan కి స్వాగతం',
-  'SwiftLoan mein swagat hai',
-  'SwiftLoan ki swagatham',
 ];
 
 const LANGS = [
   { label: 'English', sub: 'Get a loan that fits your life', selected: 'English', lang: 'en' },
   { label: 'हिन्दी', sub: 'अपनी ज़रूरत के हिसाब से लोन पाएं', selected: 'हिन्दी', lang: 'hi' },
-  { label: 'తెలుగు', sub: 'మీ అవసరాలకు తగిన లోన్ పొందండి', selected: 'తెలుగు', lang: null },
-  { label: 'Hinglish', sub: 'Apni zaroorat ke hisaab se loan paayen', selected: 'Hinglish', lang: null },
-  { label: 'Tenglish', sub: 'Mee avasaraaniki taggattu loan pondandi', selected: 'Tenglish', lang: null },
+  { label: 'తెలుగు', sub: 'మీ అవసరాలకు తగిన లోన్ పొందండి', selected: 'తెలుగు', lang: 'te' },
 ];
 
 export default function Language() {
@@ -29,7 +25,7 @@ export default function Language() {
   const [gi, setGi] = React.useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setGi(i => (i + 1) % 5), 2600);
+    const id = setInterval(() => setGi(i => (i + 1) % 3), 2600);
     return () => clearInterval(id);
   }, []);
 

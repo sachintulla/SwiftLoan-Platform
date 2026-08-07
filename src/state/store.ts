@@ -9,9 +9,10 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, trackInstall, fetchContext, fetchUserContext,
+  trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
+import { loadTokens, loadLang, saveLang } from './session';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -29,6 +30,10 @@ export const SCREEN_NAMES = [
   'status', 'disbursed', 'repay', 'creditscore',
 ] as const;
 export type Screen = (typeof SCREEN_NAMES)[number];
+
+// Spelled out in full for the voice agent's page context — more reliable for
+// the model to act on than a bare 'en'/'hi'/'te' code.
+const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te: 'Telugu' };
 
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
@@ -219,6 +224,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  // Restore a persisted session on boot, so a returning user skips onboarding
+  // entirely instead of re-verifying OTP every single app launch — and the
+  // voice agent's preferred_language is correct from the very first turn,
+  // not just within one session's memory. The language itself restores even
+  // for a guest who never logged in.
+  useEffect(() => {
+    (async () => {
+      const savedLang = await loadLang();
+      if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
+
+      const tokens = await loadTokens();
+      if (!tokens) return;
+      setTokens(tokens.accessToken, tokens.refreshToken);
+      try {
+        const { user }: any = await api.me();
+        dispatch({
+          type: 'set',
+          patch: {
+            authUser: user,
+            pdName: user.fullName || user.firstName || '',
+            pdEmail: user.email || '',
+            pdPhone: user.phone ? `+91 ${user.phone}` : '',
+            pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : '',
+            lang: user.lang || stateRef.current.lang,
+          },
+        });
+        // Only jump the user automatically if they haven't already moved
+        // past the splash screen themselves while this was resolving.
+        if (stateRef.current.screen === 'splash') dispatch({ type: 'go', screen: 'home' });
+      } catch {
+        // Expired/invalid — drop the stale session rather than keep retrying
+        // it on every future boot.
+        setTokens(null, null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the last-picked language around across app restarts.
+  useEffect(() => {
+    if (state.lang) saveLang(state.lang);
+  }, [state.lang]);
+
   // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
   useEffect(() => {
@@ -259,6 +307,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     agent.registerPageContext(() => ({
       ...buildPageContext(stateRef.current.screen),
+      // The language the user picked on the language-selection screen — the
+      // voice agent should speak in this language from the first word,
+      // regardless of what language it's addressed in, unless the user
+      // explicitly asks to switch (see the prompt's Voice style section).
+      preferred_language: LANGUAGE_NAMES[stateRef.current.lang ?? 'en'] ?? 'English',
       priorInquiries: stateRef.current.priorInquiries,
       // WS8: the history behind this phone number. `brief` is a one-line summary
       // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
