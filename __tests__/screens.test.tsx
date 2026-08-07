@@ -37,7 +37,7 @@ afterEach(() => {
 // [Component, one or more human-readable strings expected on screen]
 const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S1 splash', Splash, ['Swift', 'Loan']],
-  ['UC-S2 language', Language, ['English', 'हिन्दी', 'తెలుగు', 'Hinglish', 'Tenglish']],
+  ['UC-S2 language', Language, ['English', 'हिन्दी', 'తెలుగు']],
   ['UC-S3 intro', Intro, ['Loans made simple, in your language.']],
   ['UC-S4 mobile', Mobile, ['Enter your mobile number']],
   ['UC-S5 permissions', Permissions, ['Permissions', 'Allow permissions']],

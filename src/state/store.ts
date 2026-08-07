@@ -30,6 +30,10 @@ export const SCREEN_NAMES = [
 ] as const;
 export type Screen = (typeof SCREEN_NAMES)[number];
 
+// Spelled out in full for the voice agent's page context — more reliable for
+// the model to act on than a bare 'en'/'hi'/'te' code.
+const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te: 'Telugu' };
+
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
 const PREV: Partial<Record<Screen, Screen>> = {
@@ -259,6 +263,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     agent.registerPageContext(() => ({
       ...buildPageContext(stateRef.current.screen),
+      // The language the user picked on the language-selection screen — the
+      // voice agent should speak in this language from the first word,
+      // regardless of what language it's addressed in, unless the user
+      // explicitly asks to switch (see the prompt's Voice style section).
+      preferred_language: LANGUAGE_NAMES[stateRef.current.lang ?? 'en'] ?? 'English',
       priorInquiries: stateRef.current.priorInquiries,
       // WS8: the history behind this phone number. `brief` is a one-line summary
       // the agent can open from ("Anita enquired 2 days ago about a 3 lakh

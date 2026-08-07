@@ -48,7 +48,7 @@
 		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>SwiftLoan uses your location for profile enrichment and fraud checks.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SwiftLoan uses your microphone so you can navigate the app and fill in forms by voice.</string>
 	<key>NSCameraUsageDescription</key>
