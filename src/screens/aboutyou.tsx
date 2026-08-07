@@ -143,7 +143,7 @@ export default function AboutYou() {
         <View style={{ height: 24 }} />
         <PrimaryButton label={busy ? 'Saving…' : 'Continue'} icon={null} disabled={busy} onPress={onContinue} />
         <View style={{ height: 10 }} />
-        <GhostButton label="Skip for now" onPress={() => go('home')} />
+        <GhostButton label="Skip for now" onPress={() => { set({ exploreFromHome: false }); go('explore'); }} />
       </View>
     </Screen>
   );

@@ -32,8 +32,7 @@ export const BUILD = {
   API_BASE: DEV_API_BASE || 'https://swiftloan-api.onrender.com/api',
 };
 
-// Point the api-client + tracking at the same backend. Screens still degrade
-// gracefully to demo data when offline (existing behaviour).
+// Point the api-client + tracking at the same backend.
 //
 // TRACK_BASE has to be set explicitly: the tracking client defaults to the
 // deployed host independently of API_BASE, so without this a local build would

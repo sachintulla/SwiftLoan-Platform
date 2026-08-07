@@ -20,6 +20,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/leads', label: 'Leads', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },
+      { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
     ],
   },
   {
@@ -48,7 +49,7 @@ const TITLES: Record<string, string> = {
   '/analytics': 'Analytics', '/notifications': 'Notifications',
   '/customers': 'Customers 360', '/campaigns': 'Campaigns', '/integrations': 'Configs',
   '/notifications-rules': 'Notification Rules',
-  '/account': 'Account & Security', '/audit': 'Audit Log',
+  '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans',
 };
 
 export function Shell({ children }: { children: React.ReactNode }) {

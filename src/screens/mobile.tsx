@@ -69,7 +69,7 @@ export default function Mobile() {
   // Browse without signing in. No session is created — screens that need auth
   // (starting an application, profile, loans) prompt for real verification
   // when the user actually reaches them.
-  const skip = () => go('home');
+  const skip = () => { set({ exploreFromHome: false }); go('explore'); };
 
   useEffect(() => {
     if (!otpSent) return;

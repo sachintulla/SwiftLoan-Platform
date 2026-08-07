@@ -5,6 +5,6 @@ module.exports = {
   testPathIgnorePatterns: ['/node_modules/', '<rootDir>/server/', '<rootDir>/admin/', '<rootDir>/__tests__/test-utils.tsx'],
   // Allow Jest to transform the RN libraries we depend on (they ship untranspiled ESM/Flow).
   transformIgnorePatterns: [
-    'node_modules/(?!(@react-native|react-native|react-native-linear-gradient|react-native-svg|react-native-vector-icons|react-native-safe-area-context)/)',
+    'node_modules/(?!(@react-native|@react-native-async-storage/async-storage|react-native|react-native-linear-gradient|react-native-svg|react-native-vector-icons|react-native-safe-area-context)/)',
   ],
 };

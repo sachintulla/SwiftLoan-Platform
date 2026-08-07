@@ -26,6 +26,7 @@ import Repay from './repay';
 import CreditScore from './creditscore';
 import Profile from './profile';
 import Help from './help';
+import Explore from './explore';
 
 // Screens are registered here as they are ported. Missing entries fall back to a
 // placeholder in the Router so the full navigation graph stays walkable end-to-end.
@@ -56,4 +57,5 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   creditscore: CreditScore,
   profile: Profile,
   help: Help,
+  explore: Explore,
 };

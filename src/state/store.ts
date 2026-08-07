@@ -22,7 +22,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 // navigate_screen tool can validate an incoming screen name at runtime.
 export const SCREEN_NAMES = [
   'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
-  'home', 'loans', 'fare', 'help', 'profile',
+  'home', 'loans', 'fare', 'help', 'profile', 'explore',
   'basic', 'basicpan', 'finding', 'offers', 'handoff',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
@@ -41,7 +41,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   offers: 'basicpan', handoff: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home', creditscore: 'repay',
-  loans: 'home', fare: 'home',
+  loans: 'home', fare: 'home', explore: 'mobile',
 };
 
 export interface AppState {
@@ -87,6 +87,10 @@ export interface AppState {
   // user is signed in and handed to the in-app agent so it opens from where they
   // left off rather than from scratch. Null until fetched, or when they are new.
   userContext: UserContext | null;
+  // True only when 'explore' was opened from home's "Explore more plans" link
+  // (already signed in) rather than a pre-signup skip button — changes explore's
+  // back-target and hides its "sign up" CTA. Reset by both skip handlers.
+  exploreFromHome: boolean;
 }
 
 export const initialState: AppState = {
@@ -115,6 +119,7 @@ export const initialState: AppState = {
   contextLoaded: false, contextData: null,
   priorInquiries: [],
   userContext: null,
+  exploreFromHome: false,
 };
 
 type Action =
