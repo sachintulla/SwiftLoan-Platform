@@ -32,6 +32,20 @@
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- The dev API (dev-api.swiftloan.ai) has no TLS certificate yet — plain
+		     HTTP on port 80 only. Scoped exception for just this one known dev
+		     host, rather than disabling ATS app-wide. Remove once it has a real
+		     certificate. -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>dev-api.swiftloan.ai</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
