@@ -500,6 +500,41 @@ export class ElloAgent {
     this.playPcm16(new Int16Array(buf));
   }
 
+  private analyser: AnalyserNode | null = null;
+
+  /** Analyser sitting between playback and the speakers. Created on demand. */
+  private outputAnalyser(ctx: AudioContext): AnalyserNode {
+    if (!this.analyser) {
+      this.analyser = ctx.createAnalyser();
+      // Small FFT: we only want a loudness envelope, not a spectrum, and a
+      // short window keeps the mouth responsive rather than smeared.
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.35;
+      this.analyser.connect(ctx.destination);
+    }
+    return this.analyser;
+  }
+
+  /**
+   * Current output loudness, 0..1 — the agent's own voice, not the mic.
+   *
+   * Returns 0 when nothing is playing, so an avatar driven by this closes its
+   * mouth naturally between words instead of flapping on a fixed cycle.
+   */
+  getOutputLevel(): number {
+    if (!this.analyser) return 0;
+    const buf = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteTimeDomainData(buf);
+    let peak = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = Math.abs(buf[i] - 128) / 128;
+      if (v > peak) peak = v;
+    }
+    // Speech rarely approaches full scale; scale up so normal talking reaches
+    // a fully open mouth, and clamp.
+    return Math.min(1, peak * 2.6);
+  }
+
   private getAudioContextCtor(): typeof AudioContext {
     return window.AudioContext || (window as any).webkitAudioContext;
   }
@@ -547,7 +582,11 @@ export class ElloAgent {
     }
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(ctx.destination);
+    // Route through an analyser so callers can read the real output level —
+    // this is what drives Ruby's mouth. Taking it from the actual audio rather
+    // than a timer means the lips move with the speech, including pauses, and
+    // stop the instant playback is purged on barge-in.
+    src.connect(this.outputAnalyser(ctx));
     this.playing.push(src);
     src.onended = () => {
       const i = this.playing.indexOf(src);

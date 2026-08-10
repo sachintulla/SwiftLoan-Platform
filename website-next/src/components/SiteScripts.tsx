@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { emiBreakdown, fmtINR, validateField, amountBounds, lookupApp, makeRefId, TrackedApp } from '@/lib/core';
 import { upshotIdentify, upshotEvent } from '@/components/UpshotWeb';
-import { dict } from '@/lib/i18n';
+import { dict } from '@/lib/i18n-legacy';
 
 // Imperative port of website/js/main.js. Deliberately querySelector-style
 // (not idiomatic React) to keep the DOM wiring mechanically identical to the

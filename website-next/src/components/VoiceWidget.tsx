@@ -3,6 +3,9 @@
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ElloAgent, fillInput } from '@/lib/ello-agent';
+import { faqsCopy } from '@/i18n/faqs';
+import { createRoot, type Root } from 'react-dom/client';
+import { RubyLive } from '@/components/Ruby';
 
 // SwiftLoan.ai voice co-pilot — a floating mic that lets a visitor navigate
 // the ENTIRE site (home, compliance, brand, logo) and operate every
@@ -32,19 +35,27 @@ interface SectionDef {
 }
 
 // Sections scrollable-to on the homepage ("/").
+/**
+ * Section anchors on the home page.
+ *
+ * These MUST match the ids actually rendered by src/components/home/*. The
+ * redesign renamed every one of them (apply -> lead-form, calculator ->
+ * emi-calculator, services -> offers, how -> journey) and dropped the standalone
+ * track/security/partners/ai sections, which silently broke every navigation
+ * request: scrollToId() just returned false and the agent said it had moved when
+ * nothing had. Keep this list in step with the markup — there is no build-time
+ * check that an id still exists.
+ */
 const HOME_SECTIONS: SectionDef[] = [
   { id: 'top', label: 'Home / hero', aliases: ['home', 'top', 'start', 'hero', 'beginning'] },
-  { id: 'services', label: 'Loan products', aliases: ['loans', 'products', 'loan types', 'services', 'personal loan', 'business loan'] },
-  { id: 'how', label: 'How it works', aliases: ['how', 'how it works', 'process', 'steps'] },
-  { id: 'ai', label: 'AI matching', aliases: ['ai', 'matching', 'ai matching', 'how matching works'] },
-  { id: 'calculator', label: 'EMI calculator', aliases: ['calculator', 'emi', 'emi calculator', 'calculate', 'monthly payment'] },
-  { id: 'track', label: 'Track application', aliases: ['track', 'track application', 'status', 'my application'] },
-  { id: 'partners', label: 'Partners', aliases: ['partners', 'lenders', 'lending partners', 'become a partner'] },
-  { id: 'security', label: 'Security', aliases: ['security', 'safe', 'safety', 'data'] },
-  { id: 'compliance', label: 'Compliance (summary)', aliases: ['compliance', 'rbi', 'regulation', 'legal'] },
+  { id: 'stats', label: 'Key numbers', aliases: ['stats', 'numbers', 'metrics', 'how many', 'track record'] },
+  { id: 'offers', label: 'Loan products', aliases: ['loans', 'products', 'loan types', 'services', 'offers', 'personal loan', 'business loan'] },
+  { id: 'journey', label: 'How it works', aliases: ['how', 'how it works', 'process', 'steps', 'journey'] },
+  { id: 'lead-form', label: 'Apply / check your rate', aliases: ['apply', 'check my rate', 'check your rate', 'get started', 'eligibility', 'form', 'application', 'lead form'] },
+  { id: 'emi-calculator', label: 'EMI calculator', aliases: ['calculator', 'emi', 'emi calculator', 'calculate', 'monthly payment'] },
+  { id: 'lsp-role', label: 'Our role (LSP, not a lender)', aliases: ['role', 'lsp', 'compliance', 'rbi', 'regulation', 'legal', 'who we are', 'are you a lender'] },
   { id: 'reviews', label: 'Reviews', aliases: ['reviews', 'testimonials', 'ratings', 'what people say'] },
-  { id: 'apply', label: 'Apply / check your rate', aliases: ['apply', 'check my rate', 'check your rate', 'get started', 'eligibility', 'form', 'application'] },
-  { id: 'faq', label: 'FAQ', aliases: ['faq', 'faqs', 'questions', 'frequently asked'] },
+  { id: 'get-started', label: 'Get started', aliases: ['get started', 'ready', 'sign up', 'final'] },
 ];
 
 // Sections scrollable-to on the /compliance page.
@@ -64,6 +75,9 @@ const COMPLIANCE_SECTIONS: SectionDef[] = [
 
 const PAGES: Record<string, { path: string; label: string; aliases: string[] }> = {
   home: { path: '/', label: 'Home', aliases: ['home', 'homepage', 'main page', 'landing page'] },
+  // FAQs became a page of its own in the redesign (it used to be a section on
+  // the home page), so "go to FAQs" must navigate rather than scroll.
+  faqs: { path: '/faqs', label: 'FAQs', aliases: ['faq', 'faqs', 'questions', 'frequently asked', 'help'] },
   compliance: { path: '/compliance', label: 'Compliance & policies', aliases: ['compliance', 'compliance page', 'policies', 'legal', 'rbi disclosures'] },
   brand: { path: '/brand', label: 'Brand showcase', aliases: ['brand', 'brand page', 'brand identity', 'brand guidelines'] },
   logo: { path: '/logo', label: 'Logo assets', aliases: ['logo', 'logo page', 'logo assets'] },
@@ -74,45 +88,20 @@ interface FaqItem {
   answer: string;
 }
 
-// Mirrors the 7 <details class="faq__item"> entries in src/app/page.tsx —
-// keep in the same order so index-based DOM lookup stays correct.
-const FAQ_ITEMS: FaqItem[] = [
-  {
-    question: 'Does SwiftLoan.ai lend money directly?',
-    answer:
-      'No. SwiftLoan.ai is a loan aggregation and matchmaking platform. We use technology to match you with RBI-registered banks and NBFCs who do the actual lending. The final loan agreement is always between you and the lender.',
-  },
-  {
-    question: 'Will checking my eligibility affect my credit score?',
-    answer:
-      'No. Our initial eligibility check uses a "soft pull" which is not visible to other lenders and does not impact your credit score. A "hard pull" only happens later, with your explicit consent, when you proceed with a specific lender.',
-  },
-  {
-    question: 'How long does approval and disbursal take?',
-    answer:
-      'Matching and indicative offers are instant. Once you pick an offer and complete eKYC, many of our partners approve and disburse within a few hours to 2 working days, depending on the loan type and verification.',
-  },
-  {
-    question: 'What documents will I need?',
-    answer:
-      'Typically your PAN, Aadhaar (for eKYC), and bank statements or GST returns for business loans. Most verification is paperless via DigiLocker and Account Aggregator — you rarely need to upload anything manually.',
-  },
-  {
-    question: 'Are there any charges to use SwiftLoan.ai?',
-    answer:
-      'Using SwiftLoan.ai to check eligibility and compare offers is free for borrowers. Lenders may charge processing fees on the loan you accept — these are always shown transparently before you commit.',
-  },
-  {
-    question: 'Is my personal data safe?',
-    answer:
-      "Yes. We use 256-bit encryption, follow a consent-first model via the RBI's Account Aggregator framework, and never sell your data. You can revoke consent or request deletion at any time.",
-  },
-  {
-    question: 'What if I have a low credit score?',
-    answer:
-      "Because we match across many lenders with different credit criteria, you may still find offers even with a limited or lower score. We rank options by your real likelihood of approval — but approval and final terms are always at the lender's discretion.",
-  },
-];
+/**
+ * The agent answers from the SAME source the /faqs page renders.
+ *
+ * This used to be a hand-copied duplicate of the old page's seven <details>
+ * blocks, "kept in the same order so index-based DOM lookup stays correct" —
+ * which is exactly the kind of coupling that rots silently: the site's FAQs
+ * were rewritten in the redesign and the agent would have kept reciting the old
+ * answers, confidently and wrongly.
+ */
+function faqItems(): FaqItem[] {
+  const bundle = faqsCopy.en.faqs as ReadonlyArray<{ q: string; a: string }>;
+  return bundle.map((f) => ({ question: f.q, answer: f.a }));
+}
+
 
 function fuzzyFind<T extends { aliases: string[]; label?: string; id?: string }>(list: T[], q: string): T | null {
   q = (q || '').toLowerCase().trim();
@@ -126,32 +115,79 @@ function fuzzyFind<T extends { aliases: string[]; label?: string; id?: string }>
   );
 }
 
-function readCalculator() {
-  const t = (id: string) => document.getElementById(id)?.textContent ?? null;
+/**
+ * The EMI calculator's control surface, published by the EmiCalculator
+ * component while it is mounted.
+ *
+ * The redesign's sliders are Radix components driven by React state, so the
+ * generic fillInput() cannot move them — there is no native range input to
+ * write to. Reading the rendered text would also be wrong now: the values are
+ * formatted for display (₹5,00,000, "36 months"), so the agent would read back
+ * strings it cannot compute with. This returns real numbers instead.
+ */
+interface CalcApi {
+  read: () => { amount: number; rate: number; tenure: number; emi: number; interest: number; total: number };
+  set: (v: { amount?: number; rate?: number; tenure?: number }) => void;
+}
+function calcApi(): CalcApi | null {
+  return (window as unknown as { __swiftloanCalc?: CalcApi }).__swiftloanCalc ?? null;
+}
+
+/**
+ * Snapshot of the lead form, by `name` rather than id.
+ *
+ * Scoped to `#lead-form` so it cannot accidentally pick up a same-named input
+ * elsewhere on the page.
+ */
+function readLeadForm() {
+  const f = (name: string) =>
+    (document.querySelector(`#lead-form [name="${name}"]`) as HTMLInputElement | HTMLSelectElement | null)?.value || null;
+  const consent = document.querySelector('#lead-form input[type="checkbox"]') as HTMLInputElement | null;
   return {
-    amount: t('amountOut'),
-    rate: t('rateOut'),
-    tenure: t('tenureOut'),
-    emi: t('emiOut'),
-    principal: t('principalOut'),
-    interest: t('interestOut'),
-    total: t('totalOut'),
+    name: f('fullName'),
+    phone: f('mobile'),
+    email: f('email'),
+    city: f('city'),
+    loan_type: f('loanType'),
+    amount: f('amount'),
+    consent: consent?.checked ?? false,
   };
 }
 
-function readTracker() {
-  const empty = document.getElementById('trackerEmpty') as HTMLElement | null;
-  const found = !!empty && empty.hidden;
-  const t = (id: string) => document.getElementById(id)?.textContent ?? null;
+/** Language switcher control surface, published by LanguageProvider. */
+interface LangApi {
+  get: () => string;
+  set: (code: string) => boolean;
+  available: () => string[];
+}
+function langApi(): LangApi | null {
+  return (window as unknown as { __swiftloanLang?: LangApi }).__swiftloanLang ?? null;
+}
+
+function inrText(n: number): string {
+  return '₹' + Math.round(n).toLocaleString('en-IN');
+}
+
+function readCalculator() {
+  const api = calcApi();
+  if (!api) return { available: false };
+  const v = api.read();
   return {
-    found,
-    applicationId: t('tkId'),
-    type: t('tkType'),
-    amount: t('tkAmount'),
-    status: t('tkFoot'),
-    stepsCount: document.getElementById('tkSteps')?.children.length ?? 0,
+    available: true,
+    amount: inrText(v.amount),
+    rate: `${v.rate}%`,
+    tenure: `${v.tenure} months`,
+    emi: inrText(v.emi),
+    principal: inrText(v.amount),
+    interest: inrText(v.interest),
+    total: inrText(v.total),
+    // Raw numbers too, so the agent can compare or do arithmetic if asked.
+    raw: v,
   };
 }
+
+// readTracker() removed alongside the tracker tools: the redesign has no
+// tracker UI, so it only ever returned nulls.
 
 export default function VoiceWidget() {
   const pathname = usePathname();
@@ -250,7 +286,6 @@ export default function VoiceWidget() {
       const sid = currentSectionId();
       const sections = sectionsForCurrentPage();
       const sec = sections.find((s) => s.id === sid);
-      const loanTypeEl = el('loanType') as HTMLSelectElement | null;
       const pageKey = Object.keys(PAGES).find((k) => PAGES[k].path === pathRef.current) ?? 'unknown';
       const pageLabel = PAGES[pageKey]?.label ?? pathRef.current;
       return {
@@ -266,23 +301,16 @@ export default function VoiceWidget() {
         currentSection: sid ? { id: sid, label: sec ? sec.label : sid } : null,
         sections: sections.map((s) => ({ id: s.id, label: s.label })),
         loanProducts: ['Personal Loan', 'Business Loan'],
-        faqQuestions: FAQ_ITEMS.map((f) => f.question),
-        alreadyFilled: isHome()
-          ? {
-              name: (el('fullName') as HTMLInputElement | null)?.value || null,
-              phone: (el('phone') as HTMLInputElement | null)?.value || null,
-              email: (el('email') as HTMLInputElement | null)?.value || null,
-              city: (el('city') as HTMLInputElement | null)?.value || null,
-              loan_type: loanTypeEl?.value || null,
-              amount: (el('loanAmount') as HTMLInputElement | null)?.value || null,
-              consent: (el('consent') as HTMLInputElement | null)?.checked || false,
-            }
-          : null,
+        faqQuestions: faqItems().map((f) => f.question),
+        // What the visitor has already typed, so the agent does not ask again.
+        // Read by `name`, matching the redesigned form — reading the old ids
+        // returned null for every field, which made the agent re-ask for a name
+        // the visitor had just given it.
+        alreadyFilled: isHome() ? readLeadForm() : null,
         calculator: isHome() ? readCalculator() : null,
-        tracker: isHome() ? readTracker() : null,
         interactionGuide: {
           role:
-            "You are SwiftLoan.ai's voice guide. Warmly help visitors understand the products, navigate the whole site (home, compliance, brand, logo pages), operate the EMI calculator and application tracker, answer FAQs, switch language, and check their loan eligibility by filling the application form hands-free.",
+            "You are SwiftLoan.ai's voice guide. Warmly help visitors understand the products, navigate the site (home, FAQs, compliance), operate the EMI calculator, answer FAQs, switch language (English, Hindi, Telugu), and check their loan eligibility by filling the application form hands-free.",
           // Required for the agent to say anything at all at call start — the
           // backend's speak-first instruction is otherwise gated on a non-empty
           // greeting, which stays empty without this. See the `page` comment above.
@@ -295,11 +323,18 @@ export default function VoiceWidget() {
             "Greet the visitor, say which page/section they're on, and ask what they need.",
             'If the visitor asks for something on a different page, CALL navigate_to_page first, then go_to_section once there.',
             'When they express interest in loans, CALL go_to_section to take them there, then describe it.',
-            'Offer to fill the "Check your rate" form by voice — name, phone, email, city, loan type, amount — one field at a time.',
+            // Deliberate order: the amount is the question the visitor came to
+            // answer and is the least personal, so it earns the right to ask
+            // for contact details. Asking for a phone number first reads like a
+            // sales capture and is where people drop out.
+            'Offer to fill the "Check your rate" form by voice, asking ONE field at a time IN THIS ORDER: 1) how much they need (set_loan_amount), 2) full name (fill_name), 3) city (fill_city), 4) mobile number (fill_phone), 5) email (fill_email). Confirm each value back before moving on.',
+            'As soon as they mention personal or business — even in passing, before you reach the amount — CALL select_loan_type immediately so the dropdown matches what they said.',
+            'Never re-ask for something already present in alreadyFilled; read it back to confirm instead.',
             'Only submit after the visitor gives explicit consent to be contacted.',
             'For EMI questions, CALL set_calculator with the amount/rate/tenure they mention and read back the emi/total from the result.',
-            'For "track my application", CALL track_application with their ID, or use_demo_track for the demo IDs SL-2048 / SL-3110.',
+            'If they ask to track an existing application, say that tracking lives in the SwiftLoan app and offer to send the app link — there is no tracker on this site.',
             'For FAQ-style questions, CALL answer_faq with their question — use the returned answer text to reply, and it will also open the matching FAQ item on screen.',
+            'The site is available in English, Hindi and Telugu. If the visitor speaks one of those, offer to switch with set_language.',
             'Never ask the visitor to speak passwords, OTPs, PAN, Aadhaar, or any security codes.',
           ],
         },
@@ -334,7 +369,12 @@ export default function VoiceWidget() {
     });
 
     // ── Lead / "check your rate" form (home only) ─────────────────────
-    const homeOnly = () => !!el('leadForm');
+    // Gate for every lead-form tool. This checked `#leadForm`, which the
+    // redesign renamed to the `#lead-form` SECTION — so availableWhen returned
+    // false and the agent was never offered fill_name/fill_phone/submit at all.
+    // That is why it could hear the request and do nothing: the tools were not
+    // absent-but-broken, they were simply never advertised.
+    const homeOnly = () => !!document.getElementById('lead-form');
 
     agent.registerTool({
       name: 'fill_name',
@@ -342,8 +382,8 @@ export default function VoiceWidget() {
       schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
       availableWhen: homeOnly,
       handler: (a: { name: string }) => {
-        scrollToId('apply');
-        return fillInput('#fullName', a.name);
+        scrollToId('lead-form');
+        return fillInput('[name="fullName"]', a.name);
       },
     });
     agent.registerTool({
@@ -351,35 +391,60 @@ export default function VoiceWidget() {
       description: 'Call immediately when the user states their phone number. Digits only, optional leading +.',
       schema: { type: 'object', properties: { phone: { type: 'string' } }, required: ['phone'] },
       availableWhen: homeOnly,
-      handler: (a: { phone: string }) => fillInput('#phone', a.phone),
+      handler: (a: { phone: string }) => fillInput('[name="mobile"]', a.phone),
     });
     agent.registerTool({
       name: 'fill_email',
       description: 'Call when the user states their email address.',
       schema: { type: 'object', properties: { email: { type: 'string' } }, required: ['email'] },
       availableWhen: homeOnly,
-      handler: (a: { email: string }) => fillInput('#email', a.email),
+      handler: (a: { email: string }) => fillInput('[name="email"]', a.email),
     });
     agent.registerTool({
       name: 'fill_city',
       description: 'Call when the user states their city.',
       schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
       availableWhen: homeOnly,
-      handler: (a: { city: string }) => fillInput('#city', a.city),
+      handler: (a: { city: string }) => fillInput('[name="city"]', a.city),
     });
     agent.registerTool({
       name: 'select_loan_type',
-      description: "Call when the user says which loan they want for the APPLICATION FORM. Must be 'Personal Loan' or 'Business Loan'.",
+      description: "Call as soon as the user says which loan they want — e.g. 'personal', 'a business loan', 'for my shop'. Sets the loan type on the APPLICATION FORM.",
       schema: { type: 'object', properties: { loan_type: { type: 'string', enum: ['Personal Loan', 'Business Loan'] } }, required: ['loan_type'] },
       availableWhen: homeOnly,
-      handler: (a: { loan_type: string }) => fillInput('#loanType', a.loan_type),
+      /**
+       * Resolved against the <option> VALUES, not the spoken text.
+       *
+       * Passing the raw phrase to fillInput failed silently: an option's value
+       * is now a stable English key, while its label is translated, and the
+       * agent may say "personal", "Personal Loan" or the Hindi word. A select
+       * whose value does not match any option just stays unselected — no error,
+       * no feedback, which is why this looked like the agent "not doing
+       * anything". Match loosely here and report failure honestly.
+       */
+      handler: (a: { loan_type: string }) => {
+        const sel = document.querySelector('#lead-form [name="loanType"]') as HTMLSelectElement | null;
+        if (!sel) return { success: false, reason: 'loan type field not found' };
+
+        const said = (a.loan_type || '').toLowerCase();
+        const wantBusiness = /business|vyapar|व्यापार|వ్యాపార|shop|company|firm|msme/.test(said);
+        const want = wantBusiness ? 'Business Loan' : 'Personal Loan';
+
+        const option = Array.from(sel.options).find(
+          (o) => o.value === want || o.text.toLowerCase() === said,
+        );
+        if (!option) return { success: false, reason: `no option for "${a.loan_type}"` };
+
+        const res = fillInput('#lead-form [name="loanType"]', option.value);
+        return res.success ? { success: true, selected: option.value } : res;
+      },
     });
     agent.registerTool({
       name: 'set_loan_amount',
       description: 'Call when the user states how much they want to borrow on the APPLICATION FORM (a number in rupees). For "what would my EMI be", use set_calculator instead.',
       schema: { type: 'object', properties: { amount: { type: 'number' } }, required: ['amount'] },
       availableWhen: homeOnly,
-      handler: (a: { amount: number }) => fillInput('#loanAmount', String(a.amount)),
+      handler: (a: { amount: number }) => fillInput('[name="amount"]', String(a.amount)),
     });
     agent.registerTool({
       name: 'give_consent',
@@ -387,7 +452,7 @@ export default function VoiceWidget() {
       schema: { type: 'object', properties: {} },
       availableWhen: homeOnly,
       handler: () => {
-        const c = el('consent') as HTMLInputElement | null;
+        const c = document.querySelector('#lead-form input[type="checkbox"]') as HTMLInputElement | null;
         if (!c) return { success: false, reason: 'consent checkbox not found' };
         if (!c.checked) c.click();
         return { success: true };
@@ -404,7 +469,7 @@ export default function VoiceWidget() {
       schema: { type: 'object', properties: {} },
       availableWhen: homeOnly,
       handler: () => {
-        const btn = el('leadSubmit') as HTMLButtonElement | null;
+        const btn = document.querySelector('#lead-form button[type="submit"]') as HTMLButtonElement | null;
         if (!btn) return { success: false, reason: 'submit button not found' };
         btn.click();
         return { success: true };
@@ -427,7 +492,9 @@ export default function VoiceWidget() {
     });
 
     // ── EMI calculator (home only) ─────────────────────────────────────
-    const calculatorAvailable = () => !!el('amount');
+    // Availability is "has the calculator published its API", i.e. is it
+    // mounted — not "does a DOM node with a magic id exist".
+    const calculatorAvailable = () => !!calcApi();
 
     agent.registerTool({
       name: 'set_calculator',
@@ -443,10 +510,10 @@ export default function VoiceWidget() {
       },
       availableWhen: calculatorAvailable,
       handler: (a: { amount?: number; rate?: number; tenure?: number }) => {
-        if (a.amount != null) fillInput('#amount', String(a.amount));
-        if (a.rate != null) fillInput('#rate', String(a.rate));
-        if (a.tenure != null) fillInput('#tenure', String(a.tenure));
-        scrollToId('calculator');
+        const api = calcApi();
+        if (!api) return { success: false, reason: 'The EMI calculator is not on screen' };
+        api.set({ amount: a.amount, rate: a.rate, tenure: a.tenure });
+        scrollToId('emi-calculator');
         return { success: true, result: readCalculator() };
       },
     });
@@ -458,47 +525,33 @@ export default function VoiceWidget() {
       handler: () => ({ success: true, result: readCalculator() }),
     });
 
-    // ── Application tracker (home only) ─────────────────────────────────
-    const trackerAvailable = () => !!el('trackForm');
-
-    agent.registerTool({
-      name: 'track_application',
-      description: "Look up an application by its reference ID (e.g. 'SL-2048') that the user gives, and report back its status.",
-      schema: { type: 'object', properties: { app_id: { type: 'string' } }, required: ['app_id'] },
-      availableWhen: trackerAvailable,
-      handler: (a: { app_id: string }) => {
-        scrollToId('track');
-        fillInput('#appId', a.app_id);
-        const form = el('trackForm') as HTMLFormElement | null;
-        form?.requestSubmit ? form.requestSubmit() : form?.dispatchEvent(new Event('submit', { cancelable: true }));
-        return { success: true, result: readTracker() };
-      },
-    });
-    agent.registerTool({
-      name: 'use_demo_track',
-      description: "Show one of the two demo application statuses when the user wants to see an example — SL-2048 (personal loan, mid-flow) or SL-3110 (business loan, fully disbursed).",
-      schema: { type: 'object', properties: { demo_id: { type: 'string', enum: ['SL-2048', 'SL-3110'] } }, required: ['demo_id'] },
-      availableWhen: trackerAvailable,
-      handler: (a: { demo_id: string }) => {
-        scrollToId('track');
-        const btn = document.querySelector(`[data-demo="${a.demo_id}"]`) as HTMLButtonElement | null;
-        if (!btn) return { success: false, reason: 'demo button not found' };
-        btn.click();
-        return { success: true, result: readTracker() };
-      },
-    });
+    // ── Application tracker: REMOVED ────────────────────────────────────
+    // The redesign has no tracker section, so track_application and
+    // use_demo_track had nothing to drive. They self-disabled via
+    // availableWhen, but shipping tools that can never fire invites the model
+    // to promise a visitor something it cannot deliver — worse than not
+    // offering it. Restore them alongside a real tracker UI backed by the API,
+    // rather than the old in-page demo data.
 
     // ── Language toggle ─────────────────────────────────────────────────
     agent.registerTool({
       name: 'set_language',
-      description: "Switch the site's display language. English or Hindi.",
-      schema: { type: 'object', properties: { language: { type: 'string', enum: ['English', 'Hindi'] } }, required: ['language'] },
-      availableWhen: () => !!document.querySelector('.langtoggle__btn[data-lang]'),
+      // Telugu is new in this design — the old toggle was EN/HI only.
+      description: "Switch the site's display language. English, Hindi or Telugu.",
+      schema: {
+        type: 'object',
+        properties: { language: { type: 'string', enum: ['English', 'Hindi', 'Telugu'] } },
+        required: ['language'],
+      },
+      // Language is React context now, so there is no button to click — the
+      // provider publishes get/set instead.
+      availableWhen: () => !!langApi(),
       handler: (a: { language: string }) => {
-        const code = a.language.toLowerCase().startsWith('hi') ? 'HI' : 'EN';
-        const btn = document.querySelector(`.langtoggle__btn[data-lang="${code}"]`) as HTMLButtonElement | null;
-        if (!btn) return { success: false, reason: 'language toggle not found' };
-        btn.click();
+        const api = langApi();
+        if (!api) return { success: false, reason: 'language switcher not available' };
+        const spoken = (a.language || '').toLowerCase();
+        const code = spoken.startsWith('hi') ? 'hi' : spoken.startsWith('te') ? 'te' : 'en';
+        if (!api.set(code)) return { success: false, reason: `unsupported language "${a.language}"` };
         return { success: true, language: code };
       },
     });
@@ -509,12 +562,17 @@ export default function VoiceWidget() {
       description:
         'Answer a question about SwiftLoan.ai using the FAQ list (lending model, credit score impact, approval time, documents, charges, data safety, low credit score). Pass the user\'s question; the closest FAQ match is opened on screen and its answer text is returned for you to speak.',
       schema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
-      availableWhen: () => !!document.getElementById('faqList'),
+      // FAQ answers are knowledge, not a screen widget: the agent should be
+      // able to answer "does it affect my credit score" from anywhere on the
+      // site, not only while the accordion happens to be rendered. When the
+      // /faqs accordion IS on screen the matching item is also opened, so the
+      // visitor sees what they are being told.
+      availableWhen: () => true,
       handler: (a: { question: string }) => {
         const q = (a.question || '').toLowerCase();
         let bestIdx = -1;
         let bestScore = 0;
-        FAQ_ITEMS.forEach((item, i) => {
+        faqItems().forEach((item, i) => {
           const hay = (item.question + ' ' + item.answer).toLowerCase();
           let score = 0;
           q.split(/\W+/).filter(Boolean).forEach((word) => {
@@ -526,16 +584,24 @@ export default function VoiceWidget() {
           }
         });
         if (bestIdx === -1) return { success: false, reason: 'No matching FAQ found for that question.' };
-        const items = document.querySelectorAll('#faqList .faq__item');
-        items.forEach((it, i) => {
-          (it as HTMLDetailsElement).open = i === bestIdx;
+        const picked = faqItems()[bestIdx];
+
+        // If the /faqs accordion is on screen, open the matching item so the
+        // visitor reads along. Radix renders each question as a trigger button,
+        // so match on its text rather than a positional index — the on-screen
+        // order is translated and will not line up with this list.
+        const triggers = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-slot="accordion-trigger"], button[aria-expanded]'));
+        const trigger = triggers.find((b) => {
+          const text = (b.textContent || '').toLowerCase();
+          const key = picked.question.toLowerCase().slice(0, 24);
+          return key.length > 6 && text.includes(key);
         });
-        const node = items[bestIdx] as HTMLElement | undefined;
-        if (node) {
-          node.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          highlight(node);
+        if (trigger) {
+          if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
+          trigger.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          highlight(trigger);
         }
-        return { success: true, question: FAQ_ITEMS[bestIdx].question, answer: FAQ_ITEMS[bestIdx].answer };
+        return { success: true, question: picked.question, answer: picked.answer, shownOnScreen: !!trigger };
       },
     });
 
@@ -543,32 +609,49 @@ export default function VoiceWidget() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.setAttribute('aria-label', 'Talk to SwiftLoan — voice guide');
+    // Ruby sits flush at the left of the pill, full-bleed, so she reads as a
+    // person you are about to talk to rather than an icon in a button.
     btn.style.cssText =
-      'position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;gap:9px;' +
-      'padding:13px 19px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
+      'position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;gap:11px;' +
+      'padding:6px 20px 6px 6px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
       'box-shadow:0 10px 28px rgba(7,159,160,.4);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
     btn.innerHTML =
-      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4M8 22h8"/></svg><span class="voice-label">Talk to us</span>';
+      '<span class="ruby-slot" style="display:block;width:52px;height:52px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 2px 8px rgba(0,0,0,.18)"></span>' +
+      '<span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.15">' +
+      '<span style="font-size:13.5px;font-weight:700">Talk to Ruby</span>' +
+      '<span class="voice-label" style="font-size:11px;font-weight:500;opacity:.9">SwiftLoan assistant</span>' +
+      '</span>';
     const errBox = document.createElement('div');
     errBox.style.cssText =
       'position:fixed;right:22px;bottom:78px;z-index:9999;max-width:280px;display:none;' +
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
 
+    // Mount Ruby into the launcher. She subscribes to the agent herself and
+    // animates from the real output level, so nothing here drives her per-frame.
+    const rubySlot = btn.querySelector('.ruby-slot') as HTMLElement | null;
+    let rubyRoot: Root | null = null;
+    if (rubySlot) {
+      rubyRoot = createRoot(rubySlot);
+      rubyRoot.render(<RubyLive agent={agent as unknown as { getOutputLevel: () => number; on: (e: string, f: (p: never) => void) => void }} size={52} />);
+    }
+
     const LABELS: Record<string, string> = {
-      idle: 'Talk to us',
+      idle: 'SwiftLoan assistant',
       connecting: 'Connecting…',
       listening: 'Listening…',
       speaking: 'Speaking…',
-      executingTool: 'Working…',
-      ended: 'Talk to us',
+      executingTool: 'Working on it…',
+      ended: 'SwiftLoan assistant',
     };
     agent.on('statusChange', (s: string) => {
       const active = s !== 'idle' && s !== 'ended';
       const label = btn.querySelector('.voice-label') as HTMLElement | null;
-      if (label) label.textContent = LABELS[s] || 'Talk to us';
-      btn.style.background = active ? 'linear-gradient(135deg,#F04438,#F79009)' : 'linear-gradient(135deg,#079FA0,#2FB183)';
-      const svg = btn.querySelector('svg') as SVGElement | null;
-      if (svg) svg.style.animation = active ? 'voicePulse 1.4s infinite' : '';
+      if (label) label.textContent = LABELS[s] || 'SwiftLoan assistant';
+      // Ruby's own ring signals listening/thinking now, so the pill no longer
+      // turns alarm-red mid-conversation — that read as an error state.
+      btn.style.background = active
+        ? 'linear-gradient(135deg,#0B6E6F,#128f5b)'
+        : 'linear-gradient(135deg,#079FA0,#2FB183)';
       if (agent.conversationId) agent.updatePageContext();
     });
     agent.on('error', (e: { message: string }) => {
@@ -616,6 +699,13 @@ export default function VoiceWidget() {
       if (scrollTimer) clearTimeout(scrollTimer);
       agent.stop();
       agentRef.current = null;
+      // Unmount Ruby before removing her host node. Detaching the DOM first
+      // leaves the React root pointing at an orphan and warns in dev.
+      if (rubyRoot) {
+        const r = rubyRoot;
+        // Deferred: React refuses to unmount synchronously while rendering.
+        setTimeout(() => r.unmount(), 0);
+      }
       btn.remove();
       errBox.remove();
       style.remove();
