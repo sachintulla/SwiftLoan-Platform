@@ -1,10 +1,9 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
-// Reads android/app/google-services.json (Firebase project swiftloan-de051) and
-// generates the resources FCM needs. Upshot push is delivered over FCM, so
-// without this the device never gets a token and no push can arrive.
-apply plugin: "com.google.gms.google-services"
+// Firebase/FCM is not used — push notifications go through our own backend
+// instead. Not applying this plugin means no google-services.json is needed.
+// apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.

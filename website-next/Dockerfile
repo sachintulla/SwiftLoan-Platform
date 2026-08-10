@@ -1,0 +1,25 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+# Baked into the browser bundle at build time (Next.js NEXT_PUBLIC_* semantics).
+# Sourced from GitHub Actions Variables/Secrets in CI, not a .env.local file
+# living only on one box — see .github/workflows/deploy*.yml. Empty by default
+# so SiteScripts.tsx's own hardcoded fallback applies when no --build-arg is
+# passed, instead of silently going blank.
+ARG NEXT_PUBLIC_API_BASE=""
+ARG NEXT_PUBLIC_ELLO_API_KEY=""
+ARG NEXT_PUBLIC_ELLO_ASSISTANT_ID=""
+ARG NEXT_PUBLIC_ELLO_API_BASE=""
+ARG NEXT_PUBLIC_ELLO_WS_URL=""
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_ELLO_API_KEY=$NEXT_PUBLIC_ELLO_API_KEY
+ENV NEXT_PUBLIC_ELLO_ASSISTANT_ID=$NEXT_PUBLIC_ELLO_ASSISTANT_ID
+ENV NEXT_PUBLIC_ELLO_API_BASE=$NEXT_PUBLIC_ELLO_API_BASE
+ENV NEXT_PUBLIC_ELLO_WS_URL=$NEXT_PUBLIC_ELLO_WS_URL
+
+RUN npm run build
+EXPOSE 4002
+CMD ["npm", "start"]

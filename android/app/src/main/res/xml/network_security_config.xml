@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The dev API (dev-api.swiftloan.ai) has no TLS certificate yet — only plain
+  HTTP on port 80. Android release builds block cleartext traffic by default;
+  rather than disabling that protection for the whole app, this allows it only
+  for this one known dev host. Remove this exception once the dev API has a
+  real certificate.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">dev-api.swiftloan.ai</domain>
+    </domain-config>
+</network-security-config>

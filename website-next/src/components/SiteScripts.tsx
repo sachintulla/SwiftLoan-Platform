@@ -362,15 +362,16 @@ export default function SiteScripts() {
     // the app" download CTA whose link carries the (opaque) context token.
     // Resolution order matters. `window.SWIFTLOAN_API_BASE` stays first so a
     // deployed page can be repointed without a rebuild; NEXT_PUBLIC_API_BASE is
-    // the normal per-environment setting. The Render URL is the last resort —
-    // note that without the env var, a form submitted on localhost used to post
-    // straight to PRODUCTION, so the lead vanished from the local database and no
-    // call was ever queued. That is a confusing failure, so it now warns loudly
-    // in development instead of silently crossing environments.
+    // the normal per-environment setting. The dev EC2 box (behind nginx at
+    // dev-api.swiftloan.ai) is the last resort — note that without the env var, a
+    // form submitted on localhost used to post straight to this default, so the
+    // lead vanished from the local database and no call was ever queued. That is
+    // a confusing failure, so it now warns loudly in development instead of
+    // silently crossing environments.
     const API_BASE =
       (window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE ||
       process.env.NEXT_PUBLIC_API_BASE ||
-      'https://swiftloan-api.onrender.com';
+      'http://dev-api.swiftloan.ai';
     if (
       process.env.NODE_ENV !== 'production' &&
       /^https?:\/\/(localhost|127\.0\.0\.1)/.test(window.location.origin) &&

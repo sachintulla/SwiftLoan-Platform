@@ -1,0 +1,21 @@
+sequenceDiagram
+  actor U as User
+  participant RN as RN App (client.ts)
+  participant API as Backend API (auth.routes)
+  participant DB as PostgreSQL
+  participant SMS as SMS provider
+
+  U->>RN: Enter phone, tap 'Send OTP'
+  RN->>API: POST /api/auth/otp/request { phone }
+  API->>DB: upsert User(phone) — create OtpToken(codeHash=SHA256(otp))
+  API->>SMS: send OTP (prod) — dev/DEMO returns devOtp
+  API-->>RN: { otpSent: true, devOtp? }
+  Note over RN,API: Gap C3 — fixed OTP 123456 accepted in prod path
+  U->>RN: Enter OTP code
+  RN->>API: POST /api/auth/otp/verify { phone, code }
+  API->>DB: find unconsumed OtpToken — compare SHA256(code)
+  API->>DB: mark consumed — set phoneVerified=true
+  API->>DB: create RefreshToken(tokenHash=SHA256(refresh))
+  API-->>RN: { user, accessToken(JWT,900s), refreshToken }
+  RN->>RN: setTokens(access, refresh) — in-memory
+  Note over RN: Access token attached as Bearer on subsequent calls

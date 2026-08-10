@@ -1,5 +1,10 @@
 /* Test environment mocks for native modules. */
 
+// AsyncStorage ships a ready-made jest mock (in-memory, no native bridge).
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest'),
+);
+
 // Safe-area context ships a ready-made jest mock.
 jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default,
@@ -52,6 +57,14 @@ jest.mock('react-native-webrtc', () => ({
   RTCSessionDescription: class {},
   RTCIceCandidate: class {},
   mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [], getAudioTracks: () => [] }) },
+}));
+
+// react-native-image-picker → its native module doesn't exist in the Jest env.
+// Only src/screens/profile.tsx imports it; no test drives the picker itself.
+jest.mock('react-native-image-picker', () => ({
+  __esModule: true,
+  launchCamera: jest.fn(),
+  launchImageLibrary: jest.fn(),
 }));
 
 // Silence the animation frame warnings in the jsdom-less RN test env.

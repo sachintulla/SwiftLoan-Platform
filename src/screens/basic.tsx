@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
@@ -7,10 +7,21 @@ import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { api, ensureSession, ApiError } from '../api/client';
+import { api, ApiError, isAuthed } from '../api/client';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
+const RES_TYPE_SLUG: Record<string, string> = { Own: 'own', Rented: 'rented', Family: 'family', Company: 'company' };
+
 const EMPS = ['Salaried', 'Self-employed', 'Business owner', 'Gig worker', 'Student', 'Retired', 'Other'];
+const EMP_SLUG: Record<string, string> = {
+  Salaried: 'salaried',
+  'Self-employed': 'self_employed',
+  'Business owner': 'business_owner',
+  'Gig worker': 'gig_worker',
+  Student: 'student',
+  Retired: 'retired',
+  Other: 'other',
+};
 
 export default function Basic() {
   const { state, set, go, showToast } = useStore();
@@ -18,14 +29,68 @@ export default function Basic() {
   useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
 
+  // Auto-fill from whatever's already saved server-side.
+  useEffect(() => {
+    if (!isAuthed()) return;
+    api.me().then((r: any) => {
+      const user = r.user;
+      if (!user) return;
+      if (!state.basicFirst && user.firstName) set({ basicFirst: user.firstName });
+      if (!state.basicLast && user.lastName) set({ basicLast: user.lastName });
+      if (!state.basicEmail && user.email) set({ basicEmail: user.email });
+      if (!state.basicPin && user.pincode) set({ basicPin: user.pincode });
+      if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });
+      if (!state.basicIncome && user.monthlyIncome) set({ basicIncome: String(user.monthlyIncome) });
+      if (!state.basicCompany && user.company) set({ basicCompany: user.company });
+      if (!state.basicRes && user.residenceType) {
+        const label = RES_TYPES.find(r => RES_TYPE_SLUG[r] === user.residenceType);
+        if (label) set({ basicRes: label });
+      }
+      if (!state.basicEmp && user.employment) {
+        const label = EMPS.find(e => EMP_SLUG[e] === user.employment);
+        if (label) set({ basicEmp: label });
+      }
+      if (!dob && user.dob) {
+        const d = new Date(user.dob);
+        setDob({ y: d.getFullYear(), m: d.getMonth(), d: d.getDate() });
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onContinue = async () => {
     if (!state.panConsent) {
       showToast('Please accept the soft-enquiry consent.');
       return;
     }
+    if (!isAuthed()) {
+      showToast('Please verify your mobile number to continue.');
+      go('mobile');
+      return;
+    }
     setBusy(true);
     try {
-      await ensureSession();
+      const fullName = [state.basicFirst, state.basicLast].filter(Boolean).join(' ').trim();
+      const { user }: any = await api.updateProfile({
+        ...(state.basicFirst ? { firstName: state.basicFirst } : {}),
+        ...(state.basicLast ? { lastName: state.basicLast } : {}),
+        ...(fullName ? { fullName } : {}),
+        ...(state.basicEmail ? { email: state.basicEmail } : {}),
+        ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
+        ...(state.aboutGender ? { gender: state.aboutGender } : {}),
+        ...(state.basicPin ? { pincode: state.basicPin } : {}),
+        ...(state.basicRes && RES_TYPE_SLUG[state.basicRes] ? { residenceType: RES_TYPE_SLUG[state.basicRes] } : {}),
+        ...(state.basicEmp && EMP_SLUG[state.basicEmp] ? { employment: EMP_SLUG[state.basicEmp] } : {}),
+        ...(state.basicIncome ? { monthlyIncome: parseInt(state.basicIncome, 10) || 0 } : {}),
+        ...(state.basicCompany ? { company: state.basicCompany } : {}),
+      });
+      set({
+        authUser: user,
+        pdName: user.fullName || state.pdName,
+        pdEmail: user.email || state.pdEmail,
+        pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
+      });
+
       const { application }: any = await api.createApplication({
         amount: state.appAmount,
         tenureMonths: state.appTenure || 12,

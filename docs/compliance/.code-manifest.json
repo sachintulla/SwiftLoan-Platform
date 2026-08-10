@@ -1,0 +1,18 @@
+{
+  "commit": "8126271",
+  "generated": "2026-08-04 18:00 UTC",
+  "files": {
+    "server/prisma/schema.prisma": "b40f9ea3f010015e",
+    "server/src/config/env.ts": "b933a0766bd92bf4",
+    "server/src/app.ts": "b88cc5a6ea24c008",
+    "render.yaml": "0a7ae9d1e2be1ac3",
+    "server/prisma/seed.ws4.ts": "7ce5769b2b109f04",
+    "website/js/voice-widget.js": "59bc66035692f327",
+    "src/voice/actionRegistry.ts": "661d337740b26f9f",
+    "src/voice/screenGraph.ts": "5fda57f7b25e5176",
+    "src/voice/config.ts": "855b29302ff9252f",
+    "admin/src/lib/api.ts": "89bf57bcfccc6f51",
+    "src/api/client.ts": "25439821e4cabf66",
+    "ios/SwiftLoan/Info.plist": "92c17a10c3f2e21b"
+  }
+}
