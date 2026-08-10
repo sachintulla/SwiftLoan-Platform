@@ -102,6 +102,11 @@ export default function CustomerDetail() {
   const [nudgeResult, setNudgeResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [call, setCall] = useState<CallState>({ busy: null, key: null, ok: false, text: '' });
+  const [wa, setWa] = useState<{ busy: boolean; ok: boolean; text: string }>({ busy: false, ok: false, text: '' });
+  // Only offer the button when WhatsApp is actually configured — an action that
+  // always fails is worse than no action at all.
+  const { data: waStatus } = useSWR('/api/admin/whatsapp/status', swrFetcher);
+  const waReady = Boolean((waStatus?.data as { configured?: boolean } | undefined)?.configured);
   const [leadBusy, setLeadBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
 
@@ -141,6 +146,43 @@ export default function CustomerDetail() {
       setCall({
         busy: null, key, ok: false,
         text: /403/.test(msg) ? 'Only a super admin can place calls.' : msg,
+      });
+    }
+  }
+
+  /**
+   * Send the configured WhatsApp template to this customer.
+   *
+   * Confirmed like a call: it reaches a real person on a channel they consider
+   * personal. Business-initiated messages must use a pre-approved template, so
+   * the operator picks the customer, not the wording — the server supplies the
+   * template from the Infobip config.
+   */
+  async function sendWhatsApp() {
+    const phone = c?.phone;
+    const who = c?.name || 'this customer';
+    if (!phone) return;
+    if (!window.confirm(`Send the WhatsApp template to ${who} on ${phone}?\n\nThis messages a real person.`)) return;
+
+    setWa({ busy: true, ok: false, text: '' });
+    try {
+      const res = await apiFetch<{ messageId?: string; providerStatus?: string }>(
+        '/api/admin/whatsapp/send',
+        { method: 'POST', body: JSON.stringify({ customerId: c?.id, phone }) },
+      );
+      const r = res.data ?? {};
+      setWa({
+        busy: false, ok: true,
+        text: `WhatsApp queued for ${phone}${r.providerStatus ? ` (${r.providerStatus})` : ''}. It appears in the conversation history once delivered.`,
+      });
+      await mutate();
+    } catch (e) {
+      const msg = (e as Error).message || 'Could not send the message';
+      setWa({
+        busy: false, ok: false,
+        text: /403/.test(msg) ? 'Only a super admin can send WhatsApp messages.'
+          : /409/.test(msg) ? 'This customer is marked do-not-contact.'
+          : msg,
       });
     }
   }
@@ -218,11 +260,26 @@ export default function CustomerDetail() {
           >
             {call.busy === 'whole' ? 'Dialling…' : '📞 Call now'}
           </button>
+          {waReady && (
+            <button
+              className="btn"
+              disabled={noPhone || wa.busy}
+              title={c.phone ? `Send the WhatsApp template to ${c.phone}` : 'This customer has no phone number'}
+              onClick={sendWhatsApp}
+            >
+              {wa.busy ? 'Sending…' : '💬 WhatsApp'}
+            </button>
+          )}
           <span className="muted" style={{ fontSize: 11.5, textAlign: 'right', lineHeight: 1.4 }}>
             {noPhone
               ? 'No phone number on this customer'
               : <>Rings {c.phone} within seconds.<br />The agent gets the full history first.</>}
           </span>
+          {wa.text && (
+            <span style={{ fontSize: 11.5, textAlign: 'right', color: wa.ok ? 'var(--ok, #128f5b)' : 'var(--bad, #c0392b)' }}>
+              {wa.text}
+            </span>
+          )}
           {call.key === 'whole' && callResult}
         </div>
       </div>
