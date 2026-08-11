@@ -1,0 +1,47 @@
+# Local dev orchestration for server/ + admin/ + website-next/, all sourced
+# from the single root .env (see .env.example) — no app code reads this file
+# directly; Compose is what maps its values into each service.
+#
+# admin/website-next bake NEXT_PUBLIC_* vars into their JS bundle at BUILD
+# time (Next.js requirement), so those go in `build.args`, not `environment`.
+# server reads everything at runtime instead, so it gets `env_file` only.
+#
+# Docker Compose auto-loads a file named exactly `.env` next to this file for
+# the ${VAR} substitutions below — that's this repo's root .env, already
+# git-ignored. Run `docker compose up --build` from the repo root.
+
+services:
+  server:
+    build: ./server
+    ports:
+      - "4000:4000"
+    env_file:
+      - ./.env
+
+  admin:
+    build:
+      context: ./admin
+      args:
+        NEXT_PUBLIC_API_BASE: ${ADMIN_NEXT_PUBLIC_API_BASE}
+        NEXT_PUBLIC_ELLO_API_KEY: ${ADMIN_NEXT_PUBLIC_ELLO_API_KEY}
+        NEXT_PUBLIC_ELLO_ASSISTANT_ID: ${ADMIN_NEXT_PUBLIC_ELLO_ASSISTANT_ID}
+        NEXT_PUBLIC_ELLO_API_BASE: ${ADMIN_NEXT_PUBLIC_ELLO_API_BASE}
+        NEXT_PUBLIC_ELLO_WS_URL: ${ADMIN_NEXT_PUBLIC_ELLO_WS_URL}
+    ports:
+      - "4001:4001"
+    depends_on:
+      - server
+
+  website:
+    build:
+      context: ./website-next
+      args:
+        NEXT_PUBLIC_API_BASE: ${WEBSITE_NEXT_PUBLIC_API_BASE}
+        NEXT_PUBLIC_ELLO_API_KEY: ${WEBSITE_NEXT_PUBLIC_ELLO_API_KEY}
+        NEXT_PUBLIC_ELLO_ASSISTANT_ID: ${WEBSITE_NEXT_PUBLIC_ELLO_ASSISTANT_ID}
+        NEXT_PUBLIC_ELLO_API_BASE: ${WEBSITE_NEXT_PUBLIC_ELLO_API_BASE}
+        NEXT_PUBLIC_ELLO_WS_URL: ${WEBSITE_NEXT_PUBLIC_ELLO_WS_URL}
+    ports:
+      - "4002:4002"
+    depends_on:
+      - server
