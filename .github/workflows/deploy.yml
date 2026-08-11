@@ -15,7 +15,7 @@ jobs:
     # no such label exists yet.
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Two self-hosted runners share the generic `self-hosted` label, so GitHub
       # picks whichever is free — dev (35.154.46.155, hostname ip-10-10-1-233,
