@@ -87,12 +87,18 @@ authRouter.post(
   // session_id must be declared here: validate() replaces req.body with Zod's
   // parsed output, and Zod strips unknown keys — so an undeclared field arrives
   // as undefined no matter what the client sent.
+  //
+  // .nullable() matters: the client's getTrackingSessionId() sends a literal
+  // `null` (not an absent key) before any tracking session exists yet —
+  // .optional() alone rejects null (only undefined/absent passes), which was
+  // failing every login attempt made before the app's first tracking call
+  // landed. Real bug, not a typo — verified via request-body logging.
   validate(
     z.object({
       phone: phoneSchema,
       code: z.string().length(6),
-      session_id: z.string().optional(),
-      sessionId: z.string().optional(),
+      session_id: z.string().nullable().optional(),
+      sessionId: z.string().nullable().optional(),
     }),
   ),
   ah(async (req, res) => {

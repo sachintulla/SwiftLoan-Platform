@@ -187,8 +187,23 @@ model LenderPartner {
   icon          String  @default("account_balance")
   baseApr       Float // annual %
   tagline       String?
-  processingFee Int     @default(0)
+  processingFee Int     @default(0) // legacy flat fee — kept for backward compat, prefer processingFeePercent
   active        Boolean @default(true)
+
+  logoUrl              String?
+  rating               Float?
+  rbiApproved          Boolean  @default(true)
+  minAmount            Int?
+  maxAmount            Int?
+  processingFeePercent Float?
+  disbursalTimeHrs     Int?
+  features             String[] @default([])
+
+  // Forward-looking only — unused until a real lender is wired up. Mirrors
+  // IntegrationConfig's provider/settings shape (see src/lib/integrations.ts)
+  // so swapping the mock for a real adapter is a config change, not a schema one.
+  provider  String @default("mock")
+  apiConfig Json?
 
   offers Offer[]
 }
@@ -197,31 +212,31 @@ model LenderPartner {
 // "Explore your loan options" screen (skip-login path) — distinct from Offer,
 // which is computed per-application after a user actually applies.
 model PreApprovedPlan {
-  id               String   @id @default(uuid())
-  lenderName       String
-  logoUrl          String?                          // hosted brand logo image URL
-  icon             String   @default("account_balance") // fallback glyph if no logo set
-  exploreUrl       String?                          // opened in-browser from the "Explore Plan" button (demo)
+  id         String  @id @default(uuid())
+  lenderName String
+  logoUrl    String? // hosted brand logo image URL
+  icon       String  @default("account_balance") // fallback glyph if no logo set
+  exploreUrl String? // opened in-browser from the "Explore Plan" button (demo)
 
-  badge            String?                          // e.g. "Best rate"
+  badge String? // e.g. "Best rate"
 
-  maxAmount        Int?                             // "Up to ₹X", in paise; null if amountAtApproval
-  amountAtApproval Boolean  @default(false)          // e.g. MoneyView: no amount shown
+  maxAmount        Int? // "Up to ₹X", in paise; null if amountAtApproval
+  amountAtApproval Boolean @default(false) // e.g. MoneyView: no amount shown
 
-  rateMin          Float?
-  rateMax          Float?
-  rateAtApproval   Boolean  @default(false)          // e.g. UnitySFB: "Rate at approval"
+  rateMin        Float?
+  rateMax        Float?
+  rateAtApproval Boolean @default(false) // e.g. UnitySFB: "Rate at approval"
 
-  tenureMinMonths  Int?
-  tenureMaxMonths  Int?
+  tenureMinMonths Int?
+  tenureMaxMonths Int?
 
-  tags             String[]                         // free-text pills for outlier cards
+  tags String[] // free-text pills for outlier cards
 
-  displayOrder     Int      @default(0)
-  active           Boolean  @default(true)
+  displayOrder Int     @default(0)
+  active       Boolean @default(true)
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([active, displayOrder])
 }
@@ -232,6 +247,9 @@ model Offer {
   application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   partnerId     String
   partner       LenderPartner   @relation(fields: [partnerId], references: [id])
+  // Denormalized copy of the recommended OfferEmiOption (or whichever option
+  // the user actually picks at /select) — kept so /handoff can build Loan +
+  // Repayment off these scalars without joining emiOptions.
   amount        Int
   apr           Float
   emi           Int
@@ -242,7 +260,30 @@ model Offer {
   selected      Boolean         @default(false)
   createdAt     DateTime        @default(now())
 
+  badgeText           String?
+  processingFeeAmount Int     @default(0)
+  gstOnProcessingFee  Int     @default(0)
+  netDisbursalAmount  Int     @default(0)
+
+  emiOptions OfferEmiOption[]
+
   @@index([applicationId])
+}
+
+// One row per tenure choice offered for a given Offer — lets a single lender
+// offer present several EMI/tenure combinations (per the sample lender-API
+// response this mirrors) instead of the single flat tenure Offer itself has.
+model OfferEmiOption {
+  id                   String  @id @default(uuid())
+  offerId              String
+  offer                Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  tenureMonths         Int
+  monthlyEmi           Int
+  totalInterestPayable Int
+  totalRepaymentAmount Int
+  recommended          Boolean @default(false)
+
+  @@index([offerId])
 }
 
 // ────────────────────────── KYC ──────────────────────────
@@ -671,10 +712,10 @@ model Customer {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  events    JourneyEvent[]
-  calls     CallAttempt[]
+  events        JourneyEvent[]
+  calls         CallAttempt[]
   conversations Conversation[]
-  campaigns CampaignContact[]
+  campaigns     CampaignContact[]
 
   @@index([currentStage, stageEnteredAt])
   @@index([lastActivityAt])
@@ -736,26 +777,26 @@ model Conversation {
 
   /// Which surface this happened on.
   /// phone_outbound | phone_inbound | website_widget | mobile_app | admin
-  channel String
+  channel                String
   /// Which agent role handled it (leadCallback, campaign, companion,
   /// websiteCompanion, adminNavigator) — null for non-agent conversations.
-  agentRole String?
+  agentRole              String?
   /// Ello's conversation_id, so a late webhook can find this row.
   providerConversationId String? @unique
   /// Set when this conversation was an outbound call we placed.
   callAttemptId          String?
 
   /// Human-readable recap. This is what the next agent actually reads.
-  summary     String?
+  summary       String?
   /// Structured turns, whatever shape the provider gave us.
-  transcript  Json?
-  outcome     CallOutcome?
+  transcript    Json?
+  outcome       CallOutcome?
   /// "agent" (reported) | "inferred" (guessed from transcript) | "status" | null.
   /// Same provenance rule as CallAttempt: a guess must never read as a fact.
   outcomeSource String?
   /// Anything the agent captured — income, employment, preferred channel…
-  details     Json?
-  recordingUrl String?
+  details       Json?
+  recordingUrl  String?
 
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
@@ -775,21 +816,21 @@ model Conversation {
 /// whole Conversation history while a customer waits on the line.
 model ConversationSummary {
   /// Bare 10-digit phone — the primary key, since this is per-number.
-  phone      String   @id
+  phone      String  @id
   customerId String?
 
   /// One paragraph covering everything across every channel. What the agent reads.
-  summary          String
+  summary           String
   /// Count and span, for the dashboard list.
-  conversationCount Int      @default(0)
-  channels         String[] @default([])
-  firstAt          DateTime?
-  lastAt           DateTime?
+  conversationCount Int          @default(0)
+  channels          String[]     @default([])
+  firstAt           DateTime?
+  lastAt            DateTime?
   /// Channel and agent of the most recent conversation.
-  lastChannel      String?
-  lastAgentRole    String?
+  lastChannel       String?
+  lastAgentRole     String?
   /// Most recent known outcome, with its provenance.
-  lastOutcome      CallOutcome?
+  lastOutcome       CallOutcome?
   lastOutcomeSource String?
 
   updatedAt DateTime @updatedAt
@@ -821,19 +862,19 @@ model CallAttempt {
   phone String
 
   /// Ello's own identifier, so an inbound webhook can find this row.
-  providerCallId String?      @unique
-  status         CallStatus   @default(queued)
-  outcome        CallOutcome?
+  providerCallId  String?      @unique
+  status          CallStatus   @default(queued)
+  outcome         CallOutcome?
   /// How `outcome` was determined: "agent" (the agent reported it via the
   /// report_call_outcome tool), "inferred" (matched from the transcript — a
   /// guess), "status" (derived from a failure status), or null. Ello sends no
   /// outcome field, so without this an operator cannot tell a real disposition
   /// from a keyword match, and the two carry very different confidence.
-  outcomeSource  String?
+  outcomeSource   String?
   /// The phrase that triggered an inference, so the dashboard can show its work.
   outcomeEvidence String?
   /// Free-text disposition or summary returned by the agent.
-  summary        String?
+  summary         String?
 
   // ── Details the agent captured on the call (all optional; only ever set
   // from an explicit agent report, never inferred) ──────────────────────
@@ -846,12 +887,12 @@ model CallAttempt {
   /// operator can see exactly what the agent knew when it dialled — the usual
   /// first question when a call goes wrong.
   callContext      Json?
-  transcript     Json?
-  recordingUrl   String?
-  durationSec    Int?
-  answered       Boolean      @default(false)
-  attempt        Int          @default(1)
-  error          String?
+  transcript       Json?
+  recordingUrl     String?
+  durationSec      Int?
+  answered         Boolean   @default(false)
+  attempt          Int       @default(1)
+  error            String?
 
   /// Raw webhook body, kept verbatim so provider-shape drift is debuggable.
   rawPayload Json?
