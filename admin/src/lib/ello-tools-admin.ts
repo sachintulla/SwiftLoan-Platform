@@ -15,7 +15,6 @@ export const PAGES: { id: string; path: string; label: string; aliases: string[]
   // here now — an operator saying "show analytics" should still land somewhere.
   { id: 'overview', path: '/overview', label: 'Master Overview', aliases: ['overview', 'home', 'dashboard', 'summary', 'main', 'start', 'analytics', 'charts', 'trends', 'reports', 'graphs'] },
   { id: 'loans', path: '/loans', label: 'Loan Pipeline', aliases: ['loans', 'loan pipeline', 'pipeline', 'applications', 'loan applications'] },
-  { id: 'leads', path: '/leads', label: 'Leads & Contact', aliases: ['leads', 'contacts', 'enquiries', 'contact us', 'lead list'] },
   { id: 'downloads', path: '/downloads', label: 'App Downloads & Attribution', aliases: ['downloads', 'installs', 'app downloads', 'attribution'] },
   // "customers" deliberately belongs to the 360 view, not /users. Since WS5 an
   // operator saying "customers" means the cross-channel journey record, not the
@@ -23,7 +22,8 @@ export const PAGES: { id: string; path: string; label: string; aliases: string[]
   { id: 'users', path: '/users', label: 'All Users', aliases: ['users', 'app users', 'registered users', 'borrowers', 'all users', 'people', 'accounts'] },
   { id: 'notifications', path: '/notifications', label: 'Notifications', aliases: ['notifications', 'alerts', 'notification'] },
   // ── WS5: unified customer journey ──
-  { id: 'customers', path: '/customers', label: 'Customers 360', aliases: ['customers', 'customer 360', '360', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
+  // Leads merged in here — a lead and a customer were always the same person.
+  { id: 'customers', path: '/customers', label: 'Customers', aliases: ['customers', 'customer 360', '360', 'leads', 'contacts', 'enquiries', 'contact us', 'lead list', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
   { id: 'campaigns', path: '/campaigns', label: 'Campaigns', aliases: ['campaigns', 'campaign', 'outbound', 'calling', 'call campaign', 'dialer', 'bulk calls'] },
   { id: 'integrations', path: '/integrations', label: 'Integrations', aliases: ['integrations', 'integration', 'settings', 'config', 'configuration', 'api keys', 'ello', 'upshot', 'providers'] },
 ];

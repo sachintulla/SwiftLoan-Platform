@@ -57,8 +57,21 @@ const MAX_PER_TICK = 25;
  * loudly rather than failing quietly.
  */
 const MAX_CALLS_PER_HOUR = Number(process.env.LEAD_CALL_MAX_PER_HOUR ?? 60) || 60;
-/** One automatic call per phone number per this many hours, ever. */
-const PER_PHONE_COOLDOWN_HOURS = Number(process.env.LEAD_CALL_PHONE_COOLDOWN_HOURS ?? 24) || 24;
+/**
+ * One automatic call per phone number per this many hours.
+ *
+ * NOT `Number(x) || 24` — 0 is a legitimate value (disable the cooldown, which
+ * is what you want while testing the form end to end) and is falsy, so that
+ * form silently snapped back to 24h and made the feature untestable. Same trap
+ * as the calling-window envs above.
+ */
+function hoursEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+const PER_PHONE_COOLDOWN_HOURS = hoursEnv('LEAD_CALL_PHONE_COOLDOWN_HOURS', 24);
 
 /**
  * Whether we may call right now.
@@ -102,18 +115,53 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     return 0;
   }
 
-  const leads = await prisma.customer.findMany({
+  // Eligibility is per SUBMISSION, not per lifetime.
+  //
+  // This used to require `calls: { none: {} }` — "never had a call attempted" —
+  // and measure the delay from `firstSeenAt`. Both were wrong for anyone who had
+  // ever been called before: a returning visitor who submits the form again was
+  // skipped FOREVER, silently. In testing that looks like "the form no longer
+  // triggers a call"; in production it means a real lead who enquires again in
+  // six months is never called back.
+  //
+  // `stageEnteredAt` is the moment they (re-)entered `lead_captured`, i.e. this
+  // submission — so the delay is measured from the submission, and "have we
+  // already called about THIS one" is a comparison against it. Per-number spam
+  // is still prevented by the cooldown below.
+  const candidates = await prisma.customer.findMany({
     where: {
       currentStage: 'lead_captured',
       phone: { not: null },
-      firstSeenAt: { lte: dueBefore },
-      // Never attempted before. Cheaper and more reliable than a "called" flag
-      // we would have to keep in sync.
-      calls: { none: {} },
     },
-    orderBy: { firstSeenAt: 'asc' },
-    take: Math.min(MAX_PER_TICK, budget),
+    orderBy: { lastActivityAt: 'asc' },
+    take: Math.min(MAX_PER_TICK, budget) * 4, // over-fetch; most are filtered out below
+    include: {
+      // Prisma cannot compare two columns of the same row in a filter, so both
+      // the delay and the "already called about this one" test are done in code.
+      calls: { orderBy: { queuedAt: 'desc' }, take: 1, select: { queuedAt: true } },
+      // The submission itself. NOT stageEnteredAt: that only moves on a FORWARD
+      // stage change (see recordJourneyEvent), so a returning visitor who is
+      // already at `lead_captured` re-submits the form and stageEnteredAt keeps
+      // its original value — making every repeat submission look like the first
+      // one, which is exactly how this went unnoticed. The JourneyEvent row is
+      // always written, so it is the honest record of "they submitted again".
+      events: {
+        where: { name: 'lead_captured' },
+        orderBy: { occurredAt: 'desc' },
+        take: 1,
+        select: { occurredAt: true },
+      },
+    },
   });
+
+  const leads = candidates
+    .filter((c) => {
+      const submittedAt = c.events[0]?.occurredAt ?? c.stageEnteredAt;
+      if (submittedAt > dueBefore) return false; // not old enough yet
+      const lastCall = c.calls[0]?.queuedAt;
+      return !lastCall || lastCall < submittedAt; // not yet called about THIS one
+    })
+    .slice(0, Math.min(MAX_PER_TICK, budget));
 
   const cooldownSince = new Date(now.getTime() - PER_PHONE_COOLDOWN_HOURS * 3_600_000);
 

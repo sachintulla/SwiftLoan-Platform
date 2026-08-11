@@ -58,6 +58,9 @@ const DRY = process.argv.includes('--dry');
  * Only the part between `## PROMPT` and the next `---` at column 0 is the actual
  * system prompt, so the surrounding notes never reach the agent.
  */
+/** Explicit terminator. Everything between `## PROMPT` and this is the prompt. */
+const END_MARKER = '<!-- END PROMPT -->';
+
 export function extractPrompt(md: string): string {
   const start = md.indexOf('## PROMPT');
   if (start < 0) {
@@ -69,8 +72,22 @@ export function extractPrompt(md: string): string {
     return whole;
   }
   const after = md.slice(start + '## PROMPT'.length);
-  const end = after.search(/^---$/m);
-  const body = (end < 0 ? after : after.slice(0, end)).trim();
+
+  // Prefer the explicit marker.
+  //
+  // This used to stop at the first `^---$`, which silently truncated any prompt
+  // that used a horizontal rule as a section separator — a rewrite went live as
+  // 392 characters (the opening paragraph only) and the agent lost every rule and
+  // branch. A markdown separator is far too common to double as a terminator.
+  const marked = after.indexOf(END_MARKER);
+  if (marked >= 0) {
+    const body = after.slice(0, marked).trim();
+    if (body.length < 50) throw new Error('extracted prompt looks empty — check the file');
+    return body;
+  }
+
+  // No marker: fall back to the whole remainder rather than the first rule.
+  const body = after.trim();
   if (body.length < 50) throw new Error('extracted prompt looks empty — check the file');
   return body;
 }

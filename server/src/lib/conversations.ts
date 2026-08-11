@@ -26,6 +26,11 @@ export const CONVERSATION_CHANNELS = [
   'website_widget',
   'mobile_app',
   'admin',
+  // Conversation.channel is a plain String column, so adding a channel needs no
+  // migration. Kept in the same table deliberately: the rolling brief we hand
+  // the voice agent should include what we said on WhatsApp, or the agent will
+  // repeat a message the customer has already read.
+  'whatsapp',
 ] as const;
 export type ConversationChannel = (typeof CONVERSATION_CHANNELS)[number];
 
@@ -36,6 +41,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   website_widget: 'website voice chat',
   mobile_app: 'in-app voice chat',
   admin: 'internal',
+  whatsapp: 'WhatsApp message',
 };
 
 export function isConversationChannel(v: unknown): v is ConversationChannel {

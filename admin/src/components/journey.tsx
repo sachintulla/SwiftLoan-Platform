@@ -2,19 +2,25 @@
 import React from 'react';
 import { dateStr, timeAgo } from '@/lib/format';
 
-// Canonical customer journey — same order the 360 endpoint returns in stageProgress[].
+// Canonical customer journey — these keys are the server's JourneyStage enum
+// (server/src/lib/journey.ts STAGE_ORDER / STAGE_LABELS). They must match exactly:
+// the customers list filters with ?stage=<key> and the API ignores anything it
+// does not recognise, so an invented key silently returns an unfiltered list.
 export const STAGES: { key: string; label: string }[] = [
-  { key: 'website_visit', label: 'Website Visit' },
-  { key: 'lead_submitted', label: 'Lead Submitted' },
-  { key: 'voice_agent_call', label: 'Voice Agent Call' },
-  { key: 'app_installed', label: 'App Installed' },
-  { key: 'language_selected', label: 'Language Selected' },
-  { key: 'otp_verified', label: 'OTP Verified' },
-  { key: 'eligibility', label: 'Eligibility' },
-  { key: 'offers', label: 'Offers' },
-  { key: 'kyc', label: 'KYC' },
-  { key: 'submitted', label: 'Submitted' },
-  { key: 'approved', label: 'Approved / Rejected' },
+  { key: 'lead_captured', label: 'Lead submitted' },
+  { key: 'contacted', label: 'Contacted by agent' },
+  { key: 'app_installed', label: 'App installed' },
+  { key: 'registered', label: 'OTP verified' },
+  { key: 'eligibility_checked', label: 'Eligibility checked' },
+  { key: 'offers_viewed', label: 'Offers viewed' },
+  { key: 'offer_selected', label: 'Offer selected' },
+  { key: 'kyc_started', label: 'KYC started' },
+  { key: 'kyc_completed', label: 'KYC completed' },
+  { key: 'application_submitted', label: 'Application submitted' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'disbursed', label: 'Disbursed' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'lost', label: 'Lost' },
 ];
 
 export function stageLabel(key: string | null | undefined) {
@@ -29,6 +35,28 @@ export function stalledLabel(mins: number | null | undefined) {
   return `${Math.floor(mins / 1440)}d`;
 }
 
+/**
+ * Stage → the (lastStep, expectedStep) pair sent to POST /api/admin/calls/trigger.
+ *
+ * The server turns this pair into the drop-off wording the agent opens with, so
+ * calling from "KYC started" makes it say "you started your KYC but did not
+ * finish it" rather than a generic follow-up. `disbursed` is deliberately absent:
+ * the journey is over, there is nothing to nudge them towards.
+ */
+export const STAGE_CALL_STEPS: Record<string, { lastStep: string; expectedStep: string }> = {
+  lead_captured: { lastStep: 'lead_captured', expectedStep: 'app_installed' },
+  contacted: { lastStep: 'contacted', expectedStep: 'app_installed' },
+  app_installed: { lastStep: 'app_installed', expectedStep: 'otp_verified' },
+  registered: { lastStep: 'otp_verified', expectedStep: 'eligibility_started' },
+  eligibility_checked: { lastStep: 'eligibility_started', expectedStep: 'eligibility_completed' },
+  offers_viewed: { lastStep: 'offer_viewed', expectedStep: 'offer_selected' },
+  offer_selected: { lastStep: 'offer_selected', expectedStep: 'kyc_started' },
+  kyc_started: { lastStep: 'kyc_started', expectedStep: 'kyc_completed' },
+  kyc_completed: { lastStep: 'kyc_completed', expectedStep: 'application_submitted' },
+  application_submitted: { lastStep: 'application_submitted', expectedStep: 'approved' },
+  approved: { lastStep: 'approved', expectedStep: 'disbursed' },
+};
+
 export interface StageProgress {
   stage: string;
   label?: string;
@@ -38,42 +66,110 @@ export interface StageProgress {
   at?: string | null;
 }
 
-/** Vertical journey tracker used on the customer 360 page. */
-export function JourneyTracker({ steps, currentStage }: { steps: StageProgress[]; currentStage?: string | null }) {
+/**
+ * Vertical journey tracker used on the customer page.
+ *
+ * Three states have to be told apart at a glance, so each one differs in SHAPE
+ * and WEIGHT as well as colour (colour alone fails for ~8% of male operators):
+ *
+ *   confirmed  — solid filled disc, ✓, real timestamp
+ *   inferred   — hollow disc with a dashed ring; we never saw the event, we only
+ *                know they got past it. Reads deliberately less solid.
+ *   not reached— faint dotted outline with the step number
+ *
+ * `action` renders the per-stage control (the Call button). It is only called
+ * for stages that were actually reached — offering to call someone about a step
+ * they never got to is nonsense.
+ */
+export function JourneyTracker({ steps, currentStage, action, stalledMinutes }: {
+  steps: StageProgress[];
+  currentStage?: string | null;
+  action?: (step: StageProgress, isCurrent: boolean) => React.ReactNode;
+  /** Minutes in the current stage — surfaced loudly, it is the cue to call. */
+  stalledMinutes?: number | null;
+}) {
   if (!steps.length) return <div className="empty">No journey recorded yet</div>;
+  const currentIdx = steps.findIndex((s) => s.stage === currentStage);
+
   return (
     <div style={{ display: 'grid' }}>
       {steps.map((s, i) => {
-        const isCurrent = s.stage === currentStage;
-        const color = s.reached ? 'var(--brand)' : 'var(--border)';
+        const isCurrent = i === currentIdx;
+        const confirmed = s.reached && !!s.at;
+        const inferred = s.reached && !s.at;
+        const done = s.reached && !isCurrent;
+
+        // rail below this node is only "travelled" if the NEXT step was reached
+        const nextReached = i < steps.length - 1 && steps[i + 1].reached;
+
+        const marker = confirmed
+          ? { background: 'var(--brand)', border: '2px solid var(--brand)', color: '#fff', glyph: '✓' }
+          : inferred
+            ? { background: 'var(--surface)', border: '2px dashed var(--brand)', color: 'var(--brand)', glyph: '✓' }
+            : { background: 'var(--surface)', border: '2px dotted var(--border)', color: 'var(--text-faint)', glyph: String(i + 1) };
+
         return (
-          <div key={s.stage} className="row" style={{ gap: 12, alignItems: 'stretch' }}>
-            <div style={{ display: 'grid', justifyItems: 'center', width: 28 }}>
-              <div style={{
-                width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                fontSize: 11, fontWeight: 700, color: s.reached ? '#fff' : 'var(--text-faint)',
-                background: s.reached ? color : 'transparent', border: `2px solid ${color}`, flexShrink: 0,
-                boxShadow: isCurrent ? '0 0 0 4px var(--teal-bg)' : undefined,
-              }}>{s.reached ? '✓' : i + 1}</div>
-              {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 18, background: steps[i + 1].reached ? 'var(--brand)' : 'var(--border)' }} />}
+          <div key={s.stage} className="row" style={{ gap: 14, alignItems: 'stretch' }}>
+            {/* rail */}
+            <div style={{ display: 'grid', justifyItems: 'center', width: 30, flexShrink: 0 }}>
+              <div
+                aria-hidden
+                style={{
+                  width: isCurrent ? 26 : 22, height: isCurrent ? 26 : 22, borderRadius: '50%',
+                  display: 'grid', placeItems: 'center', fontSize: isCurrent ? 12 : 11,
+                  fontWeight: 800, flexShrink: 0,
+                  background: marker.background, border: marker.border, color: marker.color,
+                  boxShadow: isCurrent ? '0 0 0 5px var(--teal-bg)' : undefined,
+                }}
+              >
+                {marker.glyph}
+              </div>
+              {i < steps.length - 1 && (
+                <div style={{
+                  width: 2, flex: 1, minHeight: 20,
+                  background: nextReached ? 'var(--brand)' : 'var(--border)',
+                  opacity: nextReached ? 1 : .7,
+                }} />
+              )}
             </div>
-            <div style={{ paddingBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: isCurrent ? 700 : 500, color: s.reached ? 'var(--text)' : 'var(--text-faint)' }}>
-                {s.label || stageLabel(s.stage)}
-                {isCurrent && <span className="badge tone-blue" style={{ marginLeft: 8 }}>Current</span>}
+
+            {/* label + meta + action */}
+            <div className="row between wrap" style={{ gap: 10, alignItems: 'flex-start', flex: 1, paddingBottom: 16, minWidth: 0 }}>
+              <div style={{ minWidth: 0 }}>
+                <div className="row wrap" style={{ gap: 8 }}>
+                  <span style={{
+                    fontSize: 13.5,
+                    fontWeight: isCurrent ? 750 : done ? 600 : 500,
+                    color: s.reached ? 'var(--text)' : 'var(--text-faint)',
+                  }}>
+                    {s.label || stageLabel(s.stage)}
+                  </span>
+                  {isCurrent && <span className="badge tone-blue">They are here now</span>}
+                </div>
+                <div style={{ fontSize: 11.5, marginTop: 2, color: inferred ? 'var(--amber)' : 'var(--text-dim)' }}>
+                  {confirmed
+                    ? `${dateStr(s.at)} · ${timeAgo(s.at)}`
+                    : inferred
+                      // Say what we actually know. "implied · no event recorded"
+                      // was jargon; this is the plain-English version.
+                      ? 'Inferred — we know they got past this, but no event was recorded'
+                      : 'Not reached yet'}
+                </div>
+                {isCurrent && stalledMinutes != null && stalledMinutes >= 15 && (
+                  <div
+                    className={`badge ${stalledMinutes > 1440 ? 'tone-red' : 'tone-amber'}`}
+                    style={{ marginTop: 6 }}
+                    title="How long they have been sitting on this step"
+                  >
+                    Stuck here {stalledLabel(stalledMinutes)}
+                  </div>
+                )}
               </div>
-              <div className="muted" style={{ fontSize: 11.5 }}>
-                {s.at
-                  ? `${dateStr(s.at)} · ${timeAgo(s.at)}`
-                  : s.inferred
-                    // No event was recorded — say so rather than implying we
-                    // observed it. A customer who installed the app directly
-                    // never submitted a website lead or took a call.
-                    ? 'implied · no event recorded'
-                    : s.reached
-                      ? 'reached'
-                      : 'not reached'}
-              </div>
+              {/* Reached stages, plus the current one — the server does not mark
+                  channel-entry stages (lead_captured / contacted) as reached
+                  without a recorded event, and that is exactly the person an
+                  operator most needs to ring. */}
+              {(s.reached || isCurrent) && action ? <div style={{ flexShrink: 0 }}>{action(s, isCurrent)}</div> : null}
             </div>
           </div>
         );

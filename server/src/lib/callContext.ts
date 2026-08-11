@@ -63,6 +63,7 @@ export const LEAD_CALL_VARIABLES = [
   'stall_expected_step',
   'stall_minutes',
   'stall_channel',
+  'stall_help',
 ] as const;
 
 export type LeadCallVariable = (typeof LEAD_CALL_VARIABLES)[number];
@@ -108,6 +109,8 @@ export interface StallContext {
   minutes: number;
   /** Which surface they dropped off on, e.g. "the app". */
   channel?: string;
+  /** What the agent should offer to do about it. */
+  help?: string;
 }
 
 export async function buildLeadCallContext(
@@ -173,6 +176,7 @@ export async function buildLeadCallContext(
     stall_expected_step: opts.stall?.expectedStep ?? '',
     stall_minutes: opts.stall?.minutes != null ? String(opts.stall.minutes) : '',
     stall_channel: opts.stall?.channel ?? '',
+    stall_help: opts.stall?.help ?? '',
   };
 }
 
@@ -188,27 +192,95 @@ export async function buildLeadCallContext(
  * opening as if they were merely lazy is both wrong and off-putting.
  */
 export const STALL_REASONS: Record<string, string> = {
-  [`${'otp_requested'}→${'otp_verified'}`]:
-    'entered your phone number in the app but never got past the OTP screen',
+  // ── before they are even signed in ──
+  [`${'lead_captured'}→${'app_installed'}`]:
+    'enquired on our website but have not installed the app yet',
+  [`${'app_installed'}→${'otp_verified'}`]:
+    'installed the app but never signed in',
   [`${'app_opened'}→${'otp_requested'}`]:
     'opened the app but never entered your phone number',
   [`${'language_selected'}→${'otp_requested'}`]:
     'chose a language in the app but never entered your phone number',
+  [`${'otp_requested'}→${'otp_verified'}`]:
+    'entered your phone number in the app but never got past the OTP screen',
+
+  // ── signed in, but the application never started ──
   [`${'otp_verified'}→${'eligibility_started'}`]:
-    'signed in to the app but never started the loan application',
+    'signed in to the app but have not started a loan application yet',
   [`${'otp_verified'}→${'eligibility_completed'}`]:
     'signed in to the app but did not finish the eligibility check',
+
+  // ── inside the application ──
   [`${'eligibility_started'}→${'eligibility_completed'}`]:
-    'started the eligibility form but did not finish it',
+    'started the application form but did not finish it',
+  [`${'eligibility_started'}→${'offer_viewed'}`]:
+    'started your application but did not get as far as seeing your offers',
+  [`${'eligibility_completed'}→${'offer_viewed'}`]:
+    'finished the eligibility check but never looked at your offers',
   [`${'offer_viewed'}→${'offer_selected'}`]:
-    'saw your loan offers but did not choose one',
+    'looked at your loan offers but did not choose one',
+
+  // ── after choosing an offer ──
+  [`${'offer_selected'}→${'kyc_started'}`]:
+    'chose a loan offer but did not start the verification step',
   [`${'kyc_started'}→${'kyc_completed'}`]:
-    'started your KYC but did not complete it',
-  [`${'app_installed'}→${'otp_verified'}`]:
-    'installed the app but never signed in',
-  [`${'lead_captured'}→${'app_installed'}`]:
-    'enquired on our website but have not installed the app yet',
+    'started your KYC but did not finish it',
+  [`${'kyc_completed'}→${'application_submitted'}`]:
+    'finished your KYC but did not submit the application',
 };
+
+/**
+ * What the agent should actually OFFER for each drop-off.
+ *
+ * Without this the call is the same generic "did something go wrong?" wherever
+ * they stopped, which is barely better than a push. Someone stuck on OTP has a
+ * delivery problem; someone sitting on the offers screen has a *decision*
+ * problem and wants the options explained. Those are different calls.
+ *
+ * Each entry finishes the sentence "you can offer to …".
+ */
+export const STALL_HELP: Record<string, string> = {
+  [`${'lead_captured'}→${'app_installed'}`]:
+    'send the app download link again by SMS or WhatsApp, and explain that the details from the website are already saved so nothing needs re-typing',
+  [`${'app_installed'}→${'otp_verified'}`]:
+    'walk them through signing in, and check the number they are using is the one they gave us',
+  [`${'app_opened'}→${'otp_requested'}`]:
+    'ask whether anything on the first screen was unclear, and reassure them the number is only used to verify identity',
+  [`${'language_selected'}→${'otp_requested'}`]:
+    'ask whether anything on the first screen was unclear, and reassure them the number is only used to verify identity',
+  [`${'otp_requested'}→${'otp_verified'}`]:
+    'check whether the OTP message actually arrived, confirm the number is right, and tell them to request a fresh code — mention that OTP messages are sometimes delayed on some networks. NEVER ask them to read the code out to you',
+
+  [`${'otp_verified'}→${'eligibility_started'}`]:
+    'ask what kind of loan they are looking for and roughly how much, and explain that starting the application takes about two minutes',
+  [`${'otp_verified'}→${'eligibility_completed'}`]:
+    'ask if any part of the form was unclear and offer to explain what is being asked and why',
+
+  [`${'eligibility_started'}→${'eligibility_completed'}`]:
+    'ask which part they got stuck on — income and employment are the two people usually pause at — and explain why each is needed',
+  [`${'eligibility_started'}→${'offer_viewed'}`]:
+    'offer to talk them through finishing the form so they can see what they qualify for',
+  [`${'eligibility_completed'}→${'offer_viewed'}`]:
+    'let them know the matched offers are ready to look at in the app',
+
+  [`${'offer_viewed'}→${'offer_selected'}`]:
+    'help them compare the offers — what the EMI, tenure and processing fee actually mean — and answer questions about any lender. Do NOT quote or promise a rate yourself',
+
+  [`${'offer_selected'}→${'kyc_started'}`]:
+    'explain what verification involves and roughly how long it takes, and reassure them documents are handled securely',
+  [`${'kyc_started'}→${'kyc_completed'}`]:
+    'ask which document step failed — uploads and photo capture are the usual culprits — and offer to have someone look into it',
+  [`${'kyc_completed'}→${'application_submitted'}`]:
+    'tell them everything is verified and only the final submit is left',
+};
+
+/** The help line for a rule, or a safe generic when we have no wording. */
+export function stallHelpFor(triggerEvent: string, expectedEvent: string): string {
+  return (
+    STALL_HELP[`${triggerEvent}→${expectedEvent}`] ??
+    'ask what happened and offer to help them continue from where they stopped'
+  );
+}
 
 /** Fall back to a readable sentence for any rule we have no wording for. */
 export function stallReasonFor(triggerEvent: string, expectedEvent: string): string {

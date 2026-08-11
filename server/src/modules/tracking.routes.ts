@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { journeyNameFor } from '../lib/appEventMap.js';
+import { verifyAccess } from '../lib/jwt.js';
 
 // Public tracking endpoints. The mobile app calls these fire-and-forget, so they
 // must be cheap, tolerant of missing fields, and never throw back something the
@@ -10,16 +12,26 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 // required (anonymous sessions are first-class).
 export const trackingRouter = Router();
 
-// Best-effort: pull userId from a user JWT if one was attached, else null.
+/**
+ * Best-effort: pull userId from a user JWT if one was attached, else null.
+ *
+ * This used to `require('../lib/jwt.js')` lazily. This file is ESM, so `require`
+ * is not defined and the call threw on EVERY request — silently, because the
+ * catch returned null. The result: every tracking row ever written
+ * (sessions, events, onboarding steps, loan steps, installs) recorded
+ * `userId: null`, so none of it could be attributed to a person, and the funnel
+ * promotion below could never run.
+ *
+ * A static import is correct here — jwt.js imports nothing from this module, so
+ * the cycle the lazy require was avoiding does not exist.
+ */
 function softUserId(req: { headers: Record<string, unknown> }): string | null {
   const header = String(req.headers['authorization'] || '');
   if (!header.startsWith('Bearer ')) return null;
   try {
-    // Lazy import avoids a hard dependency cycle; verify uses the user secret.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { verifyAccess } = require('../lib/jwt.js');
-    return verifyAccess(header.slice(7)).sub as string;
+    return (verifyAccess(header.slice(7)) as { sub?: string }).sub ?? null;
   } catch {
+    // An expired or malformed token is a normal anonymous case, not an error.
     return null;
   }
 }
@@ -72,6 +84,36 @@ trackingRouter.post('/event', ah(async (req, res) => {
   if (event.sessionId && (event.eventType === 'navigation')) {
     await prisma.session.update({ where: { id: event.sessionId }, data: { pagesVisited: { increment: 1 } } }).catch(() => {});
   }
+
+  // WS11 — promote real funnel steps to canonical journey events.
+  //
+  // Until now this endpoint wrote only an ActivityEvent, so the admin funnel, the
+  // stage progression and every stall rule saw nothing from the app. One write
+  // here feeds all three, plus the Upshot mirror inside recordJourneyEvent.
+  //
+  // Identity comes from the authenticated session (`softUserId`), never from the
+  // body: /api/track/* is public, so trusting a client-supplied user_id would let
+  // anyone advance another person's funnel — and a fabricated
+  // `eligibility_completed` silences the very rule meant to catch a drop-off.
+  const journeyName = journeyNameFor(String(eventName));
+  if (journeyName && userId) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } }).catch(() => null);
+    if (user?.phone) {
+      // Fire-and-forget: analytics must never fail on a journey write.
+      trackJourney(
+        { phone: user.phone, userId, source: 'app' },
+        {
+          channel: 'app',
+          name: journeyName,
+          screen: b.screen ?? null,
+          metadata: { via: 'app_telemetry', appEvent: eventName },
+          // The ActivityEvent above already is the telemetry — do not write a second.
+          mirrorTelemetry: false,
+        },
+      ).catch((e) => console.error('[track] journey promotion failed', e));
+    }
+  }
+
   return created(res, { event_id: event.id }, 'Event recorded');
 }));
 

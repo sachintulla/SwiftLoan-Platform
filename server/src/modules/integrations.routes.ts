@@ -21,6 +21,7 @@ import {
   upshotUserUpsert,
   type ProviderName,
 } from '../lib/integrations.js';
+import { sendWhatsAppTemplate } from '../lib/whatsapp.js';
 
 export const integrationsRouter = Router();
 integrationsRouter.use(requireAdmin);
@@ -29,10 +30,10 @@ integrationsRouter.use(auditAdmin);
 
 
 
-const PROVIDERS: ProviderName[] = ['ello', 'upshot'];
+const PROVIDERS: ProviderName[] = ['ello', 'upshot', 'infobip'];
 
 function providerParam(value: string): ProviderName {
-  if (!PROVIDERS.includes(value as ProviderName)) throw new HttpError(400, 'Unknown provider — expected "ello" or "upshot"');
+  if (!PROVIDERS.includes(value as ProviderName)) throw new HttpError(400, `Unknown provider — expected one of ${PROVIDERS.join(', ')}`);
   return value as ProviderName;
 }
 
@@ -123,6 +124,39 @@ integrationsRouter.post('/:provider/test', requireRole(...CAN_ADMINISTER), valid
       providerCallId: result.providerCallId ?? null,
       body: result.body,
     }, result.ok ? 'Test call placed' : 'Test call failed');
+  }
+
+  if (provider === 'infobip') {
+    if (!cfg.settings.baseUrl) missing.push('settings.baseUrl');
+    if (!cfg.settings.sender) missing.push('settings.sender');
+    if (!cfg.settings.defaultTemplate) missing.push('settings.defaultTemplate');
+    if (!(cfg.secrets.apiKey ?? cfg.secrets.api_key)) missing.push('secrets.apiKey');
+
+    // Dry run by default, for the same reason as Ello: a "test connection"
+    // button must not message a real customer's WhatsApp without being asked.
+    if (!body.confirm || !body.testPhone) {
+      return ok(res, {
+        provider,
+        performed: 'dry_run',
+        ready: missing.length === 0,
+        missing,
+        note: 'Send { testPhone, confirm: true } to send a real test WhatsApp message.',
+      }, missing.length === 0 ? 'Configuration looks complete' : 'Configuration incomplete');
+    }
+
+    const result = await sendWhatsAppTemplate({ phone: body.testPhone });
+    return ok(res, {
+      provider,
+      performed: 'live_message',
+      ready: missing.length === 0,
+      missing,
+      ok: result.ok,
+      status: result.status,
+      error: result.error ?? null,
+      messageId: result.messageId ?? null,
+      providerStatus: result.providerStatus ?? null,
+      body: result.body,
+    }, result.ok ? 'Test WhatsApp message sent' : 'Test WhatsApp message failed');
   }
 
   // upshot

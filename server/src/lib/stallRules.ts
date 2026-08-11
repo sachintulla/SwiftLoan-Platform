@@ -17,7 +17,7 @@ import { enqueueDispatch } from './dispatch.js';
 import { getProviderConfig } from './integrations.js';
 import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
-import { buildLeadCallContext, compactContext, stallReasonFor } from './callContext.js';
+import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from './callContext.js';
 import { agentIdFor } from './agents.js';
 
 /** Scanned per rule per tick — bounds the blast radius of a bad rule. */
@@ -120,6 +120,60 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     expectedEvent: JOURNEY_EVENTS.KYC_COMPLETED,
     delayMinutes: 45,
     upshotEvent: 'swiftloan_kyc_incomplete_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — signed in but never started an application',
+    triggerEvent: JOURNEY_EVENTS.OTP_VERIFIED,
+    expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
+    // Longer than the others: someone who just signed in may simply be looking
+    // around, and ringing them after twenty minutes would feel like surveillance.
+    delayMinutes: 120,
+    upshotEvent: 'swiftloan_no_application_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — saw offers but chose none',
+    triggerEvent: JOURNEY_EVENTS.OFFER_VIEWED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    // The highest-intent drop-off in the funnel: they have offers in front of
+    // them and are deciding. A call here is genuinely useful rather than pushy.
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_offer_not_selected_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — chose an offer but did not start verification',
+    triggerEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    expectedEvent: JOURNEY_EVENTS.KYC_STARTED,
+    delayMinutes: 45,
+    upshotEvent: 'swiftloan_kyc_not_started_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — application form started but not finished',
+    triggerEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
+    expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
+    delayMinutes: 60,
+    upshotEvent: 'swiftloan_eligibility_incomplete_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — installed the app but never signed in',
+    triggerEvent: JOURNEY_EVENTS.APP_INSTALLED,
+    expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED,
+    delayMinutes: 180,
+    upshotEvent: 'swiftloan_install_not_registered_call',
     channel: 'voice',
     cooldownMinutes: 4320,
     enabled: false,
@@ -349,6 +403,11 @@ async function placeStallCall(
       now,
       stall: {
         reason: stallReasonFor(rule.triggerEvent, rule.expectedEvent),
+        // What to actually offer. Without this every drop-off call is the same
+        // generic "did something go wrong?", which is barely better than a push —
+        // someone stuck on OTP has a delivery problem, someone sitting on the
+        // offers screen has a decision problem.
+        help: stallHelpFor(rule.triggerEvent, rule.expectedEvent),
         lastStep: rule.triggerEvent.replace(/_/g, ' '),
         expectedStep: rule.expectedEvent.replace(/_/g, ' '),
         minutes: minutesStuck,
