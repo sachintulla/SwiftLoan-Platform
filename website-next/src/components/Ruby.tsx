@@ -227,20 +227,22 @@ export function RubyPhoto({ state, level = 0, size = 64, className }: RubyProps)
 
   // Pick a mouth shape from the current loudness.
   useEffect(() => {
-    if (state !== 'speaking' || level < TALK_THRESHOLD) {
-      setFrame(0);
-      return;
-    }
-    const idx = Math.min(RUBY_FRAMES.length - 1, 1 + Math.floor(level * (RUBY_FRAMES.length - 1)));
-
-    // Minimum hold: without it the mouth changes shape every animation frame
-    // and reads as a flicker rather than speech. Real mouths hold a shape for
-    // roughly a syllable.
+    // Minimum hold applies to EVERY frame change, including snapping back to
+    // closed — real speech dips below the threshold between syllables dozens
+    // of times a second, so without this the mouth was slamming shut and
+    // reopening on each dip and read as a blinking flicker rather than talking.
     const now = typeof performance !== 'undefined' ? performance.now() : 0;
     if (now - holdRef.current < 70) return;
+
+    const idx =
+      state !== 'speaking' || level < TALK_THRESHOLD
+        ? 0
+        : Math.min(RUBY_FRAMES.length - 1, 1 + Math.floor(level * (RUBY_FRAMES.length - 1)));
+
+    if (idx === frame) return;
     holdRef.current = now;
     setFrame(idx);
-  }, [state, level]);
+  }, [state, level, frame]);
 
   if (ok === false) return <Ruby state={state} level={level} size={size} className={className} />;
 
