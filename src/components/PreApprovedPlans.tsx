@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet, Linking } from 'react-native';
 import Icon from './Icon';
 import { PrimaryButton } from './Controls';
 import { Skeleton } from './common/Loading';
@@ -7,6 +7,7 @@ import { colors, font, inr } from '../theme/tokens';
 import { api, PreApprovedPlan } from '../api/client';
 import { saveSelectedPlan } from '../state/selectedPlan';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { LENDER_LOGOS } from '../theme/lenderLogos';
 
 function amountLine(p: PreApprovedPlan) {
   if (p.amountAtApproval) return { label: 'Amount at approval', value: '' };
@@ -20,7 +21,17 @@ function rateTenureLine(p: PreApprovedPlan): string[] {
   return [rate, tenure].filter((s): s is string => !!s);
 }
 
-function PlanCard({ plan, selected, onSelect }: { plan: PreApprovedPlan; selected: boolean; onSelect: () => void }) {
+function PlanCard({
+  plan,
+  selected,
+  showRadio,
+  onSelect,
+}: {
+  plan: PreApprovedPlan;
+  selected: boolean;
+  showRadio: boolean;
+  onSelect: () => void;
+}) {
   const amount = amountLine(plan);
   const meta = rateTenureLine(plan);
   // Rendered inside a child component of the Explore screen, so the screen's
@@ -29,38 +40,46 @@ function PlanCard({ plan, selected, onSelect }: { plan: PreApprovedPlan; selecte
   useVoiceTarget(plan.lenderName, { kind: 'button', onTap: onSelect }, [onSelect]);
   return (
     <Pressable onPress={onSelect} style={[styles.card, selected && styles.cardSelected]}>
-      {plan.badge ? (
-        <View style={styles.ribbon}>
-          <Text style={[font(700), { fontSize: 10.5, color: '#fff', letterSpacing: 0.3 }]}>{plan.badge}</Text>
-        </View>
-      ) : null}
       <View style={styles.cardTop}>
         <View style={styles.iconChip}>
-          {plan.logoUrl ? (
+          {LENDER_LOGOS[plan.lenderName] ? (
+            <Image source={LENDER_LOGOS[plan.lenderName]} style={styles.logo} resizeMode="contain" />
+          ) : plan.logoUrl ? (
             <Image source={{ uri: plan.logoUrl }} style={styles.logo} resizeMode="contain" />
           ) : (
             <Icon name={plan.icon} size={22} color={colors.primary} />
           )}
         </View>
-        <Text style={[font(800), { fontSize: 16, color: colors.text, flex: 1 }]}>{plan.lenderName}</Text>
-        <View style={[styles.radio, selected && styles.radioOn]}>
-          {selected ? <Icon name="check" size={13} color="#fff" /> : null}
-        </View>
+        <Text style={[font(800), { fontSize: 17, color: colors.text, flex: 1, letterSpacing: -0.2 }]}>{plan.lenderName}</Text>
+        {plan.badge ? (
+          <View style={styles.badge}>
+            <Text style={[font(700), { fontSize: 10.5, color: '#fff', letterSpacing: 0.2 }]}>{plan.badge}</Text>
+          </View>
+        ) : showRadio ? (
+          <View style={[styles.radio, selected && styles.radioOn]}>
+            {selected ? <Icon name="check" size={13} color="#fff" /> : null}
+          </View>
+        ) : (
+          <Icon name="chevron_right" size={20} color={colors.muted} />
+        )}
       </View>
 
-      <View style={styles.metrics}>
-        {amount.value ? (
-          <Metric label={amount.label} value={amount.value} highlight />
-        ) : (
-          <Metric label="Amount" value={amount.label} highlight />
-        )}
-        {meta.length === 2 ? (
+      {/* Hero metric — the headline amount set apart from rate/tenure, same
+          pattern as the real-offers screen, for a consistent visual language. */}
+      <View style={styles.hero}>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(600), { fontSize: 11, color: colors.greenDeep }]}>{amount.value ? amount.label : 'Amount'}</Text>
+          <Text style={[font(800), { fontSize: 22, color: colors.primary, letterSpacing: -0.4, marginTop: 2 }]} numberOfLines={1}>
+            {amount.value || amount.label}
+          </Text>
+        </View>
+        {meta.length ? (
           <>
-            <Metric label="Rate" value={meta[0]} />
-            <Metric label="Tenure" value={meta[1]} />
+            <View style={styles.heroDiv} />
+            <View style={{ flex: 1, gap: 6 }}>
+              {meta.map((m, i) => <Text key={i} style={[font(600), { fontSize: 12.5, color: colors.textMid }]}>{m}</Text>)}
+            </View>
           </>
-        ) : meta.length === 1 ? (
-          <Metric label="Rate / Tenure" value={meta[0]} />
         ) : null}
       </View>
 
@@ -74,15 +93,6 @@ function PlanCard({ plan, selected, onSelect }: { plan: PreApprovedPlan; selecte
         </View>
       ) : null}
     </Pressable>
-  );
-}
-
-function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <View style={{ flex: 1 }}>
-      <Text style={[font(500), { fontSize: 10.5, color: colors.muted }]}>{label}</Text>
-      <Text style={[font(800), { fontSize: highlight ? 16 : 13.5, color: highlight ? colors.primary : colors.text, marginTop: 2 }]}>{value}</Text>
-    </View>
   );
 }
 
@@ -101,8 +111,31 @@ function Stat({ value, label }: { value: string; label: string }) {
  * home's "Explore more plans" link (mode "home": already signed in, just
  * browsing/re-picking). Rendered by src/screens/explore.tsx, which owns the
  * header/back button.
+ *
+ * Also embeddable directly on Home (`showIntro={false}`) so the full plan
+ * list is visible on the main dashboard itself instead of requiring a tap
+ * through to a separate screen — the title/stats/pill block only makes sense
+ * as a dedicated screen's header, so it's the one thing skipped when embedded.
+ *
+ * The two modes interact differently with a tap, not just visually:
+ * - "guest" (not signed up yet): tapping a card only highlights it — the user
+ *   still has to hit "Sign up to continue" to actually proceed, since signing
+ *   up is a real gate here.
+ * - "home" (already signed in): there's no gate left to enforce, so a tap
+ *   acts immediately — saves the pick and opens the lender's page — instead
+ *   of making the user select-then-press-continue for something they've
+ *   already signed up for.
  */
-export function PreApprovedPlans({ mode = 'guest', onApply }: { mode?: 'guest' | 'home'; onApply: () => void }) {
+export function PreApprovedPlans({
+  mode = 'guest',
+  onApply,
+  showIntro = true,
+}: {
+  mode?: 'guest' | 'home';
+  onApply: (plan: PreApprovedPlan) => void;
+  showIntro?: boolean;
+}) {
+  const isHome = mode === 'home';
   const [plans, setPlans] = useState<PreApprovedPlan[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -113,52 +146,74 @@ export function PreApprovedPlans({ mode = 'guest', onApply }: { mode?: 'guest' |
         if (cancelled) return;
         const data = r.data ?? [];
         setPlans(data);
-        if (data.length > 0) setSelectedId(data[0].id); // pre-select the top (best-rate) plan
+        if (!isHome && data.length > 0) setSelectedId(data[0].id); // pre-select the top (best-rate) plan
       })
       .catch(() => { if (!cancelled) setPlans([]); });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedPlan = plans?.find(p => p.id === selectedId) ?? null;
 
-  const onContinue = () => {
-    if (selectedPlan) {
-      saveSelectedPlan({
-        id: selectedPlan.id,
-        lenderName: selectedPlan.lenderName,
-        icon: selectedPlan.icon,
-        logoUrl: selectedPlan.logoUrl,
-        exploreUrl: selectedPlan.exploreUrl,
-        badge: selectedPlan.badge,
-      }).catch(() => {});
+  const persistSelection = (plan: PreApprovedPlan) =>
+    saveSelectedPlan({
+      id: plan.id,
+      lenderName: plan.lenderName,
+      icon: plan.icon,
+      logoUrl: plan.logoUrl,
+      exploreUrl: plan.exploreUrl,
+      badge: plan.badge,
+    }).catch(() => {});
+
+  const onCardPress = (plan: PreApprovedPlan) => {
+    if (isHome) {
+      // Already signed in — no gate left, so a tap acts immediately: save
+      // the pick and go straight to the lender's page.
+      persistSelection(plan);
+      if (plan.exploreUrl) Linking.openURL(plan.exploreUrl).catch(() => {});
+      onApply(plan);
+    } else {
+      setSelectedId(plan.id);
     }
-    onApply();
   };
 
-  const continueLabel = mode === 'home' ? 'Save selection' : 'Sign up to continue';
-  useVoiceTarget(plans && plans.length > 0 ? continueLabel : undefined, { kind: 'button', onTap: onContinue }, [onContinue]);
+  const onContinue = () => {
+    // Guest path: sign-up is a real gate still ahead — only save the pick and
+    // hand off to the caller (which routes to login/mobile). The lender's
+    // page must never open before the user has actually signed in.
+    if (selectedPlan) {
+      persistSelection(selectedPlan);
+      onApply(selectedPlan);
+    }
+  };
+
+  useVoiceTarget(!isHome && plans && plans.length > 0 ? 'Sign up to continue' : undefined, { kind: 'button', onTap: onContinue }, [onContinue]);
 
   return (
     <View style={{ gap: 16 }}>
-      <View>
-        <Text style={[font(800), { fontSize: 26, letterSpacing: -0.5, color: colors.text }]}>Explore your loan options</Text>
-        <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 6, lineHeight: 20 }]}>
-          Compare rates, amounts and eligibility across some pre-approved loans. Nothing is submitted and your credit score is never touched.
-        </Text>
-      </View>
+      {showIntro && (
+        <>
+          <View>
+            <Text style={[font(800), { fontSize: 26, letterSpacing: -0.5, color: colors.text }]}>Explore your loan options</Text>
+            <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 6, lineHeight: 20 }]}>
+              Compare rates, amounts and eligibility across some pre-approved loans. Nothing is submitted and your credit score is never touched.
+            </Text>
+          </View>
 
-      <View style={styles.statsRow}>
-        <Stat value="15+" label="Lenders" />
-        <View style={styles.statDivider} />
-        <Stat value="2 min" label="To offers" />
-        <View style={styles.statDivider} />
-        <Stat value="0" label="Score impact" />
-      </View>
+          <View style={styles.statsRow}>
+            <Stat value="15+" label="Lenders" />
+            <View style={styles.statDivider} />
+            <Stat value="2 min" label="To offers" />
+            <View style={styles.statDivider} />
+            <Stat value="0" label="Score impact" />
+          </View>
 
-      <View style={styles.pill}>
-        <Icon name="verified" size={14} color={colors.primary} />
-        <Text style={[font(600), { fontSize: 11.5, color: colors.primary }]}>Pre-approved · no PAN needed yet</Text>
-      </View>
+          <View style={styles.pill}>
+            <Icon name="verified" size={14} color={colors.primary} />
+            <Text style={[font(600), { fontSize: 11.5, color: colors.primary }]}>Pre-approved · no PAN needed yet</Text>
+          </View>
+        </>
+      )}
 
       {plans === null ? (
         <View>
@@ -168,18 +223,22 @@ export function PreApprovedPlans({ mode = 'guest', onApply }: { mode?: 'guest' |
       ) : plans.length === 0 ? null : (
         <View>
           {plans.map(p => (
-            <PlanCard key={p.id} plan={p} selected={p.id === selectedId} onSelect={() => setSelectedId(p.id)} />
+            <PlanCard
+              key={p.id}
+              plan={p}
+              showRadio={!isHome}
+              selected={!isHome && p.id === selectedId}
+              onSelect={() => onCardPress(p)}
+            />
           ))}
         </View>
       )}
 
-      {plans && plans.length > 0 && (
+      {!isHome && plans && plans.length > 0 && (
         <>
-          <PrimaryButton label={mode === 'home' ? 'Save selection' : 'Sign up to continue'} onPress={onContinue} />
+          <PrimaryButton label="Sign up to continue" onPress={onContinue} />
           <Text style={[font(400), { fontSize: 12, color: colors.muted, textAlign: 'center' }]}>
-            {mode === 'home'
-              ? "We'll remember this pick on your dashboard."
-              : 'Create your account to check eligibility and see real offers.'}
+            Create your account to check eligibility and see real offers.
           </Text>
         </>
       )}
@@ -205,37 +264,43 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     backgroundColor: colors.surface,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
+  // Border only — a whole-card tint looked patchy once it sat behind the
+  // hero panel's own opaque background (same issue fixed on the offers screen).
   cardSelected: {
     borderWidth: 1.5,
     borderColor: colors.primary,
-    backgroundColor: 'rgba(7,159,160,0.05)',
-  },
-  ribbon: {
-    position: 'absolute',
-    top: -1,
-    right: 16,
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: 10,
-    borderBottomRightRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
   },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconChip: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 46,
+    height: 46,
+    borderRadius: 13,
     backgroundColor: '#E1F3F3',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   logo: { width: 28, height: 28, borderRadius: 6 },
+  badge: {
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
   radio: {
     width: 22,
     height: 22,
@@ -249,7 +314,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  metrics: { flexDirection: 'row', marginTop: 14, gap: 4 },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: 14,
+    padding: 14,
+    gap: 14,
+  },
+  heroDiv: { width: 1, height: 32, backgroundColor: colors.lineSoft },
   tagsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   tagPill: { backgroundColor: colors.chip, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
 });

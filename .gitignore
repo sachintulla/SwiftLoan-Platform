@@ -5,6 +5,7 @@ admin/node_modules/
 
 # Build outputs
 ios/build/
+ios/build-sim/
 android/build/
 android/app/build/
 android/app/.cxx/

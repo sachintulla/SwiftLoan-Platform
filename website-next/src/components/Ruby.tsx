@@ -43,43 +43,124 @@ interface SpeakingSource {
  * If either file is missing the component falls back to the drawn SVG rather
  * than showing a broken image — a launcher button is not a place to fail.
  */
-const RUBY_IDLE_SRC = '/ruby-idle.png';
-const RUBY_TALK_SRC = '/ruby-talking.png';
+/**
+ * Five real photographs of the same person, ordered by how open her mouth is.
+ *
+ * This is how hand-drawn animation does dialogue: a small set of mouth shapes
+ * (visemes) chosen per frame from the audio, rather than one image distorted.
+ * Every frame here is a genuine photo, so nothing is warped and there is no
+ * rubbery in-between — the previous attempt failed precisely because you cannot
+ * squash an open mouth shut when the teeth are baked into the pixels.
+ *
+ * Order matters: index 0 is fully closed (her resting/idle face) and index 4 is
+ * widest. The rounded "oo" shape sits deliberately low in the ramp — the lips
+ * are pursed, so it reads as a quieter sound than the wide-open one.
+ */
+const RUBY_FRAMES = [
+  '/ruby-m0.png', // lips together, smiling — idle / between words
+  '/ruby-m1.png', // slightly parted
+  '/ruby-m2.png', // mid-open
+  '/ruby-m3.png', // wide open
+];
 
-/** Above this output level the mouth-open frame is shown. */
-const TALK_THRESHOLD = 0.18;
+/** Below this level she is treated as silent and returns to the closed frame. */
+const TALK_THRESHOLD = 0.1;
 
-export function RubyPhoto({ state, level = 0, size = 64, className }: RubyProps) {
-  const [ok, setOk] = useState<boolean | null>(null);
+/**
+ * Single-photo lip sync.
+ *
+ * The source portrait has her mouth OPEN (mid-sentence), and there is no
+ * closed-mouth counterpart, so the two-frame swap above cannot be used. Instead
+ * the jaw is warped on a canvas:
+ *
+ *   - the image is split just below the nose
+ *   - the lower slice is squashed UPWARDS as loudness falls, which closes the
+ *     mouth, and released back to the true photo as loudness rises
+ *   - the upper slice is stretched by the same offset so the two always meet —
+ *     otherwise a seam opens across her face, which is instantly obvious
+ *
+ * At full volume nothing is distorted at all: the frame is the original photo.
+ * The distortion only ever *closes* her mouth, so the most-seen state (talking)
+ * is the untouched image and only the quiet moments are synthetic. Doing it the
+ * other way round — stretching the jaw open — warps the frame the viewer looks
+ * at most, and looks rubbery.
+ */
+const RUBY_SRC = '/ruby.png';
 
-  // Probe once: both frames must load, and we want the open-mouth frame warm
-  // in cache before she first speaks, or the first word shows a blank.
+/** Where to cut, as a fraction of image height — just under the nose. */
+const JAW_SPLIT = 0.6;
+/** How far the jaw travels, as a fraction of image height. */
+const JAW_TRAVEL = 0.055;
+
+export function RubyCanvas({ state, level = 0, size = 64, className }: RubyProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Smoothed openness. Raw amplitude is jittery at frame rate and makes the jaw
+  // buzz; easing towards the target reads like a real mouth.
+  const openRef = useRef(0);
+
   useEffect(() => {
-    let alive = true;
-    let loaded = 0;
-    let failed = false;
-    [RUBY_IDLE_SRC, RUBY_TALK_SRC].forEach((src) => {
-      const img = new Image();
-      img.onload = () => {
-        if (!alive) return;
-        loaded += 1;
-        if (loaded === 2 && !failed) setOk(true);
-      };
-      img.onerror = () => {
-        if (!alive) return;
-        failed = true;
-        setOk(false);
-      };
-      img.src = src;
-    });
-    return () => {
-      alive = false;
+    const img = new window.Image();
+    img.onload = () => {
+      imgRef.current = img;
+      draw(0);
     };
+    img.onerror = () => setFailed(true);
+    img.src = RUBY_SRC;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (ok === false) return <Ruby state={state} level={level} size={size} className={className} />;
+  function draw(open: number) {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-  const talking = state === 'speaking' && level > TALK_THRESHOLD;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const px = size * dpr;
+    if (canvas.width !== px) {
+      canvas.width = px;
+      canvas.height = px;
+    }
+
+    const W = img.width;
+    const H = img.height;
+    const splitSrc = H * JAW_SPLIT;
+    // Closed at open=0, true photo at open=1.
+    const shift = (1 - open) * JAW_TRAVEL * H;
+    const splitDst = splitSrc + shift;
+
+    const sx = px / W;
+    const sy = px / H;
+
+    ctx.clearRect(0, 0, px, px);
+    // Upper face, stretched down to meet the raised jaw.
+    ctx.drawImage(img, 0, 0, W, splitSrc, 0, 0, W * sx, splitDst * sy);
+    // Jaw, squashed into what is left.
+    ctx.drawImage(img, 0, splitSrc, W, H - splitSrc, 0, splitDst * sy, W * sx, (H - splitDst) * sy);
+  }
+
+  useEffect(() => {
+    if (failed) return;
+    const target = state === 'speaking' ? Math.min(1, level * 1.15) : 0;
+    let raf = 0;
+    const step = () => {
+      const cur = openRef.current;
+      // Asymmetric easing: mouths open faster than they close.
+      const k = target > cur ? 0.55 : 0.25;
+      const next = cur + (target - cur) * k;
+      openRef.current = Math.abs(next - target) < 0.004 ? target : next;
+      draw(openRef.current);
+      if (openRef.current !== target) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, level, size, failed]);
+
+  if (failed) return <Ruby state={state} level={level} size={size} className={className} />;
 
   return (
     <span
@@ -94,19 +175,113 @@ export function RubyPhoto({ state, level = 0, size = 64, className }: RubyProps)
         background: 'linear-gradient(135deg,#0CB6A6,#2FB183)',
       }}
     >
-      {/* Both frames are stacked and cross-faded on opacity. Toggling `src`
-          instead would re-decode the image on every syllable and flicker. */}
-      <img
-        src={RUBY_IDLE_SRC}
-        alt="Ruby, the SwiftLoan assistant"
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: talking ? 0 : 1, transition: 'opacity 60ms linear' }}
+      <canvas
+        ref={canvasRef}
+        width={size}
+        height={size}
+        style={{ width: '100%', height: '100%', display: 'block' }}
+        aria-label="Ruby, the SwiftLoan assistant"
+        role="img"
       />
-      <img
-        src={RUBY_TALK_SRC}
-        alt=""
-        aria-hidden="true"
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: talking ? 1 : 0, transition: 'opacity 60ms linear' }}
-      />
+      {state === 'listening' && (
+        <span
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            boxShadow: '0 0 0 2px rgba(255,255,255,.9) inset',
+            animation: 'rubyPulse 1.8s ease-in-out infinite',
+          }}
+        />
+      )}
+      <style>{`@keyframes rubyPulse{0%,100%{opacity:.9}50%{opacity:.25}}`}</style>
+    </span>
+  );
+}
+
+export function RubyPhoto({ state, level = 0, size = 64, className }: RubyProps) {
+  const [ok, setOk] = useState<boolean | null>(null);
+  const [frame, setFrame] = useState(0);
+  const holdRef = useRef(0);
+
+  // Preload every frame before she can speak. A frame fetched mid-sentence
+  // would flash blank on its first use, which is far more noticeable than any
+  // mismatch between the shapes.
+  useEffect(() => {
+    let alive = true;
+    let loaded = 0;
+    RUBY_FRAMES.forEach((src) => {
+      const img = new Image();
+      img.onload = () => {
+        if (!alive) return;
+        loaded += 1;
+        if (loaded === RUBY_FRAMES.length) setOk(true);
+      };
+      img.onerror = () => alive && setOk(false);
+      img.src = src;
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Pick a mouth shape from the current loudness.
+  useEffect(() => {
+    // Minimum hold applies to EVERY frame change, including snapping back to
+    // closed — real speech dips below the threshold between syllables dozens
+    // of times a second, so without this the mouth was slamming shut and
+    // reopening on each dip and read as a blinking flicker rather than talking.
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    if (now - holdRef.current < 70) return;
+
+    const idx =
+      state !== 'speaking' || level < TALK_THRESHOLD
+        ? 0
+        : Math.min(RUBY_FRAMES.length - 1, 1 + Math.floor(level * (RUBY_FRAMES.length - 1)));
+
+    if (idx === frame) return;
+    holdRef.current = now;
+    setFrame(idx);
+  }, [state, level, frame]);
+
+  if (ok === false) return <Ruby state={state} level={level} size={size} className={className} />;
+
+  return (
+    <span
+      className={className}
+      style={{
+        position: 'relative',
+        display: 'block',
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        overflow: 'hidden',
+        background: 'linear-gradient(135deg,#0CB6A6,#2FB183)',
+      }}
+    >
+      {/* All frames stacked, switched on opacity. Swapping `src` instead would
+          re-decode on every syllable and flicker. */}
+      {RUBY_FRAMES.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt={i === 0 ? 'Ruby, the SwiftLoan assistant' : ''}
+          aria-hidden={i !== 0}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            opacity: frame === i ? 1 : 0,
+            // The frames are separate photographs, so lighting and the bokeh
+            // behind her differ very slightly even after alignment. A short
+            // cross-fade blends that away; a hard cut makes it visible as a
+            // flash. Long enough to soften, short enough to stay in sync.
+            transition: 'opacity 70ms linear',
+          }}
+        />
+      ))}
       {state === 'listening' && (
         <span
           style={{
@@ -159,7 +334,13 @@ export function RubyLive({ agent, size, className }: { agent: SpeakingSource; si
     return () => cancelAnimationFrame(raf);
   }, [state, agent]);
 
-  // Photo first, drawn SVG as the automatic fallback.
+  // Two REAL frames — closed and open — swapped on the live audio level.
+  //
+  // Not the canvas jaw-warp: that squashed the lower face to fake a closed
+  // mouth, which cannot work when the source photo's mouth is open. The teeth
+  // and mouth interior are in the pixels; compressing them yields a shorter
+  // open mouth, not a closed one. Genuine lip sync needs a genuine closed-mouth
+  // frame of the same person, in the same crop and lighting.
   return <RubyPhoto state={state} level={level} size={size} className={className} />;
 }
 

@@ -15,7 +15,7 @@
  * local server/ over the USB bridge. Left empty so a standalone build talks
  * to the real deployed dev API and needs no cable/tunnel at all.
  */
-const DEV_API_BASE = '';
+const DEV_API_BASE = 'http://localhost:4000/api';
 
 export const BUILD = {
   // Flipped between builds (generic -> false, context -> true).

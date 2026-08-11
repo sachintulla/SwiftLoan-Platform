@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "admin"],
       "port": 4001
+    },
+    {
+      "name": "website-next",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "website-next"],
+      "port": 4002
     }
   ]
 }

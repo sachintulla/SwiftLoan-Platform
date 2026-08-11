@@ -1,24 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { StepBadge } from '../components/Controls';
+import { StepBadge, Chips } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { Empty } from '../components/common/Empty';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { api } from '../api/client';
-
-interface OfferVM {
-  id?: string; icon: string; name: string; tag: string; verified: boolean; recommended: boolean;
-  amount: string; apr: string; emi: string; tenure: string; fee: string;
-}
+import { api, Offer } from '../api/client';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 export default function Offers() {
   const { state, set, go, showToast } = useStore();
-  const [offers, setOffers] = useState<OfferVM[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
 
@@ -26,21 +22,8 @@ export default function Offers() {
     if (!state.applicationId) { setOffers([]); setLoading(false); return; }
     setErr(null); setLoading(true);
     try {
-      const { offers: raw }: any = await api.getApplication(state.applicationId).then((r: any) => ({ offers: r.application.offers }));
-      const vm: OfferVM[] = (raw || []).map((o: any) => ({
-        id: o.id,
-        icon: o.partner?.icon || 'account_balance',
-        name: o.partner?.name || 'Partner',
-        tag: o.tag || '',
-        verified: o.recommended,
-        recommended: o.recommended,
-        amount: rupee(o.amount),
-        apr: `${o.apr}%`,
-        emi: rupee(o.emi),
-        tenure: `${o.tenureMonths} Months`,
-        fee: `₹${o.processingFee.toFixed(2)}`,
-      }));
-      setOffers(vm);
+      const r: any = await api.getApplication(state.applicationId);
+      setOffers((r.application?.offers || []) as Offer[]);
     } catch (e: any) {
       setErr(e?.message || 'Could not load your offers.');
     } finally {
@@ -50,10 +33,10 @@ export default function Offers() {
 
   useEffect(() => { load(); }, [load]);
 
-  const select = async (o: OfferVM) => {
-    if (state.applicationId && o.id) {
-      set({ selectedOfferId: o.id });
-      await api.selectOffer(state.applicationId, o.id).catch(() => {});
+  const select = async (offer: Offer, emiOptionId?: string) => {
+    if (state.applicationId) {
+      set({ selectedOfferId: offer.id });
+      await api.selectOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
     }
     go('handoff');
   };
@@ -85,46 +68,8 @@ export default function Offers() {
           )
         ) : (
         <View style={{ gap: 14, marginTop: 18 }}>
-          {offers.map((o, i) => (
-            <View key={o.id || i} style={[styles.card, o.recommended && { borderColor: colors.primary, borderWidth: 1.5 }]}>
-              {o.recommended ? (
-                <View style={styles.ribbon}>
-                  <Text style={[font(700), { fontSize: 10.5, color: '#fff', letterSpacing: 0.3 }]}>Recommended</Text>
-                </View>
-              ) : null}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={styles.bank}>
-                  <Icon name={o.icon} size={22} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[font(800), { fontSize: 16, color: colors.text }]}>{o.name}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
-                    {o.verified ? <Icon name="verified" size={14} color={colors.mint} /> : null}
-                    <Text style={[font(600), { fontSize: 12, color: colors.greenDeep }]}>{o.tag}</Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.metrics}>
-                <Metric label="Amount" value={o.amount} />
-                <Metric label="APR" value={o.apr} highlight />
-                <Metric label="EMI" value={o.emi} />
-              </View>
-              <View style={styles.metrics2}>
-                <Metric label="Tenure" value={o.tenure} />
-                <View style={styles.vdiv} />
-                <Metric label="Processing Fee" value={o.fee} />
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                <Pressable style={styles.compareBtn} onPress={() => showToast('Comparison — coming soon.')}>
-                  <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Compare</Text>
-                </Pressable>
-                <Pressable style={styles.selectBtn} onPress={() => select(o)}>
-                  <Text style={[font(700), { color: '#fff', fontSize: 14 }]}>Select Offer</Text>
-                </Pressable>
-              </View>
-            </View>
+          {offers.map(o => (
+            <OfferCard key={o.id} offer={o} onSelect={select} onCompare={() => showToast('Comparison — coming soon.')} />
           ))}
         </View>
         )}
@@ -163,11 +108,148 @@ export default function Offers() {
   );
 }
 
+/**
+ * One lender offer — a multi-tenure EMI picker (Chips) drives which
+ * OfferEmiOption's numbers are shown, defaulting to whichever option the
+ * server marked `recommended`. Mirrors the sample lender-API response shape
+ * (rating/RBI badge, fee + GST breakdown, net disbursal, feature bullets).
+ */
+function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (offer: Offer, emiOptionId?: string) => void; onCompare: () => void }) {
+  const recommendedOption = offer.emiOptions.find(o => o.recommended) ?? offer.emiOptions[0];
+  const [tenureMonths, setTenureMonths] = useState<number | undefined>(recommendedOption?.tenureMonths);
+  const selected = offer.emiOptions.find(o => o.tenureMonths === tenureMonths) ?? recommendedOption;
+  // Some lenders (or a real integration whose BRE hasn't priced anything yet —
+  // an empty offers/options response is a real case, not just a bug) don't
+  // give a fixed EMI upfront. The card still needs to render something useful
+  // instead of quietly disappearing.
+  const hasEmi = !!selected;
+
+  useVoiceTarget(
+    offer.partner.name,
+    { kind: 'button', onTap: () => onSelect(offer, selected?.id) },
+    [offer, selected],
+  );
+
+  const badgeText = offer.badgeText || (offer.recommended ? 'Recommended' : null);
+
+  return (
+    <View style={[styles.card, offer.recommended && styles.cardRecommended]}>
+      <View style={styles.cardTop}>
+        <View style={styles.bank}>
+          {offer.partner.logoUrl ? (
+            <Image source={{ uri: offer.partner.logoUrl }} style={{ width: 28, height: 28, borderRadius: 6 }} resizeMode="contain" />
+          ) : (
+            <Icon name={offer.partner.icon} size={22} color={colors.primary} />
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 17, color: colors.text, letterSpacing: -0.2 }]}>{offer.partner.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+            {offer.partner.rbiApproved ? (
+              <View style={styles.trustPill}>
+                <Icon name="verified" size={12} color={colors.greenDeep} />
+                <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>RBI Approved</Text>
+              </View>
+            ) : null}
+            {offer.partner.rating != null ? (
+              <View style={styles.ratingPill}>
+                <Icon name="star" size={11} color={colors.amber} />
+                <Text style={[font(700), { fontSize: 11, color: colors.text }]}>{offer.partner.rating.toFixed(1)}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        {badgeText ? (
+          <View style={styles.badge}>
+            <Text style={[font(700), { fontSize: 10.5, color: '#fff', letterSpacing: 0.2 }]}>{badgeText}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {hasEmi ? (
+        <>
+          {offer.emiOptions.length > 1 ? (
+            <Chips
+              style={{ marginTop: 16 }}
+              options={offer.emiOptions.map(o => ({ label: `${o.tenureMonths} mo`, value: String(o.tenureMonths) }))}
+              value={String(tenureMonths)}
+              onChange={v => setTenureMonths(Number(v))}
+            />
+          ) : null}
+
+          {/* Hero metric — the one number that matters most, set apart from the
+              secondary interest/repayment figures rather than three equal columns. */}
+          <View style={styles.emiHero}>
+            <View>
+              <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>Monthly EMI</Text>
+              <Text style={[font(800), { fontSize: 26, color: colors.primary, letterSpacing: -0.5, marginTop: 2 }]}>{rupee(selected!.monthlyEmi)}</Text>
+            </View>
+            <View style={styles.heroDiv} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <MiniStat label="Total interest" value={rupee(selected!.totalInterestPayable)} />
+              <MiniStat label="Total repayment" value={rupee(selected!.totalRepaymentAmount)} />
+            </View>
+          </View>
+        </>
+      ) : (
+        // No priced EMI yet — a real lender whose rate is only known after
+        // approval (e.g. UnitySFB/MoneyView elsewhere in this app), or a BRE
+        // that hasn't returned any options. Still shows what IS known —
+        // amount/rate/disbursal — rather than an empty placeholder.
+        <View style={styles.pendingBox}>
+          <Metric label="Pre-approved amount" value={rupee(offer.amount)} highlight />
+          <Metric label="Interest rate" value={`${offer.apr}% p.a.`} />
+          <Metric label="Disbursal time" value={offer.partner.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} hr` : 'Instant'} />
+        </View>
+      )}
+
+      {/* Fee breakdown — a compact "receipt" strip rather than another metrics row. */}
+      <View style={styles.receipt}>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>Processing fee</Text>
+          <Text style={[font(700), { fontSize: 13, color: colors.text, marginTop: 1 }]}>
+            {rupee(offer.processingFeeAmount)} <Text style={{ color: colors.textSoft, fontSize: 11 }}>+ {rupee(offer.gstOnProcessingFee)} GST</Text>
+          </Text>
+        </View>
+        <Icon name="arrow_forward" size={14} color={colors.muted} />
+        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+          <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>You receive</Text>
+          <Text style={[font(800), { fontSize: 14, color: colors.greenDeep, marginTop: 1 }]}>{rupee(offer.netDisbursalAmount)}</Text>
+        </View>
+      </View>
+
+      {offer.partner.features.length ? (
+        <View style={styles.featuresBox}>
+          {offer.partner.features.map((f, i) => <ValidRow key={i} text={f} />)}
+        </View>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 }}>
+        <Pressable style={styles.compareBtn} onPress={onCompare} hitSlop={8}>
+          <Text style={[font(600), { color: colors.textMid, fontSize: 13.5 }]}>Compare</Text>
+        </Pressable>
+        <Pressable style={styles.selectBtn} onPress={() => onSelect(offer, selected?.id)}>
+          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>Select Offer</Text>
+          <Icon name="arrow_forward" size={17} color="#fff" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+      <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{label}</Text>
+      <Text style={[font(700), { fontSize: 13, color: colors.text }]}>{value}</Text>
+    </View>
+  );
+}
 function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <View style={{ flex: 1 }}>
-      <Text style={[font(400), { fontSize: 11, color: colors.muted }]}>{label}</Text>
-      <Text style={[font(800), { fontSize: 15, color: highlight ? colors.primary : colors.text, marginTop: 1 }]}>{value}</Text>
+      <Text style={[font(500), { fontSize: 10.5, color: colors.muted }]}>{label}</Text>
+      <Text style={[font(800), { fontSize: highlight ? 16 : 13.5, color: highlight ? colors.primary : colors.text, marginTop: 2 }]}>{value}</Text>
     </View>
   );
 }
@@ -181,14 +263,52 @@ function ValidRow({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.surface, borderRadius: 18, borderWidth: 1, borderColor: colors.line, padding: 16 },
-  ribbon: { position: 'absolute', top: -1, right: 16, backgroundColor: colors.primary, borderBottomLeftRadius: 10, borderBottomRightRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  bank: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
-  metrics: { flexDirection: 'row', marginTop: 14 },
-  metrics2: { flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
-  vdiv: { width: 1, height: 26, backgroundColor: colors.lineSoft, marginHorizontal: 8 },
-  compareBtn: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
-  selectBtn: { flex: 1.4, height: 44, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 18,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  // Border only — a whole-card translucent tint looked patchy once the hero
+  // EMI/receipt/pending boxes (each with their own opaque background) sat on
+  // top of it, breaking the wash into uneven visible rectangles.
+  cardRecommended: {
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+  },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  bank: { width: 46, height: 46, borderRadius: 13, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  trustPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.chip, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
+  ratingPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(245,166,36,0.14)', borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
+  badge: { backgroundColor: colors.primary, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, shadowColor: '#0A3F41', shadowOpacity: 0.18, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+  emiHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: 14,
+    padding: 14,
+    gap: 14,
+  },
+  heroDiv: { width: 1, height: 40, backgroundColor: colors.lineSoft },
+  pendingBox: {
+    flexDirection: 'row',
+    marginTop: 16,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: 14,
+    padding: 14,
+    gap: 4,
+  },
+  receipt: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
+  featuresBox: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
+  compareBtn: { paddingHorizontal: 14, height: 46, alignItems: 'center', justifyContent: 'center' },
+  selectBtn: { flex: 1, flexDirection: 'row', gap: 6, height: 46, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   info: { marginTop: 16, backgroundColor: 'rgba(44,110,143,0.07)', borderRadius: 16, padding: 16 },
   flex: { marginTop: 14, backgroundColor: 'rgba(255,255,255,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 16, padding: 16 },
   flexIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },

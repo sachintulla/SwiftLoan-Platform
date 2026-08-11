@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { emi } from '../utils/emi.js';
+import { getLenderOfferProvider } from '../lib/lenderOffers.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 export const applicationsRouter = Router();
@@ -42,7 +42,10 @@ applicationsRouter.get('/', ah(async (req, res) => {
 /** Get one application with offers + loan. */
 applicationsRouter.get('/:id', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  const full = await prisma.loanApplication.findUnique({ where: { id: app.id }, include: { offers: { include: { partner: true } }, loan: true, kyc: true } });
+  const full = await prisma.loanApplication.findUnique({
+    where: { id: app.id },
+    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true },
+  });
   res.json({ application: full });
 }));
 
@@ -69,20 +72,35 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const partners = await prisma.lenderPartner.findMany({ where: { active: true }, take: 3, orderBy: { baseApr: 'asc' } });
   if (partners.length === 0) throw new HttpError(503, 'No lending partners configured — run the seed script');
 
-  const created = await Promise.all(partners.map((p, i) => {
-    const apr = p.baseApr;
+  const created = await Promise.all(partners.map(async (p, i) => {
+    // Each partner's offer is produced by its LenderOfferProvider (mock today,
+    // a real lender's adapter later) — see lib/lenderOffers.ts. The Offer row's
+    // own amount/apr/emi/tenureMonths are a denormalized copy of the
+    // recommended tenure option, so /handoff can keep reading those scalars.
+    const raw = await getLenderOfferProvider(p).getOffer(p, app);
+    // A real lender can legitimately return zero priced options (rate/EMI only
+    // known after approval, or a BRE that hasn't decided yet — we saw exactly
+    // this from Aurix's UAT: `"Offers": []`). Fall back to the requested
+    // amount/tenure with no EMI figure rather than crashing on `undefined`.
+    const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
     return prisma.offer.create({
       data: {
         applicationId: app.id,
         partnerId: p.id,
-        amount: app.amount,
-        apr,
-        emi: emi(app.amount, app.tenureMonths, apr),
-        tenureMonths: app.tenureMonths,
-        processingFee: p.processingFee,
+        amount: raw.amount,
+        apr: raw.apr,
+        emi: recommendedOption?.monthlyEmi ?? 0,
+        tenureMonths: recommendedOption?.tenureMonths ?? app.tenureMonths,
+        processingFee: raw.processingFeeAmount,
+        processingFeeAmount: raw.processingFeeAmount,
+        gstOnProcessingFee: raw.gstOnProcessingFee,
+        netDisbursalAmount: raw.netDisbursalAmount,
+        badgeText: raw.badgeText,
         tag: p.tagline,
         recommended: i === 0, // lowest APR
+        emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
       },
+      include: { emiOptions: true, partner: true },
     });
   }));
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'offers_ready' } });
@@ -105,36 +123,48 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
 /** List offers for an application. */
 applicationsRouter.get('/:id/offers', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  const offers = await prisma.offer.findMany({ where: { applicationId: app.id }, include: { partner: true }, orderBy: { apr: 'asc' } });
+  const offers = await prisma.offer.findMany({ where: { applicationId: app.id }, include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } });
   res.json({ offers });
 }));
 
-/** Select an offer (Step 3 → 4). */
-applicationsRouter.post('/:id/offers/:offerId/select', ah(async (req, res) => {
-  const app = await owned(req.user!.sub, req.params.id);
-  await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
-  const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true } });
-  await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+/** Select an offer (Step 3 → 4) — optionally the specific tenure the user picked. */
+applicationsRouter.post('/:id/offers/:offerId/select',
+  validate(z.object({ emiOptionId: z.string().uuid().optional() })),
+  ah(async (req, res) => {
+    const app = await owned(req.user!.sub, req.params.id);
+    await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
 
-  // WS5: the real selection, with which offer — the screen-arrival proxy the
-  // client used could not say which lender or rate was chosen.
-  trackJourney(
-    { userId: req.user!.sub },
-    {
-      channel: 'app',
-      name: JOURNEY_EVENTS.OFFER_SELECTED,
-      metadata: {
-        applicationId: app.id,
-        offerId: offer.id,
-        apr: offer.apr,
-        amount: offer.amount,
-        tenureMonths: offer.tenureMonths,
+    // If the user picked a specific tenure option, that becomes the Offer's
+    // headline amount/emi/tenure — /handoff reads those scalars directly.
+    let tenureOverride: { emi: number; tenureMonths: number } | undefined;
+    if (req.body.emiOptionId) {
+      const option = await prisma.offerEmiOption.findFirst({ where: { id: req.body.emiOptionId, offerId: req.params.offerId } });
+      if (!option) throw new HttpError(404, 'EMI option not found for this offer');
+      tenureOverride = { emi: option.monthlyEmi, tenureMonths: option.tenureMonths };
+    }
+
+    const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true, ...tenureOverride } });
+    await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+
+    // WS5: the real selection, with which offer — the screen-arrival proxy the
+    // client used could not say which lender or rate was chosen.
+    trackJourney(
+      { userId: req.user!.sub },
+      {
+        channel: 'app',
+        name: JOURNEY_EVENTS.OFFER_SELECTED,
+        metadata: {
+          applicationId: app.id,
+          offerId: offer.id,
+          apr: offer.apr,
+          amount: offer.amount,
+          tenureMonths: offer.tenureMonths,
+        },
       },
-    },
-  ).catch(() => {});
+    ).catch(() => {});
 
-  res.json({ offer });
-}));
+    res.json({ offer });
+  }));
 
 /** Secure handoff → disburse: create the loan + repayment schedule. */
 applicationsRouter.post('/:id/handoff', ah(async (req, res) => {

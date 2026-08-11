@@ -38,8 +38,8 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = SwiftLoan/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Regular.ttf"; path = "../assets/fonts/Inter-Regular.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F00DFACE00000000000A0001 /* VoiceAudioModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceAudioModule.swift; path = Voice/VoiceAudioModule.swift; sourceTree = "<group>"; };
-		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
+		F00DFACE00000000000A0001 /* VoiceAudioModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceAudioModule.swift; path = SwiftLoan/Voice/VoiceAudioModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = SwiftLoan/Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
 		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 

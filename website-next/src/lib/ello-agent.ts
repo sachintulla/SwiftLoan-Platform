@@ -241,11 +241,22 @@ export class ElloAgent {
     const ws = new WebSocket(this.opts.wsUrl);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
+    // A stop() followed quickly by a new start() replaces `this.ws` with a
+    // fresh socket while this old one is still closing — its `close` (or a
+    // late `message`) then arrives after the new session is already live.
+    // Without this guard that stale event tore down the NEW session's mic
+    // (this.stopMic()/this.setStatus() act on shared agent state, not on
+    // this particular socket), which is exactly the "stop then restart does
+    // nothing but a page refresh fixes it" bug — a full reload creates a
+    // brand-new ElloAgent with no stale listener left to fire.
+    const isCurrent = () => this.ws === ws;
     ws.addEventListener('open', () => {
+      if (!isCurrent()) return;
       this.log('ws open');
       this.dbg('info', 'ws open');
     });
     ws.addEventListener('close', (e) => {
+      if (!isCurrent()) return;
       this.log('ws close', e.code, e.reason);
       this.dbg('info', 'ws close', `code=${e.code} ${e.reason ?? ''}`);
       this.setStatus('ended');
@@ -253,10 +264,12 @@ export class ElloAgent {
       this.stopMic();
     });
     ws.addEventListener('error', () => {
+      if (!isCurrent()) return;
       this.dbg('error', 'ws error');
       this.emit('error', { message: 'WebSocket error' });
     });
     ws.addEventListener('message', (e) => {
+      if (!isCurrent()) return;
       if (typeof e.data === 'string') {
         this.handleMessage(e.data);
       } else {
