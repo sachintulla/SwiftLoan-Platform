@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TOKENS_KEY = 'swiftloan.session.tokens';
 const LANG_KEY = 'swiftloan.session.lang';
+const VOICE_FAB_SIDE_KEY = 'swiftloan.session.voiceFabSide';
 
 export interface StoredTokens {
   accessToken: string;
@@ -39,4 +40,14 @@ export async function saveLang(lang: string): Promise<void> {
 
 export async function loadLang(): Promise<string | null> {
   return AsyncStorage.getItem(LANG_KEY).catch(() => null);
+}
+
+/** Which screen edge the voice FAB is docked to — the user drags it once and it stays there. */
+export async function saveVoiceFabSide(side: 'left' | 'right'): Promise<void> {
+  await AsyncStorage.setItem(VOICE_FAB_SIDE_KEY, side).catch(() => {});
+}
+
+export async function loadVoiceFabSide(): Promise<'left' | 'right' | null> {
+  const raw = await AsyncStorage.getItem(VOICE_FAB_SIDE_KEY).catch(() => null);
+  return raw === 'left' || raw === 'right' ? raw : null;
 }

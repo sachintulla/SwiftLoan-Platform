@@ -1,14 +1,13 @@
-import { Platform } from 'react-native';
 import { saveTokens, clearTokens } from '../state/session';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
- * iOS simulator reaches the host at localhost; the Android emulator uses 10.0.2.2.
- * Override with a real host for a physical device / deployed API.
+ * Points at the deployed dev box (dev-api.swiftloan.ai) rather than a local
+ * server — a physical device can't reach `localhost`/`10.0.2.2` anyway, and
+ * this way testing doesn't depend on anyone having the local backend running.
+ * Override with SWIFTLOAN_API_BASE (see index.js) for local-backend testing.
  */
-export const API_BASE =
-  (globalThis as any).SWIFTLOAN_API_BASE ||
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000/api' : 'http://localhost:4000/api');
+export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'http://dev-api.swiftloan.ai/api';
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
@@ -101,6 +100,33 @@ export interface PreApprovedPlan {
   active: boolean;
 }
 
+// A real per-application lender offer (distinct from PreApprovedPlan above,
+// which is admin-curated marketing data). Amounts are plain rupees, matching
+// LoanApplication/Offer's existing convention (not paise). Server-side this is
+// produced by a LenderOfferProvider (mock today) — see server/src/lib/lenderOffers.ts.
+export interface EmiOption {
+  id: string;
+  tenureMonths: number;
+  monthlyEmi: number;
+  totalInterestPayable: number;
+  totalRepaymentAmount: number;
+  recommended: boolean;
+}
+
+export interface Offer {
+  id: string;
+  partner: { name: string; icon: string; logoUrl?: string | null; rating?: number | null; rbiApproved: boolean; features: string[]; disbursalTimeHrs?: number | null };
+  amount: number;
+  apr: number;
+  processingFeeAmount: number;
+  gstOnProcessingFee: number;
+  netDisbursalAmount: number;
+  badgeText?: string | null;
+  recommended: boolean;
+  selected: boolean;
+  emiOptions: EmiOption[];
+}
+
 export const api = {
   health: () => request('GET', '/health'),
 
@@ -151,7 +177,8 @@ export const api = {
   getApplication: (id: string) => request('GET', `/applications/${id}`),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
   prequalify: (id: string) => request('POST', `/applications/${id}/prequalify`),
-  selectOffer: (id: string, offerId: string) => request('POST', `/applications/${id}/offers/${offerId}/select`),
+  selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
+    request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
 
   // KYC / loans / misc
@@ -172,13 +199,13 @@ export const api = {
 // Fire-and-forget instrumentation feeding the admin dashboard's funnel/analytics.
 // These NEVER throw and NEVER block the UI — every call is wrapped and swallowed.
 //
-// Tracking posts to the deployed API by default so events from a physical device
-// reach the live dashboard. Override with (globalThis).SWIFTLOAN_TRACK_BASE for
-// local testing, e.g. 'http://10.0.2.2:4000/api'.
+// Tracking posts to the same deployed dev API as everything else by default,
+// so events from a physical device reach the live dashboard. Override with
+// (globalThis).SWIFTLOAN_TRACK_BASE for local testing, e.g. 'http://10.0.2.2:4000/api'.
 export const TRACK_BASE: string =
   (globalThis as any).SWIFTLOAN_TRACK_BASE ||
   (globalThis as any).SWIFTLOAN_API_BASE ||
-  'https://swiftloan-api.onrender.com/api';
+  'http://dev-api.swiftloan.ai/api';
 
 let sessionId: string | null = null;
 export const getSessionId = () => sessionId;

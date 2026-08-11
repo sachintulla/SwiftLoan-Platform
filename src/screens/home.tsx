@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Linking } from 'react-native';
+import React from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { EmiCalculator } from '../components/EmiCalculator';
+import { PreApprovedPlans } from '../components/PreApprovedPlans';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
-import { loadSelectedPlan, SelectedPlan } from '../state/selectedPlan';
 
 const LOAN_TYPES = [
   { icon: 'person', k: 'ltPersonal', s: 'ltPersonalSub' },
@@ -21,15 +21,7 @@ function initials(name: string) {
 
 export default function Home() {
   const t = useT();
-  const { state, set, go, showToast } = useStore();
-  const [selectedPlan, setSelectedPlan] = useState<SelectedPlan | null>(null);
-  const [planLoaded, setPlanLoaded] = useState(false);
-
-  useEffect(() => {
-    loadSelectedPlan().then(p => { setSelectedPlan(p); setPlanLoaded(true); });
-  }, []);
-
-  const openExplore = () => { set({ exploreFromHome: true }); go('explore'); };
+  const { state, go, showToast } = useStore();
 
   return (
     <Screen scroll bottomNav padded>
@@ -65,13 +57,6 @@ export default function Home() {
         </View>
       </Pressable>
 
-      {/* Selected pre-approved plan (if any) + a way to browse the full list again */}
-      {planLoaded && (
-        selectedPlan
-          ? <SelectedPlanCard plan={selectedPlan} onExploreMore={openExplore} />
-          : <ExplorePlansPrompt onPress={openExplore} />
-      )}
-
       {/* Loan types */}
       <SectionHeading title={t.loanTypesTitle} />
       <View style={styles.tileGrid}>
@@ -88,6 +73,17 @@ export default function Home() {
           </Pressable>
         ))}
       </View>
+
+      {/* Pre-approved plans — full list embedded right here, nothing
+          preselected. Tapping a plan acts immediately (saves it and opens
+          the lender's page) since there's no sign-up gate left to enforce
+          once the user is already on their dashboard. */}
+      <SectionHeading title="Pre-approved plans" sub="No PAN needed · credit score untouched" />
+      <PreApprovedPlans
+        mode="home"
+        showIntro={false}
+        onApply={plan => showToast(plan.exploreUrl ? `Opening ${plan.lenderName}…` : `${plan.lenderName} selected`)}
+      />
 
       {/* Manage loan */}
       <SectionHeading title={t.manageLoan} />
@@ -139,55 +135,6 @@ export default function Home() {
       {/* Disclaimer */}
       <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>
     </Screen>
-  );
-}
-
-/**
- * The plan the user picked on the "Explore your loan options" screen (skip-login
- * path), persisted locally. "Explore Plan" opens the lender's own site in the
- * browser — a demo stand-in for a real redirect/deep integration.
- */
-function SelectedPlanCard({ plan, onExploreMore }: { plan: SelectedPlan; onExploreMore: () => void }) {
-  const openExplore = () => {
-    if (plan.exploreUrl) Linking.openURL(plan.exploreUrl).catch(() => {});
-  };
-  return (
-    <View>
-      <View style={styles.selectedPlanCard}>
-        <View style={styles.tileIcon}>
-          <Icon name={plan.icon} size={20} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[font(600), { fontSize: 11.5, color: colors.muted }]}>Your selected plan</Text>
-          <Text style={[font(700), { fontSize: 15, color: colors.text, marginTop: 1 }]}>{plan.lenderName}</Text>
-        </View>
-        {plan.exploreUrl ? (
-          <Pressable onPress={openExplore} style={styles.exploreBtn}>
-            <Text style={[font(700), { fontSize: 12.5, color: colors.primary }]}>Explore Plan</Text>
-            <Icon name="open_in_new" size={14} color={colors.primary} />
-          </Pressable>
-        ) : null}
-      </View>
-      <Pressable onPress={onExploreMore} style={{ alignSelf: 'flex-end', marginTop: 8 }}>
-        <Text style={[font(600), { fontSize: 12.5, color: colors.textSoft }]}>See all plans →</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** Shown when no plan has been picked yet — the entry point into the full list. */
-function ExplorePlansPrompt({ onPress }: { onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={styles.selectedPlanCard}>
-      <View style={styles.tileIcon}>
-        <Icon name="verified" size={20} color={colors.primary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>See your pre-approved plans</Text>
-        <Text style={[font(400), { fontSize: 12, color: colors.textSoft, marginTop: 1 }]}>No PAN needed · credit score untouched</Text>
-      </View>
-      <Icon name="chevron_right" size={20} color={colors.muted} />
-    </Pressable>
   );
 }
 
@@ -276,26 +223,6 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 12,
     marginTop: 16,
-  },
-  selectedPlanCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 16,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 18,
-    padding: 14,
-  },
-  exploreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.chip,
-    borderRadius: 9999,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
   },
   tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   tile: {

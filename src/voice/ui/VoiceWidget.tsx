@@ -1,14 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, PanResponder, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from '../../components/Icon';
 import { colors } from '../../theme/tokens';
-import { useT } from '../../state/store';
+import { useStore, useT } from '../../state/store';
+import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
 import type { AgentStatus } from '../types';
+
+// Deliberately more than a typical FAB margin: anything much closer to the
+// bezel sits inside Android's edge back-gesture zone (MIUI/Xiaomi devices
+// extend this further than stock Android), so a drag starting there gets
+// hijacked by the OS "swipe from edge = go back" gesture before this
+// component's PanResponder ever sees the touch — the button then looks
+// "stuck" when dragging away from whichever edge it's docked to.
+const EDGE_MARGIN = 32;
+
+// Screens that render <BottomNav> (grep `bottomNav` across src/screens) — the
+// FAB needs extra clearance only on these; everywhere else it should sit
+// close to the bottom edge like a normal FAB, not float above empty space.
+const SCREENS_WITH_BOTTOM_NAV = new Set(['explore', 'fare', 'help', 'home', 'loans', 'profile']);
 
 // The button itself is always the same brand gradient — only the bars (and
 // the fast ripple while active) change color, so the circle reads as one
@@ -115,9 +129,40 @@ function EqualizerBars({ color }: { color: string }) {
 /** Floating mic FAB — a constant-color button; bars + ripple carry all state color. */
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const { state } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
+  // Which edge the FAB is docked to — persisted so the user's choice survives
+  // app restarts. Defaults to right (today's fixed spot) for first launch.
+  const [side, setSide] = useState<'left' | 'right'>('right');
+  // Live horizontal offset while a drag is in progress, applied as a
+  // transform on top of whichever edge it's currently docked to — so the
+  // button visually follows the finger without needing separate absolute-
+  // position math per screen width.
+  const [dragX, setDragX] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    loadVoiceFabSide().then(saved => { if (saved) setSide(saved); });
+  }, []);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      // Only claim the gesture once it's clearly a horizontal drag — a plain
+      // tap (dx ~0) must still reach the Pressable underneath untouched.
+      onMoveShouldSetPanResponder: (_evt, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_evt, g) => setDragX(g.dx),
+      onPanResponderRelease: (evt) => {
+        const newSide: 'left' | 'right' = evt.nativeEvent.pageX < screenWidth / 2 ? 'left' : 'right';
+        setSide(newSide);
+        setDragX(0);
+        saveVoiceFabSide(newSide);
+      },
+      onPanResponderTerminate: () => setDragX(0),
+    }),
+  ).current;
 
   useEffect(() => agent.on('statusChange', setStatus), []);
 
@@ -165,11 +210,26 @@ export default function VoiceWidget() {
     }
   };
 
-  // Fixed high offset so the FAB clears both BottomNav (~90pt) and Toast
-  // (anchored at 104+insets.bottom) on every screen without needing to know
-  // per-screen whether either is present.
+  // Two fixed offsets, not one — screens with a BottomNav pill need real
+  // clearance above it; screens without one (intro, language, etc.) should
+  // sit close to the bottom edge like a normal FAB instead of floating over
+  // empty space. Either way it's a constant per screen type, not derived
+  // from window height, so it never drifts with screen size. Horizontal side
+  // is the one thing left to the user: drag the button past the midline and
+  // it docks to that edge, remembered for next time.
+  const hasBottomNav = SCREENS_WITH_BOTTOM_NAV.has(state.screen);
+  const edgeStyle = side === 'left' ? { left: EDGE_MARGIN } : { right: EDGE_MARGIN };
+
   return (
-    <View pointerEvents="box-none" style={[styles.wrap, { bottom: 176 + insets.bottom }]}>
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.wrap,
+        edgeStyle,
+        { bottom: (hasBottomNav ? 108 : 24) + insets.bottom, transform: [{ translateX: dragX }] },
+      ]}
+      {...panResponder.panHandlers}
+    >
       <View style={styles.fabZone}>
         <IdleHalo />
         <Ripple active={showBars} delay={0} color={accent} />
@@ -191,7 +251,7 @@ const RIPPLE_SIZE = FAB_SIZE + 8;
 const HALO_SIZE = FAB_SIZE + 20;
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', right: 18, alignItems: 'center' },
+  wrap: { position: 'absolute', alignItems: 'center' },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
   halo: {
