@@ -62,7 +62,7 @@ async function run() {
   check('select offer', sel.status === 200 && sel.data.offer.selected === true);
 
   const kyc = await j('POST', '/api/kyc/aadhaar', { applicationId: appId, reference: 'XXXX-1234' }, token);
-  check('kyc aadhaar verified', kyc.status === 201 && kyc.data.verification.status === 'verified', kyc.data);
+  check('kyc aadhaar submitted (pending real verification)', kyc.status === 201 && kyc.data.verification.status === 'pending', kyc.data);
 
   const handoff = await j('POST', `/api/applications/${appId}/handoff`, {}, token);
   check('handoff → loan created', handoff.status === 201 && !!handoff.data.loan.ref, handoff.data);

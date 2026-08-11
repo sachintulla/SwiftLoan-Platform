@@ -10,18 +10,34 @@
   }
 
   // ── Config ──────────────────────────────────────────────────────────────
-  // NEXT_PUBLIC-style client values (baked into the page — a publishable key).
-  // Swap ASSISTANT_ID for a dedicated SwiftLoan website assistant (Native Mode /
-  // Gemini Live) using prompts/ello-website-navigator-prompt.md for best results.
+  // NOTE: this is the SUPERSEDED static site. The live marketing site is
+  // `website-next/`, which reads these from env vars instead.
+  //
+  // The key was removed from source control: although it is a publishable
+  // client key (it ships in the page either way), committing it meant rotation
+  // required a code change, and it is now permanently in git history.
+  // Set it via <meta name="ello-api-key" content="..."> or window.ELLO_API_KEY.
+  var meta = function (n) {
+    var el = document.querySelector('meta[name="' + n + '"]');
+    return el && el.content ? el.content : '';
+  };
   var CONFIG = {
-    apiKey: 'ak_txW3kjj3L-xpYACyvGn8K9ua9pvnHyYBaSeXc15H3DI.OASqN2c_yaFbkuYl',
+    apiKey: window.ELLO_API_KEY || meta('ello-api-key') || '',
     assistantId: '6a64d273a4fc43f6203cd3cc',
-    apiBaseUrl: 'https://api-dev.getello.ai',
-    wsUrl: 'wss://connect-dev.getello.ai/ws-ello',
+    apiBaseUrl: 'https://api-in.getello.ai',
+    wsUrl: 'wss://connect-in.getello.ai/ws-ello',
   };
   // Allow override via <meta name="ello-assistant-id" content="..."> without editing JS.
   var metaAssistant = document.querySelector('meta[name="ello-assistant-id"]');
   if (metaAssistant && metaAssistant.content) CONFIG.assistantId = metaAssistant.content;
+
+  // With no key configured the widget hides itself rather than rendering a mic
+  // that fails on click.
+  if (!CONFIG.apiKey) {
+    console.warn('[voice] no Ello API key configured — voice widget disabled. ' +
+      'Set window.ELLO_API_KEY or <meta name="ello-api-key">.');
+    return;
+  }
 
   // ── Site map: sections in DOM order with spoken aliases ───────────────────
   var SECTIONS = [

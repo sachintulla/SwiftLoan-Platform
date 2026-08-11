@@ -9,9 +9,12 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, fetchContext, type ContextPayload,
+  trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
+  type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
+import { loadTokens, loadLang, saveLang } from './session';
 import { BUILD } from '../config/build';
+import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
@@ -20,13 +23,17 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 // navigate_screen tool can validate an incoming screen name at runtime.
 export const SCREEN_NAMES = [
   'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
-  'home', 'loans', 'fare', 'help', 'profile',
+  'home', 'loans', 'fare', 'help', 'profile', 'explore',
   'basic', 'basicpan', 'finding', 'offers', 'handoff',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
   'status', 'disbursed', 'repay', 'creditscore',
 ] as const;
 export type Screen = (typeof SCREEN_NAMES)[number];
+
+// Spelled out in full for the voice agent's page context — more reliable for
+// the model to act on than a bare 'en'/'hi'/'te' code.
+const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te: 'Telugu' };
 
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
@@ -39,7 +46,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   offers: 'basicpan', handoff: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home', creditscore: 'repay',
-  loans: 'home', fare: 'home',
+  loans: 'home', fare: 'home', explore: 'mobile',
 };
 
 export interface AppState {
@@ -78,6 +85,17 @@ export interface AppState {
   // WS3 context-aware install (context build only)
   contextLoaded: boolean;
   contextData: ContextPayload | null;
+  // Website inquiries matched to this phone at OTP verify; fed to the voice agent.
+  priorInquiries: PriorInquiry[];
+  // WS8: everything the backend already knows about this phone (website
+  // enquiries, the outbound call, an application in flight). Fetched once the
+  // user is signed in and handed to the in-app agent so it opens from where they
+  // left off rather than from scratch. Null until fetched, or when they are new.
+  userContext: UserContext | null;
+  // True only when 'explore' was opened from home's "Explore more plans" link
+  // (already signed in) rather than a pre-signup skip button — changes explore's
+  // back-target and hides its "sign up" CTA. Reset by both skip handlers.
+  exploreFromHome: boolean;
 }
 
 export const initialState: AppState = {
@@ -99,11 +117,14 @@ export const initialState: AppState = {
   payInput: '', payChecked: false,
   aboutName: '', aboutPin: '', aboutGender: null,
   dobOpen: false, dobValue: '', calY: 1995, calM: 0,
-  pdEdit: false, pdName: 'Johnathan Doe', pdEmail: 'j.doe@example.com',
-  pdPhone: '+91 98765 43210', pdDob: '1988-05-15',
-  pdDobOpen: false, pdCalY: 1988, pdCalM: 4,
+  pdEdit: false, pdName: '', pdEmail: '',
+  pdPhone: '', pdDob: '',
+  pdDobOpen: false, pdCalY: 1995, pdCalM: 0,
   authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
   contextLoaded: false, contextData: null,
+  priorInquiries: [],
+  userContext: null,
+  exploreFromHome: false,
 };
 
 type Action =
@@ -123,6 +144,9 @@ const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
   creditscore: 'credit_score_viewed',
 };
+
+/** WS5: one install report per app process (see the boot effect below). */
+let installReported = false;
 
 // Exposed for unit tests.
 export const PREV_MAP = PREV;
@@ -165,6 +189,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // WS4 tracking bookkeeping (fire-and-forget analytics only).
   const pagesVisited = useRef(0);
   const screenEnteredAt = useRef(Date.now());
+  /** The onboarding step the user is currently ON, completed when they leave it. */
+  const prevOnboardingStep = useRef<{ step: number; screen: Screen } | null>(null);
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
 
@@ -197,6 +223,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // keep a ref of latest state for back()
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Restore a persisted session on boot, so a returning user skips onboarding
+  // entirely instead of re-verifying OTP every single app launch — and the
+  // voice agent's preferred_language is correct from the very first turn,
+  // not just within one session's memory. The language itself restores even
+  // for a guest who never logged in.
+  useEffect(() => {
+    (async () => {
+      const savedLang = await loadLang();
+      if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
+
+      const tokens = await loadTokens();
+      if (!tokens) return;
+      setTokens(tokens.accessToken, tokens.refreshToken);
+      try {
+        const { user }: any = await api.me();
+        dispatch({
+          type: 'set',
+          patch: {
+            authUser: user,
+            pdName: user.fullName || user.firstName || '',
+            pdEmail: user.email || '',
+            pdPhone: user.phone ? `+91 ${user.phone}` : '',
+            pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : '',
+            lang: user.lang || stateRef.current.lang,
+          },
+        });
+        // Only jump the user automatically if they haven't already moved
+        // past the splash screen themselves while this was resolving.
+        if (stateRef.current.screen === 'splash') dispatch({ type: 'go', screen: 'home' });
+      } catch {
+        // Expired/invalid — drop the stale session rather than keep retrying
+        // it on every future boot.
+        setTokens(null, null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the last-picked language around across app restarts.
+  useEffect(() => {
+    if (state.lang) saveLang(state.lang);
+  }, [state.lang]);
 
   // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
@@ -236,7 +305,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       go(screenName as Screen);
       return true;
     });
-    agent.registerPageContext(() => buildPageContext(stateRef.current.screen));
+    agent.registerPageContext(() => ({
+      ...buildPageContext(stateRef.current.screen),
+      // The language the user picked on the language-selection screen — the
+      // voice agent should speak in this language from the first word,
+      // regardless of what language it's addressed in, unless the user
+      // explicitly asks to switch (see the prompt's Voice style section).
+      preferred_language: LANGUAGE_NAMES[stateRef.current.lang ?? 'en'] ?? 'English',
+      priorInquiries: stateRef.current.priorInquiries,
+      // WS8: the history behind this phone number. `brief` is a one-line summary
+      // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
+      // personal loan; spoke to us on the phone yesterday"), so it continues the
+      // conversation instead of restarting it. Read from stateRef so this closure
+      // never goes stale.
+      userContext: stateRef.current.userContext ?? undefined,
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -247,11 +330,61 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       osVersion: String(Platform.Version),
       appVersion: '1.0',
     });
+    // WS5: report the install exactly once per device. AsyncStorage isn't a
+    // dependency here, so the flag lives on the module-level `installReported`
+    // guard — good enough because a reinstall genuinely is a new install.
+    if (!installReported) {
+      installReported = true;
+      trackInstall(Platform.OS, {});
+      trackEvent('app_lifecycle', 'app_opened');
+    }
+
+    // Upshot: boot once per process. No-ops entirely unless the SDK is
+    // installed AND credentials are set, so this is safe on every build.
+    if (initUpshot()) {
+      upshotEvent('app_opened', { platform: Platform.OS });
+      // Ask for POST_NOTIFICATIONS. Required from Android 13 — without it the
+      // OS drops every notification silently, so push looks "delivered" on the
+      // Upshot dashboard while nothing ever appears on the handset.
+      //
+      // Deferred a tick because the SDK requests the permission through the
+      // *current Activity*, which is not attached yet at this point in boot.
+      setTimeout(() => registerUpshotPush(), 1500);
+    }
     const sub = RNAppState.addEventListener('change', (s) => {
       if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
     });
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
+
+  // ── WS8: load what the backend already knows about this phone ──────────
+  //
+  // Runs when the user becomes authenticated, by either route (OTP verify or the
+  // anonymous "Skip" session). This is the non-deep-link path: an organic
+  // Play Store install arrives with just a phone number, so without this the
+  // in-app agent greets a returning customer as a stranger and re-asks what they
+  // already told the website and the phone agent.
+  //
+  // Fire-and-forget and never awaited by a screen: if it fails or the user is
+  // brand new, `userContext` stays null and the agent behaves exactly as before.
+  const contextFetched = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || contextFetched.current) return;
+    contextFetched.current = true;
+    fetchUserContext()
+      .then((ctx) => {
+        // Only store it when there is something to say. An empty context would
+        // put `hasHistory: false` in front of the agent, which is noise.
+        if (!ctx?.hasHistory) return;
+        dispatch({ type: 'set', patch: { userContext: ctx } });
+        trackEvent('funnel', 'user_context_loaded', 'home', {
+          inquiries: ctx.inquiries.length,
+          hadCall: !!ctx.lastCall,
+          stage: ctx.stage,
+        });
+      })
+      .catch(() => undefined);
+  }, [state.authUser]);
 
   // ── WS4: emit an event on every screen transition (fire-and-forget) ──
   useEffect(() => {
@@ -261,6 +394,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     screenEnteredAt.current = Date.now();
 
     trackEvent('navigation', 'screen_view', screen);
+    // Same screen name to Upshot, so IAM/activity campaigns can be targeted at
+    // a screen ("show the offers survey on `offers`") using the names the rest
+    // of our analytics already uses.
+    upshotScreen(screen);
 
     const funnelName = FUNNEL_EVENTS[screen];
     if (funnelName) {
@@ -269,8 +406,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         loanId: stateRef.current.loanId,
       });
     }
+    // WS5: onboarding steps used to be marked 'completed' the moment the user
+    // ARRIVED at a screen, with `spent` (time on the previous screen) attributed
+    // to the new one. Both were wrong: landing on `language` reported step 1
+    // complete before anything was picked, so drop-off was unmeasurable.
+    //
+    // Correct model: leaving a screen completes THAT step with the time actually
+    // spent on it; arriving marks the new step in_progress.
+    const prev = prevOnboardingStep.current;
+    if (prev) trackOnboardingStep(prev.step, prev.screen, 'completed', spent);
+
     const stepNum = ONBOARDING_STEPS[screen];
-    if (stepNum) trackOnboardingStep(stepNum, screen, 'completed', spent);
+    if (stepNum) {
+      // 'started' — the StepStatus enum has no in_progress.
+      trackOnboardingStep(stepNum, screen, 'started', 0);
+      prevOnboardingStep.current = { step: stepNum, screen };
+    } else {
+      prevOnboardingStep.current = null;
+    }
   }, [state.screen]);
 
   // ── WS3: context-aware install ──

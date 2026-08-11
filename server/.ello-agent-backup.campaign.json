@@ -1,0 +1,277 @@
+{
+  "status": 200,
+  "message": "agent retrieved successfully",
+  "data": {
+    "_id": "6a6c630e2f3448069caa1fe5",
+    "workspaceId": "6a6c622916da6133db8057a7",
+    "userId": "6a6c622916da6133db8057a6",
+    "name": "Loan_campaign_agent",
+    "type": "hybrid",
+    "category": [
+      "general"
+    ],
+    "description": "AI assistant for voice calls",
+    "image": "1",
+    "features": [],
+    "popularity": 0,
+    "voiceConfig": {
+      "provider": "elevenlabs",
+      "voiceId": "pwMBn0SsmN1220Aorv15",
+      "language": "en-IN",
+      "patienceLevel": 1,
+      "speed": 1,
+      "pitch": 1,
+      "latency": 0.5,
+      "stability": 0.5,
+      "styleExaggeration": 0,
+      "similarity": 0.8,
+      "numberOfWords": 0,
+      "voiceSeconds": 0.2,
+      "backOfSeconds": 0.1
+    },
+    "llmConfig": {
+      "temperature": 0.7,
+      "maxTokens": 200
+    },
+    "sttConfig": {
+      "utterance_end_ms": 1500,
+      "on_punctuation_second": 0,
+      "vadEnabled": false,
+      "ncEnabled": false,
+      "keyterms": [],
+      "waitseconds": 1.2
+    },
+    "voicemailConfig": {
+      "isEnabled": false
+    },
+    "backChannelConfig": {
+      "isEnabled": false,
+      "backchannelWords": []
+    },
+    "timeoutConfig": {
+      "silenceTimeout": 30,
+      "maximumDuration": 600
+    },
+    "callConfig": {
+      "timeZone": "UTC",
+      "maxDuration": 600,
+      "voicemailDetection": {
+        "enabled": true,
+        "type": "ml-based"
+      },
+      "recordingEnabled": true,
+      "transcriptionEnabled": true,
+      "speakerBoost": false,
+      "idleReminders": [
+        false,
+        0.75
+      ],
+      "limitCallDuration": [
+        false,
+        20
+      ],
+      "backGroundNoiseThreshold": 0.75,
+      "backGroundNoiseTimeout": 10,
+      "backGroundNoiseTimeoutThreshold": 0.75,
+      "backGroundNoiseTimeoutInterval": 10
+    },
+    "fillerWords": false,
+    "DND": true,
+    "status": true,
+    "customVocabulary": [],
+    "timezone": "Asia/Kolkata",
+    "countryName": "India",
+    "greeting": "Hi! How can I assist you today?",
+    "prompt": "You are Ella, a calling assistant for SwiftLoan, an Indian loan marketplace at\nswiftloan.ai. You are on an outbound phone call in India, speaking to one person\nabout their loan enquiry.\n\nYour job on every call: **find out where they are, help them take the next step,\nand record what happened.** You are not a salesperson. You are the person who\npicks up where the last conversation left off.",
+    "knowledgeBases": [],
+    "actions": [],
+    "deployment": {
+      "status": "draft",
+      "version": 1,
+      "deployedAt": "2026-07-31T08:55:42.604000",
+      "lastUpdated": "2026-07-31T08:55:42.604000"
+    },
+    "stats": {
+      "totalCalls": 0,
+      "successRate": 1,
+      "avgCallDuration": 0
+    },
+    "recommendedActions": [],
+    "widget": true,
+    "createdAt": "2026-07-31T08:55:42.604000",
+    "updatedAt": "2026-08-06T08:34:27.128000",
+    "multiLingual": false,
+    "primaryLanguage": "en-IN",
+    "tools": [
+      {
+        "tool_id": "6a73860a89c98da763e29b33",
+        "tool_type": "during"
+      },
+      {
+        "tool_id": "6a7387c589c98da763e29b34",
+        "tool_type": "pre"
+      },
+      {
+        "tool_id": "6a7388ee89c98da763e29b35",
+        "tool_type": "post"
+      }
+    ],
+    "callTransfers": [],
+    "dynamic_variables": [
+      "lead_name",
+      "lead_first_name",
+      "lead_city",
+      "lead_phone",
+      "lead_product",
+      "lead_amount",
+      "lead_amount_words",
+      "lead_submitted_ago",
+      "lead_source",
+      "lead_campaign",
+      "lead_stage",
+      "lead_summary",
+      "lead_next_action",
+      "lead_prior_inquiries",
+      "lead_is_returning",
+      "agent_purpose",
+      "conversation_history",
+      "conversation_count",
+      "stall_reason",
+      "stall_last_step",
+      "stall_expected_step",
+      "stall_minutes",
+      "stall_channel",
+      "stall_help"
+    ],
+    "long_term_memory_prompt": "You are an AI system that maintains a long-term profile of the user,written as natural, flowing paragraphs. The long-term profile should never use lists, bullets, numbers, or structured formatting. It should read like a clear, friendly description of who the user is, what matters to them, and any meaningful information that would help a future conversation feel personalized. Always keep the writing conversational and human.\n\nYou will be given the latest conversation transcript. You may also be given an existing long-term profile. If there is no existing profile,create a new one entirely from the transcript. If there is an existing profile, merge the new information into it. When merging, you should avoid repetition by absorbing new details, refining old ones, and removing anything that is outdated or contradicted. If the transcript provides important personal facts, correct or update the profile naturally.\n\nThe long-term profile should reflect stable information about the user, such as meaningful personal details, family context,preferences, goals, values, personality cues, recurring themes in their life, and anything that would help a future AI interact with them more deeply or empathetically. Do not include short-term or irrelevant details. Only include things with long-term significance.\n\nReturn the final updated long-term profile as a set of simple conversational paragraphs with no formatting, no lists, and no sections. The final profile should feel cohesive, refined, and up to date.",
+    "rolling_summary_prompt": "You are an AI system that maintains a rolling summary of the user’s recent conversations. This summary should always be written in plain conversational paragraphs without any lists, bullets, numbers, or structured formatting. The tone should feel like a natural explanation someone might give when summarizing what has been going on lately.\n\nYou will be given the latest conversation transcript. You may also receive an existing rolling summary. If no summary exists, create a new one from the transcript alone. If a summary exists, merge the new transcript into it by blending the new information into the ongoing story. Update the summary so it reflects the user’s current concerns,the themes they have been discussing, any changes in their situation,and what direction the conversations seem to be moving. Keep it coherent and avoid repeating older information unless it matters to the current context.\n\nThe rolling summary should feel like a living narrative that keeps track of what the user has been exploring recently. It should not include long-term biographical details unless they are relevant to the current arc of conversation. Keep it concise but meaningful, and make sure it captures the emotional and thematic flow of the user’s ongoing discussions.\n\nReturn the updated rolling summary as natural paragraphs with no formatting or structure.",
+    "transcripts_limit": 100,
+    "long_term_memory_enabled": false,
+    "enable_guardrails": false,
+    "guardrailsConfig": {
+      "contentFiltering": {
+        "hate": "High",
+        "insults": "Medium",
+        "sexual": "High",
+        "violence": "High",
+        "misconduct": "Medium"
+      },
+      "personaGuidelines": {
+        "do": [
+          "Be polite and respectful.",
+          "Stay factual about clinic workflows.",
+          "Clarify when you are unsure."
+        ],
+        "dont": [
+          "Do not provide medical diagnosis.",
+          "Do not give legal or financial advice.",
+          "Do not argue or express personal opinions."
+        ]
+      },
+      "escalationHandoffLogic": {
+        "maxViolations": 2,
+        "escalationOption": "Route to human agent",
+        "initialWarningAlert": "I'm not able to continue with that request. Let's move to something else I can help you with.",
+        "preEscalationMessage": "I'm going to connect you to a human agent who can help you further."
+      },
+      "recommendedTerminology": {
+        "terminology": [
+          "Appointments",
+          "Billing",
+          "Insurance",
+          "Clinic Hours",
+          "Location"
+        ]
+      },
+      "disallowedTerminology": {
+        "terminology": [
+          "Politics",
+          "Religion",
+          "Personal Opinions"
+        ]
+      }
+    },
+    "enable_agent_Personality": false,
+    "agentPersonalityConfig": {
+      "personalityDimensions": {
+        "calmEnergetic": "Medium",
+        "collaborativeAssertive": "Medium",
+        "casualProfessional": "Medium",
+        "empathy": "Medium",
+        "proactiveness": "Medium"
+      },
+      "conversationStyle": {
+        "conciseness": "Balanced",
+        "expertiseLevel": "Intermediate",
+        "complianceStrictness": "Normal",
+        "escalationBias": "Normal"
+      },
+      "languageTone": {
+        "languageStyle": "Simple everyday language",
+        "examplePhrases": [],
+        "disallowedPhrases": []
+      }
+    },
+    "filler_config": {
+      "outbound_agent": {
+        "filler_type": 0,
+        "messages": [],
+        "interval": 15
+      },
+      "inbound_agent": {
+        "filler_type": 0,
+        "messages": [],
+        "interval": 15
+      }
+    },
+    "greeting_config": {
+      "outbound_agent": {
+        "greeting_type": 0,
+        "greeting_message": "Hello! Am I speaking to {user_name}?",
+        "first_speaker": 0,
+        "message_delay_seconds": 10
+      },
+      "inbound_agent": {
+        "greeting_type": 0,
+        "greeting_message": "Hi! How can I assist you today?",
+        "first_speaker": 0,
+        "message_delay_seconds": 10
+      }
+    },
+    "webhooks": [],
+    "metaData": {
+      "type": 1,
+      "placement": 4,
+      "varient": 1,
+      "colorPalette": {
+        "widgetBackground": "#005871",
+        "widgetText": "#ffffff",
+        "insideWidgetCallIconBg": "#005871",
+        "insideWidgetCallIconColor": "#ffffff",
+        "endCallColor": "#fe5151",
+        "buttonRadius": 12
+      },
+      "allowList": [
+        "https://getello.ai",
+        "https://dashboard-in.getello.ai",
+        "https://deploy-in.getello.ai",
+        "https://dashboard-india.getello.ai",
+        "https://deploy-india.getello.ai"
+      ]
+    },
+    "generatedSystemPrompt": {
+      "persona_section": "You speak in a calm and collaborative tone, using simple everyday language. Acknowledge emotions before providing assistance. Maintain a balanced level of conciseness and professionalism. Be firm but friendly in your compliance with rules.",
+      "guardrails_section": "Refuse unsafe content immediately and warn on first violation. For low-level content such as hate speech, insults, sexual comments, or violence, redirect gently after a single instance and escalate after two violations. Always offer alternatives after a refusal. If content is illegal, escalate immediately."
+    },
+    "phone_number": "+919247519113",
+    "sipTrunkId": "68e3ad34207a5dbca5aaa86c",
+    "nativeConfig": {
+      "disconnectDrainSec": 1.2,
+      "idleMaxStrikes": 4,
+      "toolDelayNoticeSec": 10,
+      "transferHoldDrainSec": 1.5,
+      "vadRmsThreshold": 200
+    },
+    "native_mode": true
+  }
+}

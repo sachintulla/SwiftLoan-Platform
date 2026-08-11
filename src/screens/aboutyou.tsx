@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
@@ -6,17 +6,63 @@ import { Field, Chips, PrimaryButton, GhostButton } from '../components/Controls
 import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { api, ApiError, isAuthed } from '../api/client';
 
 export default function AboutYou() {
   const { state, set, go, showToast } = useStore();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
+  const [busy, setBusy] = useState(false);
   useDobVoiceTarget(dob, setDob);
+
+  // Auto-fill from whatever's already saved server-side (e.g. re-visiting
+  // this screen in a later session), so the user never re-types what's known.
+  useEffect(() => {
+    if (!isAuthed()) return;
+    api.me().then((r: any) => {
+      const user = r.user;
+      if (!user) return;
+      if (!state.aboutName && (user.fullName || user.firstName)) set({ aboutName: user.fullName || user.firstName });
+      if (!state.basicEmail && user.email) set({ basicEmail: user.email });
+      if (!state.aboutPin && user.pincode) set({ aboutPin: user.pincode });
+      if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });
+      if (!dob && user.dob) {
+        const d = new Date(user.dob);
+        setDob({ y: d.getFullYear(), m: d.getMonth(), d: d.getDate() });
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const dobText = dob ? formatDob(dob.y, dob.m, dob.d) : 'Select date';
 
-  const onContinue = () => {
-    if (state.aboutName.trim() && state.aboutPin.length === 6) go('home');
-    else showToast('Please add your name and a 6-digit pincode.');
+  const onContinue = async () => {
+    if (!(state.aboutName.trim() && state.aboutPin.length === 6)) {
+      showToast('Please add your name and a 6-digit pincode.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (isAuthed()) {
+        const { user }: any = await api.updateProfile({
+          fullName: state.aboutName.trim(),
+          ...(state.basicEmail ? { email: state.basicEmail } : {}),
+          ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
+          ...(state.aboutGender ? { gender: state.aboutGender } : {}),
+          pincode: state.aboutPin,
+        });
+        set({
+          authUser: user,
+          pdName: user.fullName || state.pdName,
+          pdEmail: user.email || state.pdEmail,
+          pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
+        });
+      }
+      go('home');
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Could not save your details.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -95,9 +141,9 @@ export default function AboutYou() {
         </View>
 
         <View style={{ height: 24 }} />
-        <PrimaryButton label="Continue" icon={null} onPress={onContinue} />
+        <PrimaryButton label={busy ? 'Saving…' : 'Continue'} icon={null} disabled={busy} onPress={onContinue} />
         <View style={{ height: 10 }} />
-        <GhostButton label="Skip for now" onPress={() => go('home')} />
+        <GhostButton label="Skip for now" onPress={() => { set({ exploreFromHome: false }); go('explore'); }} />
       </View>
     </Screen>
   );

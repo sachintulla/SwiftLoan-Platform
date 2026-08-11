@@ -52,7 +52,7 @@ describe('UC-V1 auto-discovery of raw Pressables', () => {
     const labels = listTargets('language').map(t => t.label);
     expect(labels).toContain('English');
     expect(labels).toContain('हिन्दी');
-    expect(labels).toContain('Tenglish');
+    expect(labels).toContain('తెలుగు');
   });
 
   it('resolves a target by its visible label, case-insensitively', () => {

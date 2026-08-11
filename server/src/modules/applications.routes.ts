@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
 import { emi } from '../utils/emi.js';
+import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 export const applicationsRouter = Router();
 applicationsRouter.use(requireAuth);
@@ -85,6 +86,19 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     });
   }));
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'offers_ready' } });
+
+  // WS5: eligibility genuinely finished here (server-side truth). The client
+  // previously only recorded "arrived at the offers screen", which is not the
+  // same thing and misses everyone who never got that far.
+  trackJourney(
+    { userId: req.user!.sub },
+    {
+      channel: 'app',
+      name: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
+      metadata: { applicationId: app.id, offerCount: created.length },
+    },
+  ).catch(() => {});
+
   res.json({ offers: created });
 }));
 
@@ -101,6 +115,24 @@ applicationsRouter.post('/:id/offers/:offerId/select', ah(async (req, res) => {
   await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
   const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true } });
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+
+  // WS5: the real selection, with which offer — the screen-arrival proxy the
+  // client used could not say which lender or rate was chosen.
+  trackJourney(
+    { userId: req.user!.sub },
+    {
+      channel: 'app',
+      name: JOURNEY_EVENTS.OFFER_SELECTED,
+      metadata: {
+        applicationId: app.id,
+        offerId: offer.id,
+        apr: offer.apr,
+        amount: offer.amount,
+        tenureMonths: offer.tenureMonths,
+      },
+    },
+  ).catch(() => {});
+
   res.json({ offer });
 }));
 
@@ -127,6 +159,30 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   });
   await prisma.repayment.createMany({ data: rows });
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'disbursed' } });
+
+  // WS5: application submitted then disbursed. Approval/rejection arrives from
+  // the lender API later (out of scope per the brief) — when it does, emit
+  // LOAN_APPROVED / LOAN_REJECTED from wherever that status lands.
+  trackJourney(
+    { userId: req.user!.sub },
+    {
+      channel: 'app',
+      name: JOURNEY_EVENTS.APPLICATION_SUBMITTED,
+      metadata: { applicationId: app.id },
+    },
+  )
+    .then(() =>
+      trackJourney(
+        { userId: req.user!.sub },
+        {
+          channel: 'system',
+          name: JOURNEY_EVENTS.LOAN_DISBURSED,
+          metadata: { applicationId: app.id, loanId: loan.id, principal: loan.principal },
+        },
+      ),
+    )
+    .catch(() => {});
+
   res.status(201).json({ loan });
 }));
 

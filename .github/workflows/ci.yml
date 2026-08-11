@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight run for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs history to scan past commits
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  server:
+    name: Server — typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      # The client must exist before tsc; nothing here touches a real database.
+      - run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/placeholder
+      - run: npm run typecheck
+      - run: npm test
+
+  mobile:
+    name: Mobile — typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Fails loudly if the react-native-upshotsdk jcenter() patch stops
+      # applying — e.g. after an upstream release. Silent skew here would break
+      # the Android build much later and much less obviously.
+      - run: npx patch-package --error-on-fail
+      - run: npm run typecheck
+      - run: npx jest --ci
+
+  admin:
+    name: Admin — build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+
+  website:
+    name: Website — build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website-next/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+
+  migrations:
+    name: Migrations apply cleanly
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swiftloan_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      # Proves the migration history builds a database from scratch. Without
+      # this, a broken migration is only discovered during a deploy.
+      - run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swiftloan_ci
+      # Catches schema drift: if someone edits schema.prisma without adding a
+      # migration, this diff is non-empty and the job fails.
+      - name: Fail on schema drift
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/swiftloan_ci
+        run: |
+          npx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code && echo "schema matches migrations" || {
+              echo "::error::schema.prisma has changes with no migration. Run: npm run prisma:migrate"
+              exit 1
+            }

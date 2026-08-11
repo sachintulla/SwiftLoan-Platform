@@ -6,21 +6,18 @@ import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { trackEvent } from '../api/client';
 
 const GREETINGS = [
   'Welcome to SwiftLoan',
   'SwiftLoan में आपका स्वागत है',
   'SwiftLoan కి స్వాగతం',
-  'SwiftLoan mein swagat hai',
-  'SwiftLoan ki swagatham',
 ];
 
 const LANGS = [
   { label: 'English', sub: 'Get a loan that fits your life', selected: 'English', lang: 'en' },
   { label: 'हिन्दी', sub: 'अपनी ज़रूरत के हिसाब से लोन पाएं', selected: 'हिन्दी', lang: 'hi' },
-  { label: 'తెలుగు', sub: 'మీ అవసరాలకు తగిన లోన్ పొందండి', selected: 'తెలుగు', lang: null },
-  { label: 'Hinglish', sub: 'Apni zaroorat ke hisaab se loan paayen', selected: 'Hinglish', lang: null },
-  { label: 'Tenglish', sub: 'Mee avasaraaniki taggattu loan pondandi', selected: 'Tenglish', lang: null },
+  { label: 'తెలుగు', sub: 'మీ అవసరాలకు తగిన లోన్ పొందండి', selected: 'తెలుగు', lang: 'te' },
 ];
 
 export default function Language() {
@@ -28,7 +25,7 @@ export default function Language() {
   const [gi, setGi] = React.useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setGi(i => (i + 1) % 5), 2600);
+    const id = setInterval(() => setGi(i => (i + 1) % 3), 2600);
     return () => clearInterval(id);
   }, []);
 
@@ -82,7 +79,16 @@ export default function Language() {
         <PrimaryButton
           label={contEnabled ? `Continue with ${state.selectedLang}` : 'Select a language'}
           disabled={!contEnabled}
-          onPress={() => contEnabled && go('intro')}
+          onPress={() => {
+            if (!contEnabled) return;
+            // WS5: the language event used to fire on arrival at this screen,
+            // before anything was picked, and never carried which language.
+            trackEvent('onboarding', 'language_selected', 'language', {
+              language: state.lang ?? 'en',
+              label: state.selectedLang,
+            });
+            go('intro');
+          }}
         />
       </View>
     </Screen>

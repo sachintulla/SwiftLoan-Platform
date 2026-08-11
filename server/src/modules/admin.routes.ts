@@ -2,11 +2,17 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
-import { requireAdmin } from '../middleware/adminAuth.js';
+import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
+import { normalisePhone } from '../lib/dialer.js';
+import { CHANNEL_LABELS } from '../lib/conversations.js';
 
 // All routes require an authenticated admin.
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+adminRouter.use(requireActiveAdmin);
+adminRouter.use(auditAdmin);
+
+
 
 // ─────────────────────────── helpers ───────────────────────────
 
@@ -238,7 +244,43 @@ adminRouter.get('/leads', ah(async (req, res) => {
     prisma.anonymousLead.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
     prisma.anonymousLead.count({ where }),
   ]);
-  return ok(res, rows, 'Leads', paginate(page, pageSize, total));
+
+  // WS10 — attach the cross-channel conversation memory for each lead's number, so
+  // the Leads page answers "have we actually spoken to this person, and where?"
+  // rather than only "did they submit a form". One batched read off the
+  // denormalised summary table, not an aggregation per row.
+  const phones = Array.from(new Set(rows.map((r) => normalisePhone(r.phone)).filter(Boolean) as string[]));
+  const summaries = phones.length
+    ? await prisma.conversationSummary.findMany({ where: { phone: { in: phones } } })
+    : [];
+  const byPhone = new Map(summaries.map((s) => [s.phone, s]));
+
+  return ok(
+    res,
+    rows.map((r) => {
+      const s = byPhone.get(normalisePhone(r.phone) ?? '');
+      return {
+        ...r,
+        conversations: s
+          ? {
+              count: s.conversationCount,
+              channels: s.channels,
+              channelLabels: s.channels.map((c) => CHANNEL_LABELS[c] ?? c),
+              lastAt: s.lastAt,
+              lastChannel: s.lastChannel,
+              lastChannelLabel: s.lastChannel ? CHANNEL_LABELS[s.lastChannel] ?? s.lastChannel : null,
+              lastOutcome: s.lastOutcome,
+              /** False = inferred from the transcript; the UI must not imply certainty. */
+              lastOutcomeConfirmed: s.lastOutcomeSource === 'agent',
+              summary: s.summary,
+            }
+          : { count: 0, channels: [], channelLabels: [], lastAt: null, lastChannel: null,
+              lastChannelLabel: null, lastOutcome: null, lastOutcomeConfirmed: false, summary: null },
+      };
+    }),
+    'Leads',
+    paginate(page, pageSize, total),
+  );
 }));
 
 // GET /api/admin/leads/:id  — lead + (if converted) the user + any activity matched by phone
@@ -257,7 +299,51 @@ adminRouter.get('/leads/:id', ah(async (req, res) => {
       },
     });
   }
-  return ok(res, { lead, convertedUser }, 'Lead');
+  // WS10 — the full conversation history for this lead's number, so the lead page
+  // is the one place an operator sees every exchange across website, phone and
+  // app. Keyed on phone rather than lead id, because that is what ties the
+  // channels together.
+  const phone = normalisePhone(lead.phone);
+  const [brief, conversations, customer] = phone
+    ? await Promise.all([
+        prisma.conversationSummary.findUnique({ where: { phone } }),
+        prisma.conversation.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
+        prisma.customer.findFirst({ where: { phone }, select: { id: true, currentStage: true } }),
+      ])
+    : [null, [], null];
+
+  return ok(
+    res,
+    {
+      lead,
+      convertedUser,
+      /** Cross-channel journey record, when this phone has one. */
+      customerId: customer?.id ?? null,
+      customerStage: customer?.currentStage ?? null,
+      /** The paragraph summarising every conversation on this number. */
+      brief: brief?.summary ?? null,
+      conversationCount: brief?.conversationCount ?? conversations.length,
+      channels: brief?.channels ?? [],
+      conversations: conversations.map((c) => ({
+        id: c.id,
+        channel: c.channel,
+        channelLabel: CHANNEL_LABELS[c.channel] ?? c.channel,
+        agentRole: c.agentRole,
+        startedAt: c.startedAt,
+        endedAt: c.endedAt,
+        durationSec: c.durationSec,
+        summary: c.summary,
+        transcript: c.transcript,
+        outcome: c.outcome,
+        outcomeConfirmed: c.outcomeSource === 'agent',
+        outcomeSource: c.outcomeSource,
+        details: c.details,
+        recordingUrl: c.recordingUrl,
+        providerConversationId: c.providerConversationId,
+      })),
+    },
+    'Lead',
+  );
 }));
 
 // PATCH /api/admin/leads/:id  { status?, note? }

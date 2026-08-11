@@ -1,19 +1,15 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, PanResponder, Animated, LayoutChangeEvent } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
-import { colors, font } from '../theme/tokens';
+import { Loading } from '../components/common/Loading';
+import { ErrorState } from '../components/common/ErrorState';
+import { colors, font, rupee } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api } from '../api/client';
 
-const SUMMARY = [
-  { label: 'Loan Amount', value: '₹25,000' },
-  { label: 'Estimated APR', value: '5.4%' },
-  { label: 'Tenure', value: '48 Months' },
-  { label: 'Monthly EMI', value: '₹580.20' },
-];
 const DOCS = [
   { icon: 'person_search', label: 'Verified Identity Profile' },
   { icon: 'account_balance', label: 'Last 3 Months Bank Statements' },
@@ -21,18 +17,58 @@ const DOCS = [
 ];
 
 export default function Handoff() {
-  const { state, set, go } = useStore();
-  const confirm = async () => {
-    if (state.applicationId) {
-      try {
-        const { loan }: any = await api.handoff(state.applicationId);
-        set({ loanId: loan.id });
-      } catch {
-        /* fall through to the disbursed screen regardless (demo) */
-      }
+  const { state, set, go, showToast } = useStore();
+  const [offer, setOffer] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!state.applicationId || !state.selectedOfferId) {
+      setErr('No offer selected.');
+      setLoading(false);
+      return;
     }
-    go('disbursed');
+    setErr(null);
+    setLoading(true);
+    try {
+      const { application }: any = await api.getApplication(state.applicationId);
+      const selected = (application.offers || []).find((o: any) => o.id === state.selectedOfferId);
+      if (!selected) throw new Error('Selected offer not found.');
+      setOffer(selected);
+    } catch (e: any) {
+      setErr(e?.message || 'Could not load your offer.');
+    } finally {
+      setLoading(false);
+    }
+  }, [state.applicationId, state.selectedOfferId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const confirm = async () => {
+    if (!state.applicationId) return;
+    setConfirming(true);
+    try {
+      const { loan }: any = await api.handoff(state.applicationId);
+      set({ loanId: loan.id });
+      go('disbursed');
+    } catch (e: any) {
+      showToast(e?.message || 'Could not complete the handoff. Please try again.');
+    } finally {
+      setConfirming(false);
+    }
   };
+
+  const summary = offer
+    ? [
+        { label: 'Loan Amount', value: rupee(offer.amount) },
+        { label: 'Estimated APR', value: `${offer.apr}%` },
+        { label: 'Tenure', value: `${offer.tenureMonths} Months` },
+        { label: 'Monthly EMI', value: rupee(offer.emi) },
+      ]
+    : [];
+  const partnerName = offer?.partner?.name || 'the lender';
+
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20 }}>
@@ -44,6 +80,12 @@ export default function Handoff() {
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Secure Handoff</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>Finalize your connection to the lender.</Text>
 
+        {loading ? (
+          <Loading label="Loading your offer…" />
+        ) : err ? (
+          <ErrorState message={err} onRetry={load} />
+        ) : (
+        <>
         {/* Offer summary */}
         <View style={styles.summary}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -51,7 +93,7 @@ export default function Handoff() {
             <Text style={[font(700), { fontSize: 14, color: colors.text }]}>Selected Offer Summary</Text>
           </View>
           <View style={styles.summaryGrid}>
-            {SUMMARY.map(s => (
+            {summary.map(s => (
               <View key={s.label} style={{ width: '50%', marginTop: 12 }}>
                 <Text style={[font(400), { fontSize: 11.5, color: colors.muted }]}>{s.label}</Text>
                 <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 1 }]}>{s.value}</Text>
@@ -67,7 +109,7 @@ export default function Handoff() {
             <Text style={[font(700), { fontSize: 13.5, color: colors.text }]}>Important Disclosure</Text>
             <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
               SwiftLoan is a credit mediator, not the lender. We facilitate your application to{' '}
-              <Text style={font(700)}>BlueHorizon Capital</Text>, who performs the final credit assessment.
+              <Text style={font(700)}>{partnerName}</Text>, who performs the final credit assessment.
             </Text>
           </View>
         </View>
@@ -84,17 +126,19 @@ export default function Handoff() {
         </View>
 
         <Text style={[font(400), { fontSize: 11.5, lineHeight: 17, color: colors.muted, marginTop: 14 }]}>
-          By confirming, you authorize SwiftLoan to securely transfer the documents above to BlueHorizon Capital. Your data is encrypted in transit and handled per our <Text style={{ color: colors.primary }}>Privacy Policy</Text>.
+          By confirming, you authorize SwiftLoan to securely transfer the documents above to {partnerName}. Your data is encrypted in transit and handled per our <Text style={{ color: colors.primary }}>Privacy Policy</Text>.
         </Text>
 
         <View style={{ height: 20 }} />
-        <SlideToConfirm onConfirm={confirm} />
+        <SlideToConfirm onConfirm={confirm} disabled={confirming} />
+        </>
+        )}
       </View>
     </Screen>
   );
 }
 
-function SlideToConfirm({ onConfirm }: { onConfirm: () => void }) {
+function SlideToConfirm({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
   const [, setW] = useState(0);
   const wRef = useRef(0);
   const x = useRef(new Animated.Value(0)).current;
@@ -102,7 +146,7 @@ function SlideToConfirm({ onConfirm }: { onConfirm: () => void }) {
 
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => !disabled,
       onPanResponderMove: (_, g) => {
         const max = Math.max(0, wRef.current - KNOB - 8);
         x.setValue(Math.max(0, Math.min(max, g.dx)));
@@ -124,8 +168,8 @@ function SlideToConfirm({ onConfirm }: { onConfirm: () => void }) {
   };
 
   return (
-    <View style={styles.slideTrack} onLayout={onLayout}>
-      <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>Slide to confirm handoff</Text>
+    <View style={[styles.slideTrack, disabled && { opacity: 0.6 }]} onLayout={onLayout}>
+      <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{disabled ? 'Confirming…' : 'Slide to confirm handoff'}</Text>
       <Animated.View style={[styles.slideKnob, { transform: [{ translateX: x }] }]} {...pan.panHandlers}>
         <Icon name="chevron_right" size={26} color={colors.primary} />
       </Animated.View>

@@ -1,9 +1,9 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, PermissionsAndroid, Platform } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
-import { PrimaryButton } from '../components/Controls';
+import { PrimaryButton, GhostButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
 
@@ -14,8 +14,37 @@ const PERMS = [
   { icon: 'location_on', title: 'Location', desc: 'For profile enrichment and fraud checks. Collected one time only.' },
 ];
 
+/**
+ * Real, requestable permissions only. Notifications is already requested
+ * automatically at app boot (store.ts, via the push SDK). SMS is deliberately
+ * NOT requested here — READ_SMS is a heavily-restricted Play Store permission
+ * (Google requires the app to be a default SMS/dialer handler to use it) and
+ * nothing in the app actually reads SMS content, so requesting it would be
+ * asking for access we can't legitimately use.
+ */
+async function requestRealPermissions(): Promise<void> {
+  if (Platform.OS !== 'android') return; // no proactive iOS equivalent without a dedicated permissions library
+  try {
+    await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.CAMERA,
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    ]);
+  } catch {
+    // Never block onboarding on a permission dialog failing.
+  }
+}
+
 export default function Permissions() {
   const { go } = useStore();
+  const [busy, setBusy] = useState(false);
+
+  const allow = async () => {
+    setBusy(true);
+    await requestRealPermissions();
+    setBusy(false);
+    go('aboutyou');
+  };
+
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
@@ -50,7 +79,9 @@ export default function Permissions() {
         </View>
 
         <View style={{ height: 24 }} />
-        <PrimaryButton label="Allow permissions" icon={null} onPress={() => go('aboutyou')} />
+        <PrimaryButton label={busy ? 'Requesting…' : 'Allow permissions'} icon={null} disabled={busy} onPress={allow} />
+        <View style={{ height: 10 }} />
+        <GhostButton label="Skip for now" onPress={() => go('aboutyou')} />
       </View>
     </Screen>
   );

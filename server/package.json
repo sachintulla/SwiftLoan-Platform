@@ -9,13 +9,24 @@
     "build": "tsc -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:push": "prisma db push",
+    "prisma:push": "echo \"prisma:push is disabled — it can DROP COLUMNS. Use: npm run prisma:migrate (dev) or npm run prisma:deploy (prod)\" && exit 1",
     "seed": "tsx prisma/seed.ts",
     "seed:ws4": "tsx prisma/seed.ws4.ts",
+    "seed:integrations": "tsx prisma/seed.integrations.ts",
+    "seed:preapproved": "tsx prisma/seed.preapproved.ts",
     "smoke": "tsx src/smoke.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:status": "prisma migrate status",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ello:sync": "tsx scripts/ello-sync-agent.ts",
+    "ello:agents": "tsx scripts/ello-agents.ts",
+    "conversations:backfill": "tsx scripts/backfill-conversations.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1105.0",
+    "@aws-sdk/s3-request-presigner": "^3.1105.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -25,6 +36,8 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
+    "multer": "^2.2.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -33,9 +46,11 @@
     "@types/express": "^4.17.25",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.2.0",
     "@types/node": "^26.1.1",
     "prisma": "^6.19.3",
     "tsx": "^4.23.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

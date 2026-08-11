@@ -1,0 +1,11 @@
+Sheet,Total,Done,In Progress,Blocked,Not Started,% Complete,P0 Open
+Mobile App,46,22,2,0,22,50%,11
+Website,32,15,2,0,15,49%,8
+Admin Dashboard,38,25,1,2,10,68%,4
+Backend & Infra,48,14,1,2,31,30%,23
+,,,,,,,
+TOTAL,164,76,,,88,46%,46
+,,,,,,,
+Status vocabulary,Done = finished & verified | In Progress = partially done | Blocked = waiting on a third party | Not Started,,,,,,
+Priority,P0 = required for production | P1 = required soon after | P2 = nice to have,,,,,,
+LEGAL GATES,DND scrubbing and call-recording consent can stop a launch — see Backend & Infra > Compliance,,,,,,

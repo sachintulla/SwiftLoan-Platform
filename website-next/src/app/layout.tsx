@@ -1,7 +1,14 @@
 import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
+import UpshotWeb from '@/components/UpshotWeb';
 import VoiceWidget from '@/components/VoiceWidget';
+import { LanguageProvider } from '@/lib/i18n';
+import { Backdrop } from '@/components/site/Backdrop';
+import { SiteHeader } from '@/components/site/SiteHeader';
+import { SiteFooter } from '@/components/site/SiteFooter';
+import { Toaster } from '@/components/ui/sonner';
 import './globals.css';
+import './design.css';
 
 // Self-hosted (not next/font/google) so builds don't depend on reaching
 // fonts.googleapis.com — that fetch fails behind some corporate proxies/MITM certs.
@@ -56,15 +63,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className={`${openSans.variable} ${jetbrainsMono.variable}`}>
-        <div className="aurora" aria-hidden="true">
-          <span className="motif" style={{ top: '8%', left: '5%', transform: 'rotate(-12deg)' }}>currency_rupee</span>
-          <span className="motif motif--fill" style={{ top: '14%', right: '7%', transform: 'rotate(14deg)' }}>savings</span>
-          <span className="motif" style={{ top: '46%', left: '2%', transform: 'rotate(8deg)' }}>trending_up</span>
-          <span className="motif motif--fill" style={{ top: '62%', right: '4%', transform: 'rotate(-8deg)' }}>account_balance</span>
-          <span className="motif" style={{ top: '82%', left: '12%', transform: 'rotate(10deg)' }}>shield</span>
-          <span className="motif" style={{ top: '34%', right: '22%', transform: 'rotate(-6deg)' }}>payments</span>
-        </div>
-        {children}
+        {/* Chrome from the new design package. LanguageProvider must wrap the
+            page because every section reads its copy through useCopy(). */}
+        <LanguageProvider>
+          <Backdrop />
+          <SiteHeader />
+          {children}
+          <SiteFooter />
+          <Toaster />
+        </LanguageProvider>
+        {/* Platform integrations — deliberately outside the redesign: the voice
+            widget and Upshot SDK are unchanged by it. */}
+        <UpshotWeb />
         <VoiceWidget />
       </body>
     </html>

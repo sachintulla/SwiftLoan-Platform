@@ -37,7 +37,7 @@ afterEach(() => {
 // [Component, one or more human-readable strings expected on screen]
 const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S1 splash', Splash, ['Swift', 'Loan']],
-  ['UC-S2 language', Language, ['English', 'हिन्दी', 'తెలుగు', 'Hinglish', 'Tenglish']],
+  ['UC-S2 language', Language, ['English', 'हिन्दी', 'తెలుగు']],
   ['UC-S3 intro', Intro, ['Loans made simple, in your language.']],
   ['UC-S4 mobile', Mobile, ['Enter your mobile number']],
   ['UC-S5 permissions', Permissions, ['Permissions', 'Allow permissions']],
@@ -48,8 +48,8 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S10 basic', Basic, ['Tell us about yourself']],
   ['UC-S11 basicpan', BasicPan, ['Verify your PAN']],
   ['UC-S12 finding', Finding, ['Finding your personalised offers…']],
-  ['UC-S13 offers', Offers, ['Review Your Offers', 'BlueChip Finance']],
-  ['UC-S14 handoff', Handoff, ['Finalize your connection to the lender.', 'Slide to confirm handoff']],
+  ['UC-S13 offers', Offers, ['Review Your Offers', 'No application yet']],
+  ['UC-S14 handoff', Handoff, ['Finalize your connection to the lender.', 'No offer selected.']],
   ['UC-S15 kyc', Kyc, ['Complete verification']],
   ['UC-S16 aadhaar', Aadhaar, ['Aadhaar Verification']],
   ['UC-S17 panv', Panv, ['PAN Verification']],

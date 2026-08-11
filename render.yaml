@@ -8,7 +8,13 @@ services:
     runtime: node
     plan: free
     rootDir: server
-    buildCommand: npm install --include=dev && npx prisma generate
+    # `migrate deploy` is NOT optional: without it the cloud database keeps the
+    # schema from whenever it was last hand-migrated, so anything added since
+    # (Conversation, ConversationSummary, the CallAttempt provenance columns)
+    # simply does not exist and every endpoint touching them 500s. It only ever
+    # applies committed migrations — it never generates or drops anything — so it
+    # is safe to run on every deploy.
+    buildCommand: npm install --include=dev && npx prisma generate && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
@@ -16,6 +22,33 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+
+      # ── Ello: outbound calling + the conversation memory API ──────────────
+      # Server-side only. Set both in the Render UI; never commit them.
+      - key: ELLO_API_KEY
+        sync: false
+      # The shared secret Ello sends back as x-api-key / x-webhook-secret on both
+      # the webhooks and the conversation API. Generated rather than reused from
+      # local, because the dev value is a known string.
+      - key: ELLO_WEBHOOK_SECRET
+        generateValue: true
+
+      # ── Outbound calling window (IST minutes from midnight) ───────────────
+      # 09:00–21:00. India's telemarketing rules restrict when a lender may call,
+      # and these are the guard that enforces it — do not widen them in
+      # production, whatever a local .env may say during testing.
+      - key: LEAD_CALL_WINDOW_START
+        value: "540"
+      - key: LEAD_CALL_WINDOW_END
+        value: "1260"
+      - key: LEAD_CALL_TIMEZONE
+        value: Asia/Kolkata
+      - key: LEAD_CALL_DELAY_MINUTES
+        value: "1"
+      # Spend ceiling. /api/context/create is public, so without a cap a scripted
+      # form-spam run turns straight into a telephony bill.
+      - key: LEAD_CALL_MAX_PER_HOUR
+        value: "60"
       # Demo/mock loan app: accept a fixed OTP (123456) and surface it to the client
       # so testers can log in without real SMS. Remove for a real production launch.
       - key: DEMO_LOGIN
@@ -45,18 +78,18 @@ services:
       # e.g. https://swiftloan-api.onrender.com  (then redeploy this service).
       - key: NEXT_PUBLIC_API_BASE
         sync: false
-      # Ello voice-navigation widget. NEXT_PUBLIC_* are baked into the client
-      # bundle at build time (already client-exposed), so they're set here to make
-      # the mic live on the deployed dashboard without a manual Render step.
-      # The assistant must stay "Native Mode (Gemini Live)" for tool-calling.
-      - key: NEXT_PUBLIC_ELLO_API_KEY
-        value: ak_txW3kjj3L-xpYACyvGn8K9ua9pvnHyYBaSeXc15H3DI.OASqN2c_yaFbkuYl
-      - key: NEXT_PUBLIC_ELLO_ASSISTANT_ID
-        value: 6a64d273a4fc43f6203cd3cc
-      - key: NEXT_PUBLIC_ELLO_API_BASE
-        value: https://api-dev.getello.ai
+      # NO Ello API key or assistant id here any more.
+      #
+      # NEXT_PUBLIC_* values are compiled into the browser bundle, so setting the
+      # key here published it to every visitor — enough to run up call charges or
+      # rewrite agent prompts. The dashboard now starts its voice session through
+      # our own API (POST /api/voice/session), which holds the key server-side and
+      # resolves which agent a role maps to.
+      #
+      # Only the WebSocket host is still needed client-side; a socket URL is not a
+      # credential.
       - key: NEXT_PUBLIC_ELLO_WS_URL
-        value: wss://connect-dev.getello.ai/ws-ello
+        value: wss://connect-in.getello.ai/ws-ello
 
   # ── Marketing website (static swiftloan.ai site + Ello voice guide) ──────
   - type: web

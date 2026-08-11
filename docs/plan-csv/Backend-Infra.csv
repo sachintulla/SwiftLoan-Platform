@@ -1,0 +1,49 @@
+"ID",Main Task,Sub Task,Status,%,Priority,Owner,Blocked By,Notes
+BE-001,Data layer,Prisma migrations baselined,Done,100,P0,Dev,,Was db push only — could silently drop columns
+BE-002,Data layer,db push disabled in scripts,Done,100,P0,Dev,,Fails with an explanation
+BE-003,Data layer,CI checks migrations apply + no schema drift,Done,100,P0,Dev,,
+BE-004,Data layer,Managed Postgres provisioned,Not Started,0,P0,Ops,Cloud account,"Today: portable install at C:\pg17, dies on reboot"
+BE-005,Data layer,Automated backups + a tested restore,Not Started,0,P0,Ops,Managed Postgres,An untested backup is not a backup
+BE-006,Data layer,Connection pooling,Not Started,0,P1,Ops,Managed Postgres,
+BE-007,Security,JWT secrets hard-fail in production,Done,100,P0,Dev,,Previously fell back to a value public in this repo
+BE-008,Security,Webhook secret required in production,Done,100,P0,Dev,,Anyone could fabricate call outcomes before
+BE-009,Security,Secrets removed from tracked files,Done,100,P0,Dev,,Was in render.yaml + 3 others
+BE-010,Security,Rotate the exposed Ello key,Not Started,0,P0,Ops,,It is in git history permanently
+BE-011,Security,Rate limits on all public endpoints,Done,100,P0,Dev,,Verified 429 after 5 lead submissions
+BE-012,Security,Auto-call spend ceiling + per-phone cooldown,Done,100,P0,Dev,,Form spam would otherwise become a phone bill
+BE-013,Security,Secret scanning in CI (gitleaks),Done,100,P0,Dev,,
+BE-014,Security,CORS locked to known origins,Not Started,0,P1,Dev,,cors() is fully permissive today
+BE-015,Security,Webhook source-IP allowlist,Not Started,0,P1,Ops,,Ello documents no signature header
+BE-016,Reliability,Readiness probe checking the database,Done,100,P0,Dev,,/api/ready — health alone reported ok with a dead DB
+BE-017,Reliability,Bounded graceful shutdown,Done,100,P1,Dev,,15s deadline so a hung socket cannot cause SIGKILL mid-write
+BE-018,Reliability,Redis + BullMQ for jobs,Not Started,0,P0,Ops,Redis instance,Without it every job runs on EVERY instance — duplicate calls
+BE-019,Reliability,Error tracking (Sentry),Not Started,0,P0,Ops,,Job failures vanish into console.error today
+BE-020,Reliability,Structured logging + request IDs,Not Started,0,P1,Dev,,"morgan only, and disabled in production"
+BE-021,Reliability,Uptime + alerting,Not Started,0,P0,Ops,,
+BE-022,Reliability,Incident runbook,Not Started,0,P1,Dev,,"Pause all calling, drain queue, rotate keys"
+BE-023,Testing,"Server unit tests (24, campaign scheduler)",Done,100,P0,Dev,,Was zero
+BE-024,Testing,Tests for journey stage machine + PII redaction,Not Started,0,P0,Dev,,Highest-risk untested logic remaining
+BE-025,Testing,Tests for stall-rule evaluator + cooldown,Not Started,0,P0,Dev,,
+BE-026,Testing,Tests for webhook idempotency / double-count guard,Not Started,0,P0,Dev,,
+BE-027,Testing,API integration tests against a test database,Not Started,0,P1,Dev,,
+BE-028,Testing,CI pipeline (6 jobs),Done,100,P0,Dev,,"typecheck, tests, builds, secrets, migrations"
+BE-029,Testing,Load test the tracking + lead endpoints,Not Started,0,P1,Dev,,
+BE-030,Compliance,DND / DNC scrubbing before outbound calls,Not Started,0,P0,Legal,DND provider,TRAI requirement. LEGAL GATE — can stop launch
+BE-031,Compliance,Calling hours enforced on manual trigger too,In Progress,60,P0,Dev,,Auto-caller + campaigns honour it; manual trigger bypasses
+BE-032,Compliance,Call recording consent in the agent script,Not Started,0,P0,Legal,,Ello returns recording_url. LEGAL GATE
+BE-033,Compliance,Consent recorded per lead and checked before dialling,Not Started,0,P0,Dev,,Consent model exists but is not wired to the new flows
+BE-034,Compliance,Data retention / purge policy for JourneyEvent,Not Started,0,P0,Legal,,Unbounded behavioural log on a regulated product
+BE-035,Compliance,PII audit — CallAttempt.rawPayload + transcripts,Not Started,0,P0,Dev,,redactMetadata covers journey metadata only
+BE-036,Compliance,RBI DLG disclosures in the voice agent script,Not Started,0,P0,Legal,,The call is a Digital Lending App touchpoint
+BE-037,Compliance,DPDP: consent artefacts + erasure requests,Not Started,0,P0,Legal,,
+BE-038,Providers,Ello: India host + real agent working,Done,100,P0,Dev,,api-in.getello.ai
+BE-039,Providers,Ello: publicly reachable webhook URL,Not Started,0,P0,Ops,Deployment,localhost today; needs the deployed URL
+BE-040,Providers,Ello: verify a real call reaches a handset,Not Started,0,P0,QA,Webhook URL,Calls queue with a siptrunk; ringing unverified
+BE-041,Providers,Upshot: obtain working REST host + apiKey,Blocked,0,P0,Ops,Upshot support,api.goupshot.com returns 503 on every path
+BE-042,Providers,Upshot: confirm India dataRegion code,Blocked,0,P0,Ops,Upshot support,Blank = USA. Data-residency risk
+BE-043,Providers,Upshot: author campaigns against seeded events,Not Started,0,P1,Ops,Events seeded,
+BE-044,Providers,Ask Upshot to publish a jcenter-free SDK build,Not Started,0,P2,Ops,,Our patch protects this repo only
+BE-045,Deployment,API hosting + env vars,Not Started,0,P0,Ops,,
+BE-046,Deployment,Staging environment,Not Started,0,P0,Ops,,No non-production environment exists
+BE-047,Deployment,Zero-downtime deploy + rollback plan,Not Started,0,P1,Ops,,
+BE-048,Deployment,Loan approve/reject API integration,Not Started,0,P1,Dev,Lender API,Out of scope per the original brief; events ready to emit

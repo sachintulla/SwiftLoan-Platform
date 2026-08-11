@@ -26,17 +26,19 @@ export default function VoiceWidget() {
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
-    const apiKey = process.env.NEXT_PUBLIC_ELLO_API_KEY;
-    const assistantId = process.env.NEXT_PUBLIC_ELLO_ASSISTANT_ID;
-    if (!apiKey || !assistantId) {
-      console.warn('[VoiceWidget] NEXT_PUBLIC_ELLO_API_KEY / NEXT_PUBLIC_ELLO_ASSISTANT_ID not set — voice widget disabled.');
+    // No Ello API key or agent id in the browser: NEXT_PUBLIC_* values are
+    // compiled into the client bundle, so both used to be readable by anyone with
+    // devtools. The session is brokered by our own API instead, which keeps the
+    // key server-side and decides which agent the `adminNavigator` role means.
+    const sessionUrl = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+    if (!sessionUrl) {
+      console.warn('[VoiceWidget] NEXT_PUBLIC_API_BASE not set — voice widget disabled.');
       return;
     }
     setEnabled(true);
     const agent = new ElloAgent({
-      apiKey,
-      assistantId,
-      apiBaseUrl: process.env.NEXT_PUBLIC_ELLO_API_BASE,
+      sessionUrl,
+      role: 'adminNavigator',
       wsUrl: process.env.NEXT_PUBLIC_ELLO_WS_URL,
       debug: process.env.NODE_ENV !== 'production',
     });

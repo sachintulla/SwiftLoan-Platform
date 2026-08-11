@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { saveTokens, clearTokens } from '../state/session';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
@@ -15,6 +16,10 @@ let refreshToken: string | null = null;
 export function setTokens(access: string | null, refresh?: string | null) {
   accessToken = access;
   if (refresh !== undefined) refreshToken = refresh;
+  // Persisted so a returning user stays logged in across app restarts, not
+  // just within one in-memory session.
+  if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
+  else if (!access) clearTokens();
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
@@ -23,9 +28,8 @@ export const isAuthed = () => !!accessToken;
  * Request timeout. Without one, an unreachable host doesn't fail fast — it waits
  * for the TCP connect timeout (30s+). That bites hardest on a physical device,
  * where the default 10.0.2.2 is the *emulator's* host alias and simply isn't
- * routable: "Send OTP" appeared to hang for half a minute before the offline
- * fallback could run. It also stops each fire-and-forget tracking call from
- * holding a socket open for 30s.
+ * routable. It also stops each fire-and-forget tracking call from holding a
+ * socket open for 30s.
  */
 const REQUEST_TIMEOUT_MS = 4000;
 
@@ -44,8 +48,7 @@ async function request<T = any>(method: string, path: string, body?: unknown): P
       signal: controller.signal,
     });
   } catch (e: any) {
-    // Surface an abort as a network-class failure so the offline demo path
-    // recognises it (isNetworkError) rather than treating it as an API error.
+    // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${REQUEST_TIMEOUT_MS}ms`);
     throw e;
   } finally {
@@ -62,63 +65,10 @@ export class ApiError extends Error {
   }
 }
 
-/* ─────────────────────────────────────────────────────────────
- * Offline demo mode.
- *
- * The app's backend (server/, port 4000) needs local Postgres and is often not
- * running during UI/voice work. Rather than dead-ending the onboarding funnel on
- * "Could not send OTP", auth falls back to a local demo session so the rest of
- * the app stays walkable — the same spirit as the existing graceful degradation
- * for authed endpoints.
- *
- * DEV ONLY. This accepts a fixed OTP, so it is hard-gated on __DEV__: shipping an
- * OTP bypass in a lending app would be a real security hole, not a convenience.
- * ───────────────────────────────────────────────────────────── */
-export const DEMO_OTP = '123456';
-
-/**
- * This is a demo app with no backend of its own, so auth is always local and the
- * dummy OTP is always accepted — including in release builds, where __DEV__ is
- * false. If a real backend is ever wired up, gate this before shipping to users.
- */
-const DEMO_ALLOWED = true;
-
-/**
- * True when nobody pointed the app at a real backend. The default host is the
- * Android emulator's alias for the dev machine (10.0.2.2), which isn't routable
- * from a physical device — so auth calls didn't fail, they hung until the TCP
- * connect timeout. When no server is configured we skip the network entirely and
- * authenticate locally, which is instant.
- *
- * Set globalThis.SWIFTLOAN_API_BASE to use the real server/ backend instead.
- */
-const SERVER_CONFIGURED = !!(globalThis as any).SWIFTLOAN_API_BASE;
-const LOCAL_AUTH_ONLY = DEMO_ALLOWED && !SERVER_CONFIGURED;
-
-let offline = LOCAL_AUTH_ONLY;
-export const isOfflineDemo = () => offline;
-
-/** True for transport-level failures (server down / unreachable), not 4xx/5xx. */
-function isNetworkError(e: unknown): boolean {
-  if (e instanceof ApiError) return false;
-  const m = (e as any)?.message || '';
-  return e instanceof TypeError || /Network request failed|Failed to fetch|timed out/i.test(m);
-}
-
-function demoAuth(phone: string): AuthResult {
-  offline = true;
-  return {
-    user: {
-      id: 'demo-user',
-      phone,
-      name: 'Demo User',
-      email: 'demo@swiftloan.example',
-      offlineDemo: true,
-    },
-    accessToken: 'offline-demo-token',
-    refreshToken: 'offline-demo-refresh',
-    expiresIn: 3600,
-  };
+export interface PriorInquiry {
+  productInterest: string | null;
+  amount: number | null; // paise
+  createdAt: string;
 }
 
 export interface AuthResult {
@@ -126,6 +76,29 @@ export interface AuthResult {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** Website leads matched to this phone number, oldest first. `[]` when none. */
+  priorInquiries: PriorInquiry[];
+}
+
+// Admin-curated, pre-application eligibility catalog — see server's
+// PreApprovedPlan model. Amounts are in paise.
+export interface PreApprovedPlan {
+  id: string;
+  lenderName: string;
+  logoUrl?: string | null;
+  icon: string;
+  exploreUrl?: string | null;
+  badge?: string | null;
+  maxAmount?: number | null;
+  amountAtApproval: boolean;
+  rateMin?: number | null;
+  rateMax?: number | null;
+  rateAtApproval: boolean;
+  tenureMinMonths?: number | null;
+  tenureMaxMonths?: number | null;
+  tags: string[];
+  displayOrder: number;
+  active: boolean;
 }
 
 export const api = {
@@ -134,39 +107,19 @@ export const api = {
   // Auth
   register: (phone: string, opts: { email?: string; password?: string; lang?: string } = {}) =>
     request('POST', '/auth/register', { phone, ...opts }),
-  requestOtp: async (phone: string) => {
-    // Already known unreachable: don't pay the timeout again.
-    if (DEMO_ALLOWED && offline) return { devOtp: DEMO_OTP, offlineDemo: true };
-    try {
-      return await request('POST', '/auth/otp/request', { phone });
-    } catch (e) {
-      if (DEMO_ALLOWED && isNetworkError(e)) {
-        offline = true;
-        return { devOtp: DEMO_OTP, offlineDemo: true };
-      }
-      throw e;
-    }
-  },
+  requestOtp: (phone: string) => request('POST', '/auth/otp/request', { phone }),
   verifyOtp: async (phone: string, code: string): Promise<AuthResult> => {
-    const acceptDemo = (): AuthResult => {
-      if (code !== DEMO_OTP) {
-        throw new ApiError(400, `Server unreachable — use ${DEMO_OTP} for the offline demo.`);
-      }
-      const r = demoAuth(phone);
-      setTokens(r.accessToken, r.refreshToken);
-      return r;
-    };
-    // Short-circuit: requestOtp already proved the server is unreachable, so
-    // verifying is instant instead of waiting on another request that must fail.
-    if (DEMO_ALLOWED && offline) return acceptDemo();
-    try {
-      const r = await request<AuthResult>('POST', '/auth/otp/verify', { phone, code });
-      setTokens(r.accessToken, r.refreshToken);
-      return r;
-    } catch (e) {
-      if (DEMO_ALLOWED && isNetworkError(e)) return acceptDemo();
-      throw e;
-    }
+    // WS5: hand over the anonymous tracking session so the server can claim
+    // everything done before login (install, app_opened, language) onto this
+    // person's journey. Without it those steps are recorded but orphaned, and
+    // the 360 timeline starts abruptly at "OTP verified".
+    const r = await request<AuthResult>('POST', '/auth/otp/verify', {
+      phone,
+      code,
+      session_id: getTrackingSessionId(),
+    });
+    setTokens(r.accessToken, r.refreshToken);
+    return r;
   },
   login: async (identifier: string, password: string): Promise<AuthResult> => {
     const r = await request<AuthResult>('POST', '/auth/login', { identifier, password });
@@ -180,11 +133,16 @@ export const api = {
 
   // Users
   me: () => request('GET', '/users/me'),
+  /** Right to erasure — irreversible, cascades every record tied to this user. */
+  deleteAccount: () => request('DELETE', '/users/me'),
   updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
     request('PATCH', '/users/me/notifications', prefs),
   creditScore: () => request('GET', '/users/me/credit-score'),
+  presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
+    request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
+  confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
 
   // Application funnel
   createApplication: (payload: { amount: number; tenureMonths?: number; loanType?: string }) =>
@@ -203,41 +161,12 @@ export const api = {
   getLoan: (id: string) => request('GET', `/loans/${id}`),
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
+  preApprovedPlans: (): Promise<{ data: PreApprovedPlan[] }> => request('GET', '/preapproved-plans'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>
     request('POST', '/support/tickets', { subject, type, body }),
 };
-
-/**
- * Guarantee an authenticated session exists before an authed call. Used by the
- * "Skip for now — explore the app" path so the funnel/profile still work without
- * an explicit login: it provisions an anonymous demo account (dev OTP 123456).
- * No-op if already authed.
- */
-export async function ensureSession(): Promise<void> {
-  if (accessToken) return;
-  const phone = String(9000000000 + Math.floor(Math.random() * 999_999_999)).slice(0, 10);
-  // Known offline: provision the local demo session immediately ("Skip for now"
-  // otherwise stalled on the same unreachable host).
-  if (DEMO_ALLOWED && offline) {
-    const r = demoAuth(phone);
-    setTokens(r.accessToken, r.refreshToken);
-    return;
-  }
-  try {
-    await api.register(phone).catch(() => api.requestOtp(phone));
-    await api.verifyOtp(phone, DEMO_OTP);
-  } catch (e) {
-    // Offline: hold a local demo session so the funnel/profile screens still work.
-    if (DEMO_ALLOWED) {
-      const r = demoAuth(phone);
-      setTokens(r.accessToken, r.refreshToken);
-      return;
-    }
-    throw e;
-  }
-}
 
 // ─────────────────────────── WS4 activity tracking ───────────────────────────
 // Fire-and-forget instrumentation feeding the admin dashboard's funnel/analytics.
@@ -247,7 +176,9 @@ export async function ensureSession(): Promise<void> {
 // reach the live dashboard. Override with (globalThis).SWIFTLOAN_TRACK_BASE for
 // local testing, e.g. 'http://10.0.2.2:4000/api'.
 export const TRACK_BASE: string =
-  (globalThis as any).SWIFTLOAN_TRACK_BASE || 'https://swiftloan-api.onrender.com/api';
+  (globalThis as any).SWIFTLOAN_TRACK_BASE ||
+  (globalThis as any).SWIFTLOAN_API_BASE ||
+  'https://swiftloan-api.onrender.com/api';
 
 let sessionId: string | null = null;
 export const getSessionId = () => sessionId;
@@ -277,9 +208,38 @@ export function trackSessionStart(deviceInfo: Record<string, unknown>): void {
   });
 }
 
+/**
+ * The current anonymous tracking session id, if a session has started. Sent with
+ * OTP verify so the server can attribute pre-login activity to the person who
+ * just identified themselves.
+ */
+export function getTrackingSessionId(): string | null {
+  return sessionId;
+}
+
 export function trackSessionEnd(pagesVisited?: number): void {
   if (!sessionId) return;
   trackPost('/track/session/end', { session_id: sessionId, pages_visited: pagesVisited });
+}
+
+/**
+ * WS5: report the install once, on first launch. Nothing wrote AppDownload
+ * before this, so install attribution ("did this person come from a campaign
+ * link?") had no data at all. `contextToken` is the WS3 deep-link token when
+ * the user arrived via a tracked link.
+ */
+export function trackInstall(
+  platform: string,
+  opts: { source?: string; campaignId?: string; referrer?: string; contextToken?: string } = {},
+): void {
+  trackPost('/track/install', {
+    platform,
+    source: opts.source ?? 'organic',
+    campaign_id: opts.campaignId,
+    referrer: opts.referrer,
+    context_token: opts.contextToken,
+    session_id: sessionId,
+  });
 }
 
 export function trackEvent(
@@ -310,6 +270,30 @@ export function trackOnboardingStep(
     time_spent_seconds: timeSpentSeconds,
     session_id: sessionId,
   });
+}
+
+/**
+ * Upload a profile photo: presign a direct-to-S3 PUT URL, upload the file
+ * bytes straight to S3 (never proxied through our server), then confirm the
+ * final URL so it's saved on the user record. Returns the updated user.
+ */
+export async function uploadAvatar(
+  fileUri: string,
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp',
+): Promise<Record<string, any>> {
+  const { uploadUrl, publicUrl } = await api.presignAvatarUpload(contentType);
+  const fileRes = await fetch(fileUri);
+  const blob = await fileRes.blob();
+  // x-amz-acl must match exactly what the server signed (public-read) or S3
+  // rejects the upload as a signature mismatch.
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': contentType, 'x-amz-acl': 'public-read' },
+    body: blob as any,
+  });
+  if (!putRes.ok) throw new Error(`Photo upload failed (${putRes.status})`);
+  const { user }: any = await api.confirmAvatar(publicUrl);
+  return user;
 }
 
 // WS3: resolve a context token (from an install deep link) into the saved
@@ -350,4 +334,66 @@ export function trackLoanStep(
     time_spent_seconds: timeSpentSeconds,
     hold_reason: holdReason,
   });
+}
+
+/* ── WS8: what the backend already knows about the signed-in user ──────────
+ *
+ * The non-deep-link path. Someone fills the website form, takes our callback,
+ * then installs from the Play Store — arriving with only a phone number. This
+ * fetches their history so the in-app voice agent can continue the conversation
+ * instead of greeting them as a stranger.
+ *
+ * Phone is taken from the access token server-side, never sent by us: passing a
+ * number would make it an open lookup of anyone's loan history.
+ */
+export interface UserContextInquiry {
+  product: string | null;
+  amount: number | null; // paise
+  amountLabel: string | null;
+  city: string | null;
+  summary: string | null;
+  createdAt: string;
+  source: string | null;
+  campaign: string | null;
+}
+
+export interface UserContext {
+  hasHistory: boolean;
+  name: string | null;
+  city: string | null;
+  email: string | null;
+  stage: string | null;
+  stageLabel: string | null;
+  nextAction: string | null;
+  inquiries: UserContextInquiry[];
+  lastCall: {
+    at: string;
+    outcome: string | null;
+    outcomeSource: string | null;
+    summary: string | null;
+    answered: boolean;
+    durationSec: number | null;
+  } | null;
+  application: {
+    id: string; ref: string; status: string;
+    amount: number | null; loanType: string | null; offerCount: number;
+  } | null;
+  loan: { id: string; principal: number | null; status: string | null } | null;
+  /** One-line brief the agent can open from. */
+  brief: string | null;
+}
+
+/**
+ * Never throws and never blocks a screen: a missing context just means the agent
+ * opens generically, which is exactly how the app behaved before this existed.
+ */
+export async function fetchUserContext(): Promise<UserContext | null> {
+  if (!accessToken) return null;
+  try {
+    const json = await request<{ data?: UserContext }>('GET', '/context/me');
+    const data = (json as any)?.data ?? json;
+    return data && typeof data === 'object' && 'hasHistory' in data ? (data as UserContext) : null;
+  } catch {
+    return null;
+  }
 }
