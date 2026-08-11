@@ -4,26 +4,27 @@ on:
     branches: [main]
 jobs:
   deploy:
-    runs-on: self-hosted
+    # Pinned to the prod runner's own registered name (not the shared
+    # `self-hosted` label both boxes carry) so GitHub can't route this to the
+    # dev runner (ip-10-10-1-233) by mistake — a runner's name is usable as a
+    # label automatically.
+    runs-on: ip-10-20-1-186
     steps:
       - uses: actions/checkout@v4
-      # Two self-hosted runners share the generic `self-hosted` label, so GitHub
-      # picks whichever is free. Only ip-10-10-1-233 is DNS/nginx-mapped — landing
-      # on the other one deploys somewhere no one is looking at. Fail loudly
-      # instead: re-run the workflow to get reassigned to the right runner.
-      - name: Ensure this landed on the dev box
+      # Belt-and-suspenders: runs-on above should make this impossible, but
+      # keep the check so a future re-labeling of the runner fails loudly
+      # instead of silently deploying to the wrong box.
+      - name: Ensure this landed on the prod box
         run: |
-          if [ "$(hostname)" != "ip-10-10-1-233" ]; then
-            echo "::error::This job landed on $(hostname), not ip-10-10-1-233. Re-run the workflow so it lands on the correct self-hosted runner."
+          if [ "$(hostname)" != "ip-10-20-1-186" ]; then
+            echo "::error::This job landed on $(hostname), not ip-10-20-1-186 (prod). Re-run the workflow so it lands on the correct self-hosted runner."
             exit 1
           fi
-      # All config now comes from ~/secrets/server.env, a hand-maintained file
-      # on this box (both develop and main deploy here, so one file covers
-      # both) — deliberately reverting the earlier GitHub Secrets/Variables
-      # approach. That approach existed because an older version of this same
-      # file-on-the-box pattern had drifted out of sync; this file is the one
-      # and only source of truth again, so keep it that way — update it here
-      # via SSH, don't let GitHub Secrets/Variables silently diverge from it.
+      # All config comes from ~/secrets/server.env on THIS (prod) box — its
+      # own file, separate from dev's ~/secrets/server.env on ip-10-10-1-233.
+      # Deliberately not GitHub Secrets/Variables (that approach drifted out
+      # of sync before); update it here via SSH, don't let GitHub
+      # Secrets/Variables silently diverge from it.
       - name: Build & deploy server
         run: |
           set -a
