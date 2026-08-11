@@ -9,7 +9,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
 import { Card, StatusBadge, TableSkeleton, Empty, FilterChips } from '@/components/ui';
 
-type Provider = 'ello' | 'upshot';
+type Provider = 'ello' | 'upshot' | 'infobip';
 
 interface Integration {
   provider: Provider;
@@ -23,11 +23,15 @@ interface Integration {
 const ESSENTIAL: Record<Provider, string[]> = {
   ello: ['baseUrl'],
   upshot: ['baseUrl', 'appId'],
+  // sender and defaultTemplate are up front because a send fails without them,
+  // and the failure ("no template") is far less obvious than a missing key.
+  infobip: ['baseUrl', 'sender', 'defaultTemplate', 'defaultLanguage'],
 };
 
 const META: Record<Provider, { title: string; sub: string; icon: string; requiredSecrets: string[] }> = {
   ello: { title: 'Voice calling (Ello)', sub: 'Places the outbound calls and powers the mic widgets.', icon: '☎', requiredSecrets: ['apiKey'] },
   upshot: { title: 'Messaging (Upshot)', sub: 'Sends push, WhatsApp, SMS and email nudges.', icon: '✉', requiredSecrets: ['apiKey'] },
+  infobip: { title: 'WhatsApp (Infobip)', sub: 'Sends WhatsApp messages to customers from the dashboard.', icon: '💬', requiredSecrets: ['apiKey'] },
 };
 
 function labelFor(key: string) {
@@ -41,6 +45,7 @@ const SUB_TABS = [
   { key: 'ello', label: '☎  Voice calling' },
   { key: 'agents', label: '🗣  Voice agents' },
   { key: 'upshot', label: '✉  Messaging' },
+  { key: 'infobip', label: '💬  WhatsApp' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['key'];
 
@@ -98,6 +103,14 @@ export default function ConfigsPage() {
               provider="upshot"
               integration={list.find((i) => i.provider === 'upshot')}
               defaults={(defaults.upshot ?? {}) as Record<string, unknown>}
+              onSaved={() => mutate()}
+            />
+          )}
+          {tab === 'infobip' && (
+            <ProviderCard
+              provider="infobip"
+              integration={list.find((i) => i.provider === 'infobip')}
+              defaults={(defaults.infobip ?? {}) as Record<string, unknown>}
               onSaved={() => mutate()}
             />
           )}

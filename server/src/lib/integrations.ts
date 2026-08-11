@@ -16,7 +16,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 /* ────────────────────────────── config ────────────────────────────── */
 
-export type ProviderName = 'ello' | 'upshot';
+export type ProviderName = 'ello' | 'upshot' | 'infobip';
 
 export interface ProviderConfig {
   enabled: boolean;
@@ -99,6 +99,32 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     stageEventMap: {},
     /** Event name used when no stage-specific mapping exists. */
     defaultEventName: 'swiftloan_journey_nudge',
+  },
+  // Infobip — WhatsApp Business. https://www.infobip.com/docs/api
+  // Auth is `Authorization: App {apiKey}` (verified: `App` returns 403 on an
+  // unpermitted endpoint while Bearer/none return 401 — i.e. `App` is the scheme
+  // that actually authenticates).
+  infobip: {
+    /**
+     * Region-specific host — Infobip issues one per account and a wrong host
+     * simply will not authenticate. India: jrv2lk.api-in.infobip.com
+     */
+    baseUrl: 'https://jrv2lk.api-in.infobip.com',
+    /** Business-initiated messages. Requires a pre-approved template. */
+    templatePath: '/whatsapp/1/message/template',
+    /**
+     * Free-form text. Only valid INSIDE the 24-hour customer service window —
+     * i.e. after the customer messaged us. Outside it WhatsApp rejects the
+     * message, so anything we initiate must go through templatePath.
+     */
+    textPath: '/whatsapp/1/message/text',
+    /** Registered WhatsApp sender number (E.164, no +). Set in the dashboard. */
+    sender: '',
+    /** Default approved template + its registered language code. */
+    defaultTemplate: '',
+    defaultLanguage: 'en',
+    /** Where Infobip POSTs delivery reports, if configured. */
+    notifyUrl: '',
   },
 };
 

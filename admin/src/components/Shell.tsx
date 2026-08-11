@@ -11,13 +11,14 @@ interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unread
 const NAV: { section?: string; items: NavDef[] }[] = [
   { items: [
     { href: '/overview', label: 'Master Overview', icon: '▚' },
-    { href: '/customers', label: 'Customers 360', icon: '◉' },
+    // Leads used to be a separate nav entry for the same people; it is merged in
+    // here (and /leads still redirects for old links).
+    { href: '/customers', label: 'Customers', icon: '◉' },
   ] },
   {
     section: 'Funnel',
     items: [
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
-      { href: '/leads', label: 'Leads', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },
       { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
@@ -45,9 +46,11 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
-  '/leads': 'Leads & Contact', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
+  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
   '/analytics': 'Analytics', '/notifications': 'Notifications',
-  '/customers': 'Customers 360', '/campaigns': 'Campaigns', '/integrations': 'Configs',
+  // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
+  // is now the single people surface and /leads maps to the same title.
+  '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
   '/notifications-rules': 'Notification Rules',
   '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans',
 };

@@ -1,11 +1,15 @@
 'use client';
-import React, { useState } from 'react';
+// The single people list. "Leads" used to be a second list of the same humans;
+// Customer is the superset (every lead resolves to one, but a phone-in customer
+// never had a lead), so this is now the only list and /leads redirects here.
+import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile } from '@/lib/api';
-import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { dateStr, timeAgo } from '@/lib/format';
+import { Card, StatCard, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
+import { dateStr, timeAgo, num } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
+import { ChannelChips } from '@/components/conversation';
 
 const SOURCES = [
   { key: '', label: 'All sources' }, { key: 'website', label: 'Website' }, { key: 'campaign', label: 'Campaign' },
@@ -23,6 +27,20 @@ interface CustomerRow {
   lastActivityAt?: string | null; stalledMinutes?: number | null;
 }
 
+/** Per-number conversation roll-up, joined in by phone. */
+interface ConvRollup {
+  phone?: string | null; city?: string | null; conversationCount?: number | null;
+  channels?: string[] | null; channelLabels?: string[] | null; lastAt?: string | null;
+}
+
+function asArray<T>(x: unknown): T[] {
+  if (Array.isArray(x)) return x as T[];
+  const items = (x as { items?: unknown } | null)?.items;
+  return Array.isArray(items) ? (items as T[]) : [];
+}
+
+const digits = (p?: string | null) => (p ?? '').replace(/\D/g, '');
+
 export default function CustomersPage() {
   const router = useRouter();
   const [stage, setStage] = useState('');
@@ -39,14 +57,35 @@ export default function CustomersPage() {
     ...(stalledMinutes ? { stalledMinutes } : {}),
   });
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers?${qs.toString()}`, swrFetcher);
-  const rows = (data?.data ?? []) as CustomerRow[];
+  const rows = asArray<CustomerRow>(data?.data);
   const pg = data?.pagination;
 
   // campaign picker options — reuse the campaigns list endpoint
   const { data: campRes } = useSWR('/api/admin/campaigns?page=1&pageSize=100', swrFetcher);
-  const campaigns = (campRes?.data ?? []) as { id: string; name: string; code: string }[];
+  const campaigns = asArray<{ id: string; name: string; code: string }>(campRes?.data);
+
+  // Conversation roll-ups are keyed by phone, not customer id, and there is no
+  // bulk-by-phone lookup — so we pull the most recently active numbers once and
+  // join locally. A number that is not in that window shows "—" (unknown),
+  // never "none", because absence here is not evidence we have never spoken.
+  const { data: convRes } = useSWR('/api/admin/conversations?page=1&pageSize=100', swrFetcher);
+  const convByPhone = useMemo(() => {
+    const m = new Map<string, ConvRollup>();
+    for (const r of asArray<ConvRollup>(convRes?.data)) {
+      const k = digits(r.phone);
+      if (k) m.set(k, r);
+    }
+    return m;
+  }, [convRes]);
+  const convIndexed = convByPhone.size > 0;
 
   const reset = () => { setStage(''); setSource(''); setCampaignId(''); setStalledMinutes(''); setSearch(''); setPage(1); };
+
+  const stalledCount = rows.filter((r) => (r.stalledMinutes ?? 0) > 60).length;
+  const crossChannel = rows.filter((r) => {
+    const c = convByPhone.get(digits(r.phone));
+    return Array.isArray(c?.channels) && c!.channels!.length > 1;
+  }).length;
 
   // CSV export mirrors the filters the table is showing (the endpoint supports
   // stage / source / campaignId only — search and stalled stay UI-side).
@@ -71,13 +110,31 @@ export default function CustomersPage() {
     <div className="page">
       <div className="row between wrap">
         <div>
-          <h1 className="page-title">Customers 360</h1>
-          <p className="page-sub">Every person across website, campaigns and the app — unified, with where they are and how long they have been stuck.</p>
+          <h1 className="page-title">Customers</h1>
+          <p className="page-sub">
+            Every person across website enquiries, campaigns, voice and the app — one row each, with where they are,
+            how long they have been stuck and everything we have ever said to them.
+          </p>
         </div>
         <div className="row" style={{ gap: 10 }}>
           {exportErr && <span style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
           <button className="btn" disabled={exporting} onClick={exportCsv}>{exporting ? 'Exporting…' : '⭳ Export CSV'}</button>
         </div>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', marginTop: 18 }}>
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
+        ) : (
+          <>
+            <StatCard label="Customers" value={num(pg?.total ?? rows.length)} icon="◉" tone="blue"
+              foot={stage || source || search || stalledMinutes || campaignId ? 'matching these filters' : 'known in total'} />
+            <StatCard label="Stalled over an hour" value={num(stalledCount)} icon="⏱" tone={stalledCount > 0 ? 'amber' : 'green'}
+              foot={`of the ${num(rows.length)} shown — these are the ones to call`} />
+            <StatCard label="Cross-channel" value={convIndexed ? num(crossChannel) : '—'} icon="⇄" tone="teal"
+              foot={convIndexed ? 'used more than one surface' : 'conversation index unavailable'} />
+          </>
+        )}
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -97,7 +154,7 @@ export default function CustomersPage() {
                 {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <SearchBox value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search name or phone…" />
+            <SearchBox value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search name, phone or email…" />
           </div>
           {/* drop-off filter is first-class: this is the whole point of the view */}
           <div className="row wrap between" style={{ gap: 12 }}>
@@ -114,23 +171,51 @@ export default function CustomersPage() {
             <div><button className="btn" style={{ marginTop: 12 }} onClick={() => mutate()}>Retry</button></div>
           </div>
         ) : isLoading ? <TableSkeleton rows={8} cols={7} /> : rows.length === 0 ? (
-          <Empty label="No customers match these filters" />
+          <Empty label={stage || source || search || stalledMinutes || campaignId ? 'No customers match these filters' : 'No customers yet'} />
         ) : (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>Name</th><th>Phone</th><th>Origin</th><th>Current stage</th><th>In stage since</th><th>Stalled</th><th>Last activity</th></tr></thead>
-            <tbody>{rows.map((c) => (
-              <tr key={c.id} onClick={() => router.push(`/customers/${c.id}`)}>
-                <td>{c.name || <span className="muted">Unknown</span>}</td>
-                <td className="mono">{c.phone || '—'}</td>
-                <td><span className="badge tone-grey">{c.firstSource || 'unknown'}{c.campaignId ? ' · campaign' : ''}</span></td>
-                <td><StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} /></td>
-                <td className="muted">{c.stageEnteredAt ? dateStr(c.stageEnteredAt) : '—'}</td>
-                <td className="mono" style={{ color: (c.stalledMinutes ?? 0) > 1440 ? 'var(--red)' : (c.stalledMinutes ?? 0) > 60 ? 'var(--amber)' : undefined }}>
-                  {stalledLabel(c.stalledMinutes)}
-                </td>
-                <td className="muted">{c.lastActivityAt ? timeAgo(c.lastActivityAt) : '—'}</td>
-              </tr>
-            ))}</tbody>
+            <thead><tr>
+              <th>Name</th><th>Phone</th><th>City</th><th>Origin</th><th>Stage</th>
+              <th>Conversations</th><th>Last activity</th>
+            </tr></thead>
+            <tbody>{rows.map((c) => {
+              const conv = convByPhone.get(digits(c.phone));
+              const n = conv?.conversationCount ?? null;
+              const st = c.stalledMinutes ?? null;
+              return (
+                <tr key={c.id} onClick={() => router.push(`/customers/${c.id}`)}>
+                  <td>{c.name || <span className="muted">Unknown</span>}</td>
+                  <td className="mono">{c.phone || '—'}</td>
+                  <td>{conv?.city || <span className="muted">—</span>}</td>
+                  <td><span className="badge tone-grey">{c.firstSource || 'unknown'}{c.campaignId ? ' · campaign' : ''}</span></td>
+                  <td>
+                    <div style={{ display: 'grid', gap: 3 }}>
+                      <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
+                      <span
+                        className="mono"
+                        style={{ fontSize: 11.5, color: (st ?? 0) > 1440 ? 'var(--red)' : (st ?? 0) > 60 ? 'var(--amber)' : 'var(--text-faint)' }}
+                        title={c.stageEnteredAt ? `in this stage since ${dateStr(c.stageEnteredAt)}` : undefined}
+                      >
+                        {st == null ? '—' : `here ${stalledLabel(st)}`}
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    {!conv ? (
+                      <span className="muted" title="Not in the recent conversation index — open the customer to check">—</span>
+                    ) : n === 0 ? (
+                      <span className="muted">never spoken</span>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 3 }}>
+                        <span className="mono" style={{ fontSize: 12 }}>{num(n)}</span>
+                        <ChannelChips channels={conv.channels} labels={conv.channelLabels} />
+                      </div>
+                    )}
+                  </td>
+                  <td className="muted">{c.lastActivityAt ? timeAgo(c.lastActivityAt) : '—'}</td>
+                </tr>
+              );
+            })}</tbody>
           </table></div>
         )}
         {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={setPage} />}
