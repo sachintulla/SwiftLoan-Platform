@@ -123,7 +123,13 @@ async function sendViaVox(phone: string, code: string): Promise<boolean> {
   // registered template is therefore an env change, not a code change.
   const template =
     process.env.VOX_TEMPLATE_TEXT ??
-    '{#var#} is your OTP to register/login to your account. Do not share this with anyone. T&C apply - PTIPL';
+    'Dear Customer, your SwiftLoan login OTP is {#num#}. This OTP is valid for 10 minutes. Do not share this OTP with anyone. Team SwiftLoan';
+
+  // DLT placeholders are not consistently named: templates use {#var#}, {#num#},
+  // {#otp#} and others depending on who registered them. Substituting only one
+  // spelling sends the literal token to the customer AND breaks the template
+  // match, so the operator drops it — a failure that reports as Success.
+  const body = template.replace(/\{#\s*[a-z_]+\s*#\}/gi, code);
 
   const form = new URLSearchParams({
     authtoken: process.env.VOX_AUTH_TOKEN!,
@@ -131,7 +137,7 @@ async function sendViaVox(phone: string, code: string): Promise<boolean> {
     // `to` is E.164 WITH the leading + (their sample: to=+1987654321) — unlike
     // msg91, which wants a bare 91XXXXXXXXXX.
     to: toE164(phone),
-    body: template.replace(/\{#var#\}/g, code),
+    body,
   });
   if (process.env.VOX_SENDER) form.set('from', process.env.VOX_SENDER);
   // DLT: the template must be registered with the operator and its text must
