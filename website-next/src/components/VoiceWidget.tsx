@@ -24,7 +24,7 @@ import { RubyLive } from '@/components/Ruby';
 // agent a role maps to. The browser needs neither the key nor an agent id.
 const CONFIG = {
   /** Our API, which starts the Ello session. Same resolution order as the lead form. */
-  sessionUrl: process.env.NEXT_PUBLIC_API_BASE || 'https://swiftloan-api.onrender.com',
+  sessionUrl: process.env.NEXT_PUBLIC_API_BASE || '',
   wsUrl: process.env.NEXT_PUBLIC_ELLO_WS_URL || 'wss://connect-in.getello.ai/ws-ello',
 };
 

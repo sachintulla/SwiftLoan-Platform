@@ -33,7 +33,7 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
   // Ello — https://docs.getello.ai/api-reference/calls/create-call
   // POST {baseUrl}/api/agents/{agentId}/calls with an `X-API-Key` header.
   ello: {
-    baseUrl: 'https://api.getello.ai',
+    baseUrl: 'https://api-in.getello.ai',
     /** `{agentId}` is substituted per call (campaign agent, else the default). */
     triggerPath: '/api/agents/{agentId}/calls',
     /// Agent listing, used by the campaign builder's picker.
@@ -281,12 +281,17 @@ export async function triggerElloCall(input: TriggerCallInput): Promise<HttpResu
     encodeURIComponent(agentId),
   );
 
+  const fullUrl = joinUrl(s.baseUrl, path);
+  console.log('[ello-trigger] → POST', fullUrl, 'agentId=', agentId, 'body=', JSON.stringify(body));
+
   const res = await httpJson(
-    joinUrl(s.baseUrl, path),
+    fullUrl,
     s.triggerMethod || 'POST',
     { [s.authHeader || 'X-API-Key']: String(apiKey) },
     body,
   );
+
+  console.log('[ello-trigger] ← HTTP', res.status, 'ok=', res.ok, 'body=', JSON.stringify(res.body));
 
   const providerCallId = pick(res.body, s.responseMap?.providerCallId) ?? pick(res.body, 'data.conversation_id');
   return { ...res, providerCallId: providerCallId ? String(providerCallId) : undefined };
