@@ -7,7 +7,7 @@ import { saveTokens, clearTokens } from '../state/session';
  * this way testing doesn't depend on anyone having the local backend running.
  * Override with SWIFTLOAN_API_BASE (see index.js) for local-backend testing.
  */
-export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'http://dev-api.swiftloan.ai/api';
+export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'https://dev-api.swiftloan.ai/api';
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
@@ -311,11 +311,12 @@ export async function uploadAvatar(
   const { uploadUrl, publicUrl } = await api.presignAvatarUpload(contentType);
   const fileRes = await fetch(fileUri);
   const blob = await fileRes.blob();
-  // x-amz-acl must match exactly what the server signed (public-read) or S3
-  // rejects the upload as a signature mismatch.
+  // No x-amz-acl: the bucket's Object Ownership is "Bucket owner enforced"
+  // (rejects any ACL) and public read is already granted via bucket policy,
+  // not per-object ACLs — matches the presign command's own PutObjectCommand.
   const putRes = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'content-type': contentType, 'x-amz-acl': 'public-read' },
+    headers: { 'content-type': contentType },
     body: blob as any,
   });
   if (!putRes.ok) throw new Error(`Photo upload failed (${putRes.status})`);

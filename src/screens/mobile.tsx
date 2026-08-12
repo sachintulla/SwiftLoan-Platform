@@ -12,10 +12,14 @@ export default function Mobile() {
   const { state, set, go, showToast } = useStore();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
-  const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
+  // Single hidden field is the source of truth (see hiddenOtpInput below) — the
+  // 6 visible boxes are just a display of it, not separate inputs. Distributing
+  // OS autofill across 6 real TextInputs is unreliable (iOS/Android autofill
+  // targets one focused field with the whole code, not one keystroke per box).
+  const [otpCode, setOtpCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const boxes = useRef<Array<TextInput | null>>([]);
+  const hiddenOtpInput = useRef<TextInput>(null);
 
   const mobileLen = state.mobileVal.length;
   const sendEnabled = mobileLen === 10 && state.terms && !busy;
@@ -39,7 +43,7 @@ export default function Mobile() {
     setErr(null);
     setBusy(true);
     try {
-      const r = await api.verifyOtp(state.mobileVal, otp.join(''));
+      const r = await api.verifyOtp(state.mobileVal, otpCode);
       set({ authUser: r.user, otpSent: false, priorInquiries: r.priorInquiries });
 
       // Upshot: this is the first moment we know who this person is. Identify
@@ -78,8 +82,15 @@ export default function Mobile() {
   useEffect(() => {
     if (!otpSent) return;
     setOtpSeconds(29);
+    setOtpCode('');
+    // Autofocus so the keyboard (and the OS autofill suggestion) appears
+    // immediately once the code-entry step is shown, no tap needed.
+    const focusTimer = setTimeout(() => hiddenOtpInput.current?.focus(), 50);
     const id = setInterval(() => setOtpSeconds(s => (s > 0 ? s - 1 : 0)), 1000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      clearTimeout(focusTimer);
+    };
   }, [otpSent]);
 
   const masked =
@@ -88,20 +99,7 @@ export default function Mobile() {
       : '+91 ••••••••••';
   const timerText = otpSeconds > 0 ? `(in 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : '(Ready now)';
 
-  const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, '').slice(-1);
-    // Functional update: several digits can be set back-to-back in the same
-    // tick (the voice agent fills all 6 boxes in one batch), and building
-    // `next` off the `otp` closure instead of the latest pending state meant
-    // each call clobbered the previous one — only the last-applied digit
-    // ever stuck. This composes correctly regardless of call order/timing.
-    setOtp(prev => {
-      const next = [...prev];
-      next[i] = d;
-      return next;
-    });
-    if (d && i < 5) boxes.current[i + 1]?.focus();
-  };
+  const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
   return (
     <Screen scroll padded={false}>
@@ -164,27 +162,31 @@ export default function Mobile() {
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>Edit phone number</Text>
             </Pressable>
 
-            <View style={styles.otpRow}>
-              {otp.map((d, i) => (
-                <TextInput
+            <Pressable style={styles.otpRow} onPress={() => hiddenOtpInput.current?.focus()}>
+              {Array.from({ length: 6 }, (_, i) => (
+                <View
                   key={i}
-                  ref={el => {
-                    boxes.current[i] = el;
-                  }}
-                  style={[styles.otpBox, font(700), d ? { borderColor: colors.primary } : null]}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  // Marks these as a one-time code: enables OS autofill, and makes
-                  // the voice layer treat them as sensitive so the agent will not
-                  // fill them. The user types the OTP; the agent taps Verify.
-                  textContentType="oneTimeCode"
-                  autoComplete="sms-otp"
+                  style={[styles.otpBox, otpCode[i] ? { borderColor: colors.primary } : null]}
                   accessibilityLabel={`OTP digit ${i + 1}`}
-                  value={d}
-                  onChangeText={v => setDigit(i, v)}
-                />
+                >
+                  <Text style={[font(700), styles.otpDigit]}>{otpCode[i] ?? ''}</Text>
+                </View>
               ))}
-            </View>
+              {/* The real input: one field, off-screen but focusable, catches the
+                  OS autofill suggestion as a single 6-char value. Marks itself
+                  sensitive to the voice layer so the agent will not fill it —
+                  the user types the OTP; the agent taps Verify. */}
+              <TextInput
+                ref={hiddenOtpInput}
+                style={styles.otpHiddenInput}
+                keyboardType="number-pad"
+                maxLength={6}
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                value={otpCode}
+                onChangeText={onOtpChange}
+              />
+            </Pressable>
 
             <Pressable style={{ alignSelf: 'center', marginTop: 14 }} onPress={resend}>
               <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>
@@ -210,7 +212,7 @@ export default function Mobile() {
         {!otpSent ? (
           <PrimaryButton label={busy ? 'Sending…' : 'Send OTP'} disabled={!sendEnabled} onPress={sendOtp} />
         ) : (
-          <PrimaryButton label={busy ? 'Verifying…' : 'Verify & Continue'} disabled={busy || otp.join('').length < 6} onPress={verify} />
+          <PrimaryButton label={busy ? 'Verifying…' : 'Verify & Continue'} disabled={busy || otpCode.length < 6} onPress={verify} />
         )}
 
         <View style={styles.orRow}>
@@ -285,11 +287,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.line,
     borderRadius: 12,
-    textAlign: 'center',
-    fontSize: 22,
-    color: colors.text,
     backgroundColor: 'rgba(255,255,255,0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  otpDigit: { fontSize: 22, color: colors.text },
+  otpHiddenInput: { position: 'absolute', width: 1, height: 1, opacity: 0.01 },
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 },
   orLine: { flex: 1, height: 1, backgroundColor: colors.line },
   googleBtn: {

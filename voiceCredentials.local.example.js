@@ -12,6 +12,8 @@
  * a built APK.
  */
 global.SWIFTLOAN_ELLO_API_KEY = 'ak_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
-global.SWIFTLOAN_ELLO_ASSISTANT_ID = 'your-assistant-id';
+// Set ELLO_MOBILE_APP_ASS in your shell before building to override this —
+// see babel.config.js, which inlines it at bundle time.
+global.SWIFTLOAN_ELLO_ASSISTANT_ID = process.env.ELLO_MOBILE_APP_ASS || 'your-assistant-id';
 global.SWIFTLOAN_ELLO_API_BASE = 'https://api-in.getello.ai';
 global.SWIFTLOAN_ELLO_WS_URL = 'wss://opensips-stage.getello.ai/ws-ello';
