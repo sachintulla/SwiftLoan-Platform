@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "ello:sync": "tsx scripts/ello-sync-agent.ts",
     "ello:agents": "tsx scripts/ello-agents.ts",
-    "conversations:backfill": "tsx scripts/backfill-conversations.ts"
+    "conversations:backfill": "tsx scripts/backfill-conversations.ts",
+    "admin:create": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1105.0",
