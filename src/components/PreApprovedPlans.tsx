@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, Linking } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import Icon from './Icon';
 import { PrimaryButton } from './Controls';
 import { Skeleton } from './common/Loading';
@@ -167,10 +167,10 @@ export function PreApprovedPlans({
 
   const onCardPress = (plan: PreApprovedPlan) => {
     if (isHome) {
-      // Already signed in — no gate left, so a tap acts immediately: save
-      // the pick and go straight to the lender's page.
+      // Already signed in — a tap starts a new loan application pre-filled with
+      // this plan (see home.tsx's onApply), rather than opening the lender's
+      // external page. Save the pick so the rest of the flow knows it.
       persistSelection(plan);
-      if (plan.exploreUrl) Linking.openURL(plan.exploreUrl).catch(() => {});
       onApply(plan);
     } else {
       setSelectedId(plan.id);
