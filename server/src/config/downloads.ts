@@ -2,12 +2,13 @@
 // APKs are hosted as GitHub Release assets on a PUBLIC repo (public release
 // assets need no auth and have no practical size limit), overridable via env.
 
-const REL = 'https://github.com/veerendrabhimireddy/swiftloan-apks/releases/download/v2';
+const REL = 'https://github.com/veerendrabhimireddy/swiftloan-apks/releases/download/v3';
 
 export const downloads = {
-  version: process.env.APK_VERSION ?? '2.0.0',
+  version: process.env.APK_VERSION ?? '3.0.0',
   // Public base URL of THIS api (for absolute landing/deep links).
-  publicBase: (process.env.PUBLIC_BASE_URL ?? 'https://swiftloan-api.onrender.com').replace(/\/$/, ''),
+  // Defaults to local dev; real deploys set PUBLIC_BASE_URL to their own host.
+  publicBase: (process.env.PUBLIC_BASE_URL ?? 'http://localhost:4000').replace(/\/$/, ''),
   deepLinkScheme: 'swiftloan',
   builds: {
     generic: {

@@ -163,6 +163,10 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     })
     .slice(0, Math.min(MAX_PER_TICK, budget));
 
+  console.log(
+    `[lead-call] tick: ${candidates.length} candidate(s) @ lead_captured, ${leads.length} eligible after age/already-called filter (dueBefore=${dueBefore.toISOString()}); phones=${JSON.stringify(leads.map((l) => l.phone))}`,
+  );
+
   const cooldownSince = new Date(now.getTime() - PER_PHONE_COOLDOWN_HOURS * 3_600_000);
 
   let placed = 0;
@@ -173,7 +177,10 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     const recent = await prisma.callAttempt.count({
       where: { phone: lead.phone!, queuedAt: { gte: cooldownSince } },
     });
-    if (recent > 0) continue;
+    if (recent > 0) {
+      console.log(`[lead-call] ${lead.phone}: SKIP — ${recent} call(s) within cooldown (${PER_PHONE_COOLDOWN_HOURS}h)`);
+      continue;
+    }
 
     try {
       // The whole point of the ~1-minute delay is that the call lands while the
@@ -196,8 +203,12 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
           reason: 'website_lead_followup',
         },
       });
-      if (result.ok) placed++;
-      else console.warn(`[lead-call] ${lead.phone}: ${result.error}`);
+      if (result.ok) {
+        placed++;
+        console.log(`[lead-call] ${lead.phone}: PLACED ok — status=${result.attempt?.status} providerCallId=${result.attempt?.providerCallId ?? '-'}`);
+      } else {
+        console.warn(`[lead-call] ${lead.phone}: FAILED — ${result.error}`);
+      }
     } catch (e) {
       console.error('[lead-call] failed for', lead.id, e);
     }

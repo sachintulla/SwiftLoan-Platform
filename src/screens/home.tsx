@@ -21,7 +21,7 @@ function initials(name: string) {
 
 export default function Home() {
   const t = useT();
-  const { state, go, showToast } = useStore();
+  const { state, set, go, showToast } = useStore();
 
   return (
     <Screen scroll bottomNav padded>
@@ -74,15 +74,23 @@ export default function Home() {
         ))}
       </View>
 
-      {/* Pre-approved plans — full list embedded right here, nothing
-          preselected. Tapping a plan acts immediately (saves it and opens
-          the lender's page) since there's no sign-up gate left to enforce
-          once the user is already on their dashboard. */}
+      {/* Pre-approved plans — full list embedded right here. Tapping a plan
+          starts a new loan application (same as the "Apply for a new loan"
+          CTA) pre-filled with that plan's amount; the basic screen fills in
+          the user details already entered/known so far. */}
       <SectionHeading title="Pre-approved plans" sub="No PAN needed · credit score untouched" />
       <PreApprovedPlans
         mode="home"
         showIntro={false}
-        onApply={plan => showToast(plan.exploreUrl ? `Opening ${plan.lenderName}…` : `${plan.lenderName} selected`)}
+        onApply={plan => {
+          // Pre-fill the loan amount from the plan (maxAmount is in paise;
+          // appAmount is in rupees). Fall back to the current amount when the
+          // plan's amount is only decided at approval.
+          if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
+          // User details entered/known so far are already in the store and are
+          // re-prefilled by the basic screen on mount.
+          go('basic');
+        }}
       />
 
       {/* Manage loan */}

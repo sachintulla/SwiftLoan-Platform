@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, PanResponder, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from '../../components/Icon';
@@ -126,6 +126,65 @@ function EqualizerBars({ color }: { color: string }) {
   );
 }
 
+/**
+ * Idle-state icon: a small animated robot head, replacing the static mic
+ * glyph. `phase` drives both the head sway and the antenna sway off one
+ * shared 2.4s loop (they're just different curves over the same value) —
+ * the tip pulse and the blink run on their own independent, shorter loops.
+ */
+function RobotHead() {
+  const phase = useRef(new Animated.Value(0)).current;
+  const tip = useRef(new Animated.Value(0)).current;
+  const blink = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const headLoop = Animated.loop(
+      Animated.timing(phase, { toValue: 4, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    );
+    const tipLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tip, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(tip, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    const blinkLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(blink, { toValue: 0, duration: 2992, useNativeDriver: true }),
+        Animated.timing(blink, { toValue: 1, duration: 136, useNativeDriver: true }),
+        Animated.timing(blink, { toValue: 0, duration: 272, useNativeDriver: true }),
+      ]),
+    );
+    headLoop.start();
+    tipLoop.start();
+    blinkLoop.start();
+    return () => {
+      headLoop.stop();
+      tipLoop.stop();
+      blinkLoop.stop();
+      phase.setValue(0);
+      tip.setValue(0);
+      blink.setValue(0);
+    };
+  }, [phase, tip, blink]);
+
+  const rotate = phase.interpolate({ inputRange: [0, 1, 2, 3, 4], outputRange: ['0deg', '-6deg', '0deg', '6deg', '0deg'] });
+  const translateY = phase.interpolate({ inputRange: [0, 1, 2, 3, 4], outputRange: [0, -1, -3, -1, 0] });
+  const antennaRotate = phase.interpolate({ inputRange: [0, 2, 4], outputRange: ['-8deg', '8deg', '-8deg'] });
+  const tipOpacity = tip.interpolate({ inputRange: [0, 1], outputRange: [1, 0.5] });
+  const eyeScaleY = blink.interpolate({ inputRange: [0, 1], outputRange: [1, 0.15] });
+
+  return (
+    <Animated.View style={{ width: ROBOT_HEAD_W, height: ROBOT_HEAD_H, transform: [{ rotate }, { translateY }] }}>
+      <Animated.View style={[styles.robotAntennaStem, { transform: [{ rotate: antennaRotate }] }]} />
+      <Animated.View style={[styles.robotAntennaTip, { opacity: tipOpacity }]} />
+      <View style={styles.robotFace}>
+        <Animated.View style={[styles.robotEye, { transform: [{ scaleY: eyeScaleY }] }]} />
+        <Animated.View style={[styles.robotEye, { transform: [{ scaleY: eyeScaleY }] }]} />
+      </View>
+    </Animated.View>
+  );
+}
+
 /** Floating mic FAB — a constant-color button; bars + ripple carry all state color. */
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
@@ -237,7 +296,13 @@ export default function VoiceWidget() {
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
           <Animated.View style={[styles.fabRing, { transform: [{ scale: pulse }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
-              {showBars ? <EqualizerBars color={accent} /> : <Icon name={active ? 'call_end' : 'mic'} size={25} color="#fff" />}
+              {showBars ? (
+                <EqualizerBars color={accent} />
+              ) : active ? (
+                <Icon name="call_end" size={MIC_ICON_SIZE} color="#fff" />
+              ) : (
+                <RobotHead />
+              )}
             </LinearGradient>
           </Animated.View>
         </Pressable>
@@ -246,9 +311,13 @@ export default function VoiceWidget() {
   );
 }
 
-const FAB_SIZE = 60;
+// iOS renders this FAB visibly larger than Android at the same point size.
+const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
+const MIC_ICON_SIZE = Platform.OS === 'ios' ? 21 : 25;
 const RIPPLE_SIZE = FAB_SIZE + 8;
 const HALO_SIZE = FAB_SIZE + 20;
+const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
+const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
 
 const styles = StyleSheet.create({
   wrap: { position: 'absolute', alignItems: 'center' },
@@ -290,4 +359,33 @@ const styles = StyleSheet.create({
   },
   eqRow: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 22 },
   eqBar: { width: 3.5, borderRadius: 2 },
+  robotFace: {
+    width: ROBOT_HEAD_W,
+    height: ROBOT_HEAD_H,
+    borderRadius: 7,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: ROBOT_HEAD_W * 0.25,
+  },
+  robotEye: { width: 4, height: 4, borderRadius: 1, backgroundColor: colors.primary },
+  robotAntennaStem: {
+    position: 'absolute',
+    top: -9,
+    left: ROBOT_HEAD_W / 2 - 1,
+    width: 2,
+    height: 6,
+    backgroundColor: '#fff',
+    transformOrigin: 'bottom center',
+  },
+  robotAntennaTip: {
+    position: 'absolute',
+    top: -12,
+    left: ROBOT_HEAD_W / 2 - 3,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+  },
 });

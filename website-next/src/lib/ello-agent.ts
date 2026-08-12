@@ -105,7 +105,7 @@ export class ElloAgent {
           ? (window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE
           : undefined) ??
         process.env.NEXT_PUBLIC_API_BASE ??
-        'https://swiftloan-api.onrender.com',
+        '',
       ...options,
     };
   }
