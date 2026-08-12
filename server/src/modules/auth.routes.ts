@@ -103,12 +103,16 @@ authRouter.post(
   ),
   ah(async (req, res) => {
     const { phone, code } = req.body;
+    // Test-only master OTP: when DEV_MASTER_OTP is set (never in real prod),
+    // this fixed code verifies ANY number so QA can log in without SMS/devOtp.
+    const masterOtp = process.env.DEV_MASTER_OTP;
+    const isMaster = !!masterOtp && code === masterOtp;
     const otp = await prisma.otpToken.findFirst({
       where: { phone, consumed: false, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
-    if (!otp || otp.codeHash !== sha256(code)) throw new HttpError(400, 'Invalid or expired OTP');
-    await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
+    if (!isMaster && (!otp || otp.codeHash !== sha256(code))) throw new HttpError(400, 'Invalid or expired OTP');
+    if (otp) await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
     const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
     const tokens = await issueTokens(user.id, user.phone);
 
