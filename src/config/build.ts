@@ -15,7 +15,7 @@
  * local server/ over the USB bridge. Left empty so a standalone build talks
  * to the real deployed dev API and needs no cable/tunnel at all.
  */
-const DEV_API_BASE = 'http://localhost:4000/api';
+const DEV_API_BASE = '';
 
 export const BUILD = {
   // Flipped between builds (generic -> false, context -> true).
@@ -23,7 +23,7 @@ export const BUILD = {
   VARIANT: 'context' as 'context' | 'generic',
   APP_LABEL: 'SwiftLoan',
   // Deployed API (all app API calls + context resolve go here).
-  API_BASE: DEV_API_BASE || 'http://dev-api.swiftloan.ai/api',
+  API_BASE: DEV_API_BASE || 'https://dev-api.swiftloan.ai/api',
 };
 
 // Point the api-client + tracking at the same backend.
