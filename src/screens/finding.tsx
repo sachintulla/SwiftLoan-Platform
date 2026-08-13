@@ -7,7 +7,7 @@ import { useStore } from '../state/store';
 import { api } from '../api/client';
 
 export default function Finding() {
-  const { state, go } = useStore();
+  const { state, go, set } = useStore();
   const pulse = useRef(new Animated.Value(0)).current;
   const prog = useRef(new Animated.Value(0)).current;
 
@@ -23,7 +23,16 @@ export default function Finding() {
       setTimeout(() => go('offers'), wait);
     };
     if (state.applicationId) {
-      api.prequalify(state.applicationId).then(finish).catch(finish);
+      api.prequalify(state.applicationId)
+        .then((res) => {
+          // Carry any lender-side guidance to the offers screen's empty state.
+          set({ offersError: (res as any)?.friendlyError || '' });
+          finish();
+        })
+        .catch(() => {
+          set({ offersError: 'We couldn’t reach our lending partners just now. Please check your connection and try again.' });
+          finish();
+        });
     } else {
       setTimeout(finish, 100); // demo path (no live application)
     }

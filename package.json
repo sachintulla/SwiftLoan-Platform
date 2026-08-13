@@ -23,7 +23,8 @@
     "react-native-svg": "^15.15.5",
     "react-native-upshotsdk": "^0.4.9",
     "react-native-vector-icons": "^10.3.0",
-    "react-native-webrtc": "^124.0.8"
+    "react-native-webrtc": "^124.0.8",
+    "react-native-webview": "^14.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

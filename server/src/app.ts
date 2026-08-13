@@ -34,6 +34,7 @@ import { conversationsRouter } from './modules/conversations.routes.js';
 import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
+import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
 
 export function createApp() {
   const app = express();
@@ -122,6 +123,7 @@ export function createApp() {
   // PUBLIC — an Upshot journey posts here to place a call. Every guard
   // (calling hours, cooldown, do-not-call) is enforced server-side.
   app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
+  app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix posts loan status here
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
   app.use('/api/admin', adminRouter);

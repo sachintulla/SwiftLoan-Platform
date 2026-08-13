@@ -10,9 +10,6 @@ import { useStore, useT } from '../state/store';
 const LOAN_TYPES = [
   { icon: 'person', k: 'ltPersonal', s: 'ltPersonalSub' },
   { icon: 'storefront', k: 'ltBusiness', s: 'ltBusinessSub' },
-  { icon: 'home', k: 'ltHome', s: 'ltHomeSub' },
-  { icon: 'school', k: 'ltEducation', s: 'ltEducationSub' },
-  { icon: 'directions_car', k: 'ltVehicle', s: 'ltVehicleSub' },
 ];
 
 function initials(name: string) {

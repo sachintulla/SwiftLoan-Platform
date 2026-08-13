@@ -1,4 +1,3 @@
-import { Alert } from 'react-native';
 import { saveTokens, clearTokens } from '../state/session';
 
 /**
@@ -65,9 +64,9 @@ function refreshOnce(): Promise<boolean> {
  */
 const REQUEST_TIMEOUT_MS = 4000;
 
-async function request<T = any>(method: string, path: string, body?: unknown, _retried = false): Promise<T> {
+async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(API_BASE + path, {
@@ -81,7 +80,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     });
   } catch (e: any) {
     // Normalize an abort into the same TypeError shape a network failure throws.
-    if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
   } finally {
     clearTimeout(timer);
@@ -92,7 +91,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // auth endpoints themselves (they mint/rotate tokens) to avoid loops.
     if (res.status === 401 && !_retried && refreshToken && !path.startsWith('/auth/')) {
       const refreshed = await refreshOnce();
-      if (refreshed) return request<T>(method, path, body, true);
+      if (refreshed) return request<T>(method, path, body, true, timeoutMs);
       setTokens(null, null); // refresh failed — session is truly gone
     }
     throw new ApiError(res.status, (data as any).error || res.statusText, data);
@@ -180,6 +179,44 @@ export interface Offer {
   externalPartnerId?: string | null;
 }
 
+/**
+ * Map a lender (Aurix) eligible_offers response into a short, actionable note
+ * for the end user — so a validation reject guides them to fix their details
+ * rather than showing a raw error. Returns '' when offers exist or nothing is
+ * actionable. `aurixResponse` shape: { httpStatus, response: { Meta, Data } }.
+ */
+export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
+  if (offerCount > 0) return '';
+  const meta = aurixResponse?.response?.Meta ?? aurixResponse?.response?.Result?.Meta;
+  const msg: string = String(meta?.Message ?? '');
+  if (!msg) return '';
+  const m = msg.toLowerCase();
+  if (m.includes('pan verification') || m.includes('pan number')) {
+    return 'We couldn’t verify your PAN. Please re-check your PAN number (format ABCDE1234F) and try again.';
+  }
+  if (m.includes('mobile')) {
+    return 'Please enter a valid 10-digit mobile number starting with 6–9.';
+  }
+  if (m.includes('email')) {
+    return 'Please add a valid email address so lenders can share your offer.';
+  }
+  if (m.includes('age') || m.includes('dob')) {
+    return 'Please check your date of birth — applicants must be between 18 and 120.';
+  }
+  if (m.includes('bureau')) {
+    return 'We couldn’t complete the credit check right now. Please try again in a little while.';
+  }
+  if (m.includes('validation failed') || m.includes('required') || m.includes('cannot be null')) {
+    return 'Some of your details couldn’t be validated. Please review your name, email, date of birth, address and PAN, then try again.';
+  }
+  if (meta?.Success === true) {
+    // Accepted, but no lender matched — guide toward adjusting the request.
+    return 'No matching offers for these details right now. Try a different loan amount, or check back shortly.';
+  }
+  // Fall back to the lender's own message, cleaned up.
+  return `We couldn’t fetch offers: ${msg}`;
+}
+
 export const api = {
   health: () => request('GET', '/health'),
 
@@ -230,22 +267,18 @@ export const api = {
   getApplication: (id: string) => request('GET', `/applications/${id}`),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
   prequalify: async (id: string) => {
-    const res = await request<{ offers: unknown[]; aurixResponse?: unknown }>(
+    // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
+    // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.
+    const res = await request<{ offers: unknown[]; aurixResponse?: any }>(
       'POST',
       `/applications/${id}/prequalify`,
+      undefined,
+      false,
+      45000,
     );
-    // Debug visibility: surface the raw Aurix eligible_offers response (offers,
-    // no-offers reason, or validation error) exactly as received from Aurix.
-    try {
-      const body = res?.aurixResponse;
-      Alert.alert(
-        'Aurix Offer API response',
-        body == null ? 'No Aurix response (Aurix was not called for this run).' : JSON.stringify(body, null, 2),
-      );
-    } catch {
-      /* never let a debug alert break the funnel */
-    }
-    return res;
+    // Turn any lender-side rejection into a clear, actionable note for the user
+    // (surfaced on the offers screen), instead of a raw debug dump.
+    return { ...res, friendlyError: friendlyAurixError(res?.aurixResponse, (res?.offers ?? []).length) };
   },
   selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),

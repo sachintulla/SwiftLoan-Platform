@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, Linking } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { StepBadge, Chips } from '../components/Controls';
@@ -38,6 +38,13 @@ export default function Offers() {
       set({ selectedOfferId: offer.id });
       await api.selectOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
     }
+    // A real partner offer carries a lender deep link — open it inside the app
+    // (in-app WebView) instead of the native SwiftLoan handoff screen.
+    if (offer.redirectionUrl) {
+      set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
+      go('lenderweb');
+      return;
+    }
     go('handoff');
   };
 
@@ -63,6 +70,10 @@ export default function Offers() {
         ) : offers.length === 0 ? (
           !state.applicationId ? (
             <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
+          ) : state.offersError ? (
+            // Lender-side rejection turned into an actionable note guiding the
+            // user to correct their details (then "Update details" below).
+            <Empty icon="error" title="Let’s fix a few details" message={state.offersError} />
           ) : (
             <Empty icon="search_off" title="No offers yet" message="We couldn't match a partner to this profile. Try adjusting your amount." />
           )
@@ -242,11 +253,10 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
         <Pressable
           style={styles.selectBtn}
           onPress={() => {
-            // Record the selection in our funnel, then — for a real partner
-            // offer that carries a lender deep link — hand off to the lender's
-            // page to complete the application.
+            // Record the selection in our funnel; select() then opens the
+            // lender's page in the in-app WebView (or the handoff screen when
+            // there's no deep link).
             onSelect(offer, selected?.id);
-            if (offer.redirectionUrl) Linking.openURL(offer.redirectionUrl).catch(() => {});
           }}
         >
           <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Continue' : 'Select Offer'}</Text>

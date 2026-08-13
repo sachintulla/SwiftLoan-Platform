@@ -16,6 +16,7 @@ import MoreDetails from './moredetails';
 import Finding from './finding';
 import Offers from './offers';
 import Handoff from './handoff';
+import LenderWeb from './lenderweb';
 import Kyc from './kyc';
 import Aadhaar from './aadhaar';
 import Panv from './panv';
@@ -48,6 +49,7 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   finding: Finding,
   offers: Offers,
   handoff: Handoff,
+  lenderweb: LenderWeb,
   kyc: Kyc,
   aadhaar: Aadhaar,
   panv: Panv,

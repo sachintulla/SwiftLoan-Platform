@@ -29,6 +29,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       launchOptions: launchOptions
     )
 
+    // Match the launch screen + JS splash so there's no white flash while the
+    // React Native bundle loads. Teal = #0A9E90 (the launch storyboard colour).
+    let brandTeal = UIColor(red: 0.031, green: 0.62, blue: 0.565, alpha: 1.0)
+    window?.backgroundColor = brandTeal
+    window?.rootViewController?.view.backgroundColor = brandTeal
+
     return true
   }
 }

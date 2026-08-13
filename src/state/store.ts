@@ -24,7 +24,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 export const SCREEN_NAMES = [
   'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
   'home', 'loans', 'fare', 'help', 'profile', 'explore',
-  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff',
+  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
   'status', 'disbursed', 'repay', 'creditscore',
@@ -43,7 +43,9 @@ const PREV: Partial<Record<Screen, Screen>> = {
   basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
   prequalify: 'consent', kyc: 'prequalify',
-  offers: 'moredetails', handoff: 'offers', status: 'home',
+  // Back from offers goes to My Loans so the user sees their applied loans
+  // (the selection is recorded when they tap Continue on an offer).
+  offers: 'loans', handoff: 'offers', lenderweb: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home', creditscore: 'repay',
   loans: 'home', fare: 'home', explore: 'mobile',
@@ -102,6 +104,12 @@ export interface AppState {
   // (already signed in) rather than a pre-signup skip button — changes explore's
   // back-target and hides its "sign up" CTA. Reset by both skip handlers.
   exploreFromHome: boolean;
+  // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
+  // user taps Continue on an offer that carries a lender deep link.
+  webUrl: string; webTitle: string;
+  // A friendly, actionable note when prequalify returns no offers (e.g. lender
+  // validation rejected the details) — shown on the offers screen empty state.
+  offersError: string;
 }
 
 export const initialState: AppState = {
@@ -135,6 +143,8 @@ export const initialState: AppState = {
   priorInquiries: [],
   userContext: null,
   exploreFromHome: false,
+  webUrl: '', webTitle: '',
+  offersError: '',
 };
 
 type Action =

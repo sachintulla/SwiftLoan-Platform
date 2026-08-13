@@ -83,16 +83,26 @@ export default function Loans() {
           {apps.map(app => {
             const meta = STATUS_META[app.status] || { label: app.status, color: colors.muted };
             const applied = new Date(app.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            // The offer the user picked ("Continue" on the offers screen) — its
+            // lender + interest are what we show for an applied loan.
+            const sel = (app.offers || []).find((o: any) => o.selected) || null;
+            const apr = app.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
             return (
               <AppCard
                 key={app.id}
                 icon={TYPE_ICON[app.loanType] || 'account_balance'}
                 name={`${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`}
-                ref_={`Ref ${app.ref}`}
+                ref_={sel?.lenderName ? `${sel.lenderName} · Ref ${app.ref}` : `Ref ${app.ref}`}
                 status={meta.label}
                 statusColor={meta.color}
                 left={{ label: 'Amount', value: rupee(app.amount) }}
-                right={app.loan ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) } : { label: 'Applied', value: applied }}
+                right={
+                  app.loan
+                    ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
+                    : apr != null
+                      ? { label: 'Interest', value: `${apr}% p.a.` }
+                      : { label: 'Applied', value: applied }
+                }
                 onPress={() => open(app)}
               />
             );
