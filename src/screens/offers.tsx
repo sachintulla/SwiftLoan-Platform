@@ -146,9 +146,9 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
   return (
     <View style={[styles.card, offer.recommended && styles.cardRecommended]}>
       <View style={styles.cardTop}>
-        <View style={styles.bank}>
+        <View style={[styles.bank, (offer.lenderLogoUrl || offer.partner.logoUrl) && styles.bankLogo]}>
           {(offer.lenderLogoUrl || offer.partner.logoUrl) ? (
-            <Image source={{ uri: (offer.lenderLogoUrl || offer.partner.logoUrl)! }} style={{ width: 28, height: 28, borderRadius: 6 }} resizeMode="contain" />
+            <Image source={{ uri: (offer.lenderLogoUrl || offer.partner.logoUrl)! }} style={{ width: 42, height: 42 }} resizeMode="contain" />
           ) : (
             <Icon name={offer.partner.icon} size={22} color={colors.primary} />
           )}
@@ -310,7 +310,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  bank: { width: 46, height: 46, borderRadius: 13, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  bank: { width: 48, height: 48, borderRadius: 13, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  // A real lender logo already carries its own colours — show it on plain white
+  // (no mint tint/frame) so it renders cleanly and reads well.
+  bankLogo: { backgroundColor: '#FFFFFF' },
   trustPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.chip, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
   ratingPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(245,166,36,0.14)', borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
   badge: { backgroundColor: colors.primary, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, shadowColor: '#0A3F41', shadowOpacity: 0.18, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
