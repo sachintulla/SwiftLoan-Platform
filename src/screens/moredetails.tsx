@@ -88,23 +88,17 @@ export default function MoreDetails() {
         <Field label="Alternate email (optional)" placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={state.optAltEmail} onChangeText={v => set({ optAltEmail: v })} />
       </View>
 
-      {/* Address */}
-      <SectionLabel text="Current address" />
+      {/* Address (extra lines — line 1 / city / state captured on the previous step) */}
+      <SectionLabel text="Address (extra)" />
       <View style={{ gap: 14 }}>
-        <Field label="Address line 1" placeholder="Flat / house, building" value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
         <Field label="Address line 2" placeholder="Street, area" value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
         <Field label="Landmark" placeholder="Nearby landmark" value={state.optLandmark} onChangeText={v => set({ optLandmark: v })} />
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <View style={{ flex: 1 }}><Field label="City" placeholder="City" value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
-          <View style={{ flex: 1 }}><Field label="State" placeholder="State" value={state.optState} onChangeText={v => set({ optState: v })} /></View>
-        </View>
+        <Field label="District" placeholder="District" value={state.optDistrict} onChangeText={v => set({ optDistrict: v })} />
       </View>
 
       {/* Income */}
       <SectionLabel text="Income" />
       <View style={{ gap: 12 }}>
-        <Text style={[font(600), { fontSize: 13, color: colors.textMid }]}>Salary mode</Text>
-        <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={['Bank Transfer', 'Cheque', 'Cash'].map(x => ({ label: x, value: x }))} />
         <Field label="Monthly obligations / EMIs (₹)" placeholder="e.g. 15,000" keyboardType="number-pad" value={state.optObligations} onChangeText={v => set({ optObligations: v })} />
       </View>
 

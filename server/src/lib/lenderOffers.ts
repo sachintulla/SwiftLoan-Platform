@@ -420,11 +420,14 @@ class AurixOfferProvider implements LenderOfferProvider {
     }
 
     const payload = buildEligibleOffersPayload(user, application);
+    // eligible_offers is a real bureau/BRE call and can be slow — allow 30s
+    // rather than the default 15s so a legitimately slow decision doesn't time out.
     const result = await httpJson(
       `${cfg.offersBaseUrl}/api/eligible_offers`,
       'POST',
       { Accept: 'application/json', 'K-Aurix-Version': 'v1', 'X-Aurix-Token': token },
       payload,
+      30_000,
     );
     if (!result.ok) throw new Error(`Aurix eligible_offers failed: ${result.error} (HTTP ${result.status})`);
 

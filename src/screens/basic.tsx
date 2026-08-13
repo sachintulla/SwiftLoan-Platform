@@ -63,6 +63,13 @@ export default function Basic() {
       showToast('Please accept the soft-enquiry consent.');
       return;
     }
+    // These are required by the lender (Aurix) to return offers, so enforce them
+    // here rather than letting the offer call fail later.
+    if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast('Please enter a valid email.'); return; }
+    if (!state.basicLoanPurpose) { showToast('Please select a loan purpose.'); return; }
+    if (!state.basicQualification) { showToast('Please select your qualification.'); return; }
+    if (!state.optSalaryMode) { showToast('Please select your salary mode.'); return; }
+    if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast('Please enter your address (line 1, city, state).'); return; }
     if (!isAuthed()) {
       showToast('Please verify your mobile number to continue.');
       go('mobile');
@@ -86,6 +93,11 @@ export default function Basic() {
         // Aurix-required: qualification + loan purpose.
         ...(state.basicQualification ? { qualification: state.basicQualification } : {}),
         ...(state.basicLoanPurpose ? { loanPurpose: state.basicLoanPurpose } : {}),
+        // Lender-required income mode + current address.
+        ...(state.optSalaryMode ? { salaryMode: state.optSalaryMode } : {}),
+        ...(state.optAddr1.trim() ? { addressLine1: state.optAddr1.trim() } : {}),
+        ...(state.optCity.trim() ? { city: state.optCity.trim() } : {}),
+        ...(state.optState.trim() ? { state: state.optState.trim() } : {}),
       });
       set({
         authUser: user,
@@ -188,6 +200,11 @@ export default function Basic() {
         <View style={{ gap: 16 }}>
           <Field label="Contact email" placeholder="you@example.com" hint="RBI requires your actual email ID for sharing loan details." autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
           <Field label="Pin code (current address)" placeholder="6-digit pincode" keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+          <Field label="Address line 1" placeholder="Flat / house, building" value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1 }}><Field label="City" placeholder="City" value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
+            <View style={{ flex: 1 }}><Field label="State" placeholder="State" value={state.optState} onChangeText={v => set({ optState: v })} /></View>
+          </View>
           <View style={{ gap: 8 }}>
             <FieldLabel text="Residence type" required />
             <Chips value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: r, value: r }))} />
@@ -200,6 +217,10 @@ export default function Basic() {
           <FieldLabel text="Employment type" required />
           <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: e, value: e }))} />
           <Field label="Monthly income (₹)" placeholder="45,000" hint="Your net monthly income" keyboardType="number-pad" value={state.basicIncome} onChangeText={v => set({ basicIncome: v })} />
+          <View style={{ gap: 8 }}>
+            <FieldLabel text="Salary / income mode" required />
+            <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={['Bank Transfer', 'Cheque', 'Cash'].map(x => ({ label: x, value: x }))} />
+          </View>
           <Field label="Company / employer name (optional)" placeholder="e.g. Infosys Ltd" value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
