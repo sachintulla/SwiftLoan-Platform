@@ -62,6 +62,29 @@ model User {
   panNumber      String?
   aadhaarLast4   String?
   avatarUrl      String?
+
+  // Aurix (Knight Fintech) integration: cached X-Aurix-Token (generated at OTP
+  // verify) + the extra applicant fields the eligible_offers request requires
+  // or accepts. Collected across the PAN/details/optional screens.
+  aurixToken          String?
+  aurixTokenExpiresAt DateTime?
+  maritalStatus       String?
+  qualification       String?
+  alternateMobile     String?
+  alternateEmail      String?
+  addressLine1        String?
+  addressLine2        String?
+  landmark            String?
+  city                String?
+  district            String?
+  state               String?
+  loanPurpose         String?
+  salaryMode          String?
+  monthlyObligations  Int?
+  professionalType    String?
+  companyEmail        String?
+  businessEmail       String?
+
   lang           Lang            @default(en)
   creditScore    Int             @default(750)
   phoneVerified  Boolean         @default(false)
@@ -264,6 +287,21 @@ model Offer {
   processingFeeAmount Int     @default(0)
   gstOnProcessingFee  Int     @default(0)
   netDisbursalAmount  Int     @default(0)
+
+  // Aurix (Knight Fintech) eligible_offers response fields. A single Aurix call
+  // returns many offers (one per real lender), so these are persisted per Offer
+  // row alongside the denormalized scalars above. Kept for a later step that
+  // surfaces them on the tiles; `rawOffer` preserves the untouched provider
+  // object so nothing is lost.
+  offerCode         String?
+  offerType         String?
+  roi               Float?
+  offerLikelihood   String?
+  redirectionUrl    String?
+  lenderName        String?
+  lenderLogoUrl     String?
+  externalPartnerId String?
+  rawOffer          Json?
 
   emiOptions OfferEmiOption[]
 

@@ -1,11 +1,12 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { getLenderOfferProvider } from '../lib/lenderOffers.js';
+import { getLenderOfferProvider, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 export const applicationsRouter = Router();
@@ -72,16 +73,33 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const partners = await prisma.lenderPartner.findMany({ where: { active: true }, take: 3, orderBy: { baseApr: 'asc' } });
   if (partners.length === 0) throw new HttpError(503, 'No lending partners configured — run the seed script');
 
-  const created = await Promise.all(partners.map(async (p, i) => {
-    // Each partner's offer is produced by its LenderOfferProvider (mock today,
-    // a real lender's adapter later) — see lib/lenderOffers.ts. The Offer row's
-    // own amount/apr/emi/tenureMonths are a denormalized copy of the
-    // recommended tenure option, so /handoff can keep reading those scalars.
-    const raw = await getLenderOfferProvider(p).getOffer(p, app);
-    // A real lender can legitimately return zero priced options (rate/EMI only
-    // known after approval, or a BRE that hasn't decided yet — we saw exactly
-    // this from Aurix's UAT: `"Offers": []`). Fall back to the requested
-    // amount/tenure with no EMI figure rather than crashing on `undefined`.
+  // Gather offers across partners. A provider whose single API call returns
+  // many offers (Aurix → one per real lender) uses getOffers; others yield a
+  // single offer. A partner that fails (provider down, no eligibility, a
+  // validation reject from the real BRE) is skipped rather than failing the
+  // whole run — we saw exactly this from Aurix's UAT ("No data found", "PAN
+  // verification failed", etc.).
+  const pending: Array<{ partner: (typeof partners)[number]; raw: RawLenderOffer }> = [];
+  for (const p of partners) {
+    try {
+      const provider = getLenderOfferProvider(p);
+      const list = provider.getOffers ? await provider.getOffers(p, app) : [await provider.getOffer(p, app)];
+      for (const raw of list) pending.push({ partner: p, raw });
+    } catch (e) {
+      console.warn(`[prequalify] partner ${p.name} produced no offers: ${(e as Error).message}`);
+    }
+  }
+
+  // Recommend the single lowest-APR offer across everything (0/undefined APRs
+  // never win).
+  let bestIdx = -1;
+  let bestApr = Infinity;
+  pending.forEach((x, i) => { if (x.raw.apr > 0 && x.raw.apr < bestApr) { bestApr = x.raw.apr; bestIdx = i; } });
+  if (bestIdx === -1 && pending.length) bestIdx = 0;
+
+  const created = await Promise.all(pending.map(async ({ partner: p, raw }, i) => {
+    // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of the
+    // recommended tenure option so /handoff keeps reading those scalars.
     const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
     return prisma.offer.create({
       data: {
@@ -95,9 +113,20 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
         processingFeeAmount: raw.processingFeeAmount,
         gstOnProcessingFee: raw.gstOnProcessingFee,
         netDisbursalAmount: raw.netDisbursalAmount,
-        badgeText: raw.badgeText,
+        badgeText: raw.badgeText ?? p.tagline,
         tag: p.tagline,
-        recommended: i === 0, // lowest APR
+        recommended: i === bestIdx,
+        // Aurix passthrough — persisted for the later tile step; harmless nulls
+        // for the mock provider.
+        offerCode: raw.offerCode ?? null,
+        offerType: raw.offerType ?? null,
+        roi: raw.roi ?? null,
+        offerLikelihood: raw.offerLikelihood ?? null,
+        redirectionUrl: raw.redirectionUrl ?? null,
+        lenderName: raw.lenderName ?? null,
+        lenderLogoUrl: raw.lenderLogoUrl ?? null,
+        externalPartnerId: raw.externalPartnerId ?? null,
+        ...(raw.rawOffer !== undefined ? { rawOffer: raw.rawOffer as Prisma.InputJsonValue } : {}),
         emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
       },
       include: { emiOptions: true, partner: true },

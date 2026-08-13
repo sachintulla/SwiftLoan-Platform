@@ -10,9 +10,10 @@
  * partner's `provider` + `apiConfig`) plus one new provider class here, not a
  * rewrite of `/prequalify`.
  */
-import type { LenderPartner, LoanApplication } from '@prisma/client';
+import type { LenderPartner, LoanApplication, User } from '@prisma/client';
 import { emi } from '../utils/emi.js';
 import { pick } from './integrations.js';
+import { prisma } from './prisma.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -60,10 +61,27 @@ export interface RawLenderOffer {
   netDisbursalAmount: number;
   badgeText: string | null;
   emiOptions: EmiOptionResult[];
+  // Aurix passthrough (undefined for the mock provider). Persisted verbatim on
+  // the Offer row so a later step can surface them without another round-trip.
+  offerCode?: string | null;
+  offerType?: string | null;
+  roi?: number | null;
+  offerLikelihood?: string | null;
+  redirectionUrl?: string | null;
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  externalPartnerId?: string | null;
+  rawOffer?: unknown;
 }
 
 interface LenderOfferProvider {
   getOffer(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer>;
+  /**
+   * Providers whose single API call returns MANY offers (e.g. Aurix returns one
+   * per real lender) implement this. Callers should prefer it when present and
+   * fall back to `[getOffer(...)]` otherwise.
+   */
+  getOffers?(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer[]>;
 }
 
 // Standard GST rate on loan processing fees in India.
@@ -150,7 +168,6 @@ class MockLenderOfferProvider implements LenderOfferProvider {
 interface AurixApiConfig {
   authBaseUrl: string;
   offersBaseUrl: string;
-  partnerCustomerId: string;
   audienceSecretCode: string;
   tokenResponsePath?: string;
   utmSource?: string;
@@ -158,65 +175,277 @@ interface AurixApiConfig {
   utmCampaign?: string;
 }
 
-async function generateAurixToken(cfg: AurixApiConfig): Promise<string> {
+/**
+ * Config resolves from env FIRST (AURIX_*), then the partner's apiConfig. The
+ * AudienceSecretCode is a real credential and is intended to live only in env
+ * (never the DB/APK). PartnerCustomerId is NOT config — it is the SwiftLoan
+ * User.id, passed per request (see generateAurixToken / buildEligibleOffersPayload).
+ */
+function resolveAurixConfig(partner: LenderPartner): AurixApiConfig {
+  const cfg = (partner.apiConfig ?? {}) as Partial<AurixApiConfig>;
+  return {
+    authBaseUrl: process.env.AURIX_AUTH_BASE_URL || cfg.authBaseUrl || 'https://pt-auth-api-uat.aurix-partner.com',
+    offersBaseUrl: process.env.AURIX_OFFERS_BASE_URL || cfg.offersBaseUrl || 'https://pt-api-uat.aurix-partner.com',
+    audienceSecretCode: process.env.AURIX_AUDIENCE_SECRET_CODE || cfg.audienceSecretCode || '',
+    // Confirmed against a live UAT generate_token response: { "Data": { "Token": "...", "TokenValidTill": "...", "RefreshToken": "..." }, "Meta": {...} }
+    tokenResponsePath: process.env.AURIX_TOKEN_RESPONSE_PATH || cfg.tokenResponsePath || 'Data.Token',
+    utmSource: cfg.utmSource,
+    utmMedium: cfg.utmMedium,
+    utmCampaign: cfg.utmCampaign,
+  };
+}
+
+/**
+ * Generate an X-Aurix-Token. `partnerCustomerId` is the SwiftLoan User.id per
+ * the integration decision (mapped to Aurix's PartnerCustomerID). Exported so
+ * auth.routes.ts can pre-generate + cache the token at OTP verify.
+ */
+export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId: string): Promise<string> {
+  if (!cfg.audienceSecretCode) throw new Error('AURIX_AUDIENCE_SECRET_CODE is not set');
   const result = await httpJson(
     `${cfg.authBaseUrl}/api/generate_token`,
     'POST',
     { Accept: 'application/json', 'K-Aurix-Version': 'v3', 'K-Aurix-AudienceSecretCode': cfg.audienceSecretCode },
-    { PartnerCustomerID: cfg.partnerCustomerId },
+    { PartnerCustomerID: partnerCustomerId },
   );
   if (!result.ok) throw new Error(`Aurix generate_token failed: ${result.error} (HTTP ${result.status})`);
   const path = cfg.tokenResponsePath ?? 'token';
   const token = pick(result.body, path);
   if (!token) {
     throw new Error(
-      `Aurix generate_token succeeded but no token found at response path "${path}" — ` +
-      `set apiConfig.tokenResponsePath to match KFT's actual response shape. Raw response: ${JSON.stringify(result.body)}`,
+      `Aurix generate_token succeeded but no token at response path "${path}". Raw: ${JSON.stringify(result.body)}`,
     );
   }
-  return token;
+  return String(token);
 }
 
-/** Best-effort marketing attribution — never blocks offer generation on failure. */
-async function registerAurixUtm(cfg: AurixApiConfig, mobileNumber: string): Promise<void> {
-  await httpJson(
-    `${cfg.authBaseUrl}/api/utm_generation`,
-    'POST',
-    { Accept: 'application/json', 'K-Aurix-Version': 'v3', 'X-Aurix-PartnerCustomerId': cfg.partnerCustomerId },
-    {
-      UTMSource: cfg.utmSource ?? 'SwiftLoanApp',
-      UTMMedium: cfg.utmMedium ?? 'App',
-      UTMCampaign: cfg.utmCampaign ?? 'Default',
-      MobileNumber: mobileNumber,
+/** Env-resolved token helper for callers that only have a User.id (e.g. OTP verify). */
+export async function generateAurixTokenFromEnv(partnerCustomerId: string): Promise<string> {
+  return generateAurixToken(resolveAurixConfig({ apiConfig: null } as LenderPartner), partnerCustomerId);
+}
+
+/* ── Aurix enum/value mappers (SwiftLoan → Aurix vocab) ── */
+function aurixGender(g: User['gender']): string {
+  return g === 'male' ? 'Male' : g === 'female' ? 'Female' : g ? 'Other' : '';
+}
+function aurixEmploymentType(e: User['employment']): string {
+  switch (e) {
+    case 'salaried': return 'Salaried';
+    case 'self_employed': return 'Self-Employed';
+    case 'business_owner': return 'Self-Employed';
+    case 'gig_worker': return 'Self-Employed';
+    default: return e ? 'Other' : '';
+  }
+}
+function aurixProductType(loanType: LoanApplication['loanType']): string {
+  return loanType === 'business' ? 'BusinessLoan' : 'PersonalLoan';
+}
+function ageFromDob(dob: Date | null): number {
+  if (!dob) return 0;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age--;
+  return age;
+}
+
+/** Build the eligible_offers request body from the applicant + application. */
+function buildEligibleOffersPayload(user: User, application: LoanApplication): Record<string, unknown> {
+  const pan = application.panNumber || user.panNumber || '';
+  const first = user.firstName || (user.fullName ? user.fullName.trim().split(/\s+/)[0] : '') || '';
+  const last = user.lastName || (user.fullName ? user.fullName.trim().split(/\s+/).slice(-1)[0] : '') || '';
+  const monthly = user.monthlyIncome ?? application.monthlyIncome ?? 0;
+  const nowIso = new Date().toISOString();
+  const isBusiness = application.loanType === 'business';
+  return {
+    PartnerCustomerId: application.userId,
+    PersonalInformation: {
+      CustomerFullName: user.fullName || `${first} ${last}`.trim(),
+      FirstName: first,
+      MiddleName: '',
+      LastName: last,
+      MobileNumber: user.phone,
+      // Aurix runs format validators on these and rejects "" — so optional
+      // email/mobile fields are OMITTED when blank rather than sent empty.
+      ...(user.alternateMobile ? { AlternateMobile: user.alternateMobile } : {}),
+      ...(user.email ? { Email: user.email } : {}),
+      ...(user.alternateEmail ? { AlternateEmail: user.alternateEmail } : {}),
+      Pan: pan,
+      Aadhaar: '',
+      Dob: user.dob ? user.dob.toISOString() : null,
+      Age: ageFromDob(user.dob),
+      Gender: aurixGender(user.gender),
+      MaritalStatus: user.maritalStatus ?? '',
+      Qualification: user.qualification ?? '',
     },
-  ).catch(() => {});
+    EmploymentDetails: {
+      EmploymentType: aurixEmploymentType(user.employment ?? application.employment),
+      EmployerName: user.company ?? '',
+      ...(user.companyEmail ? { CompanyEmail: user.companyEmail } : {}),
+      ...(user.businessEmail ? { BusinessEmail: user.businessEmail } : {}),
+      BusinessName: isBusiness ? (user.company ?? '') : '',
+      ForBusinessLoan: isBusiness,
+      ProfessionalType: user.professionalType ?? '',
+    },
+    IncomeInformation: {
+      MonthlyIncome: monthly,
+      AnnualIncome: monthly * 12,
+      SalaryMode: user.salaryMode ?? '',
+      MonthlyObligations: user.monthlyObligations ?? 0,
+    },
+    PanVerificationDTO: {
+      VerificationDone: !!pan,
+      Verified: !!pan,
+      VerificationDate: nowIso,
+      PanNumber: pan,
+      Category: 'Individual',
+      AadhaarLinked: false,
+    },
+    BusinessDetailsDTO: {},
+    ProductDetails: {
+      ProductType: aurixProductType(application.loanType),
+      LoanPurpose: user.loanPurpose || application.purpose || '',
+      // Aurix RequestedAmount is in rupees; our amount column is paise.
+      RequestedAmount: Math.round(application.amount / 100),
+    },
+    Addresses: [
+      {
+        AddressType: 'Current',
+        AddressLine1: user.addressLine1 ?? '',
+        AddressLine2: user.addressLine2 ?? '',
+        Landmark: user.landmark ?? '',
+        City: user.city ?? '',
+        District: user.district ?? '',
+        State: user.state ?? '',
+        Pincode: user.pincode ?? '',
+        IsCurrent: true,
+        IsPermanent: true,
+      },
+    ],
+    Consents: [
+      {
+        ConsentType: 'TermsAndConditions',
+        ConsentDescription: 'User agrees to credit assessment rules.',
+        ConsentTimestamp: nowIso,
+        IsConsentGiven: true,
+      },
+    ],
+    BureauInformation: {
+      BureauVendor: 'CIBIL',
+      BureauPulled: true,
+      BureauDate: nowIso,
+      Payload: JSON.stringify({ score: user.creditScore, status: 'Success' }),
+    },
+  };
+}
+
+interface AurixOfferRaw {
+  OfferCode?: string;
+  OfferType?: string;
+  LoanAmount?: number; // rupees
+  ROI?: number;
+  Tenure?: number;
+  EMI?: number;
+  ProcessingFee?: number; // percent
+  OfferLikelihood?: string;
+  OfferRedirectionUrl?: string;
+  Lender?: { Id?: string | null; DisplayName?: string; LenderLogo?: string | null };
+  PartnerId?: string;
+}
+
+/** Map one Aurix offer into our RawLenderOffer (amounts → paise; EMI computed when 0). Exported for tests. */
+export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
+  const amount = Math.round((o.LoanAmount ?? 0) * 100); // rupees → paise
+  const apr = o.ROI ?? 0;
+  const tenureMonths = o.Tenure ?? 0;
+  const pfPercent = o.ProcessingFee ?? 0;
+  const processingFeeAmount = Math.round(amount * (pfPercent / 100));
+  const gstOnProcessingFee = Math.round(processingFeeAmount * GST_RATE);
+  const netDisbursalAmount = amount - processingFeeAmount - gstOnProcessingFee;
+
+  // Aurix returns EMI: 0 in UAT — compute it ourselves when a tenure is known
+  // so the existing tiles/handoff keep working off a real figure.
+  const monthlyEmi = o.EMI && o.EMI > 0 ? o.EMI : (tenureMonths > 0 ? emi(amount, tenureMonths, apr) : 0);
+  const emiOptions: EmiOptionResult[] = tenureMonths > 0 ? [{
+    tenureMonths,
+    monthlyEmi,
+    totalInterestPayable: monthlyEmi * tenureMonths - amount,
+    totalRepaymentAmount: monthlyEmi * tenureMonths,
+    recommended: true,
+  }] : [];
+
+  return {
+    amount,
+    apr,
+    processingFeeAmount,
+    gstOnProcessingFee,
+    netDisbursalAmount,
+    // Tile badge left to the caller (kept clean for now); OfferType is preserved
+    // in the dedicated offerType column below for the later tile step.
+    badgeText: null,
+    emiOptions,
+    offerCode: o.OfferCode ?? null,
+    offerType: o.OfferType ?? null,
+    roi: o.ROI ?? null,
+    offerLikelihood: o.OfferLikelihood ?? null,
+    redirectionUrl: o.OfferRedirectionUrl ?? null,
+    lenderName: o.Lender?.DisplayName ?? null,
+    lenderLogoUrl: o.Lender?.LenderLogo ?? null,
+    externalPartnerId: o.PartnerId ?? null,
+    rawOffer: o,
+  };
 }
 
 class AurixOfferProvider implements LenderOfferProvider {
-  async getOffer(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer> {
-    const cfg = partner.apiConfig as unknown as AurixApiConfig | null;
-    if (!cfg?.authBaseUrl || !cfg.offersBaseUrl || !cfg.partnerCustomerId || !cfg.audienceSecretCode) {
-      throw new Error(`LenderPartner "${partner.name}" has provider "aurix" but apiConfig is missing required fields`);
+  /** Single Aurix call returns MANY offers (one per real lender). */
+  async getOffers(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer[]> {
+    const cfg = resolveAurixConfig(partner);
+    if (!cfg.audienceSecretCode) {
+      throw new Error('Aurix is not configured (AURIX_AUDIENCE_SECRET_CODE missing)');
     }
 
-    // Confirmed against KFT's shared curl examples — safe to run as-is.
-    const token = await generateAurixToken(cfg);
-    registerAurixUtm(cfg, application.userId).catch(() => {});
+    const user = await prisma.user.findUnique({ where: { id: application.userId } });
+    if (!user) throw new Error(`Aurix offers: user ${application.userId} not found`);
 
-    // NOT YET IMPLEMENTED: KFT's "Eligible Offers" request/response body was
-    // only shared as a file attachment (never pasted as text), so the actual
-    // field names it expects (PAN, income, employment, requested amount/tenure,
-    // etc.) and what it returns are still unknown. Wiring this blind would
-    // send a real request to KFT's UAT endpoint with guessed field names.
-    // Get that sample request+response body, then replace this with:
-    //   POST `${cfg.offersBaseUrl}/api/eligible_offers`
-    //   header: Authorization: Bearer ${token} (or whatever header KFT expects)
-    //   body: { ...customer + application fields KFT's schema requires }
-    // then map the response into RawLenderOffer the same way MockLenderOfferProvider does.
-    throw new Error(
-      `Aurix (Knight Fintech) eligible_offers integration is not implemented yet — ` +
-      `the request/response schema for that endpoint hasn't been provided. Token generation succeeded (length ${token.length}).`,
+    // Prefer the token cached at OTP verify; refresh if missing/expired.
+    let token = user.aurixToken ?? '';
+    const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
+    if (!token || expired) {
+      token = await generateAurixToken(cfg, application.userId);
+      await prisma.user.update({
+        where: { id: user.id },
+        // Aurix hasn't documented token TTL; assume ~30 min and refresh eagerly.
+        data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
+      }).catch(() => {});
+    }
+
+    const payload = buildEligibleOffersPayload(user, application);
+    const result = await httpJson(
+      `${cfg.offersBaseUrl}/api/eligible_offers`,
+      'POST',
+      { Accept: 'application/json', 'K-Aurix-Version': 'v1', 'X-Aurix-Token': token },
+      payload,
     );
+    if (!result.ok) throw new Error(`Aurix eligible_offers failed: ${result.error} (HTTP ${result.status})`);
+
+    const meta = result.body?.Result?.Meta;
+    const success = meta?.Success === true;
+    const offers: AurixOfferRaw[] = result.body?.Result?.Data?.Offers ?? [];
+    if (!success || offers.length === 0) {
+      // e.g. "No data found", "PAN verification failed", "Bureau verification
+      // failed" — a legitimate zero-offers outcome, not a crash. Log and return
+      // none; the offers screen renders its existing empty state.
+      console.warn(`[aurix] eligible_offers returned no offers: ${meta?.Message ?? 'unknown'} (code ${meta?.StatusCode ?? '?'})`);
+      return [];
+    }
+    return offers.map(mapAurixOffer);
+  }
+
+  /** Interface fallback: first offer only (callers should prefer getOffers). */
+  async getOffer(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer> {
+    const list = await this.getOffers(partner, application);
+    if (list.length === 0) throw new Error('Aurix returned no eligible offers');
+    return list[0];
   }
 }
 
