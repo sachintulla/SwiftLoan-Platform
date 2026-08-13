@@ -23,6 +23,38 @@ export function setTokens(access: string | null, refresh?: string | null) {
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
 
+// Auto-refresh: the access token is short-lived (~15 min). On a 401 we exchange
+// the stored refresh token for a fresh access token and retry the request once,
+// so a user who lingers on a screen (e.g. filling the details form) never sees
+// an "invalid/expired token" error. Concurrent 401s share one in-flight refresh.
+let refreshInFlight: Promise<boolean> | null = null;
+async function doRefresh(): Promise<boolean> {
+  if (!refreshToken) return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const res = await fetch(API_BASE + '/auth/refresh', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    if (data?.accessToken) {
+      setTokens(data.accessToken, refreshToken); // refresh token is not rotated server-side
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+function refreshOnce(): Promise<boolean> {
+  if (!refreshInFlight) refreshInFlight = doRefresh().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
 /**
  * Request timeout. Without one, an unreachable host doesn't fail fast — it waits
  * for the TCP connect timeout (30s+). That bites hardest on a physical device,
@@ -32,7 +64,7 @@ export const isAuthed = () => !!accessToken;
  */
 const REQUEST_TIMEOUT_MS = 4000;
 
-async function request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T = any>(method: string, path: string, body?: unknown, _retried = false): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let res: Response;
@@ -54,7 +86,16 @@ async function request<T = any>(method: string, path: string, body?: unknown): P
     clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as any).error || res.statusText, data);
+  if (!res.ok) {
+    // Access token expired → refresh once and retry transparently. Skip for the
+    // auth endpoints themselves (they mint/rotate tokens) to avoid loops.
+    if (res.status === 401 && !_retried && refreshToken && !path.startsWith('/auth/')) {
+      const refreshed = await refreshOnce();
+      if (refreshed) return request<T>(method, path, body, true);
+      setTokens(null, null); // refresh failed — session is truly gone
+    }
+    throw new ApiError(res.status, (data as any).error || res.statusText, data);
+  }
   return data as T;
 }
 
