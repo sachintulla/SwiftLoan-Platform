@@ -19,6 +19,22 @@ export default function MoreDetails() {
 
   const save = async (): Promise<boolean> => {
     if (!isAuthed()) return true; // nothing to persist for a guest — just proceed
+    // These are OPTIONAL, but if filled they must be valid — the backend rejects
+    // a malformed email with "Validation failed", which would block the whole
+    // save. Catch it here with a clear message instead.
+    const emailOk = (v: string) => /^\S+@\S+\.\S+$/.test(v.trim());
+    if (state.optAltEmail.trim() && !emailOk(state.optAltEmail)) {
+      showToast('Enter a valid alternate email, or leave it blank.');
+      return false;
+    }
+    if (state.optCompanyEmail.trim() && !emailOk(state.optCompanyEmail)) {
+      showToast('Enter a valid company email, or leave it blank.');
+      return false;
+    }
+    if (state.optBusinessEmail.trim() && !emailOk(state.optBusinessEmail)) {
+      showToast('Enter a valid business email, or leave it blank.');
+      return false;
+    }
     const patch: Record<string, unknown> = {};
     const s = (v: string) => v.trim();
     if (s(state.optMarital)) patch.maritalStatus = s(state.optMarital);
