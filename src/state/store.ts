@@ -40,7 +40,7 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 const PREV: Partial<Record<Screen, Screen>> = {
   language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
   permissions: 'mobile', aboutyou: 'permissions',
-  basic: 'home', basicpan: 'basic', moredetails: 'basicpan', finding: 'moredetails',
+  basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
   prequalify: 'consent', kyc: 'prequalify',
   offers: 'moredetails', handoff: 'offers', status: 'home',

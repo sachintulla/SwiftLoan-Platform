@@ -47,8 +47,8 @@ export default function Offers() {
         <AppHeader title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={3} of={4} label="Your Offers" />
-        <StepDots total={4} active={3} />
+        <StepBadge step={4} of={4} label="Your Offers" />
+        <StepDots total={4} active={4} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Review Your Offers</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {offers.length > 0
@@ -98,7 +98,7 @@ export default function Offers() {
           <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
             Need a different amount or time frame? Adjust and refresh offers. Current Goal: Debt Consolidation
           </Text>
-          <Pressable style={styles.updateBtn} onPress={() => go('basic')}>
+          <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
             <Icon name="tune" size={18} color={colors.text} />
             <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update Details</Text>
           </Pressable>

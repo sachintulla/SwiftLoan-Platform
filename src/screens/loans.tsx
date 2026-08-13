@@ -60,7 +60,7 @@ export default function Loans() {
       </View>
 
       {/* Apply CTA */}
-      <Pressable onPress={() => go('basic')} style={styles.applyCard}>
+      <Pressable onPress={() => go('basicpan')} style={styles.applyCard}>
         <View style={styles.applyIcon}>
           <Icon name="add" size={24} color="#fff" />
         </View>

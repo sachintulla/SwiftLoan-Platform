@@ -41,7 +41,7 @@ export default function Home() {
       </View>
 
       {/* Best rates compare card */}
-      <Pressable onPress={() => go('basic')} style={styles.compareCard}>
+      <Pressable onPress={() => go('basicpan')} style={styles.compareCard}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={[font(700), { fontSize: 11.5, letterSpacing: 0.4, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }]}>
             {t.bestRates}
@@ -61,7 +61,7 @@ export default function Home() {
       <SectionHeading title={t.loanTypesTitle} />
       <View style={styles.tileGrid}>
         {LOAN_TYPES.map(l => (
-          <Pressable key={l.k} onPress={() => go('basic')} style={styles.tile}>
+          <Pressable key={l.k} onPress={() => go('basicpan')} style={styles.tile}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View style={styles.tileIcon}>
                 <Icon name={l.icon} size={20} color={colors.primary} />
@@ -89,7 +89,7 @@ export default function Home() {
           if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
           // User details entered/known so far are already in the store and are
           // re-prefilled by the basic screen on mount.
-          go('basic');
+          go('basicpan');
         }}
       />
 
@@ -138,7 +138,7 @@ export default function Home() {
 
       {/* EMI calculator */}
       <SectionHeading title={t.fareTitle} sub={t.fareSub} />
-      <EmiCalculator onApply={() => go('basic')} />
+      <EmiCalculator onApply={() => go('basicpan')} />
 
       {/* Disclaimer */}
       <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>

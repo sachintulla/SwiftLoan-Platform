@@ -6,26 +6,26 @@ import { ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { api } from '../api/client';
 
 export default function BasicPan() {
   const { state, set, go, showToast } = useStore();
   const [busy, setBusy] = React.useState(false);
 
-  const onContinue = async () => {
+  const onContinue = () => {
+    // PAN is the FIRST step now (before details), so the application doesn't
+    // exist yet — capture the PAN into state and persist it once the details
+    // step creates the application. Just validate + advance here.
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(state.panNumber.trim())) {
+      showToast('Please enter a valid 10-character PAN (e.g. ABCDE1234F).');
+      return;
+    }
     if (!state.panConsent) {
       showToast('Please accept the soft-enquiry consent.');
       return;
     }
     setBusy(true);
-    try {
-      if (state.applicationId && state.panNumber) {
-        await api.updateApplication(state.applicationId, { panNumber: state.panNumber }).catch(() => {});
-      }
-      go('moredetails');
-    } finally {
-      setBusy(false);
-    }
+    go('basic');
+    setBusy(false);
   };
 
   return (
@@ -34,8 +34,8 @@ export default function BasicPan() {
         <AppHeader title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={2} of={4} label="PAN" />
-        <StepDots total={4} active={2} />
+        <StepBadge step={1} of={4} label="PAN" />
+        <StepDots total={4} active={1} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Verify your PAN</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           Upload a clear photo of your PAN card — we'll read the number automatically.

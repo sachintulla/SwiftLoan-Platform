@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { Field, Chips, Slider, ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
+import { Field, Chips, Slider, PrimaryButton, StepBadge } from '../components/Controls';
 import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
@@ -59,10 +59,7 @@ export default function Basic() {
   }, []);
 
   const onContinue = async () => {
-    if (!state.panConsent) {
-      showToast('Please accept the soft-enquiry consent.');
-      return;
-    }
+    // PAN + soft-enquiry consent were captured on the previous (PAN-first) step.
     // These are required by the lender (Aurix) to return offers, so enforce them
     // here rather than letting the offer call fail later.
     if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast('Please enter a valid email.'); return; }
@@ -112,7 +109,11 @@ export default function Basic() {
         loanType: 'personal',
       });
       set({ applicationId: application.id });
-      go('basicpan');
+      // Persist the PAN captured on the first step now that the application exists.
+      if (state.panNumber) {
+        await api.updateApplication(application.id, { panNumber: state.panNumber }).catch(() => {});
+      }
+      go('moredetails');
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : 'Could not start your application.');
     } finally {
@@ -127,8 +128,8 @@ export default function Basic() {
       </View>
 
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={1} of={4} label="Your details" />
-        <StepDots total={4} active={1} />
+        <StepBadge step={2} of={4} label="Your details" />
+        <StepDots total={4} active={2} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Tell us about yourself</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           A soft check to find your best offers — no impact on your credit score.
@@ -222,14 +223,6 @@ export default function Basic() {
             <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={['Bank Transfer', 'Cheque', 'Cash'].map(x => ({ label: x, value: x }))} />
           </View>
           <Field label="Company / employer name (optional)" placeholder="e.g. Infosys Ltd" value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
-        </View>
-
-        {/* Consent */}
-        <View style={{ marginTop: 22 }}>
-          <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>
-            I agree to the Terms & Conditions and consent to SwiftLoan fetching my credit information from{' '}
-            <Text style={{ color: colors.primary }}>TransUnion CIBIL</Text> and <Text style={{ color: colors.primary }}>CRIF Highmark</Text>, and sharing it with lending partners for this application.
-          </ConsentRow>
         </View>
 
         <View style={{ height: 22 }} />
