@@ -53,8 +53,19 @@ const profilePatch = z.object({
 usersRouter.patch('/me', validate(profilePatch), ah(async (req, res) => {
   const data: any = { ...req.body };
   if (data.dob) data.dob = new Date(data.dob);
-  const user = await prisma.user.update({ where: { id: req.user!.sub }, data });
-  res.json({ user: publicUser(user) });
+  try {
+    const user = await prisma.user.update({ where: { id: req.user!.sub }, data });
+    res.json({ user: publicUser(user) });
+  } catch (e: any) {
+    // email (and any other @unique applicant field) can collide with an existing
+    // account — surface a clean 409 instead of a raw 500, so the whole profile
+    // save (and the downstream Aurix payload) isn't silently lost.
+    if (e?.code === 'P2002') {
+      const field = Array.isArray(e?.meta?.target) ? e.meta.target[0] : (e?.meta?.target ?? 'value');
+      throw new HttpError(409, `This ${field} is already in use by another account.`);
+    }
+    throw e;
+  }
 }));
 
 /** Get a presigned S3 PUT URL for a profile photo upload. */
