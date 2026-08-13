@@ -24,7 +24,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 export const SCREEN_NAMES = [
   'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
   'home', 'loans', 'fare', 'help', 'profile', 'explore',
-  'basic', 'basicpan', 'finding', 'offers', 'handoff',
+  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
   'status', 'disbursed', 'repay', 'creditscore',
@@ -40,10 +40,10 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 const PREV: Partial<Record<Screen, Screen>> = {
   language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
   permissions: 'mobile', aboutyou: 'permissions',
-  basic: 'home', basicpan: 'basic', finding: 'basicpan',
+  basic: 'home', basicpan: 'basic', moredetails: 'basicpan', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
   prequalify: 'consent', kyc: 'prequalify',
-  offers: 'basicpan', handoff: 'offers', status: 'home',
+  offers: 'moredetails', handoff: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home', creditscore: 'repay',
   loans: 'home', fare: 'home', explore: 'mobile',
@@ -63,6 +63,12 @@ export interface AppState {
   basicFirst: string; basicLast: string; basicPin: string; basicEmail: string;
   basicIncome: string; basicCompany: string; basicEmp: string; basicEmpOther: string;
   basicRes: string;
+  // Aurix-required extras collected on the details screen.
+  basicQualification: string; basicLoanPurpose: string;
+  // Optional "a few more details" screen (skippable) — enrich the lender request.
+  optMarital: string; optAltMobile: string; optAltEmail: string;
+  optAddr1: string; optAddr2: string; optLandmark: string; optCity: string; optDistrict: string; optState: string;
+  optSalaryMode: string; optObligations: string; optProfType: string; optCompanyEmail: string; optBusinessEmail: string;
   panConsent: boolean; panNumber: string;
   // detailed application
   appAmount: number; appTenure: number; appEmp: string; appResidence: string;
@@ -110,6 +116,10 @@ export const initialState: AppState = {
   basicFirst: '', basicLast: '', basicPin: '', basicEmail: '',
   basicIncome: '', basicCompany: '', basicEmp: '', basicEmpOther: '',
   basicRes: 'own',
+  basicQualification: '', basicLoanPurpose: '',
+  optMarital: '', optAltMobile: '', optAltEmail: '',
+  optAddr1: '', optAddr2: '', optLandmark: '', optCity: '', optDistrict: '', optState: '',
+  optSalaryMode: '', optObligations: '', optProfType: '', optCompanyEmail: '', optBusinessEmail: '',
   panConsent: false, panNumber: '',
   appAmount: 150000, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
   appConsent: false, autoDebit: true,

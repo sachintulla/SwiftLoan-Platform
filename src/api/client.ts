@@ -126,6 +126,16 @@ export interface Offer {
   recommended: boolean;
   selected: boolean;
   emiOptions: EmiOption[];
+  // Aurix (Knight Fintech) passthrough — present on real partner-lender offers,
+  // null on the mock provider. The real lender's own name/logo, ROI and the
+  // deep link to complete the application on the lender's page.
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  roi?: number | null;
+  offerType?: string | null;
+  offerLikelihood?: string | null;
+  redirectionUrl?: string | null;
+  externalPartnerId?: string | null;
 }
 
 export const api = {

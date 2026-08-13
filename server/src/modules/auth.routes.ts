@@ -8,6 +8,7 @@ import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from '../lib/journey.js';
+import { generateAurixTokenFromEnv } from '../lib/lenderOffers.js';
 
 export const authRouter = Router();
 
@@ -116,6 +117,20 @@ authRouter.post(
     const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
     const tokens = await issueTokens(user.id, user.phone);
 
+    // Pre-generate + cache the Aurix (Knight Fintech) X-Aurix-Token now, keyed by
+    // this user.id, so the eligible_offers call after PAN reuses it instead of
+    // paying a cold token round-trip (which was flirting with the offer timeout).
+    // Fire-and-forget: never blocks or fails login. TTL kept well under Aurix's
+    // ~1-month token validity; getOffers refreshes if it's missing/expired.
+    void generateAurixTokenFromEnv(user.id)
+      .then((token) =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 20 * 864e5) },
+        }),
+      )
+      .catch(() => {});
+
     // Website inquiries made under this phone number before the app was
     // installed. All matches are surfaced (not just the newest) so the voice
     // agent can ask which one the caller meant instead of guessing.
@@ -210,6 +225,8 @@ authRouter.post(
 );
 
 export function publicUser(u: any) {
-  const { passwordHash, ...rest } = u;
+  // Never leak secrets to the client: the password hash, and the server-side
+  // Aurix token (kept out of the app bundle/network by design).
+  const { passwordHash, aurixToken, aurixTokenExpiresAt, ...rest } = u;
   return rest;
 }

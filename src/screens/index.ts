@@ -12,6 +12,7 @@ import Fare from './fare';
 import Loans from './loans';
 import Basic from './basic';
 import BasicPan from './basicpan';
+import MoreDetails from './moredetails';
 import Finding from './finding';
 import Offers from './offers';
 import Handoff from './handoff';
@@ -42,6 +43,7 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   fare: Fare,
   loans: Loans,
   basic: Basic,
+  moredetails: MoreDetails,
   basicpan: BasicPan,
   finding: Finding,
   offers: Offers,

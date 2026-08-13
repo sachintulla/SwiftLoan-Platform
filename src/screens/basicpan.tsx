@@ -22,7 +22,7 @@ export default function BasicPan() {
       if (state.applicationId && state.panNumber) {
         await api.updateApplication(state.applicationId, { panNumber: state.panNumber }).catch(() => {});
       }
-      go('finding');
+      go('moredetails');
     } finally {
       setBusy(false);
     }

@@ -83,6 +83,9 @@ export default function Basic() {
         ...(state.basicEmp && EMP_SLUG[state.basicEmp] ? { employment: EMP_SLUG[state.basicEmp] } : {}),
         ...(state.basicIncome ? { monthlyIncome: parseInt(state.basicIncome, 10) || 0 } : {}),
         ...(state.basicCompany ? { company: state.basicCompany } : {}),
+        // Aurix-required: qualification + loan purpose.
+        ...(state.basicQualification ? { qualification: state.basicQualification } : {}),
+        ...(state.basicLoanPurpose ? { loanPurpose: state.basicLoanPurpose } : {}),
       });
       set({
         authUser: user,
@@ -134,6 +137,16 @@ export default function Basic() {
           <RangeLabels min="₹25,000" max="₹15,00,000" />
         </View>
 
+        {/* Loan purpose (required by lender) */}
+        <View style={{ gap: 8, marginTop: 18 }}>
+          <FieldLabel text="Loan purpose" required />
+          <Chips
+            value={state.basicLoanPurpose}
+            onChange={v => set({ basicLoanPurpose: v })}
+            options={['Personal use', 'Working Capital', 'Medical', 'Education', 'Home renovation', 'Travel', 'Other'].map(x => ({ label: x, value: x }))}
+          />
+        </View>
+
         {/* Personal details */}
         <SectionLabel text="Personal details" />
         <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -159,6 +172,15 @@ export default function Basic() {
         <View style={{ gap: 8, marginTop: 16 }}>
           <FieldLabel text="Gender" required />
           <Chips value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={[{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }, { label: 'Other', value: 'other' }]} />
+        </View>
+
+        <View style={{ gap: 8, marginTop: 16 }}>
+          <FieldLabel text="Highest qualification" required />
+          <Chips
+            value={state.basicQualification}
+            onChange={v => set({ basicQualification: v })}
+            options={['Graduate', 'Post-Graduate', 'Diploma', '12th Pass', 'Other'].map(x => ({ label: x, value: x }))}
+          />
         </View>
 
         {/* Contact & address */}

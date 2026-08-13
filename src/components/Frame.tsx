@@ -96,6 +96,7 @@ export function Screen({
   bottomNav = false,
   padded = true,
   contentStyle,
+  footer,
   children,
 }: {
   variant?: 'app' | 'hero' | 'plain';
@@ -103,6 +104,8 @@ export function Screen({
   bottomNav?: boolean;
   padded?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Pinned bottom bar (e.g. a "Continue" CTA) that stays visible while content scrolls. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -188,6 +191,20 @@ export function Screen({
       <StatusBar barStyle={barStyle} translucent backgroundColor="transparent" />
       {/* @ts-ignore Fragment accepts no props */}
       <Bg>{inner}</Bg>
+      {footer ? (
+        <View
+          style={{
+            paddingHorizontal: 18,
+            paddingTop: 10,
+            paddingBottom: 10 + insets.bottom,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: 'rgba(10,63,65,0.12)',
+            backgroundColor: colors.paper,
+          }}
+        >
+          {footer}
+        </View>
+      ) : null}
       {bottomNav ? <BottomNav /> : null}
       <Toast />
     </View>

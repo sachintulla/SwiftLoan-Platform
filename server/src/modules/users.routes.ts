@@ -30,6 +30,23 @@ const profilePatch = z.object({
   monthlyIncome: z.number().int().nonnegative().optional(),
   company: z.string().optional(),
   panNumber: z.string().length(10).optional(),
+  // Aurix applicant fields collected across the PAN / details / optional screens.
+  qualification: z.string().optional(),
+  maritalStatus: z.string().optional(),
+  alternateMobile: z.string().optional(),
+  alternateEmail: z.string().email().optional(),
+  loanPurpose: z.string().optional(),
+  salaryMode: z.string().optional(),
+  professionalType: z.string().optional(),
+  companyEmail: z.string().email().optional(),
+  businessEmail: z.string().email().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  landmark: z.string().optional(),
+  city: z.string().optional(),
+  district: z.string().optional(),
+  state: z.string().optional(),
+  monthlyObligations: z.number().int().nonnegative().optional(),
 }).strict();
 
 /** Update user information in the backend database. */

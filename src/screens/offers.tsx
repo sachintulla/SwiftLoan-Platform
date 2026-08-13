@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet, Linking } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { StepBadge, Chips } from '../components/Controls';
@@ -136,15 +136,26 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
     <View style={[styles.card, offer.recommended && styles.cardRecommended]}>
       <View style={styles.cardTop}>
         <View style={styles.bank}>
-          {offer.partner.logoUrl ? (
-            <Image source={{ uri: offer.partner.logoUrl }} style={{ width: 28, height: 28, borderRadius: 6 }} resizeMode="contain" />
+          {(offer.lenderLogoUrl || offer.partner.logoUrl) ? (
+            <Image source={{ uri: (offer.lenderLogoUrl || offer.partner.logoUrl)! }} style={{ width: 28, height: 28, borderRadius: 6 }} resizeMode="contain" />
           ) : (
             <Icon name={offer.partner.icon} size={22} color={colors.primary} />
           )}
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[font(800), { fontSize: 17, color: colors.text, letterSpacing: -0.2 }]}>{offer.partner.name}</Text>
+          {/* Real lender's name (from the partner API) headlines; the aggregator
+              partner it came through is shown small underneath. */}
+          <Text style={[font(800), { fontSize: 17, color: colors.text, letterSpacing: -0.2 }]}>{offer.lenderName || offer.partner.name}</Text>
+          {offer.lenderName ? (
+            <Text style={[font(500), { fontSize: 10.5, color: colors.muted, marginTop: 1 }]}>via {offer.partner.name}</Text>
+          ) : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+            {offer.offerLikelihood && offer.offerLikelihood !== '0' ? (
+              <View style={styles.trustPill}>
+                <Icon name="bolt" size={11} color={colors.greenDeep} />
+                <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>High match</Text>
+              </View>
+            ) : null}
             {offer.partner.rbiApproved ? (
               <View style={styles.trustPill}>
                 <Icon name="verified" size={12} color={colors.greenDeep} />
@@ -228,8 +239,17 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
         <Pressable style={styles.compareBtn} onPress={onCompare} hitSlop={8}>
           <Text style={[font(600), { color: colors.textMid, fontSize: 13.5 }]}>Compare</Text>
         </Pressable>
-        <Pressable style={styles.selectBtn} onPress={() => onSelect(offer, selected?.id)}>
-          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>Select Offer</Text>
+        <Pressable
+          style={styles.selectBtn}
+          onPress={() => {
+            // Record the selection in our funnel, then — for a real partner
+            // offer that carries a lender deep link — hand off to the lender's
+            // page to complete the application.
+            onSelect(offer, selected?.id);
+            if (offer.redirectionUrl) Linking.openURL(offer.redirectionUrl).catch(() => {});
+          }}
+        >
+          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Continue' : 'Select Offer'}</Text>
           <Icon name="arrow_forward" size={17} color="#fff" />
         </Pressable>
       </View>
