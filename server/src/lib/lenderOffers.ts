@@ -470,9 +470,13 @@ class AurixOfferProvider implements LenderOfferProvider {
     console.log(`[aurix-res] HTTP ${result.status} body=${JSON.stringify(result.body)}`);
     if (!result.ok) throw new Error(`Aurix eligible_offers failed: ${result.error} (HTTP ${result.status})`);
 
-    const meta = result.body?.Result?.Meta;
+    // Aurix's response is inconsistent: sometimes wrapped as { Result: { Data,
+    // Meta }, Id, ... } and sometimes returned bare as { Data, Meta }. Handle
+    // both so offers are never missed on the un-wrapped shape.
+    const root = result.body?.Result ?? result.body;
+    const meta = root?.Meta;
     const success = meta?.Success === true;
-    const offers: AurixOfferRaw[] = result.body?.Result?.Data?.Offers ?? [];
+    const offers: AurixOfferRaw[] = root?.Data?.Offers ?? [];
     if (!success || offers.length === 0) {
       // e.g. "No data found", "PAN verification failed", "Bureau verification
       // failed" — a legitimate zero-offers outcome, not a crash. Log and return
