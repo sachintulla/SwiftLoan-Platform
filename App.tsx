@@ -9,7 +9,8 @@ import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
 import ContextBanner from './src/components/ContextBanner';
 // Voice UI temporarily disabled; re-enable later when needed.
-import VoiceWidget from './src/voice/ui/VoiceWidget';
+// Voice FAB temporarily disabled for the Aurix testing build.
+// import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 
 /**
@@ -38,7 +39,8 @@ export default function App() {
       <StoreProvider>
         <Router />
         <ContextBanner />
-        <VoiceWidget />
+        {/* Voice FAB temporarily hidden for the Aurix testing build. */}
+        {/* <VoiceWidget /> */}
         <ConfirmationSheet />
         <BackHandlerBridge />
       </StoreProvider>
