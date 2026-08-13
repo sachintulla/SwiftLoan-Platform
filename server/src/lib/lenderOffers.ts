@@ -189,9 +189,9 @@ function resolveAurixConfig(partner: LenderPartner): AurixApiConfig {
     audienceSecretCode: process.env.AURIX_AUDIENCE_SECRET_CODE || cfg.audienceSecretCode || '',
     // Confirmed against a live UAT generate_token response: { "Data": { "Token": "...", "TokenValidTill": "...", "RefreshToken": "..." }, "Meta": {...} }
     tokenResponsePath: process.env.AURIX_TOKEN_RESPONSE_PATH || cfg.tokenResponsePath || 'Data.Token',
-    utmSource: cfg.utmSource,
-    utmMedium: cfg.utmMedium,
-    utmCampaign: cfg.utmCampaign,
+    utmSource: process.env.AURIX_UTM_SOURCE || cfg.utmSource,
+    utmMedium: process.env.AURIX_UTM_MEDIUM || cfg.utmMedium,
+    utmCampaign: process.env.AURIX_UTM_CAMPAIGN || cfg.utmCampaign,
   };
 }
 
@@ -333,8 +333,9 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
     ProductDetails: {
       ProductType: aurixProductType(application.loanType),
       LoanPurpose: user.loanPurpose || application.purpose || '',
-      // Aurix RequestedAmount is in rupees; our amount column is paise.
-      RequestedAmount: Math.round(application.amount / 100),
+      // LoanApplication.amount is already in RUPEES (app convention — see
+      // client.ts), and Aurix RequestedAmount is in rupees. No /100.
+      RequestedAmount: application.amount,
     },
     Addresses: [
       {
@@ -383,7 +384,8 @@ interface AurixOfferRaw {
 
 /** Map one Aurix offer into our RawLenderOffer (amounts → paise; EMI computed when 0). Exported for tests. */
 export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
-  const amount = Math.round((o.LoanAmount ?? 0) * 100); // rupees → paise
+  // Aurix LoanAmount is in rupees; Offer.amount is also rupees (app convention). No *100.
+  const amount = Math.round(o.LoanAmount ?? 0);
   const apr = o.ROI ?? 0;
   const tenureMonths = o.Tenure ?? 0;
   const pfPercent = o.ProcessingFee ?? 0;
@@ -447,8 +449,10 @@ class AurixOfferProvider implements LenderOfferProvider {
       }).catch(() => {});
     }
 
-    // Best-effort UTM registration (mints the utm_code in offer redirect URLs).
-    await registerAurixUtm(cfg, application.userId, user.phone);
+    // Best-effort UTM registration — only when a valid UTMSource is configured
+    // (Aurix rejects unknown sources with "Invalid UTMSource"; offers work
+    // without it). Set AURIX_UTM_SOURCE once Aurix confirms accepted values.
+    if (cfg.utmSource) await registerAurixUtm(cfg, application.userId, user.phone);
 
     const payload = buildEligibleOffersPayload(user, application);
     // Full request/response logging for integration analysis (PAN masked).
