@@ -81,3 +81,13 @@ jobs:
           docker stop swiftloan-website || true
           docker rm swiftloan-website || true
           docker run -d --name swiftloan-website --restart unless-stopped -p 4002:4002 swiftloan-website
+
+      # Prune superseded (dangling) images + build cache after each deploy so the
+      # --no-cache rebuilds (~3.6 GB each) don't fill the disk. Runs even on
+      # failure; never touches the running tagged images.
+      - name: Reclaim disk (prune superseded images + build cache)
+        if: always()
+        run: |
+          docker image prune -f || true
+          docker builder prune -af || true
+          df -h / | tail -1 || true
