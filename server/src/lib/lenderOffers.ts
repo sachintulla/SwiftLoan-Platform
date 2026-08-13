@@ -202,12 +202,15 @@ function resolveAurixConfig(partner: LenderPartner): AurixApiConfig {
  */
 export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId: string): Promise<string> {
   if (!cfg.audienceSecretCode) throw new Error('AURIX_AUDIENCE_SECRET_CODE is not set');
+  console.log(`[aurix-req] POST ${cfg.authBaseUrl}/api/generate_token PartnerCustomerID=${partnerCustomerId}`);
   const result = await httpJson(
     `${cfg.authBaseUrl}/api/generate_token`,
     'POST',
     { Accept: 'application/json', 'K-Aurix-Version': 'v3', 'K-Aurix-AudienceSecretCode': cfg.audienceSecretCode },
     { PartnerCustomerID: partnerCustomerId },
   );
+  // Response logged with the token itself masked (a live credential).
+  console.log(`[aurix-res] generate_token HTTP ${result.status} ok=${result.ok} body=${JSON.stringify(result.body).replace(/("Token":")[^"]+/g, '$1***').replace(/("RefreshToken":")[^"]+/g, '$1***')}`);
   if (!result.ok) throw new Error(`Aurix generate_token failed: ${result.error} (HTTP ${result.status})`);
   const path = cfg.tokenResponsePath ?? 'token';
   const token = pick(result.body, path);
@@ -222,6 +225,31 @@ export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId:
 /** Env-resolved token helper for callers that only have a User.id (e.g. OTP verify). */
 export async function generateAurixTokenFromEnv(partnerCustomerId: string): Promise<string> {
   return generateAurixToken(resolveAurixConfig({ apiConfig: null } as LenderPartner), partnerCustomerId);
+}
+
+/**
+ * Marketing-attribution / UTM registration (Aurix `/api/utm_generation`). This
+ * mints the utm_code that appears in each offer's OfferRedirectionUrl. Strictly
+ * best-effort — a failure never blocks offer generation. Logged like the others.
+ */
+async function registerAurixUtm(cfg: AurixApiConfig, partnerCustomerId: string, mobileNumber: string): Promise<void> {
+  try {
+    console.log(`[aurix-req] POST ${cfg.authBaseUrl}/api/utm_generation PartnerCustomerId=${partnerCustomerId} mobile=${mobileNumber}`);
+    const res = await httpJson(
+      `${cfg.authBaseUrl}/api/utm_generation`,
+      'POST',
+      { Accept: 'application/json', 'K-Aurix-Version': 'v3', 'X-Aurix-PartnerCustomerId': partnerCustomerId },
+      {
+        UTMSource: cfg.utmSource ?? 'SwiftLoanApp',
+        UTMMedium: cfg.utmMedium ?? 'App',
+        UTMCampaign: cfg.utmCampaign ?? 'Default',
+        MobileNumber: mobileNumber,
+      },
+    );
+    console.log(`[aurix-res] utm_generation HTTP ${res.status} body=${JSON.stringify(res.body)}`);
+  } catch (e) {
+    console.warn(`[aurix] utm_generation failed (non-blocking): ${(e as Error).message}`);
+  }
 }
 
 /* ── Aurix enum/value mappers (SwiftLoan → Aurix vocab) ── */
@@ -419,7 +447,13 @@ class AurixOfferProvider implements LenderOfferProvider {
       }).catch(() => {});
     }
 
+    // Best-effort UTM registration (mints the utm_code in offer redirect URLs).
+    await registerAurixUtm(cfg, application.userId, user.phone);
+
     const payload = buildEligibleOffersPayload(user, application);
+    // Full request/response logging for integration analysis (PAN masked).
+    const maskedPayload = JSON.stringify(payload).replace(/("Pan(?:Number)?":")[A-Z0-9]{6}/g, '$1******');
+    console.log(`[aurix-req] POST ${cfg.offersBaseUrl}/api/eligible_offers user=${application.userId} app=${application.id} payload=${maskedPayload}`);
     // eligible_offers is a real bureau/BRE call and can be slow — allow 30s
     // rather than the default 15s so a legitimately slow decision doesn't time out.
     const result = await httpJson(
@@ -429,6 +463,7 @@ class AurixOfferProvider implements LenderOfferProvider {
       payload,
       30_000,
     );
+    console.log(`[aurix-res] HTTP ${result.status} body=${JSON.stringify(result.body)}`);
     if (!result.ok) throw new Error(`Aurix eligible_offers failed: ${result.error} (HTTP ${result.status})`);
 
     const meta = result.body?.Result?.Meta;
