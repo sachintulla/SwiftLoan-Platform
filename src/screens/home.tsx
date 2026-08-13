@@ -37,6 +37,23 @@ export default function Home() {
         </Pressable>
       </View>
 
+      {/* Returning user: their offers are already pulled — jump straight in,
+          no need to re-enter details. */}
+      {state.hasSavedOffers && (
+        <Pressable onPress={() => go('offers')} style={styles.savedOffersCard}>
+          <View style={styles.savedOffersIcon}>
+            <Icon name="local_offer" size={22} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[font(700), { fontSize: 15, color: colors.text }]}>Your matched offers are ready</Text>
+            <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>
+              View the offers we pulled for you and apply.
+            </Text>
+          </View>
+          <Icon name="arrow_forward" size={20} color={colors.primary} />
+        </Pressable>
+      )}
+
       {/* Best rates compare card */}
       <Pressable onPress={() => go('basicpan')} style={styles.compareCard}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -210,6 +227,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  savedOffersCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginTop: 20,
+    backgroundColor: colors.chip,
+    borderWidth: 1,
+    borderColor: colors.primary + '44',
+    borderRadius: 20,
+    padding: 16,
+  },
+  savedOffersIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   compareCard: {
     marginTop: 20,
     backgroundColor: colors.ink,

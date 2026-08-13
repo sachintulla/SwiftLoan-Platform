@@ -110,6 +110,10 @@ export interface AppState {
   // A friendly, actionable note when prequalify returns no offers (e.g. lender
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
+  // True when this returning user already has offers pulled in a prior session
+  // (restored on login). Lets Home surface a "view your offers" shortcut so they
+  // don't re-enter details — applicationId points at that application.
+  hasSavedOffers: boolean;
 }
 
 export const initialState: AppState = {
@@ -145,6 +149,7 @@ export const initialState: AppState = {
   exploreFromHome: false,
   webUrl: '', webTitle: '',
   offersError: '',
+  hasSavedOffers: false,
 };
 
 type Action =
@@ -402,6 +407,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           hadCall: !!ctx.lastCall,
           stage: ctx.stage,
         });
+      })
+      .catch(() => undefined);
+  }, [state.authUser]);
+
+  // ── Restore the returning user's last-pulled offers on login ──────────
+  //
+  // A user's profile + offers persist server-side (User by phone, Offer rows on
+  // their last application). On login we find the most recent application that
+  // still has offers and point applicationId at it, so Home can show a "view
+  // your offers" shortcut and the offers screen renders the saved offers without
+  // the user re-entering any details or re-pulling.
+  const offersRestored = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || offersRestored.current) return;
+    offersRestored.current = true;
+    api.listApplications()
+      .then((r: any) => {
+        const apps: any[] = r?.applications || [];
+        const withOffers = apps.find(
+          (a) => (a.offers?.length ?? 0) > 0 &&
+            ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'].includes(a.status),
+        );
+        if (withOffers) {
+          dispatch({ type: 'set', patch: { applicationId: withOffers.id, loanId: withOffers.loan?.id ?? null, hasSavedOffers: true } });
+        }
       })
       .catch(() => undefined);
   }, [state.authUser]);

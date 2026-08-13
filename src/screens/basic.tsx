@@ -42,6 +42,14 @@ export default function Basic() {
       if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });
       if (!state.basicIncome && user.monthlyIncome) set({ basicIncome: String(user.monthlyIncome) });
       if (!state.basicCompany && user.company) set({ basicCompany: user.company });
+      // Returning-user prefill for the Aurix-required fields so they don't
+      // re-enter what they already gave us last time.
+      if (!state.basicQualification && user.qualification) set({ basicQualification: user.qualification });
+      if (!state.basicLoanPurpose && user.loanPurpose) set({ basicLoanPurpose: user.loanPurpose });
+      if (!state.optSalaryMode && user.salaryMode) set({ optSalaryMode: user.salaryMode });
+      if (!state.optAddr1 && user.addressLine1) set({ optAddr1: user.addressLine1 });
+      if (!state.optCity && user.city) set({ optCity: user.city });
+      if (!state.optState && user.state) set({ optState: user.state });
       if (!state.basicRes && user.residenceType) {
         const label = RES_TYPES.find(r => RES_TYPE_SLUG[r] === user.residenceType);
         if (label) set({ basicRes: label });
