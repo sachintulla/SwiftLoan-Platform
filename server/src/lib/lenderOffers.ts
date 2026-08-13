@@ -327,6 +327,10 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
   const monthly = user.monthlyIncome ?? application.monthlyIncome ?? 0;
   const nowIso = new Date().toISOString();
   const isBusiness = application.loanType === 'business';
+  // Aurix rejects any mobile that isn't a 10-digit Indian number starting 6-9.
+  // Only forward the alternate mobile when it's actually valid — junk optional
+  // data must not fail the whole offers call.
+  const validMobile = (m?: string | null) => !!m && /^[6-9]\d{9}$/.test(m);
   return {
     PartnerCustomerId: application.userId,
     PersonalInformation: {
@@ -337,7 +341,7 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
       MobileNumber: user.phone,
       // Aurix runs format validators on these and rejects "" — so optional
       // email/mobile fields are OMITTED when blank rather than sent empty.
-      ...(user.alternateMobile ? { AlternateMobile: user.alternateMobile } : {}),
+      ...(validMobile(user.alternateMobile) ? { AlternateMobile: user.alternateMobile } : {}),
       ...(user.email ? { Email: user.email } : {}),
       ...(user.alternateEmail ? { AlternateEmail: user.alternateEmail } : {}),
       Pan: pan,
