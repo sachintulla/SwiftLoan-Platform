@@ -79,9 +79,10 @@ export interface AuthResult {
   priorInquiries: PriorInquiry[];
 }
 
-// Admin-curated, pre-application eligibility catalog — see server's
-// PreApprovedPlan model. Amounts are in paise.
-export interface PreApprovedPlan {
+// Admin-curated catalog of market-available loan offers shown on the dashboard
+// (no PAN, no credit pull) — see server's MarketLoanOffer model. Distinct from
+// the personalised/eligible Offer results returned per application. Amounts in paise.
+export interface MarketLoanOffer {
   id: string;
   lenderName: string;
   logoUrl?: string | null;
@@ -100,7 +101,7 @@ export interface PreApprovedPlan {
   active: boolean;
 }
 
-// A real per-application lender offer (distinct from PreApprovedPlan above,
+// A real per-application lender offer (distinct from MarketLoanOffer above,
 // which is admin-curated marketing data). Amounts are plain rupees, matching
 // LoanApplication/Offer's existing convention (not paise). Server-side this is
 // produced by a LenderOfferProvider (mock today) — see server/src/lib/lenderOffers.ts.
@@ -188,7 +189,7 @@ export const api = {
   getLoan: (id: string) => request('GET', `/loans/${id}`),
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
-  preApprovedPlans: (): Promise<{ data: PreApprovedPlan[] }> => request('GET', '/preapproved-plans'),
+  marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>

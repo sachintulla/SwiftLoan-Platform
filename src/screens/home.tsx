@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { EmiCalculator } from '../components/EmiCalculator';
-import { PreApprovedPlans } from '../components/PreApprovedPlans';
+import { MarketLoanOffers } from '../components/MarketLoanOffers';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 
@@ -74,12 +74,12 @@ export default function Home() {
         ))}
       </View>
 
-      {/* Pre-approved plans — full list embedded right here. Tapping a plan
-          starts a new loan application (same as the "Apply for a new loan"
-          CTA) pre-filled with that plan's amount; the basic screen fills in
-          the user details already entered/known so far. */}
-      <SectionHeading title="Pre-approved plans" sub="No PAN needed · credit score untouched" />
-      <PreApprovedPlans
+      {/* Available loan offers — the market catalog shown before any PAN/credit
+          pull. Tapping one starts a new loan application (flow A: entry point
+          only) pre-filled with that offer's amount; the eligible/personalised
+          offers come back from the lender after PAN + details. */}
+      <SectionHeading title="Available offers" sub="No PAN needed · credit score untouched" />
+      <MarketLoanOffers
         mode="home"
         showIntro={false}
         onApply={plan => {

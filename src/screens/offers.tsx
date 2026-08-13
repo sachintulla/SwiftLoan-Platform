@@ -197,7 +197,7 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
         // that hasn't returned any options. Still shows what IS known —
         // amount/rate/disbursal — rather than an empty placeholder.
         <View style={styles.pendingBox}>
-          <Metric label="Pre-approved amount" value={rupee(offer.amount)} highlight />
+          <Metric label="Eligible amount" value={rupee(offer.amount)} highlight />
           <Metric label="Interest rate" value={`${offer.apr}% p.a.`} />
           <Metric label="Disbursal time" value={offer.partner.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} hr` : 'Instant'} />
         </View>

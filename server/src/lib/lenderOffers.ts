@@ -108,7 +108,7 @@ class MockLenderOfferProvider implements LenderOfferProvider {
     const gstOnProcessingFee = Math.round(processingFeeAmount * GST_RATE);
     const netDisbursalAmount = amount - processingFeeAmount - gstOnProcessingFee;
 
-    // Mirrors PreApprovedPlan's rateAtApproval/amountAtApproval pattern (e.g.
+    // Mirrors MarketLoanOffer's rateAtApproval/amountAtApproval pattern (e.g.
     // real-world UnitySFB/MoneyView don't disclose a computed EMI upfront) —
     // configured per mock partner via apiConfig so this is a real, seedable
     // case rather than a hypothetical the UI never actually has to render.

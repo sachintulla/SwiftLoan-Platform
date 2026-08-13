@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import { LogoLockup } from '../components/Logo';
 import Icon from '../components/Icon';
-import { PreApprovedPlans } from '../components/PreApprovedPlans';
+import { MarketLoanOffers } from '../components/MarketLoanOffers';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
 
@@ -34,7 +34,7 @@ export default function Explore() {
       </View>
 
       <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-        <PreApprovedPlans mode={fromHome ? 'home' : 'guest'} onApply={() => go(fromHome ? 'home' : 'mobile')} />
+        <MarketLoanOffers mode={fromHome ? 'home' : 'guest'} onApply={() => go(fromHome ? 'home' : 'mobile')} />
       </View>
     </Screen>
   );

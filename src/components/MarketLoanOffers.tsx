@@ -4,18 +4,18 @@ import Icon from './Icon';
 import { PrimaryButton } from './Controls';
 import { Skeleton } from './common/Loading';
 import { colors, font, inr } from '../theme/tokens';
-import { api, PreApprovedPlan } from '../api/client';
+import { api, MarketLoanOffer } from '../api/client';
 import { saveSelectedPlan } from '../state/selectedPlan';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { LENDER_LOGOS } from '../theme/lenderLogos';
 
-function amountLine(p: PreApprovedPlan) {
+function amountLine(p: MarketLoanOffer) {
   if (p.amountAtApproval) return { label: 'Amount at approval', value: '' };
   // maxAmount is in paise (server convention) — tokens.ts's inr() expects rupees.
   return { label: 'Up to', value: p.maxAmount != null ? inr(Math.round(p.maxAmount / 100)) : '—' };
 }
 
-function rateTenureLine(p: PreApprovedPlan): string[] {
+function rateTenureLine(p: MarketLoanOffer): string[] {
   const rate = p.rateAtApproval ? 'Rate at approval' : p.rateMin != null && p.rateMax != null ? `${p.rateMin}–${p.rateMax}% p.a.` : null;
   const tenure = p.tenureMinMonths != null && p.tenureMaxMonths != null ? `${p.tenureMinMonths}–${p.tenureMaxMonths} mo` : null;
   return [rate, tenure].filter((s): s is string => !!s);
@@ -27,7 +27,7 @@ function PlanCard({
   showRadio,
   onSelect,
 }: {
-  plan: PreApprovedPlan;
+  plan: MarketLoanOffer;
   selected: boolean;
   showRadio: boolean;
   onSelect: () => void;
@@ -126,22 +126,22 @@ function Stat({ value, label }: { value: string; label: string }) {
  *   of making the user select-then-press-continue for something they've
  *   already signed up for.
  */
-export function PreApprovedPlans({
+export function MarketLoanOffers({
   mode = 'guest',
   onApply,
   showIntro = true,
 }: {
   mode?: 'guest' | 'home';
-  onApply: (plan: PreApprovedPlan) => void;
+  onApply: (plan: MarketLoanOffer) => void;
   showIntro?: boolean;
 }) {
   const isHome = mode === 'home';
-  const [plans, setPlans] = useState<PreApprovedPlan[] | null>(null);
+  const [plans, setPlans] = useState<MarketLoanOffer[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api.preApprovedPlans()
+    api.marketLoanOffers()
       .then(r => {
         if (cancelled) return;
         const data = r.data ?? [];
@@ -155,7 +155,7 @@ export function PreApprovedPlans({
 
   const selectedPlan = plans?.find(p => p.id === selectedId) ?? null;
 
-  const persistSelection = (plan: PreApprovedPlan) =>
+  const persistSelection = (plan: MarketLoanOffer) =>
     saveSelectedPlan({
       id: plan.id,
       lenderName: plan.lenderName,
@@ -165,7 +165,7 @@ export function PreApprovedPlans({
       badge: plan.badge,
     }).catch(() => {});
 
-  const onCardPress = (plan: PreApprovedPlan) => {
+  const onCardPress = (plan: MarketLoanOffer) => {
     if (isHome) {
       // Already signed in — a tap starts a new loan application pre-filled with
       // this plan (see home.tsx's onApply), rather than opening the lender's
@@ -196,7 +196,7 @@ export function PreApprovedPlans({
           <View>
             <Text style={[font(800), { fontSize: 26, letterSpacing: -0.5, color: colors.text }]}>Explore your loan options</Text>
             <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 6, lineHeight: 20 }]}>
-              Compare rates, amounts and eligibility across some pre-approved loans. Nothing is submitted and your credit score is never touched.
+              Compare rates, amounts and eligibility across available market offers. Nothing is submitted and your credit score is never touched.
             </Text>
           </View>
 
@@ -210,7 +210,7 @@ export function PreApprovedPlans({
 
           <View style={styles.pill}>
             <Icon name="verified" size={14} color={colors.primary} />
-            <Text style={[font(600), { fontSize: 11.5, color: colors.primary }]}>Pre-approved · no PAN needed yet</Text>
+            <Text style={[font(600), { fontSize: 11.5, color: colors.primary }]}>Available offer · no PAN needed yet</Text>
           </View>
         </>
       )}
@@ -328,4 +328,4 @@ const styles = StyleSheet.create({
   tagPill: { backgroundColor: colors.chip, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
 });
 
-export default PreApprovedPlans;
+export default MarketLoanOffers;

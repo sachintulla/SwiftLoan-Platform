@@ -234,7 +234,12 @@ model LenderPartner {
 // Admin-curated, pre-application eligibility catalog shown on the app's
 // "Explore your loan options" screen (skip-login path) — distinct from Offer,
 // which is computed per-application after a user actually applies.
-model PreApprovedPlan {
+/// The static catalog of market-available loan offers shown on the dashboard
+/// after login (no PAN, no credit pull). NOT the personalised/eligible offers —
+/// those are the Offer rows returned per application by the lender (Aurix).
+/// Physical table kept as "PreApprovedPlan" (@@map) so the rename needs no
+/// data migration.
+model MarketLoanOffer {
   id         String  @id @default(uuid())
   lenderName String
   logoUrl    String? // hosted brand logo image URL
@@ -262,6 +267,7 @@ model PreApprovedPlan {
   updatedAt DateTime @updatedAt
 
   @@index([active, displayOrder])
+  @@map("PreApprovedPlan")
 }
 
 model Offer {

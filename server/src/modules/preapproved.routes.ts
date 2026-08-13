@@ -29,15 +29,19 @@ const planSchema = z.object({
   active: z.boolean().optional(),
 });
 
-/** GET /api/preapproved-plans — public, active only, admin-ordered. For the app. */
+/**
+ * GET /api/market-loan-offers — public, active only, admin-ordered. For the app
+ * dashboard's "Available offers". `/api/preapproved-plans` is kept as an alias
+ * so already-installed app builds keep working after the rename.
+ */
 preapprovedRouter.get(
-  '/api/preapproved-plans',
+  ['/api/market-loan-offers', '/api/preapproved-plans'],
   ah(async (_req, res) => {
-    const plans = await prisma.preApprovedPlan.findMany({
+    const offers = await prisma.marketLoanOffer.findMany({
       where: { active: true },
       orderBy: { displayOrder: 'asc' },
     });
-    return ok(res, plans, 'Pre-approved plans');
+    return ok(res, offers, 'Available loan offers');
   }),
 );
 
@@ -46,7 +50,7 @@ preapprovedRouter.get(
   '/api/admin/preapproved-plans',
   requireAdmin,
   ah(async (_req, res) => {
-    const plans = await prisma.preApprovedPlan.findMany({ orderBy: { displayOrder: 'asc' } });
+    const plans = await prisma.marketLoanOffer.findMany({ orderBy: { displayOrder: 'asc' } });
     return ok(res, plans, 'Pre-approved plans');
   }),
 );
@@ -57,7 +61,7 @@ preapprovedRouter.post(
   requireAdmin,
   validate(planSchema),
   ah(async (req, res) => {
-    const plan = await prisma.preApprovedPlan.create({ data: req.body });
+    const plan = await prisma.marketLoanOffer.create({ data: req.body });
     return created(res, plan, 'Plan created');
   }),
 );
@@ -68,9 +72,9 @@ preapprovedRouter.put(
   requireAdmin,
   validate(planSchema.partial()),
   ah(async (req, res) => {
-    const existing = await prisma.preApprovedPlan.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.marketLoanOffer.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new HttpError(404, 'Plan not found');
-    const plan = await prisma.preApprovedPlan.update({ where: { id: req.params.id }, data: req.body });
+    const plan = await prisma.marketLoanOffer.update({ where: { id: req.params.id }, data: req.body });
     return ok(res, plan, 'Plan updated');
   }),
 );
@@ -80,9 +84,9 @@ preapprovedRouter.delete(
   '/api/admin/preapproved-plans/:id',
   requireAdmin,
   ah(async (req, res) => {
-    const existing = await prisma.preApprovedPlan.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.marketLoanOffer.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new HttpError(404, 'Plan not found');
-    await prisma.preApprovedPlan.delete({ where: { id: req.params.id } });
+    await prisma.marketLoanOffer.delete({ where: { id: req.params.id } });
     return ok(res, null, 'Plan deleted');
   }),
 );
