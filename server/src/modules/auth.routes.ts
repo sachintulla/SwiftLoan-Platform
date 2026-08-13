@@ -122,7 +122,7 @@ authRouter.post(
     // paying a cold token round-trip (which was flirting with the offer timeout).
     // Fire-and-forget: never blocks or fails login. TTL kept well under Aurix's
     // ~1-month token validity; getOffers refreshes if it's missing/expired.
-    void generateAurixTokenFromEnv(user.id)
+    void generateAurixTokenFromEnv(user.id, user.phone)
       .then((token) =>
         prisma.user.update({
           where: { id: user.id },

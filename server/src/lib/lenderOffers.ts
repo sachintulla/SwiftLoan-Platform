@@ -200,14 +200,17 @@ function resolveAurixConfig(partner: LenderPartner): AurixApiConfig {
  * the integration decision (mapped to Aurix's PartnerCustomerID). Exported so
  * auth.routes.ts can pre-generate + cache the token at OTP verify.
  */
-export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId: string): Promise<string> {
+export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId: string, mobileNumber?: string): Promise<string> {
   if (!cfg.audienceSecretCode) throw new Error('AURIX_AUDIENCE_SECRET_CODE is not set');
   console.log(`[aurix-req] POST ${cfg.authBaseUrl}/api/generate_token PartnerCustomerID=${partnerCustomerId}`);
+  // v1.2 of the Single Offers API makes MobileNumber mandatory in the token body.
+  const body: Record<string, string> = { PartnerCustomerID: partnerCustomerId };
+  if (mobileNumber) body.MobileNumber = mobileNumber;
   const result = await httpJson(
     `${cfg.authBaseUrl}/api/generate_token`,
     'POST',
     { Accept: 'application/json', 'K-Aurix-Version': 'v3', 'K-Aurix-AudienceSecretCode': cfg.audienceSecretCode },
-    { PartnerCustomerID: partnerCustomerId },
+    body,
   );
   // Response logged with the token itself masked (a live credential).
   console.log(`[aurix-res] generate_token HTTP ${result.status} ok=${result.ok} body=${JSON.stringify(result.body).replace(/("Token":")[^"]+/g, '$1***').replace(/("RefreshToken":")[^"]+/g, '$1***')}`);
@@ -223,8 +226,8 @@ export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId:
 }
 
 /** Env-resolved token helper for callers that only have a User.id (e.g. OTP verify). */
-export async function generateAurixTokenFromEnv(partnerCustomerId: string): Promise<string> {
-  return generateAurixToken(resolveAurixConfig({ apiConfig: null } as LenderPartner), partnerCustomerId);
+export async function generateAurixTokenFromEnv(partnerCustomerId: string, mobileNumber?: string): Promise<string> {
+  return generateAurixToken(resolveAurixConfig({ apiConfig: null } as LenderPartner), partnerCustomerId, mobileNumber);
 }
 
 /**
@@ -266,7 +269,39 @@ function aurixEmploymentType(e: User['employment']): string {
   }
 }
 function aurixProductType(loanType: LoanApplication['loanType']): string {
-  return loanType === 'business' ? 'BusinessLoan' : 'PersonalLoan';
+  // v1.2 master values: PersonalLoan | UnSecBusinessLoan.
+  return loanType === 'business' ? 'UnSecBusinessLoan' : 'PersonalLoan';
+}
+
+/** Map free-form app qualification text → Aurix v1.2 master value. */
+function aurixQualification(q?: string | null): string {
+  if (!q) return '';
+  const s = q.toLowerCase();
+  if (s.includes('phd') || s.includes('doctor')) return 'Doctorate / PhD';
+  if (s.includes('post') || s.includes('master') || s.includes('pg')) return "Postgraduate / Master's Degree";
+  if (s.includes('under') || s.includes('bachelor') || s.includes('graduate') || s.includes('degree')) return "Undergraduate / Bachelor's Degree";
+  if (s.includes('diploma')) return 'Diploma';
+  if (s.includes('12') || s.includes('higher sec') || s.includes('intermediate')) return '12th Pass / Higher Secondary';
+  if (s.includes('10') || s.includes('secondary') || s.includes('ssc')) return '10th Pass / Secondary School';
+  return 'Others';
+}
+
+/** Map free-form app loan-purpose text → Aurix v1.2 PersonalLoan master value. */
+function aurixLoanPurpose(p?: string | null): string {
+  if (!p) return 'Other Reason';
+  const s = p.toLowerCase();
+  if (s.includes('renov') || s.includes('home') || s.includes('repair')) return 'Home Renovation/Repair';
+  if (s.includes('medical')) return 'Medical Expense';
+  if (s.includes('wedding') || s.includes('marriage')) return 'Wedding Expense';
+  if (s.includes('travel') || s.includes('vacation')) return 'Travel & Vacation';
+  if (s.includes('debt') || s.includes('consolid')) return 'Debt Consolidation';
+  if (s.includes('vehicle') || s.includes('car') || s.includes('bike')) return 'Vehicle Purchase';
+  if (s.includes('gadget') || s.includes('appliance')) return 'Gadget/ Appliance Purchase';
+  if (s.includes('emergency')) return 'Emergency Expense';
+  if (s.includes('festival') || s.includes('event') || s.includes('celebrat')) return 'Festival/Event Celebrations';
+  if (s.includes('business')) return 'Business Expense';
+  if (s.includes('large') || s.includes('purchase')) return 'Large Purchases';
+  return 'Other Reason';
 }
 function ageFromDob(dob: Date | null): number {
   if (!dob) return 0;
@@ -304,9 +339,11 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
       Age: ageFromDob(user.dob),
       Gender: aurixGender(user.gender),
       MaritalStatus: user.maritalStatus ?? '',
-      Qualification: user.qualification ?? '',
+      Qualification: aurixQualification(user.qualification),
     },
     EmploymentDetails: {
+      // v1.2 added EntityType (Individual | NonIndividual), mandatory for all loans.
+      EntityType: isBusiness ? 'NonIndividual' : 'Individual',
       EmploymentType: aurixEmploymentType(user.employment ?? application.employment),
       EmployerName: user.company ?? '',
       ...(user.companyEmail ? { CompanyEmail: user.companyEmail } : {}),
@@ -332,7 +369,7 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
     BusinessDetailsDTO: {},
     ProductDetails: {
       ProductType: aurixProductType(application.loanType),
-      LoanPurpose: user.loanPurpose || application.purpose || '',
+      LoanPurpose: aurixLoanPurpose(user.loanPurpose || application.purpose),
       // LoanApplication.amount is already in RUPEES (app convention — see
       // client.ts), and Aurix RequestedAmount is in rupees. No /100.
       RequestedAmount: application.amount,
@@ -353,9 +390,18 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
     ],
     Consents: [
       {
-        ConsentType: 'TermsAndConditions',
-        ConsentDescription: 'User agrees to credit assessment rules.',
+        // v1.2 ConsentType master naming uses underscores.
+        ConsentType: 'Bureau_Check',
+        ConsentDescription: 'I hereby authorize the lender to pull my credit information from CIBIL/Experian.',
         ConsentTimestamp: nowIso,
+        ConsentExpiry: null,
+        IsConsentGiven: true,
+      },
+      {
+        ConsentType: 'Terms_And_Conditions',
+        ConsentDescription: 'I agree to the privacy policy and digital lending terms.',
+        ConsentTimestamp: nowIso,
+        ConsentExpiry: null,
         IsConsentGiven: true,
       },
     ],
@@ -363,7 +409,8 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
       BureauVendor: 'CIBIL',
       BureauPulled: true,
       BureauDate: nowIso,
-      Payload: JSON.stringify({ score: user.creditScore, status: 'Success' }),
+      // v1.2 documents Payload as a JSON object, not a stringified blob.
+      Payload: { score: user.creditScore, status: 'Success' },
     },
   };
 }
@@ -421,7 +468,7 @@ export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
     redirectionUrl: o.OfferRedirectionUrl ?? null,
     lenderName: o.Lender?.DisplayName ?? null,
     lenderLogoUrl: o.Lender?.LenderLogo ?? null,
-    externalPartnerId: o.PartnerId ?? null,
+    externalPartnerId: o.Lender?.Id ?? o.PartnerId ?? null,
     rawOffer: o,
   };
 }
@@ -460,7 +507,7 @@ class AurixOfferProvider implements LenderOfferProvider {
     let token = user.aurixToken ?? '';
     const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
     if (!token || expired) {
-      token = await generateAurixToken(cfg, application.userId);
+      token = await generateAurixToken(cfg, application.userId, user.phone);
       await prisma.user.update({
         where: { id: user.id },
         // Aurix hasn't documented token TTL; assume ~30 min and refresh eagerly.
@@ -482,7 +529,15 @@ class AurixOfferProvider implements LenderOfferProvider {
     const result = await httpJson(
       `${cfg.offersBaseUrl}/api/eligible_offers`,
       'POST',
-      { Accept: 'application/json', 'K-Aurix-Version': 'v1', 'X-Aurix-Token': token },
+      // v1.2 headers: K-Aurix-Token + K-Aurix-PartnerCustomerId. X-Aurix-Token
+      // kept for backward-compat with the currently-deployed UAT gateway.
+      {
+        Accept: 'application/json',
+        'K-Aurix-Version': 'v1',
+        'K-Aurix-Token': token,
+        'X-Aurix-Token': token,
+        'K-Aurix-PartnerCustomerId': application.userId,
+      },
       payload,
       30_000,
     );
