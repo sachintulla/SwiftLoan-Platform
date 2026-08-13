@@ -409,8 +409,10 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
       BureauVendor: 'CIBIL',
       BureauPulled: true,
       BureauDate: nowIso,
-      // v1.2 documents Payload as a JSON object, not a stringified blob.
-      Payload: { score: user.creditScore, status: 'Success' },
+      // v1.2 documents Payload as a JSON object, but the live UAT DTO still
+      // binds it as a string — sending an object triggers "Request body cannot
+      // be null" (whole-body deserialization failure). Keep it stringified.
+      Payload: JSON.stringify({ score: user.creditScore, status: 'Success' }),
     },
   };
 }
