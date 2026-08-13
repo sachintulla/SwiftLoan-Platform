@@ -259,7 +259,7 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
             onSelect(offer, selected?.id);
           }}
         >
-          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Continue' : 'Select Offer'}</Text>
+          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Apply offer' : 'Select Offer'}</Text>
           <Icon name="arrow_forward" size={17} color="#fff" />
         </Pressable>
       </View>

@@ -6,16 +6,20 @@ import { ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { api, isAuthed } from '../api/client';
+
+const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
 export default function BasicPan() {
   const { state, set, go, showToast } = useStore();
   const [busy, setBusy] = React.useState(false);
 
-  const onContinue = () => {
+  const onContinue = async () => {
     // PAN is the FIRST step now (before details), so the application doesn't
     // exist yet — capture the PAN into state and persist it once the details
     // step creates the application. Just validate + advance here.
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(state.panNumber.trim())) {
+    const pan = state.panNumber.trim().toUpperCase();
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) {
       showToast('Please enter a valid 10-character PAN (e.g. ABCDE1234F).');
       return;
     }
@@ -24,6 +28,25 @@ export default function BasicPan() {
       return;
     }
     setBusy(true);
+    // If this PAN already has offers pulled (this user, prior application), skip
+    // the details form and jump straight to the saved offers.
+    if (isAuthed()) {
+      try {
+        const { applications }: any = await api.listApplications();
+        const match = (applications || []).find(
+          (a: any) => (a.panNumber || '').toUpperCase() === pan &&
+            (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status),
+        );
+        if (match) {
+          set({ applicationId: match.id, loanId: match.loan?.id ?? null, hasSavedOffers: true });
+          setBusy(false);
+          go('offers');
+          return;
+        }
+      } catch {
+        /* fall through to the details step */
+      }
+    }
     go('basic');
     setBusy(false);
   };
