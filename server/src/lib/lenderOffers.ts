@@ -450,8 +450,8 @@ interface AurixOfferRaw {
   ProcessingFee?: number; // percent
   OfferLikelihood?: string;
   OfferRedirectionUrl?: string;
-  Lender?: { Id?: string | null; DisplayName?: string; LenderLogo?: string | null };
-  PartnerId?: string;
+  Lender?: { Id?: string | number | null; DisplayName?: string; LenderLogo?: string | null };
+  PartnerId?: string | number;
 }
 
 /** Map one Aurix offer into our RawLenderOffer (amounts → paise; EMI computed when 0). Exported for tests. */
@@ -495,7 +495,9 @@ export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
     // Aurix returns LenderLogo as a raw base64 PNG (no data: prefix); RN <Image>
     // needs a data URI. Pass through http(s)/data URIs untouched.
     lenderLogoUrl: aurixLogoUri(o.Lender?.LenderLogo),
-    externalPartnerId: o.Lender?.Id ?? o.PartnerId ?? null,
+    // Aurix sends Lender.Id (string|null) and a top-level PartnerId (often the
+    // number 0); externalPartnerId is a String column, so coerce to string.
+    externalPartnerId: o.Lender?.Id != null ? String(o.Lender.Id) : (o.PartnerId != null ? String(o.PartnerId) : null),
     rawOffer: o,
   };
 }
