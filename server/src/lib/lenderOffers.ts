@@ -426,9 +426,28 @@ export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
   };
 }
 
+/**
+ * Dev/demo hook: Aurix UAT returns empty offers for the PANs we have, so with
+ * AURIX_MOCK_OFFERS=true the provider returns Knight Fintech's own sample
+ * eligible_offers response (from their doc) mapped through the SAME mapper +
+ * persistence as a real call — lets us verify offer display end-to-end while we
+ * wait for a UAT PAN that returns offers. Never set in real prod.
+ */
+const AURIX_SAMPLE_OFFERS: AurixOfferRaw[] = [
+  { OfferCode: 'OFF-a912a813', OfferType: 'Organic', LoanAmount: 1000000, ROI: 20.1, Tenure: 84, EMI: 0, ProcessingFee: 3, OfferLikelihood: '1', OfferRedirectionUrl: 'https://pt-web-uat.aurix-partner.com/?offer_code=OFF-a912a813', Lender: { Id: null, DisplayName: 'UNITY SMALL FINANCE LIMITED', LenderLogo: null }, PartnerId: '171' },
+  { OfferCode: 'OFF-afa34e73', OfferType: 'Organic', LoanAmount: 500000, ROI: 29.99, Tenure: 48, EMI: 0, ProcessingFee: 5, OfferLikelihood: '', OfferRedirectionUrl: 'https://pt-web-uat.aurix-partner.com/?offer_code=OFF-afa34e73', Lender: { Id: null, DisplayName: 'PREFR', LenderLogo: null }, PartnerId: '171' },
+  { OfferCode: 'OFF-2cd32006', OfferType: 'Organic', LoanAmount: 500000, ROI: 30, Tenure: 48, EMI: 0, ProcessingFee: 5, OfferLikelihood: '', OfferRedirectionUrl: 'https://pt-web-uat.aurix-partner.com/?offer_code=OFF-2cd32006', Lender: { Id: null, DisplayName: 'FREO', LenderLogo: null }, PartnerId: '171' },
+  { OfferCode: 'OFF-01aca0bb', OfferType: 'Organic', LoanAmount: 500000, ROI: 30, Tenure: 36, EMI: 0, ProcessingFee: 3.25, OfferLikelihood: '', OfferRedirectionUrl: 'https://pt-web-uat.aurix-partner.com/?offer_code=OFF-01aca0bb', Lender: { Id: null, DisplayName: 'HERO FINCORP LIMITED', LenderLogo: null }, PartnerId: '171' },
+  { OfferCode: 'OFF-5d3ba865', OfferType: 'Organic', LoanAmount: 500000, ROI: 30, Tenure: 0, EMI: 0, ProcessingFee: 2, OfferLikelihood: '', OfferRedirectionUrl: 'https://pt-web-uat.aurix-partner.com/?offer_code=OFF-5d3ba865', Lender: { Id: null, DisplayName: 'IDFC FIRST BANK LIMITED', LenderLogo: null }, PartnerId: '171' },
+];
+
 class AurixOfferProvider implements LenderOfferProvider {
   /** Single Aurix call returns MANY offers (one per real lender). */
   async getOffers(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer[]> {
+    if (process.env.AURIX_MOCK_OFFERS === 'true') {
+      console.log('[aurix] AURIX_MOCK_OFFERS=true — returning sample offers (dev/demo)');
+      return AURIX_SAMPLE_OFFERS.map(mapAurixOffer);
+    }
     const cfg = resolveAurixConfig(partner);
     if (!cfg.audienceSecretCode) {
       throw new Error('Aurix is not configured (AURIX_AUDIENCE_SECRET_CODE missing)');
