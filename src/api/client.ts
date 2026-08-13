@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import { saveTokens, clearTokens } from '../state/session';
 
 /**
@@ -228,7 +229,24 @@ export const api = {
   listApplications: () => request('GET', '/applications'),
   getApplication: (id: string) => request('GET', `/applications/${id}`),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
-  prequalify: (id: string) => request('POST', `/applications/${id}/prequalify`),
+  prequalify: async (id: string) => {
+    const res = await request<{ offers: unknown[]; aurixResponse?: unknown }>(
+      'POST',
+      `/applications/${id}/prequalify`,
+    );
+    // Debug visibility: surface the raw Aurix eligible_offers response (offers,
+    // no-offers reason, or validation error) exactly as received from Aurix.
+    try {
+      const body = res?.aurixResponse;
+      Alert.alert(
+        'Aurix Offer API response',
+        body == null ? 'No Aurix response (Aurix was not called for this run).' : JSON.stringify(body, null, 2),
+      );
+    } catch {
+      /* never let a debug alert break the funnel */
+    }
+    return res;
+  },
   selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),

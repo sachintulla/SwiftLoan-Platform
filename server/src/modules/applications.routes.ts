@@ -6,7 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { getLenderOfferProvider, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { getLenderOfferProvider, takeAurixDebug, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 export const applicationsRouter = Router();
@@ -146,7 +146,9 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     },
   ).catch(() => {});
 
-  res.json({ offers: created });
+  // Raw Aurix eligible_offers response (request/success/no-offers/validation),
+  // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
+  res.json({ offers: created, aurixResponse: takeAurixDebug(app.id) });
 }));
 
 /** List offers for an application. */

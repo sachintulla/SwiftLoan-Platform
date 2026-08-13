@@ -176,6 +176,18 @@ interface AurixApiConfig {
 }
 
 /**
+ * Last raw Aurix eligible_offers response per applicationId, so the prequalify
+ * route can surface it to the app (debug alert). Keyed by applicationId (unique
+ * per run); the reader takes-and-clears to avoid unbounded growth.
+ */
+const aurixDebugByApp = new Map<string, unknown>();
+export function takeAurixDebug(applicationId: string): unknown {
+  const v = aurixDebugByApp.get(applicationId);
+  aurixDebugByApp.delete(applicationId);
+  return v ?? null;
+}
+
+/**
  * Config resolves from env FIRST (AURIX_*), then the partner's apiConfig. The
  * AudienceSecretCode is a real credential and is intended to live only in env
  * (never the DB/APK). PartnerCustomerId is NOT config — it is the SwiftLoan
@@ -557,6 +569,8 @@ class AurixOfferProvider implements LenderOfferProvider {
       30_000,
     );
     console.log(`[aurix-res] HTTP ${result.status} body=${JSON.stringify(result.body)}`);
+    // Stash the raw Aurix response so the app can surface it (debug alert).
+    aurixDebugByApp.set(application.id, { httpStatus: result.status, response: result.body });
     if (!result.ok) throw new Error(`Aurix eligible_offers failed: ${result.error} (HTTP ${result.status})`);
 
     // Aurix's response is inconsistent: sometimes wrapped as { Result: { Data,
