@@ -60,6 +60,15 @@ export default function Profile() {
         notif: { loan: user.notifyLoanUpdates, security: user.notifySecurityAlerts, promo: user.notifyPromoOffers },
       });
     } catch (e: any) {
+      // An expired/invalid session (401) must not strand the user on an error
+      // screen — the logout button lives in the profile body, which never
+      // renders while `err` is set, so a stale token made "log out" unreachable.
+      // Treat it as a logout: clear the dead session and return to the start.
+      if (e instanceof ApiError && e.status === 401) {
+        await api.logout().catch(() => {});
+        reset();
+        return;
+      }
       setErr(e?.message || 'Could not load your profile.');
     } finally {
       setLoading(false);
