@@ -13,7 +13,7 @@ import { api, Offer } from '../api/client';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 export default function Offers() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, go } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
@@ -80,7 +80,7 @@ export default function Offers() {
         ) : (
         <View style={{ gap: 14, marginTop: 18 }}>
           {offers.map(o => (
-            <OfferCard key={o.id} offer={o} onSelect={select} onCompare={() => showToast('Comparison — coming soon.')} />
+            <OfferCard key={o.id} offer={o} onSelect={select} />
           ))}
         </View>
         )}
@@ -125,7 +125,7 @@ export default function Offers() {
  * server marked `recommended`. Mirrors the sample lender-API response shape
  * (rating/RBI badge, fee + GST breakdown, net disbursal, feature bullets).
  */
-function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (offer: Offer, emiOptionId?: string) => void; onCompare: () => void }) {
+function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer, emiOptionId?: string) => void }) {
   const recommendedOption = offer.emiOptions.find(o => o.recommended) ?? offer.emiOptions[0];
   const [tenureMonths, setTenureMonths] = useState<number | undefined>(recommendedOption?.tenureMonths);
   const selected = offer.emiOptions.find(o => o.tenureMonths === tenureMonths) ?? recommendedOption;
@@ -246,10 +246,7 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
         </View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 }}>
-        <Pressable style={styles.compareBtn} onPress={onCompare} hitSlop={8}>
-          <Text style={[font(600), { color: colors.textMid, fontSize: 13.5 }]}>Compare</Text>
-        </Pressable>
+      <View style={{ marginTop: 16 }}>
         <Pressable
           style={styles.selectBtn}
           onPress={() => {
@@ -259,7 +256,7 @@ function OfferCard({ offer, onSelect, onCompare }: { offer: Offer; onSelect: (of
             onSelect(offer, selected?.id);
           }}
         >
-          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Apply offer' : 'Select Offer'}</Text>
+          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Apply Loan' : 'Select Offer'}</Text>
           <Icon name="arrow_forward" size={17} color="#fff" />
         </Pressable>
       </View>
@@ -337,8 +334,7 @@ const styles = StyleSheet.create({
   },
   receipt: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   featuresBox: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
-  compareBtn: { paddingHorizontal: 14, height: 46, alignItems: 'center', justifyContent: 'center' },
-  selectBtn: { flex: 1, flexDirection: 'row', gap: 6, height: 46, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  selectBtn: { width: '100%', flexDirection: 'row', gap: 6, height: 48, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   info: { marginTop: 16, backgroundColor: 'rgba(44,110,143,0.07)', borderRadius: 16, padding: 16 },
   flex: { marginTop: 14, backgroundColor: 'rgba(255,255,255,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 16, padding: 16 },
   flexIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
