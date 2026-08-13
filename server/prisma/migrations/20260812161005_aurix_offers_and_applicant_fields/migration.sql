@@ -30,7 +30,10 @@ ADD COLUMN     "salaryMode" TEXT,
 ADD COLUMN     "state" TEXT;
 
 -- CreateTable
-CREATE TABLE "PreApprovedPlan" (
+-- IF NOT EXISTS: PreApprovedPlan predates the migrations (created via db push on
+-- existing DBs), so it must be a no-op there while still being created on a
+-- fresh database. Without this, `migrate deploy` fails with 42P07 on dev/prod.
+CREATE TABLE IF NOT EXISTS "PreApprovedPlan" (
     "id" TEXT NOT NULL,
     "lenderName" TEXT NOT NULL,
     "logoUrl" TEXT,
@@ -54,4 +57,4 @@ CREATE TABLE "PreApprovedPlan" (
 );
 
 -- CreateIndex
-CREATE INDEX "PreApprovedPlan_active_displayOrder_idx" ON "PreApprovedPlan"("active", "displayOrder");
+CREATE INDEX IF NOT EXISTS "PreApprovedPlan_active_displayOrder_idx" ON "PreApprovedPlan"("active", "displayOrder");
