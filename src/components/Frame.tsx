@@ -190,21 +190,26 @@ export function Screen({
     <View style={{ flex: 1, backgroundColor: variant === 'hero' ? colors.inkDeep : colors.paper }}>
       <StatusBar barStyle={barStyle} translucent backgroundColor="transparent" />
       {/* @ts-ignore Fragment accepts no props */}
-      <Bg>{inner}</Bg>
-      {footer ? (
-        <View
-          style={{
-            paddingHorizontal: 18,
-            paddingTop: 10,
-            paddingBottom: 10 + insets.bottom,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: 'rgba(10,63,65,0.12)',
-            backgroundColor: colors.paper,
-          }}
-        >
-          {footer}
-        </View>
-      ) : null}
+      <Bg>
+        {inner}
+        {/* Footer lives INSIDE the background wrapper (which is absoluteFill for
+            the app/hero variants) so the flex:1 scroll area pushes it to the
+            bottom. Placed as a sibling of Bg it floated to the top. */}
+        {footer ? (
+          <View
+            style={{
+              paddingHorizontal: 18,
+              paddingTop: 10,
+              paddingBottom: 10 + insets.bottom,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: 'rgba(10,63,65,0.12)',
+              backgroundColor: colors.paper,
+            }}
+          >
+            {footer}
+          </View>
+        ) : null}
+      </Bg>
       {bottomNav ? <BottomNav /> : null}
       <Toast />
     </View>
