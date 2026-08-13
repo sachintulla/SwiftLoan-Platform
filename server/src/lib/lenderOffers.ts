@@ -273,6 +273,13 @@ function aurixProductType(loanType: LoanApplication['loanType']): string {
   return loanType === 'business' ? 'UnSecBusinessLoan' : 'PersonalLoan';
 }
 
+/** Wrap Aurix's raw base64 lender logo into a data URI RN <Image> can render. */
+function aurixLogoUri(logo?: string | null): string | null {
+  if (!logo) return null;
+  if (/^(https?:|data:)/.test(logo)) return logo;
+  return `data:image/png;base64,${logo}`;
+}
+
 /** Map free-form app qualification text → Aurix v1.2 master value. */
 function aurixQualification(q?: string | null): string {
   if (!q) return '';
@@ -469,7 +476,9 @@ export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
     offerLikelihood: o.OfferLikelihood ?? null,
     redirectionUrl: o.OfferRedirectionUrl ?? null,
     lenderName: o.Lender?.DisplayName ?? null,
-    lenderLogoUrl: o.Lender?.LenderLogo ?? null,
+    // Aurix returns LenderLogo as a raw base64 PNG (no data: prefix); RN <Image>
+    // needs a data URI. Pass through http(s)/data URIs untouched.
+    lenderLogoUrl: aurixLogoUri(o.Lender?.LenderLogo),
     externalPartnerId: o.Lender?.Id ?? o.PartnerId ?? null,
     rawOffer: o,
   };
