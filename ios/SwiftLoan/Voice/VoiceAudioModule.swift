@@ -12,6 +12,11 @@ class VoiceAudioModule: RCTEventEmitter {
   private let playerNode = AVAudioPlayerNode()
   private var converter: AVAudioConverter?
   private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
+  // AVAudioPlayerNode is happiest with a standard non-interleaved Float32 format;
+  // connecting/scheduling in interleaved Int16 makes -[AVAudioPlayerNode play]
+  // abort (SIGABRT in AVAudioPlayerNodeImpl::StartImpl). We convert incoming
+  // PCM16 chunks to this format before scheduling.
+  private let playbackFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
   private var isCapturing = false
   private var hasListeners = false
   private var playerAttached = false
@@ -25,6 +30,17 @@ class VoiceAudioModule: RCTEventEmitter {
     AVAudioSession.sharedInstance().requestRecordPermission { granted in
       resolve(granted)
     }
+  }
+
+  /// Attaches + connects the playback node into the engine graph exactly once.
+  /// This MUST happen before the engine is first started — attaching/connecting a
+  /// node to an already-running engine and then calling play() aborts with
+  /// "player started when in disconnected state". Idempotent.
+  private func ensurePlayerAttached() {
+    guard !playerAttached else { return }
+    engine.attach(playerNode)
+    engine.connect(playerNode, to: engine.mainMixerNode, format: playbackFormat)
+    playerAttached = true
   }
 
   @objc func startCapture(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -41,7 +57,12 @@ class VoiceAudioModule: RCTEventEmitter {
         self?.handleCapturedBuffer(buffer, inputFormat: inputFormat)
       }
 
+      // Wire the playback node into the graph up front, so the engine is started
+      // once with the full graph and playChunk never has to mutate a running engine.
+      ensurePlayerAttached()
+
       if !engine.isRunning {
+        engine.prepare()
         try engine.start()
       }
       isCapturing = true
@@ -63,22 +84,45 @@ class VoiceAudioModule: RCTEventEmitter {
   @objc func playChunk(_ base64: String) {
     guard let data = Data(base64Encoded: base64) else { return }
     let frameCount = UInt32(data.count / 2) // 16-bit samples
-    guard frameCount > 0, let buffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: frameCount) else { return }
+    guard frameCount > 0,
+          let buffer = AVAudioPCMBuffer(pcmFormat: playbackFormat, frameCapacity: frameCount),
+          let out = buffer.floatChannelData?[0] else { return }
     buffer.frameLength = frameCount
+    // Convert interleaved PCM16 → Float32 (-1.0...1.0) into the playback buffer.
     data.withUnsafeBytes { raw in
       if let base = raw.bindMemory(to: Int16.self).baseAddress {
-        buffer.int16ChannelData?[0].update(from: base, count: Int(frameCount))
+        for i in 0..<Int(frameCount) {
+          out[i] = Float(base[i]) / 32768.0
+        }
       }
     }
 
-    if !engine.isRunning {
-      try? engine.start()
+    // Playback may begin before/without capture, so make sure the session is
+    // active for output first.
+    let session = AVAudioSession.sharedInstance()
+    if !session.isOtherAudioPlaying {
+      try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
     }
+    try? session.setActive(true)
+
+    // Configure the graph BEFORE (re)starting the engine — never attach/connect
+    // on an already-running engine (that path aborts in -[AVAudioPlayerNode play]).
+    let wasRunning = engine.isRunning
     if !playerAttached {
-      engine.attach(playerNode)
-      engine.connect(playerNode, to: engine.mainMixerNode, format: targetFormat)
-      playerAttached = true
+      if wasRunning { engine.stop() } // safe: we restart immediately below
+      ensurePlayerAttached()
     }
+    if !engine.isRunning {
+      engine.prepare()
+      do {
+        try engine.start()
+      } catch {
+        NSLog("[VoiceAudioModule] engine start failed: \(error.localizedDescription)")
+        return
+      }
+    }
+    // Only play once we're certain the engine is running and the node connected.
+    guard engine.isRunning else { return }
     if !playerNode.isPlaying {
       playerNode.play()
     }
