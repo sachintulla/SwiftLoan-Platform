@@ -54,36 +54,24 @@ export default function Home() {
         </Pressable>
       )}
 
-      {/* Best rates compare card */}
-      <Pressable onPress={() => go('basicpan')} style={styles.compareCard}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={[font(700), { fontSize: 11.5, letterSpacing: 0.4, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }]}>
-            {t.bestRates}
-          </Text>
-          <View style={styles.trendBadge}>
-            <Icon name="trending_up" size={16} color="#fff" />
-          </View>
-        </View>
-        <Text style={[font(800), { fontSize: 20, color: '#fff', lineHeight: 26, marginTop: 8 }]}>{t.compareTitle}</Text>
-        <View style={styles.compareCta}>
-          <Text style={[font(700), { color: colors.primary, fontSize: 14 }]}>{t.compareCta}</Text>
-          <Icon name="chevron_right" size={18} color={colors.primary} />
-        </View>
-      </Pressable>
-
-      {/* Loan types */}
-      <SectionHeading title={t.loanTypesTitle} />
-      <View style={styles.tileGrid}>
+      {/* Browse loan types — the prominent hero block: pick a type to start a
+          new application. Uses the large card space up top for the primary CTA. */}
+      <View style={{ marginTop: 20 }}>
+        <Text style={[font(800), { fontSize: 19, color: colors.text, letterSpacing: -0.3 }]}>{t.loanTypesTitle}</Text>
+        <Text style={[font(400), { fontSize: 13, color: colors.textSoft, marginTop: 2 }]}>Pick a type to check your best offers in ~2 minutes.</Text>
+      </View>
+      <View style={styles.loanTypeRow}>
         {LOAN_TYPES.map(l => (
-          <Pressable key={l.k} onPress={() => go('basicpan')} style={styles.tile}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={styles.tileIcon}>
-                <Icon name={l.icon} size={20} color={colors.primary} />
-              </View>
-              <Icon name="chevron_right" size={18} color={colors.muted} />
+          <Pressable key={l.k} onPress={() => go('basicpan')} style={styles.loanTypeCard}>
+            <View style={styles.loanTypeIcon}>
+              <Icon name={l.icon} size={26} color="#fff" />
             </View>
-            <Text style={[font(800), { fontSize: 15, color: colors.text, marginTop: 10 }]}>{(t as any)[l.k]}</Text>
-            <Text style={[font(400), { fontSize: 11.5, color: colors.textSoft, marginTop: 1 }]}>{(t as any)[l.s]}</Text>
+            <Text style={[font(800), { fontSize: 18, color: colors.text, marginTop: 14, letterSpacing: -0.2 }]}>{(t as any)[l.k]}</Text>
+            <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 3 }]}>{(t as any)[l.s]}</Text>
+            <View style={styles.loanTypeCta}>
+              <Text style={[font(700), { fontSize: 12.5, color: colors.primary }]}>Get started</Text>
+              <Icon name="arrow_forward" size={15} color={colors.primary} />
+            </View>
           </Pressable>
         ))}
       </View>
@@ -257,6 +245,24 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   tileIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+  // Prominent loan-type chooser (replaces the old best-rates hero + small grid).
+  loanTypeRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  loanTypeCard: {
+    flex: 1,
+    minHeight: 158,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  loanTypeIcon: { width: 52, height: 52, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  loanTypeCta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 'auto', paddingTop: 12 },
   manageRow: {
     flexDirection: 'row',
     alignItems: 'center',
