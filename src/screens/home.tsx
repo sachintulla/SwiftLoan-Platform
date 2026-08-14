@@ -120,18 +120,6 @@ export default function Home() {
         <VideoCard tag={t.learnGuide} tagIcon="school" title={t.learnVid1} dur="1:20" onPress={() => showToast(t.tSoon)} />
         <VideoCard tag={t.learnTips} tagIcon="savings" title={t.learnVid2} dur="2:05" onPress={() => showToast(t.tSoon)} />
       </ScrollView>
-      <Pressable onPress={() => showToast(t.tSoon)} style={styles.promo}>
-        <View style={styles.promoIcon}>
-          <Icon name="redeem" size={22} color="#fff" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[font(700), { fontSize: 10.5, letterSpacing: 0.4, color: colors.amber, textTransform: 'uppercase' }]}>{t.adLabel}</Text>
-          <Text style={[font(800), { fontSize: 14, color: colors.text }]}>{t.adTitle}</Text>
-          <Text style={[font(400), { fontSize: 11.5, color: colors.textSoft }]}>{t.adSub}</Text>
-        </View>
-        <Icon name="chevron_right" size={20} color={colors.muted} />
-      </Pressable>
-
       {/* How it works */}
       <SectionHeading title={t.howItWorks} />
       <View style={{ gap: 14 }}>
