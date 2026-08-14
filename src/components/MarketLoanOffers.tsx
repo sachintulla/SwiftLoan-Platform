@@ -8,6 +8,7 @@ import { api, MarketLoanOffer } from '../api/client';
 import { saveSelectedPlan } from '../state/selectedPlan';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { LENDER_LOGOS } from '../theme/lenderLogos';
+import { useT } from '../state/store';
 
 function amountLine(p: MarketLoanOffer) {
   if (p.amountAtApproval) return { label: 'Amount at approval', value: '' };
@@ -41,6 +42,7 @@ function LenderLogo({ plan, size = 44 }: { plan: MarketLoanOffer; size?: number 
 /* ── Live-activity bar: a pulsing "live" dot + a gently ticking counter, to
  *    give the dashboard a sense of real-time market movement. ─────────────── */
 function LiveActivityBar() {
+  const t = useT();
   const pulse = useRef(new Animated.Value(0)).current;
   const [count, setCount] = useState(1800 + Math.floor(Math.random() * 400));
 
@@ -65,7 +67,7 @@ function LiveActivityBar() {
         <View style={styles.liveDot} />
       </View>
       <Text style={[font(600), { fontSize: 12.5, color: colors.textMid }]}>
-        <Text style={[font(800), { color: colors.text }]}>{count.toLocaleString('en-IN')}</Text> people comparing offers now
+        <Text style={[font(800), { color: colors.text }]}>{count.toLocaleString('en-IN')}</Text> {t.peopleComparing}
       </Text>
     </View>
   );

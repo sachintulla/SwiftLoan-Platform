@@ -9,7 +9,7 @@ import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { Empty } from '../components/common/Empty';
 import { colors, font, rupee } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, Offer } from '../api/client';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 
@@ -70,6 +70,7 @@ function SparkleButton({ label, onPress }: { label: string; onPress: () => void 
 
 export default function Offers() {
   const { state, set, go } = useStore();
+  const t = useT();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
@@ -119,7 +120,7 @@ export default function Offers() {
       <View style={{ paddingHorizontal: 20 }}>
         <StepBadge step={4} of={4} label="Your Offers" />
         <StepDots total={4} active={4} />
-        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Review Your Offers</Text>
+        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.reviewOffers}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {offers.length > 0
             ? `We found ${offers.length} partner${offers.length === 1 ? '' : 's'} matching your profile. Choose the best fit.`
@@ -134,7 +135,7 @@ export default function Offers() {
               <Icon name="speed" size={22} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>Your CIBIL score</Text>
+              <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>{t.cibilScoreLabel}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 1 }}>
                 <Text style={[font(800), { fontSize: 20, color: colors.text }]}>{credit.score}</Text>
                 <View style={[styles.bandPill, { backgroundColor: bandColor(credit.band) + '22' }]}>
@@ -209,6 +210,7 @@ export default function Offers() {
  * (rating/RBI badge, fee + GST breakdown, net disbursal, feature bullets).
  */
 function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer, emiOptionId?: string) => void }) {
+  const t = useT();
   const recommendedOption = offer.emiOptions.find(o => o.recommended) ?? offer.emiOptions[0];
   const [tenureMonths, setTenureMonths] = useState<number | undefined>(recommendedOption?.tenureMonths);
   const selected = offer.emiOptions.find(o => o.tenureMonths === tenureMonths) ?? recommendedOption;
@@ -334,7 +336,7 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
             page in the in-app WebView (or the handoff screen when there's no
             deep link). */}
         <SparkleButton
-          label={offer.redirectionUrl ? 'Apply Loan' : 'Select Offer'}
+          label={offer.redirectionUrl ? t.applyLoan : t.selectOffer}
           onPress={() => onSelect(offer, selected?.id)}
         />
       </View>

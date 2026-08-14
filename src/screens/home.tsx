@@ -58,7 +58,7 @@ export default function Home() {
           new application. Uses the large card space up top for the primary CTA. */}
       <View style={{ marginTop: 20 }}>
         <Text style={[font(800), { fontSize: 19, color: colors.text, letterSpacing: -0.3 }]}>{t.loanTypesTitle}</Text>
-        <Text style={[font(400), { fontSize: 13, color: colors.textSoft, marginTop: 2 }]}>Pick a type to check your best offers in ~2 minutes.</Text>
+        <Text style={[font(400), { fontSize: 13, color: colors.textSoft, marginTop: 2 }]}>{t.loanTypesSub}</Text>
       </View>
       <View style={styles.loanTypeRow}>
         {LOAN_TYPES.map(l => (
@@ -69,7 +69,7 @@ export default function Home() {
             <Text style={[font(800), { fontSize: 18, color: '#fff', marginTop: 14, letterSpacing: -0.2 }]}>{(t as any)[l.k]}</Text>
             <Text style={[font(400), { fontSize: 12.5, color: 'rgba(255,255,255,0.7)', marginTop: 3 }]}>{(t as any)[l.s]}</Text>
             <View style={styles.loanTypeCta}>
-              <Text style={[font(700), { fontSize: 12.5, color: colors.primary }]}>Get started</Text>
+              <Text style={[font(700), { fontSize: 12.5, color: colors.primary }]}>{t.loanTypeCta}</Text>
               <Icon name="arrow_forward" size={15} color={colors.primary} />
             </View>
           </Pressable>
@@ -80,7 +80,7 @@ export default function Home() {
           pull. Tapping one starts a new loan application (flow A: entry point
           only) pre-filled with that offer's amount; the eligible/personalised
           offers come back from the lender after PAN + details. */}
-      <SectionHeading title="Available offers" sub="Your credit score stays untouched" />
+      <SectionHeading title={t.availableOffers} sub={t.availableOffersSub} />
       <MarketLoanOffers
         mode="home"
         showIntro={false}
@@ -97,7 +97,7 @@ export default function Home() {
 
       {/* Application status — the user's applications (moved onto the dashboard;
           the Loans tab is now the Calculator). */}
-      <SectionHeading title="Application Status" />
+      <SectionHeading title={t.applicationStatus} />
       <MyLoansSection />
 
       {/* Learn */}
