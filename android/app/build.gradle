@@ -82,11 +82,11 @@ android {
 
     namespace "com.swiftloan"
     defaultConfig {
-        applicationId "com.swiftloan"
+        applicationId "ai.swiftloan.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.1.7-aurix-test"
+        versionCode 5
+        versionName "0.0.1"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.
@@ -100,15 +100,27 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Release/upload signing for Play Store. Credentials are passed in via
+        // -P properties (or gradle.properties) so no secret lives in the repo:
+        //   -PUPLOAD_STORE_FILE=/abs/path.keystore -PUPLOAD_STORE_PASSWORD=...
+        //   -PUPLOAD_KEY_ALIAS=... -PUPLOAD_KEY_PASSWORD=...
+        release {
+            if (project.hasProperty("UPLOAD_STORE_FILE")) {
+                storeFile file(project.property("UPLOAD_STORE_FILE"))
+                storePassword project.property("UPLOAD_STORE_PASSWORD")
+                keyAlias project.property("UPLOAD_KEY_ALIAS")
+                keyPassword project.property("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Use the release/upload key when its credentials are supplied,
+            // otherwise fall back to the debug key (local dev builds).
+            signingConfig project.hasProperty("UPLOAD_STORE_FILE") ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
