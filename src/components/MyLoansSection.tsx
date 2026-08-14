@@ -14,10 +14,10 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   pan_pending: { label: 'In Progress', color: colors.amber },
   prequalifying: { label: 'In Progress', color: colors.amber },
   offers_ready: { label: 'Offers Ready', color: colors.amber },
-  handoff: { label: 'In Progress', color: colors.amber },
+  handoff: { label: 'Applied', color: colors.blue },
   under_review: { label: 'Under Review', color: colors.amber },
   approved: { label: 'Approved', color: colors.green },
-  disbursed: { label: 'Active', color: colors.green },
+  disbursed: { label: 'Disbursed', color: colors.green },
   rejected: { label: 'Rejected', color: colors.red },
   closed: { label: 'Closed', color: colors.muted },
 };
@@ -48,7 +48,8 @@ export function MyLoansSection() {
 
   const open = (app: any) => {
     set({ applicationId: app.id, loanId: app.loan?.id ?? null });
-    go(app.loan ? 'repay' : 'status');
+    // Not applied yet → let them pick an offer; otherwise show the status detail.
+    go(app.status === 'offers_ready' ? 'offers' : 'status');
   };
 
   // Rendered inside the dashboard's "Manage your loans" section, so no heading
