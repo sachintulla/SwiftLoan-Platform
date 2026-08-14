@@ -4,12 +4,13 @@ import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent } from '../analytics/upshot';
 
 export default function Mobile() {
   const { state, set, go, showToast } = useStore();
+  const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
   // Single hidden field is the source of truth (see hiddenOtpInput below) — the
@@ -32,7 +33,7 @@ export default function Mobile() {
       await api.requestOtp(state.mobileVal);
       set({ otpSent: true });
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not send OTP. Check the API server.');
+      setErr(e instanceof ApiError ? e.message : t.mobileErrSend);
     } finally {
       setBusy(false);
     }
@@ -63,7 +64,7 @@ export default function Mobile() {
       const alreadyOnboarded = !!(r.user?.fullName && r.user?.pincode);
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Verification failed.');
+      setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
     } finally {
       setBusy(false);
     }
@@ -97,7 +98,7 @@ export default function Mobile() {
     state.mobileVal.length >= 4
       ? '+91 ' + state.mobileVal.slice(0, 2) + '•••• ••' + state.mobileVal.slice(-2)
       : '+91 ••••••••••';
-  const timerText = otpSeconds > 0 ? `(in 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : '(Ready now)';
+  const timerText = otpSeconds > 0 ? `(${t.otpTimerIn} 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : `(${t.otpReadyNow})`;
 
   const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
@@ -116,10 +117,10 @@ export default function Mobile() {
       <View style={{ paddingHorizontal: 24 }}>
         {!otpSent ? (
           <>
-            <Text style={styles.h1}>Enter your mobile number</Text>
-            <Text style={styles.sub}>We'll send a 6-digit OTP to verify.</Text>
+            <Text style={styles.h1}>{t.mobileTitle}</Text>
+            <Text style={styles.sub}>{t.mobileSub}</Text>
 
-            <Text style={[font(600), styles.label]}>Mobile Number</Text>
+            <Text style={[font(600), styles.label]}>{t.mobileNumberLabel}</Text>
             <View style={styles.phoneRow}>
               <Text style={[font(700), { fontSize: 16, color: colors.text, marginRight: 8 }]}>+91</Text>
               <TextInput
@@ -132,34 +133,34 @@ export default function Mobile() {
                 onChangeText={v => set({ mobileVal: v.replace(/\D/g, '').slice(0, 10) })}
               />
             </View>
-            <Text style={styles.hint}>Used for secure login and loan updates.</Text>
+            <Text style={styles.hint}>{t.mobileHint}</Text>
 
             <Pressable style={styles.terms} onPress={() => set({ terms: !state.terms })}>
               <View style={[styles.box, state.terms && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
                 {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
               </View>
               <Text style={[font(500), { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSoft }]}>
-                I agree to the <Text style={{ color: colors.primary }}>Terms of Service</Text> and{' '}
-                <Text style={{ color: colors.primary }}>Privacy Policy</Text>.
+                {t.termsAgreePrefix} <Text style={{ color: colors.primary }}>{t.linkTerms}</Text> {t.termsAgreeMid}{' '}
+                <Text style={{ color: colors.primary }}>{t.linkPrivacy}</Text>{t.termsAgreeSuffix}
               </Text>
             </Pressable>
 
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
               <Text style={styles.secureText}>
-                Your information is encrypted. By proceeding you authorize a soft credit check that will not affect your credit score.
+                {t.mobileSecureNote}
               </Text>
             </View>
           </>
         ) : (
           <>
-            <Text style={styles.h1}>Verify your number</Text>
+            <Text style={styles.h1}>{t.otpTitle}</Text>
             <Text style={styles.sub}>
-              Enter the 6-digit code sent to <Text style={font(700)}>{masked}</Text>
+              {t.otpSub} <Text style={font(700)}>{masked}</Text>
             </Text>
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
-              <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>Edit phone number</Text>
+              <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
             <Pressable style={styles.otpRow} onPress={() => hiddenOtpInput.current?.focus()}>
@@ -190,13 +191,13 @@ export default function Mobile() {
 
             <Pressable style={{ alignSelf: 'center', marginTop: 14 }} onPress={resend}>
               <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>
-                Resend code <Text style={{ color: colors.muted }}>{timerText}</Text>
+                {t.otpResend} <Text style={{ color: colors.muted }}>{timerText}</Text>
               </Text>
             </Pressable>
 
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
-              <Text style={styles.secureText}>Your connection is secure and encrypted.</Text>
+              <Text style={styles.secureText}>{t.otpSecureNote}</Text>
             </View>
           </>
         )}
@@ -210,24 +211,24 @@ export default function Mobile() {
 
         <View style={{ height: 22 }} />
         {!otpSent ? (
-          <PrimaryButton label={busy ? 'Sending…' : 'Send OTP'} disabled={!sendEnabled} onPress={sendOtp} />
+          <PrimaryButton label={busy ? t.mobileSending : t.mobileSendOtp} disabled={!sendEnabled} onPress={sendOtp} />
         ) : (
-          <PrimaryButton label={busy ? 'Verifying…' : 'Verify & Continue'} disabled={busy || otpCode.length < 6} onPress={verify} />
+          <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
         )}
 
         <View style={styles.orRow}>
           <View style={styles.orLine} />
-          <Text style={[font(500), { color: colors.muted, fontSize: 12 }]}>or</Text>
+          <Text style={[font(500), { color: colors.muted, fontSize: 12 }]}>{t.commonOr}</Text>
           <View style={styles.orLine} />
         </View>
 
-        <Pressable style={styles.googleBtn} onPress={() => showToast('Continuing with Google…')}>
+        <Pressable style={styles.googleBtn} onPress={() => showToast(t.mobileGoogleToast)}>
           <Text style={[font(800), { color: '#4285F4', fontSize: 16 }]}>G</Text>
-          <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>Continue with Google</Text>
+          <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>{t.mobileGoogle}</Text>
         </Pressable>
 
         <Pressable style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }} onPress={skip}>
-          <Text style={[font(600), { color: colors.textSoft, fontSize: 13.5 }]}>Skip for now — explore the app</Text>
+          <Text style={[font(600), { color: colors.textSoft, fontSize: 13.5 }]}>{t.mobileSkip}</Text>
           <Icon name="arrow_forward" size={16} color={colors.textSoft} />
         </Pressable>
       </View>

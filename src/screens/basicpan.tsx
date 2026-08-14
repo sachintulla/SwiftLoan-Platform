@@ -5,13 +5,14 @@ import Icon from '../components/Icon';
 import { ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, isAuthed } from '../api/client';
 
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
 export default function BasicPan() {
   const { state, set, go, showToast } = useStore();
+  const t = useT();
   const [busy, setBusy] = React.useState(false);
 
   const onContinue = async () => {
@@ -20,11 +21,11 @@ export default function BasicPan() {
     // step creates the application. Just validate + advance here.
     const pan = state.panNumber.trim().toUpperCase();
     if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) {
-      showToast('Please enter a valid 10-character PAN (e.g. ABCDE1234F).');
+      showToast(t.panValidate);
       return;
     }
     if (!state.panConsent) {
-      showToast('Please accept the soft-enquiry consent.');
+      showToast(t.panConsentValidate);
       return;
     }
     setBusy(true);
@@ -59,33 +60,33 @@ export default function BasicPan() {
       <View style={{ paddingHorizontal: 20 }}>
         <StepBadge step={1} of={4} label="PAN" />
         <StepDots total={4} active={1} />
-        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Verify your PAN</Text>
+        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.panTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
-          Upload a clear photo of your PAN card — we'll read the number automatically.
+          {t.panSub}
         </Text>
 
         <Text style={[font(600), { color: colors.textMid, fontSize: 13, marginTop: 22, marginBottom: 8 }]}>
-          PAN card <Text style={{ color: colors.red }}>*</Text>
+          {t.panCardLabel} <Text style={{ color: colors.red }}>*</Text>
         </Text>
-        <Pressable style={styles.upload} onPress={() => showToast('Camera — demo environment.')}>
+        <Pressable style={styles.upload} onPress={() => showToast(t.panCameraDemo)}>
           <View style={styles.badgeIcon}>
             <Icon name="badge" size={22} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>Upload PAN photo</Text>
-            <Text style={[font(400), { fontSize: 12, color: colors.textSoft }]}>JPG or PNG, front side</Text>
+            <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>{t.panUploadTitle}</Text>
+            <Text style={[font(400), { fontSize: 12, color: colors.textSoft }]}>{t.panUploadHint}</Text>
           </View>
           <Icon name="photo_camera" size={22} color={colors.textSoft} />
         </Pressable>
 
         <View style={styles.orRow}>
           <View style={styles.orLine} />
-          <Text style={[font(600), { fontSize: 10.5, letterSpacing: 0.5, color: colors.muted }]}>OR ENTER MANUALLY</Text>
+          <Text style={[font(600), { fontSize: 10.5, letterSpacing: 0.5, color: colors.muted }]}>{t.panOrManual}</Text>
           <View style={styles.orLine} />
         </View>
 
         <Text style={[font(600), { color: colors.textMid, fontSize: 13, marginBottom: 8 }]}>
-          PAN number <Text style={{ color: colors.red }}>*</Text>
+          {t.panNumberLabel} <Text style={{ color: colors.red }}>*</Text>
         </Text>
         <View style={styles.panRow}>
           <TextInput
@@ -99,17 +100,17 @@ export default function BasicPan() {
           />
           <Icon name="edit" size={18} color={colors.muted} />
         </View>
-        <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 6 }]}>Type your PAN, or upload the card above to auto-fill it.</Text>
+        <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 6 }]}>{t.panHint}</Text>
 
         <View style={styles.consentBox}>
           <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>
-            <Text style={[font(700), { color: colors.text }]}>🔒 This will NOT affect your credit score{'\n'}</Text>
-            We run a soft enquiry only — it does not hit your CIBIL or impact your score in any way. I authorise SwiftLoan to share these details with its lending partners to find the best offers for me.
+            <Text style={[font(700), { color: colors.text }]}>🔒 {t.panConsentTitle}{'\n'}</Text>
+            {t.panConsentBody}
           </ConsentRow>
         </View>
 
         <View style={{ height: 20 }} />
-        <PrimaryButton label={busy ? 'Submitting…' : 'Upload PAN & accept to continue'} icon={null} disabled={busy} onPress={onContinue} />
+        <PrimaryButton label={busy ? t.submitting : t.panContinue} icon={null} disabled={busy} onPress={onContinue} />
       </View>
     </Screen>
   );

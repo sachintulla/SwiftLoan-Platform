@@ -6,7 +6,7 @@ import { Field, Chips, Slider, PrimaryButton, StepBadge } from '../components/Co
 import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
@@ -25,6 +25,7 @@ const EMP_SLUG: Record<string, string> = {
 
 export default function Basic() {
   const { state, set, go, showToast } = useStore();
+  const t = useT();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
@@ -70,13 +71,13 @@ export default function Basic() {
     // PAN + soft-enquiry consent were captured on the previous (PAN-first) step.
     // These are required by the lender (Aurix) to return offers, so enforce them
     // here rather than letting the offer call fail later.
-    if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast('Please enter a valid email.'); return; }
-    if (!state.basicLoanPurpose) { showToast('Please select a loan purpose.'); return; }
-    if (!state.basicQualification) { showToast('Please select your qualification.'); return; }
-    if (!state.optSalaryMode) { showToast('Please select your salary mode.'); return; }
-    if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast('Please enter your address (line 1, city, state).'); return; }
+    if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
+    if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }
+    if (!state.basicQualification) { showToast(t.basicValQual); return; }
+    if (!state.optSalaryMode) { showToast(t.basicValSalary); return; }
+    if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast(t.basicValAddr); return; }
     if (!isAuthed()) {
-      showToast('Please verify your mobile number to continue.');
+      showToast(t.basicValMobile);
       go('mobile');
       return;
     }
@@ -123,11 +124,33 @@ export default function Basic() {
       }
       go('moredetails');
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not start your application.');
+      showToast(e instanceof ApiError ? e.message : t.basicErrStart);
     } finally {
       setBusy(false);
     }
   };
+
+  // Chip display labels are localized while the stored value stays English
+  // (values map to server slugs / are sent to the lender unchanged).
+  const RES_LABELS: Record<string, string> = { Own: t.resOwn, Rented: t.resRented, Family: t.resFamily, Company: t.resCompany };
+  const EMP_LABELS: Record<string, string> = {
+    Salaried: t.empSalaried, 'Self-employed': t.empSelfEmployed, 'Business owner': t.empBusinessOwner,
+    'Gig worker': t.empGigWorker, Student: t.empStudent, Retired: t.empRetired, Other: t.commonOther,
+  };
+  const PURPOSE_OPTS = [
+    { label: t.lpPersonalUse, value: 'Personal use' }, { label: t.lpWorkingCapital, value: 'Working Capital' },
+    { label: t.lpMedical, value: 'Medical' }, { label: t.lpEducation, value: 'Education' },
+    { label: t.lpHomeRenovation, value: 'Home renovation' }, { label: t.lpTravel, value: 'Travel' },
+    { label: t.commonOther, value: 'Other' },
+  ];
+  const QUAL_OPTS = [
+    { label: t.qualGraduate, value: 'Graduate' }, { label: t.qualPostGraduate, value: 'Post-Graduate' },
+    { label: t.qualDiploma, value: 'Diploma' }, { label: t.qual12th, value: '12th Pass' }, { label: t.commonOther, value: 'Other' },
+  ];
+  const SALARY_OPTS = [
+    { label: t.smBankTransfer, value: 'Bank Transfer' }, { label: t.smCheque, value: 'Cheque' }, { label: t.smCash, value: 'Cash' },
+  ];
+  const GENDER_OPTS = [{ label: t.genderMale, value: 'male' }, { label: t.genderFemale, value: 'female' }, { label: t.commonOther, value: 'other' }];
 
   return (
     <Screen scroll padded={false}>
@@ -136,16 +159,16 @@ export default function Basic() {
       </View>
 
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={2} of={4} label="Your details" />
+        <StepBadge step={2} of={4} label={t.basicStepLabel} />
         <StepDots total={4} active={2} />
-        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Tell us about yourself</Text>
+        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.basicTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
-          A soft check to find your best offers — no impact on your credit score.
+          {t.basicSub}
         </Text>
 
         {/* Amount */}
         <View style={{ marginTop: 22 }}>
-          <FieldLabel text="Desired loan amount" required />
+          <FieldLabel text={t.basicAmountLabel} required />
           <Text style={[font(800), { fontSize: 26, color: colors.primary, marginVertical: 4 }]}>₹ {inr(state.appAmount)}</Text>
           <Slider
             label="Desired loan amount"
@@ -160,29 +183,29 @@ export default function Basic() {
 
         {/* Loan purpose (required by lender) */}
         <View style={{ gap: 8, marginTop: 18 }}>
-          <FieldLabel text="Loan purpose" required />
+          <FieldLabel text={t.basicPurposeLabel} required />
           <Chips
             value={state.basicLoanPurpose}
             onChange={v => set({ basicLoanPurpose: v })}
-            options={['Personal use', 'Working Capital', 'Medical', 'Education', 'Home renovation', 'Travel', 'Other'].map(x => ({ label: x, value: x }))}
+            options={PURPOSE_OPTS}
           />
         </View>
 
         {/* Personal details */}
-        <SectionLabel text="Personal details" />
+        <SectionLabel text={t.basicPersonalSection} />
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Field label="First name (as per PAN)" placeholder="First name" value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
+            <Field label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
           </View>
           <View style={{ flex: 1 }}>
-            <Field label="Last name" placeholder="Last name" value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
+            <Field label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
           </View>
         </View>
 
         <View style={{ gap: 6, marginTop: 16 }}>
-          <FieldLabel text="Date of birth" required />
+          <FieldLabel text={t.dobLabel} required />
           <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
-            <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>{dob ? formatDob(dob.y, dob.m, dob.d) : 'Select date'}</Text>
+            <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>{dob ? formatDob(dob.y, dob.m, dob.d) : t.selectDate}</Text>
             <Icon name="calendar_month" size={20} color={colors.textSoft} />
           </Pressable>
           {state.dobOpen ? (
@@ -191,50 +214,50 @@ export default function Basic() {
         </View>
 
         <View style={{ gap: 8, marginTop: 16 }}>
-          <FieldLabel text="Gender" required />
-          <Chips value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={[{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }, { label: 'Other', value: 'other' }]} />
+          <FieldLabel text={t.genderLabel} required />
+          <Chips value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={GENDER_OPTS} />
         </View>
 
         <View style={{ gap: 8, marginTop: 16 }}>
-          <FieldLabel text="Highest qualification" required />
+          <FieldLabel text={t.basicQualLabel} required />
           <Chips
             value={state.basicQualification}
             onChange={v => set({ basicQualification: v })}
-            options={['Graduate', 'Post-Graduate', 'Diploma', '12th Pass', 'Other'].map(x => ({ label: x, value: x }))}
+            options={QUAL_OPTS}
           />
         </View>
 
         {/* Contact & address */}
-        <SectionLabel text="Contact & address" />
+        <SectionLabel text={t.basicContactSection} />
         <View style={{ gap: 16 }}>
-          <Field label="Contact email" placeholder="you@example.com" hint="RBI requires your actual email ID for sharing loan details." autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
-          <Field label="Pin code (current address)" placeholder="6-digit pincode" keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
-          <Field label="Address line 1" placeholder="Flat / house, building" value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
+          <Field label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+          <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}><Field label="City" placeholder="City" value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
-            <View style={{ flex: 1 }}><Field label="State" placeholder="State" value={state.optState} onChangeText={v => set({ optState: v })} /></View>
+            <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
+            <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
           </View>
           <View style={{ gap: 8 }}>
-            <FieldLabel text="Residence type" required />
-            <Chips value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: r, value: r }))} />
+            <FieldLabel text={t.basicResLabel} required />
+            <Chips value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: RES_LABELS[r], value: r }))} />
           </View>
         </View>
 
         {/* Work & income */}
-        <SectionLabel text="Work & income" />
+        <SectionLabel text={t.basicWorkSection} />
         <View style={{ gap: 12 }}>
-          <FieldLabel text="Employment type" required />
-          <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: e, value: e }))} />
-          <Field label="Monthly income (₹)" placeholder="45,000" hint="Your net monthly income" keyboardType="number-pad" value={state.basicIncome} onChangeText={v => set({ basicIncome: v })} />
+          <FieldLabel text={t.basicEmpLabel} required />
+          <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
+          <Field label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" value={state.basicIncome} onChangeText={v => set({ basicIncome: v })} />
           <View style={{ gap: 8 }}>
-            <FieldLabel text="Salary / income mode" required />
-            <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={['Bank Transfer', 'Cheque', 'Cash'].map(x => ({ label: x, value: x }))} />
+            <FieldLabel text={t.basicSalaryModeLabel} required />
+            <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
           </View>
-          <Field label="Company / employer name (optional)" placeholder="e.g. Infosys Ltd" value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
+          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
         <View style={{ height: 22 }} />
-        <PrimaryButton label={busy ? 'Starting…' : 'Continue'} icon={null} disabled={busy} onPress={onContinue} />
+        <PrimaryButton label={busy ? t.basicStarting : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />
       </View>
     </Screen>
   );

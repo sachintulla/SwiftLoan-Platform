@@ -39,40 +39,6 @@ function LenderLogo({ plan, size = 44 }: { plan: MarketLoanOffer; size?: number 
   );
 }
 
-/* ── Live-activity bar: a pulsing "live" dot + a gently ticking counter, to
- *    give the dashboard a sense of real-time market movement. ─────────────── */
-function LiveActivityBar() {
-  const t = useT();
-  const pulse = useRef(new Animated.Value(0)).current;
-  const [count, setCount] = useState(1800 + Math.floor(Math.random() * 400));
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-      ]),
-    ).start();
-    const id = setInterval(() => setCount(c => c + 1 + Math.floor(Math.random() * 4)), 2600);
-    return () => clearInterval(id);
-  }, [pulse]);
-
-  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.8, 2.4] });
-  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
-
-  return (
-    <View style={styles.liveBar}>
-      <View style={styles.liveDotWrap}>
-        <Animated.View style={[styles.liveRing, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} />
-        <View style={styles.liveDot} />
-      </View>
-      <Text style={[font(600), { fontSize: 12.5, color: colors.textMid }]}>
-        <Text style={[font(800), { color: colors.text }]}>{count.toLocaleString('en-IN')}</Text> {t.peopleComparing}
-      </Text>
-    </View>
-  );
-}
-
 /* ── Compact card — two per row on the dashboard, for less scrolling and more
  *    offers visible at a glance. ────────────────────────────────────────────── */
 function CompactPlanCard({ plan, index, full = false, onSelect }: { plan: MarketLoanOffer; index: number; full?: boolean; onSelect: () => void }) {
@@ -333,9 +299,8 @@ export function MarketLoanOffers({
           </View>
         )
       ) : plans.length === 0 ? null : isHome ? (
-        // Dashboard: live bar + two-per-row grid.
+        // Dashboard: two-per-row grid.
         <View style={{ gap: 14 }}>
-          <LiveActivityBar />
           <View style={styles.grid}>
             {plans.map((p, i) => (
               <CompactPlanCard

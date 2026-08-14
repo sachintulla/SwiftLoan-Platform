@@ -83,7 +83,13 @@ export function publishScreenGraph(
     waiters.forEach(w => w());
   }
 
-  const sig = elements.map(e => `${e.kind}|${e.label}`).join('~');
+  // Signature must include the visible texts, not just the interactive controls:
+  // on data screens (e.g. offers) the buttons are unchanged while async-loaded
+  // content arrives, so a controls-only signature would never re-notify the agent
+  // and it would keep describing stale/placeholder data. agent.updatePageContext()
+  // is coalesced, so text changes from a settling animation don't spam the socket.
+  const sig =
+    elements.map(e => `${e.kind}|${e.label}`).join('~') + '§' + texts.join('¶');
   const changed = lastSignature.get(screen) !== sig;
   if (changed) lastSignature.set(screen, sig);
   return changed;
@@ -165,7 +171,10 @@ export function buildPageContext(screen: string): Record<string, unknown> {
   const targets = listTargets(screen);
   return {
     page: screen,
-    screen_overview: getScreenTexts(screen).slice(0, 12).join(' · '),
+    // Include enough of the visible text that data-heavy screens (offers, loans)
+    // convey their actual content — 12 lines cut off the offer list, leaving the
+    // agent to fall back on example figures from its prompt.
+    screen_overview: getScreenTexts(screen).slice(0, 40).join(' · '),
     // interactionGuide.opening is injected into the model's system prompt verbatim
     // as "Page-specific behavior: …". Without it the agent never opens the
     // conversation: sending a non-empty `page` puts the backend on its
