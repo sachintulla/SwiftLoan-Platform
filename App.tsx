@@ -8,10 +8,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
 import ContextBanner from './src/components/ContextBanner';
-// Voice UI temporarily disabled; re-enable later when needed.
-// Voice FAB temporarily disabled for the Aurix testing build.
-// import VoiceWidget from './src/voice/ui/VoiceWidget';
+import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
+
+// Voice FAB visibility. Enabled for the TestFlight build.
+const SHOW_VOICE_FAB = true;
 
 /**
  * Without this, the hardware/gesture back button on Android has nothing to
@@ -39,8 +40,7 @@ export default function App() {
       <StoreProvider>
         <Router />
         <ContextBanner />
-        {/* Voice FAB temporarily hidden for the Aurix testing build. */}
-        {/* <VoiceWidget /> */}
+        {SHOW_VOICE_FAB && <VoiceWidget />}
         <ConfirmationSheet />
         <BackHandlerBridge />
       </StoreProvider>

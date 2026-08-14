@@ -268,7 +268,7 @@ export default function Profile() {
       <SectionCard>
         <SectionHead icon="language" title={t.displayLanguage} />
         <View style={{ marginTop: 10, gap: 8 }}>
-          {[{ label: 'English', code: 'en' }, { label: 'हिन्दी (Hindi)', code: 'hi' }].map(l => {
+          {[{ label: 'English', code: 'en' }, { label: 'हिन्दी (Hindi)', code: 'hi' }, { label: 'తెలుగు (Telugu)', code: 'te' }].map(l => {
             const on = (state.lang ?? 'en') === l.code;
             return (
               <Pressable key={l.code} onPress={() => changeLang(l.code)} style={[styles.langRow, on && { borderColor: colors.primary, backgroundColor: 'rgba(7,159,160,0.07)' }]}>

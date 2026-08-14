@@ -98,7 +98,7 @@ export default function Home() {
       {/* Manage your loans — the user's applications (moved onto the dashboard;
           the Loans tab is now the Calculator) plus the credit-score / status
           shortcuts. */}
-      <SectionHeading title={t.manageLoan} />
+      <SectionHeading title="Application Status" />
       <View style={{ gap: 12 }}>
         <MyLoansSection />
         <ManageRow icon="speed" title={t.creditCard} sub={t.creditCardSub} onPress={() => go('creditscore')} />

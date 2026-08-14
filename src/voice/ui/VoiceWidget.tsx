@@ -241,6 +241,9 @@ export default function VoiceWidget() {
   }, [status, pulse]);
 
   if (!ELLO_CONFIGURED) return null;
+  // On bottom-nav screens the assistant lives in the tab bar (the Ruby tab), so
+  // the floating FAB only shows on the pre-dashboard screens (onboarding/funnel).
+  if (SCREENS_WITH_BOTTOM_NAV.has(state.screen)) return null;
 
   // 'connecting' counts as active so a second tap hangs up mid-dial rather than
   // being ignored (agent.start() unwinds via its start-token check).

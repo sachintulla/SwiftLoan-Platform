@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import Icon from './Icon';
 import { Loading } from './common/Loading';
 import { colors, font, rupee } from '../theme/tokens';
@@ -65,19 +65,27 @@ export function MyLoansSection() {
             const applied = new Date(app.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
             const sel = (app.offers || []).find((o: any) => o.selected) || null;
             const apr = app.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
+            const loanLabel = `${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`;
+            // Lender headlines the card (with its logo); the loan type is the subtitle.
+            const lender = sel?.lenderName ?? app.loan?.partnerName ?? null;
+            const logo = sel?.lenderLogoUrl ?? null;
             return (
               <Pressable key={app.id} onPress={() => open(app)} style={styles.card}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                    <View style={styles.appIcon}>
-                      <Icon name={TYPE_ICON[app.loanType] || 'account_balance'} size={20} color={colors.primary} />
+                    <View style={[styles.appIcon, logo && styles.appIconLogo]}>
+                      {logo ? (
+                        <Image source={{ uri: logo }} style={{ width: 34, height: 34 }} resizeMode="contain" />
+                      ) : (
+                        <Icon name={TYPE_ICON[app.loanType] || 'account_balance'} size={20} color={colors.primary} />
+                      )}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>
-                        {`${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`}
+                      <Text style={[font(700), { fontSize: 14.5, color: colors.text }]} numberOfLines={1}>
+                        {lender || loanLabel}
                       </Text>
                       <Text style={[font(400), { fontSize: 12, color: colors.muted }]} numberOfLines={1}>
-                        {sel?.lenderName ? `${sel.lenderName} · Ref ${app.ref}` : `Ref ${app.ref}`}
+                        {lender ? `${loanLabel} · Ref ${app.ref}` : `Ref ${app.ref}`}
                       </Text>
                     </View>
                   </View>
@@ -115,7 +123,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
-  appIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+  appIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  appIconLogo: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.lineSoft },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   metaLabel: { ...StyleSheet.flatten(font(500)), fontSize: 11, color: colors.muted },
