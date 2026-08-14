@@ -6,6 +6,7 @@ import Icon from '../components/Icon';
 import { PrimaryButton, GhostButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { registerUpshotPush } from '../analytics/upshot';
 
 const PERMS = [
   { icon: 'notifications', title: 'Notifications', desc: 'Stay updated on your EMIs, offers and application status.' },
@@ -15,8 +16,8 @@ const PERMS = [
 ];
 
 /**
- * Real, requestable permissions only. Notifications is already requested
- * automatically at app boot (store.ts, via the push SDK). SMS is deliberately
+ * Real, requestable permissions only. Notifications is requested here on "Allow
+ * permissions" (registerUpshotPush) — not at app boot. SMS is deliberately
  * NOT requested here — READ_SMS is a heavily-restricted Play Store permission
  * (Google requires the app to be a default SMS/dialer handler to use it) and
  * nothing in the app actually reads SMS content, so requesting it would be
@@ -40,6 +41,9 @@ export default function Permissions() {
 
   const allow = async () => {
     setBusy(true);
+    // Notification permission is requested here (not at app boot) — this is the
+    // screen that explains why we need it. Camera/location on Android too.
+    registerUpshotPush();
     await requestRealPermissions();
     setBusy(false);
     go('aboutyou');

@@ -14,7 +14,7 @@ import {
 } from '../api/client';
 import { loadTokens, loadLang, saveLang, loadPrivacyAccepted } from './session';
 import { BUILD } from '../config/build';
-import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
+import { initUpshot, upshotScreen, upshotEvent } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
@@ -398,13 +398,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // installed AND credentials are set, so this is safe on every build.
     if (initUpshot()) {
       upshotEvent('app_opened', { platform: Platform.OS });
-      // Ask for POST_NOTIFICATIONS. Required from Android 13 — without it the
-      // OS drops every notification silently, so push looks "delivered" on the
-      // Upshot dashboard while nothing ever appears on the handset.
-      //
-      // Deferred a tick because the SDK requests the permission through the
-      // *current Activity*, which is not attached yet at this point in boot.
-      setTimeout(() => registerUpshotPush(), 1500);
+      // Note: the notification permission (registerUpshotPush) is NOT requested
+      // here. It's requested from the 'Allow permissions' onboarding screen
+      // (permissions.tsx) so nothing prompts the user before they reach it.
     }
     const sub = RNAppState.addEventListener('change', (s) => {
       if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
