@@ -177,6 +177,14 @@ export function Screen({
       contentContainerStyle={[{ paddingTop: insets.top + 8 }, pad, bottomPad, contentStyle]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      // Keyboard handling for forms: iOS insets the scroll content by the
+      // keyboard height (so the focused field stays visible and the form no
+      // longer jumps/scrolls the whole way); Android relies on adjustResize.
+      // `false` keeps our explicit paddingTop from being overridden by the OS.
+      automaticallyAdjustKeyboardInsets={true}
+      automaticallyAdjustContentInsets={false}
+      contentInsetAdjustmentBehavior="never"
+      keyboardDismissMode="interactive"
     >
       {children}
     </ScrollView>
