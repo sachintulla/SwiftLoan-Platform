@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, Easing, StyleSheet, Dimensions, Image } from 'react-native';
+import { View, Animated, Easing, StyleSheet, Dimensions, Image, StatusBar } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { Screen } from '../components/Frame';
 import { font, heroGradient } from '../theme/tokens';
 
 const AnimatedLG = Animated.createAnimatedComponent(LinearGradient);
@@ -102,8 +101,11 @@ export default function Splash() {
   const spin2Deg = spin2.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
 
   return (
-    <Screen scroll={false} padded={false} variant="plain">
-      <LinearGradient colors={[...heroGradient, '#0CB6A6']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fill}>
+    <View style={styles.fill}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      {/* Full-bleed gradient — edge to edge, behind the status bar and home
+          indicator, so there are no white bands at the top/bottom. */}
+      <LinearGradient colors={[...heroGradient, '#0CB6A6']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill}>
         {/* Ambient drifting orbs */}
         {orbs.map((v, i) => {
           const cfg = ORB_CFG[i];
@@ -169,7 +171,7 @@ export default function Splash() {
           </View>
         </View>
       </LinearGradient>
-    </Screen>
+    </View>
   );
 }
 
