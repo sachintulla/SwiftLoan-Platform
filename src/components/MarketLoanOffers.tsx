@@ -73,7 +73,7 @@ function LiveActivityBar() {
 
 /* ── Compact card — two per row on the dashboard, for less scrolling and more
  *    offers visible at a glance. ────────────────────────────────────────────── */
-function CompactPlanCard({ plan, index, onSelect }: { plan: MarketLoanOffer; index: number; onSelect: () => void }) {
+function CompactPlanCard({ plan, index, full = false, onSelect }: { plan: MarketLoanOffer; index: number; full?: boolean; onSelect: () => void }) {
   const amount = amountLine(plan);
   const rate = plan.rateAtApproval ? 'Rate at approval' : plan.rateMin != null && plan.rateMax != null ? `${plan.rateMin}–${plan.rateMax}% p.a.` : null;
   const enter = useRef(new Animated.Value(0)).current;
@@ -84,15 +84,43 @@ function CompactPlanCard({ plan, index, onSelect }: { plan: MarketLoanOffer; ind
 
   useVoiceTarget(plan.lenderName, { kind: 'button', onTap: onSelect }, [onSelect]);
 
+  const animStyle = {
+    // A lone last card (odd count) spans the full width so the row stays balanced.
+    width: full ? ('100%' as const) : ('48%' as const),
+    opacity: enter,
+    transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+  };
+
+  // Full-width variant lays out horizontally so it doesn't look sparse.
+  if (full) {
+    return (
+      <Animated.View style={animStyle}>
+        <Pressable onPress={onSelect} style={[styles.compactCard, styles.compactFull]}>
+          <LenderLogo plan={plan} size={44} />
+          <View style={{ flex: 1 }}>
+            <Text style={[font(700), { fontSize: 14, color: colors.text }]} numberOfLines={1}>{plan.lenderName}</Text>
+            {rate ? <Text style={[font(500), { fontSize: 11.5, color: colors.textMid, marginTop: 2 }]} numberOfLines={1}>{rate}</Text> : null}
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={[font(600), { fontSize: 10.5, color: colors.greenDeep }]}>{amount.value ? amount.label : 'Amount'}</Text>
+            <Text style={[font(800), { fontSize: 18, color: colors.primary, letterSpacing: -0.4 }]} numberOfLines={1}>
+              {amount.value || amount.label}
+            </Text>
+          </View>
+          {plan.badge ? (
+            <View style={styles.badge}>
+              <Text style={[font(700), { fontSize: 9.5, color: '#fff', letterSpacing: 0.2 }]}>{plan.badge}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
   return (
-    <Animated.View
-      style={{
-        width: '48%',
-        opacity: enter,
-        transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
-      }}
-    >
-      <Pressable onPress={onSelect} style={styles.compactCard}>
+    <Animated.View style={animStyle}>
+      {/* Fixed height so every grid tile is identical regardless of content. */}
+      <Pressable onPress={onSelect} style={[styles.compactCard, styles.compactTile]}>
         <View style={styles.compactTop}>
           <LenderLogo plan={plan} size={44} />
           {plan.badge ? (
@@ -102,11 +130,13 @@ function CompactPlanCard({ plan, index, onSelect }: { plan: MarketLoanOffer; ind
           ) : null}
         </View>
         <Text style={[font(700), { fontSize: 14, color: colors.text, marginTop: 10 }]} numberOfLines={1}>{plan.lenderName}</Text>
-        <Text style={[font(600), { fontSize: 10.5, color: colors.greenDeep, marginTop: 8 }]}>{amount.value ? amount.label : 'Amount'}</Text>
-        <Text style={[font(800), { fontSize: 18, color: colors.primary, letterSpacing: -0.4 }]} numberOfLines={1}>
-          {amount.value || amount.label}
-        </Text>
-        {rate ? <Text style={[font(500), { fontSize: 11.5, color: colors.textMid, marginTop: 4 }]} numberOfLines={1}>{rate}</Text> : null}
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Text style={[font(600), { fontSize: 10.5, color: colors.greenDeep }]}>{amount.value ? amount.label : 'Amount'}</Text>
+          <Text style={[font(800), { fontSize: 18, color: colors.primary, letterSpacing: -0.4 }]} numberOfLines={1}>
+            {amount.value || amount.label}
+          </Text>
+          <Text style={[font(500), { fontSize: 11.5, color: colors.textMid, marginTop: 4, minHeight: 15 }]} numberOfLines={1}>{rate ?? ''}</Text>
+        </View>
       </Pressable>
     </Animated.View>
   );
@@ -291,8 +321,8 @@ export function MarketLoanOffers({
       {plans === null ? (
         isHome ? (
           <View style={styles.grid}>
-            <View style={{ width: '48%' }}><Skeleton height={132} /></View>
-            <View style={{ width: '48%' }}><Skeleton height={132} /></View>
+            <View style={{ width: '48%' }}><Skeleton height={164} /></View>
+            <View style={{ width: '48%' }}><Skeleton height={164} /></View>
           </View>
         ) : (
           <View>
@@ -306,7 +336,16 @@ export function MarketLoanOffers({
           <LiveActivityBar />
           <View style={styles.grid}>
             {plans.map((p, i) => (
-              <CompactPlanCard key={p.id} plan={p} index={i} onSelect={() => onCardPress(p)} />
+              <CompactPlanCard
+                key={p.id}
+                plan={p}
+                index={i}
+                // Odd count → feature the top (best-rate) offer full-width in the
+                // first row; the remaining even number fill the 2-per-row grid so
+                // every row stays balanced.
+                full={i === 0 && plans.length % 2 === 1}
+                onSelect={() => onCardPress(p)}
+              />
             ))}
           </View>
         </View>
@@ -373,6 +412,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   compactTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  compactTile: { height: 164 },
+  compactFull: { flexDirection: 'row', alignItems: 'center', gap: 12 },
 
   // Full-width card (guest/explore)
   card: {
