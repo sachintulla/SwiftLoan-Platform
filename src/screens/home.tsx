@@ -80,7 +80,7 @@ export default function Home() {
           pull. Tapping one starts a new loan application (flow A: entry point
           only) pre-filled with that offer's amount; the eligible/personalised
           offers come back from the lender after PAN + details. */}
-      <SectionHeading title="Available offers" sub="No PAN needed · credit score untouched" />
+      <SectionHeading title="Available offers" sub="Your credit score stays untouched" />
       <MarketLoanOffers
         mode="home"
         showIntro={false}

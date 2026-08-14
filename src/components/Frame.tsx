@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,11 @@ import {
   ViewStyle,
   StyleProp,
   useWindowDimensions,
+  Image,
+  Animated,
+  Easing,
 } from 'react-native';
+import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
@@ -353,8 +357,71 @@ export function BottomNav() {
             </Pressable>
           );
         })}
+        {/* Ruby — the voice assistant, as a tab beside Profile. */}
+        <RubyTab />
       </View>
     </View>
+  );
+}
+
+/**
+ * Ruby voice-assistant tab: the agent's portrait; tap to start/stop the voice
+ * session. While she's live (connecting/listening/speaking) an animated ring
+ * and a gentle "breathing" scale make her feel like she's talking to you.
+ */
+function RubyTab() {
+  const [status, setStatus] = useState<AgentStatus>('idle');
+  const pulse = useRef(new Animated.Value(0)).current;
+  const breathe = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => agent.on('statusChange', setStatus), []);
+
+  const live = status === 'connecting' || status === 'listening' || status === 'speaking' || status === 'executingTool';
+
+  useEffect(() => {
+    if (!live) { pulse.setValue(0); breathe.setValue(0); return; }
+    const p = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    const b = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathe, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 0, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    p.start(); b.start();
+    return () => { p.stop(); b.stop(); };
+  }, [live, pulse, breathe]);
+
+  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
+  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
+  const imgScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+
+  const onPress = () => {
+    if (live) agent.stop().catch(() => {});
+    else agent.start().catch(() => {});
+  };
+
+  return (
+    <Pressable accessibilityLabel="Talk to Ruby" onPress={onPress} style={styles.rubyTab}>
+      {live ? <Animated.View style={[styles.rubyPulse, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} /> : null}
+      {/* Gradient ring makes Ruby stand out from the flat icon tabs. */}
+      <Animated.View style={{ transform: [{ scale: imgScale }] }}>
+        <LinearGradient
+          colors={navGradient as unknown as string[]}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={styles.rubyRing}
+        >
+          <View style={styles.rubyAvatar}>
+            <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
+          </View>
+        </LinearGradient>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -412,6 +479,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Ruby tab — larger than the flat icon tabs and lifted above the bar so she
+  // reads as the primary, "call the assistant" action.
+  rubyTab: { width: 60, height: 46, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
+  rubyRing: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    padding: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 7,
+  },
+  rubyAvatar: { width: '100%', height: '100%', borderRadius: 24, overflow: 'hidden', backgroundColor: '#E1F3F3' },
+  rubyImg: { width: '100%', height: '100%' },
+  rubyPulse: { position: 'absolute', width: 52, height: 52, borderRadius: 26, backgroundColor: colors.mint },
   toastWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
   toast: {
     flexDirection: 'row',
