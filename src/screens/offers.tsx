@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, Image, Pressable, StyleSheet, Animated, Easing } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { StepBadge, Chips } from '../components/Controls';
@@ -20,6 +21,51 @@ function bandColor(band: string): string {
 }
 function bandLabel(band: string): string {
   return band.charAt(0) + band.slice(1).toLowerCase();
+}
+
+/** Primary CTA with a repeating "sparkle" shine sweeping across it. */
+function SparkleButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const shine = useRef(new Animated.Value(0)).current;
+  const twinkle = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.delay(700),
+        Animated.timing(shine, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(shine, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    ).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(twinkle, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(twinkle, { toValue: 0, duration: 700, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [shine, twinkle]);
+
+  const translateX = shine.interpolate({ inputRange: [0, 1], outputRange: [-140, 420] });
+  const sparkOpacity = twinkle.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
+  const sparkScale = twinkle.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] });
+
+  return (
+    <Pressable style={styles.selectBtn} onPress={onPress}>
+      <Animated.View style={{ opacity: sparkOpacity, transform: [{ scale: sparkScale }] }}>
+        <Icon name="auto_awesome" size={16} color="#fff" />
+      </Animated.View>
+      <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{label}</Text>
+      <Icon name="arrow_forward" size={17} color="#fff" />
+      {/* Diagonal shine sweep, clipped to the button. */}
+      <Animated.View style={[styles.shine, { transform: [{ translateX }, { rotate: '20deg' }] }]} pointerEvents="none">
+        <LinearGradient
+          colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ flex: 1 }}
+        />
+      </Animated.View>
+    </Pressable>
+  );
 }
 
 export default function Offers() {
@@ -284,18 +330,13 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
       ) : null}
 
       <View style={{ marginTop: 16 }}>
-        <Pressable
-          style={styles.selectBtn}
-          onPress={() => {
-            // Record the selection in our funnel; select() then opens the
-            // lender's page in the in-app WebView (or the handoff screen when
-            // there's no deep link).
-            onSelect(offer, selected?.id);
-          }}
-        >
-          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{offer.redirectionUrl ? 'Apply Loan' : 'Select Offer'}</Text>
-          <Icon name="arrow_forward" size={17} color="#fff" />
-        </Pressable>
+        {/* Record the selection in our funnel; select() then opens the lender's
+            page in the in-app WebView (or the handoff screen when there's no
+            deep link). */}
+        <SparkleButton
+          label={offer.redirectionUrl ? 'Apply Loan' : 'Select Offer'}
+          onPress={() => onSelect(offer, selected?.id)}
+        />
       </View>
     </View>
   );
@@ -387,7 +428,8 @@ const styles = StyleSheet.create({
   },
   receipt: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   featuresBox: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
-  selectBtn: { width: '100%', flexDirection: 'row', gap: 6, height: 48, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  selectBtn: { width: '100%', flexDirection: 'row', gap: 6, height: 48, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  shine: { position: 'absolute', top: -16, height: 80, width: 40 },
   info: { marginTop: 16, backgroundColor: 'rgba(44,110,143,0.07)', borderRadius: 16, padding: 16 },
   flex: { marginTop: 14, backgroundColor: 'rgba(255,255,255,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 16, padding: 16 },
   flexIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
