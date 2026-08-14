@@ -160,12 +160,13 @@ export default function Splash() {
           <Animated.Text style={[font(600), styles.tag, { opacity: tag, transform: [{ translateY: tag.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]}>
             FAST · FAIR · SECURE
           </Animated.Text>
-        </View>
 
-        {/* Dual-ring loader */}
-        <View style={styles.loader}>
-          <Animated.View style={[styles.ring, { borderTopColor: 'transparent', transform: [{ rotate: spinDeg }] }]} />
-          <Animated.View style={[styles.ring2, { borderBottomColor: 'transparent', transform: [{ rotate: spin2Deg }] }]} />
+          {/* Dual-ring loader — part of the centered group so the whole block
+              sits together rather than leaving a big gap to the bottom edge. */}
+          <View style={styles.loader}>
+            <Animated.View style={[styles.ring, { borderTopColor: 'transparent', transform: [{ rotate: spinDeg }] }]} />
+            <Animated.View style={[styles.ring2, { borderBottomColor: 'transparent', transform: [{ rotate: spin2Deg }] }]} />
+          </View>
         </View>
       </LinearGradient>
     </Screen>
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
   word: { flexDirection: 'row', marginTop: 26 },
   wordText: { fontSize: 44, letterSpacing: -1.4, lineHeight: 46 },
   tag: { fontSize: 11.5, color: '#8FD9C9', marginTop: 12, letterSpacing: 3.5 },
-  loader: { position: 'absolute', bottom: 72, alignSelf: 'center', width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+  loader: { marginTop: 32, width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   ring: { position: 'absolute', width: 30, height: 30, borderRadius: 15, borderWidth: 3, borderColor: '#BFF3E6' },
   ring2: { position: 'absolute', width: 20, height: 20, borderRadius: 10, borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.55)' },
 });

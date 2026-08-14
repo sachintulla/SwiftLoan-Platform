@@ -2,8 +2,8 @@ import React from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
-import { EmiCalculator } from '../components/EmiCalculator';
 import { MarketLoanOffers } from '../components/MarketLoanOffers';
+import { MyLoansSection } from '../components/MyLoansSection';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 
@@ -95,9 +95,12 @@ export default function Home() {
         }}
       />
 
-      {/* Manage loan */}
+      {/* Manage your loans — the user's applications (moved onto the dashboard;
+          the Loans tab is now the Calculator) plus the credit-score / status
+          shortcuts. */}
       <SectionHeading title={t.manageLoan} />
       <View style={{ gap: 12 }}>
+        <MyLoansSection />
         <ManageRow icon="speed" title={t.creditCard} sub={t.creditCardSub} onPress={() => go('creditscore')} />
         <ManageRow icon="timeline" title={t.statusCard} sub={t.statusCardSub} onPress={() => go('status')} />
       </View>
@@ -125,10 +128,6 @@ export default function Home() {
           </View>
         ))}
       </View>
-
-      {/* EMI calculator */}
-      <SectionHeading title={t.fareTitle} sub={t.fareSub} />
-      <EmiCalculator onApply={() => go('basicpan')} />
 
       {/* Disclaimer */}
       <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>

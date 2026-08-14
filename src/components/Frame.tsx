@@ -310,7 +310,7 @@ export function AppHeader({
  * ───────────────────────────────────────────────────────────── */
 const NAV_TABS: { key: ScreenName; icon: string; label: string }[] = [
   { key: 'home', icon: 'home', label: 'Home' },
-  { key: 'loans', icon: 'description', label: 'Loans' },
+  { key: 'fare', icon: 'calculate', label: 'Calculator' },
   { key: 'profile', icon: 'person', label: 'Profile' },
 ];
 
