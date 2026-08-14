@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
@@ -6,6 +6,9 @@ import { MarketLoanOffers } from '../components/MarketLoanOffers';
 import { MyLoansSection } from '../components/MyLoansSection';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
+import { api, isAuthed } from '../api/client';
+
+const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
 const LOAN_TYPES = [
   { icon: 'person', k: 'ltPersonal', s: 'ltPersonalSub' },
@@ -19,6 +22,26 @@ function initials(name: string) {
 export default function Home() {
   const t = useT();
   const { state, set, go, showToast } = useStore();
+
+  // Reliably surface the "your eligible offers" shortcut whenever this phone
+  // already has offers pulled — checked on every Home mount (not just once at
+  // login), so a returning user always sees it.
+  useEffect(() => {
+    if (!isAuthed()) return;
+    api.listApplications()
+      .then((r: any) => {
+        const withOffers = (r?.applications || []).find(
+          (a: any) => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status),
+        );
+        if (withOffers) {
+          set({ applicationId: withOffers.id, loanId: withOffers.loan?.id ?? null, hasSavedOffers: true });
+        } else {
+          set({ hasSavedOffers: false });
+        }
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Screen scroll bottomNav padded>
@@ -45,9 +68,9 @@ export default function Home() {
             <Icon name="local_offer" size={22} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[font(700), { fontSize: 15, color: colors.text }]}>Your matched offers are ready</Text>
+            <Text style={[font(700), { fontSize: 15, color: colors.text }]}>{t.eligibleOffersTitle}</Text>
             <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>
-              View the offers we pulled for you and apply.
+              {t.eligibleOffersSub}
             </Text>
           </View>
           <Icon name="arrow_forward" size={20} color={colors.primary} />
