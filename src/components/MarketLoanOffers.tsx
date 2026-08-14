@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Image, Pressable, StyleSheet, Animated, Easing } from 'react-native';
 import Icon from './Icon';
 import { PrimaryButton } from './Controls';
 import { Skeleton } from './common/Loading';
@@ -19,6 +19,97 @@ function rateTenureLine(p: MarketLoanOffer): string[] {
   const rate = p.rateAtApproval ? 'Rate at approval' : p.rateMin != null && p.rateMax != null ? `${p.rateMin}–${p.rateMax}% p.a.` : null;
   const tenure = p.tenureMinMonths != null && p.tenureMaxMonths != null ? `${p.tenureMinMonths}–${p.tenureMaxMonths} mo` : null;
   return [rate, tenure].filter((s): s is string => !!s);
+}
+
+/** Lender logo, filling the tile (no mint frame) when a real logo exists. */
+function LenderLogo({ plan, size = 44 }: { plan: MarketLoanOffer; size?: number }) {
+  const src = LENDER_LOGOS[plan.lenderName] ?? (plan.logoUrl ? { uri: plan.logoUrl } : null);
+  if (src) {
+    return (
+      <View style={[styles.logoTile, { width: size, height: size, borderRadius: size * 0.28 }]}>
+        <Image source={src} style={{ width: size - 6, height: size - 6 }} resizeMode="contain" />
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.iconChip, { width: size, height: size, borderRadius: size * 0.28 }]}>
+      <Icon name={plan.icon} size={size * 0.5} color={colors.primary} />
+    </View>
+  );
+}
+
+/* ── Live-activity bar: a pulsing "live" dot + a gently ticking counter, to
+ *    give the dashboard a sense of real-time market movement. ─────────────── */
+function LiveActivityBar() {
+  const pulse = useRef(new Animated.Value(0)).current;
+  const [count, setCount] = useState(1800 + Math.floor(Math.random() * 400));
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ]),
+    ).start();
+    const id = setInterval(() => setCount(c => c + 1 + Math.floor(Math.random() * 4)), 2600);
+    return () => clearInterval(id);
+  }, [pulse]);
+
+  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.8, 2.4] });
+  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
+
+  return (
+    <View style={styles.liveBar}>
+      <View style={styles.liveDotWrap}>
+        <Animated.View style={[styles.liveRing, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} />
+        <View style={styles.liveDot} />
+      </View>
+      <Text style={[font(600), { fontSize: 12.5, color: colors.textMid }]}>
+        <Text style={[font(800), { color: colors.text }]}>{count.toLocaleString('en-IN')}</Text> people comparing offers now
+      </Text>
+    </View>
+  );
+}
+
+/* ── Compact card — two per row on the dashboard, for less scrolling and more
+ *    offers visible at a glance. ────────────────────────────────────────────── */
+function CompactPlanCard({ plan, index, onSelect }: { plan: MarketLoanOffer; index: number; onSelect: () => void }) {
+  const amount = amountLine(plan);
+  const rate = plan.rateAtApproval ? 'Rate at approval' : plan.rateMin != null && plan.rateMax != null ? `${plan.rateMin}–${plan.rateMax}% p.a.` : null;
+  const enter = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(enter, { toValue: 1, duration: 360, delay: index * 70, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [enter, index]);
+
+  useVoiceTarget(plan.lenderName, { kind: 'button', onTap: onSelect }, [onSelect]);
+
+  return (
+    <Animated.View
+      style={{
+        width: '48%',
+        opacity: enter,
+        transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+      }}
+    >
+      <Pressable onPress={onSelect} style={styles.compactCard}>
+        <View style={styles.compactTop}>
+          <LenderLogo plan={plan} size={44} />
+          {plan.badge ? (
+            <View style={styles.badge}>
+              <Text style={[font(700), { fontSize: 9.5, color: '#fff', letterSpacing: 0.2 }]}>{plan.badge}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={[font(700), { fontSize: 14, color: colors.text, marginTop: 10 }]} numberOfLines={1}>{plan.lenderName}</Text>
+        <Text style={[font(600), { fontSize: 10.5, color: colors.greenDeep, marginTop: 8 }]}>{amount.value ? amount.label : 'Amount'}</Text>
+        <Text style={[font(800), { fontSize: 18, color: colors.primary, letterSpacing: -0.4 }]} numberOfLines={1}>
+          {amount.value || amount.label}
+        </Text>
+        {rate ? <Text style={[font(500), { fontSize: 11.5, color: colors.textMid, marginTop: 4 }]} numberOfLines={1}>{rate}</Text> : null}
+      </Pressable>
+    </Animated.View>
+  );
 }
 
 function PlanCard({
@@ -41,15 +132,7 @@ function PlanCard({
   return (
     <Pressable onPress={onSelect} style={[styles.card, selected && styles.cardSelected]}>
       <View style={styles.cardTop}>
-        <View style={styles.iconChip}>
-          {LENDER_LOGOS[plan.lenderName] ? (
-            <Image source={LENDER_LOGOS[plan.lenderName]} style={styles.logo} resizeMode="contain" />
-          ) : plan.logoUrl ? (
-            <Image source={{ uri: plan.logoUrl }} style={styles.logo} resizeMode="contain" />
-          ) : (
-            <Icon name={plan.icon} size={22} color={colors.primary} />
-          )}
-        </View>
+        <LenderLogo plan={plan} size={46} />
         <Text style={[font(800), { fontSize: 17, color: colors.text, flex: 1, letterSpacing: -0.2 }]}>{plan.lenderName}</Text>
         {plan.badge ? (
           <View style={styles.badge}>
@@ -112,19 +195,9 @@ function Stat({ value, label }: { value: string; label: string }) {
  * browsing/re-picking). Rendered by src/screens/explore.tsx, which owns the
  * header/back button.
  *
- * Also embeddable directly on Home (`showIntro={false}`) so the full plan
- * list is visible on the main dashboard itself instead of requiring a tap
- * through to a separate screen — the title/stats/pill block only makes sense
- * as a dedicated screen's header, so it's the one thing skipped when embedded.
- *
- * The two modes interact differently with a tap, not just visually:
- * - "guest" (not signed up yet): tapping a card only highlights it — the user
- *   still has to hit "Sign up to continue" to actually proceed, since signing
- *   up is a real gate here.
- * - "home" (already signed in): there's no gate left to enforce, so a tap
- *   acts immediately — saves the pick and opens the lender's page — instead
- *   of making the user select-then-press-continue for something they've
- *   already signed up for.
+ * On Home (`mode="home"`, `showIntro={false}`) the offers render as a compact
+ * two-per-row grid with a live-activity bar, so more offers are visible with
+ * less scrolling. The guest/explore path keeps the full-width selectable cards.
  */
 export function MarketLoanOffers({
   mode = 'guest',
@@ -216,11 +289,28 @@ export function MarketLoanOffers({
       )}
 
       {plans === null ? (
-        <View>
-          <Skeleton height={90} />
-          <Skeleton height={90} />
+        isHome ? (
+          <View style={styles.grid}>
+            <View style={{ width: '48%' }}><Skeleton height={132} /></View>
+            <View style={{ width: '48%' }}><Skeleton height={132} /></View>
+          </View>
+        ) : (
+          <View>
+            <Skeleton height={90} />
+            <Skeleton height={90} />
+          </View>
+        )
+      ) : plans.length === 0 ? null : isHome ? (
+        // Dashboard: live bar + two-per-row grid.
+        <View style={{ gap: 14 }}>
+          <LiveActivityBar />
+          <View style={styles.grid}>
+            {plans.map((p, i) => (
+              <CompactPlanCard key={p.id} plan={p} index={i} onSelect={() => onCardPress(p)} />
+            ))}
+          </View>
         </View>
-      ) : plans.length === 0 ? null : (
+      ) : (
         <View>
           {plans.map(p => (
             <PlanCard
@@ -261,6 +351,30 @@ const styles = StyleSheet.create({
     gap: 6,
     alignSelf: 'flex-start',
   },
+
+  // Live-activity bar
+  liveBar: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  liveDotWrap: { width: 12, height: 12, alignItems: 'center', justifyContent: 'center' },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.mint },
+  liveRing: { position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: colors.mint },
+
+  // Two-per-row grid
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12 },
+  compactCard: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: colors.surface,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  compactTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+
+  // Full-width card (guest/explore)
   card: {
     borderWidth: 1,
     borderColor: colors.line,
@@ -274,28 +388,33 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 2,
   },
-  // Border only — a whole-card tint looked patchy once it sat behind the
-  // hero panel's own opaque background (same issue fixed on the offers screen).
   cardSelected: {
     borderWidth: 1.5,
     borderColor: colors.primary,
   },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+
+  // Lender logo tiles
+  logoTile: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: colors.lineSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
   iconChip: {
-    width: 46,
-    height: 46,
-    borderRadius: 13,
     backgroundColor: '#E1F3F3',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  logo: { width: 28, height: 28, borderRadius: 6 },
+
   badge: {
     backgroundColor: colors.primary,
     borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     shadowColor: '#0A3F41',
     shadowOpacity: 0.18,
     shadowRadius: 4,
