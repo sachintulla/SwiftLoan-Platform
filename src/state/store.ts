@@ -43,9 +43,9 @@ const PREV: Partial<Record<Screen, Screen>> = {
   basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
   prequalify: 'consent', kyc: 'prequalify',
-  // Back from offers goes to My Loans so the user sees their applied loans
-  // (the selection is recorded when they tap Continue on an offer).
-  offers: 'loans', handoff: 'offers', lenderweb: 'offers', status: 'home',
+  // Fallback only — back() dynamically returns offers to its actual origin
+  // (state.offersReturn); this parent is used if that's ever unset.
+  offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home', creditscore: 'repay',
   loans: 'home', fare: 'home', explore: 'mobile',
@@ -110,6 +110,8 @@ export interface AppState {
   // A friendly, actionable note when prequalify returns no offers (e.g. lender
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
+  // The screen the user opened `offers` from, so its back button returns there.
+  offersReturn: Screen;
   // True when this returning user already has offers pulled in a prior session
   // (restored on login). Lets Home surface a "view your offers" shortcut so they
   // don't re-enter details — applicationId points at that application.
@@ -149,6 +151,7 @@ export const initialState: AppState = {
   exploreFromHome: false,
   webUrl: '', webTitle: '',
   offersError: '',
+  offersReturn: 'home',
   hasSavedOffers: false,
 };
 
@@ -183,8 +186,16 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'set':
       return { ...state, ...action.patch };
-    case 'go':
+    case 'go': {
+      // Remember which screen the user opened `offers` from, so its back button
+      // returns there instead of a fixed PREV target. Ignore downstream/transient
+      // screens (finding/lenderweb/handoff) and re-entries so coming back from
+      // the lender page doesn't overwrite the real origin.
+      if (action.screen === 'offers' && !['offers', 'finding', 'lenderweb', 'handoff'].includes(state.screen)) {
+        return { ...state, screen: 'offers', offersReturn: state.screen };
+      }
       return { ...state, screen: action.screen };
+    }
     case 'reset':
       return { ...initialState, screen: 'splash' };
     default:
@@ -231,7 +242,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const parentOf = useCallback((s: Screen): Screen => PREV[s] || 'home', []);
 
   const back = useCallback(() => {
-    dispatch({ type: 'go', screen: PREV[stateRef.current.screen] || 'home' });
+    const cur = stateRef.current.screen;
+    // Offers returns to wherever it was opened from (home / My Loans / PAN step /
+    // funnel), not a fixed parent.
+    if (cur === 'offers') {
+      dispatch({ type: 'go', screen: stateRef.current.offersReturn || 'home' });
+      return;
+    }
+    dispatch({ type: 'go', screen: PREV[cur] || 'home' });
   }, []);
 
   const showToast = useCallback((msg: string) => {
