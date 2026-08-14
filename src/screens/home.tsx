@@ -102,7 +102,6 @@ export default function Home() {
       <View style={{ gap: 12 }}>
         <MyLoansSection />
         <ManageRow icon="speed" title={t.creditCard} sub={t.creditCardSub} onPress={() => go('creditscore')} />
-        <ManageRow icon="timeline" title={t.statusCard} sub={t.statusCardSub} onPress={() => go('status')} />
       </View>
 
       {/* Learn */}
@@ -248,7 +247,6 @@ const styles = StyleSheet.create({
   loanTypeRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
   loanTypeCard: {
     flex: 1,
-    minHeight: 168,
     backgroundColor: colors.ink,
     borderRadius: 22,
     padding: 18,
@@ -264,7 +262,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 5,
-    marginTop: 'auto',
+    marginTop: 16,
     backgroundColor: '#fff',
     paddingHorizontal: 12,
     paddingVertical: 7,

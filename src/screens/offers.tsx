@@ -12,11 +12,28 @@ import { useStore } from '../state/store';
 import { api, Offer } from '../api/client';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 
+function bandColor(band: string): string {
+  if (band.includes('EXCELLENT') || band.includes('GOOD')) return colors.green;
+  if (band.includes('FAIR') || band.includes('AVERAGE')) return colors.amber;
+  if (band.includes('POOR')) return colors.red;
+  return colors.green;
+}
+function bandLabel(band: string): string {
+  return band.charAt(0) + band.slice(1).toLowerCase();
+}
+
 export default function Offers() {
   const { state, set, go } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
+  const [credit, setCredit] = useState<{ score: number; band: string } | null>(null);
+
+  useEffect(() => {
+    api.creditScore()
+      .then((r: any) => setCredit({ score: r.score ?? 750, band: (r.band ?? 'GOOD').toUpperCase() }))
+      .catch(() => undefined);
+  }, []);
 
   const load = useCallback(async () => {
     if (!state.applicationId) { setOffers([]); setLoading(false); return; }
@@ -62,6 +79,26 @@ export default function Offers() {
             ? `We found ${offers.length} partner${offers.length === 1 ? '' : 's'} matching your profile. Choose the best fit.`
             : 'Start an application to see your personalised offers.'}
         </Text>
+
+        {/* The user's credit score — shown here so they see the basis for these
+            offers. Tap to view the full breakdown. */}
+        {credit ? (
+          <Pressable style={styles.creditCard} onPress={() => go('creditscore')}>
+            <View style={styles.creditIcon}>
+              <Icon name="speed" size={22} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>Your CIBIL score</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 1 }}>
+                <Text style={[font(800), { fontSize: 20, color: colors.text }]}>{credit.score}</Text>
+                <View style={[styles.bandPill, { backgroundColor: bandColor(credit.band) + '22' }]}>
+                  <Text style={[font(700), { fontSize: 10.5, color: bandColor(credit.band) }]}>{bandLabel(credit.band)}</Text>
+                </View>
+              </View>
+            </View>
+            <Icon name="chevron_right" size={20} color={colors.muted} />
+          </Pressable>
+        ) : null}
 
         {loading ? (
           <Loading label="Fetching your offers…" />
@@ -290,6 +327,19 @@ function ValidRow({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
+  creditCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 16,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    padding: 14,
+  },
+  creditIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+  bandPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 20,
