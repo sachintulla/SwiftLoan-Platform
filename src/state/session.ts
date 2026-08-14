@@ -42,6 +42,15 @@ export async function loadLang(): Promise<string | null> {
   return AsyncStorage.getItem(LANG_KEY).catch(() => null);
 }
 
+/** Whether the user has accepted the Privacy Policy — shown once, at first launch. */
+const PRIVACY_KEY = 'swiftloan.session.privacyAccepted';
+export async function savePrivacyAccepted(): Promise<void> {
+  await AsyncStorage.setItem(PRIVACY_KEY, '1').catch(() => {});
+}
+export async function loadPrivacyAccepted(): Promise<boolean> {
+  return (await AsyncStorage.getItem(PRIVACY_KEY).catch(() => null)) === '1';
+}
+
 /** Which screen edge the voice FAB is docked to — the user drags it once and it stays there. */
 export async function saveVoiceFabSide(side: 'left' | 'right'): Promise<void> {
   await AsyncStorage.setItem(VOICE_FAB_SIDE_KEY, side).catch(() => {});

@@ -2,6 +2,7 @@ import React from 'react';
 import { Screen as ScreenName } from '../state/store';
 
 import Splash from './splash';
+import Privacy from './privacy';
 import Language from './language';
 import Intro from './intro';
 import Mobile from './mobile';
@@ -34,6 +35,7 @@ import Explore from './explore';
 // placeholder in the Router so the full navigation graph stays walkable end-to-end.
 export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   splash: Splash,
+  privacy: Privacy,
   language: Language,
   intro: Intro,
   mobile: Mobile,

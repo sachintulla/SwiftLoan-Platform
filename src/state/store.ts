@@ -12,7 +12,7 @@ import {
   trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
-import { loadTokens, loadLang, saveLang } from './session';
+import { loadTokens, loadLang, saveLang, loadPrivacyAccepted } from './session';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -22,7 +22,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 // const array (rather than a hand-written union) so the voice agent's
 // navigate_screen tool can validate an incoming screen name at runtime.
 export const SCREEN_NAMES = [
-  'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
+  'splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
   'home', 'loans', 'fare', 'help', 'profile', 'explore',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
@@ -38,7 +38,7 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
 const PREV: Partial<Record<Screen, Screen>> = {
-  language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
+  privacy: 'splash', language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
   permissions: 'mobile', aboutyou: 'permissions',
   basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
@@ -55,6 +55,7 @@ export interface AppState {
   screen: Screen;
   lang: string | null; // null until chosen; effective default 'en'
   selectedLang: string | null;
+  privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
   toast: string;
   notif: { loan: boolean; security: boolean; promo: boolean };
   // mobile / otp
@@ -122,6 +123,7 @@ export const initialState: AppState = {
   screen: 'splash',
   lang: null,
   selectedLang: null,
+  privacyAccepted: false,
   toast: '',
   notif: { loan: true, security: true, promo: false },
   mobileVal: '',
@@ -277,6 +279,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const savedLang = await loadLang();
       if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
 
+      // Privacy consent gate — loaded before any routing decision.
+      const accepted = await loadPrivacyAccepted();
+      if (accepted) dispatch({ type: 'set', patch: { privacyAccepted: true } });
+
       const tokens = await loadTokens();
       if (!tokens) return;
       setTokens(tokens.accessToken, tokens.refreshToken);
@@ -294,8 +300,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           },
         });
         // Only jump the user automatically if they haven't already moved
-        // past the splash screen themselves while this was resolving.
-        if (stateRef.current.screen === 'splash') dispatch({ type: 'go', screen: 'home' });
+        // past the splash screen themselves while this was resolving. New
+        // (never-accepted) users see the Privacy Policy first, even with a
+        // restored session.
+        if (stateRef.current.screen === 'splash') dispatch({ type: 'go', screen: accepted ? 'home' : 'privacy' });
       } catch {
         // Expired/invalid — drop the stale session rather than keep retrying
         // it on every future boot.
@@ -334,7 +342,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (state.screen === 'splash') {
-      timers.current.auto = setTimeout(() => dispatch({ type: 'go', screen: 'language' }), 2600);
+      // First launch → Privacy Policy consent; thereafter → language selection.
+      timers.current.auto = setTimeout(
+        () => dispatch({ type: 'go', screen: stateRef.current.privacyAccepted ? 'language' : 'privacy' }),
+        2600,
+      );
     }
     return clearAuto;
   }, [state.screen, state.loanId]);
