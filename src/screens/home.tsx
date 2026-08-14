@@ -95,14 +95,10 @@ export default function Home() {
         }}
       />
 
-      {/* Manage your loans — the user's applications (moved onto the dashboard;
-          the Loans tab is now the Calculator) plus the credit-score / status
-          shortcuts. */}
+      {/* Application status — the user's applications (moved onto the dashboard;
+          the Loans tab is now the Calculator). */}
       <SectionHeading title="Application Status" />
-      <View style={{ gap: 12 }}>
-        <MyLoansSection />
-        <ManageRow icon="speed" title={t.creditCard} sub={t.creditCardSub} onPress={() => go('creditscore')} />
-      </View>
+      <MyLoansSection />
 
       {/* Learn */}
       <SectionHeading title={t.learnTitle} />
@@ -140,21 +136,6 @@ function SectionHeading({ title, sub }: { title: string; sub?: string }) {
       <Text style={[font(800), { fontSize: 18, letterSpacing: -0.3, color: colors.text }]}>{title}</Text>
       {sub ? <Text style={[font(400), { fontSize: 13, color: colors.textSoft, marginTop: 2 }]}>{sub}</Text> : null}
     </View>
-  );
-}
-
-function ManageRow({ icon, title, sub, onPress }: { icon: string; title: string; sub: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={styles.manageRow}>
-      <View style={styles.tileIcon}>
-        <Icon name={icon} size={20} color={colors.primary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>{title}</Text>
-        <Text style={[font(400), { fontSize: 12, color: colors.textSoft, marginTop: 1 }]}>{sub}</Text>
-      </View>
-      <Icon name="chevron_right" size={20} color={colors.muted} />
-    </Pressable>
   );
 }
 
