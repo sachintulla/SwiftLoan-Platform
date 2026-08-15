@@ -16,7 +16,7 @@ import {
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient, navGradient } from '../theme/tokens';
@@ -312,65 +312,96 @@ export function AppHeader({
 /* ─────────────────────────────────────────────────────────────
  * Bottom tab nav — Home / Loans / Profile, floating glass pill.
  * ───────────────────────────────────────────────────────────── */
-const NAV_TABS: { key: ScreenName; icon: string; label: string }[] = [
+// Labelled tabs sit either side of the centred Ruby FAB: Home + Offers on the
+// left, Profile on the right. ("Offers" opens the existing calculator/fare screen.)
+const LEFT_TABS: { key: ScreenName; icon: string; label: string }[] = [
   { key: 'home', icon: 'home', label: 'Home' },
-  { key: 'fare', icon: 'calculate', label: 'Calculator' },
+  { key: 'fare', icon: 'local_offer', label: 'Offers' },
+];
+const RIGHT_TABS: { key: ScreenName; icon: string; label: string }[] = [
   { key: 'profile', icon: 'person', label: 'Profile' },
 ];
+const ALL_NAV_TABS = [...LEFT_TABS, ...RIGHT_TABS];
+
+function NavTab({ tab, active, onPress }: { tab: { key: ScreenName; icon: string; label: string }; active: boolean; onPress: () => void }) {
+  const tint = active ? colors.primary : colors.muted;
+  return (
+    <Pressable accessibilityLabel={tab.label} onPress={onPress} style={styles.navTab}>
+      <Icon name={tab.icon} size={23} color={tint} />
+      <Text style={[font(active ? 700 : 500), { fontSize: 11, color: tint, marginTop: 2 }]}>{tab.label}</Text>
+    </Pressable>
+  );
+}
 
 export function BottomNav() {
   const { state, go } = useStore();
   const insets = useSafeAreaInsets();
-  // BottomNav is rendered as a sibling of <Screen>'s children, so the screen-graph
-  // walk never discovers it. Self-register the tabs so voice can "tap Home/Loans/Profile".
+  const { width } = useWindowDimensions();
+
+  // Bar geometry — the SVG path carves a top-centre notch the Ruby FAB nests in.
+  const W = width - 32; // navWrap has 16px padding each side
+  const H = 64;
+  const cornerR = 26;
+  const notchR = 42; // a touch wider than the FAB so there's a clean gap around it
+  const cx = W / 2;
+  const notchPath =
+    `M0 ${cornerR}` +
+    ` Q0 0 ${cornerR} 0` +
+    ` L ${cx - notchR} 0` +
+    ` A ${notchR} ${notchR} 0 0 0 ${cx + notchR} 0` +
+    ` L ${W - cornerR} 0` +
+    ` Q ${W} 0 ${W} ${cornerR}` +
+    ` L ${W} ${H - cornerR}` +
+    ` Q ${W} ${H} ${W - cornerR} ${H}` +
+    ` L ${cornerR} ${H}` +
+    ` Q 0 ${H} 0 ${H - cornerR}` +
+    ` Z`;
+
+  // BottomNav is a sibling of <Screen>'s children, so the screen-graph walk never
+  // sees it. Self-register the tabs so voice can "tap Home/Offers/Profile".
   useEffect(() => {
-    const cleanups = NAV_TABS.map(tab =>
-      registerTarget(state.screen, `nav:${tab.key}`, {
-        kind: 'button',
-        label: tab.label,
-        onTap: () => go(tab.key),
-      }),
+    const cleanups = ALL_NAV_TABS.map(tab =>
+      registerTarget(state.screen, `nav:${tab.key}`, { kind: 'button', label: tab.label, onTap: () => go(tab.key) }),
     );
     return () => cleanups.forEach(fn => fn());
   }, [state.screen, go]);
+
   return (
     <View style={[styles.navWrap, { paddingBottom: insets.bottom || 16 }]} pointerEvents="box-none">
-      <View style={styles.navBar}>
-        {NAV_TABS.map(tab => {
-          const active = state.screen === tab.key;
-          return (
-            <Pressable key={tab.key} accessibilityLabel={tab.label} onPress={() => go(tab.key)}>
-              {active ? (
-                <LinearGradient
-                  colors={navGradient as unknown as string[]}
-                  start={{ x: 0.1, y: 0 }}
-                  end={{ x: 0.9, y: 1 }}
-                  style={styles.navItem}
-                >
-                  <Icon name={tab.icon} size={24} color="#fff" />
-                </LinearGradient>
-              ) : (
-                <View style={styles.navItem}>
-                  <Icon name={tab.icon} size={24} color={colors.muted} />
-                </View>
-              )}
-            </Pressable>
-          );
-        })}
-        {/* Ruby — the voice assistant, as a tab beside Profile. */}
-        <RubyTab />
+      <View style={{ width: W, height: H }}>
+        <Svg width={W} height={H} style={StyleSheet.absoluteFill}>
+          <Path d={notchPath} fill="rgba(255,255,255,0.96)" stroke="rgba(255,255,255,0.7)" strokeWidth={1} />
+        </Svg>
+
+        <View style={styles.navRow}>
+          <View style={styles.navGroup}>
+            {LEFT_TABS.map(tab => (
+              <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key)} />
+            ))}
+          </View>
+          <View style={{ width: notchR * 2 }} />
+          <View style={styles.navGroup}>
+            {RIGHT_TABS.map(tab => (
+              <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key)} />
+            ))}
+          </View>
+        </View>
+
+        <RubyNotchFab centerX={cx} />
       </View>
     </View>
   );
 }
 
 /**
- * Ruby voice-assistant tab: the agent's portrait; tap to start/stop the voice
- * session. While she's live (connecting/listening/speaking) an animated ring
- * and a gentle "breathing" scale make her feel like she's talking to you.
+ * Ruby voice FAB that nests in the tab-bar notch. Idle it shows a headphones
+ * icon; tapping starts the voice session and Ruby's portrait "peeks" up out of
+ * the notch with a spring, fading the headphones out. Tap again to stop and she
+ * ducks back down. A pulse ring + breathing scale signal she's live.
  */
-function RubyTab() {
+function RubyNotchFab({ centerX }: { centerX: number }) {
   const [status, setStatus] = useState<AgentStatus>('idle');
+  const peek = useRef(new Animated.Value(0)).current; // 0 idle → 1 live
   const pulse = useRef(new Animated.Value(0)).current;
   const breathe = useRef(new Animated.Value(0)).current;
 
@@ -379,6 +410,7 @@ function RubyTab() {
   const live = status === 'connecting' || status === 'listening' || status === 'speaking' || status === 'executingTool';
 
   useEffect(() => {
+    Animated.spring(peek, { toValue: live ? 1 : 0, useNativeDriver: true, friction: 6, tension: 70 }).start();
     if (!live) { pulse.setValue(0); breathe.setValue(0); return; }
     const p = Animated.loop(
       Animated.sequence([
@@ -394,11 +426,15 @@ function RubyTab() {
     );
     p.start(); b.start();
     return () => { p.stop(); b.stop(); };
-  }, [live, pulse, breathe]);
+  }, [live, peek, pulse, breathe]);
 
   const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
   const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
-  const imgScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const breatheScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const avatarTranslate = peek.interpolate({ inputRange: [0, 1], outputRange: [8, -52] });
+  const avatarScale = peek.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
+  const avatarOpacity = peek.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0.2, 1] });
+  const hpOpacity = peek.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
   const onPress = () => {
     if (live) agent.stop().catch(() => {});
@@ -406,22 +442,31 @@ function RubyTab() {
   };
 
   return (
-    <Pressable accessibilityLabel="Talk to Ruby" onPress={onPress} style={styles.rubyTab}>
-      {live ? <Animated.View style={[styles.rubyPulse, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} /> : null}
-      {/* Gradient ring makes Ruby stand out from the flat icon tabs. */}
-      <Animated.View style={{ transform: [{ scale: imgScale }] }}>
+    <View style={[styles.fabWrap, { left: centerX - 37 }]} pointerEvents="box-none">
+      {/* Ruby's portrait — hidden behind the FAB at idle, springs up when live. */}
+      <Animated.View
+        style={[styles.peekAvatar, { opacity: avatarOpacity, transform: [{ translateY: avatarTranslate }, { scale: Animated.multiply(avatarScale, breatheScale) }] }]}
+        pointerEvents="none"
+      >
+        <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
+      </Animated.View>
+
+      {/* Pulse ring while live. */}
+      {live ? <Animated.View style={[styles.fabPulse, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} pointerEvents="none" /> : null}
+
+      <Pressable accessibilityLabel="Talk to Ruby" onPress={onPress}>
         <LinearGradient
           colors={navGradient as unknown as string[]}
           start={{ x: 0.1, y: 0 }}
           end={{ x: 0.9, y: 1 }}
-          style={styles.rubyRing}
+          style={styles.notchFab}
         >
-          <View style={styles.rubyAvatar}>
-            <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
-          </View>
+          <Animated.View style={{ opacity: hpOpacity }}>
+            <Icon name="headset_mic" size={27} color="#fff" />
+          </Animated.View>
         </LinearGradient>
-      </Animated.View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
@@ -458,46 +503,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
   },
-  navBar: {
-    flexDirection: 'row',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 26,
-    padding: 7,
-    shadowColor: '#143C3A',
-    shadowOpacity: 0.22,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 12,
-  },
-  navItem: {
-    width: 54,
-    height: 46,
-    borderRadius: 16,
+  // The notched bar is drawn by the SVG <Path>; this shadow lifts the whole bar.
+  navRow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center' },
+  navGroup: { flex: 1, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
+  navTab: { alignItems: 'center', justifyContent: 'center', paddingVertical: 6, minWidth: 56 },
+  // Ruby FAB, lifted into the notch at the top-centre of the bar.
+  fabWrap: { position: 'absolute', top: -24, width: 74, alignItems: 'center' },
+  notchFab: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // Ruby tab — larger than the flat icon tabs and lifted above the bar so she
-  // reads as the primary, "call the assistant" action.
-  rubyTab: { width: 60, height: 46, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
-  rubyRing: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    padding: 2.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: '#fff',
     shadowColor: '#0A3F41',
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 7,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 9,
   },
-  rubyAvatar: { width: '100%', height: '100%', borderRadius: 24, overflow: 'hidden', backgroundColor: '#E1F3F3' },
+  peekAvatar: {
+    position: 'absolute',
+    top: 0,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: '#fff',
+    backgroundColor: '#E1F3F3',
+  },
   rubyImg: { width: '100%', height: '100%' },
-  rubyPulse: { position: 'absolute', width: 52, height: 52, borderRadius: 26, backgroundColor: colors.mint },
+  fabPulse: { position: 'absolute', top: 0, width: 60, height: 60, borderRadius: 30, backgroundColor: colors.mint },
   toastWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
   toast: {
     flexDirection: 'row',
