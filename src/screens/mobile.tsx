@@ -78,7 +78,6 @@ export default function Mobile() {
   // Browse without signing in. No session is created — screens that need auth
   // (starting an application, profile, loans) prompt for real verification
   // when the user actually reaches them.
-  const skip = () => { set({ exploreFromHome: false }); go('explore'); };
 
   useEffect(() => {
     if (!otpSent) return;
@@ -225,11 +224,6 @@ export default function Mobile() {
         <Pressable style={styles.googleBtn} onPress={() => showToast(t.mobileGoogleToast)}>
           <Text style={[font(800), { color: '#4285F4', fontSize: 16 }]}>G</Text>
           <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>{t.mobileGoogle}</Text>
-        </Pressable>
-
-        <Pressable style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }} onPress={skip}>
-          <Text style={[font(600), { color: colors.textSoft, fontSize: 13.5 }]}>{t.mobileSkip}</Text>
-          <Icon name="arrow_forward" size={16} color={colors.textSoft} />
         </Pressable>
       </View>
     </Screen>
