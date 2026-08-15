@@ -119,9 +119,9 @@ export default function Home() {
       />
 
       {/* Application status — the user's applications (moved onto the dashboard;
-          the Loans tab is now the Calculator). */}
-      <SectionHeading title={t.applicationStatus} />
-      <MyLoansSection />
+          the Loans tab is now the Calculator). The heading is passed in so the
+          whole section hides when there are no applications (no bare header). */}
+      <MyLoansSection heading={<SectionHeading title={t.applicationStatus} />} />
 
       {/* Learn */}
       <SectionHeading title={t.learnTitle} />

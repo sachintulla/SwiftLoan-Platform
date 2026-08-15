@@ -28,7 +28,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
  * for guests or when there are no applications, so it never leaves an empty
  * heading on the dashboard.
  */
-export function MyLoansSection() {
+export function MyLoansSection({ heading }: { heading?: React.ReactNode }) {
   const { set, go } = useStore();
   const [apps, setApps] = useState<any[] | null>(null);
 
@@ -52,10 +52,13 @@ export function MyLoansSection() {
     go(app.status === 'offers_ready' ? 'offers' : 'status');
   };
 
-  // Rendered inside the dashboard's "Manage your loans" section, so no heading
-  // of its own — just the application cards.
+  // The heading is rendered here (not by the parent) so it appears only when
+  // there ARE applications — the early returns above hide the whole section
+  // (heading included) for guests / when the list is empty, instead of leaving
+  // a bare "Application status" header over empty space.
   return (
     <View>
+      {heading}
       {apps === null ? (
         <Loading label="Loading your loans…" />
       ) : (
