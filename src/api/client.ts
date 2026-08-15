@@ -57,12 +57,16 @@ function refreshOnce(): Promise<boolean> {
 
 /**
  * Request timeout. Without one, an unreachable host doesn't fail fast — it waits
- * for the TCP connect timeout (30s+). That bites hardest on a physical device,
- * where the default 10.0.2.2 is the *emulator's* host alias and simply isn't
- * routable. It also stops each fire-and-forget tracking call from holding a
- * socket open for 30s.
+ * for the TCP connect timeout (30s+), and each fire-and-forget tracking call
+ * holds a socket open that whole time.
+ *
+ * Kept well under 30s so we still fail fast, but generous enough for real
+ * mobile networks + occasional backend cold-starts: at 4s, user-initiated GETs
+ * like /users/me intermittently aborted on cellular and surfaced a spurious
+ * "please try again" screen even though the server responded fine. Per-call
+ * overrides (e.g. prequalify's 45s) still apply via request()'s timeoutMs arg.
  */
-const REQUEST_TIMEOUT_MS = 4000;
+const REQUEST_TIMEOUT_MS = 12000;
 
 async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
