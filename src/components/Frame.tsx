@@ -370,8 +370,12 @@ export function BottomNav() {
   return (
     <View style={[styles.navWrap, { paddingBottom: insets.bottom || 14 }]} pointerEvents="box-none">
       <View style={{ width: W, height: H }}>
-        <Svg width={W} height={H} style={[StyleSheet.absoluteFill, styles.navShadow]}>
-          <Path d={barPath} fill="#FFFFFF" />
+        <Svg width={W} height={H + 8} style={StyleSheet.absoluteFill}>
+          {/* Manual soft drop-shadow: offset, semi-transparent copies behind the bar. */}
+          <Path d={barPath} fill="#0A3F41" opacity={0.05} transform="translate(0 5)" />
+          <Path d={barPath} fill="#0A3F41" opacity={0.05} transform="translate(0 2.5)" />
+          {/* The bar itself — hairline stroke so it always separates from the screen. */}
+          <Path d={barPath} fill="#FFFFFF" stroke={colors.line} strokeWidth={1} />
         </Svg>
         <View style={styles.navRow}>
           {NAV_TABS.map(tab =>
@@ -386,19 +390,38 @@ export function BottomNav() {
 }
 
 /**
- * Centre "Support" tab — a raised Ruby portrait inside a gradient glow ring.
- * Tapping opens the Support sheet. While a voice session is live the ring pulses
- * and a green "online" dot appears, so the button reads as an active assistant.
+ * Centre "Support" tab — a raised Ruby portrait "ball" nested in the notch.
+ * Tapping starts the Ruby voice session directly (no sheet): while it's
+ * connecting a spinner ring runs around the ball and the label reads
+ * "Connecting…"; once connected the ring pulses and a green "online" dot shows.
+ * Tapping again ends the session.
  */
 function SupportTab() {
-  const { set } = useStore();
   const [status, setStatus] = useState<AgentStatus>('idle');
+  const [starting, setStarting] = useState(false);
+  const spin = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
-  useEffect(() => agent.on('statusChange', setStatus), []);
-  const online = status !== 'idle' && status !== 'ended';
 
+  useEffect(() => agent.on('statusChange', s => {
+    setStatus(s);
+    // Once the agent reports any live/terminal state, the local "starting" hop is over.
+    if (s !== 'idle') setStarting(false);
+  }), []);
+
+  const connecting = starting || status === 'connecting';
+  const live = status === 'listening' || status === 'speaking' || status === 'executingTool';
+
+  // Spinner ring while connecting.
   useEffect(() => {
-    if (!online) { glow.setValue(0); return undefined; }
+    if (!connecting) { spin.setValue(0); return undefined; }
+    const l = Animated.loop(Animated.timing(spin, { toValue: 1, duration: 850, easing: Easing.linear, useNativeDriver: true }));
+    l.start();
+    return () => l.stop();
+  }, [connecting, spin]);
+
+  // Pulse glow once connected/live.
+  useEffect(() => {
+    if (!live) { glow.setValue(0); return undefined; }
     const l = Animated.loop(
       Animated.sequence([
         Animated.timing(glow, { toValue: 1, duration: 1000, easing: Easing.out(Easing.quad), useNativeDriver: true }),
@@ -407,25 +430,40 @@ function SupportTab() {
     );
     l.start();
     return () => l.stop();
-  }, [online, glow]);
+  }, [live, glow]);
 
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] });
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
+  const onPress = () => {
+    if (live || connecting) {
+      agent.stop().catch(() => {});
+      setStarting(false);
+    } else {
+      setStarting(true);
+      agent.start().catch(() => setStarting(false));
+    }
+  };
+
   return (
-    <Pressable accessibilityLabel="Support" onPress={() => set({ supportOpen: true })} style={styles.navTab}>
+    <Pressable accessibilityLabel="Support" onPress={onPress} style={styles.navTab}>
       <View style={styles.supportWrap}>
-        {online ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
+        {live ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
+        {/* Connecting spinner — a rotating arc around the ball. */}
+        {connecting ? <Animated.View style={[styles.supportSpinner, { transform: [{ rotate }] }]} pointerEvents="none" /> : null}
         {/* Solid teal ring "ball" holding Ruby's portrait, nested in the notch. */}
         <View style={styles.supportRing}>
           <View style={styles.supportAvatar}>
             <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
           </View>
         </View>
-        {/* Online dot — always shown (AI support is available 24/7). */}
-        <View style={styles.supportDot} />
+        {/* Online dot — amber while connecting, green once live. */}
+        <View style={[styles.supportDot, { backgroundColor: live ? colors.green : connecting ? colors.amber : colors.green }]} />
       </View>
-      <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>Support</Text>
+      <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>
+        {connecting ? 'Connecting…' : live ? 'Listening…' : 'Support'}
+      </Text>
     </Pressable>
   );
 }
@@ -476,6 +514,16 @@ const styles = StyleSheet.create({
   // Centre Support "ball" — raised into the notch, solid teal ring + white gap.
   supportWrap: { width: 58, height: 58, marginTop: -34, alignItems: 'center', justifyContent: 'center' },
   supportGlow: { position: 'absolute', width: 58, height: 58, borderRadius: 29, backgroundColor: colors.mint },
+  supportSpinner: {
+    position: 'absolute',
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    borderWidth: 3,
+    borderColor: 'transparent',
+    borderTopColor: colors.primary,
+    borderRightColor: colors.primary,
+  },
   supportRing: {
     width: 58,
     height: 58,

@@ -219,7 +219,7 @@ export default function Profile() {
             </View>
             <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{t.memberBadge}</Text>
           </View>
-          <Pressable onPress={() => showToast(t.tSoon)} style={styles.editIcon}><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
+          <Pressable onPress={() => set({ pdEdit: true })} style={styles.editIcon} accessibilityLabel="Edit profile"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
         </View>
         <View style={styles.statsRow}>
           <View style={{ flex: 1 }}>

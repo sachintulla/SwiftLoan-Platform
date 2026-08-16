@@ -10,7 +10,6 @@ import Router from './src/Router';
 import ContextBanner from './src/components/ContextBanner';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
-import SupportSheet from './src/voice/ui/SupportSheet';
 
 // Voice FAB visibility. Enabled for the TestFlight build.
 const SHOW_VOICE_FAB = true;
@@ -42,7 +41,6 @@ export default function App() {
         <Router />
         <ContextBanner />
         {SHOW_VOICE_FAB && <VoiceWidget />}
-        <SupportSheet />
         <ConfirmationSheet />
         <BackHandlerBridge />
       </StoreProvider>

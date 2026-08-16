@@ -9,6 +9,7 @@ import { colors, font, rupee } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api, isAuthed } from '../api/client';
 
+const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 const TYPE_ICON: Record<string, string> = {
   personal: 'bolt', business: 'business_center', home: 'home', education: 'school', vehicle: 'directions_car',
 };
@@ -30,18 +31,24 @@ export default function Loans() {
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
+  const [score, setScore] = useState<number | null>(null);
+  const [hasOffers, setHasOffers] = useState(false);
 
   const load = useCallback(async () => {
     if (!isAuthed()) { setLoading(false); return; }
     setErr(null); setLoading(true);
     try {
       const { applications }: any = await api.listApplications();
-      setApps(applications || []);
+      const list = applications || [];
+      setApps(list);
+      // A real CIBIL score is only meaningful once offers have been pulled (soft check).
+      setHasOffers(list.some((a: any) => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)));
     } catch (e: any) {
       setErr(e?.message || 'Could not load your loans.');
     } finally {
       setLoading(false);
     }
+    api.creditScore().then((r: any) => setScore(r?.score ?? null)).catch(() => setScore(null));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -52,11 +59,29 @@ export default function Loans() {
 
   return (
     <Screen scroll bottomNav padded>
-      <View style={{ marginTop: 8 }}>
-        <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text }]}>My Loans</Text>
-        <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 2 }]}>
-          Track your applications and manage active loans.
-        </Text>
+      <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text }]}>My Loans</Text>
+          <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 2 }]}>
+            Track your applications and manage active loans.
+          </Text>
+        </View>
+        {/* CIBIL score chip. Real score once offers are pulled → tap opens the
+            score screen; otherwise it nudges the user to get offers first. */}
+        {hasOffers && score != null ? (
+          <Pressable onPress={() => go('creditscore')} style={styles.scoreChip} accessibilityLabel="View CIBIL score">
+            <Icon name="speed" size={16} color={colors.primary} />
+            <View>
+              <Text style={[font(500), { fontSize: 9.5, color: colors.textSoft }]}>CIBIL</Text>
+              <Text style={[font(800), { fontSize: 15, color: colors.text, marginTop: -1 }]}>{score}</Text>
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable onPress={() => go('fare')} style={styles.scoreChipGhost} accessibilityLabel="Get your CIBIL score">
+            <Icon name="speed" size={15} color={colors.primary} />
+            <Text style={[font(600), { fontSize: 11, color: colors.primary, maxWidth: 92 }]}>Get real CIBIL score</Text>
+          </Pressable>
+        )}
       </View>
 
       <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 20, marginBottom: 12 }]}>Your applications</Text>
@@ -155,6 +180,16 @@ function AppCard({
 }
 
 const styles = StyleSheet.create({
+  scoreChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: colors.chip, borderRadius: 14, borderWidth: 1, borderColor: colors.line,
+    paddingVertical: 6, paddingHorizontal: 12,
+  },
+  scoreChipGhost: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: colors.chip, borderRadius: 14, borderWidth: 1, borderColor: colors.line,
+    paddingVertical: 8, paddingHorizontal: 12,
+  },
   applyCard: {
     flexDirection: 'row',
     alignItems: 'center',
