@@ -318,7 +318,7 @@ export function AppHeader({
 type TabDef = { key: ScreenName | 'support'; icon: string; label: string };
 const NAV_TABS: TabDef[] = [
   { key: 'home', icon: 'home', label: 'Home' },
-  { key: 'fare', icon: 'local_offer', label: 'Offers' },
+  { key: 'fare', icon: 'local_offer', label: 'My Offers' },
   { key: 'support', icon: 'support_agent', label: 'Support' },
   { key: 'loans', icon: 'description', label: 'My Loans' },
   { key: 'profile', icon: 'person', label: 'Profile' },
