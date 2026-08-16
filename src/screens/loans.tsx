@@ -59,25 +59,27 @@ export default function Loans() {
         </Text>
       </View>
 
-      {/* Apply CTA */}
-      <Pressable onPress={() => go('basicpan')} style={styles.applyCard}>
-        <View style={styles.applyIcon}>
-          <Icon name="add" size={24} color="#fff" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[font(700), { fontSize: 15.5, color: colors.text }]}>Apply for a new loan</Text>
-          <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>Check eligibility in ~2 minutes</Text>
-        </View>
-        <Icon name="arrow_forward" size={20} color={colors.primary} />
-      </Pressable>
-
-      <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 26, marginBottom: 12 }]}>Your applications</Text>
+      <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 20, marginBottom: 12 }]}>Your applications</Text>
       {loading ? (
         <Loading label="Loading your loans…" />
       ) : err ? (
         <ErrorState message={err} onRetry={load} />
       ) : apps.length === 0 ? (
-        <Empty icon="account_balance_wallet" title="No applications yet" message="Apply for a loan above to see it tracked here." />
+        // Tracking-only screen: the single "Apply" entry lives on the Offers tab.
+        // When there's nothing to track, offer a shortcut into that flow.
+        <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+          <Empty icon="account_balance_wallet" title="No applications yet" message="Check your offers to apply — your applications will show up here to track." />
+          <Pressable onPress={() => go('fare')} style={styles.applyCard}>
+            <View style={styles.applyIcon}>
+              <Icon name="local_offer" size={22} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[font(700), { fontSize: 15.5, color: colors.text }]}>Check offers & apply</Text>
+              <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>See your credit score and eligibility</Text>
+            </View>
+            <Icon name="arrow_forward" size={20} color={colors.primary} />
+          </Pressable>
+        </View>
       ) : (
         <View style={{ gap: 12 }}>
           {apps.map(app => {

@@ -88,7 +88,7 @@ export default function Offers() {
       </View>
 
       {/* Existing offers for this user/PAN — jump straight in. */}
-      {hasOffers ? (
+      {hasOffers && (
         <Pressable onPress={() => go('offers')} style={styles.offersCard}>
           <View style={styles.offersIcon}><Icon name="local_offer" size={22} color="#fff" /></View>
           <View style={{ flex: 1 }}>
@@ -97,16 +97,16 @@ export default function Offers() {
           </View>
           <Icon name="arrow_forward" size={20} color={colors.primary} />
         </Pressable>
-      ) : (
-        // No offers yet — clear apply CTA on top of the credit-score view.
-        <View style={styles.applyCard}>
-          <Text style={[font(700), { fontSize: 15, color: colors.text }]}>No offers yet</Text>
-          <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 3, marginBottom: 12 }]}>
-            Check your eligibility in ~2 minutes — it won't affect your credit score.
-          </Text>
-          <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basicpan')} />
-        </View>
       )}
+
+      {/* The single "Apply for a loan" entry point — always visible here. */}
+      <View style={styles.applyCard}>
+        <Text style={[font(700), { fontSize: 15, color: colors.text }]}>{hasOffers ? 'Want a different loan?' : 'No offers yet'}</Text>
+        <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 3, marginBottom: 12 }]}>
+          Check your eligibility in ~2 minutes — it won't affect your credit score.
+        </Text>
+        <PrimaryButton label={hasOffers ? 'Apply for a new loan' : 'Apply for a loan'} icon="arrow_forward" onPress={() => go('basicpan')} />
+      </View>
 
       {/* Loan calculator */}
       <View style={{ marginTop: 22, marginBottom: 10 }}>

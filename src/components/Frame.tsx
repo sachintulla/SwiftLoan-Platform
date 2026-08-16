@@ -16,10 +16,10 @@ import {
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
-import { colors, font, heroGradient, navGradient } from '../theme/tokens';
+import { colors, font, heroGradient } from '../theme/tokens';
 import { useStore, Screen as ScreenName } from '../state/store';
 import { publishScreenGraph, registerTarget } from '../voice/actionRegistry';
 
@@ -337,6 +337,28 @@ function NavTab({ tab, active, onPress }: { tab: TabDef; active: boolean; onPres
 export function BottomNav() {
   const { state, go } = useStore();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+
+  // Bar shape: a rounded white bar with a smooth concave notch scooped out of the
+  // top-centre, which the raised Support "ball" nests into.
+  const W = width - 24; // navWrap has 12px padding each side
+  const H = 66;
+  const cornerR = 26;
+  const notchR = 40;
+  const cx = W / 2;
+  const barPath =
+    `M0 ${cornerR}` +
+    ` Q0 0 ${cornerR} 0` +
+    ` L ${cx - notchR - 8} 0` +
+    ` C ${cx - notchR + 6} 0 ${cx - notchR + 4} ${notchR * 0.86} ${cx} ${notchR * 0.86}` +
+    ` C ${cx + notchR - 4} ${notchR * 0.86} ${cx + notchR - 6} 0 ${cx + notchR + 8} 0` +
+    ` L ${W - cornerR} 0` +
+    ` Q ${W} 0 ${W} ${cornerR}` +
+    ` L ${W} ${H - cornerR}` +
+    ` Q ${W} ${H} ${W - cornerR} ${H}` +
+    ` L ${cornerR} ${H}` +
+    ` Q 0 ${H} 0 ${H - cornerR}` +
+    ` Z`;
 
   useEffect(() => {
     const cleanups = NAV_TABS.filter(t => t.key !== 'support').map(tab =>
@@ -347,12 +369,17 @@ export function BottomNav() {
 
   return (
     <View style={[styles.navWrap, { paddingBottom: insets.bottom || 14 }]} pointerEvents="box-none">
-      <View style={styles.navBar}>
-        {NAV_TABS.map(tab =>
-          tab.key === 'support'
-            ? <SupportTab key="support" />
-            : <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key as ScreenName)} />,
-        )}
+      <View style={{ width: W, height: H }}>
+        <Svg width={W} height={H} style={[StyleSheet.absoluteFill, styles.navShadow]}>
+          <Path d={barPath} fill="#FFFFFF" />
+        </Svg>
+        <View style={styles.navRow}>
+          {NAV_TABS.map(tab =>
+            tab.key === 'support'
+              ? <SupportTab key="support" />
+              : <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key as ScreenName)} />,
+          )}
+        </View>
       </View>
     </View>
   );
@@ -388,14 +415,13 @@ function SupportTab() {
   return (
     <Pressable accessibilityLabel="Support" onPress={() => set({ supportOpen: true })} style={styles.navTab}>
       <View style={styles.supportWrap}>
-        {/* Soft green "gradient glow" halo — always present, matching the design. */}
-        <View style={styles.supportHalo} pointerEvents="none" />
         {online ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
-        <LinearGradient colors={navGradient as unknown as string[]} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.supportRing}>
+        {/* Solid teal ring "ball" holding Ruby's portrait, nested in the notch. */}
+        <View style={styles.supportRing}>
           <View style={styles.supportAvatar}>
             <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
           </View>
-        </LinearGradient>
+        </View>
         {/* Online dot — always shown (AI support is available 24/7). */}
         <View style={styles.supportDot} />
       </View>
@@ -437,44 +463,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
   },
-  navBar: {
-    flexDirection: 'row',
-    width: '100%',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.97)',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.lineSoft,
-    paddingVertical: 9,
-    paddingHorizontal: 6,
+  // Soft shadow for the notched SVG bar (follows the shape's alpha on iOS).
+  navShadow: {
     shadowColor: '#143C3A',
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
   },
+  navRow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', paddingBottom: 9 },
   navTab: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  // Centre Support avatar — raised above the bar with a gradient glow ring.
-  supportWrap: { width: 54, height: 54, marginTop: -26, alignItems: 'center', justifyContent: 'center' },
-  supportHalo: { position: 'absolute', width: 66, height: 66, borderRadius: 33, backgroundColor: colors.mint, opacity: 0.18 },
-  supportGlow: { position: 'absolute', width: 54, height: 54, borderRadius: 27, backgroundColor: colors.mint },
+  // Centre Support "ball" — raised into the notch, solid teal ring + white gap.
+  supportWrap: { width: 58, height: 58, marginTop: -34, alignItems: 'center', justifyContent: 'center' },
+  supportGlow: { position: 'absolute', width: 58, height: 58, borderRadius: 29, backgroundColor: colors.mint },
   supportRing: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     padding: 3,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#fff',
+    backgroundColor: colors.primary,
     shadowColor: '#0A3F41',
-    shadowOpacity: 0.28,
-    shadowRadius: 9,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 8,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 9,
   },
-  supportAvatar: { width: '100%', height: '100%', borderRadius: 22, overflow: 'hidden', backgroundColor: colors.chip },
+  supportAvatar: { width: '100%', height: '100%', borderRadius: 25, overflow: 'hidden', borderWidth: 2.5, borderColor: '#fff', backgroundColor: colors.chip },
   rubyImg: { width: '100%', height: '100%' },
   supportDot: {
     position: 'absolute',
