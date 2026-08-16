@@ -16,7 +16,7 @@ import {
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient, navGradient } from '../theme/tokens';
@@ -312,23 +312,24 @@ export function AppHeader({
 /* ─────────────────────────────────────────────────────────────
  * Bottom tab nav — Home / Loans / Profile, floating glass pill.
  * ───────────────────────────────────────────────────────────── */
-// Labelled tabs sit either side of the centred Ruby FAB: Home + Offers on the
-// left, Profile on the right. ("Offers" opens the existing calculator/fare screen.)
-const LEFT_TABS: { key: ScreenName; icon: string; label: string }[] = [
+// Bottom tab bar: Home · Offers · Support (centre, raised Ruby avatar) · My Loans
+// · Profile. "Offers" opens the loan calculator (fare); "My Loans" the loans list;
+// "Support" opens the Ruby help sheet (store.supportOpen).
+type TabDef = { key: ScreenName | 'support'; icon: string; label: string };
+const NAV_TABS: TabDef[] = [
   { key: 'home', icon: 'home', label: 'Home' },
   { key: 'fare', icon: 'local_offer', label: 'Offers' },
-];
-const RIGHT_TABS: { key: ScreenName; icon: string; label: string }[] = [
+  { key: 'support', icon: 'support_agent', label: 'Support' },
+  { key: 'loans', icon: 'description', label: 'My Loans' },
   { key: 'profile', icon: 'person', label: 'Profile' },
 ];
-const ALL_NAV_TABS = [...LEFT_TABS, ...RIGHT_TABS];
 
-function NavTab({ tab, active, onPress }: { tab: { key: ScreenName; icon: string; label: string }; active: boolean; onPress: () => void }) {
+function NavTab({ tab, active, onPress }: { tab: TabDef; active: boolean; onPress: () => void }) {
   const tint = active ? colors.primary : colors.muted;
   return (
     <Pressable accessibilityLabel={tab.label} onPress={onPress} style={styles.navTab}>
-      <Icon name={tab.icon} size={23} color={tint} />
-      <Text style={[font(active ? 700 : 500), { fontSize: 11, color: tint, marginTop: 2 }]}>{tab.label}</Text>
+      <Icon name={tab.icon} size={22} color={tint} />
+      <Text style={[font(active ? 700 : 500), { fontSize: 10.5, color: tint, marginTop: 3 }]}>{tab.label}</Text>
     </Pressable>
   );
 }
@@ -336,137 +337,68 @@ function NavTab({ tab, active, onPress }: { tab: { key: ScreenName; icon: string
 export function BottomNav() {
   const { state, go } = useStore();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
 
-  // Bar geometry — the SVG path carves a top-centre notch the Ruby FAB nests in.
-  const W = width - 32; // navWrap has 16px padding each side
-  const H = 64;
-  const cornerR = 26;
-  const notchR = 42; // a touch wider than the FAB so there's a clean gap around it
-  const cx = W / 2;
-  const notchPath =
-    `M0 ${cornerR}` +
-    ` Q0 0 ${cornerR} 0` +
-    ` L ${cx - notchR} 0` +
-    ` A ${notchR} ${notchR} 0 0 0 ${cx + notchR} 0` +
-    ` L ${W - cornerR} 0` +
-    ` Q ${W} 0 ${W} ${cornerR}` +
-    ` L ${W} ${H - cornerR}` +
-    ` Q ${W} ${H} ${W - cornerR} ${H}` +
-    ` L ${cornerR} ${H}` +
-    ` Q 0 ${H} 0 ${H - cornerR}` +
-    ` Z`;
-
-  // BottomNav is a sibling of <Screen>'s children, so the screen-graph walk never
-  // sees it. Self-register the tabs so voice can "tap Home/Offers/Profile".
   useEffect(() => {
-    const cleanups = ALL_NAV_TABS.map(tab =>
-      registerTarget(state.screen, `nav:${tab.key}`, { kind: 'button', label: tab.label, onTap: () => go(tab.key) }),
+    const cleanups = NAV_TABS.filter(t => t.key !== 'support').map(tab =>
+      registerTarget(state.screen, `nav:${tab.key}`, { kind: 'button', label: tab.label, onTap: () => go(tab.key as ScreenName) }),
     );
     return () => cleanups.forEach(fn => fn());
   }, [state.screen, go]);
 
   return (
-    <View style={[styles.navWrap, { paddingBottom: insets.bottom || 16 }]} pointerEvents="box-none">
-      <View style={{ width: W, height: H }}>
-        <Svg width={W} height={H} style={StyleSheet.absoluteFill}>
-          <Path d={notchPath} fill="rgba(255,255,255,0.96)" stroke="rgba(255,255,255,0.7)" strokeWidth={1} />
-        </Svg>
-
-        <View style={styles.navRow}>
-          <View style={styles.navGroup}>
-            {LEFT_TABS.map(tab => (
-              <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key)} />
-            ))}
-          </View>
-          <View style={{ width: notchR * 2 }} />
-          <View style={styles.navGroup}>
-            {RIGHT_TABS.map(tab => (
-              <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key)} />
-            ))}
-          </View>
-        </View>
-
-        <RubyNotchFab centerX={cx} />
+    <View style={[styles.navWrap, { paddingBottom: insets.bottom || 14 }]} pointerEvents="box-none">
+      <View style={styles.navBar}>
+        {NAV_TABS.map(tab =>
+          tab.key === 'support'
+            ? <SupportTab key="support" />
+            : <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key as ScreenName)} />,
+        )}
       </View>
     </View>
   );
 }
 
 /**
- * Ruby voice FAB that nests in the tab-bar notch. Idle it shows a headphones
- * icon; tapping starts the voice session and Ruby's portrait "peeks" up out of
- * the notch with a spring, fading the headphones out. Tap again to stop and she
- * ducks back down. A pulse ring + breathing scale signal she's live.
+ * Centre "Support" tab — a raised Ruby portrait inside a gradient glow ring.
+ * Tapping opens the Support sheet. While a voice session is live the ring pulses
+ * and a green "online" dot appears, so the button reads as an active assistant.
  */
-function RubyNotchFab({ centerX }: { centerX: number }) {
+function SupportTab() {
+  const { state, set } = useStore();
   const [status, setStatus] = useState<AgentStatus>('idle');
-  const peek = useRef(new Animated.Value(0)).current; // 0 idle → 1 live
-  const pulse = useRef(new Animated.Value(0)).current;
-  const breathe = useRef(new Animated.Value(0)).current;
-
+  const glow = useRef(new Animated.Value(0)).current;
   useEffect(() => agent.on('statusChange', setStatus), []);
-
-  const live = status === 'connecting' || status === 'listening' || status === 'speaking' || status === 'executingTool';
+  const online = status !== 'idle' && status !== 'ended';
 
   useEffect(() => {
-    Animated.spring(peek, { toValue: live ? 1 : 0, useNativeDriver: true, friction: 6, tension: 70 }).start();
-    if (!live) { pulse.setValue(0); breathe.setValue(0); return; }
-    const p = Animated.loop(
+    if (!online) { glow.setValue(0); return undefined; }
+    const l = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 1, duration: 1000, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 0, useNativeDriver: true }),
       ]),
     );
-    const b = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 0, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    p.start(); b.start();
-    return () => { p.stop(); b.stop(); };
-  }, [live, peek, pulse, breathe]);
+    l.start();
+    return () => l.stop();
+  }, [online, glow]);
 
-  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
-  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
-  const breatheScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
-  const avatarTranslate = peek.interpolate({ inputRange: [0, 1], outputRange: [8, -52] });
-  const avatarScale = peek.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
-  const avatarOpacity = peek.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0.2, 1] });
-  const hpOpacity = peek.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-
-  const onPress = () => {
-    if (live) agent.stop().catch(() => {});
-    else agent.start().catch(() => {});
-  };
+  const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] });
+  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
+  const activeTint = state.supportOpen || online;
 
   return (
-    <View style={[styles.fabWrap, { left: centerX - 37 }]} pointerEvents="box-none">
-      {/* Ruby's portrait — hidden behind the FAB at idle, springs up when live. */}
-      <Animated.View
-        style={[styles.peekAvatar, { opacity: avatarOpacity, transform: [{ translateY: avatarTranslate }, { scale: Animated.multiply(avatarScale, breatheScale) }] }]}
-        pointerEvents="none"
-      >
-        <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
-      </Animated.View>
-
-      {/* Pulse ring while live. */}
-      {live ? <Animated.View style={[styles.fabPulse, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} pointerEvents="none" /> : null}
-
-      <Pressable accessibilityLabel="Talk to Ruby" onPress={onPress}>
-        <LinearGradient
-          colors={navGradient as unknown as string[]}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={styles.notchFab}
-        >
-          <Animated.View style={{ opacity: hpOpacity }}>
-            <Icon name="headset_mic" size={27} color="#fff" />
-          </Animated.View>
+    <Pressable accessibilityLabel="Support" onPress={() => set({ supportOpen: true })} style={styles.navTab}>
+      <View style={styles.supportWrap}>
+        {online ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
+        <LinearGradient colors={navGradient as unknown as string[]} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.supportRing}>
+          <View style={styles.supportAvatar}>
+            <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
+          </View>
         </LinearGradient>
-      </Pressable>
-    </View>
+        {online ? <View style={styles.supportDot} /> : null}
+      </View>
+      <Text style={[font(activeTint ? 700 : 500), { fontSize: 10.5, color: activeTint ? colors.primary : colors.muted, marginTop: 3 }]}>Support</Text>
+    </Pressable>
   );
 }
 
@@ -501,41 +433,57 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
-  // The notched bar is drawn by the SVG <Path>; this shadow lifts the whole bar.
-  navRow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center' },
-  navGroup: { flex: 1, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
-  navTab: { alignItems: 'center', justifyContent: 'center', paddingVertical: 6, minWidth: 56 },
-  // Ruby FAB, lifted into the notch at the top-centre of the bar.
-  fabWrap: { position: 'absolute', top: -24, width: 74, alignItems: 'center' },
-  notchFab: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: '#fff',
-    shadowColor: '#0A3F41',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 9,
+  navBar: {
+    flexDirection: 'row',
+    width: '100%',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.97)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.lineSoft,
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    shadowColor: '#143C3A',
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 10,
   },
-  peekAvatar: {
-    position: 'absolute',
-    top: 0,
+  navTab: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+  // Centre Support avatar — raised above the bar with a gradient glow ring.
+  supportWrap: { width: 54, height: 54, marginTop: -26, alignItems: 'center', justifyContent: 'center' },
+  supportGlow: { position: 'absolute', width: 54, height: 54, borderRadius: 27, backgroundColor: colors.mint },
+  supportRing: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    overflow: 'hidden',
+    padding: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 3,
     borderColor: '#fff',
-    backgroundColor: '#E1F3F3',
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.28,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
   },
+  supportAvatar: { width: '100%', height: '100%', borderRadius: 22, overflow: 'hidden', backgroundColor: colors.chip },
   rubyImg: { width: '100%', height: '100%' },
-  fabPulse: { position: 'absolute', top: 0, width: 60, height: 60, borderRadius: 30, backgroundColor: colors.mint },
+  supportDot: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: colors.green,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
   toastWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
   toast: {
     flexDirection: 'row',

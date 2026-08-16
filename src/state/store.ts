@@ -56,6 +56,7 @@ export interface AppState {
   lang: string | null; // null until chosen; effective default 'en'
   selectedLang: string | null;
   privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
+  supportOpen: boolean; // the tab-bar Support (Ruby) bottom-sheet is showing
   toast: string;
   notif: { loan: boolean; security: boolean; promo: boolean };
   // mobile / otp
@@ -124,6 +125,7 @@ export const initialState: AppState = {
   lang: null,
   selectedLang: null,
   privacyAccepted: false,
+  supportOpen: false,
   toast: '',
   notif: { loan: true, security: true, promo: false },
   mobileVal: '',
