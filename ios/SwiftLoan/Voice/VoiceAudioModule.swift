@@ -33,7 +33,7 @@ class VoiceAudioModule: RCTEventEmitter {
   private let audioQueue = DispatchQueue(label: "com.swiftloan.voiceaudio")
 
   override static func requiresMainQueueSetup() -> Bool { true }
-  override func supportedEvents() -> [String]! { ["onAudioChunk"] }
+  override func supportedEvents() -> [String]! { ["onAudioChunk", "onAudioLevel"] }
   override func startObserving() { hasListeners = true }
   override func stopObserving() { hasListeners = false }
 
@@ -117,13 +117,24 @@ class VoiceAudioModule: RCTEventEmitter {
           let buffer = AVAudioPCMBuffer(pcmFormat: playbackFormat, frameCapacity: frameCount),
           let out = buffer.floatChannelData?[0] else { return }
     buffer.frameLength = frameCount
-    // Convert interleaved PCM16 → Float32 (-1.0...1.0) into the playback buffer.
+    // Convert interleaved PCM16 → Float32 (-1.0...1.0) into the playback buffer,
+    // accumulating energy so we can emit a normalised "speaking" level to JS
+    // (drives the on-device talking animation — no external lip-sync service).
+    var sumSq: Float = 0
     data.withUnsafeBytes { raw in
       if let base = raw.bindMemory(to: Int16.self).baseAddress {
         for i in 0..<Int(frameCount) {
-          out[i] = Float(base[i]) / 32768.0
+          let s = Float(base[i]) / 32768.0
+          out[i] = s
+          sumSq += s * s
         }
       }
+    }
+    if hasListeners, frameCount > 0 {
+      let rms = (sumSq / Float(frameCount)).squareRoot()
+      // Speech RMS is small; scale up and clamp to 0…1 for a lively mouth.
+      let level = min(1.0, rms * 3.2)
+      sendEvent(withName: "onAudioLevel", body: ["level": level])
     }
 
     // Playback may begin before/without capture, so make sure the session is
@@ -156,6 +167,7 @@ class VoiceAudioModule: RCTEventEmitter {
   @objc func purgePlayback() {
     audioQueue.async { [weak self] in
       self?.playerNode.stop()
+      if self?.hasListeners == true { self?.sendEvent(withName: "onAudioLevel", body: ["level": 0]) }
     }
   }
 

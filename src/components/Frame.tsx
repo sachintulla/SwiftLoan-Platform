@@ -30,6 +30,7 @@ export function scrollDelta(amount: 'small' | 'page', direction: 'up' | 'down' =
 }
 import { buildScreenGraph } from '../voice/screenGraph';
 import { agent } from '../voice';
+import { onAudioLevel } from '../voice/audio/nativeAudioBridge';
 import { vlog } from '../voice/log';
 
 /* ─────────────────────────────────────────────────────────────
@@ -412,6 +413,15 @@ function SupportTab() {
   const live = status === 'listening' || status === 'speaking' || status === 'executingTool';
   const online = connecting || live;
 
+  // Talking motion driven by Ruby's live playback loudness (0…1) — a gentle
+  // scale + bob so the avatar visibly "speaks" in sync with her voice, on-device.
+  const mouth = useRef(new Animated.Value(0)).current;
+  useEffect(() => onAudioLevel(l => {
+    Animated.timing(mouth, { toValue: l, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  }), [mouth]);
+  const talkScale = mouth.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
+  const talkBob = mouth.interpolate({ inputRange: [0, 1], outputRange: [0, -2.5] });
+
   // Spinner ring while connecting.
   useEffect(() => {
     if (!connecting) { spin.setValue(0); return undefined; }
@@ -453,10 +463,11 @@ function SupportTab() {
         {live ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
         {/* Connecting spinner — a rotating arc around the avatar. */}
         {connecting ? <Animated.View style={[styles.supportSpinner, { transform: [{ rotate }] }]} pointerEvents="none" /> : null}
-        {/* Borderless portrait, nested in the notch — the agent reads clearly. */}
-        <View style={styles.supportAvatar}>
+        {/* Borderless portrait, nested in the notch — the agent reads clearly.
+            Scales/bobs with her voice while speaking (audio-driven talking motion). */}
+        <Animated.View style={[styles.supportAvatar, { transform: [{ scale: talkScale }, { translateY: talkBob }] }]}>
           <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
-        </View>
+        </Animated.View>
         {/* Online dot — only while a session is active. */}
         {online ? <View style={[styles.supportDot, { backgroundColor: live ? colors.green : colors.amber }]} /> : null}
       </View>

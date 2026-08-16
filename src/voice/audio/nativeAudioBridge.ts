@@ -9,6 +9,17 @@ import { vlog } from '../log';
 const { VoiceAudioModule } = NativeModules as { VoiceAudioModule?: any };
 const emitter = VoiceAudioModule ? new NativeEventEmitter(VoiceAudioModule) : null;
 
+/**
+ * Subscribe to the agent's live playback loudness (0…1), emitted per PCM chunk
+ * while Ruby is speaking. Drives the on-device "talking" animation of the
+ * Support avatar — no external lip-sync service. Returns an unsubscribe fn.
+ */
+export function onAudioLevel(cb: (level: number) => void): () => void {
+  if (!emitter) return () => undefined;
+  const sub = emitter.addListener('onAudioLevel', (e: { level?: number }) => cb(e?.level ?? 0));
+  return () => sub.remove();
+}
+
 async function ensureMicPermission(): Promise<boolean> {
   if (Platform.OS === 'android') {
     const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
