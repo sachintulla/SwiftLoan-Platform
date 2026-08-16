@@ -344,7 +344,7 @@ export function BottomNav() {
   const W = width - 24; // navWrap has 12px padding each side
   const H = 66;
   const cornerR = 26;
-  const notchR = 40;
+  const notchR = 46;
   const cx = W / 2;
   const barPath =
     `M0 ${cornerR}` +
@@ -410,6 +410,7 @@ function SupportTab() {
 
   const connecting = starting || status === 'connecting';
   const live = status === 'listening' || status === 'speaking' || status === 'executingTool';
+  const online = connecting || live;
 
   // Spinner ring while connecting.
   useEffect(() => {
@@ -450,16 +451,14 @@ function SupportTab() {
     <Pressable accessibilityLabel="Support" onPress={onPress} style={styles.navTab}>
       <View style={styles.supportWrap}>
         {live ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
-        {/* Connecting spinner — a rotating arc around the ball. */}
+        {/* Connecting spinner — a rotating arc around the avatar. */}
         {connecting ? <Animated.View style={[styles.supportSpinner, { transform: [{ rotate }] }]} pointerEvents="none" /> : null}
-        {/* Solid teal ring "ball" holding Ruby's portrait, nested in the notch. */}
-        <View style={styles.supportRing}>
-          <View style={styles.supportAvatar}>
-            <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
-          </View>
+        {/* Borderless portrait, nested in the notch — the agent reads clearly. */}
+        <View style={styles.supportAvatar}>
+          <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
         </View>
-        {/* Online dot — amber while connecting, green once live. */}
-        <View style={[styles.supportDot, { backgroundColor: live ? colors.green : connecting ? colors.amber : colors.green }]} />
+        {/* Online dot — only while a session is active. */}
+        {online ? <View style={[styles.supportDot, { backgroundColor: live ? colors.green : colors.amber }]} /> : null}
       </View>
       <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>
         {connecting ? 'Connecting…' : live ? 'Listening…' : 'Support'}
@@ -511,44 +510,43 @@ const styles = StyleSheet.create({
   },
   navRow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', paddingBottom: 9 },
   navTab: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  // Centre Support "ball" — raised into the notch, solid teal ring + white gap.
-  supportWrap: { width: 58, height: 58, marginTop: -34, alignItems: 'center', justifyContent: 'center' },
-  supportGlow: { position: 'absolute', width: 58, height: 58, borderRadius: 29, backgroundColor: colors.mint },
+  // Centre Support avatar — a large, borderless portrait raised into the notch.
+  supportWrap: { width: 70, height: 70, marginTop: -42, alignItems: 'center', justifyContent: 'center' },
+  supportGlow: { position: 'absolute', width: 70, height: 70, borderRadius: 35, backgroundColor: colors.mint },
   supportSpinner: {
     position: 'absolute',
-    width: 66,
-    height: 66,
-    borderRadius: 33,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
     borderWidth: 3,
     borderColor: 'transparent',
     borderTopColor: colors.primary,
     borderRightColor: colors.primary,
   },
-  supportRing: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    padding: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
+  supportAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: '#fff',
+    backgroundColor: colors.chip,
     shadowColor: '#0A3F41',
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.28,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
     elevation: 9,
   },
-  supportAvatar: { width: '100%', height: '100%', borderRadius: 25, overflow: 'hidden', borderWidth: 2.5, borderColor: '#fff', backgroundColor: colors.chip },
   rubyImg: { width: '100%', height: '100%' },
   supportDot: {
     position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 13,
-    height: 13,
+    right: 4,
+    bottom: 4,
+    width: 14,
+    height: 14,
     borderRadius: 7,
     backgroundColor: colors.green,
-    borderWidth: 2,
+    borderWidth: 2.5,
     borderColor: '#fff',
   },
   toastWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
