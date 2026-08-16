@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from '../../components/Icon';
@@ -299,12 +299,12 @@ export default function VoiceWidget() {
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
           <Animated.View style={[styles.fabRing, { transform: [{ scale: pulse }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
-              {showBars ? (
-                <EqualizerBars color={accent} />
-              ) : active ? (
-                <Icon name="call_end" size={MIC_ICON_SIZE} color="#fff" />
+              {active ? (
+                // Same pattern as the tab-bar Ruby FAB: headphones at idle, and
+                // when the session is live Ruby's portrait takes over the circle.
+                <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabAvatar} resizeMode="cover" />
               ) : (
-                <RobotHead />
+                <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
               )}
             </LinearGradient>
           </Animated.View>
@@ -359,7 +359,9 @@ const styles = StyleSheet.create({
     borderRadius: (FAB_SIZE - 3) / 2,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  fabAvatar: { width: '100%', height: '100%', borderRadius: (FAB_SIZE - 3) / 2 },
   eqRow: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 22 },
   eqBar: { width: 3.5, borderRadius: 2 },
   robotFace: {

@@ -20,6 +20,17 @@ class VoiceAudioModule: RCTEventEmitter {
   private var isCapturing = false
   private var hasListeners = false
   private var playerAttached = false
+  // The converter + input tap are created ONCE and kept alive for the module's
+  // lifetime. Re-creating them per startCapture deallocated an AVAudioConverter
+  // that an in-flight tap callback (on the audio render thread) was still using —
+  // a use-after-free that crashed (SIGILL in AVAudioConverter dealloc) on rapid
+  // start/stop. Start/stop now only toggle the engine, never rebuild the graph.
+  private var isGraphSetup = false
+  // All AVAudioEngine mutations run on this serial queue so JS calls
+  // (startCapture / playChunk / stopCapture / purgePlayback) can never interleave
+  // with each other and race the engine — the cause of intermittent SIGABRTs on
+  // the RN TurboModule queue when the FAB is tapped/toggled quickly.
+  private let audioQueue = DispatchQueue(label: "com.swiftloan.voiceaudio")
 
   override static func requiresMainQueueSetup() -> Bool { true }
   override func supportedEvents() -> [String]! { ["onAudioChunk"] }
@@ -43,45 +54,63 @@ class VoiceAudioModule: RCTEventEmitter {
     playerAttached = true
   }
 
+  /// Builds the capture converter + input tap and attaches the player node —
+  /// exactly once, ever. Kept alive for the module's lifetime so start/stop never
+  /// deallocate an object the audio render thread might still be touching.
+  private func setupGraphIfNeeded() {
+    guard !isGraphSetup else { return }
+    let input = engine.inputNode
+    let inputFormat = input.outputFormat(forBus: 0)
+    converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+    input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+      self?.handleCapturedBuffer(buffer, inputFormat: inputFormat)
+    }
+    ensurePlayerAttached()
+    isGraphSetup = true
+  }
+
   @objc func startCapture(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-    do {
-      let session = AVAudioSession.sharedInstance()
-      try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
-      try session.setActive(true)
+    audioQueue.async { [weak self] in
+      guard let self = self else { return }
+      do {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setActive(true)
 
-      let input = engine.inputNode
-      let inputFormat = input.outputFormat(forBus: 0)
-      converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-
-      input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-        self?.handleCapturedBuffer(buffer, inputFormat: inputFormat)
+        self.setupGraphIfNeeded()
+        if !self.engine.isRunning {
+          self.engine.prepare()
+          try self.engine.start()
+        }
+        self.isCapturing = true
+        resolve(nil)
+      } catch {
+        reject("start_capture_failed", error.localizedDescription, error)
       }
-
-      // Wire the playback node into the graph up front, so the engine is started
-      // once with the full graph and playChunk never has to mutate a running engine.
-      ensurePlayerAttached()
-
-      if !engine.isRunning {
-        engine.prepare()
-        try engine.start()
-      }
-      isCapturing = true
-      resolve(nil)
-    } catch {
-      reject("start_capture_failed", error.localizedDescription, error)
     }
   }
 
   @objc func stopCapture() {
-    guard isCapturing else { return }
-    engine.inputNode.removeTap(onBus: 0)
-    isCapturing = false
-    if !playerNode.isPlaying {
-      engine.stop()
+    audioQueue.async { [weak self] in
+      guard let self = self, self.isCapturing else { return }
+      self.isCapturing = false
+      // Pause (don't stop/teardown) and leave the tap + converter installed — the
+      // tap callback drops chunks while !isCapturing. Only pause when Ruby isn't
+      // mid-playback, so stopping the mic doesn't cut off her voice.
+      if !self.playerNode.isPlaying {
+        self.engine.pause()
+      }
     }
   }
 
   @objc func playChunk(_ base64: String) {
+    audioQueue.async { [weak self] in
+      guard let self = self else { return }
+      self.playChunkImpl(base64)
+    }
+  }
+
+  private func playChunkImpl(_ base64: String) {
     guard let data = Data(base64Encoded: base64) else { return }
     let frameCount = UInt32(data.count / 2) // 16-bit samples
     guard frameCount > 0,
@@ -105,13 +134,8 @@ class VoiceAudioModule: RCTEventEmitter {
     }
     try? session.setActive(true)
 
-    // Configure the graph BEFORE (re)starting the engine — never attach/connect
-    // on an already-running engine (that path aborts in -[AVAudioPlayerNode play]).
-    let wasRunning = engine.isRunning
-    if !playerAttached {
-      if wasRunning { engine.stop() } // safe: we restart immediately below
-      ensurePlayerAttached()
-    }
+    // Ensure the graph exists (player attached) — set up once, never rebuilt.
+    setupGraphIfNeeded()
     if !engine.isRunning {
       engine.prepare()
       do {
@@ -130,7 +154,9 @@ class VoiceAudioModule: RCTEventEmitter {
   }
 
   @objc func purgePlayback() {
-    playerNode.stop()
+    audioQueue.async { [weak self] in
+      self?.playerNode.stop()
+    }
   }
 
   // NOTE: emits whatever the input tap + converter produce per callback rather
@@ -138,7 +164,9 @@ class VoiceAudioModule: RCTEventEmitter {
   // pass, and the backend just needs a continuous PCM16/16kHz mono stream, not
   // fixed-size frames. Revisit if the backend turns out to expect exact framing.
   private func handleCapturedBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
-    guard hasListeners, let converter = converter else { return }
+    // The tap stays installed for the module's lifetime; drop chunks whenever a
+    // session isn't actively capturing (paused between sessions).
+    guard isCapturing, hasListeners, let converter = converter else { return }
 
     let ratio = targetFormat.sampleRate / inputFormat.sampleRate
     let outCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
