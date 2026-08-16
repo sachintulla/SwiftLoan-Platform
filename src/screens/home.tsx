@@ -3,7 +3,6 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { MarketLoanOffers } from '../components/MarketLoanOffers';
-import { MyLoansSection } from '../components/MyLoansSection';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, isAuthed } from '../api/client';
@@ -118,10 +117,7 @@ export default function Home() {
         }}
       />
 
-      {/* Application status — the user's applications (moved onto the dashboard;
-          the Loans tab is now the Calculator). The heading is passed in so the
-          whole section hides when there are no applications (no bare header). */}
-      <MyLoansSection heading={<SectionHeading title={t.applicationStatus} />} />
+      {/* Application status now lives in the "My Loans" tab, not the dashboard. */}
 
       {/* Learn */}
       <SectionHeading title={t.learnTitle} />

@@ -364,7 +364,7 @@ export function BottomNav() {
  * and a green "online" dot appears, so the button reads as an active assistant.
  */
 function SupportTab() {
-  const { state, set } = useStore();
+  const { set } = useStore();
   const [status, setStatus] = useState<AgentStatus>('idle');
   const glow = useRef(new Animated.Value(0)).current;
   useEffect(() => agent.on('statusChange', setStatus), []);
@@ -383,21 +383,23 @@ function SupportTab() {
   }, [online, glow]);
 
   const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] });
-  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
-  const activeTint = state.supportOpen || online;
+  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
   return (
     <Pressable accessibilityLabel="Support" onPress={() => set({ supportOpen: true })} style={styles.navTab}>
       <View style={styles.supportWrap}>
+        {/* Soft green "gradient glow" halo — always present, matching the design. */}
+        <View style={styles.supportHalo} pointerEvents="none" />
         {online ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
         <LinearGradient colors={navGradient as unknown as string[]} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.supportRing}>
           <View style={styles.supportAvatar}>
             <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
           </View>
         </LinearGradient>
-        {online ? <View style={styles.supportDot} /> : null}
+        {/* Online dot — always shown (AI support is available 24/7). */}
+        <View style={styles.supportDot} />
       </View>
-      <Text style={[font(activeTint ? 700 : 500), { fontSize: 10.5, color: activeTint ? colors.primary : colors.muted, marginTop: 3 }]}>Support</Text>
+      <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>Support</Text>
     </Pressable>
   );
 }
@@ -455,6 +457,7 @@ const styles = StyleSheet.create({
   navTab: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   // Centre Support avatar — raised above the bar with a gradient glow ring.
   supportWrap: { width: 54, height: 54, marginTop: -26, alignItems: 'center', justifyContent: 'center' },
+  supportHalo: { position: 'absolute', width: 66, height: 66, borderRadius: 33, backgroundColor: colors.mint, opacity: 0.18 },
   supportGlow: { position: 'absolute', width: 54, height: 54, borderRadius: 27, backgroundColor: colors.mint },
   supportRing: {
     width: 54,
