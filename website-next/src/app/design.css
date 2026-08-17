@@ -515,6 +515,17 @@
   animation: press-cta 2.2s ease-in-out infinite;
 }
 
+/* Scrollable but no visible scrollbar track (the phone-mockup form panel
+   scrolls on short viewports; a native scrollbar there would break the
+   illusion of a real phone screen). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .confetti-piece,
   .animate-pop-in,

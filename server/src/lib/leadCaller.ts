@@ -15,6 +15,7 @@ import { placeCall } from './dialer.js';
 import { localParts } from './campaignSchedule.js';
 import { buildLeadCallContext, compactContext } from './callContext.js';
 import { agentIdFor } from './agents.js';
+import { hourlyCallBudget, isPhoneInCooldown } from './callThrottle.js';
 
 /**
  * The agent that handles website-lead callbacks.
@@ -29,6 +30,12 @@ async function leadCallbackAgentId(): Promise<string | null> {
 const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
 /** How long after the form submit to call. The brief asks for ~1 minute. */
 const DELAY_MINUTES = Number(process.env.LEAD_CALL_DELAY_MINUTES ?? 1) || 1;
+/**
+ * A visitor who explicitly declined the "call me now" popup still gets the
+ * normal follow-up call — just held back an hour instead of the usual ~1
+ * minute, so a flat "no" doesn't read as an immediate second ask.
+ */
+const DECLINE_DELAY_MINUTES = Number(process.env.LEAD_CALL_DECLINE_DELAY_MINUTES ?? 60) || 60;
 /** Calling hours, minutes from local midnight. Default 09:00–21:00 IST. */
 /**
  * Minutes from local midnight.
@@ -71,7 +78,8 @@ function hoursEnv(name: string, fallback: number): number {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
-const PER_PHONE_COOLDOWN_HOURS = hoursEnv('LEAD_CALL_PHONE_COOLDOWN_HOURS', 24);
+/** Exported so immediateCallback.ts's opt-in job shares the same cooldown policy. */
+export const PER_PHONE_COOLDOWN_HOURS = hoursEnv('LEAD_CALL_PHONE_COOLDOWN_HOURS', 24);
 
 /**
  * Whether we may call right now.
@@ -95,21 +103,21 @@ export function withinCallingHours(now: Date = new Date()): boolean {
  * already progressed or was contacted is skipped), old enough, has a phone, and
  * has never had a call attempted. That last check is what makes the job safe to
  * run every minute — it is the idempotency guard.
+ *
+ * Declining the "call me now?" popup does not opt someone out of this call —
+ * it only pushes it back to DECLINE_DELAY_MINUTES (default 1h) instead of the
+ * usual ~1 minute, so it doesn't read as an immediate second ask.
  */
 export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
   if (!ENABLED) return 0;
   if (!withinCallingHours(now)) return 0;
 
-  const dueBefore = new Date(now.getTime() - DELAY_MINUTES * 60_000);
-  const hourAgo = new Date(now.getTime() - 3_600_000);
-
   // Global hourly ceiling, counted from what was actually dialled rather than
   // an in-memory tally, so a restart cannot reset it.
-  const lastHour = await prisma.callAttempt.count({ where: { queuedAt: { gte: hourAgo } } });
-  const budget = MAX_CALLS_PER_HOUR - lastHour;
+  const budget = await hourlyCallBudget(MAX_CALLS_PER_HOUR, now);
   if (budget <= 0) {
     console.error(
-      `[lead-call] HOURLY CAP HIT — ${lastHour} calls in the last hour (limit ${MAX_CALLS_PER_HOUR}). ` +
+      `[lead-call] HOURLY CAP HIT (limit ${MAX_CALLS_PER_HOUR}). ` +
         'Holding new calls. Investigate for form spam, or raise LEAD_CALL_MAX_PER_HOUR.',
     );
     return 0;
@@ -132,6 +140,11 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     where: {
       currentStage: 'lead_captured',
       phone: { not: null },
+      // A lead whose number was never proven real cannot be called at all —
+      // it's just as likely to be a typo or a fake entry as a real customer.
+      // Set once by the website OTP flow (context.routes.ts) and never
+      // re-checked per call.
+      phoneVerified: true,
     },
     orderBy: { lastActivityAt: 'asc' },
     take: Math.min(MAX_PER_TICK, budget) * 4, // over-fetch; most are filtered out below
@@ -157,6 +170,10 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
   const leads = candidates
     .filter((c) => {
       const submittedAt = c.events[0]?.occurredAt ?? c.stageEnteredAt;
+      // Someone who explicitly declined the callback popup still gets the
+      // normal follow-up, just an hour later instead of ~1 minute later.
+      const delayMinutes = c.callbackDeclinedAt ? DECLINE_DELAY_MINUTES : DELAY_MINUTES;
+      const dueBefore = new Date(now.getTime() - delayMinutes * 60_000);
       if (submittedAt > dueBefore) return false; // not old enough yet
       const lastCall = c.calls[0]?.queuedAt;
       return !lastCall || lastCall < submittedAt; // not yet called about THIS one
@@ -164,21 +181,18 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     .slice(0, Math.min(MAX_PER_TICK, budget));
 
   console.log(
-    `[lead-call] tick: ${candidates.length} candidate(s) @ lead_captured, ${leads.length} eligible after age/already-called filter (dueBefore=${dueBefore.toISOString()}); phones=${JSON.stringify(leads.map((l) => l.phone))}`,
+    `[lead-call] tick: ${candidates.length} candidate(s) @ lead_captured, ${leads.length} eligible after age/already-called filter (now=${now.toISOString()}); phones=${JSON.stringify(leads.map((l) => l.phone))}`,
   );
-
-  const cooldownSince = new Date(now.getTime() - PER_PHONE_COOLDOWN_HOURS * 3_600_000);
 
   let placed = 0;
   for (const lead of leads) {
     // Per-phone cooldown. `calls: { none: {} }` above already excludes anyone
     // this Customer row has called, but the same human can arrive as a second
-    // Customer (different email, say) — this catches that by number.
-    const recent = await prisma.callAttempt.count({
-      where: { phone: lead.phone!, queuedAt: { gte: cooldownSince } },
-    });
-    if (recent > 0) {
-      console.log(`[lead-call] ${lead.phone}: SKIP — ${recent} call(s) within cooldown (${PER_PHONE_COOLDOWN_HOURS}h)`);
+    // Customer (different email, say) — this catches that by number. Shared
+    // with immediateCallback.ts so a number is never double-dialled just
+    // because two different jobs are looking at it.
+    if (await isPhoneInCooldown(lead.phone!, PER_PHONE_COOLDOWN_HOURS, now)) {
+      console.log(`[lead-call] ${lead.phone}: SKIP — within cooldown (${PER_PHONE_COOLDOWN_HOURS}h)`);
       continue;
     }
 

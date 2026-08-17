@@ -142,15 +142,13 @@ function calcApi(): CalcApi | null {
 function readLeadForm() {
   const f = (name: string) =>
     (document.querySelector(`#lead-form [name="${name}"]`) as HTMLInputElement | HTMLSelectElement | null)?.value || null;
-  const consent = document.querySelector('#lead-form input[type="checkbox"]') as HTMLInputElement | null;
+  // Simplified form: amount, loan type and mobile only — no name/city/email/
+  // consent fields exist anymore (there's no checkbox; eligibility is checked
+  // straight from amount + phone + OTP verification).
   return {
-    name: f('fullName'),
     phone: f('mobile'),
-    email: f('email'),
-    city: f('city'),
     loan_type: f('loanType'),
     amount: f('amount'),
-    consent: consent?.checked ?? false,
   };
 }
 
@@ -213,22 +211,6 @@ export default function VoiceWidget() {
         '[VoiceWidget] NEXT_PUBLIC_API_BASE not set — voice widget disabled. ' +
           'Copy .env.local.example to .env.local and restart.',
       );
-
-      // In development, say so on the page too. A console warning is invisible
-      // unless devtools happen to be open, so a missing .env.local silently
-      // removes the whole voice experience and looks like it was never built.
-      if (process.env.NODE_ENV === 'development') {
-        const note = document.createElement('div');
-        note.dataset.voiceDisabledNotice = '1';
-        note.style.cssText =
-          'position:fixed;right:22px;bottom:22px;z-index:9999;max-width:300px;padding:11px 14px;' +
-          'border-radius:12px;background:#fff4e5;border:1px solid #ffd8a8;color:#8a4b00;' +
-          'font:500 12.5px/1.5 system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
-        note.textContent =
-          'Voice widget disabled — NEXT_PUBLIC_API_BASE not set. Copy .env.local.example to .env.local and restart.';
-        document.body.appendChild(note);
-        return () => note.remove();
-      }
       return;
     }
 
@@ -325,12 +307,11 @@ export default function VoiceWidget() {
             'When they express interest in loans, CALL go_to_section to take them there, then describe it.',
             // Deliberate order: the amount is the question the visitor came to
             // answer and is the least personal, so it earns the right to ask
-            // for contact details. Asking for a phone number first reads like a
-            // sales capture and is where people drop out.
-            'Offer to fill the "Check your rate" form by voice, asking ONE field at a time IN THIS ORDER: 1) how much they need (set_loan_amount), 2) full name (fill_name), 3) city (fill_city), 4) mobile number (fill_phone), 5) email (fill_email). Confirm each value back before moving on.',
-            'As soon as they mention personal or business — even in passing, before you reach the amount — CALL select_loan_type immediately so the dropdown matches what they said.',
+            // for a phone number next. The form itself only has these two
+            // fields now — no name/city/email/consent step exists anymore.
+            'Offer to fill the "Check eligibility" form by voice, asking ONE field at a time IN THIS ORDER: 1) how much they need (set_loan_amount), 2) mobile number (fill_phone). Confirm each value back before moving on.',
+            'As soon as they mention personal or business — even in passing, before you reach the amount — CALL select_loan_type immediately so their loan type is recorded correctly (there is no visible picker for this, but it still matters for the lead).',
             'Never re-ask for something already present in alreadyFilled; read it back to confirm instead.',
-            'Only submit after the visitor gives explicit consent to be contacted.',
             'For EMI questions, CALL set_calculator with the amount/rate/tenure they mention and read back the emi/total from the result.',
             'If they ask to track an existing application, say that tracking lives in the SwiftLoan app and offer to send the app link — there is no tracker on this site.',
             'For FAQ-style questions, CALL answer_faq with their question — use the returned answer text to reply, and it will also open the matching FAQ item on screen.',
@@ -368,44 +349,23 @@ export default function VoiceWidget() {
       },
     });
 
-    // ── Lead / "check your rate" form (home only) ─────────────────────
+    // ── Lead / "check eligibility" form (home only) ─────────────────────
     // Gate for every lead-form tool. This checked `#leadForm`, which the
     // redesign renamed to the `#lead-form` SECTION — so availableWhen returned
-    // false and the agent was never offered fill_name/fill_phone/submit at all.
-    // That is why it could hear the request and do nothing: the tools were not
+    // false and the agent was never offered fill_phone/submit at all. That is
+    // why it could hear the request and do nothing: the tools were not
     // absent-but-broken, they were simply never advertised.
     const homeOnly = () => !!document.getElementById('lead-form');
 
-    agent.registerTool({
-      name: 'fill_name',
-      description: 'Call immediately when the user states their full name for the application.',
-      schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
-      availableWhen: homeOnly,
-      handler: (a: { name: string }) => {
-        scrollToId('lead-form');
-        return fillInput('[name="fullName"]', a.name);
-      },
-    });
     agent.registerTool({
       name: 'fill_phone',
       description: 'Call immediately when the user states their phone number. Digits only, optional leading +.',
       schema: { type: 'object', properties: { phone: { type: 'string' } }, required: ['phone'] },
       availableWhen: homeOnly,
-      handler: (a: { phone: string }) => fillInput('[name="mobile"]', a.phone),
-    });
-    agent.registerTool({
-      name: 'fill_email',
-      description: 'Call when the user states their email address.',
-      schema: { type: 'object', properties: { email: { type: 'string' } }, required: ['email'] },
-      availableWhen: homeOnly,
-      handler: (a: { email: string }) => fillInput('[name="email"]', a.email),
-    });
-    agent.registerTool({
-      name: 'fill_city',
-      description: 'Call when the user states their city.',
-      schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
-      availableWhen: homeOnly,
-      handler: (a: { city: string }) => fillInput('[name="city"]', a.city),
+      handler: (a: { phone: string }) => {
+        scrollToId('lead-form');
+        return fillInput('[name="mobile"]', a.phone);
+      },
     });
     agent.registerTool({
       name: 'select_loan_type',
@@ -413,30 +373,22 @@ export default function VoiceWidget() {
       schema: { type: 'object', properties: { loan_type: { type: 'string', enum: ['Personal Loan', 'Business Loan'] } }, required: ['loan_type'] },
       availableWhen: homeOnly,
       /**
-       * Resolved against the <option> VALUES, not the spoken text.
+       * Resolved to a stable English key, not the spoken text.
        *
-       * Passing the raw phrase to fillInput failed silently: an option's value
-       * is now a stable English key, while its label is translated, and the
-       * agent may say "personal", "Personal Loan" or the Hindi word. A select
-       * whose value does not match any option just stays unselected — no error,
-       * no feedback, which is why this looked like the agent "not doing
-       * anything". Match loosely here and report failure honestly.
+       * The loan-type field is a custom-rendered dropdown (not a native
+       * <select> — see LeadForm.tsx for why), so there are no <option>
+       * elements to match against. Its value is mirrored onto a hidden
+       * input#loanType that fillInput can still set the same way it fills
+       * every other field: native setter + dispatchEvent('input'), which the
+       * hidden input's onChange picks up and pushes into React state.
        */
       handler: (a: { loan_type: string }) => {
-        const sel = document.querySelector('#lead-form [name="loanType"]') as HTMLSelectElement | null;
-        if (!sel) return { success: false, reason: 'loan type field not found' };
-
         const said = (a.loan_type || '').toLowerCase();
         const wantBusiness = /business|vyapar|व्यापार|వ్యాపార|shop|company|firm|msme/.test(said);
         const want = wantBusiness ? 'Business Loan' : 'Personal Loan';
 
-        const option = Array.from(sel.options).find(
-          (o) => o.value === want || o.text.toLowerCase() === said,
-        );
-        if (!option) return { success: false, reason: `no option for "${a.loan_type}"` };
-
-        const res = fillInput('#lead-form [name="loanType"]', option.value);
-        return res.success ? { success: true, selected: option.value } : res;
+        const res = fillInput('#lead-form [name="loanType"]', want);
+        return res.success ? { success: true, selected: want } : res;
       },
     });
     agent.registerTool({
@@ -447,25 +399,13 @@ export default function VoiceWidget() {
       handler: (a: { amount: number }) => fillInput('[name="amount"]', String(a.amount)),
     });
     agent.registerTool({
-      name: 'give_consent',
-      description: 'Call ONLY when the user explicitly agrees to be contacted about their enquiry.',
-      schema: { type: 'object', properties: {} },
-      availableWhen: homeOnly,
-      handler: () => {
-        const c = document.querySelector('#lead-form input[type="checkbox"]') as HTMLInputElement | null;
-        if (!c) return { success: false, reason: 'consent checkbox not found' };
-        if (!c.checked) c.click();
-        return { success: true };
-      },
-    });
-    agent.registerTool({
       name: 'submit_application',
       // No requiresConfirmation / on-screen popup here on purpose — this is a
       // voice-first flow, so the ASSISTANT must ask "shall I submit this now?"
       // out loud and wait for a spoken yes (see the system prompt's behaviour
       // rules) before ever calling this tool. Once called, it submits immediately.
       description:
-        "Call ONLY after the visitor has verbally confirmed out loud that they want to submit (e.g. said \"yes\", \"go ahead\", \"submit it\") in response to you asking them. Requires name, phone and consent to already be set.",
+        "Call ONLY after the visitor has verbally confirmed out loud that they want to submit (e.g. said \"yes\", \"go ahead\", \"submit it\") in response to you asking them. Requires phone to already be set (there is no consent checkbox anymore — the form itself has no separate consent step).",
       schema: { type: 'object', properties: {} },
       availableWhen: homeOnly,
       handler: () => {
@@ -606,8 +546,23 @@ export default function VoiceWidget() {
     });
 
     // ── Floating mic button ──────────────────────────────────────────────
+    // Small screens get an icon-only circle (just Ruby's avatar) instead of
+    // the full text pill — the pill's fixed 52px avatar + two-line label
+    // doesn't leave enough room next to it on a ~375px viewport and was
+    // crowding/overlapping other on-screen content. Pure CSS media query
+    // (not a JS resize listener) so it's correct on first paint, no flash.
+    const launcherStyle = document.createElement('style');
+    launcherStyle.textContent = `
+      @media (max-width: 640px) {
+        .sl-voice-launcher { padding: 0 !important; width: 52px; justify-content: center; }
+        .sl-voice-text { display: none !important; }
+      }
+    `;
+    document.head.appendChild(launcherStyle);
+
     const btn = document.createElement('button');
     btn.type = 'button';
+    btn.className = 'sl-voice-launcher';
     btn.setAttribute('aria-label', 'Talk to SwiftLoan — voice guide');
     // Ruby sits flush at the left of the pill, full-bleed, so she reads as a
     // person you are about to talk to rather than an icon in a button.
@@ -617,7 +572,7 @@ export default function VoiceWidget() {
       'box-shadow:0 10px 28px rgba(7,159,160,.4);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
     btn.innerHTML =
       '<span class="ruby-slot" style="display:block;width:52px;height:52px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 2px 8px rgba(0,0,0,.18)"></span>' +
-      '<span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.15">' +
+      '<span class="sl-voice-text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.15">' +
       '<span style="font-size:13.5px;font-weight:700">Talk to Ruby</span>' +
       '<span class="voice-label" style="font-size:11px;font-weight:500;opacity:.9">SwiftLoan assistant</span>' +
       '</span>';
@@ -709,6 +664,7 @@ export default function VoiceWidget() {
       btn.remove();
       errBox.remove();
       style.remove();
+      launcherStyle.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

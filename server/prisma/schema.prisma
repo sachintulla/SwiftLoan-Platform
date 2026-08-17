@@ -753,6 +753,26 @@ model Customer {
   lastActivityAt DateTime     @default(now())
   /// Set when a re-engagement nudge fires, so a scan cannot spam the customer.
   lastNudgedAt   DateTime?
+  /// Proven via a website OTP challenge (see OtpToken, purpose "verify_phone").
+  /// Set once and checked by every calling job from then on — never re-verified
+  /// per call, so a lead's number is only ever validated a single time.
+  phoneVerified       Boolean   @default(false)
+  phoneVerifiedAt     DateTime?
+  /// Visitor explicitly opted into an immediate callback after verifying their
+  /// phone. lib/immediateCallback.ts owns the retry state machine below:
+  /// requested (waiting for callbackNextAttemptAt) -> in_progress (dialled,
+  /// awaiting the call's webhook outcome) -> connected | not_answered (done).
+  callbackRequestedAt   DateTime?
+  callbackStatus        CallbackStatus?
+  /// How many times we've dialled for the CURRENT request. Reset to 0 when a
+  /// new "yes" starts a fresh cycle (only once the previous one is terminal).
+  callbackAttempts      Int             @default(0)
+  /// When the job should try next. Null once the cycle is terminal.
+  callbackNextAttemptAt DateTime?
+  callbackLastAttemptAt DateTime?
+  /// Visitor was offered a callback and declined. Recorded so a future
+  /// re-engagement campaign can target this group; no automated action yet.
+  callbackDeclinedAt    DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -765,6 +785,16 @@ model Customer {
   @@index([lastActivityAt])
   @@index([campaignId])
   @@index([firstSource])
+  @@index([phoneVerified, callbackStatus, callbackNextAttemptAt])
+}
+
+/// Lifecycle of one visitor's "call me back" opt-in — see Customer's
+/// callback* fields and lib/immediateCallback.ts.
+enum CallbackStatus {
+  requested   // waiting for callbackNextAttemptAt
+  in_progress // dialled, awaiting the call's webhook outcome
+  connected   // answered — done
+  not_answered // exhausted every retry without connecting — done
 }
 
 /// The narrative timeline a human reads on a customer record. Deliberately
@@ -1097,6 +1127,31 @@ model IntegrationConfig {
   updatedBy String?
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+/// A shared secret that lets a third party (e.g. an Ello agent's tool config)
+/// call OUR API — the reverse direction from IntegrationConfig above, which
+/// holds credentials WE use to call THEM. Generated once from the admin
+/// dashboard; the plaintext is shown exactly once at creation and never
+/// stored — only its hash is, same principle as OtpToken.codeHash.
+model ApiKey {
+  id         String    @id @default(uuid())
+  /// Human label so an admin can tell keys apart, e.g. "Ello lead-callback agent".
+  name       String
+  /// First few characters of the plaintext, kept for display in the list UI
+  /// so an admin can recognise a key without ever seeing it again in full.
+  keyPrefix  String
+  /// sha256 of the full plaintext key — deterministic, so a lookup by
+  /// hash(provided value) doesn't need every row scanned.
+  keyHash    String    @unique
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  /// Soft-revoked rather than deleted — an audit trail of what a now-dead
+  /// key was and when it stopped working is worth keeping.
+  revokedAt  DateTime?
+
+  @@index([revokedAt])
 }
 
 enum DispatchChannel {

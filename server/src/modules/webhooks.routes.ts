@@ -19,6 +19,7 @@ import {
   inferOutcome, shouldReplaceOutcome, parseAgentOutcome, type OutcomeSource,
 } from '../lib/callOutcome.js';
 import { recordConversation } from '../lib/conversations.js';
+import { recordImmediateCallbackAttemptOutcome } from '../lib/immediateCallback.js';
 
 /** A call that reached a human — the only kind worth inferring an outcome from. */
 function isConnected(status: CallStatus): boolean {
@@ -284,6 +285,15 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
           data: isCompleted ? { calledCount: { increment: 1 } } : { failedCount: { increment: 1 } },
         })
         .catch(() => undefined);
+    }
+
+    // Advance the "Yes, call me" retry cycle. A no-op for any customer not
+    // actually in the middle of one — see recordImmediateCallbackAttemptOutcome.
+    const callReason = (attempt.callContext as { reason?: string } | null)?.reason;
+    if (callReason === 'immediate_callback_optin') {
+      await recordImmediateCallbackAttemptOutcome(updated.customerId, isCompleted).catch((e) =>
+        console.error('[webhook] immediate-callback outcome update failed', e),
+      );
     }
   }
 

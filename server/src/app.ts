@@ -23,6 +23,7 @@ import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
 import { customersRouter } from './modules/customers.routes.js';
 import { integrationsRouter } from './modules/integrations.routes.js';
+import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
@@ -35,6 +36,7 @@ import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
 import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
+import { websiteRouter } from './modules/website.routes.js';
 
 export function createApp() {
   const app = express();
@@ -115,6 +117,7 @@ export function createApp() {
   app.use('/api/admin/conversations', adminConversationsRouter);
   app.use('/api/admin/customers', customersRouter);
   app.use('/api/admin/integrations', integrationsRouter);
+  app.use('/api/admin/api-keys', apiKeysRouter);
   // PUBLIC — the marketing site has no login. Rate-limited because each call
   // starts a billable Ello session.
   app.use('/api/voice', limiter(60_000, 20, 'Too many voice session requests'), voiceRouter);
@@ -130,6 +133,11 @@ export function createApp() {
 
   // ── WS3: context handoff + app-download landing pages ──
   app.use('/api/context', leadLimiter, contextRouter);
+  // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for
+  // the marketing site. Separate from /api/auth/otp/*: that flow creates a
+  // User row and issues real app tokens, the wrong side effect here. Each
+  // accepted OTP request can send a real SMS, so it shares the strictest bucket.
+  app.use('/api/website', leadLimiter, websiteRouter);
   app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
   app.use('/', preapprovedRouter); // /api/preapproved-plans + /api/admin/preapproved-plans
 

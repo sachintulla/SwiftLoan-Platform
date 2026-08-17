@@ -17,10 +17,12 @@
  */
 
 export interface LeadDetails {
-  name: string;
+  /** The simplified form no longer collects these — the backend already
+   *  treats every field here as optional (POST /api/context/create). */
+  name?: string;
   phone: string;
-  email: string;
-  city: string;
+  email?: string;
+  city?: string;
   /** "Personal Loan" | "Business Loan" — stored as the lead's productInterest. */
   product: string;
   /** RUPEES. Converted to paise here, since the server stores paise throughout. */
@@ -136,5 +138,92 @@ export async function submitLead(d: LeadDetails, refId: string): Promise<LeadRes
   } catch (e) {
     console.error('[swiftloan] lead submit threw', e);
     return undefined;
+  }
+}
+
+/**
+ * Phone verification (OTP) + callback consent — the step that runs after
+ * submitLead() has already saved the lead. Deliberately a separate API
+ * surface (/api/website/*) from the app's own OTP login: this never creates
+ * a User or issues an app session, it only proves the number on this lead is
+ * real before any calling job is allowed to dial it.
+ */
+
+export interface OtpRequestResult {
+  otpSent: boolean;
+  alreadyVerified?: boolean;
+  /** Only present outside prod / with no SMS provider configured — see the server's sms.ts dev fallback. */
+  devOtp?: string;
+}
+
+/** Undefined means a network/server error — never thrown, so the OTP panel can show a retry affordance. */
+export async function requestWebsiteOtp(phone: string): Promise<OtpRequestResult | undefined> {
+  const base = apiBase();
+  if (!base) return undefined;
+  try {
+    const res = await fetch(`${base}/api/website/otp/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    if (!res.ok) {
+      console.error('[swiftloan] otp request failed', res.status);
+      return undefined;
+    }
+    const json = (await res.json()) as { data?: OtpRequestResult };
+    return json?.data;
+  } catch (e) {
+    console.error('[swiftloan] otp request threw', e);
+    return undefined;
+  }
+}
+
+export interface OtpVerifyResult {
+  verified: boolean;
+  alreadyVerified?: boolean;
+}
+
+/**
+ * Undefined means a network/server error (generic failure). `{ verified: false }`
+ * means the server rejected the code itself (wrong/expired) — the caller can
+ * tell these apart to show "try again" vs a hard failure.
+ */
+export async function verifyWebsiteOtp(phone: string, code: string): Promise<OtpVerifyResult | undefined> {
+  const base = apiBase();
+  if (!base) return undefined;
+  try {
+    const res = await fetch(`${base}/api/website/otp/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, code }),
+    });
+    if (res.status === 400 || res.status === 404) return { verified: false };
+    if (!res.ok) {
+      console.error('[swiftloan] otp verify failed', res.status);
+      return undefined;
+    }
+    const json = (await res.json()) as { data?: OtpVerifyResult };
+    return json?.data ?? { verified: false };
+  } catch (e) {
+    console.error('[swiftloan] otp verify threw', e);
+    return undefined;
+  }
+}
+
+/** Fire-and-forget by design (matches upshotEvent/upshotIdentify elsewhere in
+ *  this file's callers) — the visitor's own screen never waits on this. */
+export async function submitCallbackChoice(phone: string, response: 'yes' | 'no'): Promise<boolean> {
+  const base = apiBase();
+  if (!base) return false;
+  try {
+    const res = await fetch(`${base}/api/website/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, response }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('[swiftloan] callback choice threw', e);
+    return false;
   }
 }

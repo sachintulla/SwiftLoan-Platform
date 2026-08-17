@@ -29,34 +29,44 @@ import {
 } from '../lib/conversations.js';
 import { mapOutcome } from './webhooks.routes.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
+import { verifyApiKey } from '../lib/apiKeys.js';
 
 export const conversationsRouter = Router();
 
 /**
- * Any of the three secrets is accepted so this can be configured alongside the
- * webhooks without minting a new credential — but one MUST be set and MUST match.
+ * Two ways to authenticate, checked in order:
+ *   1. A named key minted from the admin dashboard (see apiKeys.routes.ts) —
+ *      the preferred path: revocable per-caller, without a redeploy.
+ *   2. The legacy static env var (CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET)
+ *      — kept so an already-deployed Ello tool config using the old secret
+ *      keeps working during rollout; not required once every caller has its
+ *      own admin-issued key.
  */
-function authorised(req: import('express').Request): boolean {
-  const expected =
-    process.env.CONVERSATION_API_KEY ||
-    process.env.ELLO_WEBHOOK_SECRET ||
-    '';
-  if (!expected) return false;
+async function authorised(req: import('express').Request): Promise<boolean> {
   const provided =
     String(req.headers['x-api-key'] ?? '') ||
     String(req.headers['x-webhook-secret'] ?? '');
-  return provided.length > 0 && provided === expected;
+  if (!provided) return false;
+
+  if (await verifyApiKey(provided)) return true;
+
+  const expected = process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET || '';
+  return !!expected && provided === expected;
 }
 
-conversationsRouter.use((req, res, next) => {
-  if (authorised(req)) return next();
-  const configured = !!(process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET);
-  if (!configured) {
-    console.error('[conversations] no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing');
+conversationsRouter.use(ah(async (req, res, next) => {
+  if (await authorised(req)) return next();
+
+  // Distinguish "nobody has ever configured this" from "wrong key" — the
+  // former is a deploy/setup bug worth a loud, distinct error rather than
+  // looking like a caller with a bad credential.
+  const envConfigured = !!(process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET);
+  if (!envConfigured && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
+    console.error('[conversations] no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing');
     return fail(res, 503, 'Conversation API is not configured');
   }
   return fail(res, 401, 'Invalid or missing API key');
-});
+}));
 
 /**
  * GET /api/conversations/context?phone=9876500011&limit=8
