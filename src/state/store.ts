@@ -29,6 +29,30 @@ export const SCREEN_NAMES = [
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
   'status', 'disbursed', 'repay', 'creditscore',
 ] as const;
+
+// Friendly/spoken screen names → canonical screen id. The voice agent used to
+// guess the id from the model, so "My Loan(s)" often landed on the repayment
+// screen. This canonical map removes the guessing: names are matched
+// case-insensitively after stripping non-alphanumerics.
+const SCREEN_ALIASES: Record<string, Screen> = {
+  myloan: 'loans', myloans: 'loans', loan: 'loans', loans: 'loans',
+  myloanstatus: 'loans', loanstatus: 'loans', applicationstatus: 'status',
+  repayment: 'repay', repayments: 'repay', repaymentoverview: 'repay',
+  repay: 'repay', emi: 'repay', myrepayments: 'repay',
+  myoffers: 'fare', offers: 'fare', fare: 'fare', calculator: 'fare',
+  creditscore: 'creditscore', cibil: 'creditscore', cibilscore: 'creditscore', score: 'creditscore',
+  home: 'home', dashboard: 'home', main: 'home',
+  profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
+  help: 'help', support: 'help',
+  applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
+};
+
+/** Resolve a spoken/typed screen name to a canonical screen id, or null. */
+export function resolveScreenName(name: string): Screen | null {
+  const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if ((SCREEN_NAMES as readonly string[]).includes(key)) return key as Screen;
+  return SCREEN_ALIASES[key] ?? null;
+}
 export type Screen = (typeof SCREEN_NAMES)[number];
 
 // Spelled out in full for the voice agent's page context — more reliable for
@@ -113,7 +137,11 @@ export interface AppState {
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
   // The screen the user opened `offers` from, so its back button returns there.
+  // (Kept for compatibility; back navigation now uses the real `history` stack.)
   offersReturn: Screen;
+  // Real back stack: every `go()` pushes the current screen here; `back()` pops it
+  // to the screen the user actually came from — no more hardcoded parent map.
+  history: Screen[];
   // True when this returning user already has offers pulled in a prior session
   // (restored on login). Lets Home surface a "view your offers" shortcut so they
   // don't re-enter details — applicationId points at that application.
@@ -156,13 +184,28 @@ export const initialState: AppState = {
   webUrl: '', webTitle: '',
   offersError: '',
   offersReturn: 'home',
+  history: [],
   hasSavedOffers: false,
 };
 
 type Action =
   | { type: 'set'; patch: Partial<AppState> }
-  | { type: 'go'; screen: Screen }
+  // `replace` forward-navigations don't push onto the back stack — used for
+  // auto/boot transitions (splash→…, finding→offers) so Back never lands on a
+  // transient/loading screen the user never chose to visit.
+  | { type: 'go'; screen: Screen; replace?: boolean }
+  | { type: 'back' }
   | { type: 'reset' };
+
+// Top-level destinations (the bottom-nav roots). Navigating to one resets the
+// back stack — each acts as a fresh root, so Back from a flow launched off a tab
+// returns to that tab, and tab↔tab switches don't accumulate history.
+const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile', 'help', 'explore']);
+
+// Transient/loading screens the user never chooses to sit on — leaving one is
+// never recorded on the back stack, so Back skips the splash + "finding offers"
+// loaders and lands on the last real screen (e.g. offers → moredetails).
+const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
 // Used only to emit fire-and-forget analytics; no effect on navigation.
@@ -191,17 +234,46 @@ function reducer(state: AppState, action: Action): AppState {
     case 'set':
       return { ...state, ...action.patch };
     case 'go': {
-      // Remember which screen the user opened `offers` from, so its back button
-      // returns there instead of a fixed PREV target. Ignore downstream/transient
-      // screens (finding/lenderweb/handoff) and re-entries so coming back from
-      // the lender page doesn't overwrite the real origin.
-      if (action.screen === 'offers' && !['offers', 'finding', 'lenderweb', 'handoff'].includes(state.screen)) {
-        return { ...state, screen: 'offers', offersReturn: state.screen };
+      const { screen } = action;
+      // No-op navigations don't touch the stack.
+      if (screen === state.screen) return state;
+      let history: Screen[];
+      if (action.replace) {
+        // Transient/auto transition — swap the current screen without recording it.
+        history = state.history;
+      } else if (TOP_LEVEL.has(screen)) {
+        // A tab root starts a fresh stack.
+        history = [];
+      } else if (TRANSIENT.has(state.screen)) {
+        // Leaving a loader/splash — don't record it.
+        history = state.history;
+      } else {
+        // Normal forward nav — remember where we came from (cap depth defensively).
+        history = [...state.history, state.screen].slice(-50);
       }
-      return { ...state, screen: action.screen };
+      return { ...state, screen, history };
+    }
+    case 'back': {
+      // Pop to the screen the user actually came from; fall back to the PREV map
+      // (then home) only when the stack is empty (e.g. deep-linked entry).
+      if (state.history.length > 0) {
+        const history = state.history.slice(0, -1);
+        return { ...state, screen: state.history[state.history.length - 1], history };
+      }
+      return { ...state, screen: PREV[state.screen] || 'home' };
     }
     case 'reset':
-      return { ...initialState, screen: 'splash' };
+      // Logout: clear all session/profile state, but KEEP device-level consent
+      // (privacyAccepted) and the chosen language, and land on the login screen —
+      // NOT splash, which would auto-route to the Privacy screen (bug #14) because
+      // a fresh initialState has privacyAccepted=false.
+      return {
+        ...initialState,
+        privacyAccepted: state.privacyAccepted,
+        lang: state.lang,
+        selectedLang: state.selectedLang,
+        screen: 'mobile',
+      };
     default:
       return state;
   }
@@ -246,14 +318,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const parentOf = useCallback((s: Screen): Screen => PREV[s] || 'home', []);
 
   const back = useCallback(() => {
-    const cur = stateRef.current.screen;
-    // Offers returns to wherever it was opened from (home / My Loans / PAN step /
-    // funnel), not a fixed parent.
-    if (cur === 'offers') {
-      dispatch({ type: 'go', screen: stateRef.current.offersReturn || 'home' });
-      return;
-    }
-    dispatch({ type: 'go', screen: PREV[cur] || 'home' });
+    // Pop the real back stack — returns to wherever the user actually came from.
+    dispatch({ type: 'back' });
   }, []);
 
   const showToast = useCallback((msg: string) => {
@@ -298,7 +364,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             pdEmail: user.email || '',
             pdPhone: user.phone ? `+91 ${user.phone}` : '',
             pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : '',
-            lang: user.lang || stateRef.current.lang,
+            // Prefer the locally chosen language (from the language screen /
+            // voice agent, restored from AsyncStorage) over the backend's value,
+            // so a fresh selection isn't clobbered by a stale server `lang`.
+            lang: stateRef.current.lang || user.lang || null,
           },
         });
         // Only jump the user automatically if they haven't already moved
@@ -315,10 +384,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the last-picked language around across app restarts.
+  // Keep the last-picked language around across app restarts, and — when signed
+  // in — push it to the backend so the server value stops going stale (which is
+  // what used to clobber the selection on the next Profile load / login).
   useEffect(() => {
-    if (state.lang) saveLang(state.lang);
-  }, [state.lang]);
+    if (!state.lang) return;
+    saveLang(state.lang);
+    if (state.authUser) api.setLanguage(state.lang).catch(() => {});
+  }, [state.lang, state.authUser]);
 
   // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
@@ -357,18 +430,69 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // this provider's own go()) and the page-context source the agent sends on
   // every update. Reads stateRef so the closure never goes stale.
   useEffect(() => {
-    ensureToolsRegistered((screenName: string) => {
-      if (!(SCREEN_NAMES as readonly string[]).includes(screenName)) return false;
-      go(screenName as Screen);
-      return true;
+    ensureToolsRegistered({
+      navigateToScreen: (screenName: string) => {
+        const target = resolveScreenName(screenName);
+        if (!target) return false;
+        go(target);
+        return true;
+      },
+      // Bug fix: logout now runs the real action from any screen (was a no-op
+      // unless the Profile screen's "Log out" button happened to be on screen).
+      logout: async () => {
+        await api.logout().catch(() => {});
+        dispatch({ type: 'reset' });
+      },
+      // Bug fix: open a specific loan/application by its reference number.
+      openLoan: async (reference: string) => {
+        const want = (reference || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!want) return { ok: false, reason: 'no_reference' };
+        const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        try {
+          const [loansRes, appsRes]: any[] = await Promise.all([
+            api.listLoans().catch(() => null),
+            api.listApplications().catch(() => null),
+          ]);
+          const loans: any[] = loansRes?.loans || loansRes || [];
+          const apps: any[] = appsRes?.applications || appsRes || [];
+          // Match on the loan's reference first, then the application's.
+          const loan = loans.find((l) => norm(l?.ref) === want || norm(l?.id) === want);
+          if (loan) {
+            dispatch({ type: 'set', patch: { loanId: loan.id, applicationId: loan.applicationId ?? stateRef.current.applicationId } });
+            go('repay');
+            return { ok: true, opened: 'loan', reference, screen: 'repay' };
+          }
+          const app = apps.find((a) => norm(a?.ref) === want || norm(a?.id) === want);
+          if (app) {
+            const hasLoan = !!app.loan?.id;
+            dispatch({ type: 'set', patch: { applicationId: app.id, loanId: app.loan?.id ?? null } });
+            go(hasLoan ? 'repay' : 'status');
+            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: hasLoan ? 'repay' : 'status' };
+          }
+          return { ok: false, reason: 'not_found', message: `No loan or application matches reference "${reference}".` };
+        } catch {
+          return { ok: false, reason: 'lookup_failed' };
+        }
+      },
     });
-    agent.registerPageContext(() => ({
-      ...buildPageContext(stateRef.current.screen),
+    agent.registerPageContext(() => {
+      // The authoritative logged-in name — so the agent addresses the user
+      // correctly instead of picking a lead name out of `userContext` or
+      // inventing one (bug #15). Empty when unknown so the prompt can fall back
+      // to a neutral greeting.
+      const s = stateRef.current;
+      const userName =
+        (s.authUser?.firstName || s.authUser?.fullName || s.pdName || '').trim().split(/\s+/)[0] || '';
+      return {
+      ...buildPageContext(s.screen),
       // The language the user picked on the language-selection screen — the
       // voice agent should speak in this language from the first word,
       // regardless of what language it's addressed in, unless the user
       // explicitly asks to switch (see the prompt's Voice style section).
-      preferred_language: LANGUAGE_NAMES[stateRef.current.lang ?? 'en'] ?? 'English',
+      preferred_language: LANGUAGE_NAMES[s.lang ?? 'en'] ?? 'English',
+      // Authoritative user name — the agent must address the user by THIS name
+      // (or neutrally if empty), never a name from userContext/priorInquiries.
+      user_name: userName,
       priorInquiries: stateRef.current.priorInquiries,
       // WS8: the history behind this phone number. `brief` is a one-line summary
       // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
@@ -376,7 +500,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // conversation instead of restarting it. Read from stateRef so this closure
       // never goes stale.
       userContext: stateRef.current.userContext ?? undefined,
-    }));
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

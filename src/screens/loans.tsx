@@ -17,7 +17,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   draft: { label: 'In Progress', color: colors.amber },
   pan_pending: { label: 'In Progress', color: colors.amber },
   prequalifying: { label: 'In Progress', color: colors.amber },
-  offers_ready: { label: 'Offers Ready', color: colors.amber },
+  offers_ready: { label: 'In Progress', color: colors.amber },
   handoff: { label: 'In Progress', color: colors.amber },
   under_review: { label: 'Under Review', color: colors.amber },
   approved: { label: 'Approved', color: colors.green },

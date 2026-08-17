@@ -19,7 +19,7 @@ const REPAYMENT_STATUS: Record<string, { icon: string; label: string; color: str
 };
 
 export default function Repay() {
-  const { state, go } = useStore();
+  const { state, go, back } = useStore();
   const [L, setL] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(isAuthed());
   const [err, setErr] = React.useState<string | null>(null);
@@ -72,7 +72,7 @@ export default function Repay() {
   if (loading) {
     return (
       <Screen scroll={false} padded>
-        <View style={{ paddingHorizontal: 20 }}><AppHeader onBack={() => go('home')} title={<View />} /></View>
+        <View style={{ paddingHorizontal: 20 }}><AppHeader onBack={back} title={<View />} /></View>
         <Loading label="Loading your loan…" />
       </Screen>
     );
@@ -80,7 +80,7 @@ export default function Repay() {
   if (err) {
     return (
       <Screen scroll={false} padded>
-        <View style={{ paddingHorizontal: 20 }}><AppHeader onBack={() => go('home')} title={<View />} /></View>
+        <View style={{ paddingHorizontal: 20 }}><AppHeader onBack={back} title={<View />} /></View>
         <ErrorState message={err} onRetry={load} />
       </Screen>
     );
@@ -89,7 +89,7 @@ export default function Repay() {
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('home')} title={<View />} />
+        <AppHeader onBack={back} title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text }]}>Repayment Overview</Text>

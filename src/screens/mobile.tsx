@@ -9,7 +9,7 @@ import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent } from '../analytics/upshot';
 
 export default function Mobile() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, go } = useStore();
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -214,17 +214,6 @@ export default function Mobile() {
         ) : (
           <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
         )}
-
-        <View style={styles.orRow}>
-          <View style={styles.orLine} />
-          <Text style={[font(500), { color: colors.muted, fontSize: 12 }]}>{t.commonOr}</Text>
-          <View style={styles.orLine} />
-        </View>
-
-        <Pressable style={styles.googleBtn} onPress={() => showToast(t.mobileGoogleToast)}>
-          <Text style={[font(800), { color: '#4285F4', fontSize: 16 }]}>G</Text>
-          <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>{t.mobileGoogle}</Text>
-        </Pressable>
       </View>
     </Screen>
   );
@@ -288,18 +277,5 @@ const styles = StyleSheet.create({
   },
   otpDigit: { fontSize: 22, color: colors.text },
   otpHiddenInput: { position: 'absolute', width: 1, height: 1, opacity: 0.01 },
-  orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 },
-  orLine: { flex: 1, height: 1, backgroundColor: colors.line },
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.line,
-    backgroundColor: '#fff',
-  },
   errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(239,106,94,0.1)', borderRadius: 12, padding: 12, marginTop: 4 },
 });

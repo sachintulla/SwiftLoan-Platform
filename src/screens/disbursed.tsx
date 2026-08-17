@@ -9,7 +9,7 @@ import { useDrive } from '../utils/useDrive';
 const CONFETTI_COLORS = ['#2FB183', '#079FA0', '#F5A624', '#7DC24B', '#0E8C7E', '#E9C21F', '#EF6A5E'];
 
 export default function Disbursed() {
-  const { go, showToast } = useStore();
+  const { go, back, showToast } = useStore();
   const t = useDrive(1400);
   const dbAmount = '₹' + inr(25000 * t) + '.00';
 
@@ -17,7 +17,7 @@ export default function Disbursed() {
     <Screen scroll padded={false}>
       <Confetti />
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('home')} title={<View />} />
+        <AppHeader onBack={back} title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 24, alignItems: 'center' }}>
         <SuccessCheck />

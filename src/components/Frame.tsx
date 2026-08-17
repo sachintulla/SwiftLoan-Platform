@@ -12,6 +12,7 @@ import {
   Image,
   Animated,
   Easing,
+  Vibration,
 } from 'react-native';
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -448,6 +449,8 @@ function SupportTab() {
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
   const onPress = () => {
+    // Small haptic so the tap registers immediately, before the (async) connect.
+    Vibration.vibrate(20);
     if (live || connecting) {
       agent.stop().catch(() => {});
       setStarting(false);
@@ -472,7 +475,15 @@ function SupportTab() {
         {online ? <View style={[styles.supportDot, { backgroundColor: live ? colors.green : colors.amber }]} /> : null}
       </View>
       <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>
-        {connecting ? 'Connecting…' : live ? 'Listening…' : 'Support'}
+        {connecting
+          ? 'Connecting…'
+          : status === 'speaking'
+            ? 'Speaking…'
+            : status === 'executingTool'
+              ? 'Working…'
+              : live
+                ? 'Listening…' /* connected, mic open — ready to talk */
+                : 'Support'}
       </Text>
     </Pressable>
   );

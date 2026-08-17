@@ -30,7 +30,7 @@ const IMPROVE = [
 ];
 
 export default function CreditScore() {
-  const { go } = useStore();
+  const { back } = useStore();
   const [target, setTarget] = React.useState(750);
   const [band, setBand] = React.useState<string>('GOOD');
   React.useEffect(() => {
@@ -50,7 +50,7 @@ export default function CreditScore() {
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('repay')} title="Credit Score" />
+        <AppHeader onBack={back} title="Credit Score" />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
         {/* Gauge card */}

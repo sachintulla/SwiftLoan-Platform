@@ -1,5 +1,5 @@
 import { ELLO_CONFIGURED } from './config';
-import { registerCoreTools } from './tools';
+import { registerCoreTools, type VoiceActions } from './tools';
 // Stable transport: the WebSocket ElloAgent talking to the getello ws-ello
 // backend (config.ts), with the native audio bridge for mic/playback. The
 // swappable WebRTC transport under transports/webrtc/ remains available for
@@ -24,9 +24,9 @@ export const agent = new ElloAgent(
 let toolsRegistered = false;
 
 /** Registers the generic UI-action tools exactly once, before first start(). */
-export function ensureToolsRegistered(navigateToScreen: (screen: string) => boolean): void {
+export function ensureToolsRegistered(actions: VoiceActions): void {
   if (toolsRegistered) return;
-  registerCoreTools(agent, navigateToScreen);
+  registerCoreTools(agent, actions);
   toolsRegistered = true;
 }
 

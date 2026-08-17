@@ -74,13 +74,6 @@ export default function Offers() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
-  const [credit, setCredit] = useState<{ score: number; band: string } | null>(null);
-
-  useEffect(() => {
-    api.creditScore()
-      .then((r: any) => setCredit({ score: r.score ?? 750, band: (r.band ?? 'GOOD').toUpperCase() }))
-      .catch(() => undefined);
-  }, []);
 
   const load = useCallback(async () => {
     if (!state.applicationId) { setOffers([]); setLoading(false); return; }
@@ -127,25 +120,7 @@ export default function Offers() {
             : 'Start an application to see your personalised offers.'}
         </Text>
 
-        {/* The user's credit score — shown here so they see the basis for these
-            offers. Tap to view the full breakdown. */}
-        {credit ? (
-          <Pressable style={styles.creditCard} onPress={() => go('creditscore')}>
-            <View style={styles.creditIcon}>
-              <Icon name="speed" size={22} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>{t.cibilScoreLabel}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 1 }}>
-                <Text style={[font(800), { fontSize: 20, color: colors.text }]}>{credit.score}</Text>
-                <View style={[styles.bandPill, { backgroundColor: bandColor(credit.band) + '22' }]}>
-                  <Text style={[font(700), { fontSize: 10.5, color: bandColor(credit.band) }]}>{bandLabel(credit.band)}</Text>
-                </View>
-              </View>
-            </View>
-            <Icon name="chevron_right" size={20} color={colors.muted} />
-          </Pressable>
-        ) : null}
+        {/* CIBIL score is shown only on My Loans, not here (see bug #8). */}
 
         {loading ? (
           <Loading label="Fetching your offers…" />

@@ -51,7 +51,12 @@ export default function Home() {
             <View style={styles.dot} />
             <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.welcomeBack}</Text>
           </View>
-          <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text, marginTop: 8 }]}>{t.greeting}</Text>
+          <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text, marginTop: 8 }]}>
+            {(() => {
+              const first = (state.authUser?.firstName || state.authUser?.fullName || state.pdName || '').trim().split(/\s+/)[0];
+              return first ? `${t.hello}, ${first}` : t.greeting;
+            })()}
+          </Text>
           <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 2 }]}>{t.greetingSub}</Text>
         </View>
         <Pressable onPress={() => go('profile')} style={styles.avatar}>

@@ -25,7 +25,8 @@ class VoiceAudioModule: RCTEventEmitter {
   // that an in-flight tap callback (on the audio render thread) was still using —
   // a use-after-free that crashed (SIGILL in AVAudioConverter dealloc) on rapid
   // start/stop. Start/stop now only toggle the engine, never rebuild the graph.
-  private var isGraphSetup = false
+  private var isCaptureSetup = false
+  private var playChunks = 0  // diagnostics: count playback chunks actually scheduled
   // All AVAudioEngine mutations run on this serial queue so JS calls
   // (startCapture / playChunk / stopCapture / purgePlayback) can never interleave
   // with each other and race the engine — the cause of intermittent SIGABRTs on
@@ -54,19 +55,34 @@ class VoiceAudioModule: RCTEventEmitter {
     playerAttached = true
   }
 
-  /// Builds the capture converter + input tap and attaches the player node —
-  /// exactly once, ever. Kept alive for the module's lifetime so start/stop never
-  /// deallocate an object the audio render thread might still be touching.
-  private func setupGraphIfNeeded() {
-    guard !isGraphSetup else { return }
+  /// Installs the capture converter + input tap exactly once — and ONLY from
+  /// startCapture, i.e. after the session is in .playAndRecord and active, so the
+  /// input format is the real mic format (not a playback-only/nil format). The
+  /// converter is created once and kept alive so start/stop never deallocate an
+  /// object the audio render thread's tap callback might still be using.
+  private func setupCaptureIfNeeded() {
+    guard !isCaptureSetup else { return }
     let input = engine.inputNode
     let inputFormat = input.outputFormat(forBus: 0)
-    converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+    // The iOS Simulator (especially x86 under Rosetta on Apple Silicon) can report
+    // an invalid input format (0 Hz / 0 channels) before the mic is actually ready.
+    // Installing a tap or building a converter with that format triggers an
+    // uncatchable NSException (require: format.sampleRate/channelCount) → SIGABRT on
+    // this queue. Bail WITHOUT marking setup done so the next startCapture retries
+    // once the format is valid, instead of crashing.
+    guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
+      NSLog("[VoiceAudioModule] input format not ready (%.0fHz, %u ch) — skipping tap install; will retry", inputFormat.sampleRate, inputFormat.channelCount)
+      return
+    }
+    guard let conv = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+      NSLog("[VoiceAudioModule] could not create AVAudioConverter for the input format")
+      return
+    }
+    converter = conv
     input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
       self?.handleCapturedBuffer(buffer, inputFormat: inputFormat)
     }
-    ensurePlayerAttached()
-    isGraphSetup = true
+    isCaptureSetup = true
   }
 
   @objc func startCapture(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -74,16 +90,34 @@ class VoiceAudioModule: RCTEventEmitter {
       guard let self = self else { return }
       do {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+        #if targetEnvironment(simulator)
+        // The iOS Simulator (x86 under Rosetta on Apple Silicon) crashes with
+        // SIGILL inside AVAudioEngine's input-chain init (GetInputFormat) when the
+        // mic node is added to the graph — there is no real mic to initialize.
+        // Run playback-only there so Ruby's voice still works and the app doesn't
+        // abort; real mic capture is only meaningful on a device anyway.
+        try session.setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker])
+        try session.setActive(true)
+        self.ensurePlayerAttached()
+        if !self.engine.isRunning {
+          self.engine.prepare()
+          try self.engine.start()
+        }
+        self.isCapturing = false
+        resolve(nil)
+        #else
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
         try session.setActive(true)
 
-        self.setupGraphIfNeeded()
+        self.setupCaptureIfNeeded()
+        self.ensurePlayerAttached()
         if !self.engine.isRunning {
           self.engine.prepare()
           try self.engine.start()
         }
         self.isCapturing = true
         resolve(nil)
+        #endif
       } catch {
         reject("start_capture_failed", error.localizedDescription, error)
       }
@@ -94,11 +128,13 @@ class VoiceAudioModule: RCTEventEmitter {
     audioQueue.async { [weak self] in
       guard let self = self, self.isCapturing else { return }
       self.isCapturing = false
-      // Pause (don't stop/teardown) and leave the tap + converter installed — the
-      // tap callback drops chunks while !isCapturing. Only pause when Ruby isn't
-      // mid-playback, so stopping the mic doesn't cut off her voice.
+      // Fully stop (not pause) so the next startCapture's engine.start() cleanly
+      // resumes mic input — after pause(), input-tap delivery doesn't reliably
+      // resume on iOS. The tap + converter stay installed (never deallocated), so
+      // this is safe. Only stop when Ruby isn't mid-playback, so ending capture
+      // doesn't cut off her voice.
       if !self.playerNode.isPlaying {
-        self.engine.pause()
+        self.engine.stop()
       }
     }
   }
@@ -141,12 +177,19 @@ class VoiceAudioModule: RCTEventEmitter {
     // active for output first.
     let session = AVAudioSession.sharedInstance()
     if !session.isOtherAudioPlaying {
-      try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+      #if targetEnvironment(simulator)
+      // Playback-only in the Simulator (see startCapture) — the record category +
+      // input node crash AVAudioEngine there.
+      try? session.setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker])
+      #else
+      try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+      #endif
     }
     try? session.setActive(true)
 
-    // Ensure the graph exists (player attached) — set up once, never rebuilt.
-    setupGraphIfNeeded()
+    // Ensure the playback node is attached (never installs the input tap — that
+    // only happens in startCapture, once the session is in record mode).
+    ensurePlayerAttached()
     if !engine.isRunning {
       engine.prepare()
       do {
@@ -162,6 +205,12 @@ class VoiceAudioModule: RCTEventEmitter {
       playerNode.play()
     }
     playerNode.scheduleBuffer(buffer, completionHandler: nil)
+    // Sparse diagnostics: confirm playback chunks arrive + the output route/volume.
+    playChunks += 1
+    if playChunks == 1 || playChunks % 100 == 0 {
+      let out = session.currentRoute.outputs.first?.portType.rawValue ?? "NONE"
+      NSLog("[VoiceAudioModule] playChunk #\(playChunks) frames=\(frameCount) engineRunning=\(engine.isRunning) playing=\(playerNode.isPlaying) cat=\(session.category.rawValue) vol=\(session.outputVolume) outputs=\(session.currentRoute.outputs.count) route=\(out)")
+    }
   }
 
   @objc func purgePlayback() {

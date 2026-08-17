@@ -14,6 +14,20 @@ import { buildPageContext, findTarget, getCurrentScreen, listTargets, waitForNex
 import type { TargetKind } from './actionRegistry';
 import type { AgentLike, JSONSchema } from './types';
 
+/**
+ * App actions the voice tools invoke directly (bound to the store), rather than
+ * by tapping an on-screen control. These exist for actions that must work from
+ * ANY screen (logout) or that resolve data (open a loan by reference).
+ */
+export interface VoiceActions {
+  /** Resolve a screen name/alias and navigate; false if unknown. */
+  navigateToScreen: (screen: string) => boolean;
+  /** End the session and return to the welcome flow, from any screen. */
+  logout: () => void | Promise<void>;
+  /** Look up a loan/application by its reference number and open it. */
+  openLoan: (reference: string) => Promise<Record<string, unknown>>;
+}
+
 interface PerformUiActionArgs {
   action: 'tap' | 'set_input' | 'set_toggle' | 'set_value' | 'scroll';
   target: string;
@@ -38,7 +52,7 @@ function describeScreen(screen: string) {
   return listTargets(screen).map(t => t.label);
 }
 
-export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: string) => boolean): void {
+export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void {
   /**
    * Reports the state the app is ACTUALLY in after an action, rather than letting
    * the model assume. Tapping "English" only selects a language — it does not
@@ -375,14 +389,21 @@ export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: s
     target: 'Back',
   }));
 
-  alias<Record<string, never>>(
-    'logout',
-    'Log the user out of SwiftLoan.',
-    {},
-    [],
-    () => ({ action: 'tap', target: 'Log out' }),
-    { requiresConfirmation: true, confirmationMessage: 'Log out of SwiftLoan?' },
-  );
+  // Logout runs the real store action (clears the session + returns to the
+  // welcome flow) from ANY screen — the old version tried to tap a "Log out"
+  // button that only exists on the Profile screen, so it silently did nothing
+  // everywhere else.
+  agent.registerTool<Record<string, never>>({
+    name: 'logout',
+    description: 'Log the user out of SwiftLoan. Ends the session from any screen.',
+    schema: { type: 'object', properties: {} },
+    handler: async () => {
+      await actions.logout();
+      return { ok: true, logged_out: true };
+    },
+    requiresConfirmation: true,
+    confirmationMessage: 'Log out of SwiftLoan?',
+  });
 
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
@@ -391,9 +412,9 @@ export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: s
     'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
 
   const navHandler = ({ screen }: { screen: string }) => {
-    const went = navigateToScreen(screen);
+    const went = actions.navigateToScreen(screen);
     return went
-      ? { ok: true, screen, controls_now: describeScreen(screen).slice(0, 20) }
+      ? { ok: true, screen, controls_now: describeScreen(getCurrentScreen()).slice(0, 20) }
       : { ok: false, reason: 'unknown_screen', available_screens: 'see description' };
   };
 
@@ -410,5 +431,21 @@ export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: s
     description: navDescription,
     schema: { type: 'object', properties: { screen: { type: 'string' } }, required: ['screen'] },
     handler: navHandler,
+  });
+
+  /* ── 5. Open a specific loan/application by its reference number ── */
+  agent.registerTool<{ reference: string }>({
+    name: 'open_loan',
+    description:
+      'Open a specific loan or application when the user gives its Loan Reference Number ' +
+      '(e.g. "open loan SL-2024-00042" or "show me reference 42"). Looks the reference up and ' +
+      'navigates to that loan\'s details / repayment screen (or its application status if not yet ' +
+      'disbursed). Use this instead of navigate_screen whenever the user names a reference number.',
+    schema: {
+      type: 'object',
+      properties: { reference: { type: 'string', description: 'the loan/application reference number the user said' } },
+      required: ['reference'],
+    },
+    handler: ({ reference }) => actions.openLoan(reference),
   });
 }
