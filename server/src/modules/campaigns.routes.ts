@@ -19,6 +19,9 @@ import { validate } from '../middleware/validate.js';
 import { ok, created, fail, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('campaigns');
 
 export const campaignsRouter = Router();
 campaignsRouter.use(requireAdmin);
@@ -220,6 +223,7 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
           ...scheduleData(b),
         },
       });
+      log.info('campaign created', { id: campaign.id, name: campaign.name, code: campaign.code, createdBy: req.admin?.sub ?? null });
       return created(res, campaign, 'Campaign created');
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -292,6 +296,7 @@ campaignsRouter.patch('/:id', requireRole(...CAN_WRITE),
       where: { id: existing.id },
       data: { ...(rest as Prisma.CampaignUpdateInput), ...scheduleData(b) },
     });
+    log.info('campaign updated', { id: campaign.id, fields: Object.keys(b) });
     return ok(res, campaign, 'Campaign updated');
   }));
 
@@ -347,6 +352,7 @@ campaignsRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, re
   const existing = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!existing) return fail(res, 404, 'Campaign not found');
   await prisma.campaign.delete({ where: { id: existing.id } });
+  log.warn('campaign deleted', { id: existing.id, name: existing.name });
   return ok(res, { id: existing.id }, 'Campaign deleted');
 }));
 
@@ -443,6 +449,7 @@ campaignsRouter.post('/:id/contacts/upload', upload.single('file'), ah(async (re
   const totalContacts = await prisma.campaignContact.count({ where: { campaignId: campaign.id } });
   await prisma.campaign.update({ where: { id: campaign.id }, data: { totalContacts } });
 
+  log.info('contacts uploaded', { campaignId: campaign.id, inserted: result.count, skipped, duplicates, totalContacts });
   return ok(
     res,
     { inserted: result.count, skipped, duplicates, totalContacts, errors: errors.slice(0, 200) },
@@ -473,10 +480,14 @@ campaignsRouter.post('/:id/start', requireRole(...CAN_ADMINISTER), ah(async (req
   // window, weekday filter and retry cadence are actually honoured — starting a
   // 09:00–19:00 campaign at midnight must not blast the whole list at midnight.
   const gate = canDialNow(updated, new Date());
+  log.info('campaign started', {
+    id: updated.id, name: updated.name, startedBy: req.admin?.sub ?? null,
+    pendingContacts: pending, concurrency: updated.concurrency, dialingNow: gate.canDial,
+  });
   if (gate.canDial) {
     // Inside the window: tick once now so the operator sees movement instead of
     // waiting up to a minute for the scheduler.
-    void tickCampaign(updated.id).catch((e) => console.error('[campaigns] tick failed', e));
+    void tickCampaign(updated.id).catch((e) => log.error('tick failed', { id: updated.id, error: String(e) }));
   }
 
   return ok(
@@ -502,6 +513,7 @@ campaignsRouter.post('/:id/pause', requireRole(...CAN_WRITE), ah(async (req, res
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
   const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'paused' } });
+  log.info('campaign paused', { id: updated.id, name: campaign.name, pausedBy: req.admin?.sub ?? null });
   return ok(res, { id: updated.id, status: updated.status }, 'Campaign paused');
 }));
 

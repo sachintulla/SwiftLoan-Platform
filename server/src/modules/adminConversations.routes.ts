@@ -14,6 +14,9 @@ import { ok, fail, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { CHANNEL_LABELS, rebuildSummary } from '../lib/conversations.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('admin-conversations');
 
 export const adminConversationsRouter = Router();
 adminConversationsRouter.use(requireAdmin);
@@ -136,6 +139,7 @@ adminConversationsRouter.post('/:phone/rebuild', ah(async (req, res) => {
   const phone = normalisePhone(req.params.phone);
   if (!phone) return fail(res, 400, 'Invalid phone number');
   const row = await rebuildSummary(phone);
+  log.info('summary rebuilt', { phone, rebuilt: !!row, conversationCount: row?.conversationCount ?? 0 });
   return ok(res, { phone, rebuilt: !!row, conversationCount: row?.conversationCount ?? 0 },
     row ? 'Summary rebuilt' : 'No conversations for that number');
 }));

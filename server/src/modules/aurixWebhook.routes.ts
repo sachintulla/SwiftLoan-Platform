@@ -16,6 +16,9 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('aurix-webhook');
 
 export const aurixWebhookRouter = Router();
 
@@ -55,7 +58,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const offerCode = body.OfferCode ?? body.offerCode ?? body.offer_code ?? null;
   const partnerCustomerId = body.PartnerCustomerId ?? body.partnerCustomerId ?? body.partner_customer_id ?? null;
   const rawStatus = body.Status ?? body.status ?? body.LoanStatus ?? body.ApplicationStatus ?? body.Meta?.Status ?? null;
-  console.log(`[aurix-webhook] offerCode=${offerCode} partnerCustomerId=${partnerCustomerId} status=${rawStatus} body=${JSON.stringify(body)}`);
+  log.info('received', { offerCode, partnerCustomerId, status: rawStatus, body });
 
   // Locate the application: prefer the exact offer, else the user's latest.
   let application: { id: string; userId: string; status: ApplicationStatus } | null = null;
@@ -72,10 +75,14 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
       orderBy: { updatedAt: 'desc' },
     })) as any;
   }
-  if (!application) return ok(res, { matched: false }, 'No matching application');
+  if (!application) {
+    log.warn('no matching application', { offerCode, partnerCustomerId });
+    return ok(res, { matched: false }, 'No matching application');
+  }
 
   const mapped = mapStatus(rawStatus);
   if (!mapped) {
+    log.warn('status not recognised', { applicationId: application.id, rawStatus });
     return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'Status not recognised');
   }
 
@@ -98,5 +105,6 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, offerCode, aurixStatus: rawStatus } },
   ).catch(() => {});
 
+  log.info('status updated', { applicationId: application.id, status: mapped });
   return ok(res, { matched: true, applicationId: application.id, status: mapped }, 'Status updated');
 }));

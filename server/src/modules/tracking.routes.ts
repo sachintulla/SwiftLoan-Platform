@@ -5,6 +5,9 @@ import { ok, created, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { journeyNameFor } from '../lib/appEventMap.js';
 import { verifyAccess } from '../lib/jwt.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('tracking');
 
 // Public tracking endpoints. The mobile app calls these fire-and-forget, so they
 // must be cheap, tolerant of missing fields, and never throw back something the
@@ -110,7 +113,7 @@ trackingRouter.post('/event', ah(async (req, res) => {
           // The ActivityEvent above already is the telemetry — do not write a second.
           mirrorTelemetry: false,
         },
-      ).catch((e) => console.error('[track] journey promotion failed', e));
+      ).catch((e) => log.error('journey promotion failed', { userId, eventName, error: String(e) }));
     }
   }
 
@@ -212,5 +215,6 @@ trackingRouter.post('/install', ah(async (req, res) => {
     ).catch(() => {});
   }
 
+  log.info('app install recorded', { platform, source: download.source, contextLoaded: !!ctx, phone: ctx?.phone ?? null });
   return created(res, { download_id: download.id, context_loaded: !!ctx }, 'Install recorded');
 }));

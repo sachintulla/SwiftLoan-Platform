@@ -5,6 +5,9 @@ import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('admin');
 
 // All routes require an authenticated admin.
 export const adminRouter = Router();
@@ -352,6 +355,7 @@ adminRouter.patch('/leads/:id', ah(async (req, res) => {
     where: { id: req.params.id },
     data: { status: req.body?.status ?? undefined, note: req.body?.note ?? undefined },
   });
+  log.info('lead updated', { id: lead.id, status: lead.status, noteChanged: req.body?.note !== undefined });
   return ok(res, lead, 'Lead updated');
 }));
 

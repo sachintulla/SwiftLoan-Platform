@@ -11,6 +11,9 @@ import {
   requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_ADMINISTER,
 } from '../middleware/adminAuth.js';
 import { reconcileStaleCalls, CALL_STALE_MINUTES } from '../lib/callReconcile.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('admin-ops');
 
 export const adminOpsRouter = Router();
 adminOpsRouter.use(requireAdmin);
@@ -131,6 +134,7 @@ adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
 adminOpsRouter.post('/reconcile-calls', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
   const raw = Number((req.body as Record<string, unknown> | undefined)?.olderThanMinutes);
   const r = await reconcileStaleCalls(Number.isFinite(raw) ? raw : CALL_STALE_MINUTES);
+  log.info('manual reconcile run', r);
 
   return ok(
     res,

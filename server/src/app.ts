@@ -44,7 +44,13 @@ export function createApp() {
   app.use(helmet());
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
-  if (!env.isProd) app.use(morgan('dev'));
+  // Access logging (method, path, status, timing) for EVERY request, in every
+  // environment. This used to be gated to non-prod only — meaning the
+  // deployed dev/prod boxes had no request-level log at all, only whatever a
+  // handler happened to console.log itself. 'combined' in prod (no ANSI
+  // colour codes, which read as garbage in a redirected log file); 'dev' is
+  // fine locally where a terminal renders them.
+  app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
   // ── Rate limiting ──
   // Previously only the two auth routes were throttled, which left every public
