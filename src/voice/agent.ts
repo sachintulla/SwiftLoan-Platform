@@ -21,6 +21,10 @@ import type {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 30_000;
+// A confirmation prompt (e.g. logout) that is never answered must not hang the
+// session forever. If the user doesn't respond in this window — or the request
+// is aborted — treat it as a denial so the tool call resolves and status clears.
+const CONFIRM_TIMEOUT_MS = 45_000;
 
 export class ElloAgent {
   conversationId: string | null = null;
@@ -85,10 +89,19 @@ export class ElloAgent {
       // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
       // reads msg.get("tools")) — note this differs from voice-session-start's
       // own "client_tools" field below; that asymmetry is real, not a typo.
+      // Strip the "speak first / Welcome to SwiftLoan" opening from navigation
+      // updates — that instruction must only fire once, at session start. Left in,
+      // the agent re-greets on every screen change. The rest of the page context
+      // (screen_overview, goal, autoAdvance, available_actions) still refreshes.
+      const ctx: any = this.pageContextFn?.() ?? {};
+      if (ctx.interactionGuide && 'opening' in ctx.interactionGuide) {
+        const { opening: _drop, ...guide } = ctx.interactionGuide;
+        ctx.interactionGuide = guide;
+      }
       this.socket!.send({
         type: 'client-tools-update',
         tools: this.registry.toWire(),
-        page_context: this.pageContextFn?.() ?? {},
+        page_context: ctx,
       });
     });
   }
@@ -342,7 +355,12 @@ export class ElloAgent {
     }
 
     if (tool.requiresConfirmation) {
-      const allowed = await this.confirm(tool.confirmationMessage || `Allow "${tool.name}"?`);
+      // Bounded so an unanswered confirmation dialog can't leave the agent stuck
+      // in `executingTool` with the tool call never resolving.
+      const allowed = await this.confirmWithTimeout(
+        tool.confirmationMessage || `Allow "${tool.name}"?`,
+        controller.signal,
+      );
       if (!allowed) {
         respond('denied');
         return;
@@ -360,6 +378,31 @@ export class ElloAgent {
     } catch (e: any) {
       fail('tool_handler_failed', e?.message || 'tool handler failed');
     }
+  }
+
+  /**
+   * Await the confirmation prompt, but resolve `false` (deny) if it isn't
+   * answered within CONFIRM_TIMEOUT_MS or the tool call is aborted — so an
+   * unanswered dialog can never hang the session.
+   */
+  private confirmWithTimeout(message: string, signal: AbortSignal): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let done = false;
+      const finish = (v: boolean) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      };
+      const timer = setTimeout(() => finish(false), CONFIRM_TIMEOUT_MS);
+      const onAbort = () => finish(false);
+      signal.addEventListener('abort', onAbort, { once: true });
+      Promise.resolve(this.confirm(message)).then(
+        (v) => finish(!!v),
+        () => finish(false),
+      );
+    });
   }
 
   private runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, signal: AbortSignal): Promise<T> {

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from '../../components/Icon';
-import { colors } from '../../theme/tokens';
+import { colors, font } from '../../theme/tokens';
 import { useStore, useT } from '../../state/store';
 import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
@@ -265,6 +265,7 @@ export default function VoiceWidget() {
 
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
+    Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
@@ -279,19 +280,21 @@ export default function VoiceWidget() {
   // from window height, so it never drifts with screen size. Horizontal side
   // is the one thing left to the user: drag the button past the midline and
   // it docks to that edge, remembered for next time.
-  const hasBottomNav = SCREENS_WITH_BOTTOM_NAV.has(state.screen);
-  const edgeStyle = side === 'left' ? { left: EDGE_MARGIN } : { right: EDGE_MARGIN };
-
+  // Pinned to a fixed bottom-right spot on every screen that shows it, so the
+  // assistant never appears to "move" between screens. (Dragging is disabled —
+  // it caused the button to jump sides across navigations.)
   return (
     <View
       pointerEvents="box-none"
-      style={[
-        styles.wrap,
-        edgeStyle,
-        { bottom: (hasBottomNav ? 108 : 24) + insets.bottom, transform: [{ translateX: dragX }] },
-      ]}
-      {...panResponder.panHandlers}
+      style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom }]}
     >
+      {/* Always-visible status so the user knows when it's connected & their turn. */}
+      {active ? (
+        <View style={styles.statusPill} pointerEvents="none">
+          <View style={[styles.statusDot, { backgroundColor: status === 'listening' ? colors.green : accent }]} />
+          <Text style={styles.statusText}>{a11yLabel}</Text>
+        </View>
+      ) : null}
       <View style={styles.fabZone}>
         <IdleHalo />
         <Ripple active={showBars} delay={0} color={accent} />
@@ -323,7 +326,20 @@ const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
 const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', alignItems: 'center' },
+  wrap: { position: 'absolute', alignItems: 'flex-end' },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15,42,43,0.92)',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    marginBottom: 8,
+    marginRight: 2,
+  },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusText: { ...font(600), fontSize: 11.5, color: '#fff' },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
   halo: {

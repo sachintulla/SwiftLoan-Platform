@@ -56,7 +56,10 @@ export default function Profile() {
         pdEmail: user.email || state.pdEmail,
         pdPhone: user.phone ? `+91 ${user.phone}` : state.pdPhone,
         pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
-        lang: user.lang || state.lang,
+        // Keep the locally chosen language; don't let a stale backend `lang`
+        // overwrite a fresh selection when Profile loads (bug: Telugu reverted
+        // to English after visiting Profile).
+        lang: state.lang || user.lang,
         notif: { loan: user.notifyLoanUpdates, security: user.notifySecurityAlerts, promo: user.notifyPromoOffers },
       });
     } catch (e: any) {
@@ -158,11 +161,25 @@ export default function Profile() {
     }
   };
 
+  const removeAvatar = async () => {
+    setAvatarBusy(true);
+    try {
+      const user = await api.updateProfile({ avatarUrl: null });
+      set({ authUser: user });
+      showToast('Photo removed.');
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Could not remove photo. Please try again.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const pickAvatar = () => {
     if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
+    const hasPhoto = !!state.authUser?.avatarUrl;
     Alert.alert('Profile photo', undefined, [
       {
-        text: 'Take Photo',
+        text: hasPhoto ? 'Take New Photo' : 'Take Photo',
         onPress: () => launchCamera({ mediaType: 'photo', quality: 0.8 }, res => {
           if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
         }),
@@ -173,7 +190,9 @@ export default function Profile() {
           if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
         }),
       },
-      { text: 'Cancel', style: 'cancel' },
+      // Delete option — only when a photo is actually set.
+      ...(hasPhoto ? [{ text: 'Remove Photo', style: 'destructive' as const, onPress: removeAvatar }] : []),
+      { text: 'Cancel', style: 'cancel' as const },
     ]);
   };
 

@@ -216,6 +216,7 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
     const labels = listTargets('aboutyou').map(t => t.label);
 
     expect(labels.some(l => /full name/i.test(l))).toBe(true);
+    expect(labels.some(l => /email/i.test(l))).toBe(true);
     expect(labels.some(l => /pincode/i.test(l))).toBe(true);
     expect(labels).toContain('Male');
     expect(labels).toContain('Female');

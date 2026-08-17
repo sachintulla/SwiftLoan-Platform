@@ -36,8 +36,17 @@ export default function Basic() {
     api.me().then((r: any) => {
       const user = r.user;
       if (!user) return;
-      if (!state.basicFirst && user.firstName) set({ basicFirst: user.firstName });
-      if (!state.basicLast && user.lastName) set({ basicLast: user.lastName });
+      // Name: prefer explicit first/last, but fall back to splitting the fullName
+      // saved by the "Tell us about yourself" screen, so the user never re-types it.
+      const nameParts = (user.fullName || '').trim().split(/\s+/).filter(Boolean);
+      if (!state.basicFirst) {
+        if (user.firstName) set({ basicFirst: user.firstName });
+        else if (nameParts.length) set({ basicFirst: nameParts[0] });
+      }
+      if (!state.basicLast) {
+        if (user.lastName) set({ basicLast: user.lastName });
+        else if (nameParts.length > 1) set({ basicLast: nameParts.slice(1).join(' ') });
+      }
       if (!state.basicEmail && user.email) set({ basicEmail: user.email });
       if (!state.basicPin && user.pincode) set({ basicPin: user.pincode });
       if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });

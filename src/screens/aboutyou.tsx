@@ -44,8 +44,13 @@ export default function AboutYou() {
     setBusy(true);
     try {
       if (isAuthed()) {
+        // Persist first/last too so the loan funnel pre-fills the name and the
+        // user never enters it twice.
+        const nameParts = state.aboutName.trim().split(/\s+/).filter(Boolean);
         const { user }: any = await api.updateProfile({
           fullName: state.aboutName.trim(),
+          ...(nameParts.length ? { firstName: nameParts[0] } : {}),
+          ...(nameParts.length > 1 ? { lastName: nameParts.slice(1).join(' ') } : {}),
           ...(state.basicEmail ? { email: state.basicEmail } : {}),
           ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
           ...(state.aboutGender ? { gender: state.aboutGender } : {}),

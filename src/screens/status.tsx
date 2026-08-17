@@ -56,7 +56,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 };
 
 export default function Status() {
-  const { state, go } = useStore();
+  const { state, back } = useStore();
   const [app, setApp] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -85,7 +85,7 @@ export default function Status() {
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('home')} title={<View />} />
+        <AppHeader onBack={back} title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
         {loading ? (

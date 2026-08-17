@@ -1,4 +1,26 @@
-import { _reducer, initialState, parentScreen, PREV_MAP, AppState } from '../src/state/store';
+import { _reducer, initialState, parentScreen, PREV_MAP, AppState, resolveScreenName } from '../src/state/store';
+
+describe('UC-N7 agent screen-name resolution (bug: "My Loan" opened Repayment)', () => {
+  const cases: [string, string | null][] = [
+    ['My Loan', 'loans'],
+    ['My Loans', 'loans'],
+    ['my loans', 'loans'],
+    ['Repayment Overview', 'repay'],
+    ['repayment', 'repay'],
+    ['repay', 'repay'],
+    ['My Offers', 'fare'],
+    ['CIBIL', 'creditscore'],
+    ['credit score', 'creditscore'],
+    ['Home', 'home'],
+    ['dashboard', 'home'],
+    ['profile', 'profile'],
+    ['loans', 'loans'],       // exact id still resolves
+    ['totally-unknown', null],
+  ];
+  it.each(cases)('%s → %s', (name, expected) => {
+    expect(resolveScreenName(name)).toBe(expected);
+  });
+});
 
 describe('UC-N1 initial screen', () => {
   it('starts on splash', () => {
@@ -13,12 +35,15 @@ describe('UC-N2 go() sets screen', () => {
   });
 });
 
-describe('UC-N3 back-stack (prevMap)', () => {
+describe('UC-N3 back-stack fallback (prevMap)', () => {
+  // PREV is now only the fallback for back() when the real history stack is empty
+  // (e.g. deep-linked entry). These assert the fallback parents match the map.
   const cases: [string, string][] = [
-    ['basic', 'home'],
-    ['basicpan', 'basic'],
-    ['finding', 'basicpan'],
-    ['offers', 'basicpan'],
+    ['basicpan', 'home'],
+    ['basic', 'basicpan'],
+    ['moredetails', 'basic'],
+    ['finding', 'moredetails'],
+    ['offers', 'home'],
     ['handoff', 'offers'],
     ['aadhaar', 'kyc'],
     ['panv', 'kyc'],
@@ -35,6 +60,46 @@ describe('UC-N3 back-stack (prevMap)', () => {
   ];
   it.each(cases)('%s → %s', (screen, parent) => {
     expect(parentScreen(screen as any)).toBe(parent);
+  });
+});
+
+describe('UC-N3b real back stack returns to actual origin', () => {
+  it('back() returns to where you came from, not a fixed parent', () => {
+    // My Offers (fare) → Apply (basicpan): Back must return to fare, not home.
+    let s = _reducer(initialState, { type: 'go', screen: 'fare' });
+    s = _reducer(s, { type: 'go', screen: 'basicpan' });
+    expect(s.screen).toBe('basicpan');
+    s = _reducer(s, { type: 'back' });
+    expect(s.screen).toBe('fare');
+  });
+
+  it('reaching the same screen from a different origin backs to that origin', () => {
+    // Home → basicpan: Back returns to home (the real origin this time).
+    let s = _reducer(initialState, { type: 'go', screen: 'home' });
+    s = _reducer(s, { type: 'go', screen: 'basicpan' });
+    s = _reducer(s, { type: 'back' });
+    expect(s.screen).toBe('home');
+  });
+
+  it('a top-level tab resets the stack (acts as a root)', () => {
+    let s = _reducer(initialState, { type: 'go', screen: 'fare' });
+    s = _reducer(s, { type: 'go', screen: 'basicpan' });
+    s = _reducer(s, { type: 'go', screen: 'home' }); // tab tap
+    expect(s.history).toEqual([]);
+  });
+
+  it('Back skips transient loaders (finding)', () => {
+    // basic → finding (loader) → offers: Back from offers skips finding → basic.
+    let s = _reducer(initialState, { type: 'go', screen: 'basic' });
+    s = _reducer(s, { type: 'go', screen: 'finding' });
+    s = _reducer(s, { type: 'go', screen: 'offers' });
+    s = _reducer(s, { type: 'back' });
+    expect(s.screen).toBe('basic');
+  });
+
+  it('back() on an empty stack falls back to the PREV map', () => {
+    const s = _reducer({ ...initialState, screen: 'basic', history: [] }, { type: 'back' });
+    expect(s.screen).toBe(PREV_MAP.basic || 'home');
   });
 });
 
