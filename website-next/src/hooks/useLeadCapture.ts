@@ -11,6 +11,7 @@ import {
   requestWebsiteOtp,
   verifyWebsiteOtp,
   submitCallbackChoice,
+  type LeadDetails,
 } from "@/lib/leads";
 import { upshotEvent, upshotIdentify } from "@/components/UpshotWeb";
 
@@ -98,6 +99,43 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     setAmountTouched(true);
     setFormValid(formRef.current?.checkValidity() ?? false);
   }, []);
+
+  const amountCorrectionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Only meaningful for Hero's one-field flow: its amount slider lives
+   * INSIDE the OTP modal, which only ever opens after onSubmit already ran
+   * submitLead() with the untouched AMOUNT_DEFAULT. Without this, whatever
+   * the visitor picks here never reaches the backend at all — the lead
+   * (and everything downstream: the admin funnel, the calling agent's
+   * {{lead_amount_words}}) stays frozen at the default forever, which is
+   * exactly why every call was opening with "5 lakh" regardless of what
+   * anyone actually selected.
+   *
+   * Wired to the slider's onValueCommit rather than onValueChange (which
+   * fires continuously mid-drag) — but onValueCommit ITSELF still fires once
+   * per discrete step for keyboard/arrow-key adjustment, not just once at the
+   * end of a mouse drag. A burst of arrow presses previously fired a POST per
+   * step and blew straight through the 5-req/minute limiter this endpoint
+   * shares with the rest of lead-capture. Debounced here so only the final
+   * settled value — after the visitor stops touching the slider for a beat —
+   * ever reaches the network.
+   *
+   * A no-op when the lead hasn't been submitted yet (LeadForm/QuickCheckModal
+   * show this same slider BEFORE submit, so onSubmit already sends the
+   * correct value — nothing to correct here).
+   */
+  const handleAmountCommit = useCallback(
+    (value: number) => {
+      if (!mobileNumber) return;
+      if (amountCorrectionTimer.current) clearTimeout(amountCorrectionTimer.current);
+      amountCorrectionTimer.current = setTimeout(() => {
+        const details: LeadDetails = { phone: mobileNumber, product: loanType, amountRupees: value };
+        void submitLead(details, makeRefId());
+      }, 1200);
+    },
+    [mobileNumber, loanType],
+  );
 
   /** Amount-not-yet-selected takes priority — a mobile number typed against
    *  an untouched default amount was never actually a deliberate choice. */
@@ -293,6 +331,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     amount,
     amountTouched,
     handleAmountChange,
+    handleAmountCommit,
     isSubmitting,
     mobileNumber,
     otp,

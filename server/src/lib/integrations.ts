@@ -46,8 +46,18 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     agentType: 'telephonic',
     callType: 'outbound',
     source: 'swiftloan-admin',
-    /** Sent as `hook_url`; Ello POSTs call events here. */
-    webhookUrl: 'http://localhost:4000/api/webhooks/ello/call-outcome',
+    /**
+     * Sent as `hook_url`; Ello POSTs call events here. Deliberately no
+     * default — a `localhost` fallback used to ship here, which silently
+     * became every environment's real webhook URL until someone noticed
+     * every call sat at "dialing" forever. This MUST be set per-environment
+     * from the admin dashboard (a scheme mismatch is just as fatal: an
+     * `http://` URL that the host redirects to `https://` drops the POST
+     * body on most webhook senders, so this has to be `https://` on a real
+     * deployment). triggerElloCall() below refuses to place a call at all
+     * without it, rather than dial one that can never report back.
+     */
+    webhookUrl: '',
     /** Optional opening line; blank lets the agent's own greeting play. */
     message: '',
     /** Dotted path to the provider's call id in the trigger response. */
@@ -256,6 +266,19 @@ export async function triggerElloCall(input: TriggerCallInput): Promise<HttpResu
   const s = cfg.settings;
   const agentId = input.assistantId || s.assistantId;
   if (!agentId) return { ok: false, status: 0, body: null, error: 'No Ello agent id configured' };
+
+  // A call placed without a real, reachable webhookUrl can never report its
+  // outcome back — it just sits at "dialing" until the reconcile job times
+  // it out 30 minutes later. Refuse to dial rather than do that silently.
+  if (!s.webhookUrl) {
+    return { ok: false, status: 0, body: null, error: 'Ello webhookUrl is not configured — see settings.webhookUrl' };
+  }
+  if (!/^https:\/\//i.test(s.webhookUrl)) {
+    return {
+      ok: false, status: 0, body: null,
+      error: `Ello webhookUrl must be https:// (got "${s.webhookUrl}") — an http:// URL that redirects to https drops the webhook body on most senders`,
+    };
+  }
 
   // Ello expects E.164. Our phones are bare 10-digit Indian numbers.
   const toNumber = /^\+/.test(input.phone) ? input.phone : `+91${input.phone.replace(/\D/g, '').slice(-10)}`;
