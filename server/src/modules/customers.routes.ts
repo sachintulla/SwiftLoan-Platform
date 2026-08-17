@@ -16,6 +16,9 @@ import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, C
 import { STAGE_ORDER, STAGE_LABELS, TERMINAL_STAGES, CHANNEL_ENTRY_STAGES } from '../lib/journey.js';
 import { nudgeCustomer } from '../lib/dispatch.js';
 import { NEXT_ACTION_BY_STAGE, nextActionFor } from '../lib/nextAction.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('customers');
 
 export const customersRouter = Router();
 customersRouter.use(requireAdmin);
@@ -246,5 +249,6 @@ customersRouter.post('/:id/nudge', requireRole(...CAN_WRITE), validate(nudgeSche
 
   await prisma.customer.update({ where: { id: customer.id }, data: { lastNudgedAt: new Date() } }).catch(() => undefined);
 
+  log.info('manual nudge queued', { customerId: customer.id, channel: body.channel, eventName: body.eventName ?? null, count: out.length });
   return created(res, out.length === 1 ? out[0] : out, 'Nudge queued');
 }));

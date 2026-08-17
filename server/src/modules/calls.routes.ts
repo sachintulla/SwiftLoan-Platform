@@ -15,6 +15,9 @@ import { resolveCustomer } from '../lib/journey.js';
 import { placeCall, normalisePhone } from '../lib/dialer.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from '../lib/callContext.js';
 import { agentIdFor } from '../lib/agents.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('calls');
 
 export const callsRouter = Router();
 callsRouter.use(requireAdmin);
@@ -124,6 +127,11 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
     const attempt = await prisma.callAttempt.findUnique({
       where: { id: result.attempt.id },
       include: { customer: customerSelect },
+    });
+
+    log[result.ok ? 'info' : 'warn']('manual trigger', {
+      customerId: customer.id, phone: dialPhone, campaignId: campaignId ?? null,
+      triggeredBy: req.admin?.sub ?? 'admin', ok: result.ok, error: result.error ?? null,
     });
 
     // A provider failure is a recorded outcome, not a request error: the caller

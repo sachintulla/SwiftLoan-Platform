@@ -8,6 +8,9 @@ import { requestPhoneOtp, verifyPhoneOtp } from '../lib/otp.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { FIRST_ATTEMPT_DELAY_SECONDS } from '../lib/immediateCallback.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('website');
 
 /**
  * Public, unauthenticated, phone-scoped actions for the marketing site,
@@ -41,6 +44,7 @@ websiteRouter.post(
     // right after a real, successful verification in THIS session, never as a
     // silent skip based on stale DB state.
     const result = await requestPhoneOtp(phone);
+    log.info('otp requested', { phone, sent: result.sent, hasDevOtp: !!result.devOtp, alreadyVerified: customer.phoneVerified });
     return ok(res, result, 'OTP sent');
   }),
 );
@@ -58,7 +62,10 @@ websiteRouter.post(
     if (!customer) throw new HttpError(404, 'No lead found for this number');
 
     const valid = await verifyPhoneOtp(phone, code);
-    if (!valid) throw new HttpError(400, 'Invalid or expired code');
+    if (!valid) {
+      log.warn('otp verify rejected', { phone });
+      throw new HttpError(400, 'Invalid or expired code');
+    }
 
     const updated = await prisma.customer.update({
       where: { id: customer.id },
@@ -66,6 +73,7 @@ websiteRouter.post(
     });
     await recordJourneyEvent(customer.id, { channel: 'website', name: JOURNEY_EVENTS.PHONE_VERIFIED }).catch(() => undefined);
 
+    log.info('otp verified', { phone, customerId: customer.id });
     return ok(res, { verified: true, phoneVerifiedAt: updated.phoneVerifiedAt }, 'Phone verified');
   }),
 );
@@ -96,6 +104,7 @@ websiteRouter.post(
       // under it would make the webhook that reports its outcome a no-op
       // (recordImmediateCallbackAttemptOutcome only acts on 'in_progress').
       if (customer.callbackStatus !== 'in_progress') {
+        const nextAttemptAt = new Date(Date.now() + FIRST_ATTEMPT_DELAY_SECONDS * 1_000);
         await prisma.customer.update({
           where: { id: customer.id },
           data: {
@@ -104,15 +113,19 @@ websiteRouter.post(
             callbackAttempts: 0,
             // FIRST_ATTEMPT_DELAY_SECONDS defaults to 20 — the next 1-minute
             // tick of the immediate-callback job dials it on the spot.
-            callbackNextAttemptAt: new Date(Date.now() + FIRST_ATTEMPT_DELAY_SECONDS * 1_000),
+            callbackNextAttemptAt: nextAttemptAt,
             callbackLastAttemptAt: null,
           },
         });
         await recordJourneyEvent(customer.id, { channel: 'website', name: JOURNEY_EVENTS.CALLBACK_REQUESTED }).catch(() => undefined);
+        log.info('callback yes — cycle (re)started', { phone, customerId: customer.id, nextAttemptAt });
+      } else {
+        log.info('callback yes — ignored, a call is in_progress right now', { phone, customerId: customer.id });
       }
     } else if (!customer.callbackDeclinedAt) {
       await prisma.customer.update({ where: { id: customer.id }, data: { callbackDeclinedAt: new Date() } });
       await recordJourneyEvent(customer.id, { channel: 'website', name: JOURNEY_EVENTS.CALLBACK_DECLINED }).catch(() => undefined);
+      log.info('callback no — declined', { phone, customerId: customer.id });
     }
 
     return ok(res, { recorded: true }, 'Callback preference saved');

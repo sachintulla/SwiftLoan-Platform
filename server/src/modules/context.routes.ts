@@ -8,6 +8,9 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { requireAuth } from '../middleware/auth.js';
 import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('context');
 
 // WS3 context handoff. The website widget / voice agent posts what it learned
 // about the visitor here; we mint a short opaque token and return the links the
@@ -86,6 +89,7 @@ contextRouter.post('/create', ah(async (req, res) => {
     },
   ).catch(() => {});
 
+  log.info('lead captured', { token, phone: session.phone, product: session.product, amountPaise: session.amount, source: session.source });
   return created(res, { token, ...contextLinks(token), context: publicContext(session) }, 'Context saved');
 }));
 
@@ -199,8 +203,10 @@ contextRouter.post('/me/conversation', requireAuth, ah(async (req, res) => {
       durationSec: Number.isFinite(durationSec) ? Math.round(durationSec) : null,
       endedAt: new Date(),
     });
+    log.info('app conversation saved', { phone, id: row.id });
     return ok(res, { id: row.id, channel: row.channel }, 'Conversation saved');
   } catch (e) {
+    log.error('app conversation save failed', { phone, error: (e as Error).message });
     return fail(res, 400, (e as Error).message);
   }
 }));

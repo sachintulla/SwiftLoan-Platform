@@ -13,6 +13,9 @@ import { ok } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { prisma } from '../lib/prisma.js';
 import { generateApiKey } from '../lib/apiKeys.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('api-keys');
 
 export const apiKeysRouter = Router();
 apiKeysRouter.use(requireAdmin);
@@ -60,6 +63,10 @@ apiKeysRouter.post('/', requireRole(...CAN_ADMINISTER), validate(createSchema), 
     },
   });
 
+  // Never log generated.plain — this line and the response above are the
+  // only two places the plaintext key is allowed to exist.
+  log.info('key created', { id: row.id, name: row.name, keyPrefix: row.keyPrefix, createdBy: row.createdBy });
+
   // The ONLY response that ever includes the plaintext. It is not retrievable
   // again after this — the admin must copy it now or generate a new one.
   return ok(res, { ...publicView(row), key: generated.plain }, 'API key created — shown once, copy it now');
@@ -75,5 +82,6 @@ apiKeysRouter.post('/:id/revoke', requireRole(...CAN_ADMINISTER), ah(async (req,
     where: { id: existing.id },
     data: { revokedAt: new Date() },
   });
+  log.info('key revoked', { id: row.id, name: row.name });
   return ok(res, publicView(row), 'API key revoked');
 }));
