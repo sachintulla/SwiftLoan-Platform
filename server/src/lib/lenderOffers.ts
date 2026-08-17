@@ -560,9 +560,12 @@ class AurixOfferProvider implements LenderOfferProvider {
       'POST',
       // v1.2 headers: K-Aurix-Token + K-Aurix-PartnerCustomerId. X-Aurix-Token
       // kept for backward-compat with the currently-deployed UAT gateway.
+      // K-Aurix-Version MUST be v3 to match the token minted by generate_token —
+      // v1 here caused eligible_offers to reject the (valid) token with HTTP 401
+      // (confirmed against Aurix's own Postman collection).
       {
         Accept: 'application/json',
-        'K-Aurix-Version': 'v1',
+        'K-Aurix-Version': 'v3',
         'K-Aurix-Token': token,
         'X-Aurix-Token': token,
         'K-Aurix-PartnerCustomerId': application.userId,
