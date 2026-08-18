@@ -181,8 +181,10 @@ Either identifier matches the call. A `callback_at` in the past is ignored.
   `npm run ello:sync`, `npm run ello:agents`.
 
 **Prompts**
-- `prompts/ello-lead-callback-prompt.md` — **new**, live on the agent.
-- `prompts/ello-campaign-prompt.md` — **new**, not yet pushed.
+- `prompts/website-agent-prompt.md` — the one prompt for the one outbound agent
+  (`leadCallback` and `campaign` roles both point at this file; see the comment
+  in `ello-sync-agent.ts`). Supersedes the earlier `ello-lead-callback-prompt.md`
+  / `ello-campaign-prompt.md` two-file split, which no longer reflects reality.
 
 Both carry hard regulatory rules: never quote a rate/EMI/approval, never ask for
 OTP/CVV/PIN/account number, never ask for Aadhaar or PAN by phone, never claim to
