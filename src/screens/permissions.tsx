@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, PermissionsAndroid, Platform } from 'react-nati
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
-import { PrimaryButton, GhostButton } from '../components/Controls';
+import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { registerUpshotPush } from '../analytics/upshot';
@@ -85,8 +85,6 @@ export default function Permissions() {
 
         <View style={{ height: 24 }} />
         <PrimaryButton label={busy ? t.permRequesting : t.permAllow} icon={null} disabled={busy} onPress={allow} />
-        <View style={{ height: 10 }} />
-        <GhostButton label={t.commonSkip} onPress={() => go('aboutyou')} />
       </View>
     </Screen>
   );

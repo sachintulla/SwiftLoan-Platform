@@ -120,12 +120,22 @@ describe('UC-N5 set() merges partial state', () => {
   });
 });
 
-describe('UC-N6 reset returns to splash', () => {
-  it('clears state and returns to splash', () => {
-    const dirty: AppState = { ...initialState, screen: 'home', mobileVal: '9999999999', terms: true };
+describe('UC-N6 reset (logout) clears state, keeps consent/language, lands on login', () => {
+  it('clears session state but returns to the login screen — not Privacy', () => {
+    const dirty: AppState = {
+      ...initialState,
+      screen: 'home', mobileVal: '9999999999', terms: true,
+      privacyAccepted: true, lang: 'te', selectedLang: 'telugu',
+    };
     const s = _reducer(dirty, { type: 'reset' });
-    expect(s.screen).toBe('splash');
+    // Goes to login, not splash→Privacy (bug #14).
+    expect(s.screen).toBe('mobile');
+    // Session/form state cleared…
     expect(s.mobileVal).toBe('');
     expect(s.terms).toBe(false);
+    // …but device-level consent + language are preserved.
+    expect(s.privacyAccepted).toBe(true);
+    expect(s.lang).toBe('te');
+    expect(s.selectedLang).toBe('telugu');
   });
 });

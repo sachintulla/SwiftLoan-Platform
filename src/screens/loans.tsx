@@ -34,9 +34,11 @@ export default function Loans() {
   const [score, setScore] = useState<number | null>(null);
   const [hasOffers, setHasOffers] = useState(false);
 
-  const load = useCallback(async () => {
+  // `silent` refreshes (the background poll) skip the full-screen spinner so the
+  // list updates in place as lender webhooks change each application's status.
+  const load = useCallback(async (silent = false) => {
     if (!isAuthed()) { setLoading(false); return; }
-    setErr(null); setLoading(true);
+    if (!silent) { setErr(null); setLoading(true); }
     try {
       const { applications }: any = await api.listApplications();
       const list = applications || [];
@@ -44,13 +46,19 @@ export default function Loans() {
       // A real CIBIL score is only meaningful once offers have been pulled (soft check).
       setHasOffers(list.some((a: any) => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)));
     } catch (e: any) {
-      setErr(e?.message || 'Could not load your loans.');
+      if (!silent) setErr(e?.message || 'Could not load your loans.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
     api.creditScore().then((r: any) => setScore(r?.score ?? null)).catch(() => setScore(null));
   }, []);
-  useEffect(() => { load(); }, [load]);
+  // Load on open, then poll silently so lender status updates (pushed to the
+  // backend via the KFT status webhook) surface in near-real-time while viewing.
+  useEffect(() => {
+    load();
+    const id = setInterval(() => load(true), 20000);
+    return () => clearInterval(id);
+  }, [load]);
 
   const open = (app: any) => {
     set({ applicationId: app.id, loanId: app.loan?.id ?? null });

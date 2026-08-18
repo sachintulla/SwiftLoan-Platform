@@ -136,6 +136,9 @@ export interface AppState {
   // A friendly, actionable note when prequalify returns no offers (e.g. lender
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
+  // One-line summary of the offers the user just received (or the issue), pushed
+  // to the voice agent so it can proactively talk about them / any problem.
+  offersSummary: string;
   // The screen the user opened `offers` from, so its back button returns there.
   // (Kept for compatibility; back navigation now uses the real `history` stack.)
   offersReturn: Screen;
@@ -183,6 +186,7 @@ export const initialState: AppState = {
   exploreFromHome: false,
   webUrl: '', webTitle: '',
   offersError: '',
+  offersSummary: '',
   offersReturn: 'home',
   history: [],
   hasSavedOffers: false,
@@ -493,6 +497,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // The offers the user just received (or the problem) so the agent can speak
+      // about them proactively on the offers screen.
+      offers_summary: s.offersSummary || undefined,
+      offers_error: s.offersError || undefined,
       priorInquiries: stateRef.current.priorInquiries,
       // WS8: the history behind this phone number. `brief` is a one-line summary
       // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
