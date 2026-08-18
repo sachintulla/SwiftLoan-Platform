@@ -6,12 +6,12 @@ import { useCopy } from "@/lib/i18n";
 import { leadFormCopy } from "@/i18n/lead-form";
 import {
   submitLead,
+  updateLeadAmount,
   attribution,
   makeRefId,
   requestWebsiteOtp,
   verifyWebsiteOtp,
   submitCallbackChoice,
-  type LeadDetails,
 } from "@/lib/leads";
 import { upshotEvent, upshotIdentify } from "@/components/UpshotWeb";
 
@@ -211,11 +211,13 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
       // eat into the 5-req/minute limit /api/context and /api/website share,
       // so a visitor who paused the slider twice while choosing an amount
       // could burn the whole budget before ever reaching OTP verify or the
-      // callback step, which then 429'd.
+      // callback step, which then 429'd. updateLeadAmount() patches the
+      // existing lead rather than submitLead()'s create-a-new-row behaviour —
+      // see its doc comment for why re-using submitLead() here used to leave
+      // two enquiries (default + corrected) for one visit.
       if (amountNeedsCorrection.current) {
         amountNeedsCorrection.current = false;
-        const details: LeadDetails = { phone: mobileNumber, product: loanType, amountRupees: amount };
-        await submitLead(details, makeRefId()).catch(() => undefined);
+        await updateLeadAmount(mobileNumber, amount).catch(() => undefined);
       }
 
       const result = await verifyWebsiteOtp(mobileNumber, otp);
@@ -234,7 +236,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
       setPanel("success");
       setSeconds(10);
     },
-    [otp, otpVerifying, mobileNumber, amount, loanType, t],
+    [otp, otpVerifying, mobileNumber, amount, t],
   );
 
   /** The lead is already saved by this point (submitLead ran before this modal

@@ -126,7 +126,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
 
   const [customer, leads, call, app, loan] = await Promise.all([
     prisma.customer.findFirst({ where: { phone: clean } }),
-    prisma.anonymousLead.findMany({ where: { phone: clean }, orderBy: { createdAt: 'asc' }, take: 10 }),
+    prisma.lead.findMany({ where: { phone: clean }, orderBy: { createdAt: 'asc' }, take: 10 }),
     // Only a call that actually connected is worth mentioning; referencing a
     // missed call would confuse rather than help.
     prisma.callAttempt.findFirst({

@@ -527,25 +527,41 @@ enum LeadStatus {
   lost
 }
 
-model AnonymousLead {
+// A single row per website/widget submission. Used to be split across two
+// tables created in lockstep on every POST /api/context/create
+// (ContextSession for the app deep-link handoff, AnonymousLead for the admin
+// funnel) — same phone/product/amount, two inserts, and no update path, so a
+// later correction (e.g. Hero's amount-correction step) had to insert a THIRD
+// row instead of patching. Merged into one: one insert on submit, one update
+// on correction, one table for the admin's "Website enquiries" list and the
+// app's token resolution to agree on.
+model Lead {
   id              String     @id @default(uuid())
+  /// Short opaque code carried in the app deep link (was ContextSession.token).
+  token           String     @unique
   name            String?
   phone           String?
   city            String?
   productInterest String?
   amount          Int? // paise
-  source          String     @default("app") // widget | app | campaign | organic
+  /// Auto-generated at creation ("Interested in a ₹X Y loan — ..."), and
+  /// admin-editable afterward via PATCH /api/admin/leads/:id — was
+  /// ContextSession.summary and AnonymousLead.note, which held the same text.
+  note            String?
+  source          String     @default("website") // website | call | widget | campaign
   campaignId      String?
   referrer        String?
   status          LeadStatus @default(new)
   convertedUserId String? // set when the lead becomes a real User
-  note            String?
+  transcript      Json? // optional richer context (turns, fields captured)
+  claimedAt       DateTime? // set when the app first resolves the token
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   @@index([status])
   @@index([source])
   @@index([createdAt])
+  @@index([phone, createdAt])
 }
 
 // ─────────────────────── App downloads / attribution ───────────────────────
@@ -683,23 +699,6 @@ model Notification {
 // short opaque token. The token (NOT the PII) travels in the app-download deep
 // link; the context APK resolves it server-side on first open and the in-app
 // agent continues the journey ("as we discussed, your ₹5L personal loan…").
-model ContextSession {
-  id         String    @id @default(uuid())
-  token      String    @unique // short opaque code carried in the deep link
-  name       String?
-  phone      String?
-  city       String?
-  product    String? // Personal Loan | Business Loan
-  amount     Int? // paise
-  summary    String? // one-line of what the user said / wants
-  source     String    @default("website") // website | call | widget
-  transcript Json? // optional richer context (turns, fields captured)
-  claimedAt  DateTime? // set when the app first resolves it
-  createdAt  DateTime  @default(now())
-
-  @@index([createdAt])
-}
-
 // ══════════════════════════════════════════════════════════════════════
 // WS5 — Unified customer journey (website / voice / app / campaigns)
 //

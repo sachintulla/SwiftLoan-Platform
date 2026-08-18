@@ -167,7 +167,7 @@ trackingRouter.post('/loan/step', ah(async (req, res) => {
 // POST /api/track/install  { platform, source?, campaign_id?, referrer?, context_token?, session_id? }
 // WS5: nothing wrote AppDownload before this, so install attribution had no
 // data at all. When the install carries a WS3 context token we can resolve the
-// person's phone from the ContextSession and attach the install to their
+// person's phone from the Lead and attach the install to their
 // journey immediately; otherwise it is recorded anonymously and gets attributed
 // retroactively at OTP verify (auth.routes.ts), which links phone -> Customer.
 trackingRouter.post('/install', ah(async (req, res) => {
@@ -177,7 +177,7 @@ trackingRouter.post('/install', ah(async (req, res) => {
 
   const contextToken = b.context_token ?? b.contextToken ?? null;
   const ctx = contextToken
-    ? await prisma.contextSession.findUnique({ where: { token: String(contextToken).toUpperCase() } })
+    ? await prisma.lead.findUnique({ where: { token: String(contextToken).toUpperCase() } })
     : null;
 
   const userId = softUserId(req) ?? (b.user_id ?? null);

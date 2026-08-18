@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { contextLinks } from '../config/downloads.js';
-import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { requireAuth } from '../middleware/auth.js';
 import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
@@ -32,64 +32,65 @@ contextRouter.post('/create', ah(async (req, res) => {
   const b = req.body ?? {};
   let token = shortToken();
   // extremely unlikely collision, but retry once
-  if (await prisma.contextSession.findUnique({ where: { token } })) token = shortToken(10);
+  if (await prisma.lead.findUnique({ where: { token } })) token = shortToken(10);
 
-  const session = await prisma.contextSession.create({
+  const session = await prisma.lead.create({
     data: {
       token,
       name: b.name ?? null,
       phone: b.phone ?? null,
       city: b.city ?? null,
-      product: b.product ?? b.loanType ?? null,
+      productInterest: b.product ?? b.loanType ?? null,
       amount: b.amount != null ? Math.round(Number(b.amount)) : null,
-      summary: b.summary ?? null,
+      note: b.summary ?? null,
       source: b.source ?? 'website',
       transcript: b.transcript ?? undefined,
-    },
-  });
-
-  // Best-effort: also drop a lead row so it shows in the admin Leads funnel.
-  // Campaign/UTM attribution is carried through from the website query string.
-  prisma.anonymousLead.create({
-    data: {
-      name: session.name, phone: session.phone, city: session.city,
-      productInterest: session.product, amount: session.amount ?? undefined,
-      source: session.source, note: session.summary ?? undefined, status: 'new',
+      status: 'new',
       campaignId: b.campaignId ?? b.utmCampaign ?? null,
       referrer: b.referrer ?? null,
     },
-  }).catch(() => {});
+  });
 
   // WS5: this is the first touch of the customer journey. Resolve (or create)
   // the Customer for this phone and open their timeline at `lead_captured`, so
   // the same person is recognisable when they later install the app or get a
-  // call. Fire-and-forget — a journey write must never fail lead capture.
-  trackJourney(
-    {
-      phone: session.phone,
-      name: session.name,
-      email: b.email ?? null,
-      city: session.city,
-      source: b.campaignId || b.utmCampaign ? 'campaign' : 'website',
-      campaignId: b.campaignId ?? b.utmCampaign ?? null,
-      utmSource: b.utmSource ?? null,
-      utmMedium: b.utmMedium ?? null,
-      utmCampaign: b.utmCampaign ?? null,
-      referrer: b.referrer ?? null,
-    },
-    {
+  // call.
+  //
+  // resolveCustomer() is awaited (not fire-and-forget): the website's own
+  // onSubmit calls POST /api/website/otp/request immediately after this
+  // response comes back, and that endpoint 404s ("No lead found for this
+  // number") if the Customer row doesn't exist yet. Awaiting it here closes
+  // that race — it's a single fast upsert-style call, not worth losing lead
+  // capture over, so still wrapped so a failure here can't fail the response.
+  // recordJourneyEvent() stays fire-and-forget: nothing downstream depends on
+  // the timeline write landing before this request returns.
+  const customer = await resolveCustomer({
+    phone: session.phone,
+    name: session.name,
+    email: b.email ?? null,
+    city: session.city,
+    source: b.campaignId || b.utmCampaign ? 'campaign' : 'website',
+    campaignId: b.campaignId ?? b.utmCampaign ?? null,
+    utmSource: b.utmSource ?? null,
+    utmMedium: b.utmMedium ?? null,
+    utmCampaign: b.utmCampaign ?? null,
+    referrer: b.referrer ?? null,
+  }).catch(() => null);
+
+  if (customer) {
+    recordJourneyEvent(customer.id, {
       channel: 'website',
       name: JOURNEY_EVENTS.LEAD_CAPTURED,
       metadata: {
-        product: session.product,
+        product: session.productInterest,
         amount: session.amount,
-        summary: session.summary,
+        summary: session.note,
         contextToken: session.token,
       },
-    },
-  ).catch(() => {});
+    }).catch(() => {});
+  }
 
-  log.info('lead captured', { token, phone: session.phone, product: session.product, amountPaise: session.amount, source: session.source });
+  log.info('lead captured', { token, phone: session.phone, product: session.productInterest, amountPaise: session.amount, source: session.source });
   return created(res, { token, ...contextLinks(token), context: publicContext(session) }, 'Context saved');
 }));
 
@@ -102,36 +103,36 @@ contextRouter.post('/create', ah(async (req, res) => {
 // uppercase alphabet, so a length floor of 6 keeps every real token matching
 // while letting short literal paths through.
 contextRouter.get('/:token([A-Za-z0-9]{6,12})', ah(async (req, res) => {
-  const session = await prisma.contextSession.findUnique({ where: { token: req.params.token.toUpperCase() } });
+  const session = await prisma.lead.findUnique({ where: { token: req.params.token.toUpperCase() } });
   if (!session) return fail(res, 404, 'Context not found or expired');
   if (!session.claimedAt) {
-    await prisma.contextSession.update({ where: { id: session.id }, data: { claimedAt: new Date() } }).catch(() => {});
+    await prisma.lead.update({ where: { id: session.id }, data: { claimedAt: new Date() } }).catch(() => {});
   }
   return ok(res, publicContext(session), 'Context');
 }));
 
 // Only expose what the app needs — never leak more than was captured.
 function publicContext(s: {
-  token: string; name: string | null; city: string | null; product: string | null;
-  amount: number | null; summary: string | null; source: string;
+  token: string; name: string | null; city: string | null; productInterest: string | null;
+  amount: number | null; note: string | null; source: string;
 }) {
   return {
     token: s.token,
     name: s.name,
     city: s.city,
-    product: s.product,
+    product: s.productInterest,
     amount: s.amount, // paise
-    summary: s.summary,
+    summary: s.note,
     source: s.source,
     greeting: buildGreeting(s),
   };
 }
 
 // A ready-to-speak continuation line for the in-app agent.
-function buildGreeting(s: { name: string | null; product: string | null; amount: number | null }): string {
+function buildGreeting(s: { name: string | null; productInterest: string | null; amount: number | null }): string {
   const who = s.name ? `Hi ${s.name}! ` : 'Welcome back! ';
   const amt = s.amount ? `₹${(s.amount / 100).toLocaleString('en-IN')}` : '';
-  const prod = s.product ? s.product.toLowerCase() : 'loan';
+  const prod = s.productInterest ? s.productInterest.toLowerCase() : 'loan';
   if (amt) return `${who}As we discussed, you're interested in a ${amt} ${prod}. Let's continue your application from here.`;
   return `${who}Let's continue your ${prod} application from where we left off.`;
 }

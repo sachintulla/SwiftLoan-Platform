@@ -174,7 +174,7 @@ customersRouter.get('/:id', ah(async (req, res) => {
         })
       : Promise.resolve(null),
     customer.phone
-      ? prisma.anonymousLead.findMany({ where: { phone: customer.phone }, orderBy: { createdAt: 'desc' } })
+      ? prisma.lead.findMany({ where: { phone: customer.phone }, orderBy: { createdAt: 'desc' } })
       : Promise.resolve([]),
   ]);
 

@@ -143,12 +143,12 @@ authRouter.post(
     // Website inquiries made under this phone number before the app was
     // installed. All matches are surfaced (not just the newest) so the voice
     // agent can ask which one the caller meant instead of guessing.
-    const matchingLeads = await prisma.anonymousLead.findMany({
+    const matchingLeads = await prisma.lead.findMany({
       where: { phone },
       orderBy: { createdAt: 'asc' },
     });
     if (matchingLeads.length) {
-      await prisma.anonymousLead.updateMany({
+      await prisma.lead.updateMany({
         where: { id: { in: matchingLeads.map((l) => l.id) } },
         data: { status: 'converted', convertedUserId: user.id },
       });
