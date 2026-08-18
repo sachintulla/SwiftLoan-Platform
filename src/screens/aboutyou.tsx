@@ -72,7 +72,17 @@ export default function AboutYou() {
   };
 
   return (
-    <Screen scroll padded={false}>
+    <Screen
+      scroll
+      padded={false}
+      footer={
+        <>
+          <PrimaryButton label={busy ? t.saving : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />
+          <View style={{ height: 10 }} />
+          <GhostButton label={t.commonSkip} onPress={() => { set({ exploreFromHome: false }); go('explore'); }} />
+        </>
+      }
+    >
       <View style={{ paddingHorizontal: 20 }}>
         <AppHeader onBack={() => go('permissions')} title={<View />} />
       </View>
@@ -146,10 +156,7 @@ export default function AboutYou() {
           />
         </View>
 
-        <View style={{ height: 24 }} />
-        <PrimaryButton label={busy ? t.saving : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />
-        <View style={{ height: 10 }} />
-        <GhostButton label={t.commonSkip} onPress={() => { set({ exploreFromHome: false }); go('explore'); }} />
+        <View style={{ height: 16 }} />
       </View>
     </Screen>
   );
