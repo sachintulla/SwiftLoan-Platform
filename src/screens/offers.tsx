@@ -11,6 +11,7 @@ import { Empty } from '../components/common/Empty';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, Offer } from '../api/client';
+import { agent } from '../voice';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 function bandColor(band: string): string {
@@ -80,11 +81,25 @@ export default function Offers() {
     setErr(null); setLoading(true);
     try {
       const r: any = await api.getApplication(state.applicationId);
-      setOffers((r.application?.offers || []) as Offer[]);
+      const list = (r.application?.offers || []) as Offer[];
+      setOffers(list);
+      // Give the voice agent a one-line summary of what came back (or the issue),
+      // then push a fresh page-context so it can proactively talk about the offers.
+      const top = list[0];
+      const topEmi = top?.emiOptions?.[0]?.monthlyEmi;
+      const summary = list.length
+        ? `${list.length} offer${list.length > 1 ? 's' : ''} available. Top match: ` +
+          `${top.lenderName || top.partner?.name || 'a lending partner'}` +
+          `${top.apr ? ` at ${top.apr}% p.a.` : ''}` +
+          `${topEmi ? `, monthly EMI ${rupee(topEmi)}` : ''}.`
+        : (state.offersError || 'No offers were returned for this profile right now.');
+      set({ offersSummary: summary });
     } catch (e: any) {
       setErr(e?.message || 'Could not load your offers.');
+      set({ offersSummary: 'There was a problem loading the offers.' });
     } finally {
       setLoading(false);
+      agent.updatePageContext();
     }
   }, [state.applicationId]);
 
@@ -320,10 +335,20 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
+  // Label stacked above the value so large currency amounts (e.g. ₹1,87,03,860)
+  // get the full column width and never overflow the card. adjustsFontSizeToFit
+  // is a final safeguard for extreme amounts.
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-      <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{label}</Text>
-      <Text style={[font(700), { fontSize: 13, color: colors.text }]}>{value}</Text>
+    <View>
+      <Text style={[font(500), { fontSize: 11, color: colors.textSoft }]} numberOfLines={1}>{label}</Text>
+      <Text
+        style={[font(700), { fontSize: 13, color: colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
+        {value}
+      </Text>
     </View>
   );
 }

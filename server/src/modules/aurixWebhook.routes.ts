@@ -1,16 +1,24 @@
 /**
- * Inbound Aurix (Knight Fintech) status webhook — mounted at
- * /api/webhooks/aurix. Aurix calls this to push status updates for an applied
- * loan (submitted → under review → approved/rejected → disbursed), so My Loans
- * reflects the lender's real progress without the app polling.
+ * Inbound Knight Fintech (Aurix) "Status & Journey Data Push" webhook —
+ * mounted at /api/webhooks/aurix (and /api/webhooks/kft).
  *
- * Design mirrors webhooks.routes.ts:
- *  - Verify a shared secret (AURIX_WEBHOOK_SECRET) when configured.
- *  - Never 4xx for a body we simply can't match to an application — Aurix would
- *    retry forever; return 200 { matched: false } instead.
- *  - Log the verbatim body so a payload-shape change is debuggable.
+ * Implements the KFT "Status & Journey Data Push API Contract [PL+BL] v1.2":
+ * KFT posts a common envelope at each journey trigger —
+ *   { journey: { state, status, reason, lead_id, partner_customer_id }, data: {…} }
+ * — and we map the journey state/status onto our ApplicationStatus so the app's
+ * "My Loans" list reflects the lender's real, live progress without polling the
+ * lender ourselves.
+ *
+ *  - Signature: X-KF-Signature = base64(sha256(shared_secret + raw_body)),
+ *    verified against KFT_WEBHOOK_SECRET when configured (dev accepts + logs).
+ *  - Idempotent on X-KF-Request-ID (best-effort in-memory dedupe).
+ *  - Forward-only status transitions — an out-of-order webhook never regresses
+ *    a further/terminal status.
+ *  - Never 4xx on a body we can't match (KFT would retry forever) — return
+ *    200 { matched:false }. Backward-compatible with the older flat payload.
  */
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import type { ApplicationStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
@@ -19,17 +27,94 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 
 export const aurixWebhookRouter = Router();
 
-/** When AURIX_WEBHOOK_SECRET is set, require it (either header name). */
-function secretOk(req: any): boolean {
-  const expected = process.env.AURIX_WEBHOOK_SECRET || '';
-  if (!expected) return true; // not configured (dev) — accept, but the call is logged
+/** Verify KFT's X-KF-Signature, or the legacy shared-secret header. */
+function signatureOk(req: any): boolean {
+  const secret = process.env.KFT_WEBHOOK_SECRET || process.env.AURIX_WEBHOOK_SECRET || '';
+  if (!secret) return true; // not configured (dev) — accept, but the call is logged
+  const sig = req.get('x-kf-signature') || '';
+  if (sig) {
+    const raw: Buffer = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    const computed = crypto
+      .createHash('sha256')
+      .update(Buffer.concat([Buffer.from(secret, 'utf8'), raw]))
+      .digest('base64');
+    const a = Buffer.from(computed);
+    const b = Buffer.from(sig);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+  // Legacy header fallback (pre-v1.2 shared-secret header).
   const got = req.get('x-aurix-webhook-secret') || req.get('x-api-key') || '';
-  return got === expected;
+  return got === secret;
 }
 
-/** Map any Aurix status string onto our ApplicationStatus enum. */
-function mapStatus(raw: unknown): ApplicationStatus | null {
-  const s = String(raw ?? '').toLowerCase();
+// Best-effort idempotency on X-KF-Request-ID (bounded in-memory set).
+const seenIds = new Set<string>();
+const seenOrder: string[] = [];
+function alreadyProcessed(id: string | undefined): boolean {
+  if (!id) return false;
+  if (seenIds.has(id)) return true;
+  seenIds.add(id);
+  seenOrder.push(id);
+  if (seenOrder.length > 5000) {
+    const old = seenOrder.shift()!;
+    seenIds.delete(old);
+  }
+  return false;
+}
+
+// Progression rank so a status update only moves forward (or to a terminal).
+const RANK: Record<string, number> = {
+  draft: 0, pan_pending: 1, prequalifying: 2, offers_ready: 3, handoff: 4,
+  under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8,
+};
+const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed']);
+
+/** Map a KFT journey (state, status, reason) onto our ApplicationStatus. */
+function mapJourney(state: string, status: string, reason: string): ApplicationStatus | null {
+  const st = state.toLowerCase().replace(/[^a-z_]/g, '');
+  const success = status.toLowerCase() !== 'failure';
+  const r = reason.toLowerCase();
+
+  // Explicit terminal outcomes sometimes arrive in the reason text.
+  if (/disburs/.test(r)) return 'disbursed';
+  if (/sanction|approv/.test(r)) return 'approved';
+
+  if (!success) {
+    // A failure at an eligibility/lender step is a rejection; earlier-step
+    // failures are transient and don't change the tracked status.
+    if (['eligibility_check', 'bureau_soft_pull', 'lender_selection', 'lender_api_journey',
+      'application_submitted', 'post_lender_redirection_journey'].includes(st)) return 'rejected';
+    return null;
+  }
+
+  switch (st) {
+    case 'lead_created':
+    case 'loan_ask':
+    case 'pan_comprehensive':
+    case 'personal_details':
+    case 'address_details':
+    case 'business_details':
+    case 'business_financials':
+      return 'prequalifying';
+    case 'bureau_soft_pull':
+      return 'under_review';
+    case 'eligibility_check':
+      return 'offers_ready';
+    case 'lender_selection':
+    case 'lender_api_journey':
+      return 'handoff';
+    case 'application_submitted':
+    case 'kyc_completed':
+    case 'post_lender_redirection_journey':
+      return 'under_review';
+    default:
+      return null;
+  }
+}
+
+/** Legacy flat-payload status mapping (pre-journey contract). */
+function mapFlatStatus(raw: string): ApplicationStatus | null {
+  const s = raw.toLowerCase();
   if (!s) return null;
   if (/disburs/.test(s)) return 'disbursed';
   if (/approv|sanction/.test(s)) return 'approved';
@@ -39,7 +124,6 @@ function mapStatus(raw: unknown): ApplicationStatus | null {
   return null;
 }
 
-/** Map the journey audit event for a status. */
 function journeyName(status: ApplicationStatus): string {
   if (status === 'approved') return JOURNEY_EVENTS.LOAN_APPROVED;
   if (status === 'rejected') return JOURNEY_EVENTS.LOAN_REJECTED;
@@ -48,18 +132,31 @@ function journeyName(status: ApplicationStatus): string {
 }
 
 aurixWebhookRouter.post('/', ah(async (req, res) => {
-  if (!secretOk(req)) return fail(res, 401, 'Invalid webhook secret');
+  if (!signatureOk(req)) return fail(res, 401, 'Invalid webhook signature');
+  const requestId = req.get('x-kf-request-id') || undefined;
+  if (alreadyProcessed(requestId)) return ok(res, { duplicate: true }, 'Already processed');
 
   const body: any = req.body ?? {};
-  // Aurix field names aren't finalised — accept the common casings.
+  const j = body.journey ?? {};
+  const state = String(j.state ?? '');
+  const jStatus = String(j.status ?? '');
+  const reason = String(j.reason ?? '');
+  const leadId = j.lead_id != null ? String(j.lead_id) : (body.lead_id != null ? String(body.lead_id) : null);
+  const partnerCustomerId =
+    j.partner_customer_id ?? body.PartnerCustomerId ?? body.partnerCustomerId ?? body.partner_customer_id ?? null;
   const offerCode = body.OfferCode ?? body.offerCode ?? body.offer_code ?? null;
-  const partnerCustomerId = body.PartnerCustomerId ?? body.partnerCustomerId ?? body.partner_customer_id ?? null;
-  const rawStatus = body.Status ?? body.status ?? body.LoanStatus ?? body.ApplicationStatus ?? body.Meta?.Status ?? null;
-  console.log(`[aurix-webhook] offerCode=${offerCode} partnerCustomerId=${partnerCustomerId} status=${rawStatus} body=${JSON.stringify(body)}`);
 
-  // Locate the application: prefer the exact offer, else the user's latest.
-  let application: { id: string; userId: string; status: ApplicationStatus } | null = null;
-  if (offerCode) {
+  console.log(
+    `[kft-webhook] reqId=${requestId} state=${state} status=${jStatus} lead=${leadId} ` +
+    `pcid=${partnerCustomerId} body=${JSON.stringify(body).slice(0, 1200)}`,
+  );
+
+  // Locate the application: leadId (most precise) → offerCode → user's latest.
+  let application: { id: string; userId: string; status: ApplicationStatus; leadId: string | null } | null = null;
+  if (leadId) {
+    application = (await prisma.loanApplication.findFirst({ where: { leadId } })) as any;
+  }
+  if (!application && offerCode) {
     const offer = await prisma.offer.findFirst({
       where: { offerCode: String(offerCode) },
       include: { application: true },
@@ -74,9 +171,31 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   }
   if (!application) return ok(res, { matched: false }, 'No matching application');
 
-  const mapped = mapStatus(rawStatus);
+  // Learn the KFT lead id so future journey webhooks match precisely.
+  if (leadId && application.leadId !== leadId) {
+    await prisma.loanApplication.update({ where: { id: application.id }, data: { leadId } }).catch(() => {});
+  }
+
+  const mapped = state
+    ? mapJourney(state, jStatus, reason)
+    : mapFlatStatus(String(body.Status ?? body.status ?? ''));
+
   if (!mapped) {
-    return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'Status not recognised');
+    return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'No status change for this event');
+  }
+
+  // Forward-only: don't regress a further status, and don't move a terminal
+  // application backward (approved → disbursed is the one allowed terminal step).
+  const cur = RANK[application.status] ?? 0;
+  const next = RANK[mapped] ?? 0;
+  const regressing = !TERMINAL.has(mapped) && next <= cur;
+  const backFromTerminal = TERMINAL.has(application.status) && !(mapped === 'disbursed' && application.status === 'approved');
+  if (regressing || backFromTerminal) {
+    return ok(
+      res,
+      { matched: true, applicationId: application.id, statusUnchanged: true, current: application.status },
+      'Status not advanced',
+    );
   }
 
   await prisma.loanApplication.update({ where: { id: application.id }, data: { status: mapped } });
@@ -95,7 +214,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   // Audit trail on the customer timeline (fire-and-forget).
   trackJourney(
     { userId: application.userId },
-    { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, offerCode, aurixStatus: rawStatus } },
+    { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, state, kftStatus: jStatus, reason, leadId } },
   ).catch(() => {});
 
   return ok(res, { matched: true, applicationId: application.id, status: mapped }, 'Status updated');

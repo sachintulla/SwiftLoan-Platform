@@ -41,7 +41,9 @@ export function createApp() {
 
   app.use(helmet());
   app.use(cors());
-  app.use(express.json({ limit: '1mb' }));
+  // Capture the raw body so webhook signature checks (e.g. Knight Fintech's
+  // X-KF-Signature = base64(sha256(shared_secret + raw_body))) can recompute it.
+  app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
   if (!env.isProd) app.use(morgan('dev'));
 
   // ── Rate limiting ──
@@ -123,7 +125,8 @@ export function createApp() {
   // PUBLIC — an Upshot journey posts here to place a call. Every guard
   // (calling hours, cooldown, do-not-call) is enforced server-side.
   app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
-  app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix posts loan status here
+  app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix/KFT posts loan status here
+  app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
   app.use('/api/admin', adminRouter);

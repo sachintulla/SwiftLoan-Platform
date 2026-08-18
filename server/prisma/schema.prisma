@@ -188,6 +188,10 @@ model LoanApplication {
   purpose      String?
   status       ApplicationStatus @default(draft)
 
+  // Knight Fintech (Aurix) lead id, learned from the first status webhook that
+  // carries it, so subsequent journey webhooks match this application precisely.
+  leadId String?
+
   // snapshot of applicant details at submission
   employment    EmploymentType?
   monthlyIncome Int?
@@ -202,6 +206,7 @@ model LoanApplication {
   kyc    KycVerification[]
 
   @@index([userId, status])
+  @@index([leadId])
 }
 
 model LenderPartner {
