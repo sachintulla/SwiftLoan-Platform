@@ -78,6 +78,41 @@ websiteRouter.post(
   }),
 );
 
+// POST /api/website/lead/amount  { phone, amount }  (paise)
+//
+// Hero's one-field flow submits the lead via POST /api/context/create with
+// AMOUNT_DEFAULT before the visitor has picked a real amount (the slider only
+// appears inside the OTP modal, after that save). If they then adjust it, the
+// correction must land on the SAME lead — calling /api/context/create again
+// would insert an entirely new Lead row, so the admin dashboard shows two
+// enquiries (one at the default amount, one at the corrected amount) for a
+// single visit. This updates the most recently created row for the phone
+// instead of creating another one.
+websiteRouter.post(
+  '/lead/amount',
+  validate(z.object({ phone: phoneSchema, amount: z.number().int().positive() })),
+  ah(async (req, res) => {
+    const phone = normalisePhone(req.body.phone);
+    if (!phone) return fail(res, 400, 'A valid 10-digit phone number is required');
+    const { amount } = req.body;
+
+    const lead = await prisma.lead.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } });
+    if (!lead) throw new HttpError(404, 'No lead found for this number — submit the form first');
+
+    const inr = '₹' + Math.round(amount / 100).toLocaleString('en-IN');
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        amount,
+        note: lead.productInterest ? `Interested in a ${inr} ${lead.productInterest} — submitted on swiftloan.ai.` : lead.note,
+      },
+    });
+
+    log.info('lead amount corrected', { phone, amountPaise: amount, leadId: lead.id });
+    return ok(res, { updated: true }, 'Amount updated');
+  }),
+);
+
 // POST /api/website/callback  { phone, response: 'yes' | 'no' }
 websiteRouter.post(
   '/callback',

@@ -248,7 +248,7 @@ function callingPurposeFor(customer: Pick<Customer, 'currentStage' | 'callbackSt
  * actually happened) — never fabricate "we've spoken before" off a lead
  * that only ever filled in a form. But a fresh website lead is not a cold
  * call either, so `lead` and `callingPurpose` are populated independently of
- * `known`, straight from AnonymousLead/Customer, whenever either exists.
+ * `known`, straight from Lead/Customer, whenever either exists.
  * This is the ONE pre-call lookup an agent makes, so it needs to carry
  * everything: prior call history if there is any, and the website enquiry
  * details (amount, product) if this is the first contact.
@@ -272,7 +272,7 @@ export async function getConversationContext(phoneRaw: string, limit = CONTEXT_L
     // Most recent website enquiry for this number — the source of truth for
     // what they asked for, same table buildLeadCallContext() reads from when
     // a call is actually placed.
-    prisma.anonymousLead.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } }),
+    prisma.lead.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } }),
   ]);
 
   const hasConversationHistory = !!summary || rows.length > 0;

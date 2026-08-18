@@ -24,8 +24,8 @@ adminRouter.use(auditAdmin);
 async function buildFunnel() {
   const [sessions, leads, qualifiedLeads, apps, kyc, review, approved, disbursed] = await Promise.all([
     prisma.session.count(),
-    prisma.anonymousLead.count(),
-    prisma.anonymousLead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
+    prisma.lead.count(),
+    prisma.lead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
     prisma.loanApplication.count(),
     prisma.loanApplication.count({ where: { status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
     prisma.loanApplication.count({ where: { status: { in: ['under_review', 'approved', 'disbursed', 'closed'] } } }),
@@ -71,7 +71,7 @@ adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
     prisma.user.count(),
     prisma.loanApplication.count(),
     prisma.loan.count(),
-    prisma.anonymousLead.count(),
+    prisma.lead.count(),
     prisma.appDownload.count(),
     prisma.loan.aggregate({ _sum: { principal: true, outstanding: true } }),
     buildFunnel(),
@@ -125,7 +125,7 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
   const [apps, loans, leadsBySource, appsByType] = await Promise.all([
     prisma.loanApplication.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
     prisma.loan.findMany({ where: { disbursedAt: { gte: since } }, select: { disbursedAt: true, principal: true } }),
-    prisma.anonymousLead.groupBy({ by: ['source'], _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ['source'], _count: { _all: true } }),
     prisma.loanApplication.groupBy({ by: ['loanType'], _count: { _all: true } }),
   ]);
 
@@ -244,8 +244,8 @@ adminRouter.get('/leads', ah(async (req, res) => {
     where.OR = [{ name: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { city: { contains: s, mode: 'insensitive' } }];
   }
   const [rows, total] = await Promise.all([
-    prisma.anonymousLead.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
-    prisma.anonymousLead.count({ where }),
+    prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.lead.count({ where }),
   ]);
 
   // WS10 — attach the cross-channel conversation memory for each lead's number, so
@@ -288,7 +288,7 @@ adminRouter.get('/leads', ah(async (req, res) => {
 
 // GET /api/admin/leads/:id  — lead + (if converted) the user + any activity matched by phone
 adminRouter.get('/leads/:id', ah(async (req, res) => {
-  const lead = await prisma.anonymousLead.findUnique({ where: { id: req.params.id } });
+  const lead = await prisma.lead.findUnique({ where: { id: req.params.id } });
   if (!lead) throw new HttpError(404, 'Lead not found');
 
   // If the lead converted to a real user, pull that user + their applications for the journey.
@@ -351,7 +351,7 @@ adminRouter.get('/leads/:id', ah(async (req, res) => {
 
 // PATCH /api/admin/leads/:id  { status?, note? }
 adminRouter.patch('/leads/:id', ah(async (req, res) => {
-  const lead = await prisma.anonymousLead.update({
+  const lead = await prisma.lead.update({
     where: { id: req.params.id },
     data: { status: req.body?.status ?? undefined, note: req.body?.note ?? undefined },
   });

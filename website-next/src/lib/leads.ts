@@ -142,6 +142,31 @@ export async function submitLead(d: LeadDetails, refId: string): Promise<LeadRes
 }
 
 /**
+ * Correct the amount on an already-submitted lead — Hero's flow submits with
+ * AMOUNT_DEFAULT (its slider lives inside the OTP modal, opened after
+ * submitLead() already ran) and calls this once, at Verify, if the visitor
+ * changed it. Deliberately NOT submitLead() again: that POSTs to
+ * /api/context/create, which always inserts a new lead row, so re-using it
+ * here would show two enquiries (default + corrected) for one visit instead
+ * of updating the one that already exists.
+ */
+export async function updateLeadAmount(phone: string, amountRupees: number): Promise<boolean> {
+  const base = apiBase();
+  if (!base) return false;
+  try {
+    const res = await fetch(`${base}/api/website/lead/amount`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, amount: Math.round(amountRupees * 100) }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('[swiftloan] lead amount update threw', e);
+    return false;
+  }
+}
+
+/**
  * Phone verification (OTP) + callback consent — the step that runs after
  * submitLead() has already saved the lead. Deliberately a separate API
  * surface (/api/website/*) from the app's own OTP login: this never creates

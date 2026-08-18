@@ -122,7 +122,7 @@ export async function buildLeadCallContext(
   // The website's own wording for what they wanted, taken from the most recent
   // inquiry for this phone. Far better than anything we could synthesise.
   const lead = customer.phone
-    ? await prisma.anonymousLead
+    ? await prisma.lead
         .findFirst({
           where: { phone: customer.phone },
           orderBy: { createdAt: 'desc' },
@@ -133,7 +133,7 @@ export async function buildLeadCallContext(
   // "Returning" changes the opening line, so count earlier inquiries excluding
   // the one that triggered this call.
   const priorCount = customer.phone
-    ? await prisma.anonymousLead
+    ? await prisma.lead
         .count({ where: { phone: customer.phone, ...(lead ? { id: { not: lead.id } } : {}) } })
         .catch(() => 0)
     : 0;
