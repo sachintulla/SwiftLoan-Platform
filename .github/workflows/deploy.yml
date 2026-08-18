@@ -22,7 +22,11 @@ jobs:
       # DNS/nginx-mapped as dev.swiftloan.ai etc.) or prod (13.232.60.204,
       # hostname ip-10-20-1-186). This workflow is DEV ONLY (triggers on
       # `develop`) and must land on the dev box, never prod. Fail loudly
-      # instead: re-run the workflow to get reassigned to the right runner.
+      # instead of deploying to the wrong box.
+      #
+      # deploy-retry.yml watches for this exact failure and re-runs the
+      # workflow automatically (capped at 8 attempts), so a wrong-runner
+      # landing no longer needs a human to notice and re-run it by hand.
       - name: Ensure this landed on the dev box
         run: |
           if [ "$(hostname)" != "ip-10-10-1-233" ]; then
