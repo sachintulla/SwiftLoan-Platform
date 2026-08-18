@@ -15,9 +15,10 @@
  * It is always normalised to bare 10 digits — if that normalisation drifts, the
  * same human splits into several histories and the feature quietly stops working.
  */
-import type { CallOutcome, Prisma } from '@prisma/client';
+import type { CallOutcome, Customer, Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { normalisePhone } from './dialer.js';
+import { nextActionFor } from './nextAction.js';
 
 /** Channels a conversation can happen on. */
 export const CONVERSATION_CHANNELS = [
@@ -225,17 +226,38 @@ export async function rebuildSummary(phoneRaw: string) {
 }
 
 /**
+ * Why we would be calling this person right now, in plain English — so the
+ * pre-call tool can hand the agent a reason even when nothing has actually
+ * been said to them yet (a brand-new lead has no Conversation, but it is not
+ * a cold call — they asked us to get in touch).
+ */
+function callingPurposeFor(customer: Pick<Customer, 'currentStage' | 'callbackStatus'>): string {
+  if (customer.callbackStatus === 'requested' || customer.callbackStatus === 'in_progress') {
+    return 'They asked us to call them back after verifying their phone on the website.';
+  }
+  if (customer.currentStage === 'lead_captured') {
+    return 'Following up on their website loan enquiry.';
+  }
+  return nextActionFor(customer.currentStage);
+}
+
+/**
  * Everything an agent needs before it opens its mouth.
  *
- * Returns `known: false` for an unrecognised number rather than an error — a
- * first-time caller is normal, and the agent should simply behave as it always
- * did.
+ * `known` stays strictly tied to real prior CONVERSATIONS (a call/chat that
+ * actually happened) — never fabricate "we've spoken before" off a lead
+ * that only ever filled in a form. But a fresh website lead is not a cold
+ * call either, so `lead` and `callingPurpose` are populated independently of
+ * `known`, straight from AnonymousLead/Customer, whenever either exists.
+ * This is the ONE pre-call lookup an agent makes, so it needs to carry
+ * everything: prior call history if there is any, and the website enquiry
+ * details (amount, product) if this is the first contact.
  */
 export async function getConversationContext(phoneRaw: string, limit = CONTEXT_LIMIT) {
   const phone = normalisePhone(phoneRaw);
   if (!phone) return { known: false as const, reason: 'invalid phone number' };
 
-  const [summary, rows, customer] = await Promise.all([
+  const [summary, rows, customer, lead] = await Promise.all([
     prisma.conversationSummary.findUnique({ where: { phone } }),
     prisma.conversation.findMany({
       where: { phone },
@@ -247,17 +269,39 @@ export async function getConversationContext(phoneRaw: string, limit = CONTEXT_L
       },
     }),
     prisma.customer.findFirst({ where: { phone } }),
+    // Most recent website enquiry for this number — the source of truth for
+    // what they asked for, same table buildLeadCallContext() reads from when
+    // a call is actually placed.
+    prisma.anonymousLead.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } }),
   ]);
 
-  if (!summary && !rows.length) return { known: false as const, phone };
+  const hasConversationHistory = !!summary || rows.length > 0;
+  const hasLeadOrCustomer = !!customer || !!lead;
+
+  if (!hasConversationHistory && !hasLeadOrCustomer) return { known: false as const, phone };
 
   return {
-    known: true as const,
+    // Only true when a real conversation happened — see the doc comment above.
+    known: hasConversationHistory,
     phone,
-    name: customer?.name ?? null,
-    city: customer?.city ?? null,
+    name: customer?.name ?? lead?.name ?? null,
+    city: customer?.city ?? lead?.city ?? null,
     stage: customer?.currentStage ?? null,
-    /** The paragraph an agent should read. */
+    callingPurpose: customer ? callingPurposeFor(customer) : null,
+    /** The website enquiry this number is (or was) captured against — null
+     *  only when the number has never touched the website at all (e.g. a
+     *  pure campaign contact). */
+    lead: lead
+      ? {
+          product: lead.productInterest,
+          amountRupees: lead.amount != null ? Math.round(lead.amount / 100) : null,
+          source: lead.source,
+          submittedAt: lead.createdAt,
+          note: lead.note,
+        }
+      : null,
+    /** The paragraph an agent should read — populated only from a REAL prior
+     *  conversation, never synthesised from the lead above. */
     brief: summary?.summary ?? null,
     conversationCount: summary?.conversationCount ?? rows.length,
     channels: summary?.channels ?? [],
