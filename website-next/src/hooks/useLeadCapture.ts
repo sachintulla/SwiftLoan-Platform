@@ -91,50 +91,31 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     setFormValid((formRef.current?.checkValidity() ?? false) && (!requireAmountTouched || amountTouched));
   }, [amountTouched, requireAmountTouched]);
 
+  /** Set whenever the amount changes AFTER the lead was already submitted
+   *  (Hero's flow: its slider lives INSIDE the OTP modal, opened after
+   *  onSubmit already ran submitLead() with the untouched AMOUNT_DEFAULT).
+   *  handleVerifyOtp reads this once, at Verify time, to send the corrected
+   *  amount in a single request — see the comment there for why this used
+   *  to fire per-drag instead and what that broke. A plain ref, not state:
+   *  nothing needs to re-render off this, it's just a flag for the next
+   *  verify click. */
+  const amountNeedsCorrection = useRef(false);
+
   /** The slider itself dispatches no native form event, so dragging it must
    *  explicitly re-run validity (handleFormChange only fires from the
    *  mobile input's own change event). */
-  const handleAmountChange = useCallback((value: number) => {
-    setAmount(value);
-    setAmountTouched(true);
-    setFormValid(formRef.current?.checkValidity() ?? false);
-  }, []);
-
-  const amountCorrectionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /**
-   * Only meaningful for Hero's one-field flow: its amount slider lives
-   * INSIDE the OTP modal, which only ever opens after onSubmit already ran
-   * submitLead() with the untouched AMOUNT_DEFAULT. Without this, whatever
-   * the visitor picks here never reaches the backend at all — the lead
-   * (and everything downstream: the admin funnel, the calling agent's
-   * {{lead_amount_words}}) stays frozen at the default forever, which is
-   * exactly why every call was opening with "5 lakh" regardless of what
-   * anyone actually selected.
-   *
-   * Wired to the slider's onValueCommit rather than onValueChange (which
-   * fires continuously mid-drag) — but onValueCommit ITSELF still fires once
-   * per discrete step for keyboard/arrow-key adjustment, not just once at the
-   * end of a mouse drag. A burst of arrow presses previously fired a POST per
-   * step and blew straight through the 5-req/minute limiter this endpoint
-   * shares with the rest of lead-capture. Debounced here so only the final
-   * settled value — after the visitor stops touching the slider for a beat —
-   * ever reaches the network.
-   *
-   * A no-op when the lead hasn't been submitted yet (LeadForm/QuickCheckModal
-   * show this same slider BEFORE submit, so onSubmit already sends the
-   * correct value — nothing to correct here).
-   */
-  const handleAmountCommit = useCallback(
+  const handleAmountChange = useCallback(
     (value: number) => {
-      if (!mobileNumber) return;
-      if (amountCorrectionTimer.current) clearTimeout(amountCorrectionTimer.current);
-      amountCorrectionTimer.current = setTimeout(() => {
-        const details: LeadDetails = { phone: mobileNumber, product: loanType, amountRupees: value };
-        void submitLead(details, makeRefId());
-      }, 1200);
+      setAmount(value);
+      setAmountTouched(true);
+      setFormValid(formRef.current?.checkValidity() ?? false);
+      // mobileNumber is only set once submitLead has already run (Hero's
+      // flow) — LeadForm/QuickCheckModal show this same slider BEFORE
+      // submit, where onSubmit sends the correct value directly and there
+      // is nothing to correct.
+      if (mobileNumber) amountNeedsCorrection.current = true;
     },
-    [mobileNumber, loanType],
+    [mobileNumber],
   );
 
   /** Amount-not-yet-selected takes priority — a mobile number typed against
@@ -224,6 +205,19 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
       if (otp.length !== 6 || otpVerifying) return;
       setOtpVerifying(true);
       setOtpError(null);
+
+      // Send the corrected amount now — ONCE, at the moment of verifying —
+      // rather than on every slider drag. Firing a request per drag used to
+      // eat into the 5-req/minute limit /api/context and /api/website share,
+      // so a visitor who paused the slider twice while choosing an amount
+      // could burn the whole budget before ever reaching OTP verify or the
+      // callback step, which then 429'd.
+      if (amountNeedsCorrection.current) {
+        amountNeedsCorrection.current = false;
+        const details: LeadDetails = { phone: mobileNumber, product: loanType, amountRupees: amount };
+        await submitLead(details, makeRefId()).catch(() => undefined);
+      }
+
       const result = await verifyWebsiteOtp(mobileNumber, otp);
       setOtpVerifying(false);
       if (!result) {
@@ -240,7 +234,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
       setPanel("success");
       setSeconds(10);
     },
-    [otp, otpVerifying, mobileNumber, t],
+    [otp, otpVerifying, mobileNumber, amount, loanType, t],
   );
 
   /** The lead is already saved by this point (submitLead ran before this modal
@@ -331,7 +325,6 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     amount,
     amountTouched,
     handleAmountChange,
-    handleAmountCommit,
     isSubmitting,
     mobileNumber,
     otp,

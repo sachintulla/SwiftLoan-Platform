@@ -133,10 +133,11 @@ export function OtpModal({
   /** Hero's one-field entry point skips the amount slider up front (see
    *  Hero.tsx) and asks for it here instead, alongside the OTP code. The
    *  lead was already saved with the slider's untouched default at submit
-   *  time, so adjusting it here fires handleAmountCommit — a real
-   *  correction sent back to the server, not just a local display value —
-   *  otherwise the agent that eventually calls this lead would always hear
-   *  the default amount no matter what the visitor actually picked. */
+   *  time — adjusting the slider here only updates local state as the
+   *  visitor drags; handleVerifyOtp sends the ONE correction back to the
+   *  server right when they click Verify, not per drag (see its comment:
+   *  firing one per drag used to burn through the shared 5-req/minute
+   *  limit before OTP verify / the callback step ever got their turn). */
   showAmount?: boolean;
 }) {
   const {
@@ -154,7 +155,6 @@ export function OtpModal({
     factIndex,
     amount,
     handleAmountChange,
-    handleAmountCommit,
     handleVerifyOtp,
     handleCloseOtpModal,
     sendOtp,
@@ -211,7 +211,6 @@ export function OtpModal({
                 step={AMOUNT_STEP}
                 value={[amount]}
                 onValueChange={([v]) => v != null && handleAmountChange(v)}
-                onValueCommit={([v]) => v != null && handleAmountCommit(v)}
                 aria-label={t.amountLabel}
               />
               <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
