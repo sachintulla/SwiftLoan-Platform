@@ -38,8 +38,8 @@ const PROMPTS = join(here, '../../prompts');
  * live over the session (`registerPageContext`), not baked into the prompt.
  */
 const ROLE_CONFIG: Partial<Record<AgentRole, { file: string; variables: readonly string[] }>> = {
-  leadCallback: { file: 'ello-outbound-prompt.md', variables: LEAD_CALL_VARIABLES },
-  campaign: { file: 'ello-outbound-prompt.md', variables: LEAD_CALL_VARIABLES },
+  leadCallback: { file: 'website-agent-prompt.md', variables: LEAD_CALL_VARIABLES },
+  campaign: { file: 'website-agent-prompt.md', variables: LEAD_CALL_VARIABLES },
   companion: { file: 'ello-companion-prompt.md', variables: [] },
   websiteCompanion: { file: 'ello-website-next-navigator-prompt.md', variables: [] },
   adminNavigator: { file: 'ello-admin-navigator-prompt.md', variables: [] },

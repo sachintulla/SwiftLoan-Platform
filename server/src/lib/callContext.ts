@@ -32,6 +32,14 @@ export const LEAD_CALL_VARIABLES = [
   'lead_first_name',
   'lead_city',
   'lead_phone',
+  /**
+   * Duplicate of lead_phone under the bare name `phone`. Ello's tool-calling
+   * placeholder resolver only does an exact key match against call context
+   * (no aliasing) — the get_customer_history tool's `phone` parameter needs a
+   * context key literally named `phone` to resolve, not `lead_phone` or
+   * Ello's own built-in `customer_number`.
+   */
+  'phone',
   'lead_product',
   'lead_amount',
   'lead_amount_words',
@@ -155,6 +163,12 @@ export async function buildLeadCallContext(
     lead_first_name: full ? full.split(/\s+/)[0] : '',
     lead_city: str(customer.city),
     lead_phone: str(customer.phone),
+    // Ello's tool-calling placeholder resolver only does an exact key match
+    // against call context (no aliasing) — its get_customer_history tool asks
+    // for `{phone}` specifically, not `{lead_phone}` or Ello's own built-in
+    // `customer_number`. Duplicated here so that tool resolves without any
+    // change needed on Ello's side.
+    phone: str(customer.phone),
     lead_product: product,
     lead_amount: inrDigits(amount),
     lead_amount_words: inrWords(amount),
