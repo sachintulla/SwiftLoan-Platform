@@ -4,8 +4,6 @@ import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ElloAgent, fillInput } from '@/lib/ello-agent';
 import { faqsCopy } from '@/i18n/faqs';
-import { createRoot, type Root } from 'react-dom/client';
-import { RubyLive } from '@/components/Ruby';
 
 // SwiftLoan.ai voice co-pilot — a floating mic that lets a visitor navigate
 // the ENTIRE site (home, compliance, brand, logo) and operate every
@@ -567,28 +565,28 @@ export default function VoiceWidget() {
     // Ruby sits flush at the left of the pill, full-bleed, so she reads as a
     // person you are about to talk to rather than an icon in a button.
     btn.style.cssText =
-      'position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;gap:11px;' +
-      'padding:6px 20px 6px 6px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
-      'box-shadow:0 10px 28px rgba(7,159,160,.4);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
+      'position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;gap:10px;overflow:visible;' +
+      'padding:8px 10px 8px 8px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
+      'box-shadow:0 12px 30px rgba(7,159,160,.42);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
+    // Ruby is a background-free cutout that rises above the pill on the left,
+    // with a soft drop shadow so she stands off the page — matching the design.
     btn.innerHTML =
-      '<span class="ruby-slot" style="display:block;width:52px;height:52px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 2px 8px rgba(0,0,0,.18)"></span>' +
+      '<img class="ruby-cut" src="/ruby.png" alt="Ruby, the SwiftLoan assistant" ' +
+      'style="height:78px;width:auto;flex:none;align-self:flex-end;margin:-30px -2px -8px 0;pointer-events:none;' +
+      'filter:drop-shadow(0 7px 9px rgba(0,0,0,.28))" />' +
       '<span class="sl-voice-text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.15">' +
-      '<span style="font-size:13.5px;font-weight:700">Talk to Ruby</span>' +
+      '<span style="font-size:14px;font-weight:800">Talk to Ruby</span>' +
       '<span class="voice-label" style="font-size:11px;font-weight:500;opacity:.9">SwiftLoan assistant</span>' +
+      '</span>' +
+      '<span aria-hidden="true" style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;' +
+      'border-radius:50%;background:#fff;flex:none;margin-left:2px;box-shadow:0 2px 6px rgba(0,0,0,.15)">' +
+      '<svg width="17" height="17" viewBox="0 0 24 24" fill="none">' +
+      '<path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24 11.4 11.4 0 0 0 3.6.58 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.46.58 3.6a1 1 0 0 1-.24 1z" fill="#079FA0"/></svg>' +
       '</span>';
     const errBox = document.createElement('div');
     errBox.style.cssText =
       'position:fixed;right:22px;bottom:78px;z-index:9999;max-width:280px;display:none;' +
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
-
-    // Mount Ruby into the launcher. She subscribes to the agent herself and
-    // animates from the real output level, so nothing here drives her per-frame.
-    const rubySlot = btn.querySelector('.ruby-slot') as HTMLElement | null;
-    let rubyRoot: Root | null = null;
-    if (rubySlot) {
-      rubyRoot = createRoot(rubySlot);
-      rubyRoot.render(<RubyLive agent={agent as unknown as { getOutputLevel: () => number; on: (e: string, f: (p: never) => void) => void }} size={52} />);
-    }
 
     const LABELS: Record<string, string> = {
       idle: 'SwiftLoan assistant',
@@ -654,13 +652,6 @@ export default function VoiceWidget() {
       if (scrollTimer) clearTimeout(scrollTimer);
       agent.stop();
       agentRef.current = null;
-      // Unmount Ruby before removing her host node. Detaching the DOM first
-      // leaves the React root pointing at an orphan and warns in dev.
-      if (rubyRoot) {
-        const r = rubyRoot;
-        // Deferred: React refuses to unmount synchronously while rendering.
-        setTimeout(() => r.unmount(), 0);
-      }
       btn.remove();
       errBox.remove();
       style.remove();

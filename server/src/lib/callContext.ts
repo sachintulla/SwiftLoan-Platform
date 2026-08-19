@@ -28,6 +28,10 @@ import { nextActionFor } from './nextAction.js';
  * (`npm run ello:sync`) so Ello learns the new name.
  */
 export const LEAD_CALL_VARIABLES = [
+  // The registered SwiftLoan account holder's name, when this number is linked
+  // to a real user account. Distinct from lead_name (what the lead form said)
+  // and usually the same person; blank for an anonymous / unregistered lead.
+  'user_name',
   'lead_name',
   'lead_first_name',
   'lead_city',
@@ -156,9 +160,21 @@ export async function buildLeadCallContext(
     ? await prisma.conversationSummary.findUnique({ where: { phone: customer.phone } }).catch(() => null)
     : null;
 
+  // The registered account holder behind this number, if any. Linked via
+  // Customer.userId at OTP verify; otherwise fall back to matching on phone.
+  const account = customer.userId
+    ? await prisma.user.findUnique({ where: { id: customer.userId } }).catch(() => null)
+    : customer.phone
+      ? await prisma.user.findUnique({ where: { phone: customer.phone } }).catch(() => null)
+      : null;
+  const accountName = (account?.fullName ?? [account?.firstName, account?.lastName].filter(Boolean).join(' ')).trim();
+
   const str = (v: unknown): string => (v == null ? '' : String(v));
 
   return {
+    // Prefer the registered account name; fall back to the lead's own name so
+    // the variable resolves rather than rendering blank.
+    user_name: accountName || full,
     lead_name: full,
     lead_first_name: full ? full.split(/\s+/)[0] : '',
     lead_city: str(customer.city),
