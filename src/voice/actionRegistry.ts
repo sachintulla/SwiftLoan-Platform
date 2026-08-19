@@ -17,6 +17,15 @@ export interface ActionTarget {
    */
   disabled?: boolean;
   onTap?: () => void;
+  /**
+   * This screen's main forward action (Continue/Next/Get Started/Send OTP/...).
+   * Set by the shared PrimaryButton component so `continue_next` (tools.ts) can
+   * find it by role instead of by matching its label text against a hardcoded
+   * English keyword list — that keyword match silently fails on any non-English
+   * screen (Hindi/Telugu labels never contain "continue" or "send otp"),
+   * confirmed live via repeated `continue_next` -> "not_found" on Telugu screens.
+   */
+  primary?: boolean;
   // Numbers are included for sliders (loan amount / tenure / rate); dates travel
   // as YYYY-MM-DD strings.
   setValue?: (v: string | boolean | number) => void;

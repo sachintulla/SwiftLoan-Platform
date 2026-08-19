@@ -214,6 +214,14 @@ export function friendlyAurixError(aurixResponse: any, offerCount: number): stri
   if (m.includes('pan verification') || m.includes('pan number')) {
     return 'We couldn’t verify your PAN. Please re-check your PAN number (format ABCDE1234F) and try again.';
   }
+  // Checked before the generic 'mobile' match below — Aurix's own "this mobile
+  // number is already registered" rejection contains the word "mobile" too, so
+  // without this it fell into the format-error branch and told the user their
+  // (perfectly valid) number was malformed, when the real issue is Aurix's
+  // sandbox already has a record for it and needs a different number entirely.
+  if (m.includes('already registered')) {
+    return 'This mobile number has already been used for an application. Please try a different number.';
+  }
   if (m.includes('mobile')) {
     return 'Please enter a valid 10-digit mobile number starting with 6–9.';
   }

@@ -69,6 +69,7 @@ export function PrimaryButton({
       label,
       disabled,
       onTap: onPress,
+      primary: true,
     });
   }, [state.screen, voiceId, label, onPress, disabled]);
 

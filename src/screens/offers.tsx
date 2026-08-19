@@ -99,9 +99,18 @@ export default function Offers() {
       set({ offersSummary: 'There was a problem loading the offers.' });
     } finally {
       setLoading(false);
-      agent.updatePageContext();
     }
   }, [state.applicationId]);
+
+  // Push the page-context update from an effect on the committed value, not
+  // synchronously after set() above — set() dispatches to the store
+  // asynchronously, so calling updatePageContext() in the same tick read
+  // pageContextFn() before React had re-rendered, sending the *previous*
+  // (often empty) offersSummary. The agent silently had nothing to say about
+  // offers that had, from the user's point of view, already loaded on screen.
+  useEffect(() => {
+    if (state.offersSummary) agent.updatePageContext();
+  }, [state.offersSummary]);
 
   useEffect(() => { load(); }, [load]);
 
