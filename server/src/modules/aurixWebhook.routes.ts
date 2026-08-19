@@ -2,7 +2,7 @@
  * Inbound Knight Fintech (Aurix) "Status & Journey Data Push" webhook —
  * mounted at /api/webhooks/aurix (and /api/webhooks/kft).
  *
- * Implements the KFT "Status & Journey Data Push API Contract [PL+BL] v1.2":
+ * Implements the KFT "Status & Journey Data Push API Contract [PL+BL] v1.3":
  * KFT posts a common envelope at each journey trigger —
  *   { journey: { state, status, reason, lead_id, partner_customer_id }, data: {…} }
  * — and we map the journey state/status onto our ApplicationStatus so the app's
@@ -75,9 +75,12 @@ function mapJourney(state: string, status: string, reason: string): ApplicationS
   const success = status.toLowerCase() !== 'failure';
   const r = reason.toLowerCase();
 
-  // Explicit terminal outcomes sometimes arrive in the reason text.
+  // Explicit terminal outcomes sometimes arrive in the reason text or (v1.3) in
+  // data.post_lender_status ("Disbursed"/"Approved"/"Rejected"), which the caller
+  // folds into `reason` before calling us.
   if (/disburs/.test(r)) return 'disbursed';
   if (/sanction|approv/.test(r)) return 'approved';
+  if (/reject|declin|denied/.test(r)) return 'rejected';
 
   if (!success) {
     // A failure at an eligibility/lender step is a rejection; earlier-step
@@ -141,10 +144,22 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const state = String(j.state ?? '');
   const jStatus = String(j.status ?? '');
   const reason = String(j.reason ?? '');
-  const leadId = j.lead_id != null ? String(j.lead_id) : (body.lead_id != null ? String(body.lead_id) : null);
+  const data: any = body.data ?? {};
+  // lead_id: journey.lead_id is present on most events, but the lender_api_journey
+  // and post_lender_redirection_journey payloads (v1.3 §2.8/§2.10) omit it from
+  // the journey block entirely and only carry it in data.lead_id — so fall back
+  // there, or we'd fail to match those (incl. the disbursal signal).
+  const leadId =
+    j.lead_id != null ? String(j.lead_id)
+      : body.lead_id != null ? String(body.lead_id)
+        : data.lead_id != null ? String(data.lead_id) : null;
   const partnerCustomerId =
     j.partner_customer_id ?? body.PartnerCustomerId ?? body.partnerCustomerId ?? body.partner_customer_id ?? null;
   const offerCode = body.OfferCode ?? body.offerCode ?? body.offer_code ?? null;
+  // v1.3: post-redirection journey carries the terminal outcome here.
+  const postLenderStatus = data.post_lender_status != null ? String(data.post_lender_status) : '';
+  // v1.3: bureau soft-pull now includes the real bureau score.
+  const bureauScore = Number(data.bureau_score);
 
   console.log(
     `[kft-webhook] reqId=${requestId} state=${state} status=${jStatus} lead=${leadId} ` +
@@ -176,8 +191,20 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     await prisma.loanApplication.update({ where: { id: application.id }, data: { leadId } }).catch(() => {});
   }
 
+  // v1.3: the bureau soft-pull event now carries the customer's real bureau
+  // score — persist it so the app shows the actual CIBIL/CRIF value instead of
+  // the default. (Independent of the status mapping below.)
+  if (Number.isFinite(bureauScore) && bureauScore >= 300 && bureauScore <= 900) {
+    await prisma.user.update({
+      where: { id: application.userId },
+      data: { creditScore: Math.round(bureauScore) },
+    }).catch(() => {});
+  }
+
   const mapped = state
-    ? mapJourney(state, jStatus, reason)
+    // Fold data.post_lender_status into `reason` so a "Disbursed"/"Approved"/
+    // "Rejected" post-redirection outcome maps to the right terminal status.
+    ? mapJourney(state, jStatus, `${reason} ${postLenderStatus}`)
     : mapFlatStatus(String(body.Status ?? body.status ?? ''));
 
   if (!mapped) {
