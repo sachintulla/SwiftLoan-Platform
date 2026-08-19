@@ -1,4 +1,6 @@
+import NetInfo from '@react-native-community/netinfo';
 import { saveTokens, clearTokens } from '../state/session';
+import { reportOfflineAttempt } from '../state/offlineBridge';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
@@ -73,6 +75,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
+    // Checked before dialing out, not after: this is the one place every
+    // user-facing screen (OTP, application, offers, loans…) goes through, so
+    // catching "no signal" here means those screens fail fast with a clear
+    // reason instead of sitting on a spinner for the full request timeout.
+    const netState = await NetInfo.fetch();
+    if (netState.isConnected === false || netState.isInternetReachable === false) {
+      throw new TypeError('offline: no internet connection');
+    }
     res = await fetch(API_BASE + path, {
       method,
       headers: {
@@ -83,6 +93,12 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       signal: controller.signal,
     });
   } catch (e: any) {
+    // The fetch itself failed to reach anything — as opposed to reaching the
+    // server and getting back an error response, which is handled below and
+    // isn't a connectivity problem. Surface it to OfflineNotice so a feature
+    // that needed the internet visibly tells the user why it didn't work,
+    // even on the (real, observed) case where NetInfo still reports "online".
+    reportOfflineAttempt();
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;

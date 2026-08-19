@@ -3,11 +3,13 @@
 // the browser SDK — only the three DOM-bound collaborators (mic capture, PCM
 // playback, confirmation UI) are swapped for RN-native implementations, passed
 // in via the constructor instead of owned internally.
+import NetInfo from '@react-native-community/netinfo';
 import { Emitter } from './events';
 import { ToolRegistry } from './registry';
 import { ElloSocket } from './transport/ws';
 import { createVoiceSession } from './transport/sessionApi';
 import { vlog } from './log';
+import { reportOfflineAttempt } from '../state/offlineBridge';
 import type {
   AgentEventMap,
   AgentStatus,
@@ -134,6 +136,14 @@ export class ElloAgent {
 
     this.setStatus('connecting');
     try {
+      // Check before dialing out, not after: tapping the FAB with no signal
+      // used to hang on the REST call until it timed out (see
+      // SESSION_START_TIMEOUT_MS in sessionApi.ts) before the user learned why
+      // nothing was happening. A NetInfo probe resolves in well under a second.
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected === false || netState.isInternetReachable === false) {
+        throw new Error('offline: no internet connection');
+      }
       vlog('POST call ->', this.options.apiBaseUrl);
       const { conversationId } = await createVoiceSession(this.options);
       if (cancelled()) {
@@ -215,6 +225,10 @@ export class ElloAgent {
       setTimeout(() => this.updatePageContext(), 500);
     } catch (e: any) {
       vlog('START FAILED:', e?.message || String(e));
+      // Tapping the agent button is the single most common internet-dependent
+      // action a user takes — surface the offline banner so a failed/timed-out
+      // connect attempt is explained, instead of just silently going nowhere.
+      reportOfflineAttempt();
       this.emitter.emit('error', e instanceof Error ? e : new Error(String(e)));
       this.teardown();
       throw e;

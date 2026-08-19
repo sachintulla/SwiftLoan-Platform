@@ -310,7 +310,7 @@ adminRouter.get('/leads/:id', ah(async (req, res) => {
   const [brief, conversations, customer] = phone
     ? await Promise.all([
         prisma.conversationSummary.findUnique({ where: { phone } }),
-        prisma.conversation.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
+        prisma.callAttempt.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
         prisma.customer.findFirst({ where: { phone }, select: { id: true, currentStage: true } }),
       ])
     : [null, [], null];

@@ -28,14 +28,19 @@ async function leadCallbackAgentId(): Promise<string | null> {
 }
 
 const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
-/** How long after the form submit to call. The brief asks for ~1 minute. */
-const DELAY_MINUTES = Number(process.env.LEAD_CALL_DELAY_MINUTES ?? 1) || 1;
 /**
- * A visitor who explicitly declined the "call me now" popup still gets the
- * normal follow-up call — just held back an hour instead of the usual ~1
- * minute, so a flat "no" doesn't read as an immediate second ask.
+ * How long after the form submit to place this job's follow-up call.
+ *
+ * Anyone who explicitly clicked "Yes, call me now" is excluded from this job
+ * entirely (see the `callbackRequestedAt: null` filter below) — they're called
+ * within about a minute by immediateCallback.ts's own opt-in ladder instead.
+ * So by the time a lead reaches this job, they either explicitly declined the
+ * popup, or never answered it at all — and both cases get the SAME delay: a
+ * website visitor must never be called within a minute of submitting the form
+ * unless they actually asked for it. A flat "no" or silence should never read
+ * as an immediate, unsolicited call.
  */
-const DECLINE_DELAY_MINUTES = Number(process.env.LEAD_CALL_DECLINE_DELAY_MINUTES ?? 60) || 60;
+const FOLLOWUP_DELAY_MINUTES = Number(process.env.LEAD_CALL_DECLINE_DELAY_MINUTES ?? 60) || 60;
 /** Calling hours, minutes from local midnight. Default 09:00–21:00 IST. */
 /**
  * Minutes from local midnight.
@@ -104,9 +109,11 @@ export function withinCallingHours(now: Date = new Date()): boolean {
  * has never had a call attempted. That last check is what makes the job safe to
  * run every minute — it is the idempotency guard.
  *
- * Declining the "call me now?" popup does not opt someone out of this call —
- * it only pushes it back to DECLINE_DELAY_MINUTES (default 1h) instead of the
- * usual ~1 minute, so it doesn't read as an immediate second ask.
+ * This job only ever sees leads who did NOT click "Yes, call me now" (those are
+ * excluded entirely below, owned by immediateCallback.ts instead) — so every
+ * candidate here either explicitly declined the popup or never answered it at
+ * all. Neither case opts someone out of the follow-up call; both simply wait
+ * FOLLOWUP_DELAY_MINUTES (default 1h) rather than being called right away.
  */
 export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
   if (!ENABLED) return 0;
@@ -145,13 +152,26 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
       // Set once by the website OTP flow (context.routes.ts) and never
       // re-checked per call.
       phoneVerified: true,
+      // Anyone who explicitly clicked "Yes, call me now" is already owned by
+      // immediateCallback.ts's own retry ladder (website.routes.ts sets this
+      // the moment they click yes) — this job must stay out of it entirely,
+      // or the two jobs independently decide to call the same brand-new lead
+      // in the same minute, which is a real customer getting called twice for
+      // one action. Declining the popup does NOT set this, so a decline still
+      // gets the normal follow-up below, just delayed — see FOLLOWUP_DELAY_MINUTES.
+      callbackRequestedAt: null,
     },
     orderBy: { lastActivityAt: 'asc' },
     take: Math.min(MAX_PER_TICK, budget) * 4, // over-fetch; most are filtered out below
     include: {
       // Prisma cannot compare two columns of the same row in a filter, so both
       // the delay and the "already called about this one" test are done in code.
-      calls: { orderBy: { queuedAt: 'desc' }, take: 1, select: { queuedAt: true } },
+      conversations: {
+        where: { channel: { in: ['phone_outbound', 'phone_inbound'] } },
+        orderBy: { queuedAt: 'desc' },
+        take: 1,
+        select: { queuedAt: true },
+      },
       // The submission itself. NOT stageEnteredAt: that only moves on a FORWARD
       // stage change (see recordJourneyEvent), so a returning visitor who is
       // already at `lead_captured` re-submits the form and stageEnteredAt keeps
@@ -170,12 +190,11 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
   const leads = candidates
     .filter((c) => {
       const submittedAt = c.events[0]?.occurredAt ?? c.stageEnteredAt;
-      // Someone who explicitly declined the callback popup still gets the
-      // normal follow-up, just an hour later instead of ~1 minute later.
-      const delayMinutes = c.callbackDeclinedAt ? DECLINE_DELAY_MINUTES : DELAY_MINUTES;
-      const dueBefore = new Date(now.getTime() - delayMinutes * 60_000);
+      // Whether they explicitly declined the popup or never answered it, the
+      // follow-up call waits the same delay — see FOLLOWUP_DELAY_MINUTES above.
+      const dueBefore = new Date(now.getTime() - FOLLOWUP_DELAY_MINUTES * 60_000);
       if (submittedAt > dueBefore) return false; // not old enough yet
-      const lastCall = c.calls[0]?.queuedAt;
+      const lastCall = c.conversations[0]?.queuedAt;
       return !lastCall || lastCall < submittedAt; // not yet called about THIS one
     })
     .slice(0, Math.min(MAX_PER_TICK, budget));
@@ -219,7 +238,7 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
       });
       if (result.ok) {
         placed++;
-        console.log(`[lead-call] ${lead.phone}: PLACED ok — status=${result.attempt?.status} providerCallId=${result.attempt?.providerCallId ?? '-'}`);
+        console.log(`[lead-call] ${lead.phone}: PLACED ok — status=${result.attempt?.status} providerConversationId=${result.attempt?.providerConversationId ?? '-'}`);
       } else {
         console.warn(`[lead-call] ${lead.phone}: FAILED — ${result.error}`);
       }

@@ -106,7 +106,11 @@ customersRouter.get('/:id', ah(async (req, res) => {
       orderBy: { occurredAt: 'desc' },
       take: 200,
     }),
-    prisma.callAttempt.findMany({ where: { customerId: customer.id }, orderBy: { queuedAt: 'desc' }, take: 50 }),
+    prisma.callAttempt.findMany({
+      where: { customerId: customer.id, channel: { in: ['phone_outbound', 'phone_inbound'] } },
+      orderBy: { queuedAt: 'desc' },
+      take: 50,
+    }),
     prisma.campaignContact.findMany({
       where: { customerId: customer.id },
       include: { campaign: { select: { id: true, name: true, code: true, status: true } } },

@@ -148,6 +148,10 @@ callsRouter.get('/', ah(async (req, res) => {
   const search = req.query.search ? String(req.query.search).replace(/\D/g, '') : '';
 
   const where: Prisma.CallAttemptWhereInput = {
+    // This table now also holds non-call conversations (website widget, in-app,
+    // admin) since the CallAttempt/Conversation merge — this endpoint is calls
+    // only.
+    channel: { in: ['phone_outbound', 'phone_inbound'] },
     ...(status && (CALL_STATUSES as readonly string[]).includes(status)
       ? { status: status as (typeof CALL_STATUSES)[number] } : {}),
     ...(outcome && (CALL_OUTCOMES as readonly string[]).includes(outcome)

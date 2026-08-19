@@ -3,8 +3,8 @@
  *
  * Both the ad-hoc admin trigger (`/api/admin/calls/trigger`) and the campaign
  * runner (`/api/admin/campaigns/:id/start`) go through `placeCall()`, so the
- * CallAttempt lifecycle, the journey event and the provider error handling have
- * exactly one implementation.
+ * CallAttempt lifecycle, the journey event and the provider error handling
+ * have exactly one implementation.
  *
  * Nothing here throws: a provider outage must degrade a call to `failed`, never
  * take down a request handler or a background loop.
@@ -42,8 +42,9 @@ export interface PlaceCallResult {
 /**
  * Create the CallAttempt row first, then ask Ello to dial it. The row exists
  * before the HTTP call on purpose: its id is what we hand the provider as
- * `callId`, and it is what the outcome webhook matches on if the provider
- * answers slowly or we crash mid-flight.
+ * `callId`, and it is what the outcome webhook (and the agent's own
+ * save_conversation report) matches on if the provider answers slowly or we
+ * crash mid-flight.
  */
 export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult> {
   const attempt = await prisma.callAttempt.create({
@@ -51,7 +52,9 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
       customerId: input.customerId,
       campaignId: input.campaignId ?? null,
       phone: input.phone,
+      channel: 'phone_outbound',
       status: 'queued',
+      queuedAt: new Date(),
       // Persist what the agent will be told. When a call goes wrong the first
       // question is always "what did it know?", and the provider does not keep
       // this for us.
@@ -88,8 +91,8 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
     where: { id: attempt.id },
     data: {
       status: 'dialing',
-      dialedAt: new Date(),
-      ...(res.providerCallId ? { providerCallId: res.providerCallId } : {}),
+      startedAt: new Date(),
+      ...(res.providerCallId ? { providerConversationId: res.providerCallId } : {}),
     },
   });
   return { attempt: updated, ok: true };

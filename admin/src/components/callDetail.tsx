@@ -32,8 +32,11 @@ export interface CallAttemptDetail {
   attempt?: number | null;
   error?: string | null;
   queuedAt?: string | null;
-  dialedAt?: string | null;
-  completedAt?: string | null;
+  // Renamed server-side from dialedAt/completedAt when CallAttempt merged with
+  // Conversation (startedAt/endedAt already existed there as the equivalent
+  // concept for every other channel) — this is the current API shape.
+  startedAt?: string | null;
+  endedAt?: string | null;
 }
 
 export function secs(n: number | null | undefined) {
@@ -250,7 +253,7 @@ export function Transcript({ transcript }: { transcript: unknown }) {
 
 export function CallAttemptCard({ call }: { call: CallAttemptDetail }) {
   const duration = call.durationSec ?? call.durationSeconds ?? null;
-  const when = call.dialedAt ?? call.queuedAt ?? call.completedAt ?? null;
+  const when = call.startedAt ?? call.queuedAt ?? call.endedAt ?? null;
 
   return (
     <div style={{ padding: '14px 0', borderBottom: '1px solid var(--border)' }}>

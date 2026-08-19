@@ -527,7 +527,7 @@ campaignsRouter.get('/:id/stats', ah(async (req, res) => {
     prisma.callAttempt.groupBy({ by: ['status'], where: { campaignId: campaign.id }, _count: { _all: true } }),
   ]);
   const callsByStatus: Record<string, number> = {};
-  byStatus.forEach((g) => { callsByStatus[g.status] = g._count._all; });
+  byStatus.forEach((g) => { callsByStatus[g.status ?? 'queued'] = g._count._all; });
 
   return ok(res, {
     campaign: {

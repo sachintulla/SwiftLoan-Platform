@@ -781,8 +781,7 @@ model Customer {
   updatedAt      DateTime     @updatedAt
 
   events        JourneyEvent[]
-  calls         CallAttempt[]
-  conversations Conversation[]
+  conversations CallAttempt[]
   campaigns     CampaignContact[]
 
   @@index([currentStage, stageEnteredAt])
@@ -846,7 +845,18 @@ enum CallStatus {
 /// Keyed on `phone` (bare 10 digits) as well as customerId, because that is the
 /// only identifier every channel shares, and because an agent asking "what do we
 /// know about this number?" has nothing else to ask with.
-model Conversation {
+/// The single record of every conversation on every channel — phone calls
+/// (outbound and inbound), the website voice widget, the in-app companion,
+/// and admin-triggered chats. Merged from what used to be two separate tables
+/// (this one + a `Conversation` table): for a phone call the two rows were
+/// always a 1:1 pair created within milliseconds of each other, describing the
+/// same event, with real duplicate columns (summary/outcome/transcript/
+/// recordingUrl/durationSec existed identically on both) — one row now
+/// instead of two that had to be kept in sync (and in practice, for calls
+/// placed before this merge, often weren't — see the dial-mechanics fields
+/// below, which stay firmly optional so a website-widget or in-app row is
+/// never forced to carry a fake "queued" moment it never had).
+model CallAttempt {
   id         String    @id @default(uuid())
   customerId String?
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -854,27 +864,59 @@ model Conversation {
   phone      String
 
   /// Which surface this happened on.
-  /// phone_outbound | phone_inbound | website_widget | mobile_app | admin
-  channel                String
+  /// phone_outbound | phone_inbound | website_widget | mobile_app | admin | whatsapp
+  channel   String
   /// Which agent role handled it (leadCallback, campaign, companion,
   /// websiteCompanion, adminNavigator) — null for non-agent conversations.
-  agentRole              String?
-  /// Ello's conversation_id, so a late webhook can find this row.
+  agentRole String?
+  /// Ello's conversation id. For a phone call this is the SAME identifier that
+  /// used to be CallAttempt.providerCallId — one provider-side id, one column.
   providerConversationId String? @unique
-  /// Set when this conversation was an outbound call we placed.
-  callAttemptId          String?
+
+  // ── Dial mechanics — set only for phone_outbound/phone_inbound; null for
+  // every other channel, which never went through a dialling step at all ──
+  campaignId  String?
+  campaign    Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  status      CallStatus?
+  /// Which attempt this is for a retry ladder (immediateCallback.ts) or a
+  /// campaign's retry strategy. Null outside those flows.
+  attempt     Int?
+  /// The context_data variables sent to the agent for this call. Kept so an
+  /// operator can see exactly what the agent knew when it dialled — the usual
+  /// first question when a call goes wrong.
+  callContext Json?
+  /// Raw webhook body, kept verbatim so provider-shape drift is debuggable.
+  rawPayload  Json?
+  error       String?
+  /// True once we have real evidence the call connected — either the (still
+  /// unreliable) provider webhook, or the agent itself reporting back after
+  /// speaking to someone (see conversations.routes.ts's save_conversation).
+  answered    Boolean     @default(false)
+  /// When we asked Ello to dial — earlier than `startedAt`, which is when it
+  /// actually began (dialling/ringing/connected). Null for non-call channels.
+  queuedAt    DateTime?
 
   /// Human-readable recap. This is what the next agent actually reads.
-  summary       String?
+  summary         String?
   /// Structured turns, whatever shape the provider gave us.
-  transcript    Json?
-  outcome       CallOutcome?
+  transcript      Json?
+  outcome         CallOutcome?
   /// "agent" (reported) | "inferred" (guessed from transcript) | "status" | null.
-  /// Same provenance rule as CallAttempt: a guess must never read as a fact.
-  outcomeSource String?
+  /// A guess must never read as a fact.
+  outcomeSource   String?
+  /// The phrase that triggered an inference, so the dashboard can show its work.
+  outcomeEvidence String?
   /// Anything the agent captured — income, employment, preferred channel…
-  details       Json?
-  recordingUrl  String?
+  /// (kept as its own JSON blob for arbitrary extras; the three fields below
+  /// are the ones an admin filter/column actually needs, so they stay typed).
+  details         Json?
+  recordingUrl    String?
+
+  incomeRange      String?
+  employment       String?
+  preferredChannel String?
+  /// When the customer asked to be called back.
+  callbackAt       DateTime?
 
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
@@ -885,6 +927,9 @@ model Conversation {
   @@index([phone, startedAt])
   @@index([customerId, startedAt])
   @@index([channel, startedAt])
+  @@index([campaignId, status])
+  @@index([status])
+  @@index([queuedAt])
 }
 
 /// WS10 — the rolling cross-channel brief for one phone number.
@@ -926,63 +971,6 @@ enum CallOutcome {
   do_not_call
   installed_app
   other
-}
-
-/// One outbound call placed through Ello. Created when queued, then updated by
-/// the Ello outcome webhook.
-model CallAttempt {
-  id         String    @id @default(uuid())
-  customerId String
-  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  campaignId String?
-  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-
-  phone String
-
-  /// Ello's own identifier, so an inbound webhook can find this row.
-  providerCallId  String?      @unique
-  status          CallStatus   @default(queued)
-  outcome         CallOutcome?
-  /// How `outcome` was determined: "agent" (the agent reported it via the
-  /// report_call_outcome tool), "inferred" (matched from the transcript — a
-  /// guess), "status" (derived from a failure status), or null. Ello sends no
-  /// outcome field, so without this an operator cannot tell a real disposition
-  /// from a keyword match, and the two carry very different confidence.
-  outcomeSource   String?
-  /// The phrase that triggered an inference, so the dashboard can show its work.
-  outcomeEvidence String?
-  /// Free-text disposition or summary returned by the agent.
-  summary         String?
-
-  // ── Details the agent captured on the call (all optional; only ever set
-  // from an explicit agent report, never inferred) ──────────────────────
-  incomeRange      String?
-  employment       String?
-  preferredChannel String?
-  /// When the customer asked to be called back.
-  callbackAt       DateTime?
-  /// The context_data variables sent to the agent for this call. Kept so an
-  /// operator can see exactly what the agent knew when it dialled — the usual
-  /// first question when a call goes wrong.
-  callContext      Json?
-  transcript       Json?
-  recordingUrl     String?
-  durationSec      Int?
-  answered         Boolean   @default(false)
-  attempt          Int       @default(1)
-  error            String?
-
-  /// Raw webhook body, kept verbatim so provider-shape drift is debuggable.
-  rawPayload Json?
-
-  queuedAt    DateTime  @default(now())
-  dialedAt    DateTime?
-  completedAt DateTime?
-  updatedAt   DateTime  @updatedAt
-
-  @@index([customerId, queuedAt])
-  @@index([campaignId, status])
-  @@index([status])
 }
 
 // ─────────────────────── Campaigns ───────────────────────

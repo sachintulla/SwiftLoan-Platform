@@ -103,7 +103,7 @@ adminOpsRouter.get('/export/customers.csv', ah(async (req, res) => {
 // GET /api/admin/ops/export/calls.csv
 adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { channel: { in: ['phone_outbound', 'phone_inbound'] } };
   if (q.status) where.status = q.status;
   if (q.campaignId) where.campaignId = q.campaignId;
 
@@ -116,11 +116,11 @@ adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
 
   const csv = toCsv(
     ['id', 'phone', 'customer', 'source', 'campaign', 'status', 'outcome',
-     'answered', 'durationSec', 'attempt', 'queuedAt', 'completedAt', 'error', 'recordingUrl'],
+     'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error', 'recordingUrl'],
     rows.map((r) => [
       r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code,
       r.status, r.outcome, r.answered, r.durationSec, r.attempt,
-      r.queuedAt, r.completedAt, r.error, r.recordingUrl,
+      r.queuedAt, r.endedAt, r.error, r.recordingUrl,
     ]),
   );
   return sendCsv(res, `calls-${new Date().toISOString().slice(0, 10)}.csv`, csv);

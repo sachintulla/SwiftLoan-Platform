@@ -90,7 +90,7 @@ adminConversationsRouter.get('/:phone', ah(async (req, res) => {
 
   const [summary, conversations, customer] = await Promise.all([
     prisma.conversationSummary.findUnique({ where: { phone } }),
-    prisma.conversation.findMany({ where: { phone }, orderBy: { startedAt: 'desc' } }),
+    prisma.callAttempt.findMany({ where: { phone }, orderBy: { startedAt: 'desc' } }),
     prisma.customer.findFirst({ where: { phone } }),
   ]);
 
