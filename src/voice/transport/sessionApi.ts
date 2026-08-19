@@ -10,6 +10,12 @@
 // token, not a stable credential meant for embedding in an app.
 import type { ElloAgentOptions } from '../types';
 
+// Unlike src/api/client.ts's request(), this had no timeout at all — on a dead
+// network (no signal, DNS blackhole) the underlying fetch can hang far longer
+// than a user will wait for the agent to respond, with no error ever surfacing
+// to tell them why. Matches REQUEST_TIMEOUT_MS's budget in client.ts.
+const SESSION_START_TIMEOUT_MS = 12000;
+
 function generateMemoryId(): string {
   // RFC4122-ish v4 UUID, no crypto.randomUUID() dependency.
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -20,21 +26,32 @@ function generateMemoryId(): string {
 }
 
 export async function createVoiceSession(options: ElloAgentOptions): Promise<{ conversationId: string }> {
-  const res = await fetch(`${options.apiBaseUrl}/api/agents/${options.assistantId}/calls`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': options.apiKey,
-    },
-    body: JSON.stringify({
-      assistant_id: options.assistantId,
-      agent_type: 'webcall',
-      call_type: 'outbound',
-      name: '',
-      message: 'Hi! I can help you navigate SwiftLoan by voice — what would you like to do?',
-      memory_id: generateMemoryId(),
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SESSION_START_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${options.apiBaseUrl}/api/agents/${options.assistantId}/calls`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': options.apiKey,
+      },
+      body: JSON.stringify({
+        assistant_id: options.assistantId,
+        agent_type: 'webcall',
+        call_type: 'outbound',
+        name: '',
+        message: 'Hi! I can help you navigate SwiftLoan by voice — what would you like to do?',
+        memory_id: generateMemoryId(),
+      }),
+      signal: controller.signal,
+    });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw new Error(`ello: call request timed out after ${SESSION_START_TIMEOUT_MS}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`ello: failed to start call (${res.status})`);
   const json = await res.json().catch(() => ({}));
   const conversationId =

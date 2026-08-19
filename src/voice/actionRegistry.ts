@@ -39,6 +39,21 @@ const screenTexts = new Map<string, string[]>();
 // keypress. Handlers are always refreshed; only the *notification* is deduped.
 const lastSignature = new Map<string, string>();
 
+// Elements-only half of the signature above, tracked separately so a controls
+// change can always publish immediately while a *text-only* change (e.g. an
+// animated greeting carousel re-rendering every couple seconds, or a slow
+// count-up) can be throttled instead — see TEXT_CHANGE_THROTTLE_MS below.
+const lastElementsSignature = new Map<string, string>();
+const lastPublishAt = new Map<string, number>();
+
+// Caps how often text-only churn can re-notify the agent per screen. Real
+// control changes (a new button appearing, tapping something) always bypass
+// this and publish immediately; this only bounds screens whose *decorative*
+// text keeps changing on a timer, which would otherwise push a
+// client-tools-update over the live socket forever, competing with real
+// requests/responses on the same connection.
+const TEXT_CHANGE_THROTTLE_MS = 4000;
+
 // Waiters for the next graph publish. Used by tools.ts to report post-action
 // state as soon as React has actually re-rendered, instead of guessing a delay.
 let publishWaiters: Array<() => void> = [];
@@ -86,13 +101,28 @@ export function publishScreenGraph(
   // Signature must include the visible texts, not just the interactive controls:
   // on data screens (e.g. offers) the buttons are unchanged while async-loaded
   // content arrives, so a controls-only signature would never re-notify the agent
-  // and it would keep describing stale/placeholder data. agent.updatePageContext()
-  // is coalesced, so text changes from a settling animation don't spam the socket.
-  const sig =
-    elements.map(e => `${e.kind}|${e.label}`).join('~') + '§' + texts.join('¶');
-  const changed = lastSignature.get(screen) !== sig;
-  if (changed) lastSignature.set(screen, sig);
-  return changed;
+  // and it would keep describing stale/placeholder data.
+  const elementsSig = elements.map(e => `${e.kind}|${e.label}`).join('~');
+  const sig = elementsSig + '§' + texts.join('¶');
+  if (lastSignature.get(screen) === sig) return false;
+
+  const controlsChanged = lastElementsSignature.get(screen) !== elementsSig;
+  const now = Date.now();
+  const sinceLastPublish = now - (lastPublishAt.get(screen) ?? 0);
+  if (!controlsChanged && sinceLastPublish < TEXT_CHANGE_THROTTLE_MS) {
+    // Text-only churn inside the throttle window (a carousel/count-up tick) —
+    // remember the signature so this exact frame isn't re-flagged as "changed"
+    // next time, but don't notify the agent yet. Screens like this keep
+    // re-rendering on their own timer, so the picture catches up on the very
+    // next tick once the window has passed; nothing is lost, just batched.
+    lastSignature.set(screen, sig);
+    return false;
+  }
+
+  lastSignature.set(screen, sig);
+  lastElementsSignature.set(screen, elementsSig);
+  lastPublishAt.set(screen, now);
+  return true;
 }
 
 export function getScreenTexts(screen: string): string[] {

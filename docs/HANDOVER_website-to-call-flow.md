@@ -66,8 +66,11 @@ Test run output (simulated dial, real everything else):
 
 1. **Website form** (`swiftloan.ai` → `POST /api/context/create`) creates the
    `Customer` at stage `lead_captured` with UTM/campaign attribution.
-2. **`lead-autocaller` job** (every 60s) picks up leads older than
-   `LEAD_CALL_DELAY_MINUTES` (default 1) that have never been called, inside the
+2. **`lead-autocaller` job** (every 60s) picks up leads who did NOT click
+   "Yes, call me now" (those are owned by `immediateCallback.ts`'s own ladder
+   instead) and are older than `LEAD_CALL_DECLINE_DELAY_MINUTES` (default 60
+   minutes — applies whether they explicitly declined the callback popup or
+   never answered it at all) that have never been called, inside the
    09:00–21:00 IST window, under the hourly cap and 24h per-phone cooldown.
 3. **Context is built** ([`server/src/lib/callContext.ts`](../server/src/lib/callContext.ts))
    and sent as `context_data` on the Ello call — this is what makes it a

@@ -10,6 +10,11 @@ jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default,
 );
 
+// NetInfo ships a ready-made jest mock (reports "connected" by default).
+jest.mock('@react-native-community/netinfo', () =>
+  require('@react-native-community/netinfo/jest/netinfo-mock'),
+);
+
 // LinearGradient → a plain View so children still render.
 jest.mock('react-native-linear-gradient', () => {
   const React = require('react');

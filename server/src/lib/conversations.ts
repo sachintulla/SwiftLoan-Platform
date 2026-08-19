@@ -61,7 +61,6 @@ export interface RecordConversationInput {
   channel: ConversationChannel;
   agentRole?: string | null;
   providerConversationId?: string | null;
-  callAttemptId?: string | null;
   summary?: string | null;
   transcript?: unknown;
   outcome?: CallOutcome | null;
@@ -74,12 +73,24 @@ export interface RecordConversationInput {
   customerId?: string | null;
 }
 
+const OPEN_CALL_STATUSES = ['queued', 'dialing', 'in_progress'] as const;
+
 /**
- * Create or update a conversation, then refresh the rolling brief.
+ * Create or update a call/conversation row, then refresh the rolling brief.
  *
- * Upserts on `providerConversationId` when present so repeated posts for the same
- * Ello conversation (session start, then session end) update one row rather than
- * accumulating duplicates.
+ * Three ways this resolves to one row, tried in order:
+ *  1. `providerConversationId` given — upsert on it, so repeated posts for the
+ *     same Ello conversation (session start, then session end) update one row.
+ *  2. No id, but this IS a phone call (phone_outbound/phone_inbound) — find the
+ *     most recent still-open dial for this phone (queued/dialing/in_progress)
+ *     and close it out here. This is exactly what the agent's own
+ *     `save_conversation` tool report looks like: it never carries an id, but
+ *     it is unambiguous proof the call connected — without this, that report
+ *     used to become an orphan second row while the real CallAttempt sat open
+ *     until a 30-minute timeout closed it as "failed", even for a call the
+ *     customer actually answered.
+ *  3. Neither — a genuinely new row (mobile_app, website_widget, whatsapp, or
+ *     a phone report with no open attempt to match).
  */
 export async function recordConversation(input: RecordConversationInput) {
   const phone = normalisePhone(input.phone);
@@ -99,7 +110,6 @@ export async function recordConversation(input: RecordConversationInput) {
     phone,
     channel: input.channel,
     agentRole: input.agentRole ?? null,
-    callAttemptId: input.callAttemptId ?? null,
     ...(input.summary != null ? { summary: String(input.summary).slice(0, MAX_SUMMARY) } : {}),
     ...(input.transcript != null ? { transcript: input.transcript as Prisma.InputJsonValue } : {}),
     ...(input.outcome ? { outcome: input.outcome } : {}),
@@ -110,19 +120,28 @@ export async function recordConversation(input: RecordConversationInput) {
     ...(input.durationSec != null ? { durationSec: input.durationSec } : {}),
   };
 
-  const row = input.providerConversationId
-    ? await prisma.conversation.upsert({
-        where: { providerConversationId: input.providerConversationId },
-        create: {
-          ...data,
-          providerConversationId: input.providerConversationId,
-          startedAt: input.startedAt ?? new Date(),
-        },
-        update: data,
-      })
-    : await prisma.conversation.create({
-        data: { ...data, startedAt: input.startedAt ?? new Date() },
-      });
+  let row;
+  if (input.providerConversationId) {
+    row = await prisma.callAttempt.upsert({
+      where: { providerConversationId: input.providerConversationId },
+      create: { ...data, providerConversationId: input.providerConversationId, startedAt: input.startedAt ?? new Date() },
+      update: data,
+    });
+  } else if (input.channel === 'phone_outbound' || input.channel === 'phone_inbound') {
+    const openAttempt = await prisma.callAttempt.findFirst({
+      where: { phone, channel: input.channel, status: { in: [...OPEN_CALL_STATUSES] } },
+      orderBy: { queuedAt: 'desc' },
+    });
+
+    row = openAttempt
+      ? await prisma.callAttempt.update({
+          where: { id: openAttempt.id },
+          data: { ...data, status: 'completed', answered: true, endedAt: input.endedAt ?? new Date() },
+        })
+      : await prisma.callAttempt.create({ data: { ...data, startedAt: input.startedAt ?? new Date() } });
+  } else {
+    row = await prisma.callAttempt.create({ data: { ...data, startedAt: input.startedAt ?? new Date() } });
+  }
 
   // Best-effort: a failed brief rebuild must not fail the write that produced it.
   await rebuildSummary(phone).catch((e) =>
@@ -158,7 +177,7 @@ export async function rebuildSummary(phoneRaw: string) {
   if (!phone) return null;
 
   const [rows, customer] = await Promise.all([
-    prisma.conversation.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
+    prisma.callAttempt.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
     prisma.customer.findFirst({ where: { phone } }),
   ]);
 
@@ -259,7 +278,7 @@ export async function getConversationContext(phoneRaw: string, limit = CONTEXT_L
 
   const [summary, rows, customer, lead] = await Promise.all([
     prisma.conversationSummary.findUnique({ where: { phone } }),
-    prisma.conversation.findMany({
+    prisma.callAttempt.findMany({
       where: { phone },
       orderBy: { startedAt: 'desc' },
       take: Math.min(Math.max(1, limit), 25),

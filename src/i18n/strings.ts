@@ -121,6 +121,9 @@ export const STR: Record<string, Record<string, string>> = {
         voiceStatusIdle: 'Tap to talk', voiceStatusConnecting: 'Connecting…', voiceStatusListening: 'Listening…',
         voiceStatusSpeaking: 'Speaking…', voiceStatusExecuting: 'Working on it…',
         voiceConfirmAllow: 'Allow', voiceConfirmDeny: 'Deny',
+        networkOfflineTitle: 'No internet connection',
+        networkOfflineMessage: 'This needs Wi-Fi or mobile data — the rest of the app still works.',
+        networkOfflineDismiss: 'Dismiss',
 
         // --- Onboarding/funnel screens (intro, mobile/otp, permissions, aboutyou, basicpan, basic) ---
         continueBtn: 'Continue', saving: 'Saving…', submitting: 'Submitting…',
@@ -148,7 +151,7 @@ export const STR: Record<string, Record<string, string>> = {
         mobileSending: 'Sending…', mobileSendOtp: 'Send OTP', otpVerifying: 'Verifying…', otpVerify: 'Verify & Continue',
         mobileGoogle: 'Continue with Google', mobileGoogleToast: 'Continuing with Google…',
         mobileSkip: 'Skip for now — explore the app',
-        mobileErrSend: 'Could not send OTP. Check the API server.', mobileErrVerify: 'Verification failed.',
+        mobileErrSend: 'Could not send OTP. Please try again.', mobileErrVerify: 'Verification failed.',
         // permissions
         permTitle: 'Permissions', permSub: 'To assess your eligibility and complete KYC securely, SwiftLoan needs a few permissions.',
         permNotifDesc: 'Stay updated on your EMIs, offers and application status.',
@@ -321,6 +324,9 @@ export const STR: Record<string, Record<string, string>> = {
         voiceStatusIdle: 'बोलने के लिए टैप करें', voiceStatusConnecting: 'कनेक्ट हो रहा है…', voiceStatusListening: 'सुन रहे हैं…',
         voiceStatusSpeaking: 'बोल रहे हैं…', voiceStatusExecuting: 'काम कर रहे हैं…',
         voiceConfirmAllow: 'अलाउ करें', voiceConfirmDeny: 'डिनाई करें',
+        networkOfflineTitle: 'इंटरनेट कनेक्शन नहीं है',
+        networkOfflineMessage: 'इसके लिए वाई-फाई या मोबाइल डेटा चाहिए — बाकी ऐप अभी भी काम करेगा।',
+        networkOfflineDismiss: 'ठीक है',
 
         // --- Onboarding/funnel screens ---
         continueBtn: 'कंटिन्यू', saving: 'सेव हो रहा है…', submitting: 'सबमिट हो रहा है…',
@@ -348,7 +354,7 @@ export const STR: Record<string, Record<string, string>> = {
         mobileSending: 'भेज रहे हैं…', mobileSendOtp: 'OTP भेजें', otpVerifying: 'वेरिफाई हो रहा है…', otpVerify: 'वेरिफाई करें और कंटिन्यू करें',
         mobileGoogle: 'Google से कंटिन्यू करें', mobileGoogleToast: 'Google से कंटिन्यू कर रहे हैं…',
         mobileSkip: 'अभी स्किप करें — ऐप एक्सप्लोर करें',
-        mobileErrSend: 'OTP नहीं भेज सके। API सर्वर चेक करें।', mobileErrVerify: 'वेरिफिकेशन फेल हो गया।',
+        mobileErrSend: 'OTP नहीं भेज सके। कृपया फिर से कोशिश करें।', mobileErrVerify: 'वेरिफिकेशन फेल हो गया।',
         // permissions
         permTitle: 'परमिशन्स', permSub: 'आपकी एलिजिबिलिटी चेक करने और KYC सिक्योरली पूरा करने के लिए SwiftLoan को कुछ परमिशन्स चाहिए।',
         permNotifDesc: 'अपनी EMI, ऑफर्स और एप्लिकेशन स्टेटस पर अपडेटेड रहें।',
@@ -520,6 +526,9 @@ export const STR: Record<string, Record<string, string>> = {
         voiceStatusIdle: 'మాట్లాడటానికి ట్యాప్ చేయండి', voiceStatusConnecting: 'కనెక్ట్ అవుతోంది…', voiceStatusListening: 'వింటోంది…',
         voiceStatusSpeaking: 'మాట్లాడుతోంది…', voiceStatusExecuting: 'పని చేస్తోంది…',
         voiceConfirmAllow: 'అలో చేయండి', voiceConfirmDeny: 'డినై చేయండి',
+        networkOfflineTitle: 'ఇంటర్నెట్ కనెక్షన్ లేదు',
+        networkOfflineMessage: 'దీనికి వై-ఫై లేదా మొబైల్ డేటా కావాలి — మిగతా యాప్ ఇప్పటికీ పని చేస్తుంది.',
+        networkOfflineDismiss: 'సరే',
 
         // --- Onboarding/funnel screens ---
         continueBtn: 'కంటిన్యూ', saving: 'సేవ్ అవుతోంది…', submitting: 'సబ్మిట్ అవుతోంది…',
@@ -547,7 +556,7 @@ export const STR: Record<string, Record<string, string>> = {
         mobileSending: 'పంపుతోంది…', mobileSendOtp: 'OTP పంపండి', otpVerifying: 'వెరిఫై అవుతోంది…', otpVerify: 'వెరిఫై చేసి కంటిన్యూ చేయండి',
         mobileGoogle: 'Google తో కంటిన్యూ చేయండి', mobileGoogleToast: 'Google తో కంటిన్యూ అవుతోంది…',
         mobileSkip: 'ప్రస్తుతానికి స్కిప్ చేయండి — యాప్ ఎక్స్‌ప్లోర్ చేయండి',
-        mobileErrSend: 'OTP పంపలేకపోయాం. API సర్వర్ చెక్ చేయండి.', mobileErrVerify: 'వెరిఫికేషన్ ఫెయిల్ అయింది.',
+        mobileErrSend: 'OTP పంపలేకపోయాం. దయచేసి మళ్ళీ ప్రయత్నించండి.', mobileErrVerify: 'వెరిఫికేషన్ ఫెయిల్ అయింది.',
         // permissions
         permTitle: 'పర్మిషన్స్', permSub: 'మీ ఎలిజిబిలిటీ చెక్ చేయడానికి, KYC ని సెక్యూర్‌లీ పూర్తి చేయడానికి SwiftLoan కి కొన్ని పర్మిషన్స్ అవసరం.',
         permNotifDesc: 'మీ EMIలు, ఆఫర్స్, అప్లికేషన్ స్టేటస్ పై అప్‌డేటెడ్ గా ఉండండి.',

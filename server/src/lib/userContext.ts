@@ -159,7 +159,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
   // A number can have conversations and nothing else — someone who talked to the
   // website widget before ever submitting a form. Counting that as "no history"
   // would throw away exactly the context this endpoint exists to provide.
-  const conversationCount = await prisma.conversation
+  const conversationCount = await prisma.callAttempt
     .count({ where: { phone: clean } })
     .catch(() => 0);
 
@@ -180,7 +180,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
     inquiries,
     lastCall: call
       ? {
-          at: call.queuedAt.toISOString(),
+          at: (call.queuedAt ?? call.startedAt).toISOString(),
           outcome: call.outcome,
           outcomeSource: call.outcomeSource,
           summary: call.summary,
@@ -203,7 +203,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
     conversations: [],
   };
 
-  ctx.brief = buildBrief(ctx, leads?.[leads.length - 1]?.createdAt, call?.queuedAt);
+  ctx.brief = buildBrief(ctx, leads?.[leads.length - 1]?.createdAt, call?.queuedAt ?? call?.startedAt);
 
   // WS10 — the cross-channel conversation memory. Fetched separately (and
   // tolerantly) because it is additive: if it fails, the agent still gets the
