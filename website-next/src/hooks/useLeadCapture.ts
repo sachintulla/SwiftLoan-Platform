@@ -185,15 +185,17 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
       setOtpError(null);
       const result = await requestWebsiteOtp(phone);
       setOtpSending(false);
-      if (!result) {
-        toast.error(t.otpToastSendFailed);
+      if (!result.ok) {
+        const message = result.error || t.otpToastSendFailed;
+        toast.error(message);
+        setOtpError(message);
         return;
       }
       // Always require a fresh, real OTP entry here — even if this phone was
       // verified on an earlier visit — so the callback popup can never appear
       // without the visitor actually seeing and completing the OTP screen in
       // THIS session.
-      setDevOtpHint(result.devOtp);
+      setDevOtpHint(result.data?.devOtp);
       setOtpResendSeconds(30);
     },
     [t],
