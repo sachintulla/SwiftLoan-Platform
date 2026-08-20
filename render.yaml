@@ -51,8 +51,44 @@ services:
         value: "60"
       # Demo/mock loan app: accept a fixed OTP (123456) and surface it to the client
       # so testers can log in without real SMS. Remove for a real production launch.
+      # NOTE: this and the real SMS below are mutually exclusive in practice — while
+      # DEMO_LOGIN is on, testers can log in with 123456 regardless of what the
+      # gateway delivered. Turn it off the moment real OTP delivery is trusted.
       - key: DEMO_LOGIN
         value: "true"
+
+      # ── Mobile login OTP over SMS (Vox Digitals CPaaS, India/DLT) ─────────
+      # The credential is a PAIR and both halves are secrets — set them in the
+      # Render UI, never here. A missing projectid returns the SAME 1401 as a bad
+      # token, so a partial credential fails every OTP indistinguishably.
+      - key: SMS_PROVIDER
+        value: vox
+      - key: VOX_AUTH_TOKEN
+        sync: false
+      - key: VOX_PROJECT_ID
+        sync: false
+      # v2 is JSON-only and 415s on form-urlencoded (v1 is the exact inverse).
+      # src/lib/sms.ts picks the transport from the /v2/ in this path.
+      # TODO: the operator gave us a bare-IP HTTP endpoint, which sends the auth
+      # token in clear text. Ask them for an HTTPS hostname before real traffic.
+      - key: VOX_BASE_URL
+        value: http://173.224.118.89:9092/sms-customer-apis/sms/v2/send
+      # DLT-registered sender header. Must be exactly the registered 6-char ID —
+      # the operator drops an unrecognised header silently while the gateway still
+      # answers "200 Success". An invalid `SW_app` here delivered zero of six OTPs.
+      - key: VOX_SENDER
+        value: GMPE
+      - key: VOX_TEMPLATE_ID
+        value: "1677100000000389280"
+      # Must match the DLT-registered template character-for-character, with only
+      # {#var#} substituted. A mismatch is dropped as silently as a bad header.
+      - key: VOX_TEMPLATE_TEXT
+        value: Dear Customer, your SwiftLoan login OTP is {#var#}. This OTP is valid for 10 minutes. Do not share this OTP with anyone. Team SwiftLoan
+      # Delivery receipts. Without this we only ever learn that Vox accepted the
+      # message, never that a handset received it. Point it at a real endpoint —
+      # the local value is a throwaway webhook.site bin.
+      - key: VOX_DLR_URL
+        sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
