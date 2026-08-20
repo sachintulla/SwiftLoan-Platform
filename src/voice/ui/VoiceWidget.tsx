@@ -264,9 +264,6 @@ export default function VoiceWidget() {
             : t.voiceStatusIdle;
 
   const onPress = () => {
-    // Android: the voice FAB is intentionally a no-op for now — tapping it does
-    // nothing (voice is iOS-only until the Android audio path is ready).
-    if (Platform.OS === 'android') return;
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {

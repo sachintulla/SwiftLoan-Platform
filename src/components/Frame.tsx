@@ -13,7 +13,6 @@ import {
   Animated,
   Easing,
   Vibration,
-  Platform,
 } from 'react-native';
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -450,9 +449,6 @@ function SupportTab() {
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
   const onPress = () => {
-    // Voice is iOS-only for now — the Support tab does nothing on Android
-    // (returning here also avoids a stuck "connecting" spinner).
-    if (Platform.OS === 'android') return;
     // Small haptic so the tap registers immediately, before the (async) connect.
     Vibration.vibrate(20);
     if (live || connecting) {
