@@ -248,6 +248,33 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   res.json({ offer, lenderApplicationId: offer.id, alreadyApplied });
 }));
 
+/**
+ * Mark a per-lender application as failed — e.g. the lender's web flow (opened
+ * after apply) errored out and the user couldn't complete it. Records the reason
+ * so My Loans shows it as "Failed" for that lender. Never overrides a terminal
+ * outcome the lender already reported (approved/disbursed/rejected/closed).
+ */
+applicationsRouter.post('/:id/offers/:offerId/fail',
+  validate(z.object({ reason: z.string().max(500).optional() })),
+  ah(async (req, res) => {
+    const app = await owned(req.user!.sub, req.params.id);
+    const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
+    if (!offer) throw new HttpError(404, 'Offer not found for this application');
+    if (offer.lenderStatus && ['approved', 'disbursed', 'rejected', 'closed'].includes(offer.lenderStatus)) {
+      return res.json({ offer, unchanged: true });
+    }
+    const reason = req.body.reason?.slice(0, 500) || 'The lender web flow could not be completed.';
+    const updated = await prisma.offer.update({
+      where: { id: offer.id },
+      data: { applied: true, appliedAt: offer.appliedAt ?? new Date(), lenderStatus: 'failed', failureReason: reason },
+    });
+    trackJourney(
+      { userId: req.user!.sub },
+      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderName: offer.lenderName, failed: true, reason } },
+    ).catch(() => {});
+    res.json({ offer: updated });
+  }));
+
 /** Secure handoff → disburse: create the loan + repayment schedule. */
 applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);

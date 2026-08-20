@@ -167,6 +167,7 @@ enum ApplicationStatus {
   rejected
   disbursed
   closed
+  failed // could not complete (e.g. the lender web flow errored out)
 }
 
 enum LoanType {
@@ -324,6 +325,7 @@ model Offer {
   lenderStatus     ApplicationStatus?
   kftApplicationId String? // application_id from KFT's application_submitted event
   applicationUrl   String? // ApplicationUrl from KFT, if provided
+  failureReason    String? // why the lender application failed (e.g. web flow error)
 
   emiOptions OfferEmiOption[]
 
