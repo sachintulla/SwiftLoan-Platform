@@ -220,6 +220,7 @@ const LENDER_STATUS_LABEL: Record<string, string> = {
   approved: 'Approved',
   disbursed: 'Disbursed',
   rejected: 'Rejected',
+  failed: 'Failed',
   closed: 'Closed',
 };
 

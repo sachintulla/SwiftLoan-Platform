@@ -321,6 +321,9 @@ export const api = {
   // application (returns { offer, lenderApplicationId, alreadyApplied }).
   applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined),
+  // Mark a per-lender application failed (e.g. the lender web flow errored out).
+  failApplication: (id: string, offerId: string, reason?: string) =>
+    request('POST', `/applications/${id}/offers/${offerId}/fail`, reason ? { reason } : {}),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
 
   // KYC / loans / misc

@@ -23,6 +23,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   approved: { label: 'Approved', color: colors.green },
   disbursed: { label: 'Active', color: colors.green },
   rejected: { label: 'Rejected', color: colors.red },
+  failed: { label: 'Failed', color: colors.red },
   closed: { label: 'Closed', color: colors.muted },
 };
 

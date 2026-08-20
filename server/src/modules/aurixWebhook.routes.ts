@@ -68,9 +68,9 @@ function alreadyProcessed(id: string | undefined): boolean {
 // Progression rank so a status update only moves forward (or to a terminal).
 const RANK: Record<string, number> = {
   draft: 0, pan_pending: 1, prequalifying: 2, offers_ready: 3, handoff: 4,
-  under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8,
+  under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8, failed: 8,
 };
-const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed']);
+const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed', 'failed']);
 
 /** Map a KFT journey (state, status, reason) onto our ApplicationStatus. */
 function mapJourney(state: string, status: string, reason: string): ApplicationStatus | null {
