@@ -211,17 +211,50 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'No status change for this event');
   }
 
-  // Forward-only: don't regress a further status, and don't move a terminal
-  // application backward (approved → disbursed is the one allowed terminal step).
-  const cur = RANK[application.status] ?? 0;
-  const next = RANK[mapped] ?? 0;
-  const regressing = !TERMINAL.has(mapped) && next <= cur;
-  const backFromTerminal = TERMINAL.has(application.status) && !(mapped === 'disbursed' && application.status === 'approved');
-  if (regressing || backFromTerminal) {
+  // Forward-only helper: allow advancing to a further status, or the one legal
+  // terminal step (approved → disbursed); never regress.
+  const advances = (from: ApplicationStatus | null, to: ApplicationStatus): boolean => {
+    const f = RANK[from ?? 'draft'] ?? 0;
+    const t = RANK[to] ?? 0;
+    const regress = !TERMINAL.has(to) && t <= f;
+    const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
+    return !(regress || backTerminal);
+  };
+
+  // ── Per-lender application update ──
+  // KFT's lender-scoped events (lender_selection, lender_api_journey,
+  // application_submitted, post_lender_redirection) carry data.lender_name. When
+  // present, update the matching *applied* offer's own lenderStatus so My Loans
+  // shows per-lender progress — independent of the parent application's status.
+  const lenderName = data.lender_name ?? data.lenderName ?? null;
+  let offerUpdated: string | null = null;
+  if (lenderName) {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const want = norm(String(lenderName));
+    const applied = await prisma.offer.findMany({ where: { applicationId: application.id, applied: true } });
+    const match = applied.find(o => o.lenderName && (() => {
+      const have = norm(o.lenderName);
+      return have === want || have.includes(want) || want.includes(have);
+    })());
+    if (match && advances(match.lenderStatus, mapped)) {
+      await prisma.offer.update({
+        where: { id: match.id },
+        data: {
+          lenderStatus: mapped,
+          ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}),
+          ...(data.ApplicationUrl != null ? { applicationUrl: String(data.ApplicationUrl) } : {}),
+        },
+      });
+      offerUpdated = match.id;
+    }
+  }
+
+  // ── Parent application status (forward-only) ──
+  if (!advances(application.status, mapped)) {
     return ok(
       res,
-      { matched: true, applicationId: application.id, statusUnchanged: true, current: application.status },
-      'Status not advanced',
+      { matched: true, applicationId: application.id, statusUnchanged: true, current: application.status, offerUpdated },
+      offerUpdated ? 'Lender status updated' : 'Status not advanced',
     );
   }
 
@@ -244,5 +277,5 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, state, kftStatus: jStatus, reason, leadId } },
   ).catch(() => {});
 
-  return ok(res, { matched: true, applicationId: application.id, status: mapped }, 'Status updated');
+  return ok(res, { matched: true, applicationId: application.id, status: mapped, offerUpdated }, 'Status updated');
 }));
