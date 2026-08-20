@@ -121,21 +121,23 @@ export default function Offers() {
       go('loans');
       return;
     }
-    if (state.applicationId) {
-      set({ selectedOfferId: offer.id });
-      // Apply creates a tracked per-lender application (Offer.id is its id); the
-      // user can apply to more than one lender on the same eligibility run.
-      await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
-      // Reflect "applied" immediately so the tile updates without a round-trip.
-      setOffers(prev => prev.map(o => (o.id === offer.id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o)));
-    }
-    // A real partner offer carries a lender deep link — open it inside the app
-    // (in-app WebView) instead of the native SwiftLoan handoff screen. Returning
-    // from the lender page lands the user on My Loans (see lenderweb).
+    // Real lender (carries a deep link): do NOT create the application yet. Open
+    // the lender's web flow; the per-lender application is created only once KFT
+    // confirms the submission (application_submitted webhook) — i.e. after the
+    // user completes OTP verification on the lender's page. Returning from the
+    // lender page lands the user on My Loans (see lenderweb).
     if (offer.redirectionUrl) {
+      if (state.applicationId) set({ selectedOfferId: offer.id });
       set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
       go('lenderweb');
       return;
+    }
+    // Mock / no-redirect lender (dev/demo, no OTP web flow): create immediately
+    // and go to the native handoff screen.
+    if (state.applicationId) {
+      set({ selectedOfferId: offer.id });
+      await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+      setOffers(prev => prev.map(o => (o.id === offer.id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o)));
     }
     go('handoff');
   };

@@ -266,13 +266,20 @@ applicationsRouter.post('/:id/offers/:offerId/fail',
     const app = await owned(req.user!.sub, req.params.id);
     const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
     if (!offer) throw new HttpError(404, 'Offer not found for this application');
+    // A per-lender application only exists once it was actually submitted (marked
+    // applied — created via the KFT application_submitted webhook after OTP). A
+    // web-flow error BEFORE that point means the user abandoned before submitting,
+    // so there's nothing to mark failed — don't create a stray failed item.
+    if (!offer.applied) {
+      return res.json({ offer, unchanged: true, notApplied: true });
+    }
     if (offer.lenderStatus && ['approved', 'disbursed', 'rejected', 'closed'].includes(offer.lenderStatus)) {
       return res.json({ offer, unchanged: true });
     }
     const reason = req.body.reason?.slice(0, 500) || 'The lender web flow could not be completed.';
     const updated = await prisma.offer.update({
       where: { id: offer.id },
-      data: { applied: true, appliedAt: offer.appliedAt ?? new Date(), lenderStatus: 'failed', failureReason: reason },
+      data: { lenderStatus: 'failed', failureReason: reason },
     });
     trackJourney(
       { userId: req.user!.sub },
