@@ -4,6 +4,7 @@
 // playback, confirmation UI) are swapped for RN-native implementations, passed
 // in via the constructor instead of owned internally.
 import NetInfo from '@react-native-community/netinfo';
+import { Platform } from 'react-native';
 import { Emitter } from './events';
 import { ToolRegistry } from './registry';
 import { ElloSocket } from './transport/ws';
@@ -138,6 +139,13 @@ export class ElloAgent {
   }
 
   async start(): Promise<void> {
+    // Voice is iOS-only for now. On Android every entry point (FAB, Support tab,
+    // support sheet) funnels through here, so a single no-op disables voice
+    // everywhere in the Android app.
+    if (Platform.OS === 'android') {
+      vlog('start() ignored — voice disabled on Android');
+      return;
+    }
     vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId);
     if (!this.options.apiKey || !this.options.assistantId) {
       vlog('ABORT: apiKey/assistantId not configured');
