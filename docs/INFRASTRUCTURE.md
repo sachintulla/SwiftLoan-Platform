@@ -94,7 +94,7 @@ their live values — check the file on the box for the actual current value.
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | Mobile-app/API auth token signing (generated fresh per box, never shared between dev/prod) |
 | `NODE_ENV` | `development` (dev) / `production` (prod) |
 | `DEMO_LOGIN` | `true` on dev, `false` on prod |
-| `SMS_PROVIDER`, `TWILIO_*` | OTP delivery (Twilio creds currently shared between dev/prod — explicit decision) |
+| `SMS_PROVIDER`, `VOX_*` | OTP delivery via Vox Digitals CPaaS (creds currently shared between dev/prod — explicit decision) |
 | `AWS_REGION`, `S3_BUCKET_NAME` | Avatar/asset uploads |
 | `PORT` | `4000` |
 | `ELLO_API_KEY` | Server-side key used by `/api/voice/session` to call Ello's API (shared dev/prod — explicit decision) |
@@ -228,7 +228,7 @@ Which Ello agent a call role uses is resolved in `server/src/lib/agents.ts`,
 in this order: dashboard override → `ELLO_AGENT_<ROLE>` env var → the
 workspace default (`ELLO_AGENT_ID`). The API key and agent id currently
 configured are shared between dev and prod (explicit decision, same as
-Twilio). If the voice widget connects but the agent never speaks or
+Vox). If the voice widget connects but the agent never speaks or
 acknowledges tools, that's an Ello-dashboard-side configuration issue for
 that specific agent id (e.g. not set to "Native Mode"), not a code or env
 problem — confirmed by full request/response logs during this session.

@@ -7,8 +7,6 @@
 //
 //   msg91  — India (DLT). Env: MSG91_AUTHKEY, MSG91_SENDER (6-char header),
 //            MSG91_TEMPLATE_ID (DLT-approved), optional MSG91_ROUTE (default 4).
-//   twilio — Global.       Env: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
-//            TWILIO_FROM (E.164 sender number).
 //   vox    — Vox Digitals CPaaS (India, DLT). Supports both the v1 legacy
 //            form-data API and the v2 JSON API; the transport is picked from the
 //            URL (see sendViaVox) or forced with VOX_API_VERSION=v1|v2.
@@ -24,11 +22,11 @@
 
 const DEFAULT_CC = process.env.SMS_DEFAULT_CC ?? '91';
 
-export type SmsProvider = 'msg91' | 'twilio' | 'vox' | 'none';
+export type SmsProvider = 'msg91' | 'vox' | 'none';
 
 export function smsProvider(): SmsProvider {
   const p = (process.env.SMS_PROVIDER ?? '').toLowerCase();
-  if (p === 'msg91' || p === 'twilio' || p === 'vox') return p;
+  if (p === 'msg91' || p === 'vox') return p;
   return 'none';
 }
 
@@ -36,7 +34,6 @@ export function smsProvider(): SmsProvider {
 export function smsConfigured(): boolean {
   const p = smsProvider();
   if (p === 'msg91') return !!process.env.MSG91_AUTHKEY;
-  if (p === 'twilio') return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM);
   // Both halves of the credential, or the gateway 1401s on every OTP.
   if (p === 'vox') return !!(process.env.VOX_AUTH_TOKEN && process.env.VOX_PROJECT_ID);
   return false;
@@ -48,8 +45,6 @@ function toE164(phone: string): string {
   if (digits.length > 10) return '+' + digits; // already has a country code
   return `+${DEFAULT_CC}${digits}`;
 }
-
-const OTP_TEXT = (code: string) => `${code} is your SwiftLoan verification code. It is valid for 5 minutes. Do not share it with anyone.`;
 
 async function sendViaMsg91(phone: string, code: string): Promise<boolean> {
   const authkey = process.env.MSG91_AUTHKEY!;
@@ -67,26 +62,9 @@ async function sendViaMsg91(phone: string, code: string): Promise<boolean> {
   return okFlag;
 }
 
-async function sendViaTwilio(phone: string, code: string): Promise<boolean> {
-  const sid = process.env.TWILIO_ACCOUNT_SID!;
-  const token = process.env.TWILIO_AUTH_TOKEN!;
-  const from = process.env.TWILIO_FROM!;
-  const body = new URLSearchParams({ To: toE164(phone), From: from, Body: OTP_TEXT(code) });
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      authorization: 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'),
-    },
-    body: body.toString(),
-  });
-  const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) console.error('[sms] twilio send failed', res.status, json?.message ?? json);
-  return res.ok;
-}
-
 /**
- * Vox Digitals CPaaS — v1 legacy form-urlencoded API.
+ * Vox Digitals CPaaS — supports both the v1 form-urlencoded API and the v2
+ * JSON API (see the version-selection block below).
  *
  * Two behaviours of this provider are verified against the live endpoint and are
  * the reason this is not a two-line function:
@@ -121,9 +99,9 @@ async function sendViaVox(phone: string, code: string): Promise<boolean> {
   // no SMS ever arrives. That is exactly what happened here: our generic wording
   // was accepted six times and delivered zero times.
   //
-  // Kept separate from OTP_TEXT (used by msg91/twilio) because this string is not
-  // ours to word — it is whatever is registered on the DLT portal. Changing the
-  // registered template is therefore an env change, not a code change.
+  // This string is not ours to word — it is whatever is registered on the DLT
+  // portal. Changing the registered template is therefore an env change, not a
+  // code change.
   const template =
     process.env.VOX_TEMPLATE_TEXT ??
     '{#var#} is your OTP to register/login to your account. Do not share this with anyone. T&C apply - PTIPL';
@@ -141,8 +119,8 @@ async function sendViaVox(phone: string, code: string): Promise<boolean> {
   // while the gateway still answers 200 — the same trap as a template mismatch.
   if (process.env.VOX_SENDER) fields.from = process.env.VOX_SENDER;
   // DLT: the template must be registered with the operator and its text must
-  // match OTP_TEXT exactly, or the gateway accepts the request and the operator
-  // silently drops the message.
+  // match the registered template exactly, or the gateway accepts the request
+  // and the operator silently drops the message.
   if (process.env.VOX_TEMPLATE_ID) fields.template_id = process.env.VOX_TEMPLATE_ID;
   // Delivery receipts: without this we only ever know Vox accepted the message,
   // not that the handset received it.
@@ -224,7 +202,6 @@ export async function sendOtpSms(phone: string, code: string): Promise<boolean> 
   if (provider === 'none' || !smsConfigured()) return false;
   try {
     if (provider === 'msg91') return await sendViaMsg91(phone, code);
-    if (provider === 'twilio') return await sendViaTwilio(phone, code);
     if (provider === 'vox') return await sendViaVox(phone, code);
     return false;
   } catch (e) {
