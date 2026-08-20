@@ -13,13 +13,18 @@ import { useStore } from '../state/store';
  * stays in the SwiftLoan shell and can back out to their offers.
  */
 export default function LenderWeb() {
-  const { state, back } = useStore();
+  const { state, go } = useStore();
   const url = state.webUrl;
   const [loading, setLoading] = useState(true);
+  // After the lender web flow, land on My Loans so the user sees the
+  // application they just submitted (and can track its status), rather than
+  // going back to the offers list.
+  const toLoans = () => go('loans');
 
   return (
     <Screen variant="plain" scroll={false}>
       <AppHeader
+        onBack={toLoans}
         title={state.webTitle || 'Complete your application'}
         right={
           url ? (
@@ -51,8 +56,8 @@ export default function LenderWeb() {
         ) : (
           <View style={styles.loader}>
             <Text style={[font(600), { color: colors.textMid }]}>No lender page to open.</Text>
-            <Pressable style={styles.backBtn} onPress={back}>
-              <Text style={[font(700), { color: '#fff' }]}>Back to offers</Text>
+            <Pressable style={styles.backBtn} onPress={toLoans}>
+              <Text style={[font(700), { color: '#fff' }]}>Go to My Loans</Text>
             </Pressable>
           </View>
         )}

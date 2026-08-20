@@ -197,6 +197,13 @@ export interface Offer {
   offerLikelihood?: string | null;
   redirectionUrl?: string | null;
   externalPartnerId?: string | null;
+  // Per-lender application tracking. `applied` once the user applies to this
+  // lender's offer; `lenderStatus` is that lender application's own status,
+  // advanced by KFT status webhooks (independent of the parent application).
+  applied?: boolean;
+  appliedAt?: string | null;
+  lenderStatus?: string | null;
+  kftApplicationId?: string | null;
 }
 
 /**
@@ -310,6 +317,10 @@ export const api = {
   },
   selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),
+  // Apply to a specific lender's offer — creates a tracked per-lender
+  // application (returns { offer, lenderApplicationId, alreadyApplied }).
+  applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
+    request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
 
   // KYC / loans / misc
