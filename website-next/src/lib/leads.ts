@@ -181,10 +181,17 @@ export interface OtpRequestResult {
   devOtp?: string;
 }
 
-/** Undefined means a network/server error — never thrown, so the OTP panel can show a retry affordance. */
-export async function requestWebsiteOtp(phone: string): Promise<OtpRequestResult | undefined> {
+export interface OtpRequestOutcome {
+  ok: boolean;
+  data?: OtpRequestResult;
+  /** The server's own error string (e.g. the 429 rate-limit message) — surface this to the visitor instead of a generic failure toast. Undefined on a network error, where there's no server response to read one from. */
+  error?: string;
+}
+
+/** ok:false means a network/server error — never thrown, so the OTP panel can show a retry affordance. */
+export async function requestWebsiteOtp(phone: string): Promise<OtpRequestOutcome> {
   const base = apiBase();
-  if (!base) return undefined;
+  if (!base) return { ok: false };
   try {
     const res = await fetch(`${base}/api/website/otp/request`, {
       method: 'POST',
@@ -192,14 +199,15 @@ export async function requestWebsiteOtp(phone: string): Promise<OtpRequestResult
       body: JSON.stringify({ phone }),
     });
     if (!res.ok) {
-      console.error('[swiftloan] otp request failed', res.status);
-      return undefined;
+      const body = (await res.json().catch(() => undefined)) as { error?: string } | undefined;
+      console.error('[swiftloan] otp request failed', res.status, body?.error);
+      return { ok: false, error: body?.error };
     }
     const json = (await res.json()) as { data?: OtpRequestResult };
-    return json?.data;
+    return { ok: true, data: json?.data };
   } catch (e) {
     console.error('[swiftloan] otp request threw', e);
-    return undefined;
+    return { ok: false };
   }
 }
 
