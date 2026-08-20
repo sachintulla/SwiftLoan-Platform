@@ -4,14 +4,11 @@ on:
     branches: [main]
 jobs:
   deploy:
-    # TODO: pin this to a runner-specific label (e.g. a custom label
-    # `ip-10-20-1-186` added to that runner in Settings > Actions > Runners)
-    # instead of the shared `self-hosted` label both boxes carry, once someone
-    # with repo admin/runner permissions adds it — that removes the coin-flip
-    # below entirely. Reverted to `self-hosted` for now because `runs-on`
-    # can't target a runner by its bare registered name, only by label, and
-    # no such label exists yet.
-    runs-on: self-hosted
+    # Pinned to the prod box via a custom `prod` label added to runner
+    # ip-10-20-1-186 (Settings > Actions > Runners). Only the prod runner carries
+    # the `prod` label, so jobs can no longer land on the dev box. The hostname
+    # guard below is kept as a belt-and-braces safety check.
+    runs-on: [self-hosted, prod]
     steps:
       - uses: actions/checkout@v4
       # Two self-hosted runners share the generic `self-hosted` label, so
