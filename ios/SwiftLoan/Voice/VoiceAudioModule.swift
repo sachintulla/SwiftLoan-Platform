@@ -44,6 +44,18 @@ class VoiceAudioModule: RCTEventEmitter {
     }
   }
 
+  /// Bridges JS's vlog() (src/voice/log.ts) to the unified logging system —
+  /// this was never implemented on iOS, so every voice-pipeline diagnostic
+  /// (POST call, WS open, RECV messages, TOOL CALL, response latency) was
+  /// silently a no-op here even though the identical Android nativeLog() has
+  /// been in place all along. Read on a real device with:
+  ///   log stream --device --predicate 'eventMessage contains "VoiceJS"'
+  @objc func nativeLog(_ msg: String) {
+    #if DEBUG
+    NSLog("VoiceJS: %@", msg)
+    #endif
+  }
+
   /// Attaches + connects the playback node into the engine graph exactly once.
   /// This MUST happen before the engine is first started — attaching/connecting a
   /// node to an already-running engine and then calling play() aborts with
@@ -86,8 +98,21 @@ class VoiceAudioModule: RCTEventEmitter {
   }
 
   @objc func startCapture(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    // Diagnostic timing only — a real session took ~6.9s to resolve this call
+    // (observed live: it didn't resolve until AFTER the agent's first response
+    // audio had already arrived), with no visibility into which specific
+    // AVAudioSession/AVAudioEngine step was actually slow. Each step below is
+    // timestamped so the next test pinpoints the real bottleneck instead of
+    // guessing between category switch, session activation, and engine start.
+    let t0 = Date()
+    func mark(_ label: String) {
+      #if DEBUG
+      NSLog("[VoiceAudioModule] startCapture timing: %@ at +%.3fs", label, Date().timeIntervalSince(t0))
+      #endif
+    }
     audioQueue.async { [weak self] in
       guard let self = self else { return }
+      mark("dispatched onto audioQueue")
       do {
         let session = AVAudioSession.sharedInstance()
         #if targetEnvironment(simulator)
@@ -97,28 +122,42 @@ class VoiceAudioModule: RCTEventEmitter {
         // Run playback-only there so Ruby's voice still works and the app doesn't
         // abort; real mic capture is only meaningful on a device anyway.
         try session.setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker])
+        mark("setCategory done")
         try session.setActive(true)
+        mark("setActive done")
         self.ensurePlayerAttached()
+        mark("ensurePlayerAttached done")
         if !self.engine.isRunning {
           self.engine.prepare()
+          mark("engine.prepare done")
           try self.engine.start()
+          mark("engine.start done")
         }
         self.isCapturing = false
         resolve(nil)
+        mark("resolved")
         #else
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+        mark("setCategory done")
         try session.setActive(true)
+        mark("setActive done")
 
         self.setupCaptureIfNeeded()
+        mark("setupCaptureIfNeeded done")
         self.ensurePlayerAttached()
+        mark("ensurePlayerAttached done")
         if !self.engine.isRunning {
           self.engine.prepare()
+          mark("engine.prepare done")
           try self.engine.start()
+          mark("engine.start done")
         }
         self.isCapturing = true
         resolve(nil)
+        mark("resolved")
         #endif
       } catch {
+        mark("threw: \(error.localizedDescription)")
         reject("start_capture_failed", error.localizedDescription, error)
       }
     }
@@ -175,6 +214,19 @@ class VoiceAudioModule: RCTEventEmitter {
 
     // Playback may begin before/without capture, so make sure the session is
     // active for output first.
+    // Diagnostic timing only, first chunk of a session only — mirrors the same
+    // instrumentation added to startCapture, to see whether THIS call (queued
+    // on the same serial audioQueue as startCapture) is what's actually
+    // blocking the mic for several seconds on a real device, rather than
+    // startCapture's own AVAudioSession calls.
+    let isFirstChunk = playChunks == 0
+    let t0 = Date()
+    func mark(_ label: String) {
+      #if DEBUG
+      guard isFirstChunk else { return }
+      NSLog("[VoiceAudioModule] playChunkImpl timing: %@ at +%.3fs", label, Date().timeIntervalSince(t0))
+      #endif
+    }
     let session = AVAudioSession.sharedInstance()
     if !session.isOtherAudioPlaying {
       #if targetEnvironment(simulator)
@@ -185,15 +237,20 @@ class VoiceAudioModule: RCTEventEmitter {
       try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
       #endif
     }
+    mark("setCategory done")
     try? session.setActive(true)
+    mark("setActive done")
 
     // Ensure the playback node is attached (never installs the input tap — that
     // only happens in startCapture, once the session is in record mode).
     ensurePlayerAttached()
+    mark("ensurePlayerAttached done")
     if !engine.isRunning {
       engine.prepare()
+      mark("engine.prepare done")
       do {
         try engine.start()
+        mark("engine.start done")
       } catch {
         NSLog("[VoiceAudioModule] engine start failed: \(error.localizedDescription)")
         return
