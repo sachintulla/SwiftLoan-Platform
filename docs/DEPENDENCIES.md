@@ -177,7 +177,7 @@ already received. Until they land, the journeys cannot be authored.
 ## 9. SMS provider — **the real launch blocker**
 
 **Why:** `createOtp()` says "in production this is sent via SMS", but **no SMS
-sender exists anywhere in the codebase** — no Twilio, MSG91, Gupshup, Kaleyra or
+sender exists anywhere in the codebase** — no Vox, MSG91, Gupshup, Kaleyra or
 Exotel. In production the OTP is generated and never delivered, so **nobody can
 log in to the app at all**.
 
