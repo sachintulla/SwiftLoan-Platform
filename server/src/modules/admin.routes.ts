@@ -15,29 +15,6 @@ adminRouter.use(requireAdmin);
 adminRouter.use(requireActiveAdmin);
 adminRouter.use(auditAdmin);
 
-// ─────────────────────────────────────────────────────────────────────────
-// TEMPORARY maintenance endpoint — remove after use.
-// Deletes loan applications (cascades to their offers/loans). Optional filters:
-//   ?phone=<number>  or  ?userId=<id>   — scope to one user; default: ALL.
-// Admin-role gated. Added for a one-off dev data cleanup.
-// ─────────────────────────────────────────────────────────────────────────
-adminRouter.delete('/maintenance/applications', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
-  const { phone, userId } = req.query as { phone?: string; userId?: string };
-  let where: Record<string, unknown> = {};
-  if (userId) {
-    where = { userId: String(userId) };
-  } else if (phone) {
-    const np = normalisePhone(String(phone));
-    if (!np) return ok(res, { deleted: 0 }, 'Invalid phone');
-    const u = await prisma.user.findUnique({ where: { phone: np } });
-    if (!u) return ok(res, { deleted: 0 }, 'No user with that phone');
-    where = { userId: u.id };
-  }
-  const result = await prisma.loanApplication.deleteMany({ where });
-  log.warn('maintenance: applications deleted', { where, count: result.count });
-  return ok(res, { deleted: result.count }, 'Applications deleted');
-}));
-
 
 
 // ─────────────────────────── helpers ───────────────────────────
