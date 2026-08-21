@@ -463,24 +463,36 @@ campaignsRouter.post('/:id/contacts/upload', upload.single('file'), ah(async (re
   );
 }));
 
-// POST /api/admin/campaigns/:id/contacts/from-segments  { segments: SegmentKey[] }
-// Populates this campaign's contacts from the union of the chosen default
-// segments (deduped by phone) instead of a spreadsheet. The do-not-call
-// exclusion is already baked into every segment query (segments.ts) — this
-// route does not re-decide who is callable, it only unions what the segment
-// queries already returned.
+// POST /api/admin/campaigns/:id/contacts/from-segments
+//   { selections: Array<{ key: SegmentKey; phones?: string[] }> }
+// Populates this campaign's contacts from the union of the chosen segments
+// (deduped by phone) instead of a spreadsheet. Each selection may optionally
+// carry a `phones` allowlist — the admin cherry-picking specific people out
+// of a large segment in the UI, rather than taking the whole thing. That
+// allowlist is only ever used to FILTER the segment's own live query result;
+// it can never add a phone the segment query didn't already return, so a
+// do-not-call exclusion (baked into every segment query in segments.ts)
+// can't be bypassed by a client sending an arbitrary phone list.
 campaignsRouter.post('/:id/contacts/from-segments', requireRole(...CAN_WRITE), ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
 
-  const keys = Array.isArray(req.body?.segments) ? (req.body.segments as unknown[]).map(String) : [];
-  const validKeys = keys.filter((k): k is SegmentKey => (SEGMENT_KEYS as string[]).includes(k));
-  if (validKeys.length === 0) return fail(res, 400, 'Pick at least one segment');
+  const rawSelections = Array.isArray(req.body?.selections) ? req.body.selections : [];
+  const selections: { key: SegmentKey; phones: Set<string> | null }[] = rawSelections
+    .map((s: any) => ({
+      key: String(s?.key ?? ''),
+      phones: Array.isArray(s?.phones) ? new Set(s.phones.map(String)) as Set<string> : null,
+    }))
+    .filter((s: { key: string; phones: Set<string> | null }) => (SEGMENT_KEYS as string[]).includes(s.key));
+  if (selections.length === 0) return fail(res, 400, 'Pick at least one segment');
 
   const byPhone = new Map<string, { phone: string; name: string | null; city: string | null }>();
-  for (const key of validKeys) {
+  for (const { key, phones } of selections) {
     const members = await getSegmentMembers(key);
-    for (const m of members) if (!byPhone.has(m.phone)) byPhone.set(m.phone, m);
+    for (const m of members) {
+      if (phones && !phones.has(m.phone)) continue;
+      if (!byPhone.has(m.phone)) byPhone.set(m.phone, m);
+    }
   }
 
   const data: Prisma.CampaignContactCreateManyInput[] = Array.from(byPhone.values()).map((m) => ({
@@ -501,6 +513,7 @@ campaignsRouter.post('/:id/contacts/from-segments', requireRole(...CAN_WRITE), a
   const totalContacts = await prisma.campaignContact.count({ where: { campaignId: campaign.id } });
   await prisma.campaign.update({ where: { id: campaign.id }, data: { totalContacts } });
 
+  const validKeys = selections.map((s) => s.key);
   log.info('contacts added from segments', { campaignId: campaign.id, segments: validKeys, matched: data.length, inserted: result.count, duplicates, totalContacts });
   return ok(
     res,

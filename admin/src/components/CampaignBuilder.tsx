@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch, apiUpload, ApiError } from '@/lib/api';
 import { Card, StatusBadge, Empty } from '@/components/ui';
 import { num } from '@/lib/format';
+import SegmentPickerModal from '@/components/SegmentPickerModal';
 import {
   CampaignForm, EMPTY_FORM, Campaign, RETRY_OPTIONS, RetryStrategy, DAY_LABELS,
   campaignToForm, formToPayload, validate, summarise, timeToMinutes, tzAbbrev,
@@ -49,6 +50,11 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
   // itself, rather than a separate step on a separate page after creating.
   const [contactMode, setContactMode] = useState<ContactMode>('none');
   const [selectedSegments, setSelectedSegments] = useState<Set<string>>(new Set());
+  // A segment present here with a Set means "only these specific people",
+  // narrowed down via the picker modal (search/recency + individual
+  // checkboxes) instead of the whole segment. Absent or null = whole segment.
+  const [segmentOverrides, setSegmentOverrides] = useState<Record<string, Set<string> | null>>({});
+  const [pickerSegment, setPickerSegment] = useState<Segment | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const { data: segmentsRes, error: segmentsErr } = useSWR(
     contactMode === 'segments' ? '/api/admin/segments' : null,
@@ -122,7 +128,10 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
     // already a deliberate enough action on its own.
     if (contactMode === 'segments' && selectedSegments.size > 0) {
       const chosen = segments.filter((s) => selectedSegments.has(s.key));
-      const upperBound = chosen.reduce((a, s) => a + s.count, 0);
+      const upperBound = chosen.reduce((a, s) => {
+        const override = segmentOverrides[s.key];
+        return a + (override ? override.size : s.count);
+      }, 0);
       const confirmed = window.confirm(
         `${editing ? 'Save changes and add' : 'Create this campaign with'} contacts from ` +
         `${chosen.map((s) => s.label).join(', ')}?\n\n` +
@@ -142,9 +151,13 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
       const id = d?.id || d?.campaign?.id || campaign?.id || '';
 
       if (id && contactMode === 'segments' && selectedSegments.size > 0) {
+        const selections = Array.from(selectedSegments).map((key) => {
+          const override = segmentOverrides[key];
+          return override ? { key, phones: Array.from(override) } : { key };
+        });
         await apiFetch(`/api/admin/campaigns/${id}/contacts/from-segments`, {
           method: 'POST',
-          body: JSON.stringify({ segments: Array.from(selectedSegments) }),
+          body: JSON.stringify({ selections }),
         });
       } else if (id && contactMode === 'upload' && uploadFile) {
         const fd = new FormData();
@@ -195,29 +208,51 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
             ) : !segmentsRes ? (
               <span className="muted" style={{ fontSize: 12.5 }}>Loading segments…</span>
             ) : (
-              <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
-                {segments.map((s) => (
-                  <label key={s.key}
-                    style={{
-                      display: 'flex', gap: 10, alignItems: 'flex-start', padding: 12,
-                      border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                      cursor: 'pointer', background: selectedSegments.has(s.key) ? 'var(--grey-bg)' : 'transparent',
-                    }}
-                  >
-                    <input type="checkbox" checked={selectedSegments.has(s.key)} onChange={() => toggleSegment(s.key)} style={{ marginTop: 3 }} />
-                    <div>
-                      <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-                        <b style={{ fontSize: 13.5 }}>{s.label}</b>
-                        <span className="muted" style={{ fontSize: 12 }}>{num(s.count)} people</span>
-                      </div>
-                      <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{s.description}</div>
+              <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 }}>
+                {segments.map((s) => {
+                  const override = segmentOverrides[s.key];
+                  return (
+                    <div key={s.key}
+                      style={{
+                        padding: 12, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                        background: selectedSegments.has(s.key) ? 'var(--grey-bg)' : 'transparent',
+                      }}
+                    >
+                      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={selectedSegments.has(s.key)} onChange={() => toggleSegment(s.key)} style={{ marginTop: 3 }} />
+                        <div>
+                          <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
+                            <b style={{ fontSize: 13.5 }}>{s.label}</b>
+                            <span className="muted" style={{ fontSize: 12 }}>
+                              {override ? `${num(override.size)} of ${num(s.count)} chosen` : `${num(s.count)} people`}
+                            </span>
+                          </div>
+                          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{s.description}</div>
+                        </div>
+                      </label>
+                      {selectedSegments.has(s.key) && (
+                        <button type="button" className="btn" style={{ marginTop: 10, fontSize: 12 }}
+                          onClick={() => setPickerSegment(s)}>
+                          {override ? 'Change which contacts →' : 'Choose specific contacts →'}
+                        </button>
+                      )}
                     </div>
-                  </label>
-                ))}
+                  );
+                })}
               </div>
             )}
             <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>Anyone who ever said don&apos;t call is always excluded.</p>
           </div>
+        )}
+
+        {pickerSegment && (
+          <SegmentPickerModal
+            segmentKey={pickerSegment.key}
+            label={pickerSegment.label}
+            initialSelected={segmentOverrides[pickerSegment.key] ?? null}
+            onClose={() => setPickerSegment(null)}
+            onConfirm={(phones) => setSegmentOverrides((prev) => ({ ...prev, [pickerSegment.key]: phones }))}
+          />
         )}
 
         {contactMode === 'upload' && (
