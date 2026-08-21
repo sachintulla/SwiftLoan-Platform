@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, apiUpload, ApiError } from '@/lib/api';
-import { Card, StatusBadge, Empty } from '@/components/ui';
+import { StatusBadge, Empty } from '@/components/ui';
 import { num } from '@/lib/format';
 import SegmentPickerModal from '@/components/SegmentPickerModal';
 import {
@@ -11,6 +11,9 @@ import {
 } from '@/lib/campaign';
 
 const labelStyle: React.CSSProperties = { fontSize: 12.5, fontWeight: 600 };
+// Every top-level section uses this exact gap and the same numbered-header
+// treatment — that consistency (not any one value) is the point.
+const SECTION_GAP = 20;
 
 function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
   return (
@@ -19,6 +22,27 @@ function Field({ label, hint, error, children }: { label: string; hint?: string;
       {children}
       {hint && !error && <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>{hint}</div>}
       {error && <div style={{ color: 'var(--red)', fontSize: 11.5, marginTop: 4 }}>{error}</div>}
+    </div>
+  );
+}
+
+/** A numbered section, replacing bare <Card> for this form's top-level
+ *  sections — the number is purely a visual anchor (this is still one
+ *  continuous page, not a wizard with gated steps). */
+function Section({ n, title, sub, right, children }: {
+  n: string; title: string; sub?: string; right?: React.ReactNode; children: React.ReactNode;
+}) {
+  return (
+    <div className="card card-pad">
+      <div className="row between" style={{ alignItems: 'flex-start', gap: 12 }}>
+        <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--brand)', letterSpacing: '.04em' }}>{n}</span>
+          <h3 className="card-title" style={{ margin: 0 }}>{title}</h3>
+        </div>
+        {right}
+      </div>
+      {sub && <p className="card-sub" style={{ marginTop: 4, marginBottom: 0 }}>{sub}</p>}
+      <div style={{ marginTop: 14 }}>{children}</div>
     </div>
   );
 }
@@ -61,6 +85,13 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
     swrFetcher,
   );
   const segments: Segment[] = (segmentsRes?.data as { segments?: Segment[] } | undefined)?.segments ?? [];
+  // Uploaded-spreadsheet contacts aren't counted here — that count isn't
+  // known until the file is actually parsed server-side on save.
+  const totalContactsChosen = Array.from(selectedSegments).reduce((a, key) => {
+    const s = segments.find((x) => x.key === key);
+    const override = segmentOverrides[key];
+    return a + (override ? override.size : (s?.count ?? 0));
+  }, 0);
 
   const set = <K extends keyof CampaignForm>(k: K, v: CampaignForm[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -175,21 +206,28 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
   const grid: React.CSSProperties = { gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', alignItems: 'start' };
 
   return (
-    <form onSubmit={submit}>
-      <Card title="Campaign" sub="Everything here happens in one step — contacts are added the moment you save.">
+    <form onSubmit={submit} style={{ display: 'grid', gap: SECTION_GAP }}>
+      <Section n="01" title="Name this campaign">
         <div className="grid" style={grid}>
-          <Field label="Name *" error={show.name}>
+          <Field label="Campaign name *" hint="Shown in reports and on the call log." error={show.name}>
             <input className="input" style={{ marginTop: 6, borderColor: show.name ? 'var(--red)' : undefined }}
               value={form.name} onChange={(e) => set('name', e.target.value)}
               placeholder="Diwali personal-loan push" />
           </Field>
         </div>
         {codeError && <p className="err" style={{ marginTop: 10 }}>{codeError}</p>}
-      </Card>
+      </Section>
 
       {/* Contacts — chosen here, added automatically on save. No separate
           "now go configure contacts" step on another page. */}
-      <Card title="Contacts" sub="Who should this campaign call?">
+      <Section n="02" title="Who should this campaign call?"
+        sub="Pick one or more segments, or upload your own list. You can also add contacts after creating."
+        right={selectedSegments.size > 0 && (
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brand)', whiteSpace: 'nowrap' }}>
+            {num(totalContactsChosen)} contact{totalContactsChosen === 1 ? '' : 's'} selected
+          </span>
+        )}
+      >
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           {([['segments', 'Pick a segment'], ['upload', 'Upload a spreadsheet']] as const).map(([key, label]) => (
             <button key={key} type="button"
@@ -208,30 +246,44 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
             ) : !segmentsRes ? (
               <span className="muted" style={{ fontSize: 12.5 }}>Loading segments…</span>
             ) : (
-              <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 }}>
+              <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: 12 }}>
                 {segments.map((s) => {
+                  const on = selectedSegments.has(s.key);
                   const override = segmentOverrides[s.key];
+                  const effectiveCount = override ? override.size : s.count;
                   return (
                     <div key={s.key}
                       style={{
-                        padding: 12, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                        background: selectedSegments.has(s.key) ? 'var(--grey-bg)' : 'transparent',
+                        padding: 16, borderRadius: 'var(--radius-sm)',
+                        border: on ? '1.5px solid var(--brand)' : '1px solid var(--border)',
+                        background: on ? 'var(--teal-bg)' : 'var(--surface)',
+                        transition: 'background .12s, border-color .12s',
                       }}
                     >
                       <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={selectedSegments.has(s.key)} onChange={() => toggleSegment(s.key)} style={{ marginTop: 3 }} />
-                        <div>
-                          <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-                            <b style={{ fontSize: 13.5 }}>{s.label}</b>
-                            <span className="muted" style={{ fontSize: 12 }}>
-                              {override ? `${num(override.size)} of ${num(s.count)} chosen` : `${num(s.count)} people`}
-                            </span>
-                          </div>
-                          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{s.description}</div>
+                        <input type="checkbox" checked={on} onChange={() => toggleSegment(s.key)}
+                          style={{ marginTop: 3, accentColor: 'var(--brand)', width: 16, height: 16 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <b style={{ fontSize: 13.5 }}>{s.label}</b>
+                          <div className="muted" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.4 }}>{s.description}</div>
                         </div>
                       </label>
-                      {selectedSegments.has(s.key) && (
-                        <button type="button" className="btn" style={{ marginTop: 10, fontSize: 12 }}
+
+                      <div className="row" style={{ gap: 6, alignItems: 'baseline', marginTop: 14 }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--brand)', letterSpacing: '-0.02em' }}>
+                          {num(effectiveCount)}
+                        </span>
+                        <span className="muted" style={{ fontSize: 12 }}>
+                          people{override ? ` (of ${num(s.count)})` : ''}
+                        </span>
+                      </div>
+
+                      {on && (
+                        <button type="button"
+                          style={{
+                            marginTop: 10, background: 'none', border: 'none', padding: 0,
+                            fontSize: 12, fontWeight: 700, color: 'var(--brand)', cursor: 'pointer',
+                          }}
                           onClick={() => setPickerSegment(s)}>
                           {override ? 'Change which contacts →' : 'Choose specific contacts →'}
                         </button>
@@ -241,7 +293,9 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
                 })}
               </div>
             )}
-            <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>Anyone who ever said don&apos;t call is always excluded.</p>
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>
+              Anyone who ever said <b>don&apos;t call</b> is always excluded.
+            </p>
           </div>
         )}
 
@@ -275,10 +329,10 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
             {editing ? 'No new contacts will be added.' : "You can also skip this and add contacts after creating."}
           </p>
         )}
-      </Card>
+      </Section>
 
       {/* Agent */}
-      <Card title="Agent" sub="The Ello voice assistant that will place these calls.">
+      <Section n="03" title="Which agent places the calls?" sub="The Ello voice assistant that will speak to these contacts.">
         {agentErrorText && (
           <div className="empty" style={{ textAlign: 'left', color: 'var(--amber)', marginBottom: 12 }}>
             Could not load the agent list — {agentErrorText}
@@ -326,10 +380,17 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
               const a = agents.find((x) => x.id === form.assistantId);
               if (!a) return null;
               return (
-                <div className="row" style={{ gap: 10, marginTop: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
-                  <StatusBadge status={a.status ? 'active' : 'not_started'} />
-                  {a.voiceEngine && <span className="muted">voice · {a.voiceEngine}</span>}
-                  <StatusBadge status={a.phoneNumber ? 'completed' : 'pending'} label={a.phoneNumber ? `☎ ${a.phoneNumber}` : 'No phone number attached'} />
+                <div className="row between wrap"
+                  style={{ marginTop: 10, padding: '10px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)' }}>
+                  <div className="row" style={{ gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+                    <StatusBadge status={a.status ? 'active' : 'not_started'} />
+                    {a.voiceEngine && <span className="muted">voice · {a.voiceEngine}</span>}
+                  </div>
+                  {a.phoneNumber ? (
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brand)' }}>☎ {a.phoneNumber}</span>
+                  ) : (
+                    <span className="muted" style={{ fontSize: 12.5 }}>No phone number attached</span>
+                  )}
                 </div>
               );
             })()}
@@ -338,18 +399,22 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
             </button>
           </>
         )}
-      </Card>
+      </Section>
 
       {/* Advanced — schedule, cadence, concurrency. Hidden by default: every
           field here already has a sane default (see EMPTY_FORM), so most
           campaigns never need to open this. */}
-      <Card title="Advanced settings" sub={showAdvanced ? undefined : 'Schedule, retries and call concurrency — sensible defaults are already applied.'}>
-        <button type="button" className="btn" onClick={() => setShowAdvanced((v) => !v)}>
-          {showAdvanced ? '▾ Hide advanced settings' : '▸ Show advanced settings'}
-        </button>
-
+      <Section n="04" title="Schedule & retries"
+        sub="Sensible defaults are already applied — open only if you need to change them."
+        right={
+          <button type="button" className="btn" style={{ fontSize: 12.5 }} onClick={() => setShowAdvanced((v) => !v)}>
+            {showAdvanced ? 'Hide settings' : 'Show settings'}
+          </button>
+        }
+      >
         {showAdvanced && (
-          <div style={{ marginTop: 18 }}>
+          <div>
+            <div className="nav-section" style={{ padding: 0, marginBottom: 8 }}>Run window</div>
             <div className="grid" style={grid}>
               <Field label={`Starts (${tz})`}>
                 <input className="input" type="datetime-local" style={{ marginTop: 6 }}
@@ -361,9 +426,7 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
                   value={form.endAt} onChange={(e) => set('endAt', e.target.value)} />
               </Field>
             </div>
-
-            <div className="nav-section" style={{ padding: 0, margin: '20px 0 8px' }}>Type & calling window</div>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
               {([['one_time', 'One-time', 'Dial within the window, then drop off.'],
                  ['recurring', 'Recurring', 'Keep dialling on a repeating cadence.']] as const).map(([key, label, hint]) => (
                 <button key={key} type="button"
@@ -376,7 +439,8 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
               ))}
             </div>
 
-            <div className="grid" style={{ ...grid, marginTop: 14 }}>
+            <div className="nav-section" style={{ padding: 0, margin: '22px 0 8px' }}>Calling hours</div>
+            <div className="grid" style={grid}>
               <Field label={`From (${tz})`} error={show.dailyStart}>
                 <input className="input" type="time" style={{ marginTop: 6 }}
                   value={form.dailyStart} onChange={(e) => set('dailyStart', e.target.value)} />
@@ -392,8 +456,7 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
               </div>
             )}
 
-            <div className="nav-section" style={{ padding: 0, margin: '20px 0 8px' }}>Days of week</div>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
               {DAY_LABELS.map((d, i) => {
                 const on = form.daysOfWeek.includes(i);
                 return (
@@ -412,7 +475,7 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
               {form.daysOfWeek.length === 0 ? 'No days selected = dial every day.' : 'Only the selected days are dialled.'}
             </div>
 
-            <div className="nav-section" style={{ padding: 0, margin: '20px 0 8px' }}>Cadence & retries</div>
+            <div className="nav-section" style={{ padding: 0, margin: '22px 0 8px' }}>Cadence & retries</div>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               {RETRY_OPTIONS.map((o) => (
                 <button key={o.key} type="button"
@@ -456,22 +519,25 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
             </div>
 
             <label className="row" style={{ gap: 8, marginTop: 14, cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.stopOnAnswer} onChange={(e) => set('stopOnAnswer', e.target.checked)} />
+              <input type="checkbox" checked={form.stopOnAnswer} onChange={(e) => set('stopOnAnswer', e.target.checked)}
+                style={{ accentColor: 'var(--brand)' }} />
               <span style={{ fontSize: 13, fontWeight: 600 }}>Stop calling once the customer answers</span>
             </label>
+
+            <div style={{ marginTop: 18 }} />
           </div>
         )}
 
         <div style={{
-          marginTop: 18, padding: 14, borderRadius: 'var(--radius-sm)',
+          padding: 14, borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--border)', background: 'var(--grey-bg)',
         }}>
           <div className="nav-section" style={{ padding: 0, marginBottom: 6 }}>In plain English</div>
           <div style={{ fontSize: 14, lineHeight: 1.55, fontWeight: 600 }}>{summary}</div>
         </div>
-      </Card>
+      </Section>
 
-      <div className="row" style={{ gap: 10, marginTop: 16 }}>
+      <div className="row" style={{ gap: 10 }}>
         <button className="btn btn-primary" type="submit" disabled={busy}>
           {busy ? 'Saving…' : editing ? 'Save changes' : 'Create campaign'}
         </button>
