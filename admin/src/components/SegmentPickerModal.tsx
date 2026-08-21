@@ -7,15 +7,6 @@ import { dateStr } from '@/lib/format';
 
 interface Member { customerId: string; phone: string; name: string | null; city: string | null; activityAt: string | null }
 
-const SINCE_OPTIONS = [
-  { value: '', label: 'Any time' },
-  { value: '7', label: 'Last 7 days' },
-  { value: '30', label: 'Last 30 days' },
-  { value: '90', label: 'Last 90 days' },
-  { value: '180', label: 'Last 6 months' },
-  { value: '365', label: 'Last year' },
-];
-
 /**
  * Lets an admin narrow a segment down to specific people instead of taking
  * the whole thing — a segment with 300 members but only 100 actually wanted
@@ -34,14 +25,18 @@ export default function SegmentPickerModal({
   onConfirm: (phones: Set<string> | null) => void;
 }) {
   const [search, setSearch] = useState('');
-  const [sinceDays, setSinceDays] = useState('');
+  const [since, setSince] = useState('');
+  const [until, setUntil] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelected ?? []));
   const [touched, setTouched] = useState(false);
 
+  const dateError = since && until && since > until;
+
   const qs = new URLSearchParams({ page: String(page), pageSize: '50' });
   if (search.trim()) qs.set('search', search.trim());
-  if (sinceDays) qs.set('sinceDays', sinceDays);
+  if (since && !dateError) qs.set('since', since);
+  if (until && !dateError) qs.set('until', until);
   const { data, error, isLoading } = useSWR(`/api/admin/segments/${segmentKey}/members?${qs.toString()}`, swrFetcher);
   const members: Member[] = (data?.data as { members?: Member[] } | undefined)?.members ?? [];
   const pg = data?.pagination as { page: number; totalPages: number; total: number } | undefined;
@@ -86,15 +81,29 @@ export default function SegmentPickerModal({
         </div>
         <p className="card-sub">Narrow this segment by name/phone or recency, then pick who to include.</p>
 
-        <div className="row" style={{ gap: 10, marginTop: 14, marginBottom: 14, flexWrap: 'wrap' }}>
-          <input className="input" placeholder="Search name or phone" value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 220 }} />
-          <select className="input" value={sinceDays} onChange={(e) => { setSinceDays(e.target.value); setPage(1); }} style={{ maxWidth: 170 }}>
-            {SINCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+        <div className="row" style={{ gap: 10, marginTop: 14, marginBottom: 4, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div>
+            <label className="muted" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Search</label>
+            <input className="input" placeholder="Name or phone" value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 200 }} />
+          </div>
+          <div>
+            <label className="muted" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Activity from</label>
+            <input className="input" type="date" value={since}
+              onChange={(e) => { setSince(e.target.value); setPage(1); }} style={{ maxWidth: 160 }} />
+          </div>
+          <div>
+            <label className="muted" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>Activity to</label>
+            <input className="input" type="date" value={until}
+              onChange={(e) => { setUntil(e.target.value); setPage(1); }} style={{ maxWidth: 160 }} />
+          </div>
+          {(since || until) && (
+            <button type="button" className="btn" onClick={() => { setSince(''); setUntil(''); setPage(1); }}>Clear dates</button>
+          )}
           <button type="button" className="btn" onClick={selectAllOnPage}>Select all on this page</button>
           <button type="button" className="btn" onClick={clearAll}>Clear selection</button>
         </div>
+        {dateError && <p style={{ color: 'var(--red)', fontSize: 12, marginTop: 0, marginBottom: 10 }}>&quot;Activity from&quot; must be on or before &quot;Activity to&quot;.</p>}
 
         <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>
           {selected.size} selected{pg ? ` · ${pg.total} match this filter` : ''}

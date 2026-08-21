@@ -26,18 +26,27 @@ segmentsRouter.get('/', ah(async (_req, res) => {
   return ok(res, { segments }, 'OK');
 }));
 
-// GET /api/admin/segments/:key/members?search=&sinceDays=&page=&pageSize=
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function parseDateParam(v: unknown): string | undefined {
+  const s = v != null ? String(v) : '';
+  return DATE_RE.test(s) ? s : undefined;
+}
+
+// GET /api/admin/segments/:key/members?search=&since=&until=&page=&pageSize=
 // Paginated, filterable membership listing — feeds the "choose specific
 // contacts" picker so an admin can narrow a large segment down by name/phone
-// and recency before selecting individuals.
+// and an actual date range before selecting individuals. `since`/`until` are
+// YYYY-MM-DD; anything else is silently ignored rather than 500ing on a
+// malformed date.
 segmentsRouter.get('/:key/members', ah(async (req, res) => {
   const { key } = req.params;
   if (!isSegmentKey(key)) return fail(res, 404, `Unknown segment "${key}"`);
   const search = req.query.search ? String(req.query.search) : undefined;
-  const sinceDays = req.query.sinceDays != null && req.query.sinceDays !== '' ? Number(req.query.sinceDays) : undefined;
+  const since = parseDateParam(req.query.since);
+  const until = parseDateParam(req.query.until);
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>, 50);
 
-  const members = await getSegmentMembers(key, { search, sinceDays: Number.isFinite(sinceDays) ? sinceDays : undefined });
+  const members = await getSegmentMembers(key, { search, since, until });
   const total = members.length;
   const pageRows = members.slice(skip, skip + take);
   return ok(res, { members: pageRows }, 'OK', paginate(page, pageSize, total));

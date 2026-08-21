@@ -57,19 +57,25 @@ export interface SegmentMember {
 export interface SegmentFilters {
   /** Matches against name or phone, case-insensitive, substring. */
   search?: string;
-  /** Only include members whose activityAt is within the last N days. */
-  sinceDays?: number;
+  /** Only include members whose activityAt falls on or after this date (YYYY-MM-DD). */
+  since?: string;
+  /** Only include members whose activityAt falls on or before this date (YYYY-MM-DD), inclusive of the whole day. */
+  until?: string;
 }
 
-/** Shared WHERE-clause tail: search + recency, appended to every segment query. */
+/** Shared WHERE-clause tail: search + a date range, appended to every segment query. */
 function extraFilters(filters: SegmentFilters, activityColumn: Prisma.Sql): Prisma.Sql {
   const parts: Prisma.Sql[] = [];
   if (filters.search && filters.search.trim()) {
     const like = `%${filters.search.trim()}%`;
     parts.push(Prisma.sql`(c.name ILIKE ${like} OR c.phone ILIKE ${like})`);
   }
-  if (filters.sinceDays != null && Number.isFinite(filters.sinceDays)) {
-    parts.push(Prisma.sql`${activityColumn} >= NOW() - (${Math.max(0, filters.sinceDays)} || ' days')::interval`);
+  if (filters.since) {
+    parts.push(Prisma.sql`${activityColumn} >= ${filters.since}::date`);
+  }
+  if (filters.until) {
+    // Inclusive of the whole "until" day — activity any time before the next day.
+    parts.push(Prisma.sql`${activityColumn} < (${filters.until}::date + interval '1 day')`);
   }
   return parts.length ? Prisma.sql`AND ${Prisma.join(parts, ' AND ')}` : Prisma.empty;
 }
