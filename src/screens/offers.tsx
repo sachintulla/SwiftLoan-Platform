@@ -167,9 +167,8 @@ export default function Offers() {
           !state.applicationId ? (
             <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
           ) : state.offersError ? (
-            // Lender-side rejection turned into an actionable note guiding the
-            // user to correct their details (then "Update details" below).
-            <Empty icon="error" title="Let’s fix a few details" message={state.offersError} />
+            // Show the offer API's own message verbatim (no hardcoded rephrasing).
+            <Empty icon="error" title="Couldn’t fetch offers" message={state.offersError} />
           ) : (
             <Empty icon="search_off" title="No offers yet" message="We couldn't match a partner to this profile. Try adjusting your amount." />
           )

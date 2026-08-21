@@ -207,49 +207,24 @@ export interface Offer {
 }
 
 /**
- * Map a lender (Aurix) eligible_offers response into a short, actionable note
- * for the end user — so a validation reject guides them to fix their details
- * rather than showing a raw error. Returns '' when offers exist or nothing is
- * actionable. `aurixResponse` shape: { httpStatus, response: { Meta, Data } }.
+ * Surface the offer API's OWN message when a prequalify run returns no offers,
+ * shown to the user verbatim (no hardcoded rephrasing) so testers/users see
+ * exactly what the lender (Aurix) API responded with. Returns '' when offers
+ * exist, or when there's genuinely no message/error to show (the offers screen
+ * then falls back to its generic "no offers" empty state).
+ * `aurixResponse` shape: { httpStatus, response: { Meta, Data } | { Result: { Meta } } }.
  */
 export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
   if (offerCount > 0) return '';
-  const meta = aurixResponse?.response?.Meta ?? aurixResponse?.response?.Result?.Meta;
-  const msg: string = String(meta?.Message ?? '');
-  if (!msg) return '';
-  const m = msg.toLowerCase();
-  if (m.includes('pan verification') || m.includes('pan number')) {
-    return 'We couldn’t verify your PAN. Please re-check your PAN number (format ABCDE1234F) and try again.';
-  }
-  // Checked before the generic 'mobile' match below — Aurix's own "this mobile
-  // number is already registered" rejection contains the word "mobile" too, so
-  // without this it fell into the format-error branch and told the user their
-  // (perfectly valid) number was malformed, when the real issue is Aurix's
-  // sandbox already has a record for it and needs a different number entirely.
-  if (m.includes('already registered')) {
-    return 'This mobile number has already been used for an application. Please try a different number.';
-  }
-  if (m.includes('mobile')) {
-    return 'Please enter a valid 10-digit mobile number starting with 6–9.';
-  }
-  if (m.includes('email')) {
-    return 'Please add a valid email address so lenders can share your offer.';
-  }
-  if (m.includes('age') || m.includes('dob')) {
-    return 'Please check your date of birth — applicants must be between 18 and 120.';
-  }
-  if (m.includes('bureau')) {
-    return 'We couldn’t complete the credit check right now. Please try again in a little while.';
-  }
-  if (m.includes('validation failed') || m.includes('required') || m.includes('cannot be null')) {
-    return 'Some of your details couldn’t be validated. Please review your name, email, date of birth, address and PAN, then try again.';
-  }
-  if (meta?.Success === true) {
-    // Accepted, but no lender matched — guide toward adjusting the request.
-    return 'No matching offers for these details right now. Try a different loan amount, or check back shortly.';
-  }
-  // Fall back to the lender's own message, cleaned up.
-  return `We couldn’t fetch offers: ${msg}`;
+  const r = aurixResponse?.response ?? {};
+  const meta = r.Meta ?? r.Result?.Meta ?? {};
+  // The API's own message, verbatim.
+  const msg = String(meta.Message ?? meta.message ?? r.Message ?? r.message ?? r.error ?? '').trim();
+  if (msg) return msg;
+  // No message but the call failed at the HTTP layer — surface the status.
+  const http = aurixResponse?.httpStatus;
+  if (typeof http === 'number' && http >= 400) return `Offers request failed (HTTP ${http}).`;
+  return '';
 }
 
 export const api = {
