@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Loading } from '../components/common/Loading';
@@ -61,8 +61,8 @@ export default function Loans() {
     return () => clearInterval(id);
   }, [load]);
 
-  const open = (app: any) => {
-    set({ applicationId: app.id, loanId: app.loan?.id ?? null });
+  const open = (app: any, offer?: any) => {
+    set({ applicationId: app.id, loanId: app.loan?.id ?? null, selectedOfferId: offer?.id ?? null });
     go(app.loan ? 'repay' : 'status');
   };
 
@@ -91,15 +91,17 @@ export default function Loans() {
             ref_={`${typeName} · Ref ${app.ref}`}
             status={meta.label}
             statusColor={meta.color}
+            logoUrl={o.lenderLogoUrl}
+            appliedOn={appliedDate}
             left={{ label: 'Amount', value: rupee(o.amount ?? app.amount) }}
             right={
               app.loan
                 ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
                 : apr != null
                   ? { label: 'Interest', value: `${apr}% p.a.` }
-                  : { label: 'Applied', value: appliedDate }
+                  : { label: 'Status', value: meta.label }
             }
-            onPress={() => open(app)}
+            onPress={() => open(app, o)}
           />
         );
       });
@@ -184,20 +186,29 @@ export default function Loans() {
 
 function AppCard({
   icon, name, ref_, status, statusColor, left, right, onPress,
+  logoUrl, appliedOn,
 }: {
   icon: string; name: string; ref_: string; status: string; statusColor: string;
   left: { label: string; value: string }; right: { label: string; value: string }; onPress: () => void;
+  logoUrl?: string | null; appliedOn?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-          <View style={styles.appIcon}>
-            <Icon name={icon} size={20} color={colors.primary} />
+          <View style={[styles.appIcon, logoUrl ? styles.appIconLogo : null]}>
+            {logoUrl ? (
+              <Image source={{ uri: logoUrl }} style={{ width: 34, height: 34, borderRadius: 8 }} resizeMode="contain" />
+            ) : (
+              <Icon name={icon} size={20} color={colors.primary} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>{name}</Text>
             <Text style={[font(400), { fontSize: 12, color: colors.muted }]}>{ref_}</Text>
+            {appliedOn ? (
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 2 }]}>Applied on {appliedOn}</Text>
+            ) : null}
           </View>
         </View>
         <View style={[styles.statusPill, { backgroundColor: statusColor + '22' }]}>
@@ -252,6 +263,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   appIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+  appIconLogo: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 9999, paddingVertical: 4, paddingHorizontal: 9 },
   metaRow: {
     flexDirection: 'row',
