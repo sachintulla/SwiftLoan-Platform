@@ -66,6 +66,67 @@ export default function Loans() {
     go(app.loan ? 'repay' : 'status');
   };
 
+  // My Loans shows a card per lender the user ACTUALLY applied to — an applied
+  // offer, which is created only after the lender confirms submission (post-OTP,
+  // via the KFT webhook) — plus any active/disbursed loan. Bare eligibility runs
+  // (offers pulled but no lender applied, no OTP, no webhook) are NOT shown: they
+  // are not loan applications and were cluttering the list.
+  const cards = apps.flatMap((app: any) => {
+    const typeName = `${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`;
+    const appliedOffers = (app.offers || []).filter((o: any) => o.applied);
+
+    if (appliedOffers.length > 0) {
+      return appliedOffers.map((o: any) => {
+        const st = o.lenderStatus || 'handoff';
+        const meta = STATUS_META[st] || { label: st, color: colors.muted };
+        const apr = app.loan?.apr ?? o.apr ?? o.roi ?? null;
+        const appliedDate = o.appliedAt
+          ? new Date(o.appliedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '';
+        return (
+          <AppCard
+            key={o.id}
+            icon={TYPE_ICON[app.loanType] || 'account_balance'}
+            name={o.lenderName || typeName}
+            ref_={`${typeName} · Ref ${app.ref}`}
+            status={meta.label}
+            statusColor={meta.color}
+            left={{ label: 'Amount', value: rupee(o.amount ?? app.amount) }}
+            right={
+              app.loan
+                ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
+                : apr != null
+                  ? { label: 'Interest', value: `${apr}% p.a.` }
+                  : { label: 'Applied', value: appliedDate }
+            }
+            onPress={() => open(app)}
+          />
+        );
+      });
+    }
+
+    // Legacy safety net: an active/disbursed loan with no applied-offer tracking
+    // still shows so existing loans never vanish.
+    if (app.loan) {
+      const meta = STATUS_META[app.status] || { label: app.status, color: colors.muted };
+      return [(
+        <AppCard
+          key={app.id}
+          icon={TYPE_ICON[app.loanType] || 'account_balance'}
+          name={typeName}
+          ref_={`Ref ${app.ref}`}
+          status={meta.label}
+          statusColor={meta.color}
+          left={{ label: 'Amount', value: rupee(app.amount) }}
+          right={{ label: 'Next EMI', value: rupee(app.loan.emiAmount) }}
+          onPress={() => open(app)}
+        />
+      )];
+    }
+
+    return [];
+  });
+
   return (
     <Screen scroll bottomNav padded>
       <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -98,7 +159,7 @@ export default function Loans() {
         <Loading label="Loading your loans…" />
       ) : err ? (
         <ErrorState message={err} onRetry={load} />
-      ) : apps.length === 0 ? (
+      ) : cards.length === 0 ? (
         // Tracking-only screen: the single "Apply" entry lives on the Offers tab.
         // When there's nothing to track, offer a shortcut into that flow.
         <View style={{ alignItems: 'center', paddingVertical: 12 }}>
@@ -115,70 +176,7 @@ export default function Loans() {
           </Pressable>
         </View>
       ) : (
-        <View style={{ gap: 12 }}>
-          {apps.flatMap(app => {
-            const typeName = `${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`;
-            const appliedOffers = (app.offers || []).filter((o: any) => o.applied);
-
-            // Each lender the user applied to is its own tracked card, with its
-            // own status (advanced by the KFT status webhook per lender).
-            if (appliedOffers.length > 0) {
-              return appliedOffers.map((o: any) => {
-                const st = o.lenderStatus || 'handoff';
-                const meta = STATUS_META[st] || { label: st, color: colors.muted };
-                const apr = app.loan?.apr ?? o.apr ?? o.roi ?? null;
-                const appliedDate = o.appliedAt
-                  ? new Date(o.appliedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                  : '';
-                return (
-                  <AppCard
-                    key={o.id}
-                    icon={TYPE_ICON[app.loanType] || 'account_balance'}
-                    name={o.lenderName || typeName}
-                    ref_={`${typeName} · Ref ${app.ref}`}
-                    status={meta.label}
-                    statusColor={meta.color}
-                    left={{ label: 'Amount', value: rupee(o.amount ?? app.amount) }}
-                    right={
-                      app.loan
-                        ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
-                        : apr != null
-                          ? { label: 'Interest', value: `${apr}% p.a.` }
-                          : { label: 'Applied', value: appliedDate }
-                    }
-                    onPress={() => open(app)}
-                  />
-                );
-              });
-            }
-
-            // No lender applied yet — show the application itself (eligibility /
-            // in-progress), same as before.
-            const meta = STATUS_META[app.status] || { label: app.status, color: colors.muted };
-            const applied = new Date(app.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-            const sel = (app.offers || []).find((o: any) => o.selected) || null;
-            const apr = app.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
-            return [(
-              <AppCard
-                key={app.id}
-                icon={TYPE_ICON[app.loanType] || 'account_balance'}
-                name={typeName}
-                ref_={sel?.lenderName ? `${sel.lenderName} · Ref ${app.ref}` : `Ref ${app.ref}`}
-                status={meta.label}
-                statusColor={meta.color}
-                left={{ label: 'Amount', value: rupee(app.amount) }}
-                right={
-                  app.loan
-                    ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
-                    : apr != null
-                      ? { label: 'Interest', value: `${apr}% p.a.` }
-                      : { label: 'Applied', value: applied }
-                }
-                onPress={() => open(app)}
-              />
-            )];
-          })}
-        </View>
+        <View style={{ gap: 12 }}>{cards}</View>
       )}
     </Screen>
   );
