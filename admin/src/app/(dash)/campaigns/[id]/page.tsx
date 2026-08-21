@@ -109,11 +109,13 @@ export default function CampaignDetail() {
         <button className="btn" style={{ marginBottom: 14 }} onClick={() => setEditing(false)}>← Back to campaign</button>
         <h1 className="page-title">Edit {campaign.name}</h1>
         <p className="page-sub">Add more contacts or change settings — everything here is saved together.</p>
-        <CampaignBuilder
-          campaign={campaign}
-          onSaved={() => { setEditing(false); mutate(); mutateStats(); }}
-          onCancel={() => setEditing(false)}
-        />
+        <div style={{ marginTop: 20 }}>
+          <CampaignBuilder
+            campaign={campaign}
+            onSaved={() => { setEditing(false); mutate(); mutateStats(); }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
       </div>
     );
   }

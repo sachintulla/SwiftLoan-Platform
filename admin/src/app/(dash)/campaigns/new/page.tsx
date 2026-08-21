@@ -10,10 +10,12 @@ export default function NewCampaignPage() {
       <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/campaigns')}>← Back to campaigns</button>
       <h1 className="page-title">New campaign</h1>
       <p className="page-sub">Name it, pick who to call, and save — one step.</p>
-      <CampaignBuilder
-        onSaved={(id) => router.push(id ? `/campaigns/${id}` : '/campaigns')}
-        onCancel={() => router.push('/campaigns')}
-      />
+      <div style={{ marginTop: 20 }}>
+        <CampaignBuilder
+          onSaved={(id) => router.push(id ? `/campaigns/${id}` : '/campaigns')}
+          onCancel={() => router.push('/campaigns')}
+        />
+      </div>
     </div>
   );
 }
