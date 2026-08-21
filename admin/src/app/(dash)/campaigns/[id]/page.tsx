@@ -1,8 +1,8 @@
 'use client';
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
-import { swrFetcher, apiFetch, apiUpload, ApiError } from '@/lib/api';
+import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { PipelineBar } from '@/components/viz';
 import { CategoryBar } from '@/components/charts';
@@ -16,10 +16,6 @@ interface Contact {
   id: string; name?: string | null; phone: string; city?: string | null;
   product?: string | null; amount?: number | null; state: string; error?: string | null;
   attempts?: number | null; lastAttemptAt?: string | null; nextEligibleAt?: string | null; answered?: boolean | null;
-}
-interface UploadResult {
-  inserted: number; skipped: number; duplicates: number; totalContacts?: number;
-  errors: { row?: number; reason?: string; message?: string }[];
 }
 interface Stats {
   contactsByState?: Record<string, number>;
@@ -68,10 +64,6 @@ export default function CampaignDetail() {
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [upload, setUpload] = useState<UploadResult | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   if (error) {
     return <div className="page"><Card><div className="empty">Could not load this campaign — {(error as Error).message}
@@ -89,23 +81,7 @@ export default function CampaignDetail() {
     } finally { setBusy(false); }
   }
 
-  async function doUpload(file: File) {
-    setUploading(true); setUploadError(null); setUpload(null);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await apiUpload<UploadResult>(`/api/admin/campaigns/${id}/contacts/upload`, form);
-      setUpload(res.data);
-      await Promise.all([mutate(), mutateStats()]);
-    } catch (e) {
-      setUploadError((e as Error).message);
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  }
-
-  const total = campaign.totalContacts ?? upload?.totalContacts ?? Object.values(counts).reduce((a, b) => a + b, 0);
+  const total = campaign.totalContacts ?? Object.values(counts).reduce((a, b) => a + b, 0);
   const byState = stats.contactsByState ?? {};
   const byOutcome = stats.callsByOutcome ?? payload.outcomes ?? {};
   const outcomeData = Object.entries(byOutcome).map(([k, v]) => ({ outcome: humanStatus(k), count: v }));
@@ -132,10 +108,10 @@ export default function CampaignDetail() {
       <div className="page">
         <button className="btn" style={{ marginBottom: 14 }} onClick={() => setEditing(false)}>← Back to campaign</button>
         <h1 className="page-title">Edit {campaign.name}</h1>
-        <p className="page-sub">Changes take effect on the next dialling pass.</p>
+        <p className="page-sub">Add more contacts or change settings — everything here is saved together.</p>
         <CampaignBuilder
           campaign={campaign}
-          onSaved={() => { setEditing(false); mutate(); }}
+          onSaved={() => { setEditing(false); mutate(); mutateStats(); }}
           onCancel={() => setEditing(false)}
         />
       </div>
@@ -163,14 +139,14 @@ export default function CampaignDetail() {
           </p>
         </div>
         <div className="row" style={{ gap: 10 }}>
-          <button className="btn" onClick={() => setEditing(true)}>✎ Edit</button>
+          <button className="btn" onClick={() => setEditing(true)}>✎ Edit / add contacts</button>
           <button className="btn btn-primary" disabled={busy || running || total === 0} onClick={() => act('start')}>
             {busy ? '…' : running ? 'Running' : '▶ Start dialling'}
           </button>
           <button className="btn" disabled={busy || !running} onClick={() => act('pause')}>❙❙ Pause</button>
         </div>
       </div>
-      {total === 0 && <p className="muted" style={{ fontSize: 12.5 }}>Upload a contact sheet before starting.</p>}
+      {total === 0 && <p className="muted" style={{ fontSize: 12.5 }}>No contacts yet — click "Edit / add contacts" above.</p>}
       {actionError && <div className="empty" style={{ color: 'var(--red)', textAlign: 'left' }}>{actionError}</div>}
       {campaign.note && <p className="muted" style={{ fontSize: 12.5 }}>{campaign.note}</p>}
 
@@ -223,45 +199,10 @@ export default function CampaignDetail() {
         <StatCard label="Failed" value={num(counts.failed ?? byState.failed ?? 0)} tone="red" icon="!" />
       </div>
 
-      {/* upload */}
-      <Card title="Upload contacts" sub="Spreadsheet (.xlsx, .xls or .csv). Rows that fail validation are reported below.">
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) doUpload(f); }}
-          style={{ border: '2px dashed var(--border)', borderRadius: 'var(--radius)', padding: 26, textAlign: 'center' }}
-        >
-          <div style={{ fontSize: 13, marginBottom: 10 }}>{uploading ? 'Uploading…' : 'Drop a spreadsheet here, or'}</div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" disabled={uploading}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) doUpload(f); }} style={{ fontSize: 12.5 }} />
-        </div>
-        {uploadError && <div className="empty" style={{ color: 'var(--red)', textAlign: 'left', marginTop: 12 }}>{uploadError}</div>}
-        {upload && (
-          <div style={{ marginTop: 14 }}>
-            <div className="row wrap" style={{ gap: 14 }}>
-              <span className="row" style={{ gap: 6, fontSize: 12.5 }}><StatusBadge status="completed" label="Inserted" /><b>{num(upload.inserted)}</b></span>
-              <span className="row" style={{ gap: 6, fontSize: 12.5 }}><StatusBadge status="pending" label="Skipped" /><b>{num(upload.skipped)}</b></span>
-              <span className="row" style={{ gap: 6, fontSize: 12.5 }}><StatusBadge status="not_started" label="Duplicates" /><b>{num(upload.duplicates)}</b></span>
-              <span className="row" style={{ gap: 6, fontSize: 12.5 }}><StatusBadge status="failed" label="Errors" /><b>{upload.errors?.length ?? 0}</b></span>
-              {upload.totalContacts != null && <span className="muted" style={{ fontSize: 12.5 }}>total now {num(upload.totalContacts)}</span>}
-            </div>
-            {(upload.errors?.length ?? 0) > 0 && (
-              <div className="table-wrap" style={{ marginTop: 12, maxHeight: 220, overflowY: 'auto' }}>
-                <table className="data">
-                  <thead><tr><th>Row</th><th>Problem</th></tr></thead>
-                  <tbody>{upload.errors.map((er, i) => (
-                    <tr key={i}><td className="mono">{er.row ?? '—'}</td><td style={{ color: 'var(--red)' }}>{er.reason || er.message}</td></tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
       {/* live stats */}
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16, alignItems: 'start' }}>
         <Card title="Contacts by state" sub={running ? 'Live — refreshing every 5s' : undefined}>
-          {Object.keys(byState).length === 0 ? <Empty label="No contacts uploaded yet" /> : <PipelineBar byStatus={byState} />}
+          {Object.keys(byState).length === 0 ? <Empty label="No contacts yet" /> : <PipelineBar byStatus={byState} />}
         </Card>
         <Card title="Calls by outcome">
           {outcomeData.length === 0 ? <Empty label="No calls placed yet" /> : <CategoryBar data={outcomeData} xKey="outcome" yKey="count" />}
@@ -270,7 +211,7 @@ export default function CampaignDetail() {
 
       {/* contacts */}
       <Card title={`Contacts (${num(total)})`} sub={`Attempt times shown in ${tzAbbrev(tz)}.`}>
-        {contacts.length === 0 ? <Empty label="No contacts in this campaign yet — upload a spreadsheet above" /> : (
+        {contacts.length === 0 ? <Empty label='No contacts in this campaign yet — click "Edit / add contacts" above' /> : (
           <div className="table-wrap"><table className="data">
             <thead><tr>
               <th>Name</th><th>Phone</th><th>City</th><th>Product</th><th>Amount</th><th>State</th>
