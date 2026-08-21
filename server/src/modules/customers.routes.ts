@@ -68,20 +68,53 @@ customersRouter.get('/', ah(async (req, res) => {
       skip,
       take,
       select: {
-        id: true, name: true, phone: true, firstSource: true, campaignId: true,
-        currentStage: true, stageEnteredAt: true, lastActivityAt: true,
+        // `city` is selected because the list renders a City column — without it
+        // every row showed "—" no matter what was stored. `userId` is needed to attach
+        // the app-account profile below.
+        id: true, name: true, phone: true, city: true, firstSource: true, campaignId: true,
+        currentStage: true, stageEnteredAt: true, lastActivityAt: true, userId: true,
       },
     }),
     prisma.customer.count({ where }),
   ]);
 
+  // Underwriting profile for the rows that have an app account.
+  //
+  // Retiring the separate /users list removed the only place an operator could SCAN
+  // credit score, income and application count — they survived on each person's page, but
+  // not in a sortable list. This restores them on the one people surface.
+  //
+  // A second query, not an `include`: Customer.userId is a bare column with no Prisma
+  // relation to User, so it cannot be joined. One extra query for the page, not per row.
+  const userIds = rows.map((r) => r.userId).filter((v): v is string => !!v);
+  const profiles = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true, creditScore: true, monthlyIncome: true,
+          _count: { select: { applications: true, loans: true } },
+        },
+      })
+    : [];
+  const byUserId = new Map(profiles.map((u) => [u.id, u]));
+
   return ok(
     res,
-    rows.map((r) => ({
-      ...r,
-      stageLabel: STAGE_LABELS[r.currentStage],
-      stalledMinutes: minutesSince(r.stageEnteredAt),
-    })),
+    rows.map((r) => {
+      const u = r.userId ? byUserId.get(r.userId) : undefined;
+      return {
+        ...r,
+        stageLabel: STAGE_LABELS[r.currentStage],
+        stalledMinutes: minutesSince(r.stageEnteredAt),
+        // Null for a website/campaign lead who never installed the app — a real state,
+        // rendered as "—" rather than a zero that would read as "no income".
+        creditScore: u?.creditScore ?? null,
+        // RUPEES (see docs/ADMIN_DASHBOARD_REVIEW.md §5.1) — format with inrR, not inr.
+        monthlyIncome: u?.monthlyIncome ?? null,
+        applicationCount: u?._count.applications ?? null,
+        loanCount: u?._count.loans ?? null,
+      };
+    }),
     'Customers',
     paginate(page, pageSize, total),
   );
@@ -181,7 +214,25 @@ customersRouter.get('/:id', ah(async (req, res) => {
     stageProgress,
     dropOff,
     calls,
-    campaigns: campaignContacts,
+    // Flatten to the CAMPAIGN's identity, not the contact row's.
+    //
+    // This used to return raw CampaignContact rows, each of which carries its own
+    // `name` (the person's name, copied from the uploaded spreadsheet) alongside a
+    // nested `campaign`. The dashboard reads `campaigns[].name`, so the attribution
+    // panel showed the customer's own name as the campaign they came from —
+    // "Campaign: Ishaan Iyer". The contact-specific bits are kept as their own fields.
+    campaigns: campaignContacts.map((cc) => ({
+      id: cc.campaign.id,
+      name: cc.campaign.name,
+      code: cc.campaign.code,
+      status: cc.campaign.status,
+      /// This contact's position in that campaign (pending / queued / called / …).
+      state: cc.state,
+      contactId: cc.id,
+      attempts: cc.attempts,
+      lastAttemptAt: cc.lastAttemptAt,
+      answered: cc.answered,
+    })),
     user,
     leads,
     nextAction: nextActionFor(customer.currentStage),

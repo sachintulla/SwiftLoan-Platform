@@ -1,0 +1,18 @@
+// Typecheck the standalone scripts — prisma/*.ts seeds and scripts/*.ts tools.
+//
+// The main tsconfig sets `rootDir: "src"` and `include: ["src/**/*.ts"]`, so none of
+// these files were ever typechecked. A seed that wrote `startedAt` to a CallAttempt
+// (the field is `dialedAt`/`completedAt`) passed `npm run typecheck` cleanly and only
+// failed at runtime, several minutes into a reseed.
+//
+// This config has no rootDir/outDir because it never emits — it exists purely so
+// `npm run typecheck` covers the whole workspace.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "outDir": null
+  },
+  "include": ["prisma/**/*.ts", "scripts/**/*.ts", "src/**/*.ts"]
+}

@@ -8,6 +8,7 @@
 //   who they are → where they are (journey + call actions) → what has been said
 //   → the detail (calls, website enquiries, attribution, raw timeline)
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
@@ -15,7 +16,9 @@ import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@
 import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS } from '@/components/journey';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
-import { inr, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
+// This page shows BOTH unit conventions: lead amounts are paise (`inr`), while
+// application/loan amounts are rupees (`inrR`). See docs/ADMIN_DASHBOARD_REVIEW.md §5.1.
+import { inr, inrR, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
 
 interface Customer {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
@@ -23,6 +26,8 @@ interface Customer {
   stageEnteredAt?: string | null; lastActivityAt?: string | null; stalledMinutes?: number | null;
   utmSource?: string | null; utmMedium?: string | null; utmCampaign?: string | null; referrer?: string | null;
   createdAt?: string | null;
+  /** When they were first observed on any channel — not when the row was written. */
+  firstSeenAt?: string | null;
 }
 interface TimelineEntry {
   id: string; channel: string; name: string; stage?: string | null; stageLabel?: string | null;
@@ -37,7 +42,7 @@ interface LeadRef {
 }
 interface LinkedUser {
   id: string; fullName?: string | null; phone?: string | null; email?: string | null; createdAt?: string;
-  applications?: { id: string; ref: string; amount: number; status: string; createdAt?: string }[];
+  applications?: { id: string; ref: string; amount: number; status: string; createdAt?: string; loanType?: string | null }[];
   loans?: { id: string; principal: number; outstanding: number; status: string }[];
   kyc?: { status?: string | null; panVerified?: boolean; aadhaarVerified?: boolean } | null;
 }
@@ -79,6 +84,12 @@ export default function CustomerDetail() {
   const [tPage, setTPage] = useState(1);
   const { data: tRes } = useSWR(`/api/admin/customers/${id}/timeline?page=${tPage}&pageSize=50`, swrFetcher);
   const timeline = asArray<TimelineEntry>(tRes?.data ?? d.timeline);
+  // `system` = written by us about them (stage_stalled, nudge_sent), not something they
+  // did. Hidden by default so the customer's own journey is readable; see the Timeline
+  // card below.
+  const [showSystem, setShowSystem] = useState(false);
+  const systemCount = timeline.filter((e) => e.channel === 'system').length;
+  const visibleTimeline = showSystem ? timeline : timeline.filter((e) => e.channel !== 'system');
   const tPg = tRes?.pagination;
 
   // Cross-channel conversation history is keyed on the phone number, not the
@@ -93,6 +104,10 @@ export default function CustomerDetail() {
   };
   const conversations = asConversations(convPayload.conversations);
   const convCount = convPayload.conversationCount ?? conversations.length;
+  // The API now returns 200 with an empty history when there is nothing to show, so
+  // "no conversations" is read from the data (convCount === 0) rather than by
+  // regex-matching a 404's message. Kept as a constant so an older server that still
+  // 404s degrades to the same empty state instead of an error banner.
   const convMissing = !!convError && /404|No conversations/i.test((convError as Error).message);
   const inferred = inferredCount(conversations);
 
@@ -221,6 +236,9 @@ export default function CustomerDetail() {
   const stalled = c.stalledMinutes ?? d.dropOff?.stalledMinutes ?? null;
   // The most recent enquiry is what they actually asked us for.
   const lead = leads[0];
+  // …and for someone who came through the app instead, their newest application is.
+  // The server already returns applications newest-first.
+  const latestApp = user?.applications?.[0];
   const noPhone = !c.phone;
 
   const callResult = call.text ? (
@@ -234,7 +252,7 @@ export default function CustomerDetail() {
 
   return (
     <div className="page">
-      <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/customers')}>← Back to customers</button>
+      <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/customers')}>← Back to All Users</button>
 
       {/* ── who they are ───────────────────────────────────────────────── */}
       <div className="row between wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
@@ -247,7 +265,13 @@ export default function CustomerDetail() {
             <span className="mono">{c.phone || 'no phone'}</span>
             {c.email ? ` · ${c.email}` : ''}{c.city ? ` · ${c.city}` : ''}
             {` · from ${c.firstSource || 'unknown source'}`}
-            {c.createdAt ? ` · first seen ${dateStr(c.createdAt)}` : ''}
+            {/* `firstSeenAt`, not `createdAt`: createdAt is when the Customer ROW was
+                written, which for anyone whose history predates the row (a backfill,
+                or a lead merged in later) is long after they were actually first seen.
+                It read "first seen 18 Aug" above a timeline starting 31 Jul. */}
+            {c.firstSeenAt || c.createdAt
+              ? ` · first seen ${dateStr(c.firstSeenAt || c.createdAt)}`
+              : ''}
           </p>
         </div>
 
@@ -287,16 +311,33 @@ export default function CustomerDetail() {
       {/* ── what they asked for ────────────────────────────────────────── */}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', marginTop: 16 }}>
         <StatCard label="Loan interest" tone="blue" icon="₹"
-          value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{lead?.productInterest || '—'}</span>}
-          foot={lead ? `from their ${lead.source} enquiry` : 'no website enquiry'} />
-        <StatCard label="Amount" value={lead?.amount ? inr(lead.amount) : '—'} tone="teal" icon="◎" />
+          value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>
+            {lead?.productInterest || latestApp?.loanType || '—'}
+          </span>}
+          foot={lead ? `from their ${lead.source} enquiry` : latestApp ? `from application ${latestApp.ref}` : 'no enquiry or application'} />
+        {/* These two tiles used to read only the website lead, so an app-origin
+            customer — who never filled in the site form — got two permanent em-dashes.
+            Fall back to their most recent application, which is the same question
+            answered from the other channel. Note the unit switch: lead amounts are
+            paise, application amounts are rupees. */}
+        <StatCard label="Amount" tone="teal" icon="◎"
+          value={lead?.amount ? inr(lead.amount) : latestApp?.amount ? inrR(latestApp.amount) : '—'}
+          foot={!lead?.amount && latestApp?.amount ? 'requested in-app' : undefined} />
         <StatCard label="Source" tone="amber" icon="⇢"
           value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{c.firstSource || 'unknown'}</span>}
           foot={campaigns[0]?.name || c.campaignId || undefined} />
         <StatCard label="City" value={c.city || lead?.city || '—'} tone="grey" icon="⌖" />
-        <StatCard label="Stalled for" value={stalledLabel(stalled)} icon="⏱"
-          tone={(stalled ?? 0) > 1440 ? 'red' : (stalled ?? 0) > 60 ? 'amber' : 'green'}
-          foot={d.dropOff?.isTerminal ? 'terminal stage' : d.dropOff?.label ? `at ${d.dropOff.label}` : undefined} />
+        {/* Time in a terminal stage is history, not a stall — labelling a disbursed
+            customer "Stalled for 12h" in red reads as a problem to chase when the
+            journey is finished. Same number, honest framing. */}
+        {d.dropOff?.isTerminal ? (
+          <StatCard label="In final stage" value={stalledLabel(stalled)} icon="✓" tone="green"
+            foot={d.dropOff?.label ? `${d.dropOff.label} — no action needed` : 'no action needed'} />
+        ) : (
+          <StatCard label="Stalled for" value={stalledLabel(stalled)} icon="⏱"
+            tone={(stalled ?? 0) > 1440 ? 'red' : (stalled ?? 0) > 60 ? 'amber' : 'green'}
+            foot={d.dropOff?.label ? `at ${d.dropOff.label}` : undefined} />
+        )}
       </div>
 
       {/* ── where they are ─────────────────────────────────────────────── */}
@@ -313,6 +354,7 @@ export default function CustomerDetail() {
             steps={d.stageProgress ?? []}
             currentStage={c.currentStage}
             stalledMinutes={stalled}
+            terminal={!!d.dropOff?.isTerminal}
             action={(step, isCurrent) => {
               const steps = STAGE_CALL_STEPS[step.stage];
               // No mapping means there is nothing to nudge them towards
@@ -404,6 +446,7 @@ export default function CustomerDetail() {
                       <span style={{ fontSize: 12.5, textTransform: 'capitalize' } as React.CSSProperties}>
                         {l.productInterest || 'no stated interest'}
                       </span>
+                      {/* AnonymousLead.amount really is paise — keep `inr` here. */}
                       {l.amount ? <span className="mono" style={{ fontSize: 12.5 }}>{inr(l.amount)}</span> : null}
                     </div>
                     <span className="muted" style={{ fontSize: 12 }} title={l.createdAt}>
@@ -492,7 +535,9 @@ export default function CustomerDetail() {
         <Card
           title="App account"
           sub={user ? 'Applications, loans and KYC for the linked user' : undefined}
-          right={user ? <button className="btn" onClick={() => router.push(`/users/${user.id}`)}>View profile →</button> : undefined}
+          // A real <Link>, not a button with a router.push: navigation should be
+          // middle-clickable, openable in a new tab, and announced as a link.
+          right={user ? <Link className="btn" href={`/users/${user.id}`}>View profile →</Link> : undefined}
         >
           {!user ? <Empty label="This customer has not signed up in the app yet" /> : (
             <>
@@ -516,7 +561,8 @@ export default function CustomerDetail() {
                   <thead><tr><th>Ref</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead>
                   <tbody>{user.applications!.map((a) => (
                     <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
-                      <td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td>
+                      {/* LoanApplication.amount is rupees, unlike the lead amount above. */}
+                      <td className="mono">{a.ref}</td><td className="mono">{inrR(a.amount)}</td>
                       <td><StatusBadge status={a.status} /></td><td className="muted">{a.createdAt ? dateStr(a.createdAt) : '—'}</td>
                     </tr>
                   ))}</tbody>
@@ -529,7 +575,7 @@ export default function CustomerDetail() {
                   <div className="table-wrap"><table className="data">
                     <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
                     <tbody>{user.loans!.map((l) => (
-                      <tr key={l.id}><td className="mono">{inr(l.principal)}</td><td className="mono">{inr(l.outstanding)}</td><td><StatusBadge status={l.status} /></td></tr>
+                      <tr key={l.id}><td className="mono">{inrR(l.principal)}</td><td className="mono">{inrR(l.outstanding)}</td><td><StatusBadge status={l.status} /></td></tr>
                     ))}</tbody>
                   </table></div>
                 </>
@@ -540,11 +586,26 @@ export default function CustomerDetail() {
       </div>
 
       {/* ── raw timeline ───────────────────────────────────────────────── */}
+      {/* The stall detector writes a stage_stalled + nudge_sent pair every time it
+          fires, so for any customer sitting still those `system` rows quickly
+          outnumber everything the person actually did — on this page four pairs pushed
+          the whole app journey below the fold. They are real and worth keeping, so they
+          are hidden by default behind a count rather than deleted. */}
       <div style={{ marginTop: 16 }}>
-        <Card title="Timeline" sub="Every tracked touchpoint, newest first">
-          {timeline.length === 0 ? <Empty label="No activity recorded for this customer yet" /> : (
+        <Card
+          title="Timeline"
+          sub={showSystem
+            ? 'Every tracked touchpoint, newest first — including our own reminders'
+            : 'What the customer did, newest first'}
+          right={systemCount > 0 ? (
+            <button className="btn" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setShowSystem((v) => !v)}>
+              {showSystem ? 'Hide' : 'Show'} {systemCount} system event{systemCount === 1 ? '' : 's'}
+            </button>
+          ) : undefined}
+        >
+          {visibleTimeline.length === 0 ? <Empty label="No activity recorded for this customer yet" /> : (
             <div style={{ display: 'grid', gap: 2 }}>
-              {timeline.map((e) => (
+              {visibleTimeline.map((e) => (
                 <div key={e.id} className="row" style={{ gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                   <ChannelBadge channel={e.channel} />
                   <span style={{ fontSize: 13, fontWeight: 500 }}>{humanStatus(e.name)}</span>

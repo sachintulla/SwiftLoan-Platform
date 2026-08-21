@@ -5,6 +5,7 @@ import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
+import { applicationStatusLabel } from '../lib/labels.js';
 
 // All routes require an authenticated admin.
 export const adminRouter = Router();
@@ -60,19 +61,165 @@ const APP_STATUSES = [
   'under_review', 'approved', 'rejected', 'disbursed', 'closed',
 ] as const;
 
+// The application pipeline in the order an application actually moves through it.
+// `rejected`/`closed` are terminal exits, not steps, so they are flagged and the UI
+// reports them separately instead of drawing them as the tail of a funnel.
+// `terminal` = the application has left the queue, so it is NOT work in progress.
+// `disbursed` is terminal for the APPLICATION (the loan it created lives on in the Loan
+// table) — counting it as "in flight" inflated the denominator behind the bottleneck
+// share, e.g. "15 waiting at Draft — 31% of the 48 in flight" when only 40 were
+// actually in flight. Terminal stages still render in the census; they just do not
+// count as work outstanding, and cannot be the bottleneck.
+// Labels come from lib/labels.ts so the census, the notification titles and the CSV
+// export cannot drift into calling the same stage different things.
+const PIPELINE_STAGES: { key: string; label: string; terminal?: boolean }[] = [
+  { key: 'draft' },
+  { key: 'pan_pending' },
+  { key: 'prequalifying' },
+  { key: 'offers_ready' },
+  { key: 'handoff' },
+  { key: 'under_review' },
+  { key: 'approved' },
+  { key: 'disbursed', terminal: true },
+  { key: 'rejected', terminal: true },
+  { key: 'closed', terminal: true },
+].map((s) => ({ ...s, label: applicationStatusLabel(s.key) }));
+
+/**
+ * Per-stage pipeline census: how many applications sit at each stage, what they are
+ * worth, and how long the most neglected one has been sitting there.
+ *
+ * This replaces the conversion-percentage funnel for the pipeline half of the
+ * dashboard. A funnel implies one population flowing downhill; application status is
+ * a *current position*, so a census is the honest shape for it — and "where is the
+ * queue piling up" is the question an ops team actually opens the dashboard to ask.
+ *
+ * NOTE ON UNITS: `LoanApplication.amount` is in RUPEES, not paise — the create route
+ * validates it as `min(25_000).max(1_500_000)`, i.e. a ₹25k–₹15L personal loan. The
+ * `*Rupees` suffix here is deliberate; do not run these through a paise formatter.
+ */
+async function buildPipeline() {
+  const groups = await prisma.loanApplication.groupBy({
+    by: ['status'],
+    _count: { _all: true },
+    _sum: { amount: true },
+    _min: { updatedAt: true },
+  });
+
+  const byKey = new Map(groups.map((g) => [String(g.status), g]));
+  const stages = PIPELINE_STAGES.map((s) => {
+    const g = byKey.get(s.key);
+    return {
+      key: s.key,
+      label: s.label,
+      terminal: Boolean(s.terminal),
+      count: g?._count._all ?? 0,
+      valueRupees: g?._sum.amount ?? 0,
+      // Oldest `updatedAt` in the stage = the application that has been waiting
+      // longest without moving. Null when the stage is empty.
+      waitingSince: g?._min.updatedAt?.toISOString() ?? null,
+    };
+  });
+
+  const live = stages.filter((s) => !s.terminal);
+  const inFlight = live.reduce((n, s) => n + s.count, 0);
+  // The biggest live queue — the bottleneck the page leads with.
+  const bottleneck = live.reduce<typeof live[number] | null>(
+    (top, s) => (s.count > (top?.count ?? 0) ? s : top),
+    null,
+  );
+
+  return {
+    stages,
+    inFlight,
+    bottleneck: bottleneck && bottleneck.count > 0
+      ? { ...bottleneck, sharePct: inFlight > 0 ? Math.round((bottleneck.count / inFlight) * 100) : 0 }
+      : null,
+  };
+}
+
+/**
+ * Acquisition as TWO separate tracks rather than one spliced funnel.
+ *
+ * Website visitors and app installers are independent populations that only merge at
+ * "application started", so chaining them into a single 8-stage funnel produced
+ * conversion percentages that were arithmetically impossible (14 qualified leads
+ * "converting" into 30 applications at a reported 100%). Each track below is
+ * genuinely sequential, so its step-to-step percentages mean something.
+ */
+async function buildAcquisition() {
+  // The app track counts PEOPLE at every step, not applications.
+  //
+  // `Applied` and `Approved` used to be `loanApplication.count()`, i.e. a count of
+  // applications compared against a count of registered users — two different units.
+  // A user with two applications made the step exceed 100% ("Registered 50 →
+  // Applied 51 = 102%"), which is the same category error that made the old 8-stage
+  // funnel untrustworthy. `distinct: ['userId']` counts applicants instead.
+  const [sessions, leads, qualified, converted, downloads, users, applicants, approvedApplicants] = await Promise.all([
+    prisma.session.count(),
+    prisma.anonymousLead.count(),
+    prisma.anonymousLead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
+    prisma.anonymousLead.count({ where: { status: 'converted' } }),
+    prisma.appDownload.count(),
+    prisma.user.count(),
+    prisma.loanApplication.findMany({ distinct: ['userId'], select: { userId: true } }),
+    prisma.loanApplication.findMany({
+      where: { status: { in: ['approved', 'disbursed', 'closed'] } },
+      distinct: ['userId'],
+      select: { userId: true },
+    }),
+  ]);
+  const apps = applicants.length;
+  const approvedApps = approvedApplicants.length;
+
+  // Step % is measured against the step directly above it, and only ever reported
+  // when that step is genuinely upstream of this one. No clamping: if a number looks
+  // impossible it means the data is wrong, and hiding that was the original bug.
+  const track = (label: string, steps: { label: string; value: number }[]) => ({
+    label,
+    steps: steps.map((s, i) => {
+      const prev = i === 0 ? null : steps[i - 1].value;
+      return {
+        ...s,
+        stepPct: prev && prev > 0 ? Math.round((s.value / prev) * 100) : null,
+      };
+    }),
+  });
+
+  return {
+    web: track('Website', [
+      { label: 'Sessions', value: sessions },
+      { label: 'Lead captured', value: leads },
+      { label: 'Qualified', value: qualified },
+      { label: 'Converted to user', value: converted },
+    ]),
+    app: track('Mobile app', [
+      { label: 'Installs', value: downloads },
+      { label: 'Registered', value: users },
+      { label: 'Applied', value: apps },
+      { label: 'Approved', value: approvedApps },
+    ]),
+  };
+}
+
 // ─────────────────────────── dashboard ───────────────────────────
 
 // GET /api/admin/dashboard/overview
 adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
-  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups] = await Promise.all([
+  const [users, apps, loans, activeLoans, leads, downloads, disbursedAgg, funnel, statusGroups, pipeline, acquisition] = await Promise.all([
     prisma.user.count(),
     prisma.loanApplication.count(),
     prisma.loan.count(),
+    // `activeLoans` used to be `loan.count()` — every loan ever, including closed
+    // ones — while the dashboard labelled it "Active Loans".
+    prisma.loan.count({ where: { status: 'active' } }),
     prisma.anonymousLead.count(),
     prisma.appDownload.count(),
     prisma.loan.aggregate({ _sum: { principal: true, outstanding: true } }),
     buildFunnel(),
     prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
+    buildPipeline(),
+    buildAcquisition(),
   ]);
 
   const byStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
@@ -87,16 +234,26 @@ adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
     stats: {
       totalUsers: users,
       totalApplications: apps,
-      activeLoans: loans,
+      activeLoans,
+      totalLoans: loans,
       totalLeads: leads,
       totalDownloads: downloads,
+      // Kept under the historical `*Paise` names so existing consumers don't break,
+      // but these sum Loan.principal/outstanding, which are RUPEES (see buildPipeline).
       totalDisbursedPaise: totalDisbursed,
       outstandingPaise: disbursedAgg._sum.outstanding ?? 0,
+      disbursedRupees: totalDisbursed,
+      outstandingRupees: disbursedAgg._sum.outstanding ?? 0,
       approvedCount: approved,
       applicationToDisbursalPct: appToDisbursal,
     },
+    // `funnel` is retained for backward compatibility only. Its conversion figures
+    // splice two independent populations and are not trustworthy — the dashboard now
+    // reads `pipeline` + `acquisition` instead.
     funnel,
     applicationsByStatus: byStatus,
+    pipeline,
+    acquisition,
   }, 'Overview');
 }));
 
@@ -127,10 +284,17 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
   ]);
 
   // Bucket per day (UTC date key).
+  //
+  // The window is the last `days` days INCLUDING today. It used to start at
+  // `now - days` and step forward `days` times, so the final bucket was yesterday and
+  // today had no bucket at all: anything created today fell through
+  // `if (series[k])` and vanished. The dashboard showed "5 applications today" in the
+  // header above a chart whose last point was two days old and flat at zero.
   const dayKey = (d: Date) => d.toISOString().slice(0, 10);
   const series: Record<string, { date: string; applications: number; disbursals: number; disbursedPaise: number }> = {};
+  const firstBucket = Date.now() - (days - 1) * 864e5;
   for (let i = 0; i < days; i++) {
-    const k = dayKey(new Date(since.getTime() + i * 864e5));
+    const k = dayKey(new Date(firstBucket + i * 864e5));
     series[k] = { date: k, applications: 0, disbursals: 0, disbursedPaise: 0 };
   }
   apps.forEach((a) => { const k = dayKey(a.createdAt); if (series[k]) series[k].applications++; });
@@ -200,7 +364,16 @@ adminRouter.get('/loans/:id', ah(async (req, res) => {
     orderBy: { ts: 'asc' }, take: 100,
   });
 
-  return ok(res, { application: app, timeline }, 'Loan journey');
+  // The Customer row this applicant resolves to, so the page can link out to the
+  // cross-channel 360 view. Without it the application detail was a dead end: an
+  // operator looking at a stalled application had no way to reach the customer's calls,
+  // conversations or website enquiries — the things that tell them what to say.
+  const customer = await prisma.customer.findFirst({
+    where: { OR: [{ userId: app.userId }, ...(app.user?.phone ? [{ phone: app.user.phone }] : [])] },
+    select: { id: true, currentStage: true, firstSource: true },
+  });
+
+  return ok(res, { application: app, timeline, customer }, 'Loan journey');
 }));
 
 // ─────────────────────────── onboarding ───────────────────────────
@@ -412,7 +585,13 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     },
   });
   if (!user) throw new HttpError(404, 'User not found');
-  return ok(res, user, 'User profile');
+  // Same reason as /loans/:id — carry the Customer id so the app profile can link
+  // through to the cross-channel journey instead of dead-ending here.
+  const customer = await prisma.customer.findFirst({
+    where: { OR: [{ userId: user.id }, ...(user.phone ? [{ phone: user.phone }] : [])] },
+    select: { id: true, currentStage: true },
+  });
+  return ok(res, { ...user, customer }, 'User profile');
 }));
 
 // ─────────────────────────── notifications ───────────────────────────

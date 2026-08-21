@@ -39,7 +39,13 @@ button { font-family: inherit; cursor: pointer; }
 /* ── layout ── */
 .app-shell { display: flex; min-height: 100vh; }
 .main { flex: 1; margin-left: var(--sidebar-w); min-width: 0; }
-.page { padding: 22px 28px 60px; max-width: 1400px; margin: 0 auto; }
+/* Bottom padding is 104px, not 60px, to clear the floating "Ask Ello" mic.
+   The widget is position:fixed at right:24 bottom:24 and ~56px tall, so it sits over
+   the bottom-right of the viewport on every page. With only 60px of padding the last
+   row of a table — or the 30d/90d range chips on the overview — could come to rest
+   underneath it with no way to scroll clear. 24 (offset) + 56 (widget) + 24 (breathing
+   room) = 104. */
+.page { padding: 22px 28px 104px; max-width: 1400px; margin: 0 auto; }
 .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .page-sub { color: var(--text-dim); margin: 4px 0 0; font-size: 13px; }
 
@@ -108,6 +114,65 @@ table.data tbody tr:last-child td { border-bottom: none; }
 /* ── pipeline bar ── */
 .pipeline { display: flex; height: 34px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
 .pipeline-seg { display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; min-width: 0; overflow: hidden; }
+/* 2px surface gap between adjacent segments — a separator drawn in the surface
+   colour, never a border around the marks. */
+.pipeline-seg + .pipeline-seg { box-shadow: -2px 0 0 0 var(--surface); }
+
+/* ── hero figure ── */
+/* Proportional figures, not tabular: equal-width digits read loose at display size. */
+.hero-fig { font-size: 44px; font-weight: 760; letter-spacing: -0.03em; line-height: 1.05; }
+.hero-cap { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+.hero-note { font-size: 12.5px; color: var(--text-faint); margin-top: 12px; }
+
+/* ── today strip ── */
+.strip { display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
+.strip-cell { padding: 0 20px; border-left: 1px solid var(--border); }
+.strip-cell:first-child { padding-left: 0; border-left: 0; }
+.strip-val { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.strip-lbl { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+
+/* ── stage census ── */
+.census { display: flex; flex-direction: column; gap: 2px; }
+.census-row { display: grid; grid-template-columns: 118px 1fr 46px 74px 52px; align-items: center; gap: 12px; padding: 8px 8px; border-radius: 9px; color: inherit; }
+.census-row-link:hover { background: var(--surface-2); }
+.census-label { font-size: 13px; font-weight: 500; }
+.census-track { background: var(--surface-2); border-radius: 6px; height: 14px; overflow: hidden; }
+/* 4px rounded data-end, anchored flat to the baseline at the track's start. */
+.census-fill { height: 100%; border-radius: 0 4px 4px 0; transition: width .45s ease; }
+.census-count { font-size: 13px; font-weight: 650; text-align: right; }
+.census-value { font-size: 12.5px; color: var(--text-dim); text-align: right; }
+.census-age { font-size: 12px; color: var(--text-faint); text-align: right; }
+.census-head { display: grid; grid-template-columns: 118px 1fr 46px 74px 52px; gap: 12px; padding: 0 8px 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); }
+.census-head > span { text-align: right; }
+
+/* ── acquisition track ── */
+.track { display: flex; flex-direction: column; gap: 2px; }
+.track-row { display: grid; grid-template-columns: 128px 1fr 52px 40px; align-items: center; gap: 10px; padding: 6px 0; }
+.track-label { font-size: 12.5px; }
+.track-track { background: var(--surface-2); border-radius: 6px; height: 12px; overflow: hidden; }
+.track-fill { height: 100%; border-radius: 0 4px 4px 0; transition: width .45s ease; }
+.track-num { font-size: 12.5px; font-weight: 650; text-align: right; }
+.track-pct { font-size: 11.5px; color: var(--text-faint); text-align: right; }
+
+/* ── horizontal bars ── */
+.hbar { display: flex; flex-direction: column; gap: 4px; }
+.hbar-row { display: grid; grid-template-columns: 104px 1fr 44px; align-items: center; gap: 12px; }
+.hbar-label { font-size: 12.5px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { background: var(--surface-2); border-radius: 6px; height: 16px; overflow: hidden; }
+.hbar-fill { height: 100%; background: var(--brand); border-radius: 0 4px 4px 0; transition: width .45s ease; }
+.hbar-num { font-size: 12.5px; font-weight: 650; text-align: right; }
+
+/* ── work queue ── */
+.queue { display: flex; flex-direction: column; }
+.queue-row { display: grid; grid-template-columns: 3px 1fr auto; align-items: start; gap: 12px; padding: 11px 8px; border-bottom: 1px solid var(--border); color: inherit; }
+.queue-row:last-child { border-bottom: 0; }
+.queue-row-link:hover { background: var(--surface-2); }
+.queue-bar { width: 3px; align-self: stretch; border-radius: 2px; min-height: 22px; }
+.queue-body { min-width: 0; }
+.queue-title { font-size: 13px; font-weight: 550; line-height: 1.35; }
+.queue-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.queue-meta { display: flex; align-items: center; gap: 7px; font-size: 11.5px; white-space: nowrap; padding-top: 1px; }
+.queue-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); display: inline-block; }
 
 /* ── misc ── */
 .row { display: flex; align-items: center; gap: 10px; }

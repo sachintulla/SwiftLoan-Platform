@@ -21,7 +21,13 @@ export default function LeadRedirect() {
     if (customerId) router.replace(`/customers/${customerId}`);
   }, [customerId, router]);
 
-  if (isLoading) return <div className="page"><TableSkeleton rows={6} /></div>;
+  // Both "still fetching the lead" and "found it, redirecting" render the SAME
+  // skeleton. They used to differ — a skeleton, then a near-empty card reading
+  // "Opening the customer journey…" — so the hop showed a visible two-step flicker that
+  // read as a page that had stalled. The redirect itself is unavoidable: the Customer id
+  // is only known after the lead is fetched, and the admin token lives in localStorage
+  // so this cannot be resolved server-side.
+  if (isLoading || customerId) return <div className="page"><TableSkeleton rows={6} /></div>;
 
   if (error) {
     return (
@@ -49,5 +55,7 @@ export default function LeadRedirect() {
     );
   }
 
-  return <div className="page"><Card><div className="empty">Opening the customer journey…</div></Card></div>;
+  // Unreachable in practice: isLoading, error, !customerId and customerId are
+  // exhaustive. Kept as a defensive fallback rather than returning null.
+  return <div className="page"><TableSkeleton rows={6} /></div>;
 }

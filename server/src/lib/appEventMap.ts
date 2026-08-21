@@ -31,6 +31,13 @@ export const APP_EVENT_TO_JOURNEY: Record<string, string> = {
   language_selected: JOURNEY_EVENTS.LANGUAGE_SELECTED,
 
   // ── application funnel ──
+  // `eligibility_started` is the canonical name and is accepted as-is. It was missing:
+  // every key that mapped to ELIGIBILITY_STARTED was a legacy app name, so a handset
+  // emitting the canonical vocabulary would have fallen through to telemetry-only and
+  // stopped advancing the eligibility stage. Identity entries let the map accept both
+  // the legacy and the canonical name, which is what makes migrating the app safe
+  // without stranding handsets that are already installed.
+  eligibility_started: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
   application_started: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
   prequalify_started: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
   // Reaching the offers screen means pre-qualification produced something.

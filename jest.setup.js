@@ -59,6 +59,18 @@ jest.mock('react-native-webrtc', () => ({
   mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [], getAudioTracks: () => [] }) },
 }));
 
+// react-native-webview → getEnforcing('RNCWebViewModule') throws without the native
+// binary. src/screens/lenderweb.tsx imports it, and screens/index.ts imports every
+// screen, so a single un-mocked native module took down the entire router test suite
+// ("Test suite failed to run") rather than just the one screen that uses it.
+// A View keeps children renderable; no test drives the web view itself.
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const stub = (props) => React.createElement(View, { ...props, testID: props.testID || 'WebView' }, props.children);
+  return { __esModule: true, default: stub, WebView: stub };
+});
+
 // react-native-image-picker → its native module doesn't exist in the Jest env.
 // Only src/screens/profile.tsx imports it; no test drives the picker itself.
 jest.mock('react-native-image-picker', () => ({

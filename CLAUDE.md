@@ -20,7 +20,7 @@ App (run from repo root):
 npm start                         # Metro bundler
 npm run ios                       # build + run iOS  (see CocoaPods gotcha below)
 npm run android                   # build + run Android
-npm test                          # Jest — 110 tests
+npm test                          # Jest — 155 tests, 6 suites
 npx jest __tests__/logic.test.ts  # run a single test file
 npx jest -t "UC-N3"               # run tests matching a name
 npm run typecheck                 # tsc --noEmit
@@ -84,10 +84,12 @@ adapters.
   names are snake_case glyph names, exactly as in the source design.
 
 ### i18n
-- `src/i18n/strings.ts` holds the full `en`/`hi` table (te/hinglish/tenglish fall
-  back to `en`). Screens read copy via the `useT()` hook; user-facing strings come
-  from here, not string literals. `strings.ts` is `@ts-nocheck` because the source
-  table has an intentional duplicate key.
+- `src/i18n/strings.ts` holds full `en`, `hi` and `te` tables — 355 keys each, at
+  complete parity (asserted by `__tests__/i18n.test.ts`, which iterates every non-`en`
+  language so a fourth one cannot be added unchecked). `te` is Tenglish. Any other
+  language code falls back to `en`. Screens read copy via the `useT()` hook; user-facing
+  strings come from here, not string literals. `strings.ts` is `@ts-nocheck` because the
+  source table has an intentional duplicate key.
 
 ### Backend (`server/`) is a separate workspace
 - Node + Express + TypeScript + Prisma + PostgreSQL. Layered:
@@ -186,7 +188,15 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
     abandoned/rejected/failed    = red
     anonymous/not_started        = grey
     converted                    = teal
-- All amounts in paise (existing server convention)
+- Money units are **not** uniform — verify the field before formatting it.
+  The loan funnel is whole **RUPEES** (`LoanApplication.amount`, `Offer.amount/emi/
+  processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`,
+  `User.monthlyIncome`) — `POST /applications` validates `min(25_000).max(1_500_000)`
+  and the app's slider is ₹25,000–₹15,00,000. **PAISE** applies to
+  `AnonymousLead.amount`, `CampaignContact.amount`, `ContextSession.amount`,
+  `PreApprovedPlan.maxAmount`, `MarketLoanOffer.maxAmount`.
+  In the dashboard use `inrR`/`inrCompactR` for rupees and `inr`/`inrCompact` for
+  paise. Full map + history: `docs/ADMIN_DASHBOARD_REVIEW.md` §5.1.
 - Tracking calls are fire-and-forget — never block UI
 
 ### Build progress

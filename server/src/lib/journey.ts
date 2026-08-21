@@ -313,6 +313,26 @@ export async function recordJourneyEvent(
 
   const advance = stage && isForwardStage(customer.currentStage, stage);
 
+  /**
+   * `lastActivityAt` means "when did the CUSTOMER last do something", so events we
+   * generate about them must not touch it.
+   *
+   * `stageStallDetector` writes a `system` / `stage_stalled` + `nudge_sent` pair every
+   * time it fires. Those were bumping `lastActivityAt` to the moment the job ran, which
+   * meant:
+   *   • the Customers list (ordered by `lastActivityAt desc`) was really ordered by
+   *     "who our cron touched most recently", and every stalled customer displayed a
+   *     last activity of seconds ago;
+   *   • `leadCaller` picks call targets by *oldest* `lastActivityAt`, so nudging a
+   *     customer pushed them to the back of the calling queue — the people being
+   *     chased were the least likely to be dialled.
+   *
+   * Stage advancement is deliberately still honoured for system events: a rejection or
+   * disbursal arriving from a webhook is a real funnel move even though the customer
+   * did not act.
+   */
+  const isCustomerActivity = input.channel !== 'system';
+
   const [event] = await prisma.$transaction([
     prisma.journeyEvent.create({
       data: {
@@ -328,7 +348,7 @@ export async function recordJourneyEvent(
     prisma.customer.update({
       where: { id: customerId },
       data: {
-        lastActivityAt: occurredAt,
+        ...(isCustomerActivity ? { lastActivityAt: occurredAt } : {}),
         ...(advance ? { currentStage: stage, stageEnteredAt: occurredAt } : {}),
         // A fresh forward step clears the nudge cooldown: they are moving again.
         ...(advance ? { lastNudgedAt: null } : {}),

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, API_BASE } from '@/lib/api';
 import { Card } from '@/components/ui';
-import { inr } from '@/lib/format';
+import { inrR } from '@/lib/format';
 
 interface Build {
   key: string; label: string; description: string; applicationId: string; url: string; context: boolean;
@@ -38,8 +38,12 @@ export default function AppBuilds() {
         body: JSON.stringify({
           name: name || undefined,
           product,
+          // ContextSession.amount is paise, and the operator types rupees — so the
+          // ×100 on the way out is correct and stays.
           amount: Math.round((Number(amount) || 0) * 100),
-          summary: `${name ? name + ' — ' : ''}interested in a ${inr(Math.round((Number(amount) || 0) * 100))} ${product.toLowerCase()} (generated from admin).`,
+          // The label, though, was `inr(rupees * 100)`: multiply to paise then divide
+          // straight back. `inrR` formats the rupee figure the operator typed.
+          summary: `${name ? name + ' — ' : ''}interested in a ${inrR(Number(amount) || 0)} ${product.toLowerCase()} (generated from admin).`,
           source: 'admin',
         }),
       });

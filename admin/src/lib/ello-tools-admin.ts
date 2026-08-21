@@ -14,16 +14,22 @@ export const PAGES: { id: string; path: string; label: string; aliases: string[]
   // Analytics was merged into Overview's "Trends" section, so its aliases live
   // here now — an operator saying "show analytics" should still land somewhere.
   { id: 'overview', path: '/overview', label: 'Master Overview', aliases: ['overview', 'home', 'dashboard', 'summary', 'main', 'start', 'analytics', 'charts', 'trends', 'reports', 'graphs'] },
-  { id: 'loans', path: '/loans', label: 'Loan Pipeline', aliases: ['loans', 'loan pipeline', 'pipeline', 'applications', 'loan applications'] },
+  { id: 'loans', path: '/loans', label: 'Loan Funnel', aliases: ['loans', 'loan funnel', 'funnel', 'loan pipeline', 'pipeline', 'applications', 'loan applications', 'stages', 'where are they'] },
   { id: 'downloads', path: '/downloads', label: 'App Downloads & Attribution', aliases: ['downloads', 'installs', 'app downloads', 'attribution'] },
-  // "customers" deliberately belongs to the 360 view, not /users. Since WS5 an
-  // operator saying "customers" means the cross-channel journey record, not the
-  // list of registered app accounts — /users keeps the app-account wording.
-  { id: 'users', path: '/users', label: 'All Users', aliases: ['users', 'app users', 'registered users', 'borrowers', 'all users', 'people', 'accounts'] },
+  // The standalone users list is retired, so "users" now resolves to the same
+  // cross-channel surface as "customers" rather than to a page that only redirects.
+  // Voice navigation must land somewhere real, not on an interstitial.
   { id: 'notifications', path: '/notifications', label: 'Notifications', aliases: ['notifications', 'alerts', 'notification'] },
   // ── WS5: unified customer journey ──
-  // Leads merged in here — a lead and a customer were always the same person.
-  { id: 'customers', path: '/customers', label: 'Customers', aliases: ['customers', 'customer 360', '360', 'leads', 'contacts', 'enquiries', 'contact us', 'lead list', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
+  // Leads, app users and phone-in customers are all the same person, so this is the
+  // single "who are they" surface and every one of those words routes here.
+  { id: 'customers', path: '/customers', label: 'All Users', aliases: ['customers', 'all users', 'users', 'app users', 'registered users', 'borrowers', 'people', 'accounts', 'customer 360', '360', 'leads', 'contacts', 'enquiries', 'contact us', 'lead list', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
+  // Not a nav destination — /users/[id] is reached from a person's 360 view. It is
+  // listed so `currentPageId` can still name the screen an operator is looking at;
+  // without an entry it fell back to "overview" and the voice agent would tell them
+  // they were on the dashboard home. Deliberately no aliases: the words "users" and
+  // "all users" belong to /customers above.
+  { id: 'app-account', path: '/users', label: 'App Account', aliases: [] },
   { id: 'campaigns', path: '/campaigns', label: 'Campaigns', aliases: ['campaigns', 'campaign', 'outbound', 'calling', 'call campaign', 'dialer', 'bulk calls'] },
   { id: 'integrations', path: '/integrations', label: 'Integrations', aliases: ['integrations', 'integration', 'settings', 'config', 'configuration', 'api keys', 'ello', 'upshot', 'providers'] },
 ];

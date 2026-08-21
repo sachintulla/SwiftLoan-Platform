@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { num, pct, dateStr } from '@/lib/format';
-import { DonutChart } from '@/components/charts';
+import { HBar } from '@/components/charts';
 import AppBuilds from '@/components/AppBuilds';
 
 interface Payload {
@@ -35,9 +35,18 @@ export default function DownloadsPage() {
         <StatCard label="Organic Installs" value={num(p?.organicInstalls)} icon="○" tone="grey" />
       </div>
 
+      {/* Ranked bars, not donuts.
+          "By platform" only ever has two slices, and "By source" has four that sit
+          close together — both cases make a reader compare arc lengths to answer a
+          question a sorted bar answers instantly. Same component the overview uses, so
+          the two pages read alike. */}
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16, alignItems: 'start' }}>
-        <Card title="By source">{p ? <DonutChart data={p.bySource} nameKey="source" valueKey="count" /> : <TableSkeleton rows={4} cols={2} />}</Card>
-        <Card title="By platform">{p ? <DonutChart data={p.byPlatform} nameKey="platform" valueKey="count" /> : <TableSkeleton rows={2} cols={2} />}</Card>
+        <Card title="By source" sub="Where installs came from, ranked">
+          {p ? <HBar data={p.bySource} nameKey="source" valueKey="count" /> : <TableSkeleton rows={4} cols={2} />}
+        </Card>
+        <Card title="By platform" sub="Android vs iOS">
+          {p ? <HBar data={p.byPlatform} nameKey="platform" valueKey="count" /> : <TableSkeleton rows={2} cols={2} />}
+        </Card>
       </div>
 
       <Card title="Recent installs">

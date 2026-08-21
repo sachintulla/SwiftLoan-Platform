@@ -1,7 +1,8 @@
 'use client';
 import React, { useState } from 'react';
 import useSWR from 'swr';
-import { swrFetcher, ApiError, getAdmin } from '@/lib/api';
+import { swrFetcher, ApiError } from '@/lib/api';
+import { useAdminSession } from '@/lib/useAdminSession';
 import { Card, FilterChips, Pagination, TableSkeleton, Empty, SearchBox } from '@/components/ui';
 import { timeAgo, num } from '@/lib/format';
 
@@ -28,7 +29,11 @@ function statusColor(s: number | null) {
 }
 
 export default function AuditPage() {
-  const role = getAdmin()?.role;
+  // Via the hook, not getAdmin() inline: this page gates its content on the role, so
+  // reading localStorage during render would make the server and first client render
+  // disagree. See useAdminSession.ts.
+  const { admin } = useAdminSession();
+  const role = admin?.role;
 
   const [action, setAction] = useState('');
   const [entity, setEntity] = useState('');

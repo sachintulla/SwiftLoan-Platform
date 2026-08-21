@@ -115,7 +115,8 @@ export default function Basic() {
       const { application }: any = await api.createApplication({
         amount: state.appAmount,
         tenureMonths: state.appTenure || 12,
-        loanType: 'personal',
+        // Was hardcoded 'personal', discarding the product picked on Home.
+        loanType: state.appLoanType,
       });
       set({ applicationId: application.id });
       // Persist the PAN captured on the first step now that the application exists.

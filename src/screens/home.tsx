@@ -9,9 +9,10 @@ import { api, isAuthed } from '../api/client';
 
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
+// `loanType` values must match the server's LoanType enum — see applications.routes.ts.
 const LOAN_TYPES = [
-  { icon: 'person', k: 'ltPersonal', s: 'ltPersonalSub' },
-  { icon: 'storefront', k: 'ltBusiness', s: 'ltBusinessSub' },
+  { icon: 'person', k: 'ltPersonal', s: 'ltPersonalSub', loanType: 'personal' },
+  { icon: 'storefront', k: 'ltBusiness', s: 'ltBusinessSub', loanType: 'business' },
 ];
 
 function initials(name: string) {
@@ -84,7 +85,9 @@ export default function Home() {
       </View>
       <View style={styles.loanTypeRow}>
         {LOAN_TYPES.map(l => (
-          <Pressable key={l.k} onPress={() => go('basicpan')} style={styles.loanTypeCard}>
+          // Record the choice, then navigate — otherwise the tap is indistinguishable
+          // from any other and the application is filed as 'personal'.
+          <Pressable key={l.k} onPress={() => { set({ appLoanType: l.loanType }); go('basicpan'); }} style={styles.loanTypeCard}>
             <View style={styles.loanTypeIcon}>
               <Icon name={l.icon} size={26} color="#fff" />
             </View>

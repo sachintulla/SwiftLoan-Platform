@@ -12,7 +12,32 @@ const prisma = new PrismaClient();
 const rand = (n: number) => Math.floor(Math.random() * n);
 const pick = <T>(arr: T[]): T => arr[rand(arr.length)];
 const daysAgo = (d: number) => new Date(Date.now() - d * 864e5 - rand(864e5));
-const rupees = (n: number) => n * 100; // paise
+
+/**
+ * Clamp a generated date to the present.
+ *
+ * Application dates were `signupDate + rand(5) days` and disbursal dates
+ * `applicationDate + 2 days`, neither bounded — so a user who signed up yesterday got
+ * an application dated four days from now, and the pipeline listed loans "applied
+ * 19 Aug 2026" on 18 Aug.
+ */
+const notFuture = (d: Date) => (d.getTime() > Date.now() ? new Date(Date.now() - rand(36e5)) : d);
+// Money units are NOT uniform across the schema, so the two helpers are named for
+// what they actually produce.
+//
+// The loan funnel stores whole RUPEES: the app's amount slider runs
+// ₹25,000–₹15,00,000 and `POST /applications` validates exactly that range, so
+// `LoanApplication.amount` — and everything derived from it (Offer, Loan, Repayment) —
+// is rupees. `User.monthlyIncome` is likewise a rupee salary.
+//
+// This helper used to multiply by 100 for those columns, which seeded loan amounts
+// 100× too large: the dashboard read ₹31.5 crore of disbursals across 6 personal
+// loans that are capped at ₹15L each.
+//
+// `AnonymousLead.amount` (and CampaignContact/ContextSession/MarketLoanOffer) really
+// are paise — see the schema comments and `parseAmount()` in campaigns.routes.ts.
+const rupees = (n: number) => n;
+const paise = (n: number) => n * 100;
 
 const FIRST = ['Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Sai', 'Reyansh', 'Ananya', 'Diya', 'Aadhya', 'Kiara', 'Ishaan', 'Kabir', 'Anaya', 'Priya', 'Rahul', 'Sneha', 'Karan', 'Meera', 'Rohan', 'Neha', 'Varun', 'Pooja', 'Amit'];
 const LAST = ['Sharma', 'Verma', 'Patel', 'Reddy', 'Nair', 'Iyer', 'Singh', 'Gupta', 'Rao', 'Kumar', 'Das', 'Bose', 'Mehta', 'Joshi'];
@@ -107,6 +132,9 @@ async function main() {
         email: `${fn.toLowerCase()}.${ln.toLowerCase()}.${i}@seed.swiftloan.local`,
         firstName: fn, lastName: ln, fullName: `${fn} ${ln}`,
         pincode: String(110000 + rand(90000)),
+        // `city` was left unset, so every app-origin Customer had a blank City column
+        // in the dashboard (the journey seed copies it from the user).
+        city: pick(CITIES),
         employment: pick(EMP as unknown as string[]) as never,
         monthlyIncome: rupees(25000 + rand(175000)),
         creditScore: 620 + rand(230),
@@ -121,7 +149,7 @@ async function main() {
       const status = weightedStatus();
       const amount = rupees(50000 + rand(950000));
       const loanType = pick(LOAN_TYPES);
-      const appCreated = new Date(created.getTime() + rand(5) * 864e5);
+      const appCreated = notFuture(new Date(created.getTime() + rand(5) * 864e5));
       const app = await prisma.loanApplication.create({
         data: {
           ref: nextRef('SL'), userId: user.id, loanType, amount,
@@ -157,7 +185,7 @@ async function main() {
         const partner = pick(partners);
         const apr = partner.baseApr + rand(3);
         const emi = Math.round((amount * (1 + apr / 100)) / app.tenureMonths);
-        const disbursedAt = new Date(appCreated.getTime() + 2 * 864e5);
+        const disbursedAt = notFuture(new Date(appCreated.getTime() + 2 * 864e5));
         const paidN = status === 'closed' ? app.tenureMonths : rand(app.tenureMonths);
         const loan = await prisma.loan.create({
           data: {
@@ -236,7 +264,7 @@ async function main() {
         name: Math.random() < 0.8 ? fn : null,
         phone: Math.random() < 0.7 ? `9${String(100000000 + rand(899999999))}` : null,
         city: pick(CITIES), productInterest: pick(LOAN_TYPES as unknown as string[]),
-        amount: rupees(50000 + rand(500000)),
+        amount: paise(50000 + rand(500000)),
         source: pick(SOURCES), campaignId: Math.random() < 0.5 ? `camp_${pick(['diwali', 'newyear', 'summer', 'referral'])}` : null,
         status: pick(['new', 'new', 'contacted', 'qualified', 'converted', 'lost']),
         createdAt: daysAgo(rand(30)),
@@ -245,8 +273,13 @@ async function main() {
   }
   console.log('[seed:ws4] leads: 30');
 
-  // ── 20 app downloads ──
-  for (let i = 0; i < 20; i++) {
+  // ── app downloads ──
+  // Must exceed the number of registered users: an install precedes a registration, so
+  // seeding 20 downloads against 50 users made the dashboard's app funnel report
+  // "installs → registered = 250%". Roughly 1.7 installs per registration is a
+  // believable drop-off for a lending app.
+  const DOWNLOAD_COUNT = Math.round(createdUsers.length * 1.7);
+  for (let i = 0; i < DOWNLOAD_COUNT; i++) {
     const source = pick(['organic', 'campaign', 'referral', 'partner']);
     const context = source !== 'organic' && Math.random() < 0.7;
     await prisma.appDownload.create({
@@ -259,12 +292,15 @@ async function main() {
       },
     });
   }
-  console.log('[seed:ws4] downloads: 20');
+  console.log(`[seed:ws4] downloads: ${DOWNLOAD_COUNT}`);
 
   // ── a few notifications ──
+  // Every row here lands in the overview's "Needs attention" work queue, so each one
+  // has to be something an operator can act on. A "Dashboard seeded / Demo data loaded
+  // successfully" row used to sit at the top of that queue — it told the operator
+  // nothing and pushed a genuinely stalled application down the list.
   await prisma.notification.createMany({
     data: [
-      { type: 'system', title: 'Dashboard seeded', body: 'Demo data loaded successfully.', severity: 'success' },
       { type: 'new_lead', title: 'New high-value lead', body: 'A ₹5,00,000 personal loan lead just came in.', severity: 'info' },
       { type: 'loan_stale', title: 'Application stalled', body: 'SL-800042 has been in review for 3 days.', severity: 'warning' },
     ],

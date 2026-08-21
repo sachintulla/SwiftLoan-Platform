@@ -76,6 +76,17 @@ export interface AppState {
   panConsent: boolean; panNumber: string;
   // detailed application
   appAmount: number; appTenure: number; appEmp: string; appResidence: string;
+  /**
+   * Which product the user picked on Home. Must be one of the server's LoanType enum
+   * values (personal | business | home | education | vehicle) — `POST /applications`
+   * validates it and defaults to 'personal'.
+   *
+   * Previously the Home cards navigated to `basicpan` without recording the choice and
+   * `basic.tsx` hardcoded `loanType: 'personal'`, so every application in production was
+   * a personal loan whatever the user tapped — and the dashboard's "Applications by
+   * product" chart could only ever have one bar.
+   */
+  appLoanType: string;
   appConsent: boolean; autoDebit: boolean;
   // fare / EMI calculator
   fareAmount: number; fareTenure: number; fareRate: number;
@@ -140,6 +151,7 @@ export const initialState: AppState = {
   optSalaryMode: '', optObligations: '', optProfType: '', optCompanyEmail: '', optBusinessEmail: '',
   panConsent: false, panNumber: '',
   appAmount: 150000, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
+  appLoanType: 'personal',
   appConsent: false, autoDebit: true,
   fareAmount: 150000, fareTenure: 24, fareRate: 16,
   payInput: '', payChecked: false,
@@ -169,13 +181,62 @@ type Action =
 const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
   language: 1, mobile: 2, otp: 3, permissions: 4, aboutyou: 5, home: 6,
 };
+/**
+ * Screen → funnel event name, in the CANONICAL journey vocabulary.
+ *
+ * These names are a contract with the backend, not free-form analytics labels: the
+ * server turns each one into a JourneyEvent via `server/src/lib/appEventMap.ts`, and
+ * the customer 360 view, the stage machine and every stall rule read those journey
+ * events. A name missing from that map yields telemetry ONLY — silently invisible to
+ * the funnel, which is how three of six stall rules once ended up unable to fire.
+ *
+ * When adding a screen here, add its name to `appEventMap.ts` in the same change.
+ * `CANONICAL_FUNNEL_EVENTS` below is asserted against this map in __tests__/store.test.ts.
+ *
+ * Two groups are deliberately NOT canonical journey events:
+ *   • `kyc_submitted` — fired by each individual document screen. Submitting one
+ *     document is not completing KYC, so the server maps it to KYC_STARTED. Emitting
+ *     `kyc_completed` here would instantly satisfy the "KYC started but never
+ *     finished" rule and hide the very person it exists to catch.
+ *   • `pan_submitted` / `repayment_viewed` / `credit_score_viewed` — genuine
+ *     telemetry, but not funnel steps. Promoting them would inflate the funnel.
+ */
 const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
-  basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
-  offers: 'offers_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
+  // was 'application_started' — starting the loan-basics form IS the start of the
+  // eligibility check, which is what the journey stage is called.
+  basic: 'eligibility_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
+  // was 'offers_viewed' — canonical is JOURNEY_EVENTS.OFFER_VIEWED.
+  offers: 'offer_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
   aadhaar: 'kyc_submitted', panv: 'kyc_submitted', bankv: 'kyc_submitted', selfie: 'kyc_submitted',
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
   creditscore: 'credit_score_viewed',
 };
+
+/**
+ * Funnel-event names the server is known to translate into journey events.
+ *
+ * Mirrored here rather than imported: `server/` is excluded from this project's
+ * tsconfig, jest config and Metro blockList on purpose, so the app cannot reach it.
+ * Kept in step with APP_EVENT_TO_JOURNEY + APP_COMPLETION_EVENTS in
+ * server/src/lib/appEventMap.ts — each side asserts against its own copy, so a rename
+ * on either side fails a test instead of quietly dropping events on the floor.
+ */
+export const CANONICAL_FUNNEL_EVENTS = [
+  'app_opened', 'language_selected',
+  'eligibility_started', 'application_started', 'prequalify_started',
+  'eligibility_completed',
+  'offer_viewed', 'offers_viewed', 'offer_selected',
+  'kyc_started', 'kyc_submitted', 'kyc_completed',
+  'application_submitted', 'loan_approved', 'loan_disbursed',
+] as const;
+
+/** Emitted for analytics only — intentionally invisible to the journey funnel. */
+export const TELEMETRY_ONLY_FUNNEL_EVENTS = [
+  'pan_submitted', 'repayment_viewed', 'credit_score_viewed',
+] as const;
+
+/** Exposed so the tests can assert the two lists above cover every screen mapping. */
+export const FUNNEL_EVENTS_FOR_TESTS = FUNNEL_EVENTS;
 
 /** WS5: one install report per app process (see the boot effect below). */
 let installReported = false;

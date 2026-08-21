@@ -1,10 +1,12 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { inr, dateStr } from '@/lib/format';
+// `LoanApplication.amount` is whole RUPEES (the create route validates ₹25k–₹15L), so
+// it needs `inrR`. `inr` divides by 100 and rendered a ₹1,50,000 application as ₹1,500.
+import { inrR, dateStr } from '@/lib/format';
 
 // Every ApplicationStatus, in funnel order. The mid-funnel states
 // (pan_pending / prequalifying / handoff) were previously unfilterable even
@@ -26,9 +28,26 @@ const STATUS_FILTERS = [
 
 interface Row { id: string; ref: string; amount: number; loanType: string; status: string; createdAt: string; user?: { fullName?: string; phone?: string }; loan?: { id: string } | null; _count?: { offers: number } }
 
+// `useSearchParams` opts the subtree out of static prerendering, so it has to sit
+// inside a Suspense boundary or `next build` fails on this route.
 export default function LoansPage() {
+  return (
+    <Suspense fallback={<div className="page"><TableSkeleton rows={8} cols={6} /></div>}>
+      <LoansList />
+    </Suspense>
+  );
+}
+
+function LoansList() {
   const router = useRouter();
-  const [status, setStatus] = useState<string>('');
+  // Seed the filter from `?status=` so the overview's pipeline rows can deep-link
+  // straight into the stage they represent. Without this the link landed on "All"
+  // and the operator had to re-pick the stage they had just clicked.
+  const params = useSearchParams();
+  const initialStatus = params.get('status') ?? '';
+  const [status, setStatus] = useState<string>(
+    STATUS_FILTERS.some((f) => f.key === initialStatus) ? initialStatus : '',
+  );
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
@@ -39,8 +58,8 @@ export default function LoansPage() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Loan Pipeline</h1>
-      <p className="page-sub">Every loan application with its current stage. Click a row for the full journey.</p>
+      <h1 className="page-title">Loan Funnel</h1>
+      <p className="page-sub">Every application and the stage it is sitting at now. Click a row for the full journey.</p>
 
       <Card>
         <div className="row between wrap" style={{ gap: 12, marginBottom: 14 }}>
@@ -58,7 +77,7 @@ export default function LoansPage() {
                     <td className="mono">{r.ref}</td>
                     <td>{r.user?.fullName || '—'}<div className="muted" style={{ fontSize: 11.5 }}>{r.user?.phone}</div></td>
                     <td style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.loanType}</td>
-                    <td className="mono">{inr(r.amount)}</td>
+                    <td className="mono">{inrR(r.amount)}</td>
                     <td className="mono">{r._count?.offers ?? 0}</td>
                     <td><StatusBadge status={r.status} /></td>
                     <td className="muted">{dateStr(r.createdAt)}</td>

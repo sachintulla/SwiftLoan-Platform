@@ -81,12 +81,19 @@ export interface StageProgress {
  * for stages that were actually reached — offering to call someone about a step
  * they never got to is nonsense.
  */
-export function JourneyTracker({ steps, currentStage, action, stalledMinutes }: {
+export function JourneyTracker({ steps, currentStage, action, stalledMinutes, terminal = false }: {
   steps: StageProgress[];
   currentStage?: string | null;
   action?: (step: StageProgress, isCurrent: boolean) => React.ReactNode;
   /** Minutes in the current stage — surfaced loudly, it is the cue to call. */
   stalledMinutes?: number | null;
+  /**
+   * True when the current stage ends the journey (disbursed / rejected / lost).
+   * Time spent in a terminal stage is not a stall, so the "Stuck here" warning is
+   * suppressed — a disbursed customer was previously flagged "Stuck here 12h" directly
+   * under a "Journey complete — no action" badge.
+   */
+  terminal?: boolean;
 }) {
   if (!steps.length) return <div className="empty">No journey recorded yet</div>;
   const currentIdx = steps.findIndex((s) => s.stage === currentStage);
@@ -155,7 +162,7 @@ export function JourneyTracker({ steps, currentStage, action, stalledMinutes }: 
                       ? 'Inferred — we know they got past this, but no event was recorded'
                       : 'Not reached yet'}
                 </div>
-                {isCurrent && stalledMinutes != null && stalledMinutes >= 15 && (
+                {isCurrent && !terminal && stalledMinutes != null && stalledMinutes >= 15 && (
                   <div
                     className={`badge ${stalledMinutes > 1440 ? 'tone-red' : 'tone-amber'}`}
                     style={{ marginTop: 6 }}

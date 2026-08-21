@@ -1,10 +1,11 @@
 'use client';
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   apiFetch, clearSession, getAdmin, getTotpEnabled, setTotpEnabled, setMustChangePassword, mustChangePassword,
 } from '@/lib/api';
 import { Card, StatusBadge } from '@/components/ui';
+import { useAdminSession } from '@/lib/useAdminSession';
 import { PasswordHints } from '@/components/PasswordHints';
 import { passwordOk } from '@/lib/password';
 
@@ -18,9 +19,13 @@ export default function AccountPage() {
 
 function AccountInner() {
   const params = useSearchParams();
-  const admin = getAdmin();
+  // Resolved after mount, never during render — see useAdminSession.ts. Reading these
+  // inline previously made the server emit "Change your password…" while the client
+  // emitted "Signed in as <email> · …", a text-content hydration mismatch.
+  const { admin, locked } = useAdminSession();
+
   // Either the login response or a 428 from any endpoint can force a rotation.
-  const forced = params.get('mustChange') === '1' || mustChangePassword();
+  const forced = params.get('mustChange') === '1' || locked;
 
   return (
     <div className="page">
@@ -140,7 +145,13 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
 }
 
 function TwoFactorCard() {
-  const [enabled, setEnabled] = useState<boolean>(() => getTotpEnabled());
+  // Same SSR caveat as above: a lazy `useState(() => getTotpEnabled())` initializer
+  // would run on the server (where localStorage does not exist) and disagree with the
+  // client. `totp` from the hook is resolved after mount; local state still tracks the
+  // enable/disable actions on this page.
+  const { totp } = useAdminSession();
+  const [enabled, setEnabled] = useState<boolean>(false);
+  useEffect(() => { setEnabled(totp); }, [totp]);
 
   // setup → enable
   const [setup, setSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);

@@ -1,33 +1,47 @@
 'use client';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
-import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
+import { swrFetcher, getToken, clearSession } from '@/lib/api';
+import { useAdminSession } from '@/lib/useAdminSession';
 import VoiceWidget from '@/components/VoiceWidget';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs'; superAdminOnly?: boolean }
 
+// Re-exported from its new home so existing imports keep working.
+export type { AdminInfo } from '@/lib/useAdminSession';
+
+// There were three people-shaped destinations — Customers, All Users and Loan
+// Pipeline — and an operator had to know which one answered their question. Now there
+// are two, split by QUESTION rather than by database table:
+//
+//   All Users   → WHO are they? Every person who has shown interest on any channel —
+//                 website and campaign leads included, not only those who registered
+//                 in the app (65 rows vs the old list's 50). Click through for the
+//                 360: journey, calls, conversations, enquiries and app account.
+//   Loan Funnel → WHERE are they? Every application and the stage it sits at now.
+//
+// The old /users list was a strict SUBSET of this one — every registered user has a
+// Customer row — so it now redirects here. Its per-person page survives as the
+// "App account" view, linked from the 360.
 const NAV: { section?: string; items: NavDef[] }[] = [
   { items: [
     { href: '/overview', label: 'Master Overview', icon: '▚' },
-    // Leads used to be a separate nav entry for the same people; it is merged in
-    // here (and /leads still redirects for old links).
-    { href: '/customers', label: 'Customers', icon: '◉' },
+    { href: '/customers', label: 'All Users', icon: '☺' },
+    { href: '/loans', label: 'Loan Funnel', icon: '₹' },
   ] },
   {
-    section: 'Funnel',
+    section: 'Acquisition',
     items: [
-      { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },
       { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
     ],
   },
   {
-    section: 'People & Insight',
+    section: 'Insight',
     items: [
-      { href: '/users', label: 'All Users', icon: '☺' },
       // Analytics merged into Master Overview's "Trends" section; /analytics
       // still resolves via a redirect for old links.
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
@@ -45,12 +59,14 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 ];
 
 const TITLES: Record<string, string> = {
-  '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
-  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
+  '/overview': 'Master Overview', '/loans': 'Loan Funnel',
+  '/leads': 'All Users', '/downloads': 'App Downloads & Attribution',
+  // /users redirects to /customers; only its detail page still renders, as the
+  // app-account view for one person.
+  '/users': 'App Account',
   '/analytics': 'Analytics', '/notifications': 'Notifications',
-  // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
-  // is now the single people surface and /leads maps to the same title.
-  '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
+  // The single people surface — leads, app users and phone-in customers all land here.
+  '/customers': 'All Users', '/campaigns': 'Campaigns', '/integrations': 'Configs',
   '/notifications-rules': 'Notification Rules',
   '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans',
 };
@@ -59,19 +75,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // Resolved after mount, never during render — see useAdminSession.ts. `pathname` is
+  // the refresh key so a fresh sign-in is picked up on the next navigation.
+  // Declared before the effect below because that effect depends on `locked`.
+  const { admin, locked, ready } = useAdminSession(pathname);
+
   useEffect(() => {
     if (!getToken()) { router.replace('/login'); return; }
     // 428 / login told us this admin must rotate their password — pin them to /account.
-    if (mustChangePassword() && !pathname.startsWith('/account')) {
+    // Gated on `ready` so the first pass (before localStorage has been read) cannot
+    // mistake "not looked yet" for "not locked".
+    if (ready && locked && !pathname.startsWith('/account')) {
       router.replace('/account?mustChange=1');
     }
-  }, [router, pathname]);
-
-  const locked = mustChangePassword();
+  }, [router, pathname, ready, locked]);
 
   const { data: realtime } = useSWR('/api/admin/dashboard/realtime', swrFetcher, { refreshInterval: 8000 });
   const rt = (realtime?.data ?? {}) as { unreadNotifs?: number; activeSessions?: number };
-  const admin = getAdmin();
 
   const title = TITLES[pathname] || (Object.keys(TITLES).find((k) => pathname.startsWith(k)) ? TITLES[Object.keys(TITLES).find((k) => pathname.startsWith(k))!] : 'SwiftLoan Admin');
 

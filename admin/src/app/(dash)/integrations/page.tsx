@@ -6,7 +6,10 @@
 // read this page top to bottom without knowing what any of that means.
 import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
+import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
+// Session state comes from the hook, never from calling getAdmin() inline — see the
+// comment in useAdminSession.ts for the three hydration bugs that caused.
+import { useAdminSession } from '@/lib/useAdminSession';
 import { Card, StatusBadge, TableSkeleton, Empty, FilterChips } from '@/components/ui';
 
 type Provider = 'ello' | 'upshot' | 'infobip';
@@ -342,16 +345,20 @@ function VoiceAgents() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const admin = getAdmin();
+  const { admin } = useAdminSession();
   const isSuper = admin?.role === 'super_admin';
 
   const rolesPayload = rolesRes?.data as { roles?: RoleRow[] } | RoleRow[] | undefined;
-  const roles: RoleRow[] = Array.isArray(rolesPayload) ? rolesPayload : (rolesPayload?.roles ?? []);
+  // `roles` is derived inside the memo, not outside it. Built outside, the `?? []`
+  // produced a fresh array identity on every render, so `useMemo([roles])` re-ran every
+  // time and memoised nothing. Depending on `rolesPayload` — which only changes when SWR
+  // returns new data — is what actually makes this cheap.
   const ordered = useMemo(() => {
+    const roles: RoleRow[] = Array.isArray(rolesPayload) ? rolesPayload : (rolesPayload?.roles ?? []);
     const known = ROLE_ORDER.map((r) => roles.find((x) => x.role === r)).filter(Boolean) as RoleRow[];
     const extra = roles.filter((x) => !(ROLE_ORDER as readonly string[]).includes(x.role));
     return [...known, ...extra];
-  }, [roles]);
+  }, [rolesPayload]);
 
   const agentsPayload = agentsRes?.data as { agents?: AgentRow[] } | AgentRow[] | undefined;
   const agents: AgentRow[] = Array.isArray(agentsPayload) ? agentsPayload : (agentsPayload?.agents ?? []);
@@ -601,7 +608,7 @@ function ApiKeysPanel() {
   // another key.
   const [justCreated, setJustCreated] = useState<{ name: string; key: string } | null>(null);
 
-  const admin = getAdmin();
+  const { admin } = useAdminSession();
   const isSuper = admin?.role === 'super_admin';
 
   const payload = data?.data as { keys?: ApiKeyRow[] } | undefined;
@@ -661,7 +668,7 @@ function ApiKeysPanel() {
           </div>
           <div className="row" style={{ marginTop: 10 }}>
             <button className="btn" style={{ padding: '4px 10px', fontSize: 11.5 }} onClick={() => setJustCreated(null)}>
-              Done — I've copied it
+              Done — I&apos;ve copied it
             </button>
           </div>
         </div>

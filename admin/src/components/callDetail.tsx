@@ -117,6 +117,67 @@ function CapturedDetails({ call }: { call: CallAttemptDetail }) {
   );
 }
 
+/* ── funnel position at the moment of the call ─────────────────────────────── */
+
+/**
+ * The funnel facts that were true when we dialled, shown ON the call.
+ *
+ * `callContext` holds everything the agent was handed, but it was only reachable
+ * through a collapsed "What the agent knew" toggle that dumped ~20 raw variable names
+ * in a key/value table. Reading a finished call, the first questions are "where were
+ * they in the funnel, what were we supposed to do, and had we spoken before" — so those
+ * are promoted here and the raw dump stays available underneath for debugging.
+ *
+ * Renders nothing when the call carries no funnel context, rather than showing a row of
+ * em-dashes.
+ */
+function FunnelAtCall({ context }: { context: unknown }) {
+  if (!isObj(context)) return null;
+  const c = context as Record<string, unknown>;
+
+  const stage = scalar(c.lead_stage);
+  const next = scalar(c.lead_next_action);
+  const purpose = scalar(c.agent_purpose);
+  const priorCount = scalar(c.conversation_count);
+  const source = scalar(c.lead_source);
+  const campaign = scalar(c.campaign) || scalar(c.lead_campaign);
+  // Only present when a stall rule triggered the call — it is the sharpest thing on
+  // the record: the exact step they reached and the one they never got to.
+  const lastStep = scalar(c.stall_last_step);
+  const expectedStep = scalar(c.stall_expected_step);
+
+  const facts: [string, string][] = [];
+  if (stage) facts.push(['Stage when called', stage]);
+  if (lastStep && expectedStep) facts.push(['Dropped off', `reached ${lastStep}, never ${expectedStep}`]);
+  if (next) facts.push(['Agent was to', next]);
+  if (purpose) facts.push(['Reason for call', humanStatus(purpose)]);
+  if (priorCount) facts.push(['Prior conversations', priorCount]);
+  if (source) facts.push(['Origin', source]);
+  if (campaign) facts.push(['Campaign', campaign]);
+
+  if (!facts.length) return null;
+
+  // Same visual pattern as "Captured on the call" above, so the two read as siblings.
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-dim)' }}>
+        Funnel at time of call
+      </div>
+      <p className="muted" style={{ fontSize: 11.5, margin: '2px 0 8px' }}>
+        Where they were and what the agent was briefed to do.
+      </p>
+      <div style={{ display: 'grid', gap: 0 }}>
+        {facts.map(([k, v], i) => (
+          <div key={k} className="row between" style={{ gap: 12, padding: '6px 0', borderBottom: i < facts.length - 1 ? '1px solid var(--border)' : undefined }}>
+            <span className="muted" style={{ fontSize: 12.5 }}>{k}</span>
+            <b style={{ fontSize: 12.5, textAlign: 'right' }}>{v}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── "what the agent knew" ────────────────────────────────────────────────── */
 
 function CallContext({ context }: { context: unknown }) {
@@ -294,6 +355,7 @@ export function CallAttemptCard({ call }: { call: CallAttemptDetail }) {
 
       <CapturedDetails call={call} />
       <Transcript transcript={call.transcript} />
+      <FunnelAtCall context={call.callContext} />
       <CallContext context={call.callContext} />
     </div>
   );

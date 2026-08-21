@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile } from '@/lib/api';
 import { Card, StatCard, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { dateStr, timeAgo, num } from '@/lib/format';
+// inrR, not inr: monthlyIncome is RUPEES (see docs/ADMIN_DASHBOARD_REVIEW.md §5.1).
+import { dateStr, timeAgo, num, inrCompactR } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
 import { ChannelChips } from '@/components/conversation';
 
@@ -25,6 +26,12 @@ interface CustomerRow {
   id: string; name?: string | null; phone?: string | null; firstSource?: string | null;
   campaignId?: string | null; currentStage: string; stageEnteredAt?: string | null;
   lastActivityAt?: string | null; stalledMinutes?: number | null;
+  /** The customer's own city. Previously the column read the conversation rollup instead. */
+  city?: string | null;
+  // App-account profile, null for a lead who never installed the app. These are the
+  // scannable facts the retired /users list used to provide.
+  creditScore?: number | null; monthlyIncome?: number | null;
+  applicationCount?: number | null; loanCount?: number | null;
 }
 
 /** Per-number conversation roll-up, joined in by phone. */
@@ -110,7 +117,7 @@ export default function CustomersPage() {
     <div className="page">
       <div className="row between wrap">
         <div>
-          <h1 className="page-title">Customers</h1>
+          <h1 className="page-title">All Users</h1>
           <p className="page-sub">
             Every person across website enquiries, campaigns, voice and the app — one row each, with where they are,
             how long they have been stuck and everything we have ever said to them.
@@ -176,6 +183,7 @@ export default function CustomersPage() {
           <div className="table-wrap"><table className="data">
             <thead><tr>
               <th>Name</th><th>Phone</th><th>City</th><th>Origin</th><th>Stage</th>
+              <th>Income</th><th>Credit</th><th>Apps</th>
               <th>Conversations</th><th>Last activity</th>
             </tr></thead>
             <tbody>{rows.map((c) => {
@@ -186,7 +194,10 @@ export default function CustomersPage() {
                 <tr key={c.id} onClick={() => router.push(`/customers/${c.id}`)}>
                   <td>{c.name || <span className="muted">Unknown</span>}</td>
                   <td className="mono">{c.phone || '—'}</td>
-                  <td>{conv?.city || <span className="muted">—</span>}</td>
+                  {/* The customer's own city first. This used to read only `conv.city`,
+                      which exists only for people in the conversation index — so most
+                      rows showed "—" even when a city was stored on the customer. */}
+                  <td>{c.city || conv?.city || <span className="muted">—</span>}</td>
                   <td><span className="badge tone-grey">{c.firstSource || 'unknown'}{c.campaignId ? ' · campaign' : ''}</span></td>
                   <td>
                     <div style={{ display: 'grid', gap: 3 }}>
@@ -199,6 +210,27 @@ export default function CustomersPage() {
                         {st == null ? '—' : `here ${stalledLabel(st)}`}
                       </span>
                     </div>
+                  </td>
+                  {/* Underwriting profile. "—" (not 0) when there is no app account: a
+                      website lead has no income on record, which is different from an
+                      income of zero. */}
+                  <td className="mono" style={{ fontSize: 12.5 }}>
+                    {c.monthlyIncome != null
+                      ? <span title={`${inrCompactR(c.monthlyIncome)} per month`}>{inrCompactR(c.monthlyIncome)}</span>
+                      : <span className="muted">—</span>}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12.5 }}>
+                    {c.creditScore != null ? (
+                      <span style={{ color: c.creditScore >= 750 ? 'var(--green)' : c.creditScore >= 650 ? 'var(--amber)' : 'var(--red)' }}>
+                        {c.creditScore}
+                      </span>
+                    ) : <span className="muted">—</span>}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12.5 }}
+                      title={c.applicationCount == null ? 'no app account' : `${c.applicationCount} application(s), ${c.loanCount ?? 0} loan(s)`}>
+                    {c.applicationCount == null
+                      ? <span className="muted">—</span>
+                      : <>{c.applicationCount}{(c.loanCount ?? 0) > 0 && <span className="muted"> · {c.loanCount}</span>}</>}
                   </td>
                   <td>
                     {!conv ? (

@@ -91,8 +91,14 @@ adminConversationsRouter.get('/:phone', ah(async (req, res) => {
     prisma.customer.findFirst({ where: { phone } }),
   ]);
 
-  if (!summary && !conversations.length) return fail(res, 404, 'No conversations for that number');
-
+  // "We have never spoken to this person" is a normal, expected state for a valid
+  // customer — not a missing resource. This used to 404, which meant:
+  //   • every website-only customer's detail page logged a console + server 404,
+  //     burying real errors in noise, and
+  //   • the dashboard had to regex the error message (/404|No conversations/i) to tell
+  //     "none yet" apart from "the request actually failed".
+  // Returning 200 with an empty history lets the client render its empty state from
+  // the data, and keeps a non-2xx meaning something genuinely went wrong.
   return ok(
     res,
     {

@@ -55,7 +55,12 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S17 panv', Panv, ['PAN Verification']],
   ['UC-S18 bankv', Bankv, ['Bank Verification']],
   ['UC-S19 selfie', Selfie, ['Live Selfie']],
-  ['UC-S20 status', Status, ['Business Expansion Loan']],
+  // The status screen is data-driven now — it renders "Loan Reference: <ref>" and
+  // "<Type> Loan" from the real application, so the old hardcoded "Business Expansion
+  // Loan" no longer exists anywhere. In the test environment there is no session and
+  // fetch is stubbed, so the honest thing to assert is the no-application state it
+  // actually shows.
+  ['UC-S20 status', Status, ['No application yet']],
   ['UC-S21 disbursed', Disbursed, ['Funds on the way!']],
   ['UC-S22 repay', Repay, ['Repayment Overview']],
   ['UC-S23 creditscore', CreditScore, ['Credit Score', 'Current CIBIL Score']],
@@ -65,9 +70,13 @@ const CASES: [string, React.ComponentType, string[]][] = [
 
 describe('Screen smoke tests (UC-S)', () => {
   it.each(CASES)('%s renders without crashing and shows key content', (_label, Comp, texts) => {
-    const { getByText, unmount } = renderWithProviders(<Comp />);
+    const { getAllByText, unmount } = renderWithProviders(<Comp />);
     for (const t of texts) {
-      expect(getByText(t)).toBeTruthy();
+      // getAllByText, not getByText: the bottom tab bar repeats several screen titles
+      // ("My Loans" is both the heading and the tab label), so getByText threw
+      // "Found multiple elements" on a screen that was rendering perfectly. A smoke
+      // test cares that the content is present, not that it appears exactly once.
+      expect(getAllByText(t).length).toBeGreaterThan(0);
     }
     unmount();
   });

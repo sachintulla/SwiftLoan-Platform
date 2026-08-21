@@ -11,6 +11,7 @@ import { prisma } from './prisma.js';
 import { canDialNow, isContactEligible, planNextAttempt } from './campaignSchedule.js';
 import { placeCall, runPool } from './dialer.js';
 import { resolveCustomer } from './journey.js';
+import { buildLeadCallContext, compactContext } from './callContext.js';
 
 /** Contacts considered per campaign per tick — bounds a tick's blast radius. */
 const MAX_PER_TICK = 200;
@@ -37,6 +38,20 @@ async function attemptContact(campaign: Campaign, contact: CampaignContact): Pro
       campaignId: campaign.code,
     });
 
+    // Campaign calls used to carry ONLY the spreadsheet row — name, product, amount,
+    // campaign, attempt. No funnel position, no next action, no history of what had
+    // already been said. So a bulk call dialled blind: the agent could not open with
+    // "you got as far as the offers screen" and, because `placeCall` persists this
+    // same object onto CallAttempt.callContext, the finished call record had no funnel
+    // detail either — "What the agent knew" was effectively empty for every campaign
+    // call. Website-lead and stall-triggered calls already built this context; the
+    // bulk path simply never did.
+    const context = customer
+      ? compactContext(
+          await buildLeadCallContext(customer, { purpose: 'campaign_outreach', now: new Date() }),
+        )
+      : {};
+
     const result = customer
       ? await placeCall({
           customerId: customer.id,
@@ -44,7 +59,11 @@ async function attemptContact(campaign: Campaign, contact: CampaignContact): Pro
           campaignId: campaign.id,
           assistantId: campaign.assistantId,
           metadata: {
-            name: contact.name ?? undefined,
+            ...context,
+            // The uploaded sheet is authoritative for what THIS campaign is pitching,
+            // so these deliberately override the equivalents derived from the
+            // customer's own history. `amount` stays paise, exactly as before.
+            name: contact.name ?? context.lead_name ?? undefined,
             product: contact.product ?? undefined,
             amount: contact.amount ?? undefined,
             campaign: campaign.name,

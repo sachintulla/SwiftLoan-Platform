@@ -44,6 +44,13 @@ export default function PreApprovedPlansPage() {
                 <td className="mono muted">{p.displayOrder}</td>
                 <td>
                   <div className="row" style={{ gap: 8 }}>
+                    {/* next/image is not usable here: `logoUrl` is entered per plan by
+                        an operator, so the host is arbitrary and could not be listed in
+                        `images.remotePatterns` ahead of time — next/image would throw on
+                        an unconfigured domain. A 20px decorative logo also gains nothing
+                        from optimisation. `alt=""` is deliberate: the lender name sits
+                        beside it, so announcing the logo would just repeat it. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     {p.logoUrl ? <img src={p.logoUrl} alt="" width={20} height={20} style={{ borderRadius: 5, objectFit: 'contain' }} /> : null}
                     {p.lenderName}
                   </div>

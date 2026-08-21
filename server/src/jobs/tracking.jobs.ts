@@ -6,6 +6,7 @@ import { campaignScheduler } from '../lib/campaignRunner.js';
 import { leadAutoCaller } from '../lib/leadCaller.js';
 import { immediateCallback } from '../lib/immediateCallback.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
+import { applicationStatusLabel, onboardingStepLabel } from '../lib/labels.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
@@ -57,7 +58,7 @@ export async function loanStaleDetector() {
   for (const a of stale) {
     await notifyOnce(
       'loan_stale', a.id,
-      `Application ${a.ref} stalled at "${a.status}"`,
+      `Application ${a.ref} stalled at ${applicationStatusLabel(a.status)}`,
       `${a.user?.fullName ?? a.user?.phone ?? 'A user'}'s application has not progressed in ${STALE_LOAN_HOURS}h.`,
       'warning',
     );
@@ -77,8 +78,8 @@ export async function onboardingStaleDetector() {
     if (done) continue;
     await notifyOnce(
       'onboarding_stale', s.userId,
-      `Onboarding abandoned at "${s.stepName}"`,
-      `A user has not finished onboarding for ${STALE_ONBOARDING_HOURS}h (last step: ${s.stepName}).`,
+      `Onboarding abandoned at ${onboardingStepLabel(s.stepName)}`,
+      `A user has not finished onboarding for ${STALE_ONBOARDING_HOURS}h (last step: ${onboardingStepLabel(s.stepName)}).`,
       'info',
     );
   }
