@@ -7,6 +7,7 @@ import { BackHandler } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
+import { BottomNav } from './src/components/Frame';
 import ContextBanner from './src/components/ContextBanner';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
@@ -40,6 +41,9 @@ export default function App() {
       <StoreProvider>
         <Router />
         <ContextBanner />
+        {/* Persistent tab bar + FAB (rendered above the screens): the bar slides
+            down/up and the FAB rolls between the notch and the corner. */}
+        <BottomNav />
         {SHOW_VOICE_FAB && <VoiceWidget />}
         <ConfirmationSheet />
         <BackHandlerBridge />

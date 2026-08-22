@@ -55,6 +55,14 @@ export function resolveScreenName(name: string): Screen | null {
 }
 export type Screen = (typeof SCREEN_NAMES)[number];
 
+// Screens that show the bottom tab bar. The tab bar and the assistant FAB both
+// key off this so they animate in lockstep: on these screens the tab bar is up
+// and the FAB nests in its notch; on any other (full) screen the tab bar slides
+// down and the FAB rolls out to the bottom-right corner.
+export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
+  'home', 'loans', 'fare', 'help', 'profile', 'explore',
+]);
+
 // Spelled out in full for the voice agent's page context — more reliable for
 // the model to act on than a bare 'en'/'hi'/'te' code.
 const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te: 'Telugu' };

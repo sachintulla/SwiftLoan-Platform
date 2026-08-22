@@ -21,7 +21,7 @@ import Svg, { Defs, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
-import { useStore, Screen as ScreenName } from '../state/store';
+import { useStore, Screen as ScreenName, TAB_SCREENS } from '../state/store';
 import { publishScreenGraph, registerTarget } from '../voice/actionRegistry';
 
 /** Pure so it's directly unit-testable without mounting a ScrollView. */
@@ -33,6 +33,11 @@ import { buildScreenGraph } from '../voice/screenGraph';
 import { agent } from '../voice';
 import { onAudioLevel } from '../voice/audio/nativeAudioBridge';
 import { vlog } from '../voice/log';
+
+// The assistant avatar is the single persistent floating FAB (VoiceWidget) that
+// animates into the tab-bar notch on tab screens. With this on, the tab bar
+// reserves the notch (no duplicate avatar) and the FAB owns the visual.
+const FAB_OWNS_NOTCH = true;
 
 /* ─────────────────────────────────────────────────────────────
  * App background — the layered radial + linear gradient ground used on all
@@ -224,7 +229,9 @@ export function Screen({
           </View>
         ) : null}
       </Bg>
-      {bottomNav ? <BottomNav /> : null}
+      {/* The tab bar is rendered once at the app root (App.tsx) as a persistent,
+          sliding element — no longer per-screen — so it can animate down/up
+          across navigations while the FAB rolls between corner and notch. */}
       <Toast />
     </View>
   );
@@ -369,13 +376,29 @@ export function BottomNav() {
     return () => cleanups.forEach(fn => fn());
   }, [state.screen, go]);
 
+  // Persistent bar: it's mounted for every screen and SLIDES DOWN off-screen on
+  // full (non-tab) screens, then springs back up on tab screens — the FAB
+  // (rendered above this) stays put and rolls to/from the notch independently.
+  const isTab = TAB_SCREENS.has(state.screen);
+  const hiddenY = H + (insets.bottom || 14) + 16;
+  const slide = useRef(new Animated.Value(isTab ? 0 : hiddenY)).current;
+  useEffect(() => {
+    Animated.spring(slide, { toValue: isTab ? 0 : hiddenY, useNativeDriver: true, friction: 9, tension: 70 }).start();
+  }, [isTab, hiddenY, slide]);
+
   return (
-    <View style={[styles.navWrap, { paddingBottom: insets.bottom || 14 }]} pointerEvents="box-none">
+    <Animated.View
+      style={[styles.navWrap, { paddingBottom: insets.bottom || 14, transform: [{ translateY: slide }] }]}
+      pointerEvents="box-none"
+    >
       <View style={{ width: W, height: H }}>
-        <Svg width={W} height={H + 8} style={StyleSheet.absoluteFill}>
-          {/* Manual soft drop-shadow: offset, semi-transparent copies behind the bar. */}
-          <Path d={barPath} fill="#0A3F41" opacity={0.05} transform="translate(0 5)" />
-          <Path d={barPath} fill="#0A3F41" opacity={0.05} transform="translate(0 2.5)" />
+        <Svg width={W} height={H + 24} style={StyleSheet.absoluteFill}>
+          {/* Manual soft drop-shadow: layered, offset, semi-transparent copies
+              behind the bar — tinted with the app's teal so it matches the theme. */}
+          <Path d={barPath} fill={colors.primary} opacity={0.06} transform="translate(0 14)" />
+          <Path d={barPath} fill={colors.primary} opacity={0.08} transform="translate(0 10)" />
+          <Path d={barPath} fill={colors.primary} opacity={0.10} transform="translate(0 6)" />
+          <Path d={barPath} fill={colors.primary} opacity={0.12} transform="translate(0 3)" />
           {/* The bar itself — hairline stroke so it always separates from the screen. */}
           <Path d={barPath} fill="#FFFFFF" stroke={colors.line} strokeWidth={1} />
         </Svg>
@@ -387,7 +410,7 @@ export function BottomNav() {
           )}
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -462,18 +485,21 @@ function SupportTab() {
 
   return (
     <Pressable accessibilityLabel="Support" onPress={onPress} style={styles.navTab}>
+      {/* The raised Ruby avatar is the persistent floating FAB (VoiceWidget),
+          which rolls INTO this notch on tab screens — so the tab only reserves
+          the notch tap-area + label here (no duplicate avatar). */}
+      {FAB_OWNS_NOTCH ? (
+        <View style={styles.supportWrap} />
+      ) : (
       <View style={styles.supportWrap}>
         {live ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
-        {/* Connecting spinner — a rotating arc around the avatar. */}
         {connecting ? <Animated.View style={[styles.supportSpinner, { transform: [{ rotate }] }]} pointerEvents="none" /> : null}
-        {/* Borderless portrait, nested in the notch — the agent reads clearly.
-            Scales/bobs with her voice while speaking (audio-driven talking motion). */}
         <Animated.View style={[styles.supportAvatar, { transform: [{ scale: talkScale }, { translateY: talkBob }] }]}>
           <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
         </Animated.View>
-        {/* Online dot — only while a session is active. */}
         {online ? <View style={[styles.supportDot, { backgroundColor: live ? colors.green : colors.amber }]} /> : null}
       </View>
+      )}
       <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>
         {connecting
           ? 'Connecting…'

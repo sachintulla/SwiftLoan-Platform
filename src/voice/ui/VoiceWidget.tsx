@@ -202,6 +202,15 @@ export default function VoiceWidget() {
   const [dragX, setDragX] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
 
+  // Position morph. `move` 0 = floating bottom-right (full/non-tab screens),
+  // 1 = nested in the tab-bar notch (tab screens). A single persistent FAB
+  // springs + rolls between the two while the tab bar itself slides down/up.
+  const isTab = SCREENS_WITH_BOTTOM_NAV.has(state.screen);
+  const move = useRef(new Animated.Value(isTab ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
+  }, [isTab, move]);
+
   useEffect(() => {
     loadVoiceFabSide().then(saved => { if (saved) setSide(saved); });
   }, []);
@@ -241,9 +250,8 @@ export default function VoiceWidget() {
   }, [status, pulse]);
 
   if (!ELLO_CONFIGURED) return null;
-  // On bottom-nav screens the assistant lives in the tab bar (the Ruby tab), so
-  // the floating FAB only shows on the pre-dashboard screens (onboarding/funnel).
-  if (SCREENS_WITH_BOTTOM_NAV.has(state.screen)) return null;
+  // Rendered on every screen now — it animates between the tab-bar notch and the
+  // floating bottom-right corner instead of being a separate per-screen element.
 
   // 'connecting' counts as active so a second tap hangs up mid-dial rather than
   // being ignored (agent.start() unwinds via its start-token check).
@@ -283,13 +291,34 @@ export default function VoiceWidget() {
   // Pinned to a fixed bottom-right spot on every screen that shows it, so the
   // assistant never appears to "move" between screens. (Dragging is disabled —
   // it caused the button to jump sides across navigations.)
+  // Anchor maths (transforms → native driver, 60fps). The wrap is pinned at the
+  // floating bottom-right anchor; `move` translates it up+left into the tab-bar
+  // notch centre and rolls it a full turn along the way.
+  // The FAB circle is centred inside a HALO_SIZE-wide zone that's right-aligned
+  // at EDGE_MARGIN — so its true centre is measured with HALO_SIZE/2, not
+  // FAB_SIZE/2. Using the wrong half-width left it ~10px off-centre in the notch.
+  const floatCenterX = screenWidth - EDGE_MARGIN - HALO_SIZE / 2;
+  const deltaToCentreX = screenWidth / 2 - floatCenterX; // negative → left toward notch
+  const floatCenterYFromBottom = 24 + insets.bottom + HALO_SIZE / 2;
+  const notchCenterYFromBottom = (insets.bottom || 14) + TAB_NOTCH_CENTER;
+  const translateX = move.interpolate({ inputRange: [0, 1], outputRange: [0, deltaToCentreX] });
+  const translateY = move.interpolate({ inputRange: [0, 1], outputRange: [0, -(notchCenterYFromBottom - floatCenterYFromBottom)] });
+  // Roll: a full turn as it travels out to the corner (0 in the notch → 360 at
+  // the corner), so it visibly "rolls" to its spot and unrolls on the way back.
+  const roll = move.interpolate({ inputRange: [0, 1], outputRange: ['-360deg', '0deg'] });
+  // Grow to the old notch-avatar size when nested; normal size when floating.
+  const sizeScale = move.interpolate({ inputRange: [0, 1], outputRange: [1, NOTCH_SCALE] });
+  // Always show the Ruby avatar — same face in the notch and floating in the
+  // corner — so the FAB is visually consistent across every screen.
+  const showRuby = true;
+
   return (
-    <View
+    <Animated.View
       pointerEvents="box-none"
-      style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom }]}
+      style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom, transform: [{ translateX }, { translateY }] }]}
     >
-      {/* Always-visible status so the user knows when it's connected & their turn. */}
-      {active ? (
+      {/* Status pill only while floating (on tab screens the tab label carries it). */}
+      {active && !isTab ? (
         <View style={styles.statusPill} pointerEvents="none">
           <View style={[styles.statusDot, { backgroundColor: status === 'listening' ? colors.green : accent }]} />
           <Text style={styles.statusText}>{a11yLabel}</Text>
@@ -300,11 +329,9 @@ export default function VoiceWidget() {
         <Ripple active={showBars} delay={0} color={accent} />
         <Ripple active={showBars} delay={550} color={accent} />
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
-          <Animated.View style={[styles.fabRing, { transform: [{ scale: pulse }] }]}>
+          <Animated.View style={[styles.fabRing, { transform: [{ scale: Animated.multiply(pulse, sizeScale) }, { rotate: roll }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
-              {active ? (
-                // Same pattern as the tab-bar Ruby FAB: headphones at idle, and
-                // when the session is live Ruby's portrait takes over the circle.
+              {showRuby ? (
                 <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabAvatar} resizeMode="cover" />
               ) : (
                 <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
@@ -313,12 +340,20 @@ export default function VoiceWidget() {
           </Animated.View>
         </Pressable>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
+// Vertical centre of the tab-bar notch, measured up from just above the home
+// indicator (i.e. excluding insets.bottom). Tuned so the FAB nests in the notch
+// exactly where the old raised avatar sat. (Bar height is 66.)
+const TAB_NOTCH_CENTER = 65;
 // iOS renders this FAB visibly larger than Android at the same point size.
 const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
+// The original notch avatar was ~70pt; scale the FAB up to that size when it's
+// nested in the notch so it matches the previous look, and back to normal when
+// floating in the corner.
+const NOTCH_SCALE = 70 / FAB_SIZE;
 const MIC_ICON_SIZE = Platform.OS === 'ios' ? 21 : 25;
 const RIPPLE_SIZE = FAB_SIZE + 8;
 const HALO_SIZE = FAB_SIZE + 20;
