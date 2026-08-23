@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { Screen, AppHeader } from '../components/Frame';
+import { Screen } from '../components/Frame';
+import { LoginHero } from '../components/LoginHero';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
@@ -102,18 +103,10 @@ export default function Mobile() {
   const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
   return (
-    <Screen scroll padded={false}>
-      <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('intro')} title={<View />} />
-      </View>
+    <Screen variant="plain" scroll padded={false} contentStyle={{ paddingTop: 0 }}>
+      <LoginHero onBack={() => go('intro')} />
 
-      <View style={{ paddingHorizontal: 24, alignItems: 'center', marginTop: 6, marginBottom: 18 }}>
-        <View style={styles.phoneCircle}>
-          <Icon name="stay_current_portrait" size={30} color={colors.primary} />
-        </View>
-      </View>
-
-      <View style={{ paddingHorizontal: 24 }}>
+      <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
           <>
             <Text style={styles.h1}>{t.mobileTitle}</Text>
@@ -220,14 +213,6 @@ export default function Mobile() {
 }
 
 const styles = StyleSheet.create({
-  phoneCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: '#E1F3F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   h1: { ...font(800), fontSize: 24, letterSpacing: -0.5, color: colors.text },
   sub: { ...font(400), fontSize: 14, color: '#6E8080', marginTop: 6, lineHeight: 20 },
   label: { fontSize: 13, color: colors.textMid, marginTop: 20, marginBottom: 8 },
