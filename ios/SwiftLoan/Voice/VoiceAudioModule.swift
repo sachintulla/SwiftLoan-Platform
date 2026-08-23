@@ -35,6 +35,12 @@ class VoiceAudioModule: RCTEventEmitter {
 
   override static func requiresMainQueueSetup() -> Bool { true }
   override func supportedEvents() -> [String]! { ["onAudioChunk", "onAudioLevel"] }
+
+  // Expose the app bundle path so JS can play bundled UI sound effects by
+  // absolute file path in release builds (where Metro no longer serves assets).
+  override func constantsToExport() -> [AnyHashable: Any]! {
+    return ["bundlePath": Bundle.main.bundlePath]
+  }
   override func startObserving() { hasListeners = true }
   override func stopObserving() { hasListeners = false }
 

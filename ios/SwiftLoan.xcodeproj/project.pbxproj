@@ -9,17 +9,22 @@
 /* Begin PBXBuildFile section */
 		0C80B921A6F3F58F76C31292 /* libPods-SwiftLoan.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-SwiftLoan.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		28D7A41D8ED3BFB24F42406A /* fab_tap.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = FF09C5AB10E0D506B9DE1D39 /* fab_tap.mp3 */; };
 		38A8618591D14AECB95C8020 /* Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 595CC90375074CB8B15A79D5 /* Inter-Medium.ttf */; };
+		48B2FCA8C1E908F44B433B0E /* intro.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = C1C0DF9F6184EFD2EA9D602E /* intro.mp3 */; };
 		54B71656EDE54BC88FB22C83 /* Inter-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4BF0433C56D94197BDD9A67E /* Inter-Bold.ttf */; };
 		5594409D09814CB3AE09C4D0 /* Inter-ExtraBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 0EC11AE0BF424BCA870E7D79 /* Inter-ExtraBold.ttf */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		A617A6298A8141618FF5E5DF /* MaterialSymbolsOutlined.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 61E6965BD16848979783CE74 /* MaterialSymbolsOutlined.ttf */; };
 		A8BD834A7EC64CBAB5ACA118 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */; };
+		AD6F89416F9E864AD1FC3614 /* fab_undock.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 680DC750190DEAB93D5B12C1 /* fab_undock.mp3 */; };
 		B5A3D717026D42C8993D02CD /* Inter-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */; };
 		CA9AB8BC0E2265FEE0562B7B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		D5EDCF526894B8C658B65CC7 /* fab_dock.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 3905EF902C9CD907640153F6 /* fab_dock.mp3 */; };
 		F00DFACE00000000000B0001 /* VoiceAudioModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0001 /* VoiceAudioModule.swift */; };
 		F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0002 /* VoiceAudioModule.m */; };
+		F2D4C58138FC822D88AAF5A2 /* welcome.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 5E7A588B63E02EC01E4D425D /* welcome.mp3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,19 +33,24 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = SwiftLoan/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = SwiftLoan/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = SwiftLoan/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		3905EF902C9CD907640153F6 /* fab_dock.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = fab_dock.mp3; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-SwiftLoan.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SwiftLoan.debug.xcconfig"; path = "Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan.debug.xcconfig"; sourceTree = "<group>"; };
 		4BF0433C56D94197BDD9A67E /* Inter-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Bold.ttf"; path = "../assets/fonts/Inter-Bold.ttf"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-SwiftLoan.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SwiftLoan.release.xcconfig"; path = "Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan.release.xcconfig"; sourceTree = "<group>"; };
 		595CC90375074CB8B15A79D5 /* Inter-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Medium.ttf"; path = "../assets/fonts/Inter-Medium.ttf"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-SwiftLoan.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-SwiftLoan.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E7A588B63E02EC01E4D425D /* welcome.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = welcome.mp3; sourceTree = "<group>"; };
 		61E6965BD16848979783CE74 /* MaterialSymbolsOutlined.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = MaterialSymbolsOutlined.ttf; path = ../assets/fonts/MaterialSymbolsOutlined.ttf; sourceTree = "<group>"; };
+		680DC750190DEAB93D5B12C1 /* fab_undock.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = fab_undock.mp3; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = SwiftLoan/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = SwiftLoan/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		C1C0DF9F6184EFD2EA9D602E /* intro.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = intro.mp3; sourceTree = "<group>"; };
 		E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Regular.ttf"; path = "../assets/fonts/Inter-Regular.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F00DFACE00000000000A0001 /* VoiceAudioModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceAudioModule.swift; path = SwiftLoan/Voice/VoiceAudioModule.swift; sourceTree = "<group>"; };
 		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = SwiftLoan/Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
 		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
+		FF09C5AB10E0D506B9DE1D39 /* fab_tap.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = fab_tap.mp3; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +75,7 @@
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				F00DFACE00000000000A0001 /* VoiceAudioModule.swift */,
 				F00DFACE00000000000A0002 /* VoiceAudioModule.m */,
+				96ECD7F9AD1D18A7187FB792 /* Sounds */,
 			);
 			name = SwiftLoan;
 			sourceTree = "<group>";
@@ -106,6 +117,19 @@
 				13B07F961A680F5B00A75B9A /* SwiftLoan.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		96ECD7F9AD1D18A7187FB792 /* Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				3905EF902C9CD907640153F6 /* fab_dock.mp3 */,
+				680DC750190DEAB93D5B12C1 /* fab_undock.mp3 */,
+				FF09C5AB10E0D506B9DE1D39 /* fab_tap.mp3 */,
+				5E7A588B63E02EC01E4D425D /* welcome.mp3 */,
+				C1C0DF9F6184EFD2EA9D602E /* intro.mp3 */,
+			);
+			name = Sounds;
+			path = Sounds;
 			sourceTree = "<group>";
 		};
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
@@ -202,6 +226,11 @@
 				5594409D09814CB3AE09C4D0 /* Inter-ExtraBold.ttf in Resources */,
 				B5A3D717026D42C8993D02CD /* Inter-SemiBold.ttf in Resources */,
 				CA9AB8BC0E2265FEE0562B7B /* PrivacyInfo.xcprivacy in Resources */,
+				D5EDCF526894B8C658B65CC7 /* fab_dock.mp3 in Resources */,
+				AD6F89416F9E864AD1FC3614 /* fab_undock.mp3 in Resources */,
+				28D7A41D8ED3BFB24F42406A /* fab_tap.mp3 in Resources */,
+				F2D4C58138FC822D88AAF5A2 /* welcome.mp3 in Resources */,
+				48B2FCA8C1E908F44B433B0E /* intro.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

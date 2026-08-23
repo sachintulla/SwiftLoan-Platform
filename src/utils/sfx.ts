@@ -9,12 +9,15 @@
 // Assets are `require()`d so Metro bundles them. In debug they're served over
 // Metro's HTTP asset server (nitro-sound plays that URL directly); the release
 // bundling path is handled at build time.
-import { Image, Platform } from 'react-native';
+import { Image, NativeModules, Platform } from 'react-native';
 import { createSound } from 'react-native-nitro-sound';
 import { vlog } from '../voice/log';
 
 export type SfxName = 'dock' | 'undock' | 'tap' | 'intro' | 'welcome';
 
+// Debug fallback: Metro serves these require()'d assets over HTTP. In release
+// builds Metro is gone, so we play the natively-bundled copies instead (Android
+// res/raw, iOS app bundle) — see FILES + uriFor below.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const SOURCES: Record<SfxName, number> = {
   dock: require('../../assets/sfx/fab_dock.mp3'),
@@ -24,6 +27,19 @@ const SOURCES: Record<SfxName, number> = {
   // Spoken brand welcome ("Welcome to SwiftLoan") with a soft chime lead-in.
   welcome: require('../../assets/sfx/welcome.mp3'),
 };
+
+// Native resource base names (Android res/raw name; iOS bundled file stem).
+const FILES: Record<SfxName, string> = {
+  dock: 'fab_dock',
+  undock: 'fab_undock',
+  tap: 'fab_tap',
+  intro: 'intro',
+  welcome: 'welcome',
+};
+
+const ANDROID_APP_ID = 'com.swiftloan.ai';
+// iOS app bundle path, exposed by the native VoiceAudioModule.
+const IOS_BUNDLE_PATH: string | undefined = NativeModules?.VoiceAudioModule?.bundlePath;
 
 // Relative volume per effect (0…1). The morph whooshes sit low so they read as
 // a subtle accent, not an alert; the tap is barely-there; the intro brand chime
@@ -48,6 +64,14 @@ const players: Partial<Record<SfxName, Player>> = {};
 
 function uriFor(name: SfxName): string | undefined {
   try {
+    // Prefer the natively-bundled copy so it works in release (no Metro).
+    if (Platform.OS === 'android') {
+      return `android.resource://${ANDROID_APP_ID}/raw/${FILES[name]}`;
+    }
+    if (Platform.OS === 'ios' && IOS_BUNDLE_PATH) {
+      return `${IOS_BUNDLE_PATH}/${FILES[name]}.mp3`;
+    }
+    // Fallback (e.g. iOS without the native constant): Metro-served asset (debug).
     const src = Image.resolveAssetSource(SOURCES[name]);
     return src?.uri;
   } catch {
