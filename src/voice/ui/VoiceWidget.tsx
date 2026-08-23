@@ -317,12 +317,13 @@ export default function VoiceWidget() {
       playFabOff();
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
-      // "Ruby is getting ready" — let it play BEFORE agent.start() grabs the
-      // mic/playAndRecord session (which would otherwise cut the cue off).
+      // "Hi, I'm Ruby. I'm connecting now… I'll be with you in a moment." Let the
+      // full line (~4.5s) play before agent.start() grabs the mic/playAndRecord
+      // session, which would otherwise cut the cue off mid-sentence.
       playFabConnect();
       setTimeout(() => {
         agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
-      }, 1500);
+      }, 4300);
     }
   };
 
