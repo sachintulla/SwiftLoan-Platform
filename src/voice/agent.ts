@@ -41,6 +41,10 @@ export class ElloAgent {
   private pageContextFn: PageContextProvider | null = null;
   private pageContextFlushScheduled = false;
   private audioOutCount = 0;
+  // Fallback so the FAB never gets stuck on "speaking": if audio chunks stop
+  // arriving and no 'voice-audio-stream-end' follows (server timing, or the
+  // audio session getting reconfigured), drop back to "listening".
+  private speakingTimer: ReturnType<typeof setTimeout> | null = null;
   // Generation counter for start(). start() awaits a REST call and a WebSocket
   // handshake, during which this.socket is still null — so a stop() in that window
   // used to cancel nothing, and the in-flight start would then bring the session up
@@ -246,6 +250,7 @@ export class ElloAgent {
   // finalized call log. socket.close() on an already-closing/closed socket is a
   // safe no-op, so this is fine to call unconditionally from either path.
   private teardown(): void {
+    if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;
@@ -275,8 +280,16 @@ export class ElloAgent {
         }
         this.player.playChunk(msg.audio);
         this.setStatus('speaking');
+        // Re-arm the fallback: after the last chunk, if no stream-end arrives,
+        // return to "listening" so the FAB doesn't stay stuck on "speaking".
+        if (this.speakingTimer) clearTimeout(this.speakingTimer);
+        this.speakingTimer = setTimeout(() => {
+          this.speakingTimer = null;
+          if (this.status === 'speaking' && this.inflight.size === 0) this.setStatus('listening');
+        }, 1200);
         break;
       case 'voice-audio-stream-end':
+        if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
         if (this.inflight.size === 0) this.setStatus('listening');
         break;
       case 'voice-audio-purge':
@@ -285,6 +298,7 @@ export class ElloAgent {
         // handled by the platform AEC in VoiceAudioModule, not by muting, so the
         // user can always interrupt.
         vlog('RECV voice-audio-purge — barge-in, clearing playback');
+        if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
         this.player.purge();
         this.setStatus('listening');
         break;
