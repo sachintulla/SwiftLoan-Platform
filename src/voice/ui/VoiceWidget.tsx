@@ -313,9 +313,10 @@ export default function VoiceWidget() {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
-      // "Thank you", then tear down (stop releases the audio session).
-      playFabOff();
+      // Tear down first (releases the mic/playAndRecord session), then play the
+      // full "Thanks for chatting…" line so the teardown can't clip it.
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
+      setTimeout(() => playFabOff(), 250);
     } else {
       // "Hi, I'm Ruby. I'm connecting now… I'll be with you in a moment." Let the
       // full line (~4.5s) play before agent.start() grabs the mic/playAndRecord
