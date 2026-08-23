@@ -25,6 +25,10 @@ const EDGE_MARGIN = 32;
 // close to the bottom edge like a normal FAB, not float above empty space.
 const SCREENS_WITH_BOTTOM_NAV = new Set(['explore', 'fare', 'help', 'home', 'loans', 'profile']);
 
+// Plays the FAB's grand entrance only once per app session (survives navigation;
+// resets on a full JS reload).
+let fabEntrancePlayed = false;
+
 // The button itself is always the same brand gradient — only the bars (and
 // the fast ripple while active) change color, so the circle reads as one
 // consistent "this is the assistant" affordance rather than something that
@@ -203,6 +207,24 @@ export default function VoiceWidget() {
   const [dragX, setDragX] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
 
+  // One-time GRAND ENTRANCE the first time the FAB appears: it springs in from
+  // nothing with a spin + overshoot while a ring bursts out around it.
+  const entrance = useRef(new Animated.Value(fabEntrancePlayed ? 1 : 0)).current;
+  const burst = useRef(new Animated.Value(fabEntrancePlayed ? 1 : 0)).current;
+  useEffect(() => {
+    // Hold the FAB hidden on the splash; play the grand entrance the first time
+    // the user lands on a real screen, so it's actually seen.
+    if (fabEntrancePlayed || state.screen === 'splash') return;
+    fabEntrancePlayed = true;
+    Animated.sequence([
+      Animated.delay(320),
+      Animated.parallel([
+        Animated.spring(entrance, { toValue: 1, friction: 5, tension: 65, useNativeDriver: true }),
+        Animated.timing(burst, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ]).start();
+  }, [state.screen, entrance, burst]);
+
   // Position morph. `move` 0 = floating bottom-right (full/non-tab screens),
   // 1 = nested in the tab-bar notch (tab screens). A single persistent FAB
   // springs + rolls between the two while the tab bar itself slides down/up.
@@ -318,6 +340,12 @@ export default function VoiceWidget() {
   const roll = move.interpolate({ inputRange: [0, 1], outputRange: ['-360deg', '0deg'] });
   // Grow to the old notch-avatar size when nested; normal size when floating.
   const sizeScale = move.interpolate({ inputRange: [0, 1], outputRange: [1, NOTCH_SCALE] });
+  // Grand-entrance transforms.
+  const entranceScale = entrance.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const entranceRotate = entrance.interpolate({ inputRange: [0, 1], outputRange: ['-220deg', '0deg'] });
+  const entranceOpacity = entrance.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 1, 1] });
+  const burstScale = burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.8] });
+  const burstOpacity = burst.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.5, 0] });
   // Always show the Ruby avatar — same face in the notch and floating in the
   // corner — so the FAB is visually consistent across every screen.
   const showRuby = true;
@@ -339,11 +367,16 @@ export default function VoiceWidget() {
         </View>
       ) : null}
       <View style={styles.fabZone}>
+        {/* Grand-entrance burst ring — expands + fades once as the FAB pops in. */}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.entranceBurst, { opacity: burstOpacity, transform: [{ scale: burstScale }] }]}
+        />
         <IdleHalo />
         <Ripple active={showBars} delay={0} color={accent} />
         <Ripple active={showBars} delay={550} color={accent} />
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
-          <Animated.View style={[styles.fabRing, { transform: [{ scale: Animated.multiply(pulse, sizeScale) }, { rotate: roll }] }]}>
+          <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale) }, { rotate: roll }, { rotate: entranceRotate }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
               {showRuby ? (
                 <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabAvatar} resizeMode="cover" />
@@ -394,6 +427,14 @@ const styles = StyleSheet.create({
   statusText: { ...font(600), fontSize: 11.5, color: '#fff' },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
+  entranceBurst: {
+    position: 'absolute',
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
+    borderWidth: 3,
+    borderColor: colors.primary,
+  },
   halo: {
     position: 'absolute',
     width: HALO_SIZE,
