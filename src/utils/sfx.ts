@@ -16,7 +16,9 @@ import { vlog } from '../voice/log';
 export type SfxName =
   | 'dock' | 'undock' | 'tap' | 'intro' | 'welcome'
   // Spoken female (Tara) voice cues for the assistant FAB.
-  | 'here' | 'back' | 'connecting' | 'bye';
+  | 'here' | 'back' | 'connecting' | 'bye'
+  // Short natural vocalizations for the FAB moving around.
+  | 'mmhmm' | 'aha' | 'oh' | 'oof' | 'hup' | 'phew';
 
 // Debug fallback: Metro serves these require()'d assets over HTTP. In release
 // builds Metro is gone, so we play the natively-bundled copies instead (Android
@@ -33,6 +35,12 @@ const SOURCES: Record<SfxName, number> = {
   back: require('../../assets/sfx/fab_back.mp3'),
   connecting: require('../../assets/sfx/fab_connecting.mp3'),
   bye: require('../../assets/sfx/fab_bye.mp3'),
+  mmhmm: require('../../assets/sfx/voc_mmhmm.mp3'),
+  aha: require('../../assets/sfx/voc_aha.mp3'),
+  oh: require('../../assets/sfx/voc_oh.mp3'),
+  oof: require('../../assets/sfx/voc_oof.mp3'),
+  hup: require('../../assets/sfx/voc_hup.mp3'),
+  phew: require('../../assets/sfx/voc_phew.mp3'),
 };
 
 // Native resource base names (Android res/raw name; iOS bundled file stem).
@@ -46,6 +54,12 @@ const FILES: Record<SfxName, string> = {
   back: 'fab_back',
   connecting: 'fab_connecting',
   bye: 'fab_bye',
+  mmhmm: 'voc_mmhmm',
+  aha: 'voc_aha',
+  oh: 'voc_oh',
+  oof: 'voc_oof',
+  hup: 'voc_hup',
+  phew: 'voc_phew',
 };
 
 const ANDROID_APP_ID = 'com.swiftloan.ai';
@@ -65,7 +79,30 @@ const VOLUME: Record<SfxName, number> = {
   back: 1.0,
   connecting: 1.0,
   bye: 1.0,
+  mmhmm: 0.9,
+  aha: 0.9,
+  oh: 0.9,
+  oof: 0.9,
+  hup: 0.9,
+  phew: 0.9,
 };
+
+// Short vocalizations for the FAB moving — a positive one when it arrives
+// (docks) and an "effort" one when it leaves (undocks). Rotated for variety.
+const VOC_ARRIVE: SfxName[] = ['mmhmm', 'aha', 'oh'];
+const VOC_LEAVE: SfxName[] = ['oof', 'hup', 'phew'];
+let vocArriveIdx = 0;
+let vocLeaveIdx = 0;
+/** Play a short, varied vocalization for the FAB moving (dock=true → arriving). */
+export function playMoveVocalization(arriving: boolean) {
+  if (arriving) {
+    playSfx(VOC_ARRIVE[vocArriveIdx % VOC_ARRIVE.length]);
+    vocArriveIdx += 1;
+  } else {
+    playSfx(VOC_LEAVE[vocLeaveIdx % VOC_LEAVE.length]);
+    vocLeaveIdx += 1;
+  }
+}
 
 let enabled = true;
 /** Master switch — call once (e.g. from a settings toggle) to mute all SFX. */

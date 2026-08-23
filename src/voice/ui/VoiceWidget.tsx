@@ -9,7 +9,7 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { playSfx } from '../../utils/sfx';
+import { playSfx, playMoveVocalization } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -236,9 +236,9 @@ export default function VoiceWidget() {
   useEffect(() => {
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
     if (morphMounted.current) {
-      // Spoken cue as the assistant travels: docking into the tab bar = "Hey,
-      // I'm here"; floating back out to the corner = "I'm back".
-      playSfx(isTab ? 'here' : 'back');
+      // Short, varied human vocalization as the assistant travels — a positive
+      // sound when it docks (arrives), an "effort" sound when it floats out.
+      playMoveVocalization(isTab);
     } else {
       morphMounted.current = true;
     }
@@ -307,13 +307,18 @@ export default function VoiceWidget() {
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
-    // Spoken cue: turning on (connecting) = "Please wait, I'm getting ready";
-    // turning off = "Thank you".
-    playSfx(active ? 'bye' : 'connecting');
     if (active) {
+      // "Thank you", then tear down (stop releases the audio session, so the
+      // cue is free to play).
+      playSfx('bye');
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
-      agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
+      // "Please wait, I'm getting ready" — let it play BEFORE agent.start()
+      // grabs the mic/playAndRecord session (which would cut the cue off).
+      playSfx('connecting');
+      setTimeout(() => {
+        agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
+      }, 1500);
     }
   };
 
