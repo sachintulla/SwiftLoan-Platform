@@ -100,7 +100,16 @@ const rings: Record<string, Ring> = {
 export function playFabMove(arriving: boolean) {
   playCue(arriving ? next(ARRIVE, rings.arrive) : next(LEAVE, rings.leave));
 }
-/** FAB tapped ON → connecting the assistant ("Ruby is getting ready"). */
+// Approx durations (ms) of the connect line per language, so the caller can wait
+// for it to finish before starting the mic session (nitro's playback session and
+// the mic's playAndRecord session must not overlap, or the mic gets cut).
+const CONNECT_MS: Record<Lang, number> = { en: 4500, hi: 5550, te: 6150 };
+/** How long the current-language connect line runs, plus a small margin. */
+export function connectCueDurationMs(): number {
+  return CONNECT_MS[currentLang] + 350;
+}
+
+/** FAB tapped ON → connecting the assistant ("Hi, I'm Ruby. I'm connecting now…"). */
 export function playFabConnect() {
   playCue('getting_ready');
 }

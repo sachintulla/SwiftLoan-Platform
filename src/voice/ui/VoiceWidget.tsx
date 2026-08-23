@@ -9,7 +9,7 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { playFabMove, playFabConnect, playFabOff, setSfxLang } from '../../utils/sfx';
+import { playFabMove, playFabConnect, playFabOff, setSfxLang, connectCueDurationMs } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -324,7 +324,7 @@ export default function VoiceWidget() {
       playFabConnect();
       setTimeout(() => {
         agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
-      }, 4300);
+      }, connectCueDurationMs());
     }
   };
 
