@@ -55,28 +55,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     cover.backgroundColor = background
     cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
+    // Lines-less ₹ mark only — matches the launch screen + the JS splash's first
+    // frame, so the launch → gap → splash flows straight into the line-assembly
+    // animation (wordmark/tagline reveal on the JS splash, not here).
     let logo = UIImageView(image: UIImage(named: "SplashLogo"))
     logo.contentMode = .scaleAspectFit
     logo.translatesAutoresizingMaskIntoConstraints = false
     cover.addSubview(logo)
-
-    // Full branding on the cover too, so the launch → gap → JS splash all show the
-    // same complete lockup (mark + wordmark + tagline), not a bare mark.
-    let wordmark = UILabel()
-    wordmark.text = "SwiftLoan"
-    wordmark.font = .boldSystemFont(ofSize: 42)
-    wordmark.textColor = .white
-    wordmark.textAlignment = .center
-    wordmark.translatesAutoresizingMaskIntoConstraints = false
-    cover.addSubview(wordmark)
-
-    let tagline = UILabel()
-    tagline.text = "FAST · FAIR · SECURE"
-    tagline.font = .systemFont(ofSize: 12, weight: .semibold)
-    tagline.textColor = UIColor(red: 0.874, green: 0.965, blue: 0.925, alpha: 1.0)
-    tagline.textAlignment = .center
-    tagline.translatesAutoresizingMaskIntoConstraints = false
-    cover.addSubview(tagline)
 
     NSLayoutConstraint.activate([
       logo.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
@@ -84,12 +69,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       logo.centerYAnchor.constraint(equalTo: cover.centerYAnchor, constant: -80),
       logo.widthAnchor.constraint(equalToConstant: 128),
       logo.heightAnchor.constraint(equalToConstant: 128),
-      wordmark.topAnchor.constraint(equalTo: logo.bottomAnchor, constant: 24),
-      wordmark.leadingAnchor.constraint(equalTo: cover.leadingAnchor),
-      wordmark.trailingAnchor.constraint(equalTo: cover.trailingAnchor),
-      tagline.topAnchor.constraint(equalTo: wordmark.bottomAnchor, constant: 10),
-      tagline.leadingAnchor.constraint(equalTo: cover.leadingAnchor),
-      tagline.trailingAnchor.constraint(equalTo: cover.trailingAnchor),
     ])
     window.addSubview(cover)
 

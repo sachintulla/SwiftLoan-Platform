@@ -26,18 +26,6 @@
                                     <constraint firstAttribute="height" constant="128" id="LGO-h"/>
                                 </constraints>
                             </imageView>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="SwiftLoan" textAlignment="center" lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines" minimumFontSize="18" translatesAutoresizingMaskIntoConstraints="NO" id="GJd-Yh-RWb">
-                                <rect key="frame" x="0.0" y="514" width="393" height="50"/>
-                                <fontDescription key="fontDescription" type="boldSystem" pointSize="42"/>
-                                <color key="textColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-                                <nil key="highlightedColor"/>
-                            </label>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="FAST · FAIR · SECURE" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="9" translatesAutoresizingMaskIntoConstraints="NO" id="MN2-I3-ftu">
-                                <rect key="frame" x="0.0" y="574" width="393" height="16"/>
-                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="12"/>
-                                <color key="textColor" red="0.874" green="0.965" blue="0.925" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                <nil key="highlightedColor"/>
-                            </label>
                         </subviews>
                         <color key="backgroundColor" red="0.063" green="0.714" blue="0.639" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
@@ -47,12 +35,6 @@
                             <constraint firstItem="BG0-01-img" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="BG0-trail"/>
                             <constraint firstItem="LGO-01-img" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="LGO-cx"/>
                             <constraint firstItem="LGO-01-img" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-80" id="LGO-cy"/>
-                            <constraint firstItem="GJd-Yh-RWb" firstAttribute="top" secondItem="LGO-01-img" secondAttribute="bottom" constant="24" id="WRD-top"/>
-                            <constraint firstItem="GJd-Yh-RWb" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="WRD-lead"/>
-                            <constraint firstItem="GJd-Yh-RWb" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="WRD-trail"/>
-                            <constraint firstItem="MN2-I3-ftu" firstAttribute="top" secondItem="GJd-Yh-RWb" secondAttribute="bottom" constant="10" id="TAG-top"/>
-                            <constraint firstItem="MN2-I3-ftu" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="TAG-lead"/>
-                            <constraint firstItem="MN2-I3-ftu" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="TAG-trail"/>
                         </constraints>
                         <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
                     </view>

@@ -9,32 +9,74 @@ const { width: SCREEN_W } = Dimensions.get('window');
 const TILE = 128;
 
 // The splash background is the SAME green as the logo's tile, so the tile blends
-// into the screen and the whole thing reads as the brand mark, not a tile
-// floating on a contrasting ground. Sampled from the app-icon tile (TL → BR).
+// into the screen and the whole thing reads as the brand mark. Sampled from the
+// app-icon tile (TL → BR).
 const SPLASH_BG: string[] = ['#10B6A3', '#20B395', '#2EB184'];
 
+// Where each speed line lands (offset in the 128-tile from centre) + width/colour,
+// measured from the logo's own static lines so the flown-in lines complete the mark.
+const LINES = [
+  { tx: -34, ty: -18, w: 32, color: 'rgb(98,205,189)' },
+  { tx: -38, ty: 0, w: 34, color: 'rgb(152,220,210)' },
+  { tx: -32, ty: 18, w: 32, color: 'rgb(214,241,236)' },
+];
+
 /**
- * Brand splash: the full SwiftLoan lockup (mark + wordmark + tagline) on the
- * brand-green ground, matching the native launch screen exactly so the launch →
- * JS splash hand-off is seamless. A gentle float + a dual-ring loader keep it
- * feeling alive while the app boots; ambient orbs drift behind. The mark and
- * wordmark are also handed off to the next screen (privacy / language).
+ * Brand splash with a mark-assembly animation: the base is the logo WITHOUT its
+ * speed lines; the three lines rush in from the left and land exactly where the
+ * static lines sit — assembling the ₹ mark — as "SwiftLoan" + FAST·FAIR·SECURE
+ * reveal. The native launch screen shows the same lines-less mark, so the launch
+ * → JS splash hand-off flows straight into the assembly. The mark and wordmark
+ * are also handed off to the next screen (privacy / language).
  */
 export default function Splash() {
   const float = useRef(new Animated.Value(0)).current;
   const spin = useRef(new Animated.Value(0)).current;
   const spin2 = useRef(new Animated.Value(0)).current;
   const orbs = useRef([0, 1, 2, 3].map(() => new Animated.Value(0))).current;
-  // Refs used to hand the logo/wordmark off to the next screen (magic-move).
+  const streaks = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+  const pop = useRef(new Animated.Value(0)).current; // subtle mark pop as lines land
+  const wSwift = useRef(new Animated.Value(0)).current;
+  const wLoan = useRef(new Animated.Value(0)).current;
+  const tagWords = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
   const logoRef = useRef<View>(null);
   const wordRef = useRef<View>(null);
 
   useEffect(() => {
-    // Spoken brand welcome ("Welcome to SwiftLoan", with a soft chime lead-in) —
-    // the earliest point audio can start (the static launch screen can't).
+    // Spoken brand welcome ("Welcome to SwiftLoan", with a soft chime lead-in).
     playSfx('welcome');
 
-    // Gentle continuous float + dual-ring loader.
+    // Speed lines rush in from the left (staggered) and decelerate onto the mark.
+    streaks.forEach((v, i) => {
+      Animated.sequence([
+        Animated.delay(140 + i * 150),
+        Animated.timing(v, { toValue: 1, duration: 620, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]).start();
+    });
+    // A small clean scale-pop of the mark once the lines have landed.
+    Animated.sequence([
+      Animated.delay(720),
+      Animated.timing(pop, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pop, { toValue: 0, duration: 520, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+    ]).start();
+
+    // "SwiftLoan" reveals (word by word) as the lines reach the mark.
+    Animated.sequence([
+      Animated.delay(480),
+      Animated.stagger(150, [
+        Animated.spring(wSwift, { toValue: 1, friction: 6, tension: 80, useNativeDriver: true }),
+        Animated.spring(wLoan, { toValue: 1, friction: 6, tension: 80, useNativeDriver: true }),
+      ]),
+    ]).start();
+    // FAST · FAIR · SECURE — one word appears as each speed line lands.
+    tagWords.forEach((v, i) => {
+      Animated.sequence([
+        Animated.delay(820 + i * 150),
+        Animated.timing(v, { toValue: 1, duration: 320, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]).start();
+    });
+
+    // Gentle continuous float + dual-ring loader + ambient orbs.
     loop(float, 1800);
     Animated.loop(Animated.timing(spin, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true })).start();
     Animated.loop(Animated.timing(spin2, { toValue: 1, duration: 1600, easing: Easing.linear, useNativeDriver: true })).start();
@@ -48,12 +90,11 @@ export default function Splash() {
       ).start(),
     );
 
-    // Record the mark + wordmark positions so the next screen animates the same
-    // element in from here (magic-move).
+    // Record the mark + wordmark positions for the magic-move to the next screen.
     const t = setTimeout(() => {
       reportHandoffSource('logo', logoRef);
       reportHandoffSource('wordmark', wordRef);
-    }, 400);
+    }, 1300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -68,13 +109,13 @@ export default function Splash() {
   }
 
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
+  const popScale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
   const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const spin2Deg = spin2.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
 
   return (
     <View style={styles.fill}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      {/* Full-bleed green gradient — matches the logo tile so the mark blends in. */}
       <LinearGradient colors={SPLASH_BG} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill}>
         {/* Ambient drifting orbs */}
         {orbs.map((v, i) => {
@@ -90,25 +131,39 @@ export default function Splash() {
         })}
 
         <View style={styles.center}>
-          {/* Logo mark (full app icon) with a gentle float. */}
-          <Animated.View style={{ transform: [{ translateY: floatY }] }}>
+          {/* Logo mark — lines-less base + the three lines flown in on top. */}
+          <Animated.View style={{ transform: [{ translateY: floatY }, { scale: popScale }] }}>
             <View style={styles.tileClip} ref={logoRef}>
-              <Image source={require('../../assets/brand/logo.png')} resizeMode="contain" style={styles.mark} />
+              <Image source={require('../../assets/brand/logo_nolines.png')} resizeMode="contain" style={styles.mark} />
+            </View>
+            {/* Speed lines rush in and land on the mark (on top of the tile). */}
+            <View style={styles.streakLayer} pointerEvents="none">
+              {streaks.map((v, i) => {
+                const L = LINES[i];
+                const flyX = v.interpolate({ inputRange: [0, 1], outputRange: [-210, 0] });
+                const op = v.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 1, 1] });
+                return (
+                  <Animated.View
+                    key={i}
+                    style={[styles.streak, { width: L.w, backgroundColor: L.color, left: TILE / 2 + L.tx - L.w / 2, top: TILE / 2 + L.ty - 3, opacity: op, transform: [{ translateX: flyX }] }]}
+                  />
+                );
+              })}
             </View>
           </Animated.View>
 
-          {/* Wordmark */}
+          {/* Wordmark — reveals as the lines land */}
           <View style={styles.word} ref={wordRef}>
-            <Animated.Text style={[font(800), styles.wordText, { color: '#FFFFFF' }]}>Swift</Animated.Text>
-            <Animated.Text style={[font(800), styles.wordText, { color: '#DFF6EC' }]}>Loan</Animated.Text>
+            <Animated.Text style={[font(800), styles.wordText, { color: '#FFFFFF' }, { opacity: wSwift, transform: [{ translateY: wSwift.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>Swift</Animated.Text>
+            <Animated.Text style={[font(800), styles.wordText, { color: '#DFF6EC' }, { opacity: wLoan, transform: [{ translateY: wLoan.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>Loan</Animated.Text>
           </View>
 
-          {/* Tagline */}
+          {/* Tagline — one word per speed line landing */}
           <View style={styles.tagRow}>
             {['FAST', 'FAIR', 'SECURE'].map((w, i) => (
               <React.Fragment key={w}>
-                {i > 0 ? <Animated.Text style={[font(600), styles.tag, styles.tagDot]}>·</Animated.Text> : null}
-                <Animated.Text style={[font(600), styles.tag]}>{w}</Animated.Text>
+                {i > 0 ? <Animated.Text style={[font(600), styles.tag, styles.tagDot, { opacity: tagWords[i] }]}>·</Animated.Text> : null}
+                <Animated.Text style={[font(600), styles.tag, { opacity: tagWords[i], transform: [{ translateY: tagWords[i].interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]}>{w}</Animated.Text>
               </React.Fragment>
             ))}
           </View>
@@ -135,6 +190,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   orb: { position: 'absolute' },
+  streakLayer: { position: 'absolute', top: 0, left: 0, width: TILE, height: TILE },
+  streak: { position: 'absolute', height: 6, borderRadius: 3 },
   tileClip: { width: TILE, height: TILE, borderRadius: TILE * 0.29, overflow: 'hidden' },
   mark: { width: TILE, height: TILE },
   word: { flexDirection: 'row', marginTop: 26 },
