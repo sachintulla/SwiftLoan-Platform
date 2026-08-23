@@ -63,6 +63,12 @@ export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
   'home', 'loans', 'fare', 'help', 'profile', 'explore',
 ]);
 
+// Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
+// floating FAB lifts above this bar on these screens so the two never overlap.
+export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
+  'basic', 'moredetails', 'aboutyou', 'privacy',
+]);
+
 // Spelled out in full for the voice agent's page context — more reliable for
 // the model to act on than a bare 'en'/'hi'/'te' code.
 const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te: 'Telugu' };

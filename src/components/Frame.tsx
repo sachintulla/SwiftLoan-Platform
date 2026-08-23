@@ -107,6 +107,8 @@ export function Screen({
   bottomNav = false,
   padded = true,
   contentStyle,
+  header,
+  collapsingTitle,
   footer,
   children,
 }: {
@@ -115,6 +117,15 @@ export function Screen({
   bottomNav?: boolean;
   padded?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Pinned top bar (e.g. an AppHeader/back button) that stays fixed while content scrolls. */
+  header?: React.ReactNode;
+  /**
+   * iOS-style collapsing title: renders a pinned AppHeader (back button always
+   * visible) whose title fades in only once the large in-content title has
+   * scrolled away — so the fixed header never sits empty. Takes precedence over
+   * `header` when set.
+   */
+  collapsingTitle?: string;
   /** Pinned bottom bar (e.g. a "Continue" CTA) that stays visible while content scrolls. */
   footer?: React.ReactNode;
   children: React.ReactNode;
@@ -127,6 +138,37 @@ export function Screen({
     variant === 'hero' ? HeroBackground : variant === 'plain' ? React.Fragment : AppBackground;
   const barStyle = variant === 'hero' ? 'light-content' : 'dark-content';
   const pad = padded ? { paddingHorizontal: 18 } : null;
+  // A pinned header (explicit `header` or a `collapsingTitle`) already consumes
+  // the top safe-area inset, so the scroll content starts with just a small gap
+  // (no double top padding).
+  const hasPinnedHeader = header != null || collapsingTitle != null;
+  const contentTopPad = hasPinnedHeader ? 8 : insets.top + 8;
+
+  // Collapsing-title fade: 0 while at the top (large title visible), 1 once
+  // scrolled past it, so the pinned header shows the title instead of empty space.
+  const titleAnim = useRef(new Animated.Value(0)).current;
+  const titleShown = useRef(false);
+  const onScrollY = (y: number) => {
+    scrollOffsetRef.current = y;
+    if (collapsingTitle == null) return;
+    const shouldShow = y > 52;
+    if (shouldShow !== titleShown.current) {
+      titleShown.current = shouldShow;
+      Animated.timing(titleAnim, { toValue: shouldShow ? 1 : 0, duration: 160, useNativeDriver: true }).start();
+    }
+  };
+  const headerEl = collapsingTitle != null ? (
+    <AppHeader
+      title={
+        <Animated.Text
+          numberOfLines={1}
+          style={[font(700), { fontSize: 16, color: variant === 'hero' ? '#fff' : colors.text, opacity: titleAnim }]}
+        >
+          {collapsingTitle}
+        </Animated.Text>
+      }
+    />
+  ) : header;
   const bottomPad = { paddingBottom: (bottomNav ? 92 : 24) + insets.bottom };
 
   // Auto-discover every interactive element this screen rendered, so the voice
@@ -180,12 +222,10 @@ export function Screen({
   const inner = scroll ? (
     <ScrollView
       ref={scrollRef}
-      onScroll={e => {
-        scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-      }}
+      onScroll={e => onScrollY(e.nativeEvent.contentOffset.y)}
       scrollEventThrottle={16}
       style={{ flex: 1 }}
-      contentContainerStyle={[{ paddingTop: insets.top + 8 }, pad, bottomPad, contentStyle]}
+      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // Keyboard handling for forms: iOS insets the scroll content by the
@@ -200,7 +240,7 @@ export function Screen({
       {children}
     </ScrollView>
   ) : (
-    <View style={[{ flex: 1, paddingTop: insets.top + 8 }, pad, bottomPad, contentStyle]}>
+    <View style={[{ flex: 1, paddingTop: contentTopPad }, pad, bottomPad, contentStyle]}>
       {children}
     </View>
   );
@@ -210,6 +250,11 @@ export function Screen({
       <StatusBar barStyle={barStyle} translucent backgroundColor="transparent" />
       {/* @ts-ignore Fragment accepts no props */}
       <Bg>
+        {/* Pinned top bar (e.g. the back button) — stays fixed while content
+            scrolls beneath it. Consumes the top safe-area inset itself. */}
+        {headerEl ? (
+          <View style={{ paddingTop: insets.top, paddingHorizontal: 20 }}>{headerEl}</View>
+        ) : null}
         {inner}
         {/* Footer lives INSIDE the background wrapper (which is absoluteFill for
             the app/hero variants) so the flex:1 scroll area pushes it to the

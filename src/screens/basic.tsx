@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Screen, AppHeader } from '../components/Frame';
+import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Chips, Slider, PrimaryButton, StepBadge } from '../components/Controls';
 import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
@@ -162,11 +162,13 @@ export default function Basic() {
   const GENDER_OPTS = [{ label: t.genderMale, value: 'male' }, { label: t.genderFemale, value: 'female' }, { label: t.commonOther, value: 'other' }];
 
   return (
-    <Screen scroll padded={false}>
-      <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader title={<View />} />
-      </View>
-
+    <Screen
+      scroll
+      padded={false}
+      contentStyle={{ paddingBottom: 24 }}
+      collapsingTitle={t.basicTitle}
+      footer={<PrimaryButton label={busy ? t.basicStarting : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />}
+    >
       <View style={{ paddingHorizontal: 20 }}>
         <StepBadge step={2} of={4} label={t.basicStepLabel} />
         <StepDots total={4} active={2} />
@@ -265,8 +267,7 @@ export default function Basic() {
           <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
-        <View style={{ height: 22 }} />
-        <PrimaryButton label={busy ? t.basicStarting : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />
+        <View style={{ height: 8 }} />
       </View>
     </Screen>
   );

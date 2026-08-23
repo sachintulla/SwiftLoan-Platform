@@ -4,11 +4,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from '../../components/Icon';
 import { colors, font } from '../../theme/tokens';
-import { useStore, useT } from '../../state/store';
+import { useStore, useT, SCREENS_WITH_FOOTER_CTA } from '../../state/store';
 import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
+import { playSfx } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -207,8 +208,16 @@ export default function VoiceWidget() {
   // springs + rolls between the two while the tab bar itself slides down/up.
   const isTab = SCREENS_WITH_BOTTOM_NAV.has(state.screen);
   const move = useRef(new Animated.Value(isTab ? 1 : 0)).current;
+  // Skip the very first run so we don't fire a morph sound on app launch —
+  // only play when isTab actually flips as the user navigates.
+  const morphMounted = useRef(false);
   useEffect(() => {
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
+    if (morphMounted.current) {
+      playSfx(isTab ? 'dock' : 'undock');
+    } else {
+      morphMounted.current = true;
+    }
   }, [isTab, move]);
 
   useEffect(() => {
@@ -274,6 +283,7 @@ export default function VoiceWidget() {
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
+    playSfx('tap');
     if (active) {
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
@@ -312,10 +322,14 @@ export default function VoiceWidget() {
   // corner — so the FAB is visually consistent across every screen.
   const showRuby = true;
 
+  // On screens with a pinned bottom CTA bar (the Screen `footer`), lift the
+  // floating FAB above that bar so the button and the FAB never overlap.
+  const footerLift = SCREENS_WITH_FOOTER_CTA.has(state.screen) ? FOOTER_CTA_LIFT : 0;
+
   return (
     <Animated.View
       pointerEvents="box-none"
-      style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom, transform: [{ translateX }, { translateY }] }]}
+      style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
     >
       {/* Status pill only while floating (on tab screens the tab label carries it). */}
       {active && !isTab ? (
@@ -348,6 +362,9 @@ export default function VoiceWidget() {
 // indicator (i.e. excluding insets.bottom). Tuned so the FAB nests in the notch
 // exactly where the old raised avatar sat. (Bar height is 66.)
 const TAB_NOTCH_CENTER = 65;
+// How far to raise the floating FAB on screens that pin a bottom CTA bar, so the
+// FAB clears the footer (button 54 + ~20 padding + a gap) and never overlaps it.
+const FOOTER_CTA_LIFT = 78;
 // iOS renders this FAB visibly larger than Android at the same point size.
 const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
 // The original notch avatar was ~70pt; scale the FAB up to that size when it's
