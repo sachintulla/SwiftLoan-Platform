@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Animated, Easing, StyleSheet, Dimensions, Image, StatusBar } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { font } from '../theme/tokens';
-import { playSfx } from '../utils/sfx';
+import { playWelcome } from '../utils/sfx';
 import { reportHandoffSource } from '../utils/handoff';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -44,7 +44,7 @@ export default function Splash() {
 
   useEffect(() => {
     // Spoken brand welcome ("Welcome to SwiftLoan", with a soft chime lead-in).
-    playSfx('welcome');
+    playWelcome();
 
     // Speed lines rush in from the left (staggered) and decelerate onto the mark.
     streaks.forEach((v, i) => {

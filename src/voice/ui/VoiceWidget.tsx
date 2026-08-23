@@ -9,7 +9,7 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { playSfx, playMoveVocalization } from '../../utils/sfx';
+import { playFabMove, playFabConnect, playFabOff, setSfxLang } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -236,13 +236,18 @@ export default function VoiceWidget() {
   useEffect(() => {
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
     if (morphMounted.current) {
-      // Short, varied human vocalization as the assistant travels — a positive
-      // sound when it docks (arrives), an "effort" sound when it floats out.
-      playMoveVocalization(isTab);
+      // Situational, language-aware cue as the assistant travels — a friendly
+      // greeting when it docks (arrives), a light one when it floats out.
+      playFabMove(isTab);
     } else {
       morphMounted.current = true;
     }
   }, [isTab, move]);
+
+  // Keep spoken cues in the user's selected language.
+  useEffect(() => {
+    setSfxLang(state.lang);
+  }, [state.lang]);
 
   useEffect(() => {
     loadVoiceFabSide().then(saved => { if (saved) setSide(saved); });
@@ -308,14 +313,13 @@ export default function VoiceWidget() {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
-      // "Thank you", then tear down (stop releases the audio session, so the
-      // cue is free to play).
-      playSfx('bye');
+      // "Thank you", then tear down (stop releases the audio session).
+      playFabOff();
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
-      // "Please wait, I'm getting ready" — let it play BEFORE agent.start()
-      // grabs the mic/playAndRecord session (which would cut the cue off).
-      playSfx('connecting');
+      // "Ruby is getting ready" — let it play BEFORE agent.start() grabs the
+      // mic/playAndRecord session (which would otherwise cut the cue off).
+      playFabConnect();
       setTimeout(() => {
         agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
       }, 1500);
