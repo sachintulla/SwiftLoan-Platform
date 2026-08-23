@@ -16,6 +16,9 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="SplashBg" translatesAutoresizingMaskIntoConstraints="NO" id="BG0-01-img">
+                                <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                            </imageView>
                             <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="SplashLogo" translatesAutoresizingMaskIntoConstraints="NO" id="LGO-01-img">
                                 <rect key="frame" x="132.5" y="362" width="128" height="128"/>
                                 <constraints>
@@ -32,14 +35,18 @@
                             <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="FAST · FAIR · SECURE" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="9" translatesAutoresizingMaskIntoConstraints="NO" id="MN2-I3-ftu">
                                 <rect key="frame" x="0.0" y="574" width="393" height="16"/>
                                 <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="12"/>
-                                <color key="textColor" red="0.56" green="0.85" blue="0.79" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <color key="textColor" red="0.874" green="0.965" blue="0.925" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                 <nil key="highlightedColor"/>
                             </label>
                         </subviews>
-                        <color key="backgroundColor" red="0.031" green="0.62" blue="0.565" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.063" green="0.714" blue="0.639" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
+                            <constraint firstItem="BG0-01-img" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="BG0-top"/>
+                            <constraint firstItem="BG0-01-img" firstAttribute="bottom" secondItem="Ze5-6b-2t3" secondAttribute="bottom" id="BG0-bot"/>
+                            <constraint firstItem="BG0-01-img" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="BG0-lead"/>
+                            <constraint firstItem="BG0-01-img" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="BG0-trail"/>
                             <constraint firstItem="LGO-01-img" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="LGO-cx"/>
-                            <constraint firstItem="LGO-01-img" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-40" id="LGO-cy"/>
+                            <constraint firstItem="LGO-01-img" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-80" id="LGO-cy"/>
                             <constraint firstItem="GJd-Yh-RWb" firstAttribute="top" secondItem="LGO-01-img" secondAttribute="bottom" constant="24" id="WRD-top"/>
                             <constraint firstItem="GJd-Yh-RWb" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="WRD-lead"/>
                             <constraint firstItem="GJd-Yh-RWb" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="WRD-trail"/>
@@ -56,6 +63,7 @@
         </scene>
     </scenes>
     <resources>
+        <image name="SplashBg" width="1290" height="2796"/>
         <image name="SplashLogo" width="128" height="128"/>
     </resources>
 </document>

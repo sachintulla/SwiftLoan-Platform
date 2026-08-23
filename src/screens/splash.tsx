@@ -1,74 +1,40 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, Easing, StyleSheet, Dimensions, Image, StatusBar } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { font, heroGradient } from '../theme/tokens';
+import { font } from '../theme/tokens';
+import { playSfx } from '../utils/sfx';
+import { reportHandoffSource } from '../utils/handoff';
 
-const AnimatedLG = Animated.createAnimatedComponent(LinearGradient);
 const { width: SCREEN_W } = Dimensions.get('window');
 const TILE = 128;
 
+// The splash background is the SAME green as the logo's tile, so the tile blends
+// into the screen and the whole thing reads as the brand mark, not a tile
+// floating on a contrasting ground. Sampled from the app-icon tile (TL → BR).
+const SPLASH_BG: string[] = ['#10B6A3', '#20B395', '#2EB184'];
+
 /**
- * Creative animated splash built around the SwiftLoan app icon (₹ + speed
- * lines). The mark springs in with a glow, motion "speed streaks" whoosh past
- * it (echoing the logo's own speed lines), a light sweeps across the tile, then
- * the wordmark reveals word-by-word and the tagline expands — all resolving
- * within the 2.6s splash→language auto-transition.
+ * Brand splash: the full SwiftLoan lockup (mark + wordmark + tagline) on the
+ * brand-green ground, matching the native launch screen exactly so the launch →
+ * JS splash hand-off is seamless. A gentle float + a dual-ring loader keep it
+ * feeling alive while the app boots; ambient orbs drift behind. The mark and
+ * wordmark are also handed off to the next screen (privacy / language).
  */
 export default function Splash() {
-  const tileScale = useRef(new Animated.Value(0.6)).current;
-  const tileOpacity = useRef(new Animated.Value(0)).current;
-  const tileX = useRef(new Animated.Value(-40)).current; // slides in from the left, like it's speeding in
-  const glow = useRef(new Animated.Value(0)).current;
   const float = useRef(new Animated.Value(0)).current;
-  const shine = useRef(new Animated.Value(0)).current;
-  const wSwift = useRef(new Animated.Value(0)).current;
-  const wLoan = useRef(new Animated.Value(0)).current;
-  const tag = useRef(new Animated.Value(0)).current;
   const spin = useRef(new Animated.Value(0)).current;
   const spin2 = useRef(new Animated.Value(0)).current;
-  const streaks = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
   const orbs = useRef([0, 1, 2, 3].map(() => new Animated.Value(0))).current;
+  // Refs used to hand the logo/wordmark off to the next screen (magic-move).
+  const logoRef = useRef<View>(null);
+  const wordRef = useRef<View>(null);
 
   useEffect(() => {
-    // Mark speeds in from the left + pops
-    Animated.parallel([
-      Animated.timing(tileOpacity, { toValue: 1, duration: 420, useNativeDriver: true }),
-      Animated.spring(tileScale, { toValue: 1, friction: 6, tension: 65, useNativeDriver: true }),
-      Animated.spring(tileX, { toValue: 0, friction: 7, tension: 55, useNativeDriver: true }),
-    ]).start();
+    // Spoken brand welcome ("Welcome to SwiftLoan", with a soft chime lead-in) —
+    // the earliest point audio can start (the static launch screen can't).
+    playSfx('welcome');
 
-    // Speed streaks whoosh past (staggered), echoing the logo's motion lines
-    streaks.forEach((v, i) => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(200 + i * 180),
-          Animated.timing(v, { toValue: 1, duration: 750, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0, duration: 0, useNativeDriver: true }),
-          Animated.delay(600),
-        ]),
-      ).start();
-    });
-
-    // Light sweep across the tile, twice
-    Animated.sequence([
-      Animated.delay(520),
-      Animated.timing(shine, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      Animated.delay(200),
-      Animated.timing(shine, { toValue: 2, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-    ]).start();
-
-    // Wordmark reveals word-by-word, then tagline expands
-    Animated.sequence([
-      Animated.delay(700),
-      Animated.stagger(150, [
-        Animated.spring(wSwift, { toValue: 1, friction: 6, tension: 80, useNativeDriver: true }),
-        Animated.spring(wLoan, { toValue: 1, friction: 6, tension: 80, useNativeDriver: true }),
-      ]),
-      Animated.timing(tag, { toValue: 1, duration: 500, useNativeDriver: true }),
-    ]).start();
-
-    // Continuous glow, float, dual rings
-    loop(glow, 1300);
+    // Gentle continuous float + dual-ring loader.
     loop(float, 1800);
     Animated.loop(Animated.timing(spin, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true })).start();
     Animated.loop(Animated.timing(spin2, { toValue: 1, duration: 1600, easing: Easing.linear, useNativeDriver: true })).start();
@@ -81,6 +47,14 @@ export default function Splash() {
         ]),
       ).start(),
     );
+
+    // Record the mark + wordmark positions so the next screen animates the same
+    // element in from here (magic-move).
+    const t = setTimeout(() => {
+      reportHandoffSource('logo', logoRef);
+      reportHandoffSource('wordmark', wordRef);
+    }, 400);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -93,19 +67,15 @@ export default function Splash() {
     ).start();
   }
 
-  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
-  const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.35] });
-  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.5] });
-  const shineX = shine.interpolate({ inputRange: [0, 1, 2], outputRange: [-TILE, TILE, TILE] });
+  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
   const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const spin2Deg = spin2.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
 
   return (
     <View style={styles.fill}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      {/* Full-bleed gradient — edge to edge, behind the status bar and home
-          indicator, so there are no white bands at the top/bottom. */}
-      <LinearGradient colors={[...heroGradient, '#0CB6A6']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill}>
+      {/* Full-bleed green gradient — matches the logo tile so the mark blends in. */}
+      <LinearGradient colors={SPLASH_BG} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill}>
         {/* Ambient drifting orbs */}
         {orbs.map((v, i) => {
           const cfg = ORB_CFG[i];
@@ -120,51 +90,30 @@ export default function Splash() {
         })}
 
         <View style={styles.center}>
-          {/* Speed streaks flying past behind the mark */}
-          <View style={styles.streakWrap} pointerEvents="none">
-            {streaks.map((v, i) => {
-              const tx = v.interpolate({ inputRange: [0, 1], outputRange: [-SCREEN_W * 0.5, SCREEN_W * 0.6] });
-              const op = v.interpolate({ inputRange: [0, 0.15, 0.85, 1], outputRange: [0, 0.9, 0.9, 0] });
-              return (
-                <Animated.View
-                  key={i}
-                  style={[
-                    styles.streak,
-                    { top: i * 22 - 22, width: STREAK_W[i], opacity: op, transform: [{ translateX: tx }] },
-                  ]}
-                />
-              );
-            })}
-          </View>
-
-          {/* Logo mark (app icon) with glow, float, slide-in + shine */}
-          <Animated.View style={{ opacity: tileOpacity, transform: [{ translateX: tileX }, { translateY: floatY }, { scale: tileScale }] }}>
-            <Animated.View style={[styles.glow, { opacity: glowOpacity, transform: [{ scale: glowScale }] }]} />
-            <View style={styles.tileClip}>
+          {/* Logo mark (full app icon) with a gentle float. */}
+          <Animated.View style={{ transform: [{ translateY: floatY }] }}>
+            <View style={styles.tileClip} ref={logoRef}>
               <Image source={require('../../assets/brand/logo.png')} resizeMode="contain" style={styles.mark} />
-              <Animated.View style={[styles.shineWrap, { transform: [{ translateX: shineX }, { rotate: '18deg' }] }]}>
-                <AnimatedLG colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.shine} />
-              </Animated.View>
             </View>
           </Animated.View>
 
-          {/* Wordmark — word by word */}
-          <View style={styles.word}>
-            <Animated.Text style={[font(800), styles.wordText, { color: '#FFFFFF' }, { opacity: wSwift, transform: [{ translateY: wSwift.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
-              Swift
-            </Animated.Text>
-            <Animated.Text style={[font(800), styles.wordText, { color: '#BFF3E6' }, { opacity: wLoan, transform: [{ translateY: wLoan.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
-              Loan
-            </Animated.Text>
+          {/* Wordmark */}
+          <View style={styles.word} ref={wordRef}>
+            <Animated.Text style={[font(800), styles.wordText, { color: '#FFFFFF' }]}>Swift</Animated.Text>
+            <Animated.Text style={[font(800), styles.wordText, { color: '#DFF6EC' }]}>Loan</Animated.Text>
           </View>
 
-          {/* Tagline — fades + rises in */}
-          <Animated.Text style={[font(600), styles.tag, { opacity: tag, transform: [{ translateY: tag.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }]}>
-            FAST · FAIR · SECURE
-          </Animated.Text>
+          {/* Tagline */}
+          <View style={styles.tagRow}>
+            {['FAST', 'FAIR', 'SECURE'].map((w, i) => (
+              <React.Fragment key={w}>
+                {i > 0 ? <Animated.Text style={[font(600), styles.tag, styles.tagDot]}>·</Animated.Text> : null}
+                <Animated.Text style={[font(600), styles.tag]}>{w}</Animated.Text>
+              </React.Fragment>
+            ))}
+          </View>
 
-          {/* Dual-ring loader — part of the centered group so the whole block
-              sits together rather than leaving a big gap to the bottom edge. */}
+          {/* Dual-ring loader */}
           <View style={styles.loader}>
             <Animated.View style={[styles.ring, { borderTopColor: 'transparent', transform: [{ rotate: spinDeg }] }]} />
             <Animated.View style={[styles.ring2, { borderBottomColor: 'transparent', transform: [{ rotate: spin2Deg }] }]} />
@@ -175,32 +124,25 @@ export default function Splash() {
   );
 }
 
-const STREAK_W = [120, 86, 150];
 const ORB_CFG = [
-  { size: 220, left: -70, top: 90, travel: 40, color: 'rgba(47,177,131,0.22)', min: 0.05, max: 0.28 },
-  { size: 150, left: SCREEN_W - 90, top: 60, travel: -34, color: 'rgba(12,182,166,0.22)', min: 0.04, max: 0.24 },
-  { size: 120, left: SCREEN_W - 140, top: 560, travel: 30, color: 'rgba(191,243,230,0.16)', min: 0.03, max: 0.2 },
-  { size: 90, left: 30, top: 620, travel: -26, color: 'rgba(255,255,255,0.1)', min: 0.03, max: 0.16 },
+  { size: 220, left: -70, top: 90, travel: 40, color: 'rgba(47,177,131,0.16)', min: 0.05, max: 0.2 },
+  { size: 150, left: SCREEN_W - 90, top: 60, travel: -34, color: 'rgba(12,182,166,0.16)', min: 0.04, max: 0.18 },
+  { size: 120, left: SCREEN_W - 140, top: 560, travel: 30, color: 'rgba(191,243,230,0.12)', min: 0.03, max: 0.16 },
+  { size: 90, left: 30, top: 620, travel: -26, color: 'rgba(255,255,255,0.08)', min: 0.03, max: 0.12 },
 ];
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   orb: { position: 'absolute' },
-  streakWrap: { position: 'absolute', width: SCREEN_W, height: 120, alignItems: 'center', justifyContent: 'center' },
-  streak: { position: 'absolute', height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.55)' },
-  glow: {
-    position: 'absolute', top: -TILE * 0.3, left: -TILE * 0.3,
-    width: TILE * 1.6, height: TILE * 1.6, borderRadius: TILE * 0.8, backgroundColor: '#2FB183',
-  },
   tileClip: { width: TILE, height: TILE, borderRadius: TILE * 0.29, overflow: 'hidden' },
   mark: { width: TILE, height: TILE },
-  shineWrap: { position: 'absolute', top: -TILE * 0.4, height: TILE * 1.8, width: TILE * 0.5 },
-  shine: { flex: 1, width: '100%' },
   word: { flexDirection: 'row', marginTop: 26 },
   wordText: { fontSize: 44, letterSpacing: -1.4, lineHeight: 46 },
-  tag: { fontSize: 11.5, color: '#8FD9C9', marginTop: 12, letterSpacing: 3.5 },
+  tagRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  tag: { fontSize: 11.5, color: '#DFF6EC', letterSpacing: 3.5 },
+  tagDot: { marginHorizontal: 5, letterSpacing: 0 },
   loader: { marginTop: 32, width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute', width: 30, height: 30, borderRadius: 15, borderWidth: 3, borderColor: '#BFF3E6' },
-  ring2: { position: 'absolute', width: 20, height: 20, borderRadius: 10, borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.55)' },
+  ring: { position: 'absolute', width: 30, height: 30, borderRadius: 15, borderWidth: 3, borderColor: '#EAFBF3' },
+  ring2: { position: 'absolute', width: 20, height: 20, borderRadius: 10, borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.6)' },
 });
