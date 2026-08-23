@@ -13,7 +13,10 @@ import { Image, NativeModules, Platform } from 'react-native';
 import { createSound } from 'react-native-nitro-sound';
 import { vlog } from '../voice/log';
 
-export type SfxName = 'dock' | 'undock' | 'tap' | 'intro' | 'welcome';
+export type SfxName =
+  | 'dock' | 'undock' | 'tap' | 'intro' | 'welcome'
+  // Spoken female (Tara) voice cues for the assistant FAB.
+  | 'here' | 'back' | 'connecting' | 'bye';
 
 // Debug fallback: Metro serves these require()'d assets over HTTP. In release
 // builds Metro is gone, so we play the natively-bundled copies instead (Android
@@ -26,6 +29,10 @@ const SOURCES: Record<SfxName, number> = {
   intro: require('../../assets/sfx/intro.mp3'),
   // Spoken brand welcome ("Welcome to SwiftLoan") with a soft chime lead-in.
   welcome: require('../../assets/sfx/welcome.mp3'),
+  here: require('../../assets/sfx/fab_here.mp3'),
+  back: require('../../assets/sfx/fab_back.mp3'),
+  connecting: require('../../assets/sfx/fab_connecting.mp3'),
+  bye: require('../../assets/sfx/fab_bye.mp3'),
 };
 
 // Native resource base names (Android res/raw name; iOS bundled file stem).
@@ -35,6 +42,10 @@ const FILES: Record<SfxName, string> = {
   tap: 'fab_tap',
   intro: 'intro',
   welcome: 'welcome',
+  here: 'fab_here',
+  back: 'fab_back',
+  connecting: 'fab_connecting',
+  bye: 'fab_bye',
 };
 
 const ANDROID_APP_ID = 'com.swiftloan.ai';
@@ -50,6 +61,10 @@ const VOLUME: Record<SfxName, number> = {
   tap: 0.35,
   intro: 0.8,
   welcome: 1.0,
+  here: 1.0,
+  back: 1.0,
+  connecting: 1.0,
+  bye: 1.0,
 };
 
 let enabled = true;

@@ -236,7 +236,9 @@ export default function VoiceWidget() {
   useEffect(() => {
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
     if (morphMounted.current) {
-      playSfx(isTab ? 'dock' : 'undock');
+      // Spoken cue as the assistant travels: docking into the tab bar = "Hey,
+      // I'm here"; floating back out to the corner = "I'm back".
+      playSfx(isTab ? 'here' : 'back');
     } else {
       morphMounted.current = true;
     }
@@ -305,7 +307,9 @@ export default function VoiceWidget() {
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
-    playSfx('tap');
+    // Spoken cue: turning on (connecting) = "Please wait, I'm getting ready";
+    // turning off = "Thank you".
+    playSfx(active ? 'bye' : 'connecting');
     if (active) {
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
