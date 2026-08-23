@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { useHandoffIn } from '../utils/handoff';
 import { trackEvent } from '../api/client';
 
 const GREETINGS = [
@@ -23,6 +24,8 @@ const LANGS = [
 export default function Language() {
   const { state, set, go } = useStore();
   const [gi, setGi] = React.useState(0);
+  // The "SwiftLoan" wordmark travels here from the splash screen.
+  const wordHandoff = useHandoffIn('wordmark');
 
   useEffect(() => {
     const id = setInterval(() => setGi(i => (i + 1) % 3), 2600);
@@ -38,7 +41,9 @@ export default function Language() {
         <Pressable onPress={() => go('splash')} style={styles.backCircle} hitSlop={8}>
           <Icon name="arrow_back" size={22} color={colors.text} />
         </Pressable>
-        <Wordmark size={20} />
+        <Animated.View ref={wordHandoff.ref} onLayout={wordHandoff.onLayout} style={wordHandoff.style}>
+          <Wordmark size={20} />
+        </Animated.View>
       </View>
 
       <View style={{ paddingHorizontal: 20 }}>

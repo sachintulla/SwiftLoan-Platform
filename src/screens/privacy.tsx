@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Animated } from 'react-native';
 import { Screen } from '../components/Frame';
 import { PrimaryButton, ConsentRow } from '../components/Controls';
 import { LogoMark } from '../components/Logo';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { useHandoffIn } from '../utils/handoff';
 import { savePrivacyAccepted } from '../state/session';
 import { PRIVACY_INTRO, PRIVACY_SECTIONS, PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 
@@ -17,6 +18,8 @@ import { PRIVACY_INTRO, PRIVACY_SECTIONS, PRIVACY_POLICY_VERSION } from '../cont
 export default function Privacy() {
   const { state, set, go } = useStore();
   const [agreed, setAgreed] = useState(false);
+  // The rupee logo travels here from the splash screen.
+  const logoHandoff = useHandoffIn('logo');
 
   const onAccept = async () => {
     await savePrivacyAccepted().catch(() => {});
@@ -41,7 +44,9 @@ export default function Privacy() {
       }
     >
       <View style={{ alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
-        <LogoMark size={56} />
+        <Animated.View ref={logoHandoff.ref} onLayout={logoHandoff.onLayout} style={logoHandoff.style}>
+          <LogoMark size={56} />
+        </Animated.View>
       </View>
       <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, textAlign: 'center' }]}>Privacy Policy</Text>
       <Text style={[font(400), { fontSize: 12, color: colors.muted, textAlign: 'center', marginTop: 4 }]}>
