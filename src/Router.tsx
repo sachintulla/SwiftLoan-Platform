@@ -20,9 +20,10 @@ export default function Router() {
   const { state } = useStore();
   const Comp = SCREENS[state.screen as ScreenName];
 
-  // Animate every screen change: the incoming screen settles in with a quick
-  // fade + subtle zoom-out. Kept opaque enough (starts at 0.2, scale 1.03) that
-  // full-screen backgrounds stay covered — no gap or hard cut.
+  // Animate every screen change with a subtle zoom-settle. The incoming screen
+  // stays fully OPAQUE and scales from 1.03 → 1 (always ≥ viewport, so it fully
+  // covers the background) — no opacity fade, so there's no flash of the
+  // window's background colour between screens.
   const anim = useRef(new Animated.Value(1)).current;
   const prev = useRef(state.screen);
   useEffect(() => {
@@ -31,19 +32,18 @@ export default function Router() {
     anim.setValue(0);
     Animated.timing(anim, {
       toValue: 1,
-      duration: 300,
+      duration: 280,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [state.screen, anim]);
 
-  const opacity = anim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.2, 0.9, 1] });
   const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [1.03, 1] });
 
   const content = Comp ? <Comp /> : <Placeholder name={state.screen} />;
 
   return (
-    <Animated.View style={{ flex: 1, opacity, transform: [{ scale }] }}>
+    <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
       {content}
     </Animated.View>
   );
