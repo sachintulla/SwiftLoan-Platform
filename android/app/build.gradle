@@ -85,8 +85,8 @@ android {
         applicationId "com.swiftloan.ai"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "0.1.0"
+        versionCode 6
+        versionName "0.1.1"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.
