@@ -995,6 +995,9 @@ enum CampaignStatus {
   paused
   completed
   failed
+  /// Deliberately stopped by an admin, never to be resumed — distinct from
+  /// `paused` (resumable) and `failed` (an error, not a choice).
+  cancelled
 }
 
 /// A bulk outbound-calling campaign, seeded from an uploaded spreadsheet.
@@ -1003,6 +1006,13 @@ model Campaign {
   name   String
   /// Short human code used for attribution; matches Customer.campaignId.
   code   String         @unique
+  /// Set when this campaign's contacts were handed to Ello's own batch
+  /// dialler (send-to-ello) instead of our own campaignRunner. Lets the
+  /// campaign.started/campaign.ended webhooks find their way back to this
+  /// row, and per-call webhooks for calls Ello placed itself (which never
+  /// went through our own dialer.ts, so have no CallAttempt yet) find the
+  /// right campaign to attach to.
+  providerCampaignId String? @unique
   status CampaignStatus @default(draft)
 
   /// How many calls may be in flight at once for this campaign.
@@ -1054,6 +1064,10 @@ model Campaign {
   createdBy   String?
   startedAt   DateTime?
   completedAt DateTime?
+  /// Soft delete: set instead of removing the row, so a deleted campaign (and
+  /// its contacts/call history) is recoverable and never actually expires.
+  /// Excluded from the default list; still readable by id, and restorable.
+  deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

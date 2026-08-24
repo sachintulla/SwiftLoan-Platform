@@ -446,7 +446,9 @@ export async function uploadAvatar(
     headers: { 'content-type': contentType },
     body: blob as any,
   });
-  if (!putRes.ok) throw new Error(`Photo upload failed (${putRes.status})`);
+  // ApiError (not a plain Error) so the caller's `e instanceof ApiError` check
+  // in profile.tsx actually shows this reason instead of a generic fallback.
+  if (!putRes.ok) throw new ApiError(putRes.status, `Photo upload failed (${putRes.status})`);
   const { user }: any = await api.confirmAvatar(publicUrl);
   return user;
 }

@@ -14,6 +14,7 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { parseElloWebhook } from '../lib/integrations.js';
+import { normalisePhone } from '../lib/dialer.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import {
   inferOutcome, shouldReplaceOutcome, parseAgentOutcome, type OutcomeSource,
@@ -44,6 +45,60 @@ function providedSecret(req: import('express').Request): string {
 }
 
 export const webhooksRouter = Router();
+
+/**
+ * `campaign.started` / `campaign.ended` for a campaign sent to Ello via
+ * send-to-ello (campaigns.routes.ts). Ello's `webhooks` field is set fresh on
+ * every campaign create call (see integrations.ts's campaignWebhookEvents) —
+ * not a one-time dashboard subscription — and routes ALL events, campaign.*
+ * included, to the same URL as the per-call trigger's `hook_url`. So this
+ * runs from inside /ello/call-outcome for that shared URL; kept as its own
+ * function (and /ello/campaign-events below still calls it too) in case
+ * campaign.* ever gets registered on a separate URL instead.
+ *
+ * Idempotent by construction: every field here is a `set`, not an
+ * `increment`, so a provider retry of the same event just writes the same
+ * values again rather than double-counting.
+ */
+async function handleCampaignLifecycleEvent(b: Record<string, any>): Promise<{ matched: boolean; campaignId?: string; message: string }> {
+  const event = String(b.event ?? '');
+  const providerCampaignId = b.campaign_id != null ? String(b.campaign_id) : null;
+
+  if (!providerCampaignId) {
+    console.warn('[webhook] campaign event with no campaign_id', { event });
+    return { matched: false, message: 'No campaign_id on event' };
+  }
+
+  const campaign = await prisma.campaign.findUnique({ where: { providerCampaignId } });
+  if (!campaign) {
+    console.warn('[webhook] unmatched ello campaign event', { event, providerCampaignId });
+    return { matched: false, message: 'No matching campaign' };
+  }
+
+  if (event === 'campaign.started') {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status: 'running', startedAt: campaign.startedAt ?? new Date() },
+    });
+  } else if (event === 'campaign.ended') {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+        // Ello's own tally — authoritative over whatever our per-call webhook
+        // handler accumulated, since that only sees calls it could match.
+        ...(Number.isFinite(Number(b.successful_calls)) ? { calledCount: Number(b.successful_calls) } : {}),
+        ...(Number.isFinite(Number(b.failed_calls)) ? { failedCount: Number(b.failed_calls) } : {}),
+      },
+    });
+  } else {
+    console.warn('[webhook] unrecognised campaign event', { event, providerCampaignId });
+    return { matched: false, message: `Unrecognised event "${event}"` };
+  }
+
+  return { matched: true, campaignId: campaign.id, message: 'Recorded' };
+}
 
 /* ───────────────────────── outcome/status mapping ───────────────────────── */
 
@@ -139,11 +194,20 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   }
 
   const raw = req.body ?? {};
+
+  // campaign.started/campaign.ended share this same URL (see
+  // handleCampaignLifecycleEvent's doc comment) — nothing below this branch
+  // applies to them, there's no CallAttempt to match against.
+  if (String(raw?.event ?? '').startsWith('campaign.')) {
+    const result = await handleCampaignLifecycleEvent(raw as Record<string, any>);
+    return ok(res, result, result.message);
+  }
+
   const parsed = await parseElloWebhook(raw);
 
   // Match on the provider's id first, then on the CallAttempt id we sent as
   // `callId` (present even when the provider never surfaced its own id).
-  const attempt =
+  let attempt =
     (parsed.providerCallId
       ? await prisma.callAttempt.findUnique({ where: { providerConversationId: parsed.providerCallId } })
       : null) ??
@@ -151,11 +215,46 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
       ? await prisma.callAttempt.findUnique({ where: { id: parsed.clientCallId } })
       : null);
 
+  // Neither id matched — this call never went through our own dialer.ts, so
+  // it has no CallAttempt at all yet. The only calls that happens for are
+  // ones Ello placed itself via send-to-ello's batch campaign dialler, which
+  // carries campaign_id + to_number instead. Find (or, on the first event for
+  // this conversation, create) the CallAttempt via that instead of dropping
+  // the webhook — campaigns.routes.ts's send-to-ello sets Campaign
+  // .providerCampaignId for exactly this lookup.
+  if (!attempt && parsed.providerCampaignId) {
+    const campaign = await prisma.campaign.findUnique({ where: { providerCampaignId: parsed.providerCampaignId } });
+    const phone = normalisePhone(parsed.toNumber);
+    if (campaign && phone) {
+      attempt =
+        // A prior event for this same call may already have created the row
+        // (events are not guaranteed to arrive in order) — reuse it rather
+        // than creating a second CallAttempt for one real call.
+        (await prisma.callAttempt.findFirst({
+          where: { campaignId: campaign.id, phone, providerConversationId: null },
+          orderBy: { queuedAt: 'desc' },
+        })) ??
+        (await prisma.callAttempt.create({
+          data: {
+            campaignId: campaign.id,
+            phone,
+            channel: 'phone_outbound',
+            agentRole: 'campaign',
+            providerConversationId: parsed.providerCallId,
+            customerId: (await prisma.customer.findFirst({ where: { phone } }))?.id ?? null,
+            status: 'queued',
+            queuedAt: new Date(),
+          },
+        }));
+    }
+  }
+
   if (!attempt) {
     // 200 on purpose: a 4xx makes the provider retry a body we can never match.
     console.warn('[webhook] unmatched ello call-outcome', {
       providerCallId: parsed.providerCallId,
       clientCallId: parsed.clientCallId,
+      providerCampaignId: parsed.providerCampaignId,
     });
     return ok(res, { matched: false }, 'No matching call attempt');
   }
@@ -288,6 +387,33 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   }
 
   return ok(res, { matched: true, callId: updated.id, status: updated.status, outcome: updated.outcome }, 'Recorded');
+}));
+
+/* ─────────────── campaign lifecycle (Ello's own batch dialler) ─────────────── */
+
+/**
+ * POST /api/webhooks/ello/campaign-events
+ *
+ * Ello sends campaign.started/campaign.ended to the SAME url as call events
+ * (see handleCampaignLifecycleEvent's doc comment), so /ello/call-outcome
+ * above is what actually handles them in practice. This route is kept as a
+ * fallback for a differently-configured webhook subscription that does point
+ * campaign.* at its own URL.
+ */
+webhooksRouter.post('/ello/campaign-events', ah(async (req, res) => {
+  const expected = webhookSecret();
+  const provided = providedSecret(req);
+  if (expected) {
+    if (provided !== expected) return fail(res, 401, 'Invalid webhook secret');
+  } else if (process.env.NODE_ENV === 'production') {
+    console.error('[webhook] ELLO_WEBHOOK_SECRET is not set — rejecting campaign-events post');
+    return fail(res, 503, 'Webhook is not configured');
+  } else {
+    console.warn('[webhook] ELLO_WEBHOOK_SECRET is not set — accepting unverified post (dev only)');
+  }
+
+  const result = await handleCampaignLifecycleEvent((req.body ?? {}) as Record<string, any>);
+  return ok(res, result, result.message);
 }));
 
 /* ─────────────── agent-reported outcome (the authoritative path) ─────────────── */
