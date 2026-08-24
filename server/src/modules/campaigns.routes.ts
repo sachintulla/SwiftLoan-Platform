@@ -587,7 +587,12 @@ campaignsRouter.post('/:id/start', requireRole(...CAN_ADMINISTER), ah(async (req
   });
   if (contacts.length === 0) return fail(res, 400, 'No pending contacts to dial');
 
-  const gate = canDialNow(campaign, new Date());
+  // canDialNow() gates on status === 'running' — true once this request
+  // finishes, not yet (`campaign` here is still 'draft'/'paused', fetched
+  // before the transaction below flips it). Check against the running-to-be
+  // status directly, or every start would defer to "tomorrow" regardless of
+  // the actual time of day.
+  const gate = canDialNow({ ...campaign, status: 'running' }, new Date());
   const scheduleTime = gate.canDial ? null : nextWindowOpening(campaign, new Date()).toISOString();
 
   const result = await triggerElloCampaign({
