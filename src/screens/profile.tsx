@@ -241,13 +241,6 @@ export default function Profile() {
           <Pressable onPress={() => set({ pdEdit: true })} style={styles.editIcon} accessibilityLabel="Edit profile"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
         </View>
         <View style={styles.statsRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>{t.statCreditScore}</Text>
-            <Text style={[font(800), { fontSize: 20, color: colors.text }]}>
-              {state.authUser?.creditScore ?? '—'}<Text style={[font(500), { fontSize: 12, color: colors.muted }]}> / 900</Text>
-            </Text>
-          </View>
-          <View style={styles.statDiv} />
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Icon name="event_available" size={18} color={colors.mint} />
             <Text style={[font(600), { fontSize: 12, color: colors.textMid }]}>

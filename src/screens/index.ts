@@ -27,7 +27,6 @@ import Selfie from './selfie';
 import StatusScreen from './status';
 import Disbursed from './disbursed';
 import Repay from './repay';
-import CreditScore from './creditscore';
 import Profile from './profile';
 import Help from './help';
 import Explore from './explore';
@@ -62,7 +61,6 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   status: StatusScreen,
   disbursed: Disbursed,
   repay: Repay,
-  creditscore: CreditScore,
   profile: Profile,
   help: Help,
   explore: Explore,

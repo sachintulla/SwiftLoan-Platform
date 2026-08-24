@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
-import { Field, Chips, Slider, PrimaryButton, StepBadge } from '../components/Controls';
+import { Field, Chips, Slider, HeaderCta, StepBadge } from '../components/Controls';
 import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
@@ -167,7 +167,7 @@ export default function Basic() {
       padded={false}
       contentStyle={{ paddingBottom: 24 }}
       collapsingTitle={t.basicTitle}
-      footer={<PrimaryButton label={busy ? t.basicStarting : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />}
+      headerRight={<HeaderCta label={busy ? t.basicStarting : t.continueBtn} disabled={busy} onPress={onContinue} />}
     >
       <View style={{ paddingHorizontal: 20 }}>
         <StepBadge step={2} of={4} label={t.basicStepLabel} />

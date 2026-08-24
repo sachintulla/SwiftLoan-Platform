@@ -24,7 +24,6 @@ import Selfie from '../src/screens/selfie';
 import Status from '../src/screens/status';
 import Disbursed from '../src/screens/disbursed';
 import Repay from '../src/screens/repay';
-import CreditScore from '../src/screens/creditscore';
 import Profile from '../src/screens/profile';
 import Help from '../src/screens/help';
 
@@ -61,7 +60,6 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S20 status', Status, ['No application yet']],
   ['UC-S21 disbursed', Disbursed, ['Funds on the way!']],
   ['UC-S22 repay', Repay, ['Repayment Overview']],
-  ['UC-S23 creditscore', CreditScore, ['Credit Score', 'Current CIBIL Score']],
   ['UC-S24 profile', Profile, ['Account Settings']],
   ['UC-S25 help', Help, ['How can we help you today?']],
 ];

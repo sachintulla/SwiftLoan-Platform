@@ -272,7 +272,6 @@ export const api = {
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
     request('PATCH', '/users/me/notifications', prefs),
-  creditScore: () => request('GET', '/users/me/credit-score'),
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),

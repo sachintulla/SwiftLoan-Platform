@@ -67,7 +67,7 @@ export default function Home() {
       {/* Returning user: their offers are already pulled — jump straight in,
           no need to re-enter details. */}
       {state.hasSavedOffers && (
-        <Pressable onPress={() => go('offers')} style={styles.savedOffersCard}>
+        <Pressable onPress={() => { set({ offersReturn: 'home' }); go('offers'); }} style={styles.savedOffersCard}>
           <View style={styles.savedOffersIcon}>
             <Icon name="local_offer" size={22} color="#fff" />
           </View>
@@ -89,7 +89,7 @@ export default function Home() {
       </View>
       <View style={styles.loanTypeRow}>
         {LOAN_TYPES.map(l => (
-          <Pressable key={l.k} onPress={() => go('basicpan')} style={styles.loanTypeCard}>
+          <Pressable key={l.k} onPress={() => { set({ offersReturn: 'home' }); go('basicpan'); }} style={styles.loanTypeCard}>
             <View style={styles.loanTypeIcon}>
               <Icon name={l.icon} size={26} color="#fff" />
             </View>
@@ -130,6 +130,7 @@ export default function Home() {
           if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
           // User details entered/known so far are already in the store and are
           // re-prefilled by the basic screen on mount.
+          set({ offersReturn: 'home' });
           go('basicpan');
         }}
       />

@@ -109,6 +109,7 @@ export function Screen({
   contentStyle,
   header,
   collapsingTitle,
+  headerRight,
   footer,
   children,
 }: {
@@ -119,6 +120,8 @@ export function Screen({
   contentStyle?: StyleProp<ViewStyle>;
   /** Pinned top bar (e.g. an AppHeader/back button) that stays fixed while content scrolls. */
   header?: React.ReactNode;
+  /** Right-side action rendered in the collapsingTitle header (e.g. a HeaderCta). */
+  headerRight?: React.ReactNode;
   /**
    * iOS-style collapsing title: renders a pinned AppHeader (back button always
    * visible) whose title fades in only once the large in-content title has
@@ -159,6 +162,7 @@ export function Screen({
   };
   const headerEl = collapsingTitle != null ? (
     <AppHeader
+      right={headerRight}
       title={
         <Animated.Text
           numberOfLines={1}
@@ -358,7 +362,7 @@ export function AppHeader({
           <LogoLockup light={light} size={26} />
         )}
       </View>
-      <View style={{ width: 40, alignItems: 'flex-end' }}>{right}</View>
+      <View style={[{ alignItems: 'flex-end', justifyContent: 'center' }, right ? { minWidth: 40 } : { width: 40 }]}>{right}</View>
     </View>
   );
 }
