@@ -54,7 +54,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
   answered: 'green', queued: 'amber', no_answer: 'amber', busy: 'amber', retrying: 'amber',
   paused: 'amber', on_hold: 'amber', pending: 'amber', pan_pending: 'amber', handoff: 'amber', draft: 'amber', scheduled: 'amber', late: 'amber', contacted: 'amber',
   abandoned: 'red', rejected: 'red', failed: 'red', defaulted: 'red', lost: 'red',
-  anonymous: 'grey', not_started: 'grey', new: 'grey', skipped: 'grey',
+  anonymous: 'grey', not_started: 'grey', new: 'grey', skipped: 'grey', cancelled: 'grey',
   converted: 'teal', qualified: 'teal',
 };
 

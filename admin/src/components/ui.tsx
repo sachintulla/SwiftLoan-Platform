@@ -1,5 +1,5 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { statusTone, humanStatus, StatusTone } from '@/lib/format';
 
 export function Card({ title, sub, right, children, className = '' }: { title?: string; sub?: string; right?: React.ReactNode; children: React.ReactNode; className?: string }) {
@@ -73,6 +73,124 @@ export function FilterChips<T extends string>({ options, value, onChange }: { op
       {options.map((o) => (
         <button key={o.key} className={`chip-filter ${value === o.key ? 'active' : ''}`} onClick={() => onChange(o.key)}>{o.label}</button>
       ))}
+    </div>
+  );
+}
+
+export interface SelectOption<T extends string> { value: T; label: React.ReactNode }
+
+/**
+ * Styled stand-in for a native <select>. A native popup is OS-rendered (not
+ * page CSS), so on an OS in dark mode it opens as a plain dark system list no
+ * matter what this app's (light-only) design system says — this renders the
+ * open list itself, so it always matches.
+ */
+export function Select<T extends string>({
+  value, onChange, options, placeholder = 'Select…',
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: SelectOption<T>[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointer(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false); }
+    document.addEventListener('mousedown', onDocPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const selected = options.find((o) => o.value === value);
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="input select-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={selected ? '' : 'muted'} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <span className="select-caret" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className="select-menu card" role="listbox">
+          {options.map((o) => (
+            <div
+              key={o.value}
+              role="option"
+              aria-selected={o.value === value}
+              className={`select-option${o.value === value ? ' active' : ''}`}
+              onClick={() => { onChange(o.value); setOpen(false); }}
+            >
+              <span className="select-check" aria-hidden>{o.value === value ? '✓' : ''}</span>
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Styled stand-in for window.confirm() — a native confirm() is chrome-rendered
+ * (the "localhost:4001 says" browser dialog), so it can't be themed and looks
+ * jarring against the rest of the dashboard. Use this for any real-world-effect
+ * confirmation instead.
+ */
+export function ConfirmDialog({
+  title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'brand', busy, onConfirm, onCancel,
+}: {
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  tone?: 'brand' | 'red';
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onCancel(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={onCancel}
+    >
+      <div className="card card-pad" style={{ width: '100%', maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="card-title">{title}</h3>
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginTop: 8, marginBottom: 20 }}>{message}</div>
+        <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={tone === 'red' ? { background: 'var(--red)', borderColor: 'var(--red)' } : undefined}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? 'Working…' : confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

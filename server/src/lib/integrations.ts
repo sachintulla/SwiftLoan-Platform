@@ -11,6 +11,7 @@
  * provider outage can never take down a request path or a job tick.
  */
 import { prisma } from './prisma.js';
+import { csvCell } from './csv.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -38,6 +39,8 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     triggerPath: '/api/agents/{agentId}/calls',
     /// Agent listing, used by the campaign builder's picker.
     agentsPath: '/api/agents',
+    /// Ello's own batch dialler — https://docs.getello.ai/api-reference/campaigns/create-campaign
+    campaignPath: '/api/campaign',
     triggerMethod: 'POST',
     authHeader: 'X-API-Key',
     /** Default agent used when a campaign does not name its own. */
@@ -58,6 +61,21 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
      * without it, rather than dial one that can never report back.
      */
     webhookUrl: '',
+    /**
+     * Sent as the `webhooks` field on every /api/campaign create call — Ello
+     * takes this per-campaign rather than requiring a one-time standing
+     * subscription (their separate `PUT /api/agents/{id}/webhook` also
+     * exists, but is NOT what this uses; confirmed against a real create
+     * -campaign request that this field on the call itself is what actually
+     * wires delivery up, and it must be resent on every campaign — nothing is
+     * remembered between them). All 6 events route to the same `webhookUrl`
+     * as the per-call trigger's `hook_url` above: /ello/call-outcome branches
+     * internally on `campaign.*` vs `call.*`.
+     */
+    campaignWebhookEvents: [
+      'call.started', 'call.completed', 'call.processed', 'call.recording',
+      'campaign.started', 'campaign.ended',
+    ],
     /** Optional opening line; blank lets the agent's own greeting play. */
     message: '',
     /** Dotted path to the provider's call id in the trigger response. */
@@ -241,6 +259,11 @@ function joinUrl(base: string, path: string): string {
   return `${(base || '').replace(/\/+$/, '')}/${(path || '').replace(/^\/+/, '')}`;
 }
 
+/** Ello expects E.164. Our phones are bare 10-digit Indian numbers. */
+function toE164India(phone: string): string {
+  return /^\+/.test(phone) ? phone : `+91${phone.replace(/\D/g, '').slice(-10)}`;
+}
+
 /* ────────────────────────────── Ello ────────────────────────────── */
 
 export interface TriggerCallInput {
@@ -281,7 +304,7 @@ export async function triggerElloCall(input: TriggerCallInput): Promise<HttpResu
   }
 
   // Ello expects E.164. Our phones are bare 10-digit Indian numbers.
-  const toNumber = /^\+/.test(input.phone) ? input.phone : `+91${input.phone.replace(/\D/g, '').slice(-10)}`;
+  const toNumber = toE164India(input.phone);
 
   const body: Record<string, any> = {
     to_number: toNumber,
@@ -318,6 +341,140 @@ export async function triggerElloCall(input: TriggerCallInput): Promise<HttpResu
 
   const providerCallId = pick(res.body, s.responseMap?.providerCallId) ?? pick(res.body, 'data.conversation_id');
   return { ...res, providerCallId: providerCallId ? String(providerCallId) : undefined };
+}
+
+/**
+ * One recipient row for Ello's own batch campaign dialler. Deliberately the
+ * same shape our own segment/upload contact-selection already produces
+ * (CampaignContact) — this only reformats an existing, unchanged contact
+ * list into the wire format Ello's dashboard itself expects (confirmed
+ * directly against their "Create Campaign" UI: phone_number is required,
+ * name is recognised, and every other column is passed through to the agent
+ * as a per-contact dynamic variable — same idea as the `context_data` our own
+ * per-call trigger already sends above).
+ */
+export interface ElloCampaignRecipient {
+  phone: string;
+  name?: string | null;
+  city?: string | null;
+  product?: string | null;
+  /** Paise, our storage convention — converted to whole rupees for the CSV, since that's what an agent should say out loud. */
+  amount?: number | null;
+  /** Anything else already carried on the contact (spreadsheet-upload extras). Spread as additional CSV columns. */
+  extra?: Record<string, unknown> | null;
+}
+
+/** Build the CSV Ello's /api/campaign upload expects. Exported for testing. */
+export function buildElloCampaignCsv(recipients: ElloCampaignRecipient[]): string {
+  // Every row must have the same columns (a column present for only some
+  // contacts would otherwise shift values between rows), so collect every
+  // distinct `extra` key across the whole batch up front.
+  const extraKeys = new Set<string>();
+  for (const r of recipients) {
+    if (r.extra && typeof r.extra === 'object') {
+      for (const k of Object.keys(r.extra)) extraKeys.add(k);
+    }
+  }
+  const extraCols = Array.from(extraKeys);
+  const headers = ['phone_number', 'name', 'city', 'product', 'amount', ...extraCols];
+  const rows = recipients.map((r) => [
+    // csvCell()'s formula-injection guard prefixes any value starting with
+    // '+' with a quote — correct for arbitrary user text, but it would
+    // corrupt every E.164 phone number ('+919876…'). Emit this one column
+    // raw: it's our own generated digits-and-'+' string, never
+    // attacker-controlled free text, and never needs CSV quoting either.
+    toE164India(r.phone),
+    csvCell(r.name ?? ''),
+    csvCell(r.city ?? ''),
+    csvCell(r.product ?? ''),
+    csvCell(r.amount != null ? Math.round(r.amount / 100) : ''),
+    ...extraCols.map((k) => csvCell(r.extra && k in r.extra ? (r.extra as Record<string, unknown>)[k] : '')),
+  ].join(','));
+  return [headers.join(','), ...rows].join('\r\n');
+}
+
+export interface TriggerCampaignInput {
+  /** Shown on Ello's own dashboard. */
+  campaignName: string;
+  assistantId?: string | null;
+  recipients: ElloCampaignRecipient[];
+  /** ISO datetime — omit to send immediately (Ello's "Send immediately"). */
+  scheduleTime?: string | null;
+}
+
+/**
+ * Hand an already-built contact list (from our own segments/upload flow —
+ * unchanged) to Ello's native batch campaign dialler, instead of this
+ * server's own per-contact campaignRunner loop. Ello owns the actual dialling
+ * once this call succeeds; we only get a campaign-level id + status back
+ * (their /api/campaign has no per-contact detail endpoint), not the live
+ * per-contact tracking campaignRunner.ts provides.
+ */
+export async function triggerElloCampaign(
+  input: TriggerCampaignInput,
+): Promise<HttpResult & { providerCampaignId?: string }> {
+  const cfg = await getProviderConfig('ello');
+  if (!cfg.enabled) return { ok: false, status: 0, body: null, error: 'Ello integration is disabled' };
+
+  const apiKey = cfg.secrets.apiKey ?? cfg.secrets.api_key;
+  if (!apiKey) return { ok: false, status: 0, body: null, error: 'Ello apiKey is not configured' };
+
+  const s = cfg.settings;
+  const agentId = input.assistantId || s.assistantId;
+  if (!agentId) return { ok: false, status: 0, body: null, error: 'No Ello agent id configured' };
+
+  if (!input.recipients.length) return { ok: false, status: 0, body: null, error: 'No contacts to send' };
+
+  const csv = buildElloCampaignCsv(input.recipients);
+  const form = new FormData();
+  form.append('campaignName', input.campaignName);
+  form.append('assistantId', agentId);
+  form.append('file', new Blob([csv], { type: 'text/csv' }), 'recipients.csv');
+  if (input.scheduleTime) {
+    form.append('scheduleEnabled', 'true');
+    form.append('scheduleTime', input.scheduleTime);
+  }
+  // Wired fresh on every campaign, not a one-time dashboard setup — see the
+  // comment on campaignWebhookEvents above.
+  if (s.webhookUrl && Array.isArray(s.campaignWebhookEvents) && s.campaignWebhookEvents.length) {
+    form.append('webhooks', JSON.stringify([
+      { url: s.webhookUrl, method: 'POST', events: s.campaignWebhookEvents, headers: {} },
+    ]));
+  }
+
+  const fullUrl = joinUrl(s.baseUrl, s.campaignPath || '/api/campaign');
+  console.log('[ello-campaign] → POST', fullUrl, 'agentId=', agentId, 'recipients=', input.recipients.length);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  let res: HttpResult;
+  try {
+    const r = await fetch(fullUrl, {
+      method: 'POST',
+      // No content-type header — fetch sets the multipart boundary itself
+      // for a FormData body; setting one manually strips the boundary param.
+      headers: { [s.authHeader || 'X-API-Key']: String(apiKey) },
+      body: form,
+      signal: controller.signal,
+    });
+    const text = await r.text();
+    let parsed: any = text;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      /* provider returned non-JSON; keep the raw text for debugging */
+    }
+    res = { ok: r.ok, status: r.status, body: parsed, error: r.ok ? undefined : `HTTP ${r.status}` };
+  } catch (e: any) {
+    const aborted = e?.name === 'AbortError';
+    res = { ok: false, status: 0, body: null, error: aborted ? `timed out after ${DEFAULT_TIMEOUT_MS}ms` : String(e?.message ?? e) };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  console.log('[ello-campaign] ← HTTP', res.status, 'ok=', res.ok, 'body=', JSON.stringify(res.body));
+  const providerCampaignId = pick(res.body, 'data.campaign_id') ?? pick(res.body, 'campaign_id');
+  return { ...res, providerCampaignId: providerCampaignId ? String(providerCampaignId) : undefined };
 }
 
 export interface ElloAgent {
@@ -404,6 +561,12 @@ export async function parseElloWebhook(raw: any) {
     event,
     providerCallId: get('providerCallId') != null ? String(get('providerCallId')) : null,
     clientCallId: ctx?.swiftloan_call_id != null ? String(ctx.swiftloan_call_id) : null,
+    // Only present on calls Ello placed itself via its batch campaign dialler
+    // (send-to-ello) — those never went through our own dialer.ts, so they
+    // have no CallAttempt yet for the id-based lookups above to find. Used as
+    // a fallback: correlate via Campaign.providerCampaignId + phone instead.
+    providerCampaignId: raw?.campaign_id != null ? String(raw.campaign_id) : null,
+    toNumber: raw?.to_number != null ? String(raw.to_number) : null,
     status,
     // Ello has no single "outcome" field; the webhook route derives one from
     // the event + status + error_reason via its tolerant mapper.

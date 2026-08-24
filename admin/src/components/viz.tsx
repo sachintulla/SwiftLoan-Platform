@@ -32,6 +32,12 @@ const PIPE_COLORS: Record<string, string> = {
   draft: '#f79009', pan_pending: '#f7a53b', prequalifying: '#2e90fa', offers_ready: '#2e90fa',
   handoff: '#f79009', under_review: '#2e90fa', approved: '#12b76a', rejected: '#f04438',
   disbursed: '#0a7d4b', closed: '#667085',
+  // Campaign contact states (ContactState) — this bar is reused on the
+  // campaign detail page for these too. Without entries here every one of
+  // them fell through to the '#98a2b3' fallback below, so a campaign's bar
+  // was always flat grey no matter its actual mix of called/pending/failed.
+  pending: 'var(--amber)', queued: 'var(--amber)', called: 'var(--blue)',
+  failed: 'var(--red)', skipped: 'var(--grey)',
 };
 
 export function PipelineBar({ byStatus }: { byStatus: Record<string, number> }) {

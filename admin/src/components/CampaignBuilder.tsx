@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, apiUpload, ApiError } from '@/lib/api';
-import { StatusBadge, Empty } from '@/components/ui';
+import { StatusBadge, Empty, Select, ConfirmDialog } from '@/components/ui';
 import { num } from '@/lib/format';
 import SegmentPickerModal from '@/components/SegmentPickerModal';
 import {
@@ -148,30 +148,32 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
   const wraps = startMin != null && endMin != null && endMin < startMin;
   const tz = tzAbbrev(form.timezone);
 
+  // One real-world-effect confirmation, right before it happens — matches the
+  // same pattern used elsewhere in the dashboard for placing a real call. Only
+  // needed for segments: picking and uploading a spreadsheet is already a
+  // deliberate enough action on its own. Held as state (not window.confirm)
+  // so it renders as an in-app dialog instead of the unthemeable browser one.
+  const [pendingConfirm, setPendingConfirm] = useState<{ chosen: Segment[]; upperBound: number } | null>(null);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setAttempted(true); // from here on, surface any validation messages
     if (Object.keys(errs).length > 0) { setFormError('Fix the highlighted fields first.'); return; }
 
-    // One real-world-effect confirmation, right before it happens — matches
-    // the same pattern used elsewhere in the dashboard for placing a real
-    // call. Only needed for segments: picking and uploading a spreadsheet is
-    // already a deliberate enough action on its own.
     if (contactMode === 'segments' && selectedSegments.size > 0) {
       const chosen = segments.filter((s) => selectedSegments.has(s.key));
       const upperBound = chosen.reduce((a, s) => {
         const override = segmentOverrides[s.key];
         return a + (override ? override.size : s.count);
       }, 0);
-      const confirmed = window.confirm(
-        `${editing ? 'Save changes and add' : 'Create this campaign with'} contacts from ` +
-        `${chosen.map((s) => s.label).join(', ')}?\n\n` +
-        `Up to ${upperBound} people (overlap between segments is merged automatically by phone number). ` +
-        `Once this campaign is started, everyone added will be called.`,
-      );
-      if (!confirmed) return;
+      setPendingConfirm({ chosen, upperBound });
+      return;
     }
 
+    await doSubmit();
+  }
+
+  async function doSubmit() {
     setBusy(true); setFormError(null); setCodeError(null);
     try {
       const res = await apiFetch<{ id?: string; campaign?: { id: string } }>(
@@ -363,18 +365,23 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
         ) : (
           <>
             <Field label="Assistant">
-              <select className="input" style={{ marginTop: 6 }} value={form.assistantId}
-                onChange={(e) => {
-                  const a = agents.find((x) => x.id === e.target.value);
-                  setForm((f) => ({ ...f, assistantId: e.target.value, assistantName: a?.name || '' }));
-                }}>
-                <option value="">— none —</option>
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name || a.id}{a.type ? ` · ${a.type}` : ''}{a.phoneNumber ? ` · ${a.phoneNumber}` : ' · no phone number'}
-                  </option>
-                ))}
-              </select>
+              <div style={{ marginTop: 6 }}>
+                <Select
+                  value={form.assistantId}
+                  placeholder="— none —"
+                  onChange={(v) => {
+                    const a = agents.find((x) => x.id === v);
+                    setForm((f) => ({ ...f, assistantId: v, assistantName: a?.name || '' }));
+                  }}
+                  options={[
+                    { value: '', label: '— none —' },
+                    ...agents.map((a) => ({
+                      value: a.id,
+                      label: `${a.name || a.id}${a.type ? ` · ${a.type}` : ''}${a.phoneNumber ? ` · ${a.phoneNumber}` : ' · no phone number'}`,
+                    })),
+                  ]}
+                />
+              </div>
             </Field>
             {form.assistantId && (() => {
               const a = agents.find((x) => x.id === form.assistantId);
@@ -544,6 +551,26 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
         {onCancel && <button className="btn" type="button" onClick={onCancel}>Cancel</button>}
         {formError && <span style={{ color: 'var(--red)', fontSize: 12.5 }}>{formError}</span>}
       </div>
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          title={editing ? 'Save changes and add contacts?' : 'Create this campaign?'}
+          busy={busy}
+          confirmLabel={editing ? 'Save & add contacts' : 'Create campaign'}
+          message={
+            <>
+              {editing ? 'Save changes and add' : 'Create this campaign with'} contacts from{' '}
+              <b style={{ color: 'var(--text)' }}>{pendingConfirm.chosen.map((s) => s.label).join(', ')}</b>?
+              <br /><br />
+              Up to <b style={{ color: 'var(--text)' }}>{num(pendingConfirm.upperBound)}</b> people (overlap between
+              segments is merged automatically by phone number). Once this campaign is started, everyone added will
+              be called.
+            </>
+          }
+          onCancel={() => setPendingConfirm(null)}
+          onConfirm={() => { setPendingConfirm(null); doSubmit(); }}
+        />
+      )}
     </form>
   );
 }
