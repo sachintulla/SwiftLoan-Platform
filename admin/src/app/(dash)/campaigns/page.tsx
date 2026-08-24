@@ -10,6 +10,11 @@ import { Campaign, minutesToTime, daysLabel, tzAbbrev, zonedDateLabel } from '@/
 const FILTERS = [
   { key: '', label: 'All' }, { key: 'draft', label: 'Draft' }, { key: 'running', label: 'Running' },
   { key: 'paused', label: 'Paused' }, { key: 'completed', label: 'Completed' }, { key: 'failed', label: 'Failed' },
+  { key: 'cancelled', label: 'Cancelled' },
+  // Not a real CampaignStatus — see the `deleted=true` query param below,
+  // which the backend treats as its own orthogonal filter (soft-deleted
+  // campaigns are hidden from every other tab, including "All").
+  { key: 'deleted', label: 'Deleted' },
 ];
 
 export default function CampaignsPage() {
@@ -17,8 +22,23 @@ export default function CampaignsPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
 
-  const qs = new URLSearchParams({ page: String(page), pageSize: '20', ...(status ? { status } : {}) });
+  const viewingDeleted = status === 'deleted';
+  const qs = new URLSearchParams({
+    page: String(page), pageSize: '20',
+    ...(viewingDeleted ? { deleted: 'true' } : status ? { status } : {}),
+  });
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/campaigns?${qs.toString()}`, swrFetcher);
+
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  async function restore(id: string) {
+    setRestoringId(id);
+    try {
+      await apiFetch(`/api/admin/campaigns/${id}/restore`, { method: 'POST' });
+      mutate();
+    } finally {
+      setRestoringId(null);
+    }
+  }
 
   // Defensive: the list may arrive as a bare array or nested under `campaigns`.
   const payload = data?.data as Campaign[] | { campaigns?: Campaign[] } | undefined;
@@ -95,12 +115,13 @@ export default function CampaignsPage() {
             <div><button className="btn" style={{ marginTop: 12 }} onClick={() => mutate()}>Retry</button></div>
           </div>
         ) : isLoading ? <TableSkeleton cols={9} /> : rows.length === 0 ? (
-          <Empty label={status ? 'No campaigns with this status' : 'No campaigns yet — create one to start calling'} />
+          <Empty label={viewingDeleted ? 'No deleted campaigns' : status ? 'No campaigns with this status' : 'No campaigns yet — create one to start calling'} />
         ) : (
           <div className="table-wrap"><table className="data">
             <thead><tr>
               <th>Name</th><th>Code</th><th>Status</th><th>Type</th><th>Window</th><th>Agent</th>
               <th>Next run</th><th>Contacts</th><th>Called</th><th>Failed</th><th>Created</th>
+              {viewingDeleted && <th></th>}
             </tr></thead>
             <tbody>{rows.map((c) => {
               const tz = c.timezone || 'Asia/Kolkata';
@@ -121,6 +142,13 @@ export default function CampaignsPage() {
                   <td className="mono">{num(c.calledContacts)}</td>
                   <td className="mono" style={{ color: c.failedContacts ? 'var(--red)' : undefined }}>{num(c.failedContacts)}</td>
                   <td className="muted">{dateStr(c.createdAt)}</td>
+                  {viewingDeleted && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <button className="btn" disabled={restoringId === c.id} onClick={() => restore(c.id)}>
+                        {restoringId === c.id ? '…' : '↺ Restore'}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}</tbody>

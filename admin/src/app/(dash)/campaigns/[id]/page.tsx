@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
-import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
+import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty, ConfirmDialog } from '@/components/ui';
 import { PipelineBar } from '@/components/viz';
 import { CategoryBar } from '@/components/charts';
 import { inr, dateStr, num, humanStatus, timeAgo } from '@/lib/format';
@@ -64,6 +64,8 @@ export default function CampaignDetail() {
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (error) {
     return <div className="page"><Card><div className="empty">Could not load this campaign — {(error as Error).message}
@@ -71,14 +73,28 @@ export default function CampaignDetail() {
   }
   if (isLoading || !campaign) return <div className="page"><TableSkeleton rows={8} /></div>;
 
-  async function act(path: 'start' | 'pause') {
+  async function act(path: 'start' | 'pause' | 'cancel') {
     setBusy(true); setActionError(null);
     try {
-      await apiFetch<{ queued?: number }>(`/api/admin/campaigns/${id}/${path}`, { method: 'POST' });
+      const res = await apiFetch<{ queued?: number; elloSideNotCancelled?: boolean }>(`/api/admin/campaigns/${id}/${path}`, { method: 'POST' });
+      if (path === 'cancel' && (res.data as { elloSideNotCancelled?: boolean } | undefined)?.elloSideNotCancelled) {
+        setActionError("Cancelled here — this campaign was sent to Ello, so also cancel it from Ello's own dashboard.");
+      }
       await Promise.all([mutate(), mutateStats()]);
     } catch (e) {
       setActionError(e instanceof ApiError && e.status === 409 ? (e.message || 'Campaign is already running') : (e as Error).message);
     } finally { setBusy(false); }
+  }
+
+  async function deleteCampaign() {
+    setBusy(true); setActionError(null);
+    try {
+      await apiFetch(`/api/admin/campaigns/${id}`, { method: 'DELETE' });
+      router.push('/campaigns');
+    } catch (e) {
+      setActionError((e as Error).message);
+      setBusy(false);
+    }
   }
 
   const total = campaign.totalContacts ?? Object.values(counts).reduce((a, b) => a + b, 0);
@@ -146,6 +162,16 @@ export default function CampaignDetail() {
             {busy ? '…' : running ? 'Running' : '▶ Start dialling'}
           </button>
           <button className="btn" disabled={busy || !running} onClick={() => act('pause')}>❙❙ Pause</button>
+          <button
+            className="btn"
+            disabled={busy || !(running || campaign.status === 'paused')}
+            onClick={() => setConfirmCancel(true)}
+          >
+            ✕ Cancel
+          </button>
+          <button className="btn" style={{ color: 'var(--red)' }} disabled={busy || campaign.status === 'running'} onClick={() => setConfirmDelete(true)}>
+            🗑 Delete
+          </button>
         </div>
       </div>
       {total === 0 && <p className="muted" style={{ fontSize: 12.5 }}>No contacts yet — click "Edit / add contacts" above.</p>}
@@ -240,6 +266,48 @@ export default function CampaignDetail() {
         )}
         {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={setPage} />}
       </Card>
+
+      {confirmCancel && (
+        <ConfirmDialog
+          title="Cancel this campaign?"
+          tone="red"
+          busy={busy}
+          confirmLabel="Cancel campaign"
+          cancelLabel="Never mind"
+          message={
+            <>
+              Every contact not yet called will be marked <b style={{ color: 'var(--text)' }}>skipped</b> and this
+              campaign can never be resumed — start a new one instead if you need to reach them later.
+              {campaign.providerCampaignId && (
+                <>
+                  <br /><br />
+                  This campaign was sent to Ello, so this only stops it on our side — cancel it from{' '}
+                  <b style={{ color: 'var(--text)' }}>Ello&apos;s own dashboard</b> too.
+                </>
+              )}
+            </>
+          }
+          onCancel={() => setConfirmCancel(false)}
+          onConfirm={() => { setConfirmCancel(false); act('cancel'); }}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this campaign?"
+          tone="red"
+          busy={busy}
+          confirmLabel="Delete campaign"
+          message={
+            <>
+              This removes <b style={{ color: 'var(--text)' }}>{campaign.name}</b> from the list, but it is not
+              erased — it's kept, and can be restored later from the Deleted filter.
+            </>
+          }
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={deleteCampaign}
+        />
+      )}
     </div>
   );
 }

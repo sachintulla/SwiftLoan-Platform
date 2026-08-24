@@ -21,6 +21,7 @@ import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, C
 import { normalisePhone } from '../lib/dialer.js';
 import { SEGMENT_KEYS, getSegmentMembers, type SegmentKey } from '../lib/segments.js';
 import { scoped } from '../lib/log.js';
+import { triggerElloCampaign } from '../lib/integrations.js';
 
 const log = scoped('campaigns');
 
@@ -31,7 +32,7 @@ campaignsRouter.use(auditAdmin);
 
 
 
-const CAMPAIGN_STATUSES = ['draft', 'running', 'paused', 'completed', 'failed'] as const;
+const CAMPAIGN_STATUSES = ['draft', 'running', 'paused', 'completed', 'failed', 'cancelled'] as const;
 type CampaignStatusValue = (typeof CAMPAIGN_STATUSES)[number];
 
 // Spreadsheets are parsed in-process and never written to disk.
@@ -154,10 +155,15 @@ function scheduleData(b: Record<string, any>) {
 campaignsRouter.get('/', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
   const status = req.query.status ? String(req.query.status) : undefined;
-  const where: Prisma.CampaignWhereInput =
-    status && (CAMPAIGN_STATUSES as readonly string[]).includes(status)
+  // Soft-deleted campaigns are hidden from the normal list — pass
+  // ?deleted=true to see (only) the deleted ones instead, e.g. to restore one.
+  const showDeleted = req.query.deleted === 'true';
+  const where: Prisma.CampaignWhereInput = {
+    deletedAt: showDeleted ? { not: null } : null,
+    ...(status && (CAMPAIGN_STATUSES as readonly string[]).includes(status)
       ? { status: status as CampaignStatusValue }
-      : {};
+      : {}),
+  };
 
   const [total, rows] = await Promise.all([
     prisma.campaign.count({ where }),
@@ -238,6 +244,35 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
       throw e;
     }
   }));
+
+// DELETE /api/admin/campaigns/:id
+// Soft delete: sets deletedAt rather than removing the row, so the campaign
+// (and every contact/call-history row it's linked to) is never actually
+// erased and can always be restored — see the schema comment on
+// Campaign.deletedAt. A running campaign must be cancelled or paused first;
+// deleting out from under an active dial would leave campaignRunner
+// referencing a campaign that's vanished from every normal list.
+campaignsRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (campaign.deletedAt) return fail(res, 409, 'Campaign is already deleted');
+  if (campaign.status === 'running') return fail(res, 409, 'Pause or cancel this campaign before deleting it');
+
+  const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { deletedAt: new Date() } });
+  log.info('campaign deleted', { id: updated.id, name: campaign.name, deletedBy: req.admin?.sub ?? null });
+  return ok(res, { id: updated.id, deletedAt: updated.deletedAt }, 'Campaign deleted');
+}));
+
+// POST /api/admin/campaigns/:id/restore
+campaignsRouter.post('/:id/restore', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (!campaign.deletedAt) return fail(res, 409, 'Campaign is not deleted');
+
+  const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { deletedAt: null } });
+  log.info('campaign restored', { id: updated.id, name: campaign.name, restoredBy: req.admin?.sub ?? null });
+  return ok(res, { id: updated.id }, 'Campaign restored');
+}));
 
 // ─────────────────────────── single campaign ───────────────────────────
 
@@ -573,6 +608,71 @@ campaignsRouter.post('/:id/start', requireRole(...CAN_ADMINISTER), ah(async (req
   );
 }));
 
+// POST /api/admin/campaigns/:id/send-to-ello
+// Hands this campaign's already-selected contacts (same segments/upload flow
+// as /start — untouched) to Ello's own batch campaign dialler instead of our
+// campaignRunner loop. Ello does the actual dialling from here; we only get a
+// campaign-level id + status back (no per-contact detail on their side), so
+// this campaign's own live tracking (Contacts by state, Calls by outcome)
+// will no longer update once Ello owns the dial.
+campaignsRouter.post('/:id/send-to-ello', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (!campaign.assistantId) return fail(res, 400, 'This campaign has no agent assigned');
+
+  const contacts = await prisma.campaignContact.findMany({
+    where: { campaignId: campaign.id, state: 'pending' },
+    select: { phone: true, name: true, city: true, product: true, amount: true, extra: true },
+  });
+  if (contacts.length === 0) return fail(res, 400, 'No pending contacts to send');
+
+  const result = await triggerElloCampaign({
+    campaignName: campaign.name,
+    assistantId: campaign.assistantId,
+    recipients: contacts.map((c) => ({
+      phone: c.phone,
+      name: c.name,
+      city: c.city,
+      product: c.product,
+      amount: c.amount,
+      extra: (c.extra as Record<string, unknown> | null) ?? null,
+    })),
+    // Immediate, matching this route's own name — a scheduled send should go
+    // through the existing startAt/dailyWindow fields via a future option,
+    // not silently reinterpret them as Ello's single scheduleTime here.
+    scheduleTime: null,
+  });
+
+  log.info('campaign sent to Ello', {
+    id: campaign.id, name: campaign.name, sentBy: req.admin?.sub ?? null,
+    contacts: contacts.length, ok: result.ok, status: result.status, providerCampaignId: result.providerCampaignId,
+  });
+
+  if (!result.ok) return fail(res, 502, result.error || `Ello returned HTTP ${result.status}`);
+
+  // Move these out of 'pending' immediately: Ello owns dialling them now, so
+  // our own campaignRunner's `WHERE state = 'pending'` query must not also
+  // pick them up if someone hits "Start dialling" on the same campaign —
+  // that would double-dial every contact. `queued` also fixes the dashboard
+  // reading "Pending" forever between now and the first webhook arriving.
+  // providerCampaignId lets the campaign.started/ended and per-call webhooks
+  // (for calls Ello places itself, which never touch our own dialer.ts) find
+  // their way back to this campaign.
+  await prisma.$transaction([
+    prisma.campaign.update({ where: { id: campaign.id }, data: { providerCampaignId: result.providerCampaignId ?? undefined } }),
+    prisma.campaignContact.updateMany({
+      where: { campaignId: campaign.id, phone: { in: contacts.map((c) => c.phone) } },
+      data: { state: 'queued' },
+    }),
+  ]);
+
+  return ok(
+    res,
+    { providerCampaignId: result.providerCampaignId ?? null, contactsSent: contacts.length, elloResponse: result.body },
+    `Sent ${contacts.length} contact(s) to Ello`,
+  );
+}));
+
 // POST /api/admin/campaigns/:id/pause — the dialer loop checks status between items.
 campaignsRouter.post('/:id/pause', requireRole(...CAN_WRITE), ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
@@ -580,6 +680,46 @@ campaignsRouter.post('/:id/pause', requireRole(...CAN_WRITE), ah(async (req, res
   const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'paused' } });
   log.info('campaign paused', { id: updated.id, name: campaign.name, pausedBy: req.admin?.sub ?? null });
   return ok(res, { id: updated.id, status: updated.status }, 'Campaign paused');
+}));
+
+// POST /api/admin/campaigns/:id/cancel
+// Unlike pause (resumable), this is terminal: every not-yet-dialled contact is
+// marked `skipped` so nothing here can ever be picked up again, by us or by a
+// later "resume". For a campaign never sent to Ello (no providerCampaignId),
+// that fully stops it — campaignRunner only ever looks at `status: 'running'`
+// rows. For one sent to Ello (send-to-ello), this only stops OUR side of the
+// bookkeeping: Ello is dialling the list on its own infrastructure now, and
+// there is no confirmed public API to cancel a campaign already running
+// there (their dashboard has a Cancel button, but it isn't in their
+// documented API) — surfaced back to the caller as a warning rather than
+// silently claiming a cancellation that didn't actually happen on their end.
+campaignsRouter.post('/:id/cancel', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (campaign.status === 'cancelled' || campaign.status === 'completed') {
+    return fail(res, 409, `Campaign is already ${campaign.status}`);
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'cancelled', completedAt: new Date() } }),
+    prisma.campaignContact.updateMany({
+      where: { campaignId: campaign.id, state: { in: ['pending', 'queued'] } },
+      data: { state: 'skipped' },
+    }),
+  ]);
+
+  log.info('campaign cancelled', {
+    id: updated.id, name: campaign.name, cancelledBy: req.admin?.sub ?? null,
+    hadProviderCampaign: !!campaign.providerCampaignId,
+  });
+
+  return ok(
+    res,
+    { id: updated.id, status: updated.status, elloSideNotCancelled: !!campaign.providerCampaignId },
+    campaign.providerCampaignId
+      ? 'Cancelled here — this campaign was sent to Ello, so also cancel it from Ello\'s own dashboard'
+      : 'Campaign cancelled',
+  );
 }));
 
 // GET /api/admin/campaigns/:id/stats
