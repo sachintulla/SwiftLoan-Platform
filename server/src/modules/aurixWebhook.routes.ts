@@ -2,7 +2,7 @@
  * Inbound Knight Fintech (Aurix) "Status & Journey Data Push" webhook —
  * mounted at /api/webhooks/aurix (and /api/webhooks/kft).
  *
- * Implements the KFT "Status & Journey Data Push API Contract [PL+BL] v1.2":
+ * Implements the KFT "Status & Journey Data Push API Contract [PL+BL] v1.3":
  * KFT posts a common envelope at each journey trigger —
  *   { journey: { state, status, reason, lead_id, partner_customer_id }, data: {…} }
  * — and we map the journey state/status onto our ApplicationStatus so the app's
@@ -68,9 +68,9 @@ function alreadyProcessed(id: string | undefined): boolean {
 // Progression rank so a status update only moves forward (or to a terminal).
 const RANK: Record<string, number> = {
   draft: 0, pan_pending: 1, prequalifying: 2, offers_ready: 3, handoff: 4,
-  under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8,
+  under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8, failed: 8,
 };
-const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed']);
+const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed', 'failed']);
 
 /** Map a KFT journey (state, status, reason) onto our ApplicationStatus. */
 function mapJourney(state: string, status: string, reason: string): ApplicationStatus | null {
@@ -78,9 +78,12 @@ function mapJourney(state: string, status: string, reason: string): ApplicationS
   const success = status.toLowerCase() !== 'failure';
   const r = reason.toLowerCase();
 
-  // Explicit terminal outcomes sometimes arrive in the reason text.
+  // Explicit terminal outcomes sometimes arrive in the reason text or (v1.3) in
+  // data.post_lender_status ("Disbursed"/"Approved"/"Rejected"), which the caller
+  // folds into `reason` before calling us.
   if (/disburs/.test(r)) return 'disbursed';
   if (/sanction|approv/.test(r)) return 'approved';
+  if (/reject|declin|denied/.test(r)) return 'rejected';
 
   if (!success) {
     // A failure at an eligibility/lender step is a rejection; earlier-step
@@ -144,10 +147,22 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const state = String(j.state ?? '');
   const jStatus = String(j.status ?? '');
   const reason = String(j.reason ?? '');
-  const leadId = j.lead_id != null ? String(j.lead_id) : (body.lead_id != null ? String(body.lead_id) : null);
+  const data: any = body.data ?? {};
+  // lead_id: journey.lead_id is present on most events, but the lender_api_journey
+  // and post_lender_redirection_journey payloads (v1.3 §2.8/§2.10) omit it from
+  // the journey block entirely and only carry it in data.lead_id — so fall back
+  // there, or we'd fail to match those (incl. the disbursal signal).
+  const leadId =
+    j.lead_id != null ? String(j.lead_id)
+      : body.lead_id != null ? String(body.lead_id)
+        : data.lead_id != null ? String(data.lead_id) : null;
   const partnerCustomerId =
     j.partner_customer_id ?? body.PartnerCustomerId ?? body.partnerCustomerId ?? body.partner_customer_id ?? null;
   const offerCode = body.OfferCode ?? body.offerCode ?? body.offer_code ?? null;
+  // v1.3: post-redirection journey carries the terminal outcome here.
+  const postLenderStatus = data.post_lender_status != null ? String(data.post_lender_status) : '';
+  // v1.3: bureau soft-pull now includes the real bureau score.
+  const bureauScore = Number(data.bureau_score);
 
   log.info('received', { requestId, state, status: jStatus, leadId, partnerCustomerId, offerCode });
 
@@ -179,25 +194,77 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     await prisma.loanApplication.update({ where: { id: application.id }, data: { leadId } }).catch(() => {});
   }
 
+  // v1.3: the bureau soft-pull event now carries the customer's real bureau
+  // score — persist it so the app shows the actual CIBIL/CRIF value instead of
+  // the default. (Independent of the status mapping below.)
+  if (Number.isFinite(bureauScore) && bureauScore >= 300 && bureauScore <= 900) {
+    await prisma.user.update({
+      where: { id: application.userId },
+      data: { creditScore: Math.round(bureauScore) },
+    }).catch(() => {});
+  }
+
   const mapped = state
-    ? mapJourney(state, jStatus, reason)
+    // Fold data.post_lender_status into `reason` so a "Disbursed"/"Approved"/
+    // "Rejected" post-redirection outcome maps to the right terminal status.
+    ? mapJourney(state, jStatus, `${reason} ${postLenderStatus}`)
     : mapFlatStatus(String(body.Status ?? body.status ?? ''));
 
   if (!mapped) {
     return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'No status change for this event');
   }
 
-  // Forward-only: don't regress a further status, and don't move a terminal
-  // application backward (approved → disbursed is the one allowed terminal step).
-  const cur = RANK[application.status] ?? 0;
-  const next = RANK[mapped] ?? 0;
-  const regressing = !TERMINAL.has(mapped) && next <= cur;
-  const backFromTerminal = TERMINAL.has(application.status) && !(mapped === 'disbursed' && application.status === 'approved');
-  if (regressing || backFromTerminal) {
+  // Forward-only helper: allow advancing to a further status, or the one legal
+  // terminal step (approved → disbursed); never regress.
+  const advances = (from: ApplicationStatus | null, to: ApplicationStatus): boolean => {
+    const f = RANK[from ?? 'draft'] ?? 0;
+    const t = RANK[to] ?? 0;
+    const regress = !TERMINAL.has(to) && t <= f;
+    const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
+    return !(regress || backTerminal);
+  };
+
+  // ── Per-lender application create/update ──
+  // The per-lender application (an applied Offer) is CREATED only once the lender
+  // confirms the user actually submitted — i.e. after OTP verification on the
+  // lender's web page. KFT signals that with application_submitted (and the
+  // later kyc/redirection/terminal events). Earlier lender-scoped events
+  // (lender_selection, lender_api_journey) are pre-OTP, so they only update an
+  // offer that is ALREADY applied — they never create one.
+  const CREATE_STATES = new Set(['application_submitted', 'kyc_completed', 'post_lender_redirection_journey']);
+  const createsApplication = CREATE_STATES.has(state.toLowerCase().replace(/[^a-z_]/g, '')) || TERMINAL.has(mapped);
+  const lenderName = data.lender_name ?? data.lenderName ?? null;
+  let offerUpdated: string | null = null;
+  if (lenderName) {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const want = norm(String(lenderName));
+    const offers = await prisma.offer.findMany({ where: { applicationId: application.id } });
+    const match = offers.find(o => o.lenderName && (() => {
+      const have = norm(o.lenderName);
+      return have === want || have.includes(want) || want.includes(have);
+    })());
+    // Update if the offer is already applied, or CREATE it now if this event is
+    // the submission confirmation. Otherwise (pre-OTP event, not yet applied) skip.
+    if (match && (match.applied || createsApplication) && advances(match.lenderStatus, mapped)) {
+      await prisma.offer.update({
+        where: { id: match.id },
+        data: {
+          lenderStatus: mapped,
+          ...(match.applied ? {} : { applied: true, appliedAt: match.appliedAt ?? new Date() }),
+          ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}),
+          ...(data.ApplicationUrl != null ? { applicationUrl: String(data.ApplicationUrl) } : {}),
+        },
+      });
+      offerUpdated = match.id;
+    }
+  }
+
+  // ── Parent application status (forward-only) ──
+  if (!advances(application.status, mapped)) {
     return ok(
       res,
-      { matched: true, applicationId: application.id, statusUnchanged: true, current: application.status },
-      'Status not advanced',
+      { matched: true, applicationId: application.id, statusUnchanged: true, current: application.status, offerUpdated },
+      offerUpdated ? 'Lender status updated' : 'Status not advanced',
     );
   }
 
@@ -220,6 +287,6 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, state, kftStatus: jStatus, reason, leadId } },
   ).catch(() => {});
 
-  log.info('status updated', { applicationId: application.id, status: mapped });
-  return ok(res, { matched: true, applicationId: application.id, status: mapped }, 'Status updated');
+  log.info('status updated', { applicationId: application.id, status: mapped, offerUpdated });
+  return ok(res, { matched: true, applicationId: application.id, status: mapped, offerUpdated }, 'Status updated');
 }));

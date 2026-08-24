@@ -203,6 +203,91 @@ applicationsRouter.post('/:id/offers/:offerId/select',
     res.json({ offer });
   }));
 
+/**
+ * Apply to a specific lender's offer. This marks the offer as a tracked
+ * per-lender application (the Offer.id is its application id) and gives it its
+ * own `lenderStatus`, independent of the parent application's eligibility
+ * status. A user can apply to more than one lender on the same eligibility run;
+ * each applied offer is tracked separately and shown as its own card in
+ * My Loans. Idempotent — re-applying to the same lender just refreshes it and
+ * returns the existing per-lender application.
+ */
+applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
+  if (!existing) throw new HttpError(404, 'Offer not found for this application');
+  const alreadyApplied = existing.applied;
+
+  // `selected` still points at the offer being handed off (the native /handoff
+  // path reads it); clear others so a subsequent handoff targets this lender.
+  await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
+  const offer = await prisma.offer.update({
+    where: { id: existing.id },
+    data: {
+      selected: true,
+      applied: true,
+      appliedAt: existing.appliedAt ?? new Date(),
+      lenderStatus: existing.lenderStatus ?? 'handoff',
+    },
+    include: { partner: true, emiOptions: true },
+  });
+
+  // Nudge the parent application forward to handoff (it may go further via
+  // webhooks); never regress a further status.
+  const order = ['draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handoff'];
+  if (order.includes(app.status) && order.indexOf(app.status) < order.indexOf('handoff')) {
+    await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } }).catch(() => {});
+  }
+
+  if (!alreadyApplied) {
+    trackJourney(
+      { userId: req.user!.sub },
+      {
+        channel: 'app',
+        name: JOURNEY_EVENTS.OFFER_SELECTED,
+        metadata: { applicationId: app.id, offerId: offer.id, lenderName: offer.lenderName ?? offer.partner?.name, apr: offer.apr, applied: true },
+      },
+    ).catch(() => {});
+  }
+
+  // Offer.id is the per-lender application id the client tracks.
+  res.json({ offer, lenderApplicationId: offer.id, alreadyApplied });
+}));
+
+/**
+ * Mark a per-lender application as failed — e.g. the lender's web flow (opened
+ * after apply) errored out and the user couldn't complete it. Records the reason
+ * so My Loans shows it as "Failed" for that lender. Never overrides a terminal
+ * outcome the lender already reported (approved/disbursed/rejected/closed).
+ */
+applicationsRouter.post('/:id/offers/:offerId/fail',
+  validate(z.object({ reason: z.string().max(500).optional() })),
+  ah(async (req, res) => {
+    const app = await owned(req.user!.sub, req.params.id);
+    const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
+    if (!offer) throw new HttpError(404, 'Offer not found for this application');
+    // A per-lender application only exists once it was actually submitted (marked
+    // applied — created via the KFT application_submitted webhook after OTP). A
+    // web-flow error BEFORE that point means the user abandoned before submitting,
+    // so there's nothing to mark failed — don't create a stray failed item.
+    if (!offer.applied) {
+      return res.json({ offer, unchanged: true, notApplied: true });
+    }
+    if (offer.lenderStatus && ['approved', 'disbursed', 'rejected', 'closed'].includes(offer.lenderStatus)) {
+      return res.json({ offer, unchanged: true });
+    }
+    const reason = req.body.reason?.slice(0, 500) || 'The lender web flow could not be completed.';
+    const updated = await prisma.offer.update({
+      where: { id: offer.id },
+      data: { lenderStatus: 'failed', failureReason: reason },
+    });
+    trackJourney(
+      { userId: req.user!.sub },
+      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderName: offer.lenderName, failed: true, reason } },
+    ).catch(() => {});
+    res.json({ offer: updated });
+  }));
+
 /** Secure handoff → disburse: create the loan + repayment schedule. */
 applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);

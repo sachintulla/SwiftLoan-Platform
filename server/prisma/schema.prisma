@@ -167,6 +167,7 @@ enum ApplicationStatus {
   rejected
   disbursed
   closed
+  failed // could not complete (e.g. the lender web flow errored out)
 }
 
 enum LoanType {
@@ -314,9 +315,22 @@ model Offer {
   externalPartnerId String?
   rawOffer          Json?
 
+  // Per-lender application tracking. Applying to a specific lender's offer marks
+  // it applied and gives it its own tracked status (independent of the parent
+  // application's eligibility status). The Offer.id acts as the per-lender
+  // application id; KFT's later journey webhooks (which carry lender_name) update
+  // `lenderStatus` for the matching offer so My Loans shows per-lender progress.
+  applied          Boolean            @default(false)
+  appliedAt        DateTime?
+  lenderStatus     ApplicationStatus?
+  kftApplicationId String? // application_id from KFT's application_submitted event
+  applicationUrl   String? // ApplicationUrl from KFT, if provided
+  failureReason    String? // why the lender application failed (e.g. web flow error)
+
   emiOptions OfferEmiOption[]
 
   @@index([applicationId])
+  @@index([applied])
 }
 
 // One row per tenure choice offered for a given Offer — lets a single lender

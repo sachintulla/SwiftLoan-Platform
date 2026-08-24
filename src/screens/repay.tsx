@@ -99,6 +99,18 @@ export default function Repay() {
           <Empty icon="account_balance_wallet" title="No active loan" message="Once a loan is disbursed, its repayment schedule will show up here." />
         ) : (
         <>
+        {/* Lender details for this loan */}
+        <View style={styles.lenderRow}>
+          <View style={styles.lenderLogo}>
+            <Icon name="account_balance" size={22} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[font(800), { fontSize: 16, color: colors.text }]} numberOfLines={1}>{loan.partnerName}</Text>
+            <Text style={[font(500), { fontSize: 12, color: colors.textSoft, marginTop: 1 }]}>
+              {loan.apr}% p.a.{loan.tenureMonths ? ` · ${loan.tenureMonths} mo` : ''} · Loan #{loan.ref}
+            </Text>
+          </View>
+        </View>
         <View style={styles.card}>
           <Text style={[font(600), { fontSize: 12, color: colors.primary }]}>{refLabel}</Text>
           <View style={styles.nextRow}>
@@ -203,6 +215,8 @@ function Line({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   card: { backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 20, padding: 16, marginTop: 20 },
+  lenderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: colors.line, borderRadius: 16, padding: 14 },
+  lenderLogo: { width: 46, height: 46, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
   nextRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 8 },
   due: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(245,166,36,0.12)', borderRadius: 9999, paddingHorizontal: 10, paddingVertical: 5 },
   divider: { height: 1, backgroundColor: colors.lineSoft, marginVertical: 14 },

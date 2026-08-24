@@ -115,16 +115,29 @@ export default function Offers() {
   useEffect(() => { load(); }, [load]);
 
   const select = async (offer: Offer, emiOptionId?: string) => {
-    if (state.applicationId) {
-      set({ selectedOfferId: offer.id });
-      await api.selectOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+    // Already applied to this lender → don't re-apply; take the user to My Loans
+    // to see this lender application's live status.
+    if (offer.applied) {
+      go('loans');
+      return;
     }
-    // A real partner offer carries a lender deep link — open it inside the app
-    // (in-app WebView) instead of the native SwiftLoan handoff screen.
+    // Real lender (carries a deep link): do NOT create the application yet. Open
+    // the lender's web flow; the per-lender application is created only once KFT
+    // confirms the submission (application_submitted webhook) — i.e. after the
+    // user completes OTP verification on the lender's page. Returning from the
+    // lender page lands the user on My Loans (see lenderweb).
     if (offer.redirectionUrl) {
+      if (state.applicationId) set({ selectedOfferId: offer.id });
       set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
       go('lenderweb');
       return;
+    }
+    // Mock / no-redirect lender (dev/demo, no OTP web flow): create immediately
+    // and go to the native handoff screen.
+    if (state.applicationId) {
+      set({ selectedOfferId: offer.id });
+      await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+      setOffers(prev => prev.map(o => (o.id === offer.id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o)));
     }
     go('handoff');
   };
@@ -154,9 +167,8 @@ export default function Offers() {
           !state.applicationId ? (
             <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
           ) : state.offersError ? (
-            // Lender-side rejection turned into an actionable note guiding the
-            // user to correct their details (then "Update details" below).
-            <Empty icon="error" title="Let’s fix a few details" message={state.offersError} />
+            // Show the offer API's own message verbatim (no hardcoded rephrasing).
+            <Empty icon="error" title="Couldn’t fetch offers" message={state.offersError} />
           ) : (
             <Empty icon="search_off" title="No offers yet" message="We couldn't match a partner to this profile. Try adjusting your amount." />
           )
@@ -202,6 +214,17 @@ export default function Offers() {
   );
 }
 
+// Friendly label for an applied lender's tracked status (shown on the tile).
+const LENDER_STATUS_LABEL: Record<string, string> = {
+  handoff: 'Applied',
+  under_review: 'Under review',
+  approved: 'Approved',
+  disbursed: 'Disbursed',
+  rejected: 'Rejected',
+  failed: 'Failed',
+  closed: 'Closed',
+};
+
 /**
  * One lender offer — a multi-tenure EMI picker (Chips) drives which
  * OfferEmiOption's numbers are shown, defaulting to whichever option the
@@ -226,6 +249,7 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
   );
 
   const badgeText = offer.badgeText || (offer.recommended ? 'Recommended' : null);
+  const appliedLabel = offer.applied ? (LENDER_STATUS_LABEL[offer.lenderStatus || 'handoff'] || 'Applied') : null;
 
   return (
     <View style={[styles.card, offer.recommended && styles.cardRecommended]}>
@@ -244,7 +268,13 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
           {offer.lenderName ? (
             <Text style={[font(500), { fontSize: 10.5, color: colors.muted, marginTop: 1 }]}>via {offer.partner.name}</Text>
           ) : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+            {offer.applied ? (
+              <View style={styles.appliedPill}>
+                <Icon name="check_circle" size={12} color={colors.primary} />
+                <Text style={[font(700), { fontSize: 10.5, color: colors.primary }]}>{appliedLabel}</Text>
+              </View>
+            ) : null}
             {offer.offerLikelihood && offer.offerLikelihood !== '0' ? (
               <View style={styles.trustPill}>
                 <Icon name="bolt" size={11} color={colors.greenDeep} />
@@ -335,7 +365,7 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
             page in the in-app WebView (or the handoff screen when there's no
             deep link). */}
         <SparkleButton
-          label={offer.redirectionUrl ? t.applyLoan : t.selectOffer}
+          label={offer.applied ? 'View in My Loans' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}
           onPress={() => onSelect(offer, selected?.id)}
         />
       </View>
@@ -417,6 +447,7 @@ const styles = StyleSheet.create({
   // (no mint tint/frame) so it renders cleanly and reads well.
   bankLogo: { backgroundColor: '#FFFFFF' },
   trustPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.chip, borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
+  appliedPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(7,159,160,0.12)', borderWidth: 1, borderColor: 'rgba(7,159,160,0.35)', borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
   ratingPill: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(245,166,36,0.14)', borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2.5 },
   badge: { backgroundColor: colors.primary, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, shadowColor: '#0A3F41', shadowOpacity: 0.18, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
   emiHero: {

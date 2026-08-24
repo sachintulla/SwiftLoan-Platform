@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Loading } from '../components/common/Loading';
@@ -23,6 +23,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   approved: { label: 'Approved', color: colors.green },
   disbursed: { label: 'Active', color: colors.green },
   rejected: { label: 'Rejected', color: colors.red },
+  failed: { label: 'Failed', color: colors.red },
   closed: { label: 'Closed', color: colors.muted },
 };
 
@@ -60,10 +61,73 @@ export default function Loans() {
     return () => clearInterval(id);
   }, [load]);
 
-  const open = (app: any) => {
-    set({ applicationId: app.id, loanId: app.loan?.id ?? null });
+  const open = (app: any, offer?: any) => {
+    set({ applicationId: app.id, loanId: app.loan?.id ?? null, selectedOfferId: offer?.id ?? null });
     go(app.loan ? 'repay' : 'status');
   };
+
+  // My Loans shows a card per lender the user ACTUALLY applied to — an applied
+  // offer, which is created only after the lender confirms submission (post-OTP,
+  // via the KFT webhook) — plus any active/disbursed loan. Bare eligibility runs
+  // (offers pulled but no lender applied, no OTP, no webhook) are NOT shown: they
+  // are not loan applications and were cluttering the list.
+  const cards = apps.flatMap((app: any) => {
+    const typeName = `${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`;
+    const appliedOffers = (app.offers || []).filter((o: any) => o.applied);
+
+    if (appliedOffers.length > 0) {
+      return appliedOffers.map((o: any) => {
+        const st = o.lenderStatus || 'handoff';
+        const meta = STATUS_META[st] || { label: st, color: colors.muted };
+        const apr = app.loan?.apr ?? o.apr ?? o.roi ?? null;
+        const appliedDate = o.appliedAt
+          ? new Date(o.appliedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '';
+        return (
+          <AppCard
+            key={o.id}
+            icon={TYPE_ICON[app.loanType] || 'account_balance'}
+            name={o.lenderName || typeName}
+            ref_={`${typeName} · Ref ${app.ref}`}
+            status={meta.label}
+            statusColor={meta.color}
+            logoUrl={o.lenderLogoUrl}
+            appliedOn={appliedDate}
+            left={{ label: 'Amount', value: rupee(o.amount ?? app.amount) }}
+            right={
+              app.loan
+                ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
+                : apr != null
+                  ? { label: 'Interest', value: `${apr}% p.a.` }
+                  : { label: 'Status', value: meta.label }
+            }
+            onPress={() => open(app, o)}
+          />
+        );
+      });
+    }
+
+    // Legacy safety net: an active/disbursed loan with no applied-offer tracking
+    // still shows so existing loans never vanish.
+    if (app.loan) {
+      const meta = STATUS_META[app.status] || { label: app.status, color: colors.muted };
+      return [(
+        <AppCard
+          key={app.id}
+          icon={TYPE_ICON[app.loanType] || 'account_balance'}
+          name={typeName}
+          ref_={`Ref ${app.ref}`}
+          status={meta.label}
+          statusColor={meta.color}
+          left={{ label: 'Amount', value: rupee(app.amount) }}
+          right={{ label: 'Next EMI', value: rupee(app.loan.emiAmount) }}
+          onPress={() => open(app)}
+        />
+      )];
+    }
+
+    return [];
+  });
 
   return (
     <Screen scroll bottomNav padded>
@@ -97,7 +161,7 @@ export default function Loans() {
         <Loading label="Loading your loans…" />
       ) : err ? (
         <ErrorState message={err} onRetry={load} />
-      ) : apps.length === 0 ? (
+      ) : cards.length === 0 ? (
         // Tracking-only screen: the single "Apply" entry lives on the Offers tab.
         // When there's nothing to track, offer a shortcut into that flow.
         <View style={{ alignItems: 'center', paddingVertical: 12 }}>
@@ -114,35 +178,7 @@ export default function Loans() {
           </Pressable>
         </View>
       ) : (
-        <View style={{ gap: 12 }}>
-          {apps.map(app => {
-            const meta = STATUS_META[app.status] || { label: app.status, color: colors.muted };
-            const applied = new Date(app.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-            // The offer the user picked ("Continue" on the offers screen) — its
-            // lender + interest are what we show for an applied loan.
-            const sel = (app.offers || []).find((o: any) => o.selected) || null;
-            const apr = app.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
-            return (
-              <AppCard
-                key={app.id}
-                icon={TYPE_ICON[app.loanType] || 'account_balance'}
-                name={`${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`}
-                ref_={sel?.lenderName ? `${sel.lenderName} · Ref ${app.ref}` : `Ref ${app.ref}`}
-                status={meta.label}
-                statusColor={meta.color}
-                left={{ label: 'Amount', value: rupee(app.amount) }}
-                right={
-                  app.loan
-                    ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
-                    : apr != null
-                      ? { label: 'Interest', value: `${apr}% p.a.` }
-                      : { label: 'Applied', value: applied }
-                }
-                onPress={() => open(app)}
-              />
-            );
-          })}
-        </View>
+        <View style={{ gap: 12 }}>{cards}</View>
       )}
     </Screen>
   );
@@ -150,20 +186,29 @@ export default function Loans() {
 
 function AppCard({
   icon, name, ref_, status, statusColor, left, right, onPress,
+  logoUrl, appliedOn,
 }: {
   icon: string; name: string; ref_: string; status: string; statusColor: string;
   left: { label: string; value: string }; right: { label: string; value: string }; onPress: () => void;
+  logoUrl?: string | null; appliedOn?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-          <View style={styles.appIcon}>
-            <Icon name={icon} size={20} color={colors.primary} />
+          <View style={[styles.appIcon, logoUrl ? styles.appIconLogo : null]}>
+            {logoUrl ? (
+              <Image source={{ uri: logoUrl }} style={{ width: 34, height: 34, borderRadius: 8 }} resizeMode="contain" />
+            ) : (
+              <Icon name={icon} size={20} color={colors.primary} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>{name}</Text>
             <Text style={[font(400), { fontSize: 12, color: colors.muted }]}>{ref_}</Text>
+            {appliedOn ? (
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 2 }]}>Applied on {appliedOn}</Text>
+            ) : null}
           </View>
         </View>
         <View style={[styles.statusPill, { backgroundColor: statusColor + '22' }]}>
@@ -218,6 +263,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   appIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+  appIconLogo: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 9999, paddingVertical: 4, paddingHorizontal: 9 },
   metaRow: {
     flexDirection: 'row',
