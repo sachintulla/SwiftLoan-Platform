@@ -103,6 +103,18 @@ export default function Home() {
         ))}
       </View>
 
+      {/* Single entry to the standalone Loan Calculator screen. */}
+      <Pressable onPress={() => go('calculator')} style={styles.calcBtn}>
+        <View style={styles.calcIcon}>
+          <Icon name="calculate" size={22} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(700), { fontSize: 15, color: colors.text }]}>Loan calculator</Text>
+          <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>Estimate your monthly EMI before you apply</Text>
+        </View>
+        <Icon name="chevron_right" size={22} color={colors.muted} />
+      </Pressable>
+
       {/* Available loan offers — the market catalog shown before any PAN/credit
           pull. Tapping one starts a new loan application (flow A: entry point
           only) pre-filled with that offer's amount; the eligible/personalised
@@ -218,6 +230,11 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   savedOffersIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  calcBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 16,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: 16, padding: 14,
+  },
+  calcIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
   compareCard: {
     marginTop: 20,
     backgroundColor: colors.ink,

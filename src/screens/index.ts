@@ -10,6 +10,7 @@ import Permissions from './permissions';
 import AboutYou from './aboutyou';
 import Home from './home';
 import Fare from './fare';
+import Calculator from './calculator';
 import Loans from './loans';
 import Basic from './basic';
 import BasicPan from './basicpan';
@@ -44,6 +45,7 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   aboutyou: AboutYou,
   home: Home,
   fare: Fare,
+  calculator: Calculator,
   loans: Loans,
   basic: Basic,
   moredetails: MoreDetails,

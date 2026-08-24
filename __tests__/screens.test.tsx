@@ -10,6 +10,7 @@ import AboutYou from '../src/screens/aboutyou';
 import Home from '../src/screens/home';
 import Loans from '../src/screens/loans';
 import Fare from '../src/screens/fare';
+import Calculator from '../src/screens/calculator';
 import Basic from '../src/screens/basic';
 import BasicPan from '../src/screens/basicpan';
 import Finding from '../src/screens/finding';
@@ -44,7 +45,8 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S6 aboutyou', AboutYou, ["Just the basics — we'll ask for more only when you apply."]],
   ['UC-S7 home', Home, ['Browse loan types']],
   ['UC-S8 loans', Loans, ['My Loans']],
-  ['UC-S9 fare', Fare, ['Your monthly EMI']],
+  ['UC-S9 fare', Fare, ['My Offers']],
+  ['UC-S9b calculator', Calculator, ['Your monthly EMI']],
   ['UC-S10 basic', Basic, ['Tell us about yourself']],
   ['UC-S11 basicpan', BasicPan, ['Verify your PAN']],
   ['UC-S12 finding', Finding, ['Finding your personalised offers…']],

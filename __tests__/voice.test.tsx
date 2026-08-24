@@ -148,15 +148,15 @@ describe('UC-V5 input labels are speakable, not placeholders', () => {
 });
 
 describe('UC-V6 controls inside child components are reachable', () => {
-  it('exposes the EmiCalculator sliders on the fare screen', () => {
-    const Fare = require('../src/screens/fare').default;
-    renderAt('fare', <Fare />);
+  it('exposes the EmiCalculator sliders on the calculator screen', () => {
+    const Calculator = require('../src/screens/calculator').default;
+    renderAt('calculator', <Calculator />);
 
-    const targets = listTargets('fare');
+    const targets = listTargets('calculator');
     const sliders = targets.filter(t => t.kind === 'slider').map(t => t.label);
-    // Previously this screen exposed only "scroll:page": fare.tsx renders a lone
-    // <EmiCalculator/>, and the element-tree walk cannot see inside a child
-    // component. useVoiceTarget in Slider closes that gap.
+    // The calculator screen renders a lone <EmiCalculator/>, and the element-tree
+    // walk cannot see inside a child component. useVoiceTarget in Slider closes
+    // that gap.
     expect(sliders).toContain('Loan amount');
     expect(sliders).toContain('Tenure');
     expect(sliders).toContain('Interest rate');
@@ -165,10 +165,10 @@ describe('UC-V6 controls inside child components are reachable', () => {
   });
 
   it('clamps a slider value to its range instead of writing it raw', () => {
-    const Fare = require('../src/screens/fare').default;
-    renderAt('fare', <Fare />);
+    const Calculator = require('../src/screens/calculator').default;
+    renderAt('calculator', <Calculator />);
 
-    const tenure = listTargets('fare').find(t => t.kind === 'slider' && t.label === 'Tenure');
+    const tenure = listTargets('calculator').find(t => t.kind === 'slider' && t.label === 'Tenure');
     expect(tenure?.setValue).toBeInstanceOf(Function);
     tenure!.setValue!(500); // max is 60
     expect(Number(tenure!.getValue!())).toBeLessThanOrEqual(60);

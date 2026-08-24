@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const TOKENS_KEY = 'swiftloan.session.tokens';
 const LANG_KEY = 'swiftloan.session.lang';
 const VOICE_FAB_SIDE_KEY = 'swiftloan.session.voiceFabSide';
+const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
 
 export interface StoredTokens {
   accessToken: string;
@@ -59,4 +60,35 @@ export async function saveVoiceFabSide(side: 'left' | 'right'): Promise<void> {
 export async function loadVoiceFabSide(): Promise<'left' | 'right' | null> {
   const raw = await AsyncStorage.getItem(VOICE_FAB_SIDE_KEY).catch(() => null);
   return raw === 'left' || raw === 'right' ? raw : null;
+}
+
+/**
+ * Locally-cached "My Offers" so the tab shows the user's saved eligible offers
+ * instantly (and offline) on open, before/without a network round-trip. Refreshed
+ * whenever a fresh prequalify/list returns offers. `offers` is stored as-is (the
+ * api Offer shape); kept loosely typed here to avoid a cross-import.
+ */
+export interface OffersCache {
+  applicationId: string | null;
+  savedAt: number; // epoch ms
+  offers: unknown[];
+}
+
+export async function saveOffersCache(cache: OffersCache): Promise<void> {
+  await AsyncStorage.setItem(OFFERS_CACHE_KEY, JSON.stringify(cache)).catch(() => {});
+}
+
+export async function loadOffersCache(): Promise<OffersCache | null> {
+  const raw = await AsyncStorage.getItem(OFFERS_CACHE_KEY).catch(() => null);
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as OffersCache;
+    return Array.isArray(c?.offers) ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearOffersCache(): Promise<void> {
+  await AsyncStorage.removeItem(OFFERS_CACHE_KEY).catch(() => {});
 }

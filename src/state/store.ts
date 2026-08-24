@@ -27,7 +27,7 @@ export const SCREEN_NAMES = [
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
-  'status', 'disbursed', 'repay', 'creditscore',
+  'status', 'disbursed', 'repay', 'creditscore', 'calculator',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -39,7 +39,8 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   myloanstatus: 'loans', loanstatus: 'loans', applicationstatus: 'status',
   repayment: 'repay', repayments: 'repay', repaymentoverview: 'repay',
   repay: 'repay', emi: 'repay', myrepayments: 'repay',
-  myoffers: 'fare', offers: 'fare', fare: 'fare', calculator: 'fare',
+  myoffers: 'fare', offers: 'fare', fare: 'fare',
+  calculator: 'calculator', emicalculator: 'calculator', loancalculator: 'calculator',
   creditscore: 'creditscore', cibil: 'creditscore', cibilscore: 'creditscore', score: 'creditscore',
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
@@ -86,7 +87,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home', creditscore: 'repay',
-  loans: 'home', fare: 'home', explore: 'mobile',
+  loans: 'home', fare: 'home', calculator: 'home', explore: 'mobile',
 };
 
 export interface AppState {
