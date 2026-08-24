@@ -146,6 +146,97 @@ export function Select<T extends string>({
   );
 }
 
+function shortDateLabel(v: string): string {
+  const d = new Date(`${v}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return v;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/**
+ * One trigger + one popover covering both ends of a date range, instead of
+ * two separate "from"/"to" inputs sitting side by side in the filter row —
+ * a range is one idea, not two independent fields. Values are 'YYYY-MM-DD'
+ * or '' (no bound); nothing is applied to the caller until "Apply".
+ */
+export function DateRangePicker({
+  since, until, onChange, placeholder = 'Any date',
+}: {
+  since: string;
+  until: string;
+  onChange: (since: string, until: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draftSince, setDraftSince] = useState(since);
+  const [draftUntil, setDraftUntil] = useState(until);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Re-sync the draft whenever the applied range changes from outside (e.g.
+  // a "Clear dates" button elsewhere), or when reopening after a prior Apply.
+  useEffect(() => { setDraftSince(since); setDraftUntil(until); }, [since, until]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointer(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false); }
+    document.addEventListener('mousedown', onDocPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const invalid = !!(draftSince && draftUntil && draftSince > draftUntil);
+  const label = since && until ? `${shortDateLabel(since)} – ${shortDateLabel(until)}`
+    : since ? `From ${shortDateLabel(since)}`
+    : until ? `Until ${shortDateLabel(until)}`
+    : placeholder;
+
+  function apply() {
+    if (invalid) return;
+    onChange(draftSince, draftUntil);
+    setOpen(false);
+  }
+  function clear() {
+    setDraftSince(''); setDraftUntil('');
+    onChange('', '');
+    setOpen(false);
+  }
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <button type="button" className="input select-trigger" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
+        <span className={since || until ? '' : 'muted'} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+        <span className="select-caret" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className="select-menu card" style={{ padding: 14, width: 250 }} role="dialog" aria-label="Date range">
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>From</label>
+              <input className="input" type="date" value={draftSince} max={draftUntil || undefined} onChange={(e) => setDraftSince(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>To</label>
+              <input className="input" type="date" value={draftUntil} min={draftSince || undefined} onChange={(e) => setDraftUntil(e.target.value)} />
+            </div>
+            {invalid && <div style={{ color: 'var(--red)', fontSize: 11.5 }}>&quot;From&quot; must be on or before &quot;To&quot;.</div>}
+            <div className="row" style={{ gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
+              <button type="button" className="btn" onClick={clear}>Clear</button>
+              <button type="button" className="btn btn-primary" onClick={apply} disabled={invalid}>Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Styled stand-in for window.confirm() — a native confirm() is chrome-rendered
  * (the "localhost:4001 says" browser dialog), so it can't be themed and looks

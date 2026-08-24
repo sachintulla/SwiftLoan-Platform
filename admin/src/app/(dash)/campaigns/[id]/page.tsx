@@ -54,9 +54,11 @@ export default function CampaignDetail() {
   );
   const stats = (statsRes?.data ?? {}) as Stats;
 
-  // "Is it dialling right now?" — polled every 30s while the campaign is running.
+  // "Is it dialling right now?" — polled every 30s while running. Meaningless
+  // for a campaign already handed to Ello (our own window/retry settings no
+  // longer govern it), so don't even fetch it in that case.
   const { data: previewRes, error: previewErr } = useSWR(
-    campaign ? `/api/admin/campaigns/${id}/schedule-preview` : null,
+    campaign && !campaign.providerCampaignId ? `/api/admin/campaigns/${id}/schedule-preview` : null,
     swrFetcher,
     { refreshInterval: running ? 30000 : 0 },
   );
@@ -177,55 +179,65 @@ export default function CampaignDetail() {
       {total === 0 && <p className="muted" style={{ fontSize: 12.5 }}>No contacts yet — click "Edit / add contacts" above.</p>}
       {actionError && <div className="empty" style={{ color: 'var(--red)', textAlign: 'left' }}>{actionError}</div>}
       {campaign.note && <p className="muted" style={{ fontSize: 12.5 }}>{campaign.note}</p>}
-      {campaign.providerCampaignId && (
-        <div className="empty" style={{ textAlign: 'left', color: 'var(--blue)' }}>
-          This campaign is dialling through Ello (id <span className="mono">{campaign.providerCampaignId}</span>) —
-          it's also visible in Ello's own dashboard. "Contacts by state" / "Calls by outcome" below only update as
-          Ello's webhooks arrive, not by us polling the dial directly.
+      {campaign.providerCampaignId ? (
+        // Once Ello owns the dial, our own window/retry/concurrency settings
+        // no longer govern anything — showing that detail here would just be
+        // describing rules that don't apply. One compact note instead.
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+          borderRadius: 'var(--radius-sm)', background: 'var(--blue-bg)',
+          border: '1px solid var(--blue)', fontSize: 12.5,
+        }}>
+          <span aria-hidden>☎</span>
+          <span>
+            Dialling through Ello (<span className="mono">{campaign.providerCampaignId}</span>) — also visible in
+            Ello&apos;s own dashboard. Stats below update as Ello&apos;s webhooks arrive.
+          </span>
         </div>
-      )}
+      ) : (
+        // schedule summary + live dialling indicator — only meaningful while
+        // this campaign is still run by our own campaignRunner.
+        <Card title="Schedule" sub={running ? 'Live — refreshing every 30s' : undefined}
+          right={
+            previewErr ? <StatusBadge status="not_started" label="Status unknown" />
+              : preview.canDial ? <StatusBadge status="running" label="● Dialling now" />
+                : <StatusBadge status="paused" label="Idle" />
+          }>
+          <div style={{ fontSize: 14, lineHeight: 1.55, fontWeight: 600, marginBottom: 12 }}>{summary}</div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
+            <div><div className="nav-section" style={{ padding: 0 }}>Runs</div>
+              <div style={{ fontSize: 12.5 }}>{zonedDateLabel(campaign.startAt, tz)} → {zonedDateLabel(campaign.endAt, tz)}</div></div>
+            <div><div className="nav-section" style={{ padding: 0 }}>Daily window</div>
+              <div style={{ fontSize: 12.5 }}>{from && to ? `${from}–${to} ${tzAbbrev(tz)}${wraps ? ' (overnight)' : ''}` : '—'}</div></div>
+            <div><div className="nav-section" style={{ padding: 0 }}>Days</div>
+              <div style={{ fontSize: 12.5 }}>{daysLabel(campaign.daysOfWeek)}</div></div>
+            <div><div className="nav-section" style={{ padding: 0 }}>Timezone</div>
+              <div style={{ fontSize: 12.5 }}>{tz} ({tzAbbrev(tz)})</div></div>
+          </div>
 
-      {/* schedule summary + live dialling indicator */}
-      <Card title="Schedule" sub={running ? 'Live — refreshing every 30s' : undefined}
-        right={
-          previewErr ? <StatusBadge status="not_started" label="Status unknown" />
-            : preview.canDial ? <StatusBadge status="running" label="● Dialling now" />
-              : <StatusBadge status="paused" label="Idle" />
-        }>
-        <div style={{ fontSize: 14, lineHeight: 1.55, fontWeight: 600, marginBottom: 12 }}>{summary}</div>
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
-          <div><div className="nav-section" style={{ padding: 0 }}>Runs</div>
-            <div style={{ fontSize: 12.5 }}>{zonedDateLabel(campaign.startAt, tz)} → {zonedDateLabel(campaign.endAt, tz)}</div></div>
-          <div><div className="nav-section" style={{ padding: 0 }}>Daily window</div>
-            <div style={{ fontSize: 12.5 }}>{from && to ? `${from}–${to} ${tzAbbrev(tz)}${wraps ? ' (overnight)' : ''}` : '—'}</div></div>
-          <div><div className="nav-section" style={{ padding: 0 }}>Days</div>
-            <div style={{ fontSize: 12.5 }}>{daysLabel(campaign.daysOfWeek)}</div></div>
-          <div><div className="nav-section" style={{ padding: 0 }}>Timezone</div>
-            <div style={{ fontSize: 12.5 }}>{tz} ({tzAbbrev(tz)})</div></div>
-        </div>
-
-        <div style={{ marginTop: 14, padding: 12, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--grey-bg)' }}>
-          {previewErr ? (
-            <span style={{ fontSize: 12.5, color: 'var(--amber)' }}>Could not check the dialling window — {(previewErr as Error).message}</span>
-          ) : !previewRes ? (
-            <span className="muted" style={{ fontSize: 12.5 }}>Checking the dialling window…</span>
-          ) : (
-            <>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>
-                {preview.canDial ? 'This campaign can dial right now.' : 'Not dialling right now.'}
-                {preview.reason ? <span className="muted" style={{ fontWeight: 400 }}> — {humanStatus(preview.reason)}</span> : null}
-              </div>
-              {preview.detail && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{preview.detail}</div>}
-              {!preview.canDial && preview.nextOpening && (
-                <div style={{ fontSize: 12.5, marginTop: 6 }}>
-                  Next window opens <b>{zonedDateLabel(preview.nextOpening, tz)}</b> {tzAbbrev(tz)}
-                  <span className="muted"> ({timeAgo(preview.nextOpening)})</span>
+          <div style={{ marginTop: 14, padding: 12, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--grey-bg)' }}>
+            {previewErr ? (
+              <span style={{ fontSize: 12.5, color: 'var(--amber)' }}>Could not check the dialling window — {(previewErr as Error).message}</span>
+            ) : !previewRes ? (
+              <span className="muted" style={{ fontSize: 12.5 }}>Checking the dialling window…</span>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {preview.canDial ? 'This campaign can dial right now.' : 'Not dialling right now.'}
+                  {preview.reason ? <span className="muted" style={{ fontWeight: 400 }}> — {humanStatus(preview.reason)}</span> : null}
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      </Card>
+                {preview.detail && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{preview.detail}</div>}
+                {!preview.canDial && preview.nextOpening && (
+                  <div style={{ fontSize: 12.5, marginTop: 6 }}>
+                    Next window opens <b>{zonedDateLabel(preview.nextOpening, tz)}</b> {tzAbbrev(tz)}
+                    <span className="muted"> ({timeAgo(preview.nextOpening)})</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </Card>
+      )}
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', marginTop: 16 }}>
         <StatCard label="Total contacts" value={num(total)} tone="grey" icon="☰" />
