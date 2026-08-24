@@ -27,6 +27,7 @@ import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
+import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
@@ -119,6 +120,7 @@ export function createApp() {
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/campaigns', campaignsRouter);
+  app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
   app.use('/api/admin/stall-rules', stallRulesRouter);
   app.use('/api/admin/ops', adminOpsRouter);

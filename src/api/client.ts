@@ -221,8 +221,15 @@ export function friendlyAurixError(aurixResponse: any, offerCount: number): stri
   // The API's own message, verbatim.
   const msg = String(meta.Message ?? meta.message ?? r.Message ?? r.message ?? r.error ?? '').trim();
   if (msg) return msg;
-  // No message but the call failed at the HTTP layer — surface the status.
+  // No message but the call failed — surface why. httpStatus 0 is a
+  // client-side timeout/network failure (confirmed live: a 30s Aurix
+  // timeout), not an HTTP response at all, so it needs its own check —
+  // 0 is not >= 400, and without this it silently fell through to the
+  // empty-string return below, indistinguishable from a genuine "no offers
+  // matched" decision and telling a timed-out user to change their loan
+  // amount instead of just retrying.
   const http = aurixResponse?.httpStatus;
+  if (http === 0) return 'We’re having trouble reaching our lending partners right now. Please try again in a moment.';
   if (typeof http === 'number' && http >= 400) return `Offers request failed (HTTP ${http}).`;
   return '';
 }
