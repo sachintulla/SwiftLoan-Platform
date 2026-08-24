@@ -55,7 +55,8 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S17 panv', Panv, ['PAN Verification']],
   ['UC-S18 bankv', Bankv, ['Bank Verification']],
   ['UC-S19 selfie', Selfie, ['Live Selfie']],
-  ['UC-S20 status', Status, ['Business Expansion Loan']],
+  // No authed session in tests → the status screen shows its empty state.
+  ['UC-S20 status', Status, ['No application yet']],
   ['UC-S21 disbursed', Disbursed, ['Funds on the way!']],
   ['UC-S22 repay', Repay, ['Repayment Overview']],
   ['UC-S23 creditscore', CreditScore, ['Credit Score', 'Current CIBIL Score']],
@@ -65,9 +66,12 @@ const CASES: [string, React.ComponentType, string[]][] = [
 
 describe('Screen smoke tests (UC-S)', () => {
   it.each(CASES)('%s renders without crashing and shows key content', (_label, Comp, texts) => {
-    const { getByText, unmount } = renderWithProviders(<Comp />);
+    const { getAllByText, unmount } = renderWithProviders(<Comp />);
     for (const t of texts) {
-      expect(getByText(t)).toBeTruthy();
+      // getAllByText (not getByText): some screens legitimately render a key
+      // string more than once — e.g. the collapsing header repeats the title in
+      // the pinned bar and the body. A smoke test only needs it present.
+      expect(getAllByText(t).length).toBeGreaterThan(0);
     }
     unmount();
   });

@@ -32,10 +32,6 @@
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<!-- The dev API (dev-api.swiftloan.ai) has no TLS certificate yet — plain
-		     HTTP on port 80 only. Scoped exception for just this one known dev
-		     host, rather than disabling ATS app-wide. Remove once it has a real
-		     certificate. -->
 		<key>NSExceptionDomains</key>
 		<dict>
 			<key>dev-api.swiftloan.ai</key>
@@ -47,12 +43,12 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>SwiftLoan uses your camera to take a profile photo.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SwiftLoan uses your location for profile enrichment and fraud checks.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SwiftLoan uses your microphone so you can navigate the app and fill in forms by voice.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>SwiftLoan uses your camera to take a profile photo.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>SwiftLoan needs access to your photos to set a profile photo.</string>
 	<key>RCTNewArchEnabled</key>

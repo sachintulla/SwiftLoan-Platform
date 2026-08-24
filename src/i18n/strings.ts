@@ -174,6 +174,10 @@ export const STR: Record<string, Record<string, string>> = {
         panContinue: 'Upload PAN & accept to continue',
         panValidate: 'Please enter a valid 10-character PAN (e.g. ABCDE1234F).',
         panConsentValidate: 'Please accept the soft-enquiry consent.', panCameraDemo: 'Camera — demo environment.',
+        panPickSource: 'Add PAN photo', panPickSourceHint: 'We read the number on your device — the photo never leaves it.',
+        panFromCamera: 'Take a photo', panFromLibrary: 'Choose from gallery', panCancel: 'Cancel',
+        panScanning: 'Reading your PAN…', panReadOk: 'PAN read from your card ✓',
+        panReadFail: "Couldn't read the PAN — please enter it manually.", panOcrUnavailable: 'PAN scanning needs the latest app build.',
         // basic
         basicStepLabel: 'Your details', basicTitle: 'Tell us about yourself',
         basicSub: 'A soft check to find your best offers — no impact on your credit score.',
@@ -374,6 +378,10 @@ export const STR: Record<string, Record<string, string>> = {
         panContinue: 'PAN अपलोड करें और कंटिन्यू के लिए एक्सेप्ट करें',
         panValidate: 'कृपया एक वैलिड 10-कैरेक्टर PAN डालें (जैसे ABCDE1234F)।',
         panConsentValidate: 'कृपया सॉफ्ट-एन्क्वायरी कंसेंट एक्सेप्ट करें।', panCameraDemo: 'कैमरा — डेमो एनवायरनमेंट।',
+        panPickSource: 'PAN फोटो जोड़ें', panPickSourceHint: 'नंबर आपके डिवाइस पर ही पढ़ा जाता है — फोटो कहीं नहीं जाती।',
+        panFromCamera: 'फोटो लें', panFromLibrary: 'गैलरी से चुनें', panCancel: 'रद्द करें',
+        panScanning: 'आपका PAN पढ़ रहे हैं…', panReadOk: 'कार्ड से PAN पढ़ लिया ✓',
+        panReadFail: 'PAN पढ़ नहीं सके — कृपया मैन्युअली डालें।', panOcrUnavailable: 'PAN स्कैन के लिए ऐप का नया बिल्ड चाहिए।',
         // basic
         basicStepLabel: 'आपकी डिटेल्स', basicTitle: 'हमें अपने बारे में बताएं',
         basicSub: 'आपके बेस्ट ऑफर्स ढूंढने के लिए एक सॉफ्ट चेक — आपके क्रेडिट स्कोर पर कोई असर नहीं।',
@@ -573,6 +581,10 @@ export const STR: Record<string, Record<string, string>> = {
         panContinue: 'PAN అప్‌లోడ్ చేసి కంటిన్యూ కోసం యాక్సెప్ట్ చేయండి',
         panValidate: 'దయచేసి వాలిడ్ 10-క్యారెక్టర్ PAN ఎంటర్ చేయండి (ఉదా. ABCDE1234F).',
         panConsentValidate: 'దయచేసి సాఫ్ట్-ఎంక్వైరీ కన్సెంట్ ని యాక్సెప్ట్ చేయండి.', panCameraDemo: 'కెమెరా — డెమో ఎన్విరాన్‌మెంట్.',
+        panPickSource: 'PAN ఫోటో జోడించండి', panPickSourceHint: 'నంబర్ మీ డివైస్‌లోనే చదవబడుతుంది — ఫోటో ఎక్కడికీ వెళ్లదు.',
+        panFromCamera: 'ఫోటో తీయండి', panFromLibrary: 'గ్యాలరీ నుండి ఎంచుకోండి', panCancel: 'రద్దు చేయండి',
+        panScanning: 'మీ PAN చదువుతున్నాం…', panReadOk: 'కార్డ్ నుండి PAN చదివాం ✓',
+        panReadFail: 'PAN చదవలేకపోయాం — దయచేసి మాన్యువల్‌గా ఎంటర్ చేయండి.', panOcrUnavailable: 'PAN స్కాన్‌కు యాప్ కొత్త బిల్డ్ అవసరం.',
         // basic
         basicStepLabel: 'మీ డిటెయిల్స్', basicTitle: 'మీ గురించి మాకు చెప్పండి',
         basicSub: 'మీ బెస్ట్ ఆఫర్స్ వెతకడానికి ఒక సాఫ్ట్ చెక్ — మీ క్రెడిట్ స్కోర్ పై ఇంపాక్ట్ లేదు.',

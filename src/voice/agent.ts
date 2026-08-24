@@ -3,6 +3,7 @@
 // the browser SDK — only the three DOM-bound collaborators (mic capture, PCM
 // playback, confirmation UI) are swapped for RN-native implementations, passed
 // in via the constructor instead of owned internally.
+import { Platform } from 'react-native';
 import { Emitter } from './events';
 import { ToolRegistry } from './registry';
 import { ElloSocket } from './transport/ws';
@@ -123,7 +124,7 @@ export class ElloAgent {
   }
 
   async start(): Promise<void> {
-    vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId);
+    vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId, 'platform=', Platform.OS);
     if (!this.options.apiKey || !this.options.assistantId) {
       vlog('ABORT: apiKey/assistantId not configured');
       throw new Error('ElloAgent: apiKey/assistantId not configured');

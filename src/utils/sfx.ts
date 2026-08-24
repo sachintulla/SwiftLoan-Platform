@@ -36,6 +36,15 @@ export function setSfxEnabled(on: boolean) {
   enabled = on;
 }
 
+// While a live voice session is up (connecting/listening/speaking), UI cues must
+// NOT play: they run through nitro-sound's own AVAudioSession (.playback) and
+// would steal the session from the voice agent's .playAndRecord — killing Ruby's
+// playback and the mic on iOS. Suppress every cue for the duration of a session.
+let voiceBusy = false;
+export function setVoiceBusy(on: boolean) {
+  voiceBusy = on;
+}
+
 // Build the native URI for a base file name (no extension).
 function uriForFile(base: string): string | undefined {
   if (Platform.OS === 'android') return `android.resource://${ANDROID_APP_ID}/raw/${base}`;
@@ -46,7 +55,7 @@ function uriForFile(base: string): string | undefined {
 // One reusable player per file so overlapping/rapid cues don't clobber each other.
 const players: Record<string, ReturnType<typeof createSound>> = {};
 function playFile(base: string, volume = 1) {
-  if (!enabled) return;
+  if (!enabled || voiceBusy) return;
   try {
     const uri = uriForFile(base);
     if (!uri) return;

@@ -9,7 +9,7 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { playFabMove, playFabConnect, playFabOff, setSfxLang, connectCueDurationMs } from '../../utils/sfx';
+import { playFabMove, setSfxLang, setVoiceBusy } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -270,7 +270,12 @@ export default function VoiceWidget() {
     }),
   ).current;
 
-  useEffect(() => agent.on('statusChange', setStatus), []);
+  useEffect(() => agent.on('statusChange', (s) => {
+    setStatus(s);
+    // Mute UI cues for the whole session — they run on a separate audio session
+    // that would otherwise steal playback/mic from the live voice agent.
+    setVoiceBusy(s !== 'idle' && s !== 'ended');
+  }), []);
 
   useEffect(() => {
     if (status === 'listening' || status === 'speaking') {
@@ -313,18 +318,15 @@ export default function VoiceWidget() {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
-      // Tear down first (releases the mic/playAndRecord session), then play the
-      // full "Thanks for chatting…" line so the teardown can't clip it.
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
-      setTimeout(() => playFabOff(), 250);
     } else {
-      // "Hi, I'm Ruby. I'm connecting now… I'll be with you in a moment." Let the
-      // full line (~4.5s) play before agent.start() grabs the mic/playAndRecord
-      // session, which would otherwise cut the cue off mid-sentence.
-      playFabConnect();
-      setTimeout(() => {
-        agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
-      }, connectCueDurationMs());
+      // Start immediately. Ruby greets in her own voice through the voice
+      // AVAudioSession (.playAndRecord). We deliberately do NOT play a
+      // pre-recorded nitro-sound connect cue here — it runs on a separate
+      // .playback session and stealing/handing-off that session broke both
+      // Ruby's playback and the mic. Situational cues stay muted for the
+      // whole session via setVoiceBusy (see the statusChange effect above).
+      agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
     }
   };
 

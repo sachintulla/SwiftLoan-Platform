@@ -191,41 +191,32 @@ export interface Offer {
 }
 
 /**
- * Map a lender (Aurix) eligible_offers response into a short, actionable note
- * for the end user — so a validation reject guides them to fix their details
- * rather than showing a raw error. Returns '' when offers exist or nothing is
- * actionable. `aurixResponse` shape: { httpStatus, response: { Meta, Data } }.
+ * Surface the lender (Aurix) eligible_offers response's OWN message to the user,
+ * in real time — no hardcoded / canned copy. When offers came back we show
+ * nothing; otherwise we return the lender's actual message verbatim (only lightly
+ * cleaned: sentence-cased with a trailing period). Falls back to a generic
+ * "no match" line only when the API accepted the request but returned no message.
+ * `aurixResponse` shape: { httpStatus, response: { Meta, Data } }.
  */
 export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
   if (offerCount > 0) return '';
-  const meta = aurixResponse?.response?.Meta ?? aurixResponse?.response?.Result?.Meta;
-  const msg: string = String(meta?.Message ?? '');
-  if (!msg) return '';
-  const m = msg.toLowerCase();
-  if (m.includes('pan verification') || m.includes('pan number')) {
-    return 'We couldn’t verify your PAN. Please re-check your PAN number (format ABCDE1234F) and try again.';
-  }
-  if (m.includes('mobile')) {
-    return 'Please enter a valid 10-digit mobile number starting with 6–9.';
-  }
-  if (m.includes('email')) {
-    return 'Please add a valid email address so lenders can share your offer.';
-  }
-  if (m.includes('age') || m.includes('dob')) {
-    return 'Please check your date of birth — applicants must be between 18 and 120.';
-  }
-  if (m.includes('bureau')) {
-    return 'We couldn’t complete the credit check right now. Please try again in a little while.';
-  }
-  if (m.includes('validation failed') || m.includes('required') || m.includes('cannot be null')) {
-    return 'Some of your details couldn’t be validated. Please review your name, email, date of birth, address and PAN, then try again.';
+  const resp = aurixResponse?.response ?? aurixResponse;
+  const meta = resp?.Meta ?? resp?.Result?.Meta ?? resp?.Data?.Meta;
+  // The real-time message straight from the offer API — try the common shapes.
+  const raw = String(
+    meta?.Message ?? meta?.message ??
+    resp?.Message ?? resp?.message ??
+    resp?.Error ?? resp?.error ?? '',
+  ).trim();
+  if (raw) {
+    const cleaned = raw.charAt(0).toUpperCase() + raw.slice(1);
+    return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
   }
   if (meta?.Success === true) {
-    // Accepted, but no lender matched — guide toward adjusting the request.
+    // Accepted, but no lender matched and no message was provided.
     return 'No matching offers for these details right now. Try a different loan amount, or check back shortly.';
   }
-  // Fall back to the lender's own message, cleaned up.
-  return `We couldn’t fetch offers: ${msg}`;
+  return '';
 }
 
 export const api = {

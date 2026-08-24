@@ -85,8 +85,8 @@ android {
         applicationId "com.swiftloan.ai"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11
-        versionName "0.1.6"
+        versionCode 14
+        versionName "0.1.9"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.
@@ -130,6 +130,10 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // ML Kit on-device Latin text recognition — powers the "Upload PAN photo"
+    // OCR (PanOcrModule). Bundled model, no network / Play Services download.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

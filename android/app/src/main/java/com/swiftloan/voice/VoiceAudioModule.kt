@@ -236,6 +236,12 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       dlog("startCapture: AudioRecord.startRecording() OK, minBuf=$minBuf")
 
       val thread = Thread {
+       // The whole capture loop runs on this raw background thread. Any uncaught
+       // throwable here (a read error, or the JS event-emitter interop throwing
+       // under the New Architecture) would otherwise propagate to the thread's
+       // default handler and HARD-CRASH the app. Wrap it so a failure stops
+       // capture cleanly instead of taking the process down.
+       try {
         val chunk = ShortArray(CHUNK_SAMPLES)
         var chunkCount = 0
         var totalBytesSent = 0L
@@ -283,9 +289,15 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
             }
             val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
             val params = Arguments.createMap().apply { putString("base64", base64) }
-            reactApplicationContext
-              .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-              .emit("onAudioChunk", params)
+            try {
+              reactApplicationContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("onAudioChunk", params)
+            } catch (e: Throwable) {
+              // Emitting to JS can throw (e.g. context tearing down, or interop
+              // edge cases under bridgeless). Skip this chunk rather than crash.
+              Log.e("VoiceAudioModule", "emit(onAudioChunk) failed: ${e.message}")
+            }
             chunkCount++
             totalBytesSent += bytes.size
             // ~once/second (25 chunks @ 40ms): proves real PCM is flowing, and
@@ -302,6 +314,11 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
           }
         }
         dlog("capture loop exited, total chunks=$chunkCount")
+       } catch (t: Throwable) {
+        // Never let the capture thread crash the whole app.
+        Log.e("VoiceAudioModule", "capture thread aborted: ${t.message}", t)
+        isRecording = false
+       }
       }
       recordThread = thread
       thread.start()

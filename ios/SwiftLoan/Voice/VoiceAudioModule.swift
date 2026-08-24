@@ -27,6 +27,7 @@ class VoiceAudioModule: RCTEventEmitter {
   // start/stop. Start/stop now only toggle the engine, never rebuild the graph.
   private var isCaptureSetup = false
   private var playChunks = 0  // diagnostics: count playback chunks actually scheduled
+  private var micChunks = 0   // diagnostics: count mic chunks actually captured + emitted
   // All AVAudioEngine mutations run on this serial queue so JS calls
   // (startCapture / playChunk / stopCapture / purgePlayback) can never interleave
   // with each other and race the engine — the cause of intermittent SIGABRTs on
@@ -89,6 +90,24 @@ class VoiceAudioModule: RCTEventEmitter {
       self?.handleCapturedBuffer(buffer, inputFormat: inputFormat)
     }
     isCaptureSetup = true
+    NSLog("[VoiceAudioModule] capture tap installed: input %.0fHz %u ch", inputFormat.sampleRate, inputFormat.channelCount)
+  }
+
+  /// setupCaptureIfNeeded can bail if the mic input format isn't ready yet at the
+  /// single startCapture call (right after setActive, the input node can briefly
+  /// report 0Hz — especially while .voiceChat AEC negotiates the route). Retry on
+  /// the audio queue until the tap installs, so we never end up "Ruby talks but
+  /// the mic is dead" because the one-shot setup happened a beat too early.
+  private func setupCaptureWithRetry(attempt: Int = 0) {
+    setupCaptureIfNeeded()
+    if isCaptureSetup { return }
+    guard attempt < 20 else {
+      NSLog("[VoiceAudioModule] capture tap NOT installed after %d attempts — mic will not capture", attempt)
+      return
+    }
+    audioQueue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+      self?.setupCaptureWithRetry(attempt: attempt + 1)
+    }
   }
 
   @objc func startCapture(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -115,13 +134,20 @@ class VoiceAudioModule: RCTEventEmitter {
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
         try session.setActive(true)
 
-        self.setupCaptureIfNeeded()
+        // Bring the engine up FIRST so the mic input node reports a real format,
+        // then install the capture tap (with retry). Doing setup before start
+        // was the window where the input format could still be 0Hz → tap never
+        // installed → mic silently dead while Ruby still plays.
         self.ensurePlayerAttached()
         if !self.engine.isRunning {
           self.engine.prepare()
           try self.engine.start()
         }
         self.isCapturing = true
+        self.setupCaptureWithRetry()
+        NSLog("[VoiceAudioModule] startCapture: category=%@ mode=%@ engineRunning=%@ captureSetup=%@",
+              session.category.rawValue, session.mode.rawValue,
+              self.engine.isRunning ? "yes" : "no", self.isCaptureSetup ? "yes" : "no")
         resolve(nil)
         #endif
       } catch {
@@ -250,5 +276,13 @@ class VoiceAudioModule: RCTEventEmitter {
     let byteCount = Int(outBuffer.frameLength) * 2
     let data = Data(bytes: channelData[0], count: byteCount)
     sendEvent(withName: "onAudioChunk", body: ["base64": data.base64EncodedString()])
+    micChunks += 1
+    if micChunks % 50 == 1 {
+      // If the session ever leaves .playAndRecord mid-capture (a UI sound cue on
+      // the .playback category stealing the shared session), the mic goes silent
+      // even though this tap stays installed — logging the live category catches it.
+      let cat = AVAudioSession.sharedInstance().category.rawValue
+      NSLog("[VoiceAudioModule] mic chunks=%d bytes=%d category=%@", micChunks, byteCount, cat)
+    }
   }
 }
