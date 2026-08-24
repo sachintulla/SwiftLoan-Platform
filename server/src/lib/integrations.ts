@@ -378,13 +378,22 @@ export function buildElloCampaignCsv(recipients: ElloCampaignRecipient[]): strin
   const extraCols = Array.from(extraKeys);
   const headers = ['phone_number', 'name', 'city', 'product', 'amount', ...extraCols];
   const rows = recipients.map((r) => [
-    // csvCell()'s formula-injection guard prefixes any value starting with
-    // '+' with a quote — correct for arbitrary user text, but it would
-    // corrupt every E.164 phone number ('+919876…'). Emit this one column
-    // raw: it's our own generated digits-and-'+' string, never
-    // attacker-controlled free text, and never needs CSV quoting either.
-    toE164India(r.phone),
-    csvCell(r.name ?? ''),
+    // Bare 10-digit number, NOT E.164 — confirmed against Ello's own
+    // downloadable campaign template (their dashboard's "Template" button,
+    // "phone_number,name" header with plain example numbers like
+    // "9182922731", no "+91"). This is the campaign-CSV upload specifically;
+    // the separate per-call trigger above (triggerElloCall) is a different
+    // Ello endpoint whose documented schema does want E.164 — don't unify
+    // the two just because they look similar.
+    r.phone.replace(/\D/g, '').slice(-10),
+    // Ello's own campaign CSV parser requires a non-empty name per row (confirmed
+    // against their own backend source: read_names_and_phones_from_file treats
+    // name as required alongside phone) — a blank one doesn't 400 cleanly, it
+    // 500s with a malformed "Invalid status code: undefined" body, which looks
+    // like their own validation error handler throwing. Contacts sourced from a
+    // segment often have no name on file, so fall back to the phone number
+    // rather than ever sending an empty cell.
+    csvCell(r.name?.trim() || r.phone),
     csvCell(r.city ?? ''),
     csvCell(r.product ?? ''),
     csvCell(r.amount != null ? Math.round(r.amount / 100) : ''),

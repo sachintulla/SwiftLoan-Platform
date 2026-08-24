@@ -177,6 +177,13 @@ export default function CampaignDetail() {
       {total === 0 && <p className="muted" style={{ fontSize: 12.5 }}>No contacts yet — click "Edit / add contacts" above.</p>}
       {actionError && <div className="empty" style={{ color: 'var(--red)', textAlign: 'left' }}>{actionError}</div>}
       {campaign.note && <p className="muted" style={{ fontSize: 12.5 }}>{campaign.note}</p>}
+      {campaign.providerCampaignId && (
+        <div className="empty" style={{ textAlign: 'left', color: 'var(--blue)' }}>
+          This campaign is dialling through Ello (id <span className="mono">{campaign.providerCampaignId}</span>) —
+          it's also visible in Ello's own dashboard. "Contacts by state" / "Calls by outcome" below only update as
+          Ello's webhooks arrive, not by us polling the dial directly.
+        </div>
+      )}
 
       {/* schedule summary + live dialling indicator */}
       <Card title="Schedule" sub={running ? 'Live — refreshing every 30s' : undefined}
