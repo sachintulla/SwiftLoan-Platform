@@ -228,7 +228,7 @@ export interface Campaign {
   createdAt?: string;
   totalContacts?: number; calledContacts?: number; failedContacts?: number;
   nextRunAt?: string | null;
-  /** Set once this campaign's contacts were handed to Ello's own batch dialler (send-to-ello). */
+  /** Set once "Start dialling" has handed this campaign's contacts to Ello's own batch dialler. */
   providerCampaignId?: string | null;
   /** Soft-delete marker — present once an admin deletes the campaign. */
   deletedAt?: string | null;

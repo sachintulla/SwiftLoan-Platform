@@ -12,7 +12,7 @@ import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { Prisma } from '@prisma/client';
 import { canDialNow, nextWindowOpening, formatMinutes } from '../lib/campaignSchedule.js';
-import { tickCampaign, isCampaignTicking } from '../lib/campaignRunner.js';
+import { isCampaignTicking } from '../lib/campaignRunner.js';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { validate } from '../middleware/validate.js';
@@ -560,71 +560,36 @@ campaignsRouter.post('/:id/contacts/from-segments', requireRole(...CAN_WRITE), a
 // ─────────────────────────── run control ───────────────────────────
 
 // POST /api/admin/campaigns/:id/start
+// POST /api/admin/campaigns/:id/start
+// Hands this campaign's pending contacts to Ello's own batch dialler — Ello
+// owns the actual dialling from here (and this campaign now shows up in
+// Ello's own dashboard), not our campaignRunner. Deliberately the ONLY way to
+// run a campaign now (send-to-ello used to be a separate route callers had to
+// know to use instead of this one — folded in here so there is one answer to
+// "how do I start a campaign", not two overlapping ones).
+//
+// This does cost something: Ello has no equivalent of our own recurring daily
+// window/weekday filter, retry cadence, or concurrency limit, so none of
+// those apply once a campaign is handed off — the closest we can still honour
+// is a one-time scheduleTime for "wait until the window opens" when it isn't
+// open right now. campaignRunner.ts / campaignScheduler are left in place
+// (harmless — they only ever act on 'pending' contacts, and contacts are
+// flipped to 'queued' below before this returns) rather than ripped out, in
+// case a future path still needs a purely-local dial.
 campaignsRouter.post('/:id/start', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
-  if (campaign.status === 'running' || isCampaignTicking(campaign.id)) {
-    return fail(res, 409, 'Campaign is already running');
-  }
-
-  const pending = await prisma.campaignContact.count({ where: { campaignId: campaign.id, state: 'pending' } });
-  if (pending === 0) return fail(res, 400, 'No pending contacts to dial');
-
-  const updated = await prisma.campaign.update({
-    where: { id: campaign.id },
-    data: { status: 'running', startedAt: campaign.startedAt ?? new Date(), completedAt: null },
-  });
-
-  // "Start" now means "this campaign is live", not "dial everyone immediately".
-  // The scheduler (campaignRunner, every minute) owns dialling so the daily
-  // window, weekday filter and retry cadence are actually honoured — starting a
-  // 09:00–19:00 campaign at midnight must not blast the whole list at midnight.
-  const gate = canDialNow(updated, new Date());
-  log.info('campaign started', {
-    id: updated.id, name: updated.name, startedBy: req.admin?.sub ?? null,
-    pendingContacts: pending, concurrency: updated.concurrency, dialingNow: gate.canDial,
-  });
-  if (gate.canDial) {
-    // Inside the window: tick once now so the operator sees movement instead of
-    // waiting up to a minute for the scheduler.
-    void tickCampaign(updated.id).catch((e) => log.error('tick failed', { id: updated.id, error: String(e) }));
-  }
-
-  return ok(
-    res,
-    {
-      id: updated.id,
-      status: updated.status,
-      queued: pending,
-      concurrency: updated.concurrency,
-      dialingNow: gate.canDial,
-      reason: gate.reason ?? null,
-      detail: gate.detail ?? null,
-      nextOpening: gate.canDial ? null : nextWindowOpening(updated, new Date()).toISOString(),
-    },
-    gate.canDial
-      ? `Started — dialling ${pending} contact(s)`
-      : `Started — waiting for the calling window (${gate.detail ?? gate.reason})`,
-  );
-}));
-
-// POST /api/admin/campaigns/:id/send-to-ello
-// Hands this campaign's already-selected contacts (same segments/upload flow
-// as /start — untouched) to Ello's own batch campaign dialler instead of our
-// campaignRunner loop. Ello does the actual dialling from here; we only get a
-// campaign-level id + status back (no per-contact detail on their side), so
-// this campaign's own live tracking (Contacts by state, Calls by outcome)
-// will no longer update once Ello owns the dial.
-campaignsRouter.post('/:id/send-to-ello', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
-  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
-  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (campaign.status === 'running') return fail(res, 409, 'Campaign is already running');
   if (!campaign.assistantId) return fail(res, 400, 'This campaign has no agent assigned');
 
   const contacts = await prisma.campaignContact.findMany({
     where: { campaignId: campaign.id, state: 'pending' },
     select: { phone: true, name: true, city: true, product: true, amount: true, extra: true },
   });
-  if (contacts.length === 0) return fail(res, 400, 'No pending contacts to send');
+  if (contacts.length === 0) return fail(res, 400, 'No pending contacts to dial');
+
+  const gate = canDialNow(campaign, new Date());
+  const scheduleTime = gate.canDial ? null : nextWindowOpening(campaign, new Date()).toISOString();
 
   const result = await triggerElloCampaign({
     campaignName: campaign.name,
@@ -637,29 +602,34 @@ campaignsRouter.post('/:id/send-to-ello', requireRole(...CAN_ADMINISTER), ah(asy
       amount: c.amount,
       extra: (c.extra as Record<string, unknown> | null) ?? null,
     })),
-    // Immediate, matching this route's own name — a scheduled send should go
-    // through the existing startAt/dailyWindow fields via a future option,
-    // not silently reinterpret them as Ello's single scheduleTime here.
-    scheduleTime: null,
+    scheduleTime,
   });
 
-  log.info('campaign sent to Ello', {
-    id: campaign.id, name: campaign.name, sentBy: req.admin?.sub ?? null,
-    contacts: contacts.length, ok: result.ok, status: result.status, providerCampaignId: result.providerCampaignId,
+  log.info('campaign started (sent to Ello)', {
+    id: campaign.id, name: campaign.name, startedBy: req.admin?.sub ?? null,
+    contacts: contacts.length, ok: result.ok, status: result.status,
+    providerCampaignId: result.providerCampaignId, dialingNow: gate.canDial,
   });
 
   if (!result.ok) return fail(res, 502, result.error || `Ello returned HTTP ${result.status}`);
 
-  // Move these out of 'pending' immediately: Ello owns dialling them now, so
-  // our own campaignRunner's `WHERE state = 'pending'` query must not also
-  // pick them up if someone hits "Start dialling" on the same campaign —
-  // that would double-dial every contact. `queued` also fixes the dashboard
-  // reading "Pending" forever between now and the first webhook arriving.
-  // providerCampaignId lets the campaign.started/ended and per-call webhooks
-  // (for calls Ello places itself, which never touch our own dialer.ts) find
-  // their way back to this campaign.
-  await prisma.$transaction([
-    prisma.campaign.update({ where: { id: campaign.id }, data: { providerCampaignId: result.providerCampaignId ?? undefined } }),
+  // Move these out of 'pending' immediately: our own campaignScheduler's
+  // `WHERE state = 'pending'` query must never also pick them up (that would
+  // double-dial every contact), and `queued` also fixes the dashboard reading
+  // "Pending" forever between now and the first webhook arriving.
+  // providerCampaignId lets campaign.started/ended and per-call webhooks (for
+  // calls Ello places itself, which never touch our own dialer.ts) find their
+  // way back to this campaign.
+  const [updated] = await prisma.$transaction([
+    prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: 'running',
+        startedAt: campaign.startedAt ?? new Date(),
+        completedAt: null,
+        providerCampaignId: result.providerCampaignId ?? undefined,
+      },
+    }),
     prisma.campaignContact.updateMany({
       where: { campaignId: campaign.id, phone: { in: contacts.map((c) => c.phone) } },
       data: { state: 'queued' },
@@ -668,8 +638,19 @@ campaignsRouter.post('/:id/send-to-ello', requireRole(...CAN_ADMINISTER), ah(asy
 
   return ok(
     res,
-    { providerCampaignId: result.providerCampaignId ?? null, contactsSent: contacts.length, elloResponse: result.body },
-    `Sent ${contacts.length} contact(s) to Ello`,
+    {
+      id: updated.id,
+      status: updated.status,
+      queued: contacts.length,
+      providerCampaignId: result.providerCampaignId ?? null,
+      dialingNow: gate.canDial,
+      reason: gate.reason ?? null,
+      detail: gate.detail ?? null,
+      nextOpening: gate.canDial ? null : scheduleTime,
+    },
+    gate.canDial
+      ? `Sent ${contacts.length} contact(s) to Ello — dialling now`
+      : `Sent to Ello, scheduled for the next window (${gate.detail ?? gate.reason})`,
   );
 }));
 
