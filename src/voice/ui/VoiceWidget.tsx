@@ -189,7 +189,7 @@ function RobotHead() {
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { state } = useStore();
+  const { state, showToast } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   // Which edge the FAB is docked to — persisted so the user's choice survives
@@ -269,7 +269,16 @@ export default function VoiceWidget() {
     if (active) {
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
-      agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
+      agent.start().catch(e => {
+        vlog('agent.start() rejected:', e?.message || String(e));
+        // Offline failures already get the dedicated OfflineNotice banner (see
+        // agent.ts) — don't also toast those. Everything else previously failed
+        // silently from the user's point of view (no banner, no toast), which
+        // read as the button just not working.
+        const message: string = e?.message || '';
+        if (message.startsWith('offline:')) return;
+        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+      });
     }
   };
 

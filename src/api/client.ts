@@ -207,6 +207,17 @@ export interface Offer {
  */
 export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
   if (offerCount > 0) return '';
+  // httpStatus 0 (client-side timeout/network failure — confirmed live: a
+  // 30s Aurix timeout) or a 5xx means OUR side of the integration failed,
+  // not that this applicant was assessed and rejected. Both cases otherwise
+  // land on `response: null` -> no Meta.Message -> the same early return
+  // below as a genuine "no offers matched" decision, telling a user who
+  // just hit a timeout to change their loan amount when the fix is simply
+  // to retry — so this must be checked before that generic fallback.
+  const httpStatus = Number(aurixResponse?.httpStatus ?? 200);
+  if (httpStatus === 0 || httpStatus >= 500) {
+    return 'We’re having trouble reaching our lending partners right now. Please try again in a moment.';
+  }
   const meta = aurixResponse?.response?.Meta ?? aurixResponse?.response?.Result?.Meta;
   const msg: string = String(meta?.Message ?? '');
   if (!msg) return '';

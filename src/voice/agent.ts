@@ -251,12 +251,19 @@ export class ElloAgent {
       // utterance is already underway before it has screen specifics to work with.
       setTimeout(() => this.updatePageContext(), 500);
     } catch (e: any) {
-      vlog('START FAILED:', e?.message || String(e));
+      const message = e?.message || String(e);
+      vlog('START FAILED:', message);
       // Tapping the agent button is the single most common internet-dependent
       // action a user takes — surface the offline banner so a failed/timed-out
       // connect attempt is explained, instead of just silently going nowhere.
-      reportOfflineAttempt();
-      this.emitter.emit('error', e instanceof Error ? e : new Error(String(e)));
+      // Only for genuinely offline failures, though (the 'offline:' prefix set
+      // above) — this used to fire for EVERY start() failure, including native
+      // AVAudioSession errors (e.g. the OS denying the mic because a phone call
+      // is active), which told the user they were "offline" when they weren't.
+      if (message.startsWith('offline:')) {
+        reportOfflineAttempt();
+      }
+      this.emitter.emit('error', e instanceof Error ? e : new Error(message));
       this.teardown();
       throw e;
     }
