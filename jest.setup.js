@@ -73,6 +73,21 @@ jest.mock('react-native-image-picker', () => ({
   launchImageLibrary: jest.fn(),
 }));
 
+// react-native-nitro-sound / -nitro-modules → New-Arch native audio players that
+// ship ESM + a native lookup Jest can't run. Only src/utils/sfx.ts imports them
+// (fire-and-forget UI cues); stub createSound so the screen tree imports cleanly.
+jest.mock('react-native-nitro-sound', () => ({
+  __esModule: true,
+  createSound: () => ({
+    startPlayer: jest.fn(() => Promise.resolve()),
+    stopPlayer: jest.fn(() => Promise.resolve()),
+    setVolume: jest.fn(() => Promise.resolve()),
+    addPlayBackListener: jest.fn(),
+    removePlayBackListener: jest.fn(),
+  }),
+}));
+jest.mock('react-native-nitro-modules', () => ({ __esModule: true, NitroModules: {} }));
+
 // react-native-webview → native component (ESM), used only by src/screens/lenderweb.tsx.
 // Stub as a plain View so the screen index imports cleanly in the Jest env.
 jest.mock('react-native-webview', () => {

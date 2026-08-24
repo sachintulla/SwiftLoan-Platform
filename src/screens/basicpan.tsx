@@ -8,6 +8,7 @@ import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, isAuthed } from '../api/client';
 import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanResult } from '../utils/panOcr';
+import { playSuccess, playError } from '../utils/sfx';
 
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
@@ -49,12 +50,14 @@ export default function BasicPan() {
     if (res.pan !== null) {
       animatePanFill(res.pan);
       set({ panConsent: true });
+      playSuccess();
       showToast(t.panReadOk);
     } else if (res.reason === 'cancelled' || res.reason === 'no_image') {
       // user backed out — stay silent
     } else if (res.reason === 'unavailable') {
       showToast(t.panOcrUnavailable);
     } else {
+      playError();
       showToast(t.panReadFail);
     }
   };

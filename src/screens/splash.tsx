@@ -3,6 +3,7 @@ import { View, Animated, Easing, StyleSheet, Dimensions, Image, StatusBar } from
 import LinearGradient from 'react-native-linear-gradient';
 import { font } from '../theme/tokens';
 import { reportHandoffSource } from '../utils/handoff';
+import { playWelcome } from '../utils/sfx';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const TILE = 128;
@@ -42,6 +43,9 @@ export default function Splash() {
   const wordRef = useRef<View>(null);
 
   useEffect(() => {
+    // Spoken brand welcome ("Welcome to SwiftLoan").
+    playWelcome();
+
     // Speed lines rush in from the left (staggered) and decelerate onto the mark.
     streaks.forEach((v, i) => {
       Animated.sequence([

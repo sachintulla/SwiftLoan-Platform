@@ -9,6 +9,7 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
+import { playFabOff, playConnectThen, setSfxLang, setVoiceBusy } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -229,13 +230,16 @@ export default function VoiceWidget() {
   // springs + rolls between the two while the tab bar itself slides down/up.
   const isTab = SCREENS_WITH_BOTTOM_NAV.has(state.screen);
   const move = useRef(new Animated.Value(isTab ? 1 : 0)).current;
-  // Skip the very first run so we don't fire a morph sound on app launch —
-  // only play when isTab actually flips as the user navigates.
-  const morphMounted = useRef(false);
   useEffect(() => {
+    // Move silently — no cue while the FAB travels (docks/undocks). Only the
+    // connect/disconnect cues have audio (see onPress).
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
-    if (!morphMounted.current) morphMounted.current = true;
   }, [isTab, move]);
+
+  // Keep spoken cues in the user's selected language.
+  useEffect(() => {
+    setSfxLang(state.lang);
+  }, [state.lang]);
 
   useEffect(() => {
     loadVoiceFabSide().then(saved => { if (saved) setSide(saved); });
@@ -258,7 +262,12 @@ export default function VoiceWidget() {
     }),
   ).current;
 
-  useEffect(() => agent.on('statusChange', setStatus), []);
+  useEffect(() => agent.on('statusChange', (s) => {
+    setStatus(s);
+    // Mute all UI cues for the whole live session — they run on a separate audio
+    // session that would otherwise steal Ruby's playback/mic. Cleared on idle/end.
+    setVoiceBusy(s !== 'idle' && s !== 'ended');
+  }), []);
 
   useEffect(() => {
     if (status === 'listening' || status === 'speaking') {
@@ -301,17 +310,29 @@ export default function VoiceWidget() {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
-      agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
+      // Tear the session down first; once the mic/playback session is released,
+      // play the "thanks" sign-off cue on its own audio session (no overlap).
+      agent.stop()
+        .catch(e => vlog('agent.stop() rejected:', e?.message || String(e)))
+        .finally(() => {
+          setVoiceBusy(false);
+          setTimeout(() => playFabOff(), 150);
+        });
     } else {
-      agent.start().catch(e => {
-        vlog('agent.start() rejected:', e?.message || String(e));
-        // Offline failures already get the dedicated OfflineNotice banner (see
-        // agent.ts) — don't also toast those. Everything else previously failed
-        // silently from the user's point of view (no banner, no toast), which
-        // read as the button just not working.
-        const message: string = e?.message || '';
-        if (message.startsWith('offline:')) return;
-        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+      // Play the connect cue, then start the agent ONLY once the cue has finished
+      // — the cue and the voice session must never hold the audio session at the
+      // same time (that overlap killed Ruby's playback + mic on iOS).
+      playConnectThen(() => {
+        agent.start().catch(e => {
+          vlog('agent.start() rejected:', e?.message || String(e));
+          // Offline failures already get the dedicated OfflineNotice banner (see
+          // agent.ts) — don't also toast those. Everything else previously failed
+          // silently from the user's point of view (no banner, no toast), which
+          // read as the button just not working.
+          const message: string = e?.message || '';
+          if (message.startsWith('offline:')) return;
+          showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+        });
       });
     }
   };

@@ -42,6 +42,9 @@ class VoiceAudioModule: RCTEventEmitter {
 
   override static func requiresMainQueueSetup() -> Bool { true }
   override func supportedEvents() -> [String]! { ["onAudioChunk", "onAudioLevel"] }
+  // Exposes the app bundle path to JS so the sfx layer can locate the bundled
+  // `Cues/*.mp3` files (folder reference) for the UI voice cues.
+  override func constantsToExport() -> [AnyHashable: Any]! { ["bundlePath": Bundle.main.bundlePath] }
   override func startObserving() { hasListeners = true }
   override func stopObserving() { hasListeners = false }
 
