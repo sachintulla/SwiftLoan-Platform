@@ -23,9 +23,11 @@ import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
 import { customersRouter } from './modules/customers.routes.js';
 import { integrationsRouter } from './modules/integrations.routes.js';
+import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
+import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
@@ -35,6 +37,7 @@ import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
 import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
+import { websiteRouter } from './modules/website.routes.js';
 
 export function createApp() {
   const app = express();
@@ -44,7 +47,13 @@ export function createApp() {
   // Capture the raw body so webhook signature checks (e.g. Knight Fintech's
   // X-KF-Signature = base64(sha256(shared_secret + raw_body))) can recompute it.
   app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
-  if (!env.isProd) app.use(morgan('dev'));
+  // Access logging (method, path, status, timing) for EVERY request, in every
+  // environment. This used to be gated to non-prod only — meaning the
+  // deployed dev/prod boxes had no request-level log at all, only whatever a
+  // handler happened to console.log itself. 'combined' in prod (no ANSI
+  // colour codes, which read as garbage in a redirected log file); 'dev' is
+  // fine locally where a terminal renders them.
+  app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
   // ── Rate limiting ──
   // Previously only the two auth routes were throttled, which left every public
@@ -111,12 +120,14 @@ export function createApp() {
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/campaigns', campaignsRouter);
+  app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
   app.use('/api/admin/stall-rules', stallRulesRouter);
   app.use('/api/admin/ops', adminOpsRouter);
   app.use('/api/admin/conversations', adminConversationsRouter);
   app.use('/api/admin/customers', customersRouter);
   app.use('/api/admin/integrations', integrationsRouter);
+  app.use('/api/admin/api-keys', apiKeysRouter);
   // PUBLIC — the marketing site has no login. Rate-limited because each call
   // starts a billable Ello session.
   app.use('/api/voice', limiter(60_000, 20, 'Too many voice session requests'), voiceRouter);
@@ -133,6 +144,11 @@ export function createApp() {
 
   // ── WS3: context handoff + app-download landing pages ──
   app.use('/api/context', leadLimiter, contextRouter);
+  // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for
+  // the marketing site. Separate from /api/auth/otp/*: that flow creates a
+  // User row and issues real app tokens, the wrong side effect here. Each
+  // accepted OTP request can send a real SMS, so it shares the strictest bucket.
+  app.use('/api/website', leadLimiter, websiteRouter);
   app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
   app.use('/', preapprovedRouter); // /api/preapproved-plans + /api/admin/preapproved-plans
 

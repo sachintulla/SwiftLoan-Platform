@@ -8,6 +8,7 @@ import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent } from '../analytics/upshot';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 export default function Mobile() {
   const { state, set, go } = useStore();
@@ -102,6 +103,19 @@ export default function Mobile() {
 
   const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
+  // The OTP entry is one hidden TextInput behind 6 decorative digit boxes (see
+  // hiddenOtpInput above) — the element-tree walk in screenGraph.ts can't
+  // describe it correctly: it classifies the wrapping Pressable as a `button`
+  // and mislabels it "OTP digit 1" (the first box's accessibilityLabel), while
+  // the real hidden field falls back to the nearest preceding label-like text
+  // ("Edit phone number"). Registering it explicitly here overrides that with
+  // a correctly-labelled, directly fillable `field:OTP` target.
+  useVoiceTarget(
+    otpSent ? 'OTP' : undefined,
+    { kind: 'field', getValue: () => otpCode, setValue: v => onOtpChange(String(v)) },
+    [otpCode, otpSent],
+  );
+
   return (
     <Screen variant="plain" scroll padded={false} contentStyle={{ paddingTop: 0 }}>
       <LoginHero onBack={() => go('intro')} />
@@ -166,9 +180,10 @@ export default function Mobile() {
                 </View>
               ))}
               {/* The real input: one field, off-screen but focusable, catches the
-                  OS autofill suggestion as a single 6-char value. Marks itself
-                  sensitive to the voice layer so the agent will not fill it —
-                  the user types the OTP; the agent taps Verify. */}
+                  OS autofill suggestion as a single 6-char value. Voice-fillable
+                  as `field:OTP` via the explicit useVoiceTarget registration
+                  above — the element-tree walk can't see/label this correctly
+                  on its own (see the comment there). */}
               <TextInput
                 ref={hiddenOtpInput}
                 style={styles.otpHiddenInput}

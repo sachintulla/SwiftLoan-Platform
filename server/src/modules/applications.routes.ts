@@ -8,6 +8,9 @@ import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
 import { getLenderOfferProvider, takeAurixDebug, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('applications');
 
 export const applicationsRouter = Router();
 applicationsRouter.use(requireAuth);
@@ -27,6 +30,7 @@ applicationsRouter.post('/',
     const app = await prisma.loanApplication.create({
       data: { ...req.body, ref: makeRef(), userId: req.user!.sub, status: 'draft' },
     });
+    log.info('application created', { userId: req.user!.sub, applicationId: app.id, ref: app.ref, amount: app.amount });
     res.status(201).json({ application: app });
   }));
 
@@ -86,7 +90,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
       const list = provider.getOffers ? await provider.getOffers(p, app) : [await provider.getOffer(p, app)];
       for (const raw of list) pending.push({ partner: p, raw });
     } catch (e) {
-      console.warn(`[prequalify] partner ${p.name} produced no offers: ${(e as Error).message}`);
+      log.warn('partner produced no offers', { applicationId: app.id, partner: p.name, error: (e as Error).message });
     }
   }
 
@@ -146,6 +150,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     },
   ).catch(() => {});
 
+  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length });
   // Raw Aurix eligible_offers response (request/success/no-offers/validation),
   // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
   res.json({ offers: created, aurixResponse: takeAurixDebug(app.id) });
@@ -194,6 +199,7 @@ applicationsRouter.post('/:id/offers/:offerId/select',
       },
     ).catch(() => {});
 
+    log.info('offer selected', { applicationId: app.id, offerId: offer.id, apr: offer.apr, amount: offer.amount });
     res.json({ offer });
   }));
 
@@ -260,13 +266,20 @@ applicationsRouter.post('/:id/offers/:offerId/fail',
     const app = await owned(req.user!.sub, req.params.id);
     const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
     if (!offer) throw new HttpError(404, 'Offer not found for this application');
+    // A per-lender application only exists once it was actually submitted (marked
+    // applied — created via the KFT application_submitted webhook after OTP). A
+    // web-flow error BEFORE that point means the user abandoned before submitting,
+    // so there's nothing to mark failed — don't create a stray failed item.
+    if (!offer.applied) {
+      return res.json({ offer, unchanged: true, notApplied: true });
+    }
     if (offer.lenderStatus && ['approved', 'disbursed', 'rejected', 'closed'].includes(offer.lenderStatus)) {
       return res.json({ offer, unchanged: true });
     }
     const reason = req.body.reason?.slice(0, 500) || 'The lender web flow could not be completed.';
     const updated = await prisma.offer.update({
       where: { id: offer.id },
-      data: { applied: true, appliedAt: offer.appliedAt ?? new Date(), lenderStatus: 'failed', failureReason: reason },
+      data: { lenderStatus: 'failed', failureReason: reason },
     });
     trackJourney(
       { userId: req.user!.sub },
@@ -322,6 +335,7 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
     )
     .catch(() => {});
 
+  log.info('loan disbursed', { applicationId: app.id, loanId: loan.id, userId: req.user!.sub, principal: loan.principal });
   res.status(201).json({ loan });
 }));
 

@@ -3,12 +3,13 @@
 // the browser SDK — only the three DOM-bound collaborators (mic capture, PCM
 // playback, confirmation UI) are swapped for RN-native implementations, passed
 // in via the constructor instead of owned internally.
-import { Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { Emitter } from './events';
 import { ToolRegistry } from './registry';
 import { ElloSocket } from './transport/ws';
 import { createVoiceSession } from './transport/sessionApi';
 import { vlog } from './log';
+import { reportOfflineAttempt } from '../state/offlineBridge';
 import type {
   AgentEventMap,
   AgentStatus,
@@ -91,6 +92,23 @@ export class ElloAgent {
     Promise.resolve().then(() => {
       this.pageContextFlushScheduled = false;
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      // A client-tools-update that lands while the agent is mid-utterance gets
+      // treated server-side as a barge-in: confirmed live (RECV voice-audio-purge
+      // "clearing playback" immediately followed by a truncated, restarted
+      // conversation-text) that a routine, purely-cosmetic page-context refresh —
+      // the language screen's rotating greeting ticking over — cut the agent off
+      // mid-sentence and made it restart, twice in a row, never finishing a single
+      // reply. Deferring the send until speech actually ends fixes that without
+      // dropping the update — it fires the instant status leaves 'speaking'.
+      if (this.status === 'speaking') {
+        const unsubscribe = this.emitter.on('statusChange', next => {
+          if (next !== 'speaking') {
+            unsubscribe();
+            this.updatePageContext();
+          }
+        });
+        return;
+      }
       // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
       // reads msg.get("tools")) — note this differs from voice-session-start's
       // own "client_tools" field below; that asymmetry is real, not a typo.
@@ -124,7 +142,7 @@ export class ElloAgent {
   }
 
   async start(): Promise<void> {
-    vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId, 'platform=', Platform.OS);
+    vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId);
     if (!this.options.apiKey || !this.options.assistantId) {
       vlog('ABORT: apiKey/assistantId not configured');
       throw new Error('ElloAgent: apiKey/assistantId not configured');
@@ -136,9 +154,22 @@ export class ElloAgent {
 
     const token = ++this.startToken;
     const cancelled = () => token !== this.startToken;
+    // Reset per-session so the "#N" in RECV voice-audio-output logs reflects
+    // this call, not a running total left over from every earlier session —
+    // otherwise the first chunk of a fresh call can print as "#450" purely by
+    // landing on a stale %50 boundary, making response-time impossible to read.
+    this.audioOutCount = 0;
 
     this.setStatus('connecting');
     try {
+      // Check before dialing out, not after: tapping the FAB with no signal
+      // used to hang on the REST call until it timed out (see
+      // SESSION_START_TIMEOUT_MS in sessionApi.ts) before the user learned why
+      // nothing was happening. A NetInfo probe resolves in well under a second.
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected === false || netState.isInternetReachable === false) {
+        throw new Error('offline: no internet connection');
+      }
       vlog('POST call ->', this.options.apiBaseUrl);
       const { conversationId } = await createVoiceSession(this.options);
       if (cancelled()) {
@@ -174,14 +205,19 @@ export class ElloAgent {
 
       const tools = this.registry.toWire();
       const fullContext = this.pageContextFn?.() ?? {};
-      // The initial payload keeps `page`/`interactionGuide` (the backend's
-      // speak-first path is gated on a non-empty `page`) but withholds the raw
-      // `screen_overview`/`available_actions` data — otherwise the model's very
-      // first turn (the greeting) has raw screen data sitting right next to the
-      // system prompt's greeting instructions and tends to lean on reciting the
-      // former instead of following the latter. The real, full context follows
-      // moments later via updatePageContext() below, once the mic is live — in
-      // time for everything the model does after the greeting.
+      // Tried omitting page_context here and relying on the assistant's own
+      // dashboard system prompt to open the conversation — confirmed live (RECV
+      // conversation-text: "*stays quiet*") that its default is to wait silently
+      // for the user to speak first, not greet. A silent agent is a worse
+      // experience than the ~2-3s wait for a real greeting, so back to sending
+      // it ourselves. The initial payload keeps `page`/`interactionGuide` (the
+      // backend's speak-first path is gated on a non-empty `page`) but withholds
+      // the raw `screen_overview`/`available_actions` data — otherwise the
+      // model's very first turn (the greeting) has raw screen data sitting right
+      // next to the system prompt's greeting instructions and tends to lean on
+      // reciting the former instead of following the latter. The real, full
+      // context follows moments later via updatePageContext() below, once the
+      // mic is live — in time for everything the model does after the greeting.
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
@@ -219,8 +255,19 @@ export class ElloAgent {
       // utterance is already underway before it has screen specifics to work with.
       setTimeout(() => this.updatePageContext(), 500);
     } catch (e: any) {
-      vlog('START FAILED:', e?.message || String(e));
-      this.emitter.emit('error', e instanceof Error ? e : new Error(String(e)));
+      const message = e?.message || String(e);
+      vlog('START FAILED:', message);
+      // Tapping the agent button is the single most common internet-dependent
+      // action a user takes — surface the offline banner so a failed/timed-out
+      // connect attempt is explained, instead of just silently going nowhere.
+      // Only for genuinely offline failures, though (the 'offline:' prefix set
+      // above) — this used to fire for EVERY start() failure, including native
+      // AVAudioSession errors (e.g. the OS denying the mic because a phone call
+      // is active), which told the user they were "offline" when they weren't.
+      if (message.startsWith('offline:')) {
+        reportOfflineAttempt();
+      }
+      this.emitter.emit('error', e instanceof Error ? e : new Error(message));
       this.teardown();
       throw e;
     }

@@ -19,6 +19,10 @@ import { validate } from '../middleware/validate.js';
 import { ok, created, fail, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
+import { SEGMENT_KEYS, getSegmentMembers, type SegmentKey } from '../lib/segments.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('campaigns');
 
 export const campaignsRouter = Router();
 campaignsRouter.use(requireAdmin);
@@ -57,8 +61,13 @@ async function campaignCounts(campaignId: string) {
  * the UI presents them as time pickers.
  */
 const scheduleShape = {
-  startAt: z.string().datetime().optional(),
-  endAt: z.string().datetime().optional(),
+  // The client's formToPayload() always sends explicit `null` (never omits
+  // the key) for a start/end date or assistant name left blank — so these
+  // need .nullable(), not just .optional(), or every campaign save with an
+  // empty one of these 400s. (assistantId/note below have the same shape for
+  // the same reason.)
+  startAt: z.string().datetime().nullable().optional(),
+  endAt: z.string().datetime().nullable().optional(),
   scheduleType: z.enum(['one_time', 'recurring']).optional(),
   timezone: z.string().min(1).max(64).optional(),
   dailyStartMinute: z.number().int().min(0).max(1439).optional(),
@@ -70,7 +79,7 @@ const scheduleShape = {
   retryIntervalDays: z.number().int().min(1).max(365).optional(),
   retryIntervalMinutes: z.number().int().min(1).max(10080).optional(),
   stopOnAnswer: z.boolean().optional(),
-  assistantName: z.string().max(200).optional(),
+  assistantName: z.string().max(200).nullable().optional(),
 };
 
 /** Cross-field rules Zod cannot express field-by-field. Returns an error string. */
@@ -194,8 +203,8 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
     // to invent one. Still accepted for callers that want to set it explicitly.
     code: z.string().min(1).max(60).regex(/^[A-Za-z0-9_-]+$/, 'code may contain letters, digits, - and _ only').optional(),
     concurrency: z.number().int().min(1).max(50).optional(),
-    assistantId: z.string().min(1).optional(),
-    note: z.string().max(2000).optional(),
+    assistantId: z.string().min(1).nullable().optional(),
+    note: z.string().max(2000).nullable().optional(),
     ...scheduleShape,
   })),
   ah(async (req, res) => {
@@ -220,6 +229,7 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
           ...scheduleData(b),
         },
       });
+      log.info('campaign created', { id: campaign.id, name: campaign.name, code: campaign.code, createdBy: req.admin?.sub ?? null });
       return created(res, campaign, 'Campaign created');
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -292,6 +302,7 @@ campaignsRouter.patch('/:id', requireRole(...CAN_WRITE),
       where: { id: existing.id },
       data: { ...(rest as Prisma.CampaignUpdateInput), ...scheduleData(b) },
     });
+    log.info('campaign updated', { id: campaign.id, fields: Object.keys(b) });
     return ok(res, campaign, 'Campaign updated');
   }));
 
@@ -347,6 +358,7 @@ campaignsRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, re
   const existing = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!existing) return fail(res, 404, 'Campaign not found');
   await prisma.campaign.delete({ where: { id: existing.id } });
+  log.warn('campaign deleted', { id: existing.id, name: existing.name });
   return ok(res, { id: existing.id }, 'Campaign deleted');
 }));
 
@@ -443,10 +455,70 @@ campaignsRouter.post('/:id/contacts/upload', upload.single('file'), ah(async (re
   const totalContacts = await prisma.campaignContact.count({ where: { campaignId: campaign.id } });
   await prisma.campaign.update({ where: { id: campaign.id }, data: { totalContacts } });
 
+  log.info('contacts uploaded', { campaignId: campaign.id, inserted: result.count, skipped, duplicates, totalContacts });
   return ok(
     res,
     { inserted: result.count, skipped, duplicates, totalContacts, errors: errors.slice(0, 200) },
     `Imported ${result.count} contact(s)`,
+  );
+}));
+
+// POST /api/admin/campaigns/:id/contacts/from-segments
+//   { selections: Array<{ key: SegmentKey; phones?: string[] }> }
+// Populates this campaign's contacts from the union of the chosen segments
+// (deduped by phone) instead of a spreadsheet. Each selection may optionally
+// carry a `phones` allowlist — the admin cherry-picking specific people out
+// of a large segment in the UI, rather than taking the whole thing. That
+// allowlist is only ever used to FILTER the segment's own live query result;
+// it can never add a phone the segment query didn't already return, so a
+// do-not-call exclusion (baked into every segment query in segments.ts)
+// can't be bypassed by a client sending an arbitrary phone list.
+campaignsRouter.post('/:id/contacts/from-segments', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+
+  const rawSelections = Array.isArray(req.body?.selections) ? req.body.selections : [];
+  const selections: { key: SegmentKey; phones: Set<string> | null }[] = rawSelections
+    .map((s: any) => ({
+      key: String(s?.key ?? ''),
+      phones: Array.isArray(s?.phones) ? new Set(s.phones.map(String)) as Set<string> : null,
+    }))
+    .filter((s: { key: string; phones: Set<string> | null }) => (SEGMENT_KEYS as string[]).includes(s.key));
+  if (selections.length === 0) return fail(res, 400, 'Pick at least one segment');
+
+  const byPhone = new Map<string, { phone: string; name: string | null; city: string | null }>();
+  for (const { key, phones } of selections) {
+    const members = await getSegmentMembers(key);
+    for (const m of members) {
+      if (phones && !phones.has(m.phone)) continue;
+      if (!byPhone.has(m.phone)) byPhone.set(m.phone, m);
+    }
+  }
+
+  const data: Prisma.CampaignContactCreateManyInput[] = Array.from(byPhone.values()).map((m) => ({
+    campaignId: campaign.id,
+    phone: m.phone,
+    name: m.name,
+    city: m.city,
+    extra: Prisma.DbNull,
+  }));
+
+  // @@unique([campaignId, phone]) + skipDuplicates — safe to run again after
+  // adding more segments, or after new customers enter a segment later.
+  const result = data.length
+    ? await prisma.campaignContact.createMany({ data, skipDuplicates: true })
+    : { count: 0 };
+  const duplicates = data.length - result.count;
+
+  const totalContacts = await prisma.campaignContact.count({ where: { campaignId: campaign.id } });
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { totalContacts } });
+
+  const validKeys = selections.map((s) => s.key);
+  log.info('contacts added from segments', { campaignId: campaign.id, segments: validKeys, matched: data.length, inserted: result.count, duplicates, totalContacts });
+  return ok(
+    res,
+    { matched: data.length, inserted: result.count, duplicates, totalContacts, segments: validKeys },
+    `Added ${result.count} contact(s) from ${validKeys.length} segment(s)`,
   );
 }));
 
@@ -473,10 +545,14 @@ campaignsRouter.post('/:id/start', requireRole(...CAN_ADMINISTER), ah(async (req
   // window, weekday filter and retry cadence are actually honoured — starting a
   // 09:00–19:00 campaign at midnight must not blast the whole list at midnight.
   const gate = canDialNow(updated, new Date());
+  log.info('campaign started', {
+    id: updated.id, name: updated.name, startedBy: req.admin?.sub ?? null,
+    pendingContacts: pending, concurrency: updated.concurrency, dialingNow: gate.canDial,
+  });
   if (gate.canDial) {
     // Inside the window: tick once now so the operator sees movement instead of
     // waiting up to a minute for the scheduler.
-    void tickCampaign(updated.id).catch((e) => console.error('[campaigns] tick failed', e));
+    void tickCampaign(updated.id).catch((e) => log.error('tick failed', { id: updated.id, error: String(e) }));
   }
 
   return ok(
@@ -502,6 +578,7 @@ campaignsRouter.post('/:id/pause', requireRole(...CAN_WRITE), ah(async (req, res
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
   const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'paused' } });
+  log.info('campaign paused', { id: updated.id, name: campaign.name, pausedBy: req.admin?.sub ?? null });
   return ok(res, { id: updated.id, status: updated.status }, 'Campaign paused');
 }));
 
@@ -515,7 +592,7 @@ campaignsRouter.get('/:id/stats', ah(async (req, res) => {
     prisma.callAttempt.groupBy({ by: ['status'], where: { campaignId: campaign.id }, _count: { _all: true } }),
   ]);
   const callsByStatus: Record<string, number> = {};
-  byStatus.forEach((g) => { callsByStatus[g.status] = g._count._all; });
+  byStatus.forEach((g) => { callsByStatus[g.status ?? 'queued'] = g._count._all; });
 
   return ok(res, {
     campaign: {

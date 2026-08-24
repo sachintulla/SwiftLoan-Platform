@@ -29,34 +29,48 @@ import {
 } from '../lib/conversations.js';
 import { mapOutcome } from './webhooks.routes.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
+import { verifyApiKey } from '../lib/apiKeys.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('conversations');
 
 export const conversationsRouter = Router();
 
 /**
- * Any of the three secrets is accepted so this can be configured alongside the
- * webhooks without minting a new credential — but one MUST be set and MUST match.
+ * Two ways to authenticate, checked in order:
+ *   1. A named key minted from the admin dashboard (see apiKeys.routes.ts) —
+ *      the preferred path: revocable per-caller, without a redeploy.
+ *   2. The legacy static env var (CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET)
+ *      — kept so an already-deployed Ello tool config using the old secret
+ *      keeps working during rollout; not required once every caller has its
+ *      own admin-issued key.
  */
-function authorised(req: import('express').Request): boolean {
-  const expected =
-    process.env.CONVERSATION_API_KEY ||
-    process.env.ELLO_WEBHOOK_SECRET ||
-    '';
-  if (!expected) return false;
+async function authorised(req: import('express').Request): Promise<boolean> {
   const provided =
     String(req.headers['x-api-key'] ?? '') ||
     String(req.headers['x-webhook-secret'] ?? '');
-  return provided.length > 0 && provided === expected;
+  if (!provided) return false;
+
+  if (await verifyApiKey(provided)) return true;
+
+  const expected = process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET || '';
+  return !!expected && provided === expected;
 }
 
-conversationsRouter.use((req, res, next) => {
-  if (authorised(req)) return next();
-  const configured = !!(process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET);
-  if (!configured) {
-    console.error('[conversations] no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing');
+conversationsRouter.use(ah(async (req, res, next) => {
+  if (await authorised(req)) return next();
+
+  // Distinguish "nobody has ever configured this" from "wrong key" — the
+  // former is a deploy/setup bug worth a loud, distinct error rather than
+  // looking like a caller with a bad credential.
+  const envConfigured = !!(process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET);
+  if (!envConfigured && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
+    log.error('no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing', { path: req.path });
     return fail(res, 503, 'Conversation API is not configured');
   }
+  log.warn('rejected — invalid or missing API key', { path: req.path, method: req.method });
   return fail(res, 401, 'Invalid or missing API key');
-});
+}));
 
 /**
  * GET /api/conversations/context?phone=9876500011&limit=8
@@ -71,6 +85,7 @@ conversationsRouter.get('/context', ah(async (req, res) => {
   const limit = Number(req.query.limit ?? 8);
   const ctx = await getConversationContext(phone, Number.isFinite(limit) ? limit : 8);
 
+  log.info('get_customer_history (GET)', { phone, known: ctx.known });
   // 200 with known:false — a first-time caller is a normal case, not an error, and
   // an agent must not treat it as a failure.
   return ok(res, ctx, ctx.known ? 'Context found' : 'No prior conversations');
@@ -96,6 +111,7 @@ conversationsRouter.post('/context', ah(async (req, res) => {
   const rawLimit = Number(b.limit);
   const ctx = await getConversationContext(phone, Number.isFinite(rawLimit) ? rawLimit : 8);
 
+  log.info('get_customer_history (POST)', { phone, known: ctx.known });
   // The two headline fields are ALSO mirrored at the top level.
   //
   // Ello's response mapper extracts by variable name, and it is not documented
@@ -176,10 +192,11 @@ conversationsRouter.post('/', ah(async (req, res) => {
           outcome: 'do_not_call',
           note: 'customer asked not to be contacted again',
         },
-      }).catch((e) => console.error('[conversations] do_not_call stage write failed', e));
-      console.log(`[conversations] ${row.phone} marked do_not_call — outreach stopped`);
+      }).catch((e) => log.error('do_not_call stage write failed', { phone: row.phone, error: String(e) }));
+      log.warn('marked do_not_call — outreach stopped', { phone: row.phone });
     }
 
+    log.info('save_conversation', { phone, channel, outcome: outcome ?? null, id: row.id });
     return ok(
       res,
       {
@@ -192,6 +209,7 @@ conversationsRouter.post('/', ah(async (req, res) => {
       'Conversation recorded',
     );
   } catch (e) {
+    log.error('save_conversation failed', { phone, error: (e as Error).message });
     return fail(res, 400, (e as Error).message);
   }
 }));

@@ -24,6 +24,9 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('aurix-webhook');
 
 export const aurixWebhookRouter = Router();
 
@@ -161,10 +164,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   // v1.3: bureau soft-pull now includes the real bureau score.
   const bureauScore = Number(data.bureau_score);
 
-  console.log(
-    `[kft-webhook] reqId=${requestId} state=${state} status=${jStatus} lead=${leadId} ` +
-    `pcid=${partnerCustomerId} body=${JSON.stringify(body).slice(0, 1200)}`,
-  );
+  log.info('received', { requestId, state, status: jStatus, leadId, partnerCustomerId, offerCode });
 
   // Locate the application: leadId (most precise) → offerCode → user's latest.
   let application: { id: string; userId: string; status: ApplicationStatus; leadId: string | null } | null = null;
@@ -184,7 +184,10 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
       orderBy: { updatedAt: 'desc' },
     })) as any;
   }
-  if (!application) return ok(res, { matched: false }, 'No matching application');
+  if (!application) {
+    log.warn('no matching application', { offerCode, partnerCustomerId });
+    return ok(res, { matched: false }, 'No matching application');
+  }
 
   // Learn the KFT lead id so future journey webhooks match precisely.
   if (leadId && application.leadId !== leadId) {
@@ -221,26 +224,33 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     return !(regress || backTerminal);
   };
 
-  // ── Per-lender application update ──
-  // KFT's lender-scoped events (lender_selection, lender_api_journey,
-  // application_submitted, post_lender_redirection) carry data.lender_name. When
-  // present, update the matching *applied* offer's own lenderStatus so My Loans
-  // shows per-lender progress — independent of the parent application's status.
+  // ── Per-lender application create/update ──
+  // The per-lender application (an applied Offer) is CREATED only once the lender
+  // confirms the user actually submitted — i.e. after OTP verification on the
+  // lender's web page. KFT signals that with application_submitted (and the
+  // later kyc/redirection/terminal events). Earlier lender-scoped events
+  // (lender_selection, lender_api_journey) are pre-OTP, so they only update an
+  // offer that is ALREADY applied — they never create one.
+  const CREATE_STATES = new Set(['application_submitted', 'kyc_completed', 'post_lender_redirection_journey']);
+  const createsApplication = CREATE_STATES.has(state.toLowerCase().replace(/[^a-z_]/g, '')) || TERMINAL.has(mapped);
   const lenderName = data.lender_name ?? data.lenderName ?? null;
   let offerUpdated: string | null = null;
   if (lenderName) {
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     const want = norm(String(lenderName));
-    const applied = await prisma.offer.findMany({ where: { applicationId: application.id, applied: true } });
-    const match = applied.find(o => o.lenderName && (() => {
+    const offers = await prisma.offer.findMany({ where: { applicationId: application.id } });
+    const match = offers.find(o => o.lenderName && (() => {
       const have = norm(o.lenderName);
       return have === want || have.includes(want) || want.includes(have);
     })());
-    if (match && advances(match.lenderStatus, mapped)) {
+    // Update if the offer is already applied, or CREATE it now if this event is
+    // the submission confirmation. Otherwise (pre-OTP event, not yet applied) skip.
+    if (match && (match.applied || createsApplication) && advances(match.lenderStatus, mapped)) {
       await prisma.offer.update({
         where: { id: match.id },
         data: {
           lenderStatus: mapped,
+          ...(match.applied ? {} : { applied: true, appliedAt: match.appliedAt ?? new Date() }),
           ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}),
           ...(data.ApplicationUrl != null ? { applicationUrl: String(data.ApplicationUrl) } : {}),
         },
@@ -277,5 +287,6 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, state, kftStatus: jStatus, reason, leadId } },
   ).catch(() => {});
 
+  log.info('status updated', { applicationId: application.id, status: mapped, offerUpdated });
   return ok(res, { matched: true, applicationId: application.id, status: mapped, offerUpdated }, 'Status updated');
 }));

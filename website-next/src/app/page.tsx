@@ -21,7 +21,9 @@ export const metadata: Metadata = {
 
 /**
  * Section order is the design package's, unchanged — LeadForm deliberately sits
- * before the calculator so the conversion point comes early on mobile.
+ * before the calculator so the conversion point comes early on mobile. Hero
+ * additionally carries its own compact inline form so the conversion point is
+ * also reachable without scrolling at all.
  */
 export default function HomePage() {
   return (

@@ -115,6 +115,16 @@ export function SiteHeader() {
             </DropdownMenu>
             <Link
               href="/#lead-form"
+              onClick={(e) => {
+                if (
+                  typeof window !== "undefined" &&
+                  window.__swiftloanQuickCheck &&
+                  window.innerWidth >= 768
+                ) {
+                  e.preventDefault();
+                  window.__swiftloanQuickCheck.open();
+                }
+              }}
               className="bg-brand-gradient ml-2 inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
             >
               {t.cta} <ArrowRight className="h-4 w-4" />

@@ -7,7 +7,7 @@
 // only bare "PIN" (an ATM/card/UPI PIN) should refuse.
 //
 // OTP is deliberately NOT in this list — per product decision, the agent may
-// enter the OTP itself when the user speaks it. OTP delivery is real (Twilio),
+// enter the OTP itself when the user speaks it. OTP delivery is real (Vox),
 // so this is a genuine trade-off (the code briefly enters the conversation
 // transcript/voice pipeline) accepted for convenience — revisit if that
 // changes. Everything else that IS a real credential (password, card PIN,

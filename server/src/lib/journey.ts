@@ -87,6 +87,11 @@ export const JOURNEY_EVENTS = {
   LANGUAGE_SELECTED: 'language_selected',
   OTP_REQUESTED: 'otp_requested',
   OTP_VERIFIED: 'otp_verified',
+  // website — phone verification & callback consent (not app login: no stage
+  // mapping, since verifying a phone on the marketing site is not "registered")
+  PHONE_VERIFIED: 'phone_verified',
+  CALLBACK_REQUESTED: 'callback_requested',
+  CALLBACK_DECLINED: 'callback_declined',
   // funnel
   ELIGIBILITY_STARTED: 'eligibility_started',
   ELIGIBILITY_COMPLETED: 'eligibility_completed',

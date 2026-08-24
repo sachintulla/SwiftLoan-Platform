@@ -65,5 +65,10 @@ export function statusTone(status: string | null | undefined): StatusTone {
 
 export function humanStatus(status: string | null | undefined): string {
   if (!status) return '—';
+  // Defensive: every call site pulls `status` off a loosely-typed API
+  // response (often cast with `as`, not runtime-validated), so a stray
+  // boolean/number reaching here — as one already has, see
+  // CampaignBuilder.tsx's agent status — must not crash the whole page.
+  if (typeof status !== 'string') return String(status);
   return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }

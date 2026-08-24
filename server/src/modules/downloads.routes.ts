@@ -60,10 +60,10 @@ function landingPage(opts: { title: string; heading: string; sub: string; apkUrl
 // GET /d/:token — context landing (the link a captured lead receives).
 downloadsRouter.get('/d/:token', ah(async (req, res) => {
   const token = req.params.token.toUpperCase();
-  const s = await prisma.contextSession.findUnique({ where: { token } });
+  const s = await prisma.lead.findUnique({ where: { token } });
   const links = contextLinks(token);
-  const summary = s?.summary
-    ?? (s?.amount ? `Continuing your ₹${(s.amount / 100).toLocaleString('en-IN')} ${s?.product ?? 'loan'} application${s?.name ? ', ' + s.name : ''}.` : undefined);
+  const summary = s?.note
+    ?? (s?.amount ? `Continuing your ₹${(s.amount / 100).toLocaleString('en-IN')} ${s?.productInterest ?? 'loan'} application${s?.name ? ', ' + s.name : ''}.` : undefined);
   res.type('html').send(landingPage({
     title: 'Continue your SwiftLoan application',
     heading: s?.name ? `Welcome back, ${s.name}` : 'Continue your application',

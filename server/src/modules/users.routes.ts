@@ -6,6 +6,9 @@ import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { publicUser } from './auth.routes.js';
 import { presignAvatarUpload, s3Configured } from '../lib/s3.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('users');
 
 export const usersRouter = Router();
 usersRouter.use(requireAuth);
@@ -119,6 +122,7 @@ usersRouter.post('/me/consents',
   validate(z.object({ type: z.enum(['terms', 'soft_pull', 'data_sharing', 'communications']), granted: z.boolean() })),
   ah(async (req, res) => {
     const consent = await prisma.consent.create({ data: { userId: req.user!.sub, type: req.body.type, granted: req.body.granted } });
+    log.info('consent recorded', { userId: req.user!.sub, type: consent.type, granted: consent.granted });
     res.status(201).json({ consent });
   }));
 
@@ -141,6 +145,8 @@ usersRouter.get('/me/credit-score', ah(async (req, res) => {
 
 /** Delete account (right to erasure). */
 usersRouter.delete('/me', ah(async (req, res) => {
-  await prisma.user.delete({ where: { id: req.user!.sub } });
+  const userId = req.user!.sub;
+  await prisma.user.delete({ where: { id: userId } });
+  log.warn('account deleted', { userId });
   res.json({ ok: true });
 }));

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Loading } from '../components/common/Loading';
@@ -53,6 +53,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   approved: { label: 'Approved', color: colors.green },
   disbursed: { label: 'Disbursed', color: colors.green },
   rejected: { label: 'Rejected', color: colors.red },
+  failed: { label: 'Failed', color: colors.red },
 };
 
 export default function Status() {
@@ -75,12 +76,26 @@ export default function Status() {
   }, [state.applicationId]);
   useEffect(() => { load(); }, [load]);
 
-  const sel = app ? (app.offers || []).find((o: any) => o.selected) || null : null;
+  // Prefer the specific lender the user opened from My Loans (selectedOfferId),
+  // then any applied/selected offer.
+  const sel = app
+    ? (app.offers || []).find((o: any) => o.id === state.selectedOfferId)
+      || (app.offers || []).find((o: any) => o.applied || o.selected)
+      || null
+    : null;
   const apr = app?.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
   const emi = app?.loan?.emiAmount ?? sel?.emi ?? null;
   const tenure = app?.loan?.tenureMonths ?? sel?.tenureMonths ?? app?.tenureMonths ?? null;
   const lender = sel?.lenderName ?? app?.loan?.partnerName ?? null;
-  const meta = app ? STATUS_LABEL[app.status] || { label: app.status, color: colors.muted } : null;
+  const logoUrl = sel?.lenderLogoUrl ?? null;
+  const appliedOn = sel?.appliedAt
+    ? new Date(sel.appliedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+  const processingFee = sel?.processingFeeAmount ?? null;
+  // The per-lender application's own status (from the webhook) is the source of
+  // truth when present; fall back to the parent application status.
+  const effStatus = sel?.lenderStatus ?? app?.status;
+  const meta = app ? STATUS_LABEL[effStatus] || { label: effStatus, color: colors.muted } : null;
 
   return (
     <Screen scroll padded={false}>
@@ -97,10 +112,24 @@ export default function Status() {
         ) : (
           <>
             <Text style={[font(600), { fontSize: 12, letterSpacing: 0.3, color: colors.primary }]}>Loan Reference: {app.ref}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 }}>
-              <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text }]}>
-                {`${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`}
-              </Text>
+            {/* Lender identity — logo + name headline the details when the user
+                opened a specific lender application from My Loans. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 }}>
+              <View style={[styles.lenderLogo, logoUrl ? null : styles.lenderLogoFallback]}>
+                {logoUrl ? (
+                  <Image source={{ uri: logoUrl }} style={{ width: 40, height: 40, borderRadius: 9 }} resizeMode="contain" />
+                ) : (
+                  <Icon name="account_balance" size={22} color={colors.primary} />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[font(800), { fontSize: 20, letterSpacing: -0.4, color: colors.text }]} numberOfLines={1}>
+                  {lender || `${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`}
+                </Text>
+                <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft }]}>
+                  {`${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`}
+                </Text>
+              </View>
               {meta ? (
                 <View style={[styles.statusPill, { backgroundColor: meta.color + '22' }]}>
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: meta.color }} />
@@ -117,15 +146,27 @@ export default function Status() {
               <View style={styles.summaryDiv} />
               <SummaryCell label={emi ? 'Monthly EMI' : 'Tenure'} value={emi ? rupee(emi) : tenure ? `${tenure} mo` : '—'} />
             </View>
-            {lender ? (
-              <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft, marginTop: 10 }]}>
-                Lender: <Text style={[font(700), { color: colors.text }]}>{lender}</Text>
-              </Text>
+            {(appliedOn || processingFee != null) ? (
+              <View style={{ marginTop: 10, gap: 4 }}>
+                {appliedOn ? (
+                  <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>
+                    Applied on <Text style={[font(700), { color: colors.text }]}>{appliedOn}</Text>
+                  </Text>
+                ) : null}
+                {processingFee != null ? (
+                  <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>
+                    Processing fee <Text style={[font(700), { color: colors.text }]}>{rupee(processingFee)}</Text>
+                  </Text>
+                ) : null}
+                {sel?.failureReason ? (
+                  <Text style={[font(500), { fontSize: 12.5, color: colors.red }]}>{sel.failureReason}</Text>
+                ) : null}
+              </View>
             ) : null}
 
             {/* Status timeline (driven by the real application status) */}
             <View style={{ marginTop: 24 }}>
-              {buildSteps(app).map((s, i, arr) => {
+              {buildSteps({ ...app, status: effStatus }).map((s, i, arr) => {
                 const last = i === arr.length - 1;
                 const done = s.state === 'done';
                 const active = s.state === 'active';
@@ -172,6 +213,8 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  lenderLogo: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  lenderLogoFallback: { backgroundColor: '#E1F3F3', borderColor: 'transparent' },
   summary: {
     flexDirection: 'row',
     alignItems: 'center',

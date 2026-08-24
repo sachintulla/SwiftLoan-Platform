@@ -9,6 +9,7 @@ import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
 import { BottomNav } from './src/components/Frame';
 import ContextBanner from './src/components/ContextBanner';
+import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 
@@ -46,6 +47,7 @@ export default function App() {
         <BottomNav />
         {SHOW_VOICE_FAB && <VoiceWidget />}
         <ConfirmationSheet />
+        <OfflineNotice />
         <BackHandlerBridge />
       </StoreProvider>
     </SafeAreaProvider>

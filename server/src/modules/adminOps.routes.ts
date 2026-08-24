@@ -11,6 +11,9 @@ import {
   requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_ADMINISTER,
 } from '../middleware/adminAuth.js';
 import { reconcileStaleCalls, CALL_STALE_MINUTES } from '../lib/callReconcile.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('admin-ops');
 
 export const adminOpsRouter = Router();
 adminOpsRouter.use(requireAdmin);
@@ -100,7 +103,7 @@ adminOpsRouter.get('/export/customers.csv', ah(async (req, res) => {
 // GET /api/admin/ops/export/calls.csv
 adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { channel: { in: ['phone_outbound', 'phone_inbound'] } };
   if (q.status) where.status = q.status;
   if (q.campaignId) where.campaignId = q.campaignId;
 
@@ -113,11 +116,11 @@ adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
 
   const csv = toCsv(
     ['id', 'phone', 'customer', 'source', 'campaign', 'status', 'outcome',
-     'answered', 'durationSec', 'attempt', 'queuedAt', 'completedAt', 'error', 'recordingUrl'],
+     'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error', 'recordingUrl'],
     rows.map((r) => [
       r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code,
       r.status, r.outcome, r.answered, r.durationSec, r.attempt,
-      r.queuedAt, r.completedAt, r.error, r.recordingUrl,
+      r.queuedAt, r.endedAt, r.error, r.recordingUrl,
     ]),
   );
   return sendCsv(res, `calls-${new Date().toISOString().slice(0, 10)}.csv`, csv);
@@ -131,6 +134,7 @@ adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
 adminOpsRouter.post('/reconcile-calls', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
   const raw = Number((req.body as Record<string, unknown> | undefined)?.olderThanMinutes);
   const r = await reconcileStaleCalls(Number.isFinite(raw) ? raw : CALL_STALE_MINUTES);
+  log.info('manual reconcile run', r);
 
   return ok(
     res,

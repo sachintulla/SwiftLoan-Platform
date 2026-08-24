@@ -9,7 +9,6 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { playFabMove, setSfxLang, setVoiceBusy } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -194,7 +193,7 @@ function RobotHead() {
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { state } = useStore();
+  const { state, showToast } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   // Which edge the FAB is docked to — persisted so the user's choice survives
@@ -235,19 +234,8 @@ export default function VoiceWidget() {
   const morphMounted = useRef(false);
   useEffect(() => {
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
-    if (morphMounted.current) {
-      // Situational, language-aware cue as the assistant travels — a friendly
-      // greeting when it docks (arrives), a light one when it floats out.
-      playFabMove(isTab);
-    } else {
-      morphMounted.current = true;
-    }
+    if (!morphMounted.current) morphMounted.current = true;
   }, [isTab, move]);
-
-  // Keep spoken cues in the user's selected language.
-  useEffect(() => {
-    setSfxLang(state.lang);
-  }, [state.lang]);
 
   useEffect(() => {
     loadVoiceFabSide().then(saved => { if (saved) setSide(saved); });
@@ -270,12 +258,7 @@ export default function VoiceWidget() {
     }),
   ).current;
 
-  useEffect(() => agent.on('statusChange', (s) => {
-    setStatus(s);
-    // Mute UI cues for the whole session — they run on a separate audio session
-    // that would otherwise steal playback/mic from the live voice agent.
-    setVoiceBusy(s !== 'idle' && s !== 'ended');
-  }), []);
+  useEffect(() => agent.on('statusChange', setStatus), []);
 
   useEffect(() => {
     if (status === 'listening' || status === 'speaking') {
@@ -320,13 +303,16 @@ export default function VoiceWidget() {
     if (active) {
       agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
-      // Start immediately. Ruby greets in her own voice through the voice
-      // AVAudioSession (.playAndRecord). We deliberately do NOT play a
-      // pre-recorded nitro-sound connect cue here — it runs on a separate
-      // .playback session and stealing/handing-off that session broke both
-      // Ruby's playback and the mic. Situational cues stay muted for the
-      // whole session via setVoiceBusy (see the statusChange effect above).
-      agent.start().catch(e => vlog('agent.start() rejected:', e?.message || String(e)));
+      agent.start().catch(e => {
+        vlog('agent.start() rejected:', e?.message || String(e));
+        // Offline failures already get the dedicated OfflineNotice banner (see
+        // agent.ts) — don't also toast those. Everything else previously failed
+        // silently from the user's point of view (no banner, no toast), which
+        // read as the button just not working.
+        const message: string = e?.message || '';
+        if (message.startsWith('offline:')) return;
+        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+      });
     }
   };
 

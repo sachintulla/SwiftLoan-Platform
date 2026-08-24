@@ -7,6 +7,7 @@ import { Backdrop } from '@/components/site/Backdrop';
 import { SiteHeader } from '@/components/site/SiteHeader';
 import { SiteFooter } from '@/components/site/SiteFooter';
 import { Toaster } from '@/components/ui/sonner';
+import { QuickCheckModal } from '@/components/home/QuickCheckModal';
 import './globals.css';
 import './design.css';
 
@@ -71,6 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <SiteFooter />
           <Toaster />
+          <QuickCheckModal />
         </LanguageProvider>
         {/* Platform integrations — deliberately outside the redesign: the voice
             widget and Upshot SDK are unchanged by it. */}

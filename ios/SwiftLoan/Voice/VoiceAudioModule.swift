@@ -27,7 +27,13 @@ class VoiceAudioModule: RCTEventEmitter {
   // start/stop. Start/stop now only toggle the engine, never rebuild the graph.
   private var isCaptureSetup = false
   private var playChunks = 0  // diagnostics: count playback chunks actually scheduled
-  private var micChunks = 0   // diagnostics: count mic chunks actually captured + emitted
+  // Tracks whether the AVAudioSession is already active in our category, so
+  // playChunkImpl (called once per ~50-100ms audio chunk) doesn't re-run
+  // setCategory/setActive on every single chunk — that constant reconfiguration
+  // was audible as the playback level "wobbling" during a call. Cleared on
+  // route changes so a genuinely new route (e.g. a Bluetooth headset connecting
+  // mid-call) still gets a fresh setCategory/setActive.
+  private var sessionConfigured = false
   // All AVAudioEngine mutations run on this serial queue so JS calls
   // (startCapture / playChunk / stopCapture / purgePlayback) can never interleave
   // with each other and race the engine — the cause of intermittent SIGABRTs on
@@ -36,19 +42,117 @@ class VoiceAudioModule: RCTEventEmitter {
 
   override static func requiresMainQueueSetup() -> Bool { true }
   override func supportedEvents() -> [String]! { ["onAudioChunk", "onAudioLevel"] }
-
-  // Expose the app bundle path so JS can play bundled UI sound effects by
-  // absolute file path in release builds (where Metro no longer serves assets).
-  override func constantsToExport() -> [AnyHashable: Any]! {
-    return ["bundlePath": Bundle.main.bundlePath]
-  }
   override func startObserving() { hasListeners = true }
   override func stopObserving() { hasListeners = false }
+
+  override init() {
+    super.init()
+    // A route change (e.g. a Bluetooth headset connecting/disconnecting mid-call)
+    // needs the session re-armed on the next chunk rather than trusting the stale
+    // "already configured" flag — without this, connecting a headset mid-session
+    // kept output on the speaker until the next full stop/start.
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(handleRouteChange(_:)),
+      name: AVAudioSession.routeChangeNotification, object: nil)
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+  }
+
+  @objc private func handleRouteChange(_ note: Notification) {
+    // Only react to reasons that mean the actual input/output DEVICE changed.
+    // Bluetooth accessories fire this notification constantly for reasons that
+    // change nothing about which device is active — codec/link renegotiation
+    // shows up as .routeConfigurationChange, and our own setCategory calls can
+    // themselves surface as .categoryChange — and tearing down + restarting the
+    // engine in response to those was itself further route churn the OS reacts
+    // to, i.e. a feedback loop. That's what was popping the iOS volume HUD
+    // repeatedly after the previous fix, not fixing anything.
+    guard let info = note.userInfo,
+          let reasonValue = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
+          let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+    NSLog("[VoiceAudioModule] routeChangeNotification reason=%ld", reasonValue)
+    switch reason {
+    case .newDeviceAvailable, .oldDeviceUnavailable:
+      break
+    default:
+      return
+    }
+    NSLog("[VoiceAudioModule] route change is a real device change — rebuilding capture graph")
+    audioQueue.async { [weak self] in
+      guard let self = self else { return }
+      let wasCapturing = self.isCapturing
+      self.resetCaptureGraph()
+      guard wasCapturing else { return }
+      // A route change mid-call (e.g. turning Bluetooth off while talking) must
+      // not leave the mic permanently dead for the rest of the session — rebuild
+      // immediately against the new route's format. Best-effort: if this fails,
+      // the next manual startCapture (via the retry in startCapture below) will
+      // still recover it.
+      do {
+        try self.performStartCapture(mark: { _ in })
+      } catch {
+        NSLog("[VoiceAudioModule] route-change recovery failed: \(error.localizedDescription)")
+      }
+    }
+  }
+
+  /// Tears down the capture graph (tap + converter + engine) so the next
+  /// performStartCapture() rebuilds it from scratch against whatever the
+  /// current input route's format actually is. Needed because the tap/converter
+  /// are otherwise built once and cached for the module's lifetime (see
+  /// setupCaptureIfNeeded) — after a route change (e.g. Bluetooth HFP's 16kHz
+  /// mono vs the built-in mic's 48kHz), that stale pair no longer matches the
+  /// real input node and engine.start() throws -10868
+  /// (AUGraphParser::InitializeActiveNodesInInputChain) on every subsequent
+  /// call, effectively killing the mic until the app is relaunched.
+  private func resetCaptureGraph() {
+    if isCaptureSetup {
+      engine.inputNode.removeTap(onBus: 0)
+      isCaptureSetup = false
+      converter = nil
+    }
+    if engine.isRunning {
+      engine.stop()
+    }
+    sessionConfigured = false
+  }
+
+  // AVAudioSessionErrorInsufficientPriority ('!pri') — the OS refuses to grant
+  // the audio session because something else already holds it at a higher
+  // priority and won't yield (most commonly an active phone/FaceTime call,
+  // which iOS never interrupts for a third-party app, by design). Surfaced as
+  // its own reject code so the JS side can show an accurate "can't use voice
+  // during a call" message instead of the generic failure text — on iOS,
+  // NSError.localizedDescription for this is just "Session activation
+  // failed", indistinguishable by message text alone from other
+  // AVAudioSession errors.
+  private static let insufficientPriorityCode = 561017449 // '!pri'
+
+  private func rejectCode(for error: NSError) -> String {
+    if error.domain == NSOSStatusErrorDomain, error.code == Self.insufficientPriorityCode {
+      return "session_busy"
+    }
+    return "start_capture_failed"
+  }
 
   @objc func requestMicPermission(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
     AVAudioSession.sharedInstance().requestRecordPermission { granted in
       resolve(granted)
     }
+  }
+
+  /// Bridges JS's vlog() (src/voice/log.ts) to the unified logging system —
+  /// this was never implemented on iOS, so every voice-pipeline diagnostic
+  /// (POST call, WS open, RECV messages, TOOL CALL, response latency) was
+  /// silently a no-op here even though the identical Android nativeLog() has
+  /// been in place all along. Read on a real device with:
+  ///   log stream --device --predicate 'eventMessage contains "VoiceJS"'
+  @objc func nativeLog(_ msg: String) {
+    #if DEBUG
+    NSLog("VoiceJS: %@", msg)
+    #endif
   }
 
   /// Attaches + connects the playback node into the engine graph exactly once.
@@ -70,6 +174,25 @@ class VoiceAudioModule: RCTEventEmitter {
   private func setupCaptureIfNeeded() {
     guard !isCaptureSetup else { return }
     let input = engine.inputNode
+    // The actual echo-cancellation switch. AVAudioSession's `mode: .voiceChat`
+    // (see performStartCapture) only tunes system-level routing/ducking — it
+    // does NOT enable real acoustic echo cancellation for a custom
+    // AVAudioEngine graph. Confirmed live: without this, conversation-text
+    // showed the agent's own sentences transcribed back nearly verbatim as
+    // "user" speech (e.g. agent said "...can you tap 'Continue with English'
+    // on your own screen so we can proceed?" and the very next "user" message
+    // was that same sentence almost word-for-word) — the mic was picking up
+    // the speaker's own output essentially uncancelled, not just leaking a
+    // little residual echo. setVoiceProcessingEnabled swaps the input node
+    // for Apple's Voice-Processing I/O unit, which correlates against the
+    // engine's own render output to actually cancel it.
+    if !input.isVoiceProcessingEnabled {
+      do {
+        try input.setVoiceProcessingEnabled(true)
+      } catch {
+        NSLog("[VoiceAudioModule] setVoiceProcessingEnabled failed: \(error.localizedDescription)")
+      }
+    }
     let inputFormat = input.outputFormat(forBus: 0)
     // The iOS Simulator (especially x86 under Rosetta on Apple Silicon) can report
     // an invalid input format (0 Hz / 0 channels) before the mic is actually ready.
@@ -90,70 +213,101 @@ class VoiceAudioModule: RCTEventEmitter {
       self?.handleCapturedBuffer(buffer, inputFormat: inputFormat)
     }
     isCaptureSetup = true
-    NSLog("[VoiceAudioModule] capture tap installed: input %.0fHz %u ch", inputFormat.sampleRate, inputFormat.channelCount)
-  }
-
-  /// setupCaptureIfNeeded can bail if the mic input format isn't ready yet at the
-  /// single startCapture call (right after setActive, the input node can briefly
-  /// report 0Hz — especially while .voiceChat AEC negotiates the route). Retry on
-  /// the audio queue until the tap installs, so we never end up "Ruby talks but
-  /// the mic is dead" because the one-shot setup happened a beat too early.
-  private func setupCaptureWithRetry(attempt: Int = 0) {
-    setupCaptureIfNeeded()
-    if isCaptureSetup { return }
-    guard attempt < 20 else {
-      NSLog("[VoiceAudioModule] capture tap NOT installed after %d attempts — mic will not capture", attempt)
-      return
-    }
-    audioQueue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-      self?.setupCaptureWithRetry(attempt: attempt + 1)
-    }
   }
 
   @objc func startCapture(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    // Diagnostic timing only — a real session took ~6.9s to resolve this call
+    // (observed live: it didn't resolve until AFTER the agent's first response
+    // audio had already arrived), with no visibility into which specific
+    // AVAudioSession/AVAudioEngine step was actually slow. Each step below is
+    // timestamped so the next test pinpoints the real bottleneck instead of
+    // guessing between category switch, session activation, and engine start.
+    let t0 = Date()
+    func mark(_ label: String) {
+      #if DEBUG
+      NSLog("[VoiceAudioModule] startCapture timing: %@ at +%.3fs", label, Date().timeIntervalSince(t0))
+      #endif
+    }
     audioQueue.async { [weak self] in
       guard let self = self else { return }
+      mark("dispatched onto audioQueue")
       do {
-        let session = AVAudioSession.sharedInstance()
-        #if targetEnvironment(simulator)
-        // The iOS Simulator (x86 under Rosetta on Apple Silicon) crashes with
-        // SIGILL inside AVAudioEngine's input-chain init (GetInputFormat) when the
-        // mic node is added to the graph — there is no real mic to initialize.
-        // Run playback-only there so Ruby's voice still works and the app doesn't
-        // abort; real mic capture is only meaningful on a device anyway.
-        try session.setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker])
-        try session.setActive(true)
-        self.ensurePlayerAttached()
-        if !self.engine.isRunning {
-          self.engine.prepare()
-          try self.engine.start()
-        }
-        self.isCapturing = false
+        try self.performStartCapture(mark: mark)
         resolve(nil)
-        #else
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
-        try session.setActive(true)
-
-        // Bring the engine up FIRST so the mic input node reports a real format,
-        // then install the capture tap (with retry). Doing setup before start
-        // was the window where the input format could still be 0Hz → tap never
-        // installed → mic silently dead while Ruby still plays.
-        self.ensurePlayerAttached()
-        if !self.engine.isRunning {
-          self.engine.prepare()
-          try self.engine.start()
-        }
-        self.isCapturing = true
-        self.setupCaptureWithRetry()
-        NSLog("[VoiceAudioModule] startCapture: category=%@ mode=%@ engineRunning=%@ captureSetup=%@",
-              session.category.rawValue, session.mode.rawValue,
-              self.engine.isRunning ? "yes" : "no", self.isCaptureSetup ? "yes" : "no")
-        resolve(nil)
-        #endif
+        mark("resolved")
       } catch {
-        reject("start_capture_failed", error.localizedDescription, error)
+        let nsErr = error as NSError
+        mark("first attempt threw: \(error.localizedDescription) domain=\(nsErr.domain) code=\(nsErr.code) userInfo=\(nsErr.userInfo)")
+        // One automatic recovery attempt: a stale tap/converter left over from a
+        // route change that raced this call (or any other transient
+        // AVAudioEngine hiccup) can make the very first attempt fail even though
+        // the hardware is fine. Tear the whole capture graph down and rebuild it
+        // fresh once before giving up — this is what turns "mic dead until the
+        // app is relaunched" into "self-heals the next time the FAB is tapped".
+        self.resetCaptureGraph()
+        do {
+          try self.performStartCapture(mark: mark)
+          resolve(nil)
+          mark("resolved after retry")
+        } catch {
+          let nsErr2 = error as NSError
+          mark("retry threw: \(error.localizedDescription) domain=\(nsErr2.domain) code=\(nsErr2.code) userInfo=\(nsErr2.userInfo)")
+          reject(self.rejectCode(for: nsErr2), error.localizedDescription, error)
+        }
       }
     }
+  }
+
+  /// The actual capture-graph setup, factored out of startCapture so both the
+  /// first attempt and the one automatic retry (see startCapture) — as well as
+  /// handleRouteChange's mid-call recovery — share identical logic.
+  private func performStartCapture(mark: (String) -> Void) throws {
+    let session = AVAudioSession.sharedInstance()
+    #if targetEnvironment(simulator)
+    // The iOS Simulator (x86 under Rosetta on Apple Silicon) crashes with
+    // SIGILL inside AVAudioEngine's input-chain init (GetInputFormat) when the
+    // mic node is added to the graph — there is no real mic to initialize.
+    // Run playback-only there so Ruby's voice still works and the app doesn't
+    // abort; real mic capture is only meaningful on a device anyway.
+    try session.setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker])
+    mark("setCategory done")
+    try session.setActive(true)
+    mark("setActive done")
+    ensurePlayerAttached()
+    mark("ensurePlayerAttached done")
+    if !engine.isRunning {
+      engine.prepare()
+      mark("engine.prepare done")
+      try engine.start()
+      mark("engine.start done")
+    }
+    isCapturing = false
+    #else
+    // .allowBluetooth (HFP, needed for mic input over a headset) and
+    // .allowBluetoothA2DP (higher-quality output-only profile) must both be
+    // listed or iOS won't offer a connected Bluetooth device as a route
+    // candidate at all in .playAndRecord — it was silently speaker-only
+    // before this, regardless of what was paired/connected.
+    // .defaultToSpeaker only wins when nothing else is already routed, so it
+    // stays as the fallback when no Bluetooth accessory is connected.
+    try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+    mark("setCategory done")
+    try session.setActive(true)
+    mark("setActive done")
+    sessionConfigured = true
+
+    setupCaptureIfNeeded()
+    mark("setupCaptureIfNeeded done")
+    ensurePlayerAttached()
+    mark("ensurePlayerAttached done")
+    if !engine.isRunning {
+      engine.prepare()
+      mark("engine.prepare done")
+      try engine.start()
+      mark("engine.start done")
+    }
+    isCapturing = true
+    #endif
   }
 
   @objc func stopCapture() {
@@ -207,25 +361,50 @@ class VoiceAudioModule: RCTEventEmitter {
 
     // Playback may begin before/without capture, so make sure the session is
     // active for output first.
+    // Diagnostic timing only, first chunk of a session only — mirrors the same
+    // instrumentation added to startCapture, to see whether THIS call (queued
+    // on the same serial audioQueue as startCapture) is what's actually
+    // blocking the mic for several seconds on a real device, rather than
+    // startCapture's own AVAudioSession calls.
+    let isFirstChunk = playChunks == 0
+    let t0 = Date()
+    func mark(_ label: String) {
+      #if DEBUG
+      guard isFirstChunk else { return }
+      NSLog("[VoiceAudioModule] playChunkImpl timing: %@ at +%.3fs", label, Date().timeIntervalSince(t0))
+      #endif
+    }
     let session = AVAudioSession.sharedInstance()
-    if !session.isOtherAudioPlaying {
+    // Only re-run setCategory/setActive when the session isn't already ours to
+    // begin with (first chunk of a session, or after a route change cleared the
+    // flag) — re-issuing these on every chunk (previously gated only on
+    // `!session.isOtherAudioPlaying`, which is true for our OWN playback too)
+    // re-negotiated the audio route dozens of times a second and was audible as
+    // the playback level wobbling during a call.
+    if !sessionConfigured, !session.isOtherAudioPlaying {
       #if targetEnvironment(simulator)
       // Playback-only in the Simulator (see startCapture) — the record category +
       // input node crash AVAudioEngine there.
       try? session.setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker])
       #else
-      try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+      try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
       #endif
+      try? session.setActive(true)
+      sessionConfigured = true
     }
-    try? session.setActive(true)
+    mark("setCategory done")
+    mark("setActive done")
 
     // Ensure the playback node is attached (never installs the input tap — that
     // only happens in startCapture, once the session is in record mode).
     ensurePlayerAttached()
+    mark("ensurePlayerAttached done")
     if !engine.isRunning {
       engine.prepare()
+      mark("engine.prepare done")
       do {
         try engine.start()
+        mark("engine.start done")
       } catch {
         NSLog("[VoiceAudioModule] engine start failed: \(error.localizedDescription)")
         return
@@ -276,13 +455,5 @@ class VoiceAudioModule: RCTEventEmitter {
     let byteCount = Int(outBuffer.frameLength) * 2
     let data = Data(bytes: channelData[0], count: byteCount)
     sendEvent(withName: "onAudioChunk", body: ["base64": data.base64EncodedString()])
-    micChunks += 1
-    if micChunks % 50 == 1 {
-      // If the session ever leaves .playAndRecord mid-capture (a UI sound cue on
-      // the .playback category stealing the shared session), the mic goes silent
-      // even though this tap stays installed — logging the live category catches it.
-      let cat = AVAudioSession.sharedInstance().category.rawValue
-      NSLog("[VoiceAudioModule] mic chunks=%d bytes=%d category=%@", micChunks, byteCount, cat)
-    }
   }
 }

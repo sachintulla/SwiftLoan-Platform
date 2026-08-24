@@ -40,7 +40,7 @@ export async function reconcileStaleCalls(olderThanMinutes = CALL_STALE_MINUTES)
     where: { id: { in: stale.map((c) => c.id) } },
     data: {
       status: 'failed',
-      completedAt: new Date(),
+      endedAt: new Date(),
       error: `no terminal webhook within ${minutes}m — closed by reconcile`,
     },
   });

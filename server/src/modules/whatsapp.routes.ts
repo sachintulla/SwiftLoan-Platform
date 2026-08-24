@@ -15,6 +15,9 @@ import { resolveCustomer } from '../lib/journey.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { sendWhatsAppTemplate, sendWhatsAppText, whatsappConfigured } from '../lib/whatsapp.js';
 import { recordConversation } from '../lib/conversations.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('whatsapp');
 
 export const whatsappRouter = Router();
 whatsappRouter.use(requireAdmin);
@@ -77,6 +80,8 @@ whatsappRouter.post('/send', requireRole(...CAN_ADMINISTER),
       ? await sendWhatsAppText({ phone: target, text })
       : await sendWhatsAppTemplate({ phone: target, templateName, language, placeholders });
 
+    log[result.ok ? 'info' : 'warn']('send', { customerId: customer.id, phone: target, ok: result.ok, error: result.error ?? null });
+
     // Record it either way: the conversation history is the cross-channel spine,
     // and a failed attempt is part of the story of what we tried.
     await recordConversation({
@@ -86,7 +91,7 @@ whatsappRouter.post('/send', requireRole(...CAN_ADMINISTER),
         ? `WhatsApp sent by ${req.admin?.email ?? 'admin'}: ${text ? text.slice(0, 160) : `template "${templateName ?? 'default'}"`}`
         : `WhatsApp send FAILED (${result.error ?? 'unknown'})`,
       customerId: customer.id,
-    }).catch((e) => console.error('[whatsapp] could not record conversation', e));
+    }).catch((e) => log.error('could not record conversation', { error: String(e) }));
 
     if (!result.ok) {
       return fail(res, 502, `WhatsApp send failed: ${result.error ?? 'provider error'}`);

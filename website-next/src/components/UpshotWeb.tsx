@@ -13,8 +13,7 @@ import { usePathname } from 'next/navigation';
  *
  * Credential-gated in the same way as the Ello widget: with the env vars unset
  * this renders nothing and loads nothing, so a fresh clone is unaffected.
- * A dev-only notice explains why, because a silent no-op is exactly how the
- * voice widget went unnoticed for a whole session.
+ * A console warning (dev-only, never a visible UI banner) explains why.
  */
 
 const APP_ID = process.env.NEXT_PUBLIC_UPSHOT_APP_ID || '';
@@ -111,16 +110,6 @@ export default function UpshotWeb() {
         console.warn(
           '[UpshotWeb] NEXT_PUBLIC_UPSHOT_APP_ID / NEXT_PUBLIC_UPSHOT_OWNER_ID not set — Upshot disabled.',
         );
-        const note = document.createElement('div');
-        note.dataset.upshotDisabled = '1';
-        note.style.cssText =
-          'position:fixed;left:22px;bottom:22px;z-index:9998;max-width:300px;padding:11px 14px;' +
-          'border-radius:12px;background:#eef4ff;border:1px solid #c7dbff;color:#1b4b8f;' +
-          'font:500 12.5px/1.5 system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
-        note.textContent =
-          'Upshot disabled — NEXT_PUBLIC_UPSHOT_APP_ID / _OWNER_ID not set. Add them to .env.local and restart.';
-        document.body.appendChild(note);
-        return () => note.remove();
       }
       return;
     }

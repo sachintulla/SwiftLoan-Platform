@@ -15,6 +15,9 @@ import { resolveCustomer } from '../lib/journey.js';
 import { placeCall, normalisePhone } from '../lib/dialer.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from '../lib/callContext.js';
 import { agentIdFor } from '../lib/agents.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('calls');
 
 export const callsRouter = Router();
 callsRouter.use(requireAdmin);
@@ -126,6 +129,11 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
       include: { customer: customerSelect },
     });
 
+    log[result.ok ? 'info' : 'warn']('manual trigger', {
+      customerId: customer.id, phone: dialPhone, campaignId: campaignId ?? null,
+      triggeredBy: req.admin?.sub ?? 'admin', ok: result.ok, error: result.error ?? null,
+    });
+
     // A provider failure is a recorded outcome, not a request error: the caller
     // still gets the CallAttempt row (status `failed`, with `error` set).
     return created(res, attempt, result.ok ? 'Call queued' : `Call failed: ${result.error ?? 'provider error'}`);
@@ -140,6 +148,10 @@ callsRouter.get('/', ah(async (req, res) => {
   const search = req.query.search ? String(req.query.search).replace(/\D/g, '') : '';
 
   const where: Prisma.CallAttemptWhereInput = {
+    // This table now also holds non-call conversations (website widget, in-app,
+    // admin) since the CallAttempt/Conversation merge — this endpoint is calls
+    // only.
+    channel: { in: ['phone_outbound', 'phone_inbound'] },
     ...(status && (CALL_STATUSES as readonly string[]).includes(status)
       ? { status: status as (typeof CALL_STATUSES)[number] } : {}),
     ...(outcome && (CALL_OUTCOMES as readonly string[]).includes(outcome)

@@ -10,6 +10,9 @@ import {
   generateRecoveryCodes, validatePasswordStrength, generateResetToken, sha256 as sha256hex,
 } from '../lib/adminSecurity.js';
 import { env } from '../config/env.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('admin-auth');
 
 export const adminAuthRouter = Router();
 
@@ -25,6 +28,7 @@ adminAuthRouter.post('/login', ah(async (req, res) => {
   // probed for a valid password.
   if (admin?.lockedUntil && admin.lockedUntil > new Date()) {
     const mins = Math.ceil((admin.lockedUntil.getTime() - Date.now()) / 60_000);
+    log.warn('login blocked — account locked', { email, minutesLeft: mins });
     return fail(res, 423, `Account locked. Try again in ${mins} minute(s).`);
   }
 
@@ -42,6 +46,9 @@ adminAuthRouter.post('/login', ah(async (req, res) => {
           },
         })
         .catch(() => undefined);
+      log.warn('login rejected — bad credentials', { email, failedLoginCount: count, nowLocked: count >= 5 });
+    } else {
+      log.warn('login rejected — unknown email', { email });
     }
     return fail(res, 401, 'Invalid credentials');
   }
@@ -69,7 +76,10 @@ adminAuthRouter.post('/login', ah(async (req, res) => {
         passed = true;
       }
     }
-    if (!passed) return fail(res, 401, 'Invalid authenticator code');
+    if (!passed) {
+      log.warn('login rejected — bad 2fa code', { email });
+      return fail(res, 401, 'Invalid authenticator code');
+    }
   }
 
   const accessToken = signAdminAccess({ sub: admin.id, email: admin.email, role: admin.role });
@@ -86,6 +96,7 @@ adminAuthRouter.post('/login', ah(async (req, res) => {
     data: { lastLoginAt: new Date(), lastActivityAt: new Date(), failedLoginCount: 0, lockedUntil: null },
   });
 
+  log.info('logged in', { adminId: admin.id, email: admin.email, role: admin.role });
   return ok(res, {
     accessToken,
     refreshToken: refresh,
@@ -124,6 +135,7 @@ adminAuthRouter.post('/change-password', requireAdmin, ah(async (req, res) => {
   // device that prompted it.
   await prisma.adminRefreshToken.updateMany({ where: { adminId: admin.id }, data: { revoked: true } });
 
+  log.info('password changed', { adminId: admin.id });
   return ok(res, { changed: true }, 'Password updated — please sign in again');
 }));
 
@@ -142,11 +154,11 @@ adminAuthRouter.post('/forgot-password', ah(async (req, res) => {
     // log it in development so the flow is testable, and return the token only
     // outside production.
     if (!env.isProd) {
-      console.log(`[admin-reset] ${admin.email} → /login/reset?token=${token}`);
+      log.info('reset token generated (dev)', { email: admin.email });
       return ok(res, { sent: true, devToken: token }, 'Reset link generated (dev: token returned)');
     }
     // TODO: send `token` by email once a provider is configured.
-    console.warn('[admin-reset] no email provider configured — token generated but not delivered');
+    log.warn('no email provider configured — token generated but not delivered', { email: admin.email });
   }
 
   // Always the same response, whether or not the account exists — otherwise
@@ -184,6 +196,7 @@ adminAuthRouter.post('/reset-password', ah(async (req, res) => {
     prisma.adminRefreshToken.updateMany({ where: { adminId: row.adminId }, data: { revoked: true } }),
   ]);
 
+  log.info('password reset via token', { adminId: row.adminId });
   return ok(res, { reset: true }, 'Password reset — please sign in');
 }));
 
@@ -218,6 +231,7 @@ adminAuthRouter.post('/2fa/enable', requireAdmin, ah(async (req, res) => {
     data: { totpEnabled: true, totpRecoveryCodes: hashed },
   });
 
+  log.info('2fa enabled', { adminId: admin.id });
   return ok(res, { enabled: true, recoveryCodes: plain },
     'Two-factor enabled. Save these recovery codes — they are shown only once.');
 }));
@@ -236,6 +250,7 @@ adminAuthRouter.post('/2fa/disable', requireAdmin, ah(async (req, res) => {
     where: { id: admin.id },
     data: { totpEnabled: false, totpSecret: null, totpRecoveryCodes: [] },
   });
+  log.warn('2fa disabled', { adminId: admin.id });
   return ok(res, { enabled: false }, 'Two-factor disabled');
 }));
 

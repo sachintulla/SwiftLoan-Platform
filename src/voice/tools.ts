@@ -131,6 +131,21 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
         target = findTarget(screen, word);
         if (target?.onTap) break;
       }
+      // FORWARD_WORDS is English-only, so it silently finds nothing once the
+      // user's selected language renders that same button as "OTP పంపండి" or
+      // "ప్రారంభించండి" — confirmed live (repeated continue_next -> not_found
+      // on Telugu screens whose primary CTA was clearly visible and tappable).
+      // Fall back to the PrimaryButton flagged `primary: true` at registration,
+      // which identifies the screen's main forward action by role, not by
+      // matching translated label text. No current screen renders more than one
+      // PrimaryButton at once (mobile.tsx's Send OTP / Verify pair is a ternary,
+      // never both), but if a future one did, prefer an enabled primary over a
+      // disabled one rather than grabbing whichever registered first — an
+      // enabled sibling is the one actually meant by "continue".
+      if (!target?.onTap) {
+        const primaries = listTargets(screen).filter(t => t.primary && t.onTap);
+        target = primaries.find(t => !t.disabled) ?? primaries[0] ?? target;
+      }
     }
 
     // Dates need an exact kind match, never a fuzzy label match: the picker is

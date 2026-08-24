@@ -16,6 +16,9 @@ import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, C
 import { STAGE_ORDER, STAGE_LABELS, TERMINAL_STAGES, CHANNEL_ENTRY_STAGES } from '../lib/journey.js';
 import { nudgeCustomer } from '../lib/dispatch.js';
 import { NEXT_ACTION_BY_STAGE, nextActionFor } from '../lib/nextAction.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('customers');
 
 export const customersRouter = Router();
 customersRouter.use(requireAdmin);
@@ -103,7 +106,11 @@ customersRouter.get('/:id', ah(async (req, res) => {
       orderBy: { occurredAt: 'desc' },
       take: 200,
     }),
-    prisma.callAttempt.findMany({ where: { customerId: customer.id }, orderBy: { queuedAt: 'desc' }, take: 50 }),
+    prisma.callAttempt.findMany({
+      where: { customerId: customer.id, channel: { in: ['phone_outbound', 'phone_inbound'] } },
+      orderBy: { queuedAt: 'desc' },
+      take: 50,
+    }),
     prisma.campaignContact.findMany({
       where: { customerId: customer.id },
       include: { campaign: { select: { id: true, name: true, code: true, status: true } } },
@@ -171,7 +178,7 @@ customersRouter.get('/:id', ah(async (req, res) => {
         })
       : Promise.resolve(null),
     customer.phone
-      ? prisma.anonymousLead.findMany({ where: { phone: customer.phone }, orderBy: { createdAt: 'desc' } })
+      ? prisma.lead.findMany({ where: { phone: customer.phone }, orderBy: { createdAt: 'desc' } })
       : Promise.resolve([]),
   ]);
 
@@ -246,5 +253,6 @@ customersRouter.post('/:id/nudge', requireRole(...CAN_WRITE), validate(nudgeSche
 
   await prisma.customer.update({ where: { id: customer.id }, data: { lastNudgedAt: new Date() } }).catch(() => undefined);
 
+  log.info('manual nudge queued', { customerId: customer.id, channel: body.channel, eventName: body.eventName ?? null, count: out.length });
   return created(res, out.length === 1 ? out[0] : out, 'Nudge queued');
 }));

@@ -5,6 +5,9 @@ import { ah, HttpError } from '../middleware/error.js';
 import { ok, created } from '../lib/http.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { validate } from '../middleware/validate.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('preapproved');
 
 // Admin-curated, pre-application eligibility catalog shown on the app's
 // home/fare screen ("Explore your loan options") — distinct from Offer, which
@@ -62,6 +65,7 @@ preapprovedRouter.post(
   validate(planSchema),
   ah(async (req, res) => {
     const plan = await prisma.marketLoanOffer.create({ data: req.body });
+    log.info('plan created', { id: plan.id, lenderName: plan.lenderName });
     return created(res, plan, 'Plan created');
   }),
 );
@@ -75,6 +79,7 @@ preapprovedRouter.put(
     const existing = await prisma.marketLoanOffer.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new HttpError(404, 'Plan not found');
     const plan = await prisma.marketLoanOffer.update({ where: { id: req.params.id }, data: req.body });
+    log.info('plan updated', { id: plan.id, fields: Object.keys(req.body) });
     return ok(res, plan, 'Plan updated');
   }),
 );
@@ -87,6 +92,7 @@ preapprovedRouter.delete(
     const existing = await prisma.marketLoanOffer.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new HttpError(404, 'Plan not found');
     await prisma.marketLoanOffer.delete({ where: { id: req.params.id } });
+    log.info('plan deleted', { id: existing.id, lenderName: existing.lenderName });
     return ok(res, null, 'Plan deleted');
   }),
 );

@@ -46,6 +46,7 @@ const SUB_TABS = [
   { key: 'agents', label: '🗣  Voice agents' },
   { key: 'upshot', label: '✉  Messaging' },
   { key: 'infobip', label: '💬  WhatsApp' },
+  { key: 'api-keys', label: '🔑  API keys' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['key'];
 
@@ -114,6 +115,7 @@ export default function ConfigsPage() {
               onSaved={() => mutate()}
             />
           )}
+          {tab === 'api-keys' && <ApiKeysPanel />}
         </div>
       )}
     </div>
@@ -547,5 +549,189 @@ function PromptEditor({ agentId, onClose }: { agentId: string; onClose: () => vo
         </>
       )}
     </div>
+  );
+}
+
+/* ─────────────────────────── API keys ─────────────────────────── */
+//
+// Static keys a third party (an Ello agent's tool config, today) presents to
+// call INTO our API — the reverse direction from the provider cards above,
+// which hold credentials WE use to call THEM. See server/src/lib/apiKeys.ts.
+
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revoked: boolean;
+  revokedAt: string | null;
+}
+
+function ApiKeyCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="btn"
+      style={{ padding: '4px 10px', fontSize: 11.5 }}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch { /* clipboard blocked — the value is on screen to copy by hand */ }
+      }}
+    >{copied ? 'Copied' : 'Copy'}</button>
+  );
+}
+
+function fmtDate(v: string | null) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function ApiKeysPanel() {
+  const { data, error, isLoading, mutate } = useSWR('/api/admin/api-keys', swrFetcher);
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // The ONE moment the plaintext exists client-side — never persisted, never
+  // re-fetchable. Cleared the instant the admin navigates away or creates
+  // another key.
+  const [justCreated, setJustCreated] = useState<{ name: string; key: string } | null>(null);
+
+  const admin = getAdmin();
+  const isSuper = admin?.role === 'super_admin';
+
+  const payload = data?.data as { keys?: ApiKeyRow[] } | undefined;
+  const keys: ApiKeyRow[] = payload?.keys ?? [];
+
+  async function create() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCreating(true);
+    setMsg(null);
+    try {
+      const res = await apiFetch<ApiKeyRow & { key: string }>('/api/admin/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ name: trimmed }),
+      });
+      setJustCreated({ name: trimmed, key: res.data.key });
+      setName('');
+      await mutate();
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message || 'Could not create key' });
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    setRevokingId(id);
+    setMsg(null);
+    try {
+      await apiFetch(`/api/admin/api-keys/${id}/revoke`, { method: 'POST' });
+      await mutate();
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message || 'Could not revoke key' });
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  return (
+    <Card
+      title="🔑  API keys"
+      sub="Give one of these to a third party (e.g. an Ello agent's tool config) so it can call our /api/conversations endpoints — history lookup and call-summary saves. Each key is shown in full exactly once, at creation."
+    >
+      {justCreated && (
+        <div className="card card-pad" style={{ borderColor: 'var(--red)', background: 'var(--red-bg)', marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--red)' }}>
+            Shown once — copy “{justCreated.name}” now, it cannot be retrieved later
+          </div>
+          <div className="row" style={{ gap: 10, marginTop: 10, alignItems: 'center' }}>
+            <code
+              className="mono"
+              style={{ padding: '8px 12px', background: 'var(--grey-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13, wordBreak: 'break-all' }}
+            >
+              {justCreated.key}
+            </code>
+            <ApiKeyCopyButton text={justCreated.key} />
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn" style={{ padding: '4px 10px', fontSize: 11.5 }} onClick={() => setJustCreated(null)}>
+              Done — I've copied it
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isSuper && (
+        <div className="row" style={{ gap: 10, marginBottom: 16 }}>
+          <input
+            className="input"
+            style={{ maxWidth: 320 }}
+            placeholder="Name this key, e.g. “Ello lead-callback agent”"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') create(); }}
+          />
+          <button className="btn btn-primary" disabled={creating || !name.trim()} onClick={create}>
+            {creating ? 'Creating…' : 'Create key'}
+          </button>
+        </div>
+      )}
+      {!isSuper && (
+        <p className="muted" style={{ fontSize: 12.5, marginBottom: 16 }}>
+          Only a super admin can create or revoke API keys.
+        </p>
+      )}
+      {msg && <div style={{ fontSize: 12.5, color: 'var(--red)', marginBottom: 12 }}>{msg.text}</div>}
+
+      {isLoading ? (
+        <TableSkeleton rows={3} cols={5} />
+      ) : error ? (
+        <div className="empty">Could not load — {(error as Error).message}</div>
+      ) : keys.length === 0 ? (
+        <Empty label="No API keys yet" />
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Key</th>
+              <th>Created</th>
+              <th>Last used</th>
+              <th>Status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id}>
+                <td>{k.name}</td>
+                <td><code className="mono" style={{ fontSize: 12 }}>{k.keyPrefix}…</code></td>
+                <td>{fmtDate(k.createdAt)}</td>
+                <td>{fmtDate(k.lastUsedAt)}</td>
+                <td><StatusBadge status={k.revoked ? 'revoked' : 'active'} /></td>
+                <td>
+                  {isSuper && !k.revoked && (
+                    <button
+                      className="btn"
+                      style={{ padding: '4px 10px', fontSize: 11.5 }}
+                      disabled={revokingId === k.id}
+                      onClick={() => revoke(k.id)}
+                    >
+                      {revokingId === k.id ? 'Revoking…' : 'Revoke'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
   );
 }

@@ -1,4 +1,6 @@
+import NetInfo from '@react-native-community/netinfo';
 import { saveTokens, clearTokens } from '../state/session';
+import { reportOfflineAttempt } from '../state/offlineBridge';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
@@ -73,6 +75,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
+    // Checked before dialing out, not after: this is the one place every
+    // user-facing screen (OTP, application, offers, loans…) goes through, so
+    // catching "no signal" here means those screens fail fast with a clear
+    // reason instead of sitting on a spinner for the full request timeout.
+    const netState = await NetInfo.fetch();
+    if (netState.isConnected === false || netState.isInternetReachable === false) {
+      throw new TypeError('offline: no internet connection');
+    }
     res = await fetch(API_BASE + path, {
       method,
       headers: {
@@ -83,6 +93,12 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       signal: controller.signal,
     });
   } catch (e: any) {
+    // The fetch itself failed to reach anything — as opposed to reaching the
+    // server and getting back an error response, which is handled below and
+    // isn't a connectivity problem. Surface it to OfflineNotice so a feature
+    // that needed the internet visibly tells the user why it didn't work,
+    // even on the (real, observed) case where NetInfo still reports "online".
+    reportOfflineAttempt();
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
@@ -191,31 +207,30 @@ export interface Offer {
 }
 
 /**
- * Surface the lender (Aurix) eligible_offers response's OWN message to the user,
- * in real time — no hardcoded / canned copy. When offers came back we show
- * nothing; otherwise we return the lender's actual message verbatim (only lightly
- * cleaned: sentence-cased with a trailing period). Falls back to a generic
- * "no match" line only when the API accepted the request but returned no message.
- * `aurixResponse` shape: { httpStatus, response: { Meta, Data } }.
+ * Surface the offer API's OWN message when a prequalify run returns no offers,
+ * shown to the user verbatim (no hardcoded rephrasing) so testers/users see
+ * exactly what the lender (Aurix) API responded with. Returns '' when offers
+ * exist, or when there's genuinely no message/error to show (the offers screen
+ * then falls back to its generic "no offers" empty state).
+ * `aurixResponse` shape: { httpStatus, response: { Meta, Data } | { Result: { Meta } } }.
  */
 export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
   if (offerCount > 0) return '';
-  const resp = aurixResponse?.response ?? aurixResponse;
-  const meta = resp?.Meta ?? resp?.Result?.Meta ?? resp?.Data?.Meta;
-  // The real-time message straight from the offer API — try the common shapes.
-  const raw = String(
-    meta?.Message ?? meta?.message ??
-    resp?.Message ?? resp?.message ??
-    resp?.Error ?? resp?.error ?? '',
-  ).trim();
-  if (raw) {
-    const cleaned = raw.charAt(0).toUpperCase() + raw.slice(1);
-    return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
-  }
-  if (meta?.Success === true) {
-    // Accepted, but no lender matched and no message was provided.
-    return 'No matching offers for these details right now. Try a different loan amount, or check back shortly.';
-  }
+  const r = aurixResponse?.response ?? {};
+  const meta = r.Meta ?? r.Result?.Meta ?? {};
+  // The API's own message, verbatim.
+  const msg = String(meta.Message ?? meta.message ?? r.Message ?? r.message ?? r.error ?? '').trim();
+  if (msg) return msg;
+  // No message but the call failed — surface why. httpStatus 0 is a
+  // client-side timeout/network failure (confirmed live: a 30s Aurix
+  // timeout), not an HTTP response at all, so it needs its own check —
+  // 0 is not >= 400, and without this it silently fell through to the
+  // empty-string return below, indistinguishable from a genuine "no offers
+  // matched" decision and telling a timed-out user to change their loan
+  // amount instead of just retrying.
+  const http = aurixResponse?.httpStatus;
+  if (http === 0) return 'We’re having trouble reaching our lending partners right now. Please try again in a moment.';
+  if (typeof http === 'number' && http >= 400) return `Offers request failed (HTTP ${http}).`;
   return '';
 }
 
