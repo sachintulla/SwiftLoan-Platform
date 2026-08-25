@@ -92,3 +92,28 @@ export async function loadOffersCache(): Promise<OffersCache | null> {
 export async function clearOffersCache(): Promise<void> {
   await AsyncStorage.removeItem(OFFERS_CACHE_KEY).catch(() => {});
 }
+
+// ── Market (available) loan offers catalog cache ─────────────────────────────
+// The home "Available offers" list rarely changes, so we cache it locally after
+// the first fetch and reuse it (cache-first) to avoid repeated cloud calls.
+const MARKET_OFFERS_KEY = 'swiftloan.market.offers.cache';
+
+export interface MarketOffersCache {
+  savedAt: number; // epoch ms
+  offers: unknown[];
+}
+
+export async function saveMarketOffersCache(cache: MarketOffersCache): Promise<void> {
+  await AsyncStorage.setItem(MARKET_OFFERS_KEY, JSON.stringify(cache)).catch(() => {});
+}
+
+export async function loadMarketOffersCache(): Promise<MarketOffersCache | null> {
+  const raw = await AsyncStorage.getItem(MARKET_OFFERS_KEY).catch(() => null);
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as MarketOffersCache;
+    return Array.isArray(c?.offers) ? c : null;
+  } catch {
+    return null;
+  }
+}

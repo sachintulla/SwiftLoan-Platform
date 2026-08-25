@@ -101,6 +101,30 @@ export default function Loans() {
       });
     }
 
+    // Eligibility completed — Aurix returned offers (the eligibility_check
+    // webhook succeeded) but the user hasn't picked/applied to a specific lender
+    // yet. Surface it as a trackable in-progress application; tapping opens the
+    // offers so they can review and apply.
+    if ((app.offers || []).length > 0) {
+      const meta = STATUS_META[app.status] || { label: 'In Progress', color: colors.amber };
+      const aprs = (app.offers || []).map((o: any) => o.apr).filter((n: any) => typeof n === 'number' && n > 0);
+      const bestApr = aprs.length ? Math.min(...aprs) : null;
+      const n = app.offers.length;
+      return [(
+        <AppCard
+          key={app.id}
+          icon={TYPE_ICON[app.loanType] || 'account_balance'}
+          name={typeName}
+          ref_={`Ref ${app.ref}`}
+          status={meta.label}
+          statusColor={meta.color}
+          left={{ label: 'Amount', value: rupee(app.amount) }}
+          right={bestApr != null ? { label: 'Rates from', value: `${bestApr}% p.a.` } : { label: 'Offers', value: `${n} matched` }}
+          onPress={() => { set({ applicationId: app.id, offersReturn: 'loans' }); go('offers'); }}
+        />
+      )];
+    }
+
     // Legacy safety net: an active/disbursed loan with no applied-offer tracking
     // still shows so existing loans never vanish.
     if (app.loan) {

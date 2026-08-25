@@ -42,7 +42,7 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S4 mobile', Mobile, ['Enter your mobile number']],
   ['UC-S5 permissions', Permissions, ['Permissions', 'Allow permissions']],
   ['UC-S6 aboutyou', AboutYou, ["Just the basics — we'll ask for more only when you apply."]],
-  ['UC-S7 home', Home, ['Browse loan types']],
+  ['UC-S7 home', Home, ['Ask Ruby']],
   ['UC-S8 loans', Loans, ['My Loans']],
   ['UC-S9 fare', Fare, ['My Offers']],
   ['UC-S9b calculator', Calculator, ['Your monthly EMI']],

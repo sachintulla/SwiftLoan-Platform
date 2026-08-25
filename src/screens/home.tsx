@@ -1,39 +1,59 @@
-import React, { useEffect } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
+import { LogoLockup } from '../components/Logo';
 import { MarketLoanOffers } from '../components/MarketLoanOffers';
-import { colors, font } from '../theme/tokens';
+import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
-import { api, isAuthed } from '../api/client';
+import { api, isAuthed, Offer } from '../api/client';
+import { displayLenderName } from './offers';
 
+// Applications whose offers are still worth surfacing on the dashboard.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
-const LOAN_TYPES = [
-  { icon: 'person', k: 'ltPersonal', s: 'ltPersonalSub' },
-  { icon: 'storefront', k: 'ltBusiness', s: 'ltBusinessSub' },
-];
+// Fallback highlights when a lender didn't return its own feature list.
+const DEFAULT_FEATURES = ['Low interest rates', 'Flexible tenure', 'Minimal documents', 'Quick approval'];
+const FEATURE_ICONS: Record<string, string> = {
+  'Low interest rates': 'trending_down',
+  'Flexible tenure': 'event',
+  'Minimal documents': 'description',
+  'Quick approval': 'bolt',
+};
 
-function initials(name: string) {
-  return (name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('') || 'U').toUpperCase();
+/** Lowest monthly EMI advertised across an offer's tenure options (or null). */
+function minEmiOf(offer: Offer): number | null {
+  const emis = (offer.emiOptions ?? []).map(o => o.monthlyEmi).filter(n => n > 0);
+  return emis.length ? Math.min(...emis) : null;
 }
 
 export default function Home() {
   const t = useT();
   const { state, set, go, showToast } = useStore();
+  const [offers, setOffers] = useState<Offer[]>([]);
+  // The amount this user actually enquired about — pulled from their live
+  // application on the backend, so the hero headline is dynamic per user.
+  const [enquiredAmount, setEnquiredAmount] = useState<number | null>(null);
 
-  // Reliably surface the "your eligible offers" shortcut whenever this phone
-  // already has offers pulled — checked on every Home mount (not just once at
-  // login), so a returning user always sees it.
+  // Pull the user's live application (with its personalised offers) so the hero
+  // headline, offer count, best rate and lowest EMI are all real per-user data.
   useEffect(() => {
     if (!isAuthed()) return;
     api.listApplications()
       .then((r: any) => {
-        const withOffers = (r?.applications || []).find(
-          (a: any) => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status),
-        );
+        const apps: any[] = r?.applications || [];
+        const withOffers =
+          apps.find(a => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ||
+          apps.find(a => (a.offers?.length ?? 0) > 0) ||
+          apps[0];
         if (withOffers) {
-          set({ applicationId: withOffers.id, loanId: withOffers.loan?.id ?? null, hasSavedOffers: true });
+          setOffers((withOffers.offers || []) as Offer[]);
+          setEnquiredAmount(withOffers.amount ?? null);
+          set({
+            applicationId: withOffers.id,
+            loanId: withOffers.loan?.id ?? null,
+            hasSavedOffers: (withOffers.offers?.length ?? 0) > 0,
+          });
         } else {
           set({ hasSavedOffers: false });
         }
@@ -42,286 +62,262 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const firstName = (state.authUser?.firstName || state.authUser?.fullName || state.pdName || '').trim().split(/\s+/)[0];
+  // Headline amount: the enquired amount from the backend, falling back to the
+  // amount held in the funnel state, then a sensible default.
+  const amount = enquiredAmount ?? state.appAmount ?? 300000;
+
+  const hasOffers = offers.length > 0;
+  const count = offers.length;
+  const minRate = hasOffers ? Math.min(...offers.map(o => o.apr).filter(n => n > 0)) : null;
+  const emiValues = offers.map(minEmiOf).filter((n): n is number => n != null);
+  const minEmi = emiValues.length ? Math.min(...emiValues) : null;
+
+  // "Ask Ruby" reveals + animates the support FAB and starts a session, so a
+  // first-time user learns the assistant is always one tap away (see VoiceWidget).
+  const askRuby = () => set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 });
+  const viewOffers = () => { set({ offersReturn: 'home' }); go('offers'); };
+  const changeAmount = () => { set({ offersReturn: 'home' }); go('basic'); };
+  const startFresh = () => { set({ offersReturn: 'home' }); go('basicpan'); };
+
   return (
     <Screen scroll bottomNav padded>
-      {/* Welcome header */}
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <View style={styles.welcomeChip}>
-            <View style={styles.dot} />
-            <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.welcomeBack}</Text>
-          </View>
-          <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text, marginTop: 8 }]}>
-            {(() => {
-              const first = (state.authUser?.firstName || state.authUser?.fullName || state.pdName || '').trim().split(/\s+/)[0];
-              return first ? `${t.hello}, ${first}` : t.greeting;
-            })()}
-          </Text>
-          <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 2 }]}>{t.greetingSub}</Text>
-        </View>
-        <Pressable onPress={() => go('profile')} style={styles.avatar}>
-          <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>{initials(state.pdName)}</Text>
+      {/* Top bar: brand lockup + notifications bell */}
+      <View style={styles.topBar}>
+        <LogoLockup size={26} />
+        <Pressable onPress={() => showToast(t.tSoon)} style={styles.bellBtn} accessibilityLabel="Notifications">
+          <Icon name="notifications" size={22} color={colors.text} />
         </Pressable>
       </View>
 
-      {/* Returning user: their offers are already pulled — jump straight in,
-          no need to re-enter details. */}
-      {state.hasSavedOffers && (
-        <Pressable onPress={() => { set({ offersReturn: 'home' }); go('offers'); }} style={styles.savedOffersCard}>
-          <View style={styles.savedOffersIcon}>
-            <Icon name="local_offer" size={22} color="#fff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[font(700), { fontSize: 15, color: colors.text }]}>{t.eligibleOffersTitle}</Text>
-            <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>
-              {t.eligibleOffersSub}
-            </Text>
-          </View>
-          <Icon name="arrow_forward" size={20} color={colors.primary} />
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <View style={styles.hero}>
+        {/* Ruby illustration + speech bubble, tucked into the top-right corner.
+            Absolutely positioned so the headline/subtitle/buttons flow full-width. */}
+        <Pressable onPress={askRuby} style={styles.rubyWrap} accessibilityLabel="Ask Ruby for help">
+          <Image source={require('../../assets/brand/ruby-hero.png')} style={styles.ruby} resizeMode="contain" />
         </Pressable>
-      )}
-
-      {/* Browse loan types — the prominent hero block: pick a type to start a
-          new application. Uses the large card space up top for the primary CTA. */}
-      <View style={{ marginTop: 20 }}>
-        <Text style={[font(800), { fontSize: 19, color: colors.text, letterSpacing: -0.3 }]}>{t.loanTypesTitle}</Text>
-        <Text style={[font(400), { fontSize: 13, color: colors.textSoft, marginTop: 2 }]}>{t.loanTypesSub}</Text>
-      </View>
-      <View style={styles.loanTypeRow}>
-        {LOAN_TYPES.map(l => (
-          <Pressable key={l.k} onPress={() => { set({ offersReturn: 'home' }); go('basicpan'); }} style={styles.loanTypeCard}>
-            <View style={styles.loanTypeIcon}>
-              <Icon name={l.icon} size={26} color="#fff" />
-            </View>
-            <Text style={[font(800), { fontSize: 18, color: '#fff', marginTop: 14, letterSpacing: -0.2 }]}>{(t as any)[l.k]}</Text>
-            <Text style={[font(400), { fontSize: 12.5, color: 'rgba(255,255,255,0.7)', marginTop: 3 }]}>{(t as any)[l.s]}</Text>
-            <View style={styles.loanTypeCta}>
-              <Text style={[font(700), { fontSize: 12.5, color: colors.primary }]}>{t.loanTypeCta}</Text>
-              <Icon name="arrow_forward" size={15} color={colors.primary} />
-            </View>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Single entry to the standalone Loan Calculator screen. */}
-      <Pressable onPress={() => go('calculator')} style={styles.calcBtn}>
-        <View style={styles.calcIcon}>
-          <Icon name="calculate" size={22} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[font(700), { fontSize: 15, color: colors.text }]}>Loan calculator</Text>
-          <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>Estimate your monthly EMI before you apply</Text>
-        </View>
-        <Icon name="chevron_right" size={22} color={colors.muted} />
-      </Pressable>
-
-      {/* Available loan offers — the market catalog shown before any PAN/credit
-          pull. Tapping one starts a new loan application (flow A: entry point
-          only) pre-filled with that offer's amount; the eligible/personalised
-          offers come back from the lender after PAN + details. */}
-      <SectionHeading title={t.availableOffers} sub={t.availableOffersSub} />
-      <MarketLoanOffers
-        mode="home"
-        showIntro={false}
-        onApply={plan => {
-          // Pre-fill the loan amount from the plan (maxAmount is in paise;
-          // appAmount is in rupees). Fall back to the current amount when the
-          // plan's amount is only decided at approval.
-          if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
-          // User details entered/known so far are already in the store and are
-          // re-prefilled by the basic screen on mount.
-          set({ offersReturn: 'home' });
-          go('basicpan');
-        }}
-      />
-
-      {/* Application status now lives in the "My Loans" tab, not the dashboard. */}
-
-      {/* Learn */}
-      <SectionHeading title={t.learnTitle} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 4 }}>
-        <VideoCard tag={t.learnGuide} tagIcon="school" title={t.learnVid1} dur="1:20" onPress={() => showToast(t.tSoon)} />
-        <VideoCard tag={t.learnTips} tagIcon="savings" title={t.learnVid2} dur="2:05" onPress={() => showToast(t.tSoon)} />
-      </ScrollView>
-      {/* How it works */}
-      <SectionHeading title={t.howItWorks} />
-      <View style={{ gap: 14 }}>
-        {[
-          { n: '01', k: 'step1', s: 'step1Sub' },
-          { n: '02', k: 'step2', s: 'step2Sub' },
-          { n: '03', k: 'step3', s: 'step3Sub' },
-        ].map(st => (
-          <View key={st.n} style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start' }}>
-            <Text style={[font(800), { fontSize: 22, color: 'rgba(7,159,160,0.35)', width: 34 }]}>{st.n}</Text>
+        <Pressable onPress={askRuby} style={styles.bubble} accessibilityLabel="Ask Ruby, your AI loan assistant — tap to talk">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <View style={{ flex: 1 }}>
-              <Text style={[font(700), { fontSize: 15, color: colors.text }]}>{(t as any)[st.k]}</Text>
-              <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>{(t as any)[st.s]}</Text>
+              <Text style={[font(800), { fontSize: 13.5, color: colors.text }]}>Ask Ruby</Text>
+              <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 1, lineHeight: 14 }]}>Your AI loan assistant</Text>
             </View>
+            <Icon name="chevron_right" size={16} color={colors.primary} />
           </View>
-        ))}
+          <View style={styles.bubbleTail} />
+        </Pressable>
+
+        <Text style={[font(700), styles.welcomeText]}>
+          {firstName ? `Welcome back, ${firstName} 👋` : 'Welcome 👋'}
+        </Text>
+
+        <Text style={[font(800), styles.heroTitle]}>
+          Your {rupee(amount)}{'\n'}{hasOffers ? 'personal loan journey' : 'loan journey starts here'}
+        </Text>
+
+        <Text style={[font(400), styles.heroSub]}>
+          {hasOffers
+            ? `${count} offer${count === 1 ? '' : 's'} matched to your profile` +
+              (minRate != null ? `  ·  Rates from ${minRate}% p.a.` : '') +
+              (minEmi != null ? `  ·  EMI from ${rupee(minEmi)}/mo` : '')
+            : 'Apply once and get personalised offers from our lending partners in minutes.'}
+        </Text>
+
+        <View style={styles.heroBtns}>
+          {hasOffers ? (
+            <>
+              <Pressable onPress={viewOffers} style={styles.primaryBtn}>
+                <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]} numberOfLines={1}>View Best Offers</Text>
+                <Icon name="chevron_right" size={14} color="#fff" />
+              </Pressable>
+              <Pressable onPress={changeAmount} style={styles.ghostBtn}>
+                <Icon name="edit" size={11} color={colors.primary} />
+                <Text style={[font(700), { fontSize: 10.5, color: colors.primary }]} numberOfLines={1}>Change amount</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable onPress={startFresh} style={[styles.primaryBtn, { flex: 1 }]}>
+              <Text style={[font(700), { fontSize: 14.5, color: '#fff' }]} numberOfLines={1}>Apply for a loan</Text>
+              <Icon name="arrow_forward" size={17} color="#fff" />
+            </Pressable>
+          )}
+        </View>
+
       </View>
 
-      {/* Disclaimer */}
+      {/* ── Recommended / available loan offers (static market catalog) ──── */}
+      <Text style={[font(800), styles.sectionTitle]}>{t.availableOffers}</Text>
+      <Text style={[font(400), styles.sectionSub]}>{t.availableOffersSub}</Text>
+      <View style={{ marginTop: 6 }}>
+        <MarketLoanOffers
+          mode="home"
+          showIntro={false}
+          onApply={plan => {
+            if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
+            set({ offersReturn: 'home' });
+            go('basicpan');
+          }}
+        />
+      </View>
+
       <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>
     </Screen>
   );
 }
 
-function SectionHeading({ title, sub }: { title: string; sub?: string }) {
+/** Lender logo tile — the lender's own logo, or a bank glyph fallback. */
+function LenderLogo({ offer, size = 52 }: { offer: Offer; size?: number }) {
+  const uri = offer.lenderLogoUrl || offer.partner?.logoUrl;
   return (
-    <View style={{ marginTop: 26, marginBottom: 14 }}>
-      <Text style={[font(800), { fontSize: 18, letterSpacing: -0.3, color: colors.text }]}>{title}</Text>
-      {sub ? <Text style={[font(400), { fontSize: 13, color: colors.textSoft, marginTop: 2 }]}>{sub}</Text> : null}
+    <View style={[styles.logoBox, { width: size, height: size, borderRadius: size * 0.28 }]}>
+      {uri ? (
+        <Image source={{ uri }} style={{ width: size - 12, height: size - 12 }} resizeMode="contain" />
+      ) : (
+        <Icon name={offer.partner?.icon || 'account_balance'} size={size * 0.42} color={colors.primary} />
+      )}
     </View>
   );
 }
 
-function VideoCard({ tag, tagIcon, title, dur, onPress }: { tag: string; tagIcon: string; title: string; dur: string; onPress: () => void }) {
+/** Rate range label — real ROI range when present, else the flat APR. */
+function rateLabel(offer: Offer): string {
+  return `${offer.apr}% p.a.`;
+}
+
+/** The prominent "Recommended for you" best-match card. */
+function RecommendedCard({ offer, onPress }: { offer: Offer; onPress: () => void }) {
+  const name = displayLenderName(offer.lenderName || offer.partner?.name);
+  const emi = minEmiOf(offer);
+  const features = (offer.partner?.features?.length ? offer.partner.features : DEFAULT_FEATURES).slice(0, 4);
   return (
-    <Pressable onPress={onPress} style={styles.videoCard}>
-      <View style={styles.videoThumb}>
-        <View style={styles.playBtn}>
-          <Icon name="play_arrow" size={22} color={colors.primary} />
+    <View style={styles.recCard}>
+      <View style={styles.recTop}>
+        <LenderLogo offer={offer} />
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 16.5, color: colors.text }]} numberOfLines={1}>{name}</Text>
         </View>
-        <View style={styles.durBadge}>
-          <Text style={[font(600), { color: '#fff', fontSize: 10 }]}>{dur}</Text>
+        <View style={styles.bestPill}>
+          <Text style={[font(700), { fontSize: 11, color: colors.greenDeep }]}>Best Match</Text>
         </View>
       </View>
-      <View style={{ padding: 12 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <Icon name={tagIcon} size={14} color={colors.mint} />
-          <Text style={[font(700), { fontSize: 11, color: colors.greenDeep }]}>{tag}</Text>
-        </View>
-        <Text style={[font(700), { fontSize: 13.5, color: colors.text, marginTop: 4 }]}>{title}</Text>
+
+      <View style={styles.recMetrics}>
+        <Metric label="Loan amount" value={`Up to ${rupee(offer.amount)}`} />
+        <View style={styles.metricDiv} />
+        <Metric label="Interest rate" value={rateLabel(offer)} />
+        <View style={styles.metricDiv} />
+        <Metric label="Est. EMI from" value={emi != null ? `${rupee(emi)}/mo` : '—'} last />
       </View>
+
+      <View style={styles.recBottom}>
+        <View style={styles.featureWrap}>
+          {features.map(f => (
+            <View key={f} style={styles.featureChip}>
+              <Icon name={FEATURE_ICONS[f] || 'check'} size={13} color={colors.primary} />
+              <Text style={[font(600), { fontSize: 10.5, color: colors.textMid }]} numberOfLines={2}>{f}</Text>
+            </View>
+          ))}
+        </View>
+        <Pressable onPress={onPress} style={styles.viewOfferBtn}>
+          <Text style={[font(700), { fontSize: 13.5, color: '#fff' }]}>View Offer</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/** Compact tile for the "Other matched offers" row. */
+function OtherOfferTile({ offer, onPress }: { offer: Offer; onPress: () => void }) {
+  const name = displayLenderName(offer.lenderName || offer.partner?.name);
+  return (
+    <Pressable onPress={onPress} style={styles.otherTile}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <LenderLogo offer={offer} size={40} />
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 14, color: colors.text }]} numberOfLines={1}>{name}</Text>
+          <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft, marginTop: 1 }]} numberOfLines={1}>{rateLabel(offer)}</Text>
+        </View>
+        <Icon name="chevron_right" size={18} color={colors.muted} />
+      </View>
+      <Text style={[font(700), { fontSize: 12, color: colors.greenDeep, marginTop: 8 }]}>Up to {rupee(offer.amount)}</Text>
     </Pressable>
   );
 }
 
+function Metric({ label, value, last }: { label: string; value: string; last?: boolean }) {
+  return (
+    <View style={{ flex: 1, alignItems: last ? 'flex-end' : 'flex-start' }}>
+      <Text style={[font(500), { fontSize: 11, color: colors.textSoft }]} numberOfLines={1}>{label}</Text>
+      <Text style={[font(800), { fontSize: 13.5, color: colors.primary, marginTop: 3 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 4 },
-  welcomeChip: {
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.chip,
-    borderRadius: 9999,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  bellBtn: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+
+  hero: { marginTop: 6, position: 'relative' },
+  rubyWrap: { position: 'absolute', top: 4, right: -16, width: 138, height: 196, alignItems: 'flex-end', zIndex: 0 },
+  ruby: { width: 138, height: 196 },
+  bubble: {
+    position: 'absolute', top: 20, right: 64, width: 114, zIndex: 3,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
+    borderRadius: 15, paddingVertical: 9, paddingHorizontal: 11,
+    shadowColor: '#0A3F41', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 4,
   },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.mint },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // Tail on the right edge, pointing toward Ruby.
+  bubbleTail: {
+    position: 'absolute', right: -6, top: 22, width: 12, height: 12,
+    backgroundColor: colors.surface, borderRightWidth: 1, borderTopWidth: 1, borderColor: colors.line,
+    transform: [{ rotate: '45deg' }],
   },
-  savedOffersCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginTop: 20,
-    backgroundColor: colors.chip,
-    borderWidth: 1,
-    borderColor: colors.primary + '44',
-    borderRadius: 20,
-    padding: 16,
+  welcomeText: { fontSize: 14.5, color: colors.primary, letterSpacing: -0.2, marginTop: 2 },
+  heroTitle: { fontSize: 13.5, lineHeight: 19, letterSpacing: -0.2, color: colors.text, marginTop: 6, marginRight: 205 },
+  heroSub: { fontSize: 12, lineHeight: 17, color: colors.textSoft, marginTop: 6, marginRight: 205 },
+  heroBtns: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginRight: 107 },
+  primaryBtn: {
+    flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2,
+    backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 8, height: 30,
+    shadowColor: colors.primary, shadowOpacity: 0.28, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 3,
   },
-  savedOffersIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  calcBtn: {
+  ghostBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderWidth: 1.5, borderColor: colors.primary, borderRadius: 10,
+    paddingHorizontal: 8, height: 30, justifyContent: 'center', backgroundColor: colors.surface,
+  },
+  sectionTitle: { fontSize: 18, letterSpacing: -0.3, color: colors.text, marginTop: 22 },
+  sectionSub: { fontSize: 12.5, color: colors.textSoft, marginTop: 2 },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 22 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+
+  logoBox: { backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+
+  recCard: {
+    marginTop: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
+    borderRadius: 22, padding: 18,
+    shadowColor: '#0A3F41', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2,
+  },
+  recTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bestPill: { backgroundColor: colors.chip, borderRadius: 9999, paddingVertical: 5, paddingHorizontal: 12 },
+  recMetrics: { flexDirection: 'row', alignItems: 'center', marginTop: 18, gap: 10 },
+  metricDiv: { width: 1, height: 34, backgroundColor: colors.line },
+  recBottom: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18 },
+  featureWrap: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  featureChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '48%',
+    backgroundColor: colors.chip, borderRadius: 10, paddingVertical: 6, paddingHorizontal: 8,
+  },
+  viewOfferBtn: { backgroundColor: colors.primary, borderRadius: 14, paddingHorizontal: 18, height: 46, alignItems: 'center', justifyContent: 'center' },
+
+  otherRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  otherTile: { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: 18, padding: 14 },
+
+  seeAll: {
     flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 16,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: 16, padding: 14,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: 18, padding: 16,
   },
-  calcIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
-  compareCard: {
-    marginTop: 20,
-    backgroundColor: colors.ink,
-    borderRadius: 24,
-    padding: 20,
-  },
-  trendBadge: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-  compareCta: {
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#fff',
-    borderRadius: 9999,
-    paddingVertical: 9,
-    paddingLeft: 16,
-    paddingRight: 12,
-    marginTop: 16,
-  },
-  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  tile: {
-    width: '47.5%',
-    flexGrow: 1,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 18,
-    padding: 14,
-  },
-  tileIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
-  // Prominent loan-type chooser (replaces the old best-rates hero + small grid).
-  loanTypeRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
-  loanTypeCard: {
-    flex: 1,
-    backgroundColor: colors.ink,
-    borderRadius: 22,
-    padding: 18,
-    shadowColor: '#0A3F41',
-    shadowOpacity: 0.2,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
-  },
-  loanTypeIcon: { width: 52, height: 52, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-  loanTypeCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 5,
-    marginTop: 16,
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-  },
-  manageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 18,
-    padding: 14,
-  },
-  videoCard: {
-    width: 230,
-    borderRadius: 22,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
-    backgroundColor: 'rgba(255,255,255,0.6)',
-  },
-  videoThumb: { height: 120, backgroundColor: '#DCEEEA', alignItems: 'center', justifyContent: 'center' },
-  playBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
-  durBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(15,42,43,0.8)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  promo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
-    backgroundColor: 'rgba(245,166,36,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(245,166,36,0.25)',
-    borderRadius: 18,
-    padding: 14,
-  },
-  promoIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.amber, alignItems: 'center', justifyContent: 'center' },
+  seeAllIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center' },
 });

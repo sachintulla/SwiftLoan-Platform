@@ -211,6 +211,8 @@ export default function VoiceWidget() {
   // nothing with a spin + overshoot while a ring bursts out around it.
   const entrance = useRef(new Animated.Value(fabEntrancePlayed ? 1 : 0)).current;
   const burst = useRef(new Animated.Value(fabEntrancePlayed ? 1 : 0)).current;
+  // "Look at me" flourish fired by the dashboard's "Ask Ruby" (state.voiceTrigger).
+  const attention = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     // Hold the FAB hidden on the splash; play the grand entrance the first time
     // the user lands on a real screen, so it's actually seen.
@@ -306,6 +308,25 @@ export default function VoiceWidget() {
             ? t.voiceStatusExecuting
             : t.voiceStatusIdle;
 
+  // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
+  const startAgent = () => {
+    // Play the connect cue, then start the agent ONLY once the cue has finished
+    // — the cue and the voice session must never hold the audio session at the
+    // same time (that overlap killed Ruby's playback + mic on iOS).
+    playConnectThen(() => {
+      agent.start().catch(e => {
+        vlog('agent.start() rejected:', e?.message || String(e));
+        // Offline failures already get the dedicated OfflineNotice banner (see
+        // agent.ts) — don't also toast those. Everything else previously failed
+        // silently from the user's point of view (no banner, no toast), which
+        // read as the button just not working.
+        const message: string = e?.message || '';
+        if (message.startsWith('offline:')) return;
+        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+      });
+    });
+  };
+
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
@@ -319,23 +340,33 @@ export default function VoiceWidget() {
           setTimeout(() => playFabOff(), 150);
         });
     } else {
-      // Play the connect cue, then start the agent ONLY once the cue has finished
-      // — the cue and the voice session must never hold the audio session at the
-      // same time (that overlap killed Ruby's playback + mic on iOS).
-      playConnectThen(() => {
-        agent.start().catch(e => {
-          vlog('agent.start() rejected:', e?.message || String(e));
-          // Offline failures already get the dedicated OfflineNotice banner (see
-          // agent.ts) — don't also toast those. Everything else previously failed
-          // silently from the user's point of view (no banner, no toast), which
-          // read as the button just not working.
-          const message: string = e?.message || '';
-          if (message.startsWith('offline:')) return;
-          showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
-        });
-      });
+      startAgent();
     }
   };
+
+  // "Ask Ruby" on the dashboard bumps state.voiceTrigger: draw attention to the
+  // FAB (a spring wiggle + burst so first-time users see where support lives),
+  // then start the session once the flourish has played. Skipped on the initial
+  // mount (trigger 0) and while a session is already live.
+  // Starts at 0 (not the current value) so if "Ask Ruby" unlocks + triggers in
+  // the same update, this freshly-mounted widget still sees the change and fires.
+  const lastTrigger = useRef(0);
+  useEffect(() => {
+    if (state.voiceTrigger === lastTrigger.current) return;
+    lastTrigger.current = state.voiceTrigger;
+    if (active) return;
+    Animated.sequence([
+      Animated.timing(burst, { toValue: 0, duration: 0, useNativeDriver: true }),
+      Animated.parallel([
+        Animated.sequence([
+          Animated.spring(attention, { toValue: 1, friction: 3.5, tension: 90, useNativeDriver: true }),
+          Animated.spring(attention, { toValue: 0, friction: 4, tension: 80, useNativeDriver: true }),
+        ]),
+        Animated.timing(burst, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ]).start(() => startAgent());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.voiceTrigger]);
 
   // Two fixed offsets, not one — screens with a BottomNav pill need real
   // clearance above it; screens without one (intro, language, etc.) should
@@ -370,6 +401,8 @@ export default function VoiceWidget() {
   const entranceOpacity = entrance.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 1, 1] });
   const burstScale = burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.8] });
   const burstOpacity = burst.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.5, 0] });
+  const attentionScale = attention.interpolate({ inputRange: [0, 1], outputRange: [1, 1.32] });
+  const attentionRotate = attention.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['0deg', '-12deg', '10deg'] });
   // Always show the Ruby avatar — same face in the notch and floating in the
   // corner — so the FAB is visually consistent across every screen.
   const showRuby = true;
@@ -400,7 +433,7 @@ export default function VoiceWidget() {
         <Ripple active={showBars} delay={0} color={accent} />
         <Ripple active={showBars} delay={550} color={accent} />
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
-          <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale) }, { rotate: roll }, { rotate: entranceRotate }] }]}>
+          <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
               {showRuby ? (
                 <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabAvatar} resizeMode="cover" />

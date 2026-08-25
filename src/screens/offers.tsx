@@ -273,7 +273,7 @@ const LENDER_STATUS_LABEL: Record<string, string> = {
  * title-case screaming multi-word names, but leave brand casing and short
  * single-word acronyms (IDFC, HDFC, SBI) untouched.
  */
-function displayLenderName(raw?: string | null): string {
+export function displayLenderName(raw?: string | null): string {
   const name = (raw || '').trim();
   if (!name) return 'Lender';
   const isAllUpper = name === name.toUpperCase() && /[A-Z]/.test(name);

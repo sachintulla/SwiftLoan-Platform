@@ -156,6 +156,14 @@ export interface AppState {
   // The screen the user opened `offers` from, so its back button returns there.
   // (Kept for compatibility; back navigation now uses the real `history` stack.)
   offersReturn: Screen;
+  // Voice assistant FAB is hidden by default; unlocked via a hidden gesture
+  // (tap the Personal details header 5× in a row on Profile) or the dashboard's
+  // "Ask Ruby" affordance.
+  voiceFabUnlocked: boolean;
+  // Monotonic nonce: bumping it asks the VoiceWidget to draw attention to itself
+  // (an entrance/wiggle animation) and start a session — driven by "Ask Ruby" on
+  // the dashboard so first-time users discover the always-available support FAB.
+  voiceTrigger: number;
   // Real back stack: every `go()` pushes the current screen here; `back()` pops it
   // to the screen the user actually came from — no more hardcoded parent map.
   history: Screen[];
@@ -202,6 +210,8 @@ export const initialState: AppState = {
   offersError: '',
   offersSummary: '',
   offersReturn: 'home',
+  voiceFabUnlocked: false,
+  voiceTrigger: 0,
   history: [],
   hasSavedOffers: false,
 };

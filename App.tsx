@@ -13,8 +13,12 @@ import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 
-// Voice FAB visibility. Enabled for the TestFlight build.
-const SHOW_VOICE_FAB = true;
+// Voice FAB is hidden by default and revealed via a hidden gesture (tap the
+// Personal details header 5× in a row on Profile → state.voiceFabUnlocked).
+function VoiceFabGate() {
+  const { state } = useStore();
+  return state.voiceFabUnlocked ? <VoiceWidget /> : null;
+}
 
 /**
  * Without this, the hardware/gesture back button on Android has nothing to
@@ -45,7 +49,7 @@ export default function App() {
         {/* Persistent tab bar + FAB (rendered above the screens): the bar slides
             down/up and the FAB rolls between the notch and the corner. */}
         <BottomNav />
-        {SHOW_VOICE_FAB && <VoiceWidget />}
+        <VoiceFabGate />
         <ConfirmationSheet />
         <OfflineNotice />
         <BackHandlerBridge />
