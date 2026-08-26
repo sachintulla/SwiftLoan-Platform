@@ -26,6 +26,16 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   closed: { label: 'Closed', color: colors.muted },
 };
 
+/** "24 Aug 2026, 3:14 PM" — the application's most recent update. */
+function formatDateTime(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
 export default function Loans() {
   const { set, go } = useStore();
   const [apps, setApps] = useState<any[]>([]);
@@ -74,9 +84,6 @@ export default function Loans() {
         const st = o.lenderStatus || 'handoff';
         const meta = STATUS_META[st] || { label: st, color: colors.muted };
         const apr = app.loan?.apr ?? o.apr ?? o.roi ?? null;
-        const appliedDate = o.appliedAt
-          ? new Date(o.appliedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-          : '';
         return (
           <AppCard
             key={o.id}
@@ -86,7 +93,7 @@ export default function Loans() {
             status={meta.label}
             statusColor={meta.color}
             logoUrl={o.lenderLogoUrl}
-            appliedOn={appliedDate}
+            updatedAt={formatDateTime(app.updatedAt)}
             left={{ label: 'Amount', value: rupee(o.amount ?? app.amount) }}
             right={
               app.loan
@@ -110,6 +117,9 @@ export default function Loans() {
       const aprs = (app.offers || []).map((o: any) => o.apr).filter((n: any) => typeof n === 'number' && n > 0);
       const bestApr = aprs.length ? Math.min(...aprs) : null;
       const n = app.offers.length;
+      // Lender image: the recommended/best offer's logo (any lender's if none flagged).
+      const rec = (app.offers || []).find((o: any) => o.recommended) ?? app.offers[0];
+      const logoUrl = rec?.lenderLogoUrl ?? (app.offers || []).find((o: any) => o.lenderLogoUrl)?.lenderLogoUrl ?? null;
       return [(
         <AppCard
           key={app.id}
@@ -118,6 +128,8 @@ export default function Loans() {
           ref_={`Ref ${app.ref}`}
           status={meta.label}
           statusColor={meta.color}
+          logoUrl={logoUrl}
+          updatedAt={formatDateTime(app.updatedAt)}
           left={{ label: 'Amount', value: rupee(app.amount) }}
           right={bestApr != null ? { label: 'Rates from', value: `${bestApr}% p.a.` } : { label: 'Offers', value: `${n} matched` }}
           onPress={() => { set({ applicationId: app.id, offersReturn: 'loans' }); go('offers'); }}
@@ -137,6 +149,7 @@ export default function Loans() {
           ref_={`Ref ${app.ref}`}
           status={meta.label}
           statusColor={meta.color}
+          updatedAt={formatDateTime(app.updatedAt)}
           left={{ label: 'Amount', value: rupee(app.amount) }}
           right={{ label: 'Next EMI', value: rupee(app.loan.emiAmount) }}
           onPress={() => open(app)}
@@ -186,11 +199,11 @@ export default function Loans() {
 
 function AppCard({
   icon, name, ref_, status, statusColor, left, right, onPress,
-  logoUrl, appliedOn,
+  logoUrl, updatedAt,
 }: {
   icon: string; name: string; ref_: string; status: string; statusColor: string;
   left: { label: string; value: string }; right: { label: string; value: string }; onPress: () => void;
-  logoUrl?: string | null; appliedOn?: string | null;
+  logoUrl?: string | null; updatedAt?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.card}>
@@ -206,8 +219,8 @@ function AppCard({
           <View style={{ flex: 1 }}>
             <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>{name}</Text>
             <Text style={[font(400), { fontSize: 12, color: colors.muted }]}>{ref_}</Text>
-            {appliedOn ? (
-              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 2 }]}>Applied on {appliedOn}</Text>
+            {updatedAt ? (
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 2 }]}>Updated {updatedAt}</Text>
             ) : null}
           </View>
         </View>
