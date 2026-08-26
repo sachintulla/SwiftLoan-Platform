@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
-import { colors, font } from '../theme/tokens';
+import { colors, font, rupee } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api, isAuthed, Offer } from '../api/client';
 import { loadOffersCache, saveOffersCache } from '../state/session';
-import { OfferCard, useOfferSelect } from './offers';
+import { useOfferSelect, displayLenderName } from './offers';
 
 // Statuses whose applications still carry showable offers.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
@@ -111,15 +111,100 @@ export default function MyOffers() {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : hasOffers ? (
-        <View style={{ gap: 14 }}>
-          {offers.map(o => (
-            <OfferCard key={o.id} offer={o} onSelect={select} />
-          ))}
-        </View>
+        <>
+          <View style={{ gap: 14 }}>
+            {offers.map(o => (
+              <MyOfferCard key={o.id} offer={o} onSelect={select} />
+            ))}
+          </View>
+          <View style={styles.moreRow}>
+            <Icon name="auto_awesome" size={15} color={colors.primary} />
+            <Text style={[font(500), { fontSize: 12.5, color: colors.textMid }]}>More offers available. Keep checking for better matches.</Text>
+          </View>
+        </>
       ) : (
         <EmptyOffers onApply={startApply} />
       )}
     </Screen>
+  );
+}
+
+/** My Offers card — the eligible/partner-lender offer tile (per design). */
+function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer) => void }) {
+  const name = displayLenderName(offer.lenderName || offer.partner?.name);
+  const logoUri = offer.lenderLogoUrl || offer.partner?.logoUrl;
+  const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
+  const disbursal = offer.partner?.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} hr` : 'Instant';
+  const applied = offer.applied;
+  return (
+    <View style={styles.card}>
+      {/* Partner-lender pill floats over the divider on the right. */}
+      <View style={[styles.partnerPill, applied && { backgroundColor: colors.greenDeep }]}>
+        <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]}>{applied ? 'Applied' : 'Partner lender'}</Text>
+      </View>
+
+      {/* Header (inside the box): logo · name / high-match */}
+      <View style={styles.headRow}>
+        <View style={[styles.logoBox, logoUri ? styles.logoBoxImg : null]}>
+          {logoUri ? (
+            <Image source={{ uri: logoUri }} style={{ width: 42, height: 42 }} resizeMode="contain" />
+          ) : (
+            <Icon name={offer.partner?.icon || 'account_balance'} size={26} color={colors.primary} />
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), styles.lender]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{name}</Text>
+          {highMatch ? (
+            <View style={styles.matchChip}>
+              <Icon name="bolt" size={12} color={colors.greenDeep} />
+              <Text style={[font(700), { fontSize: 11, color: colors.greenDeep }]}>High match</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.divider} />
+
+      {/* amount + interest rate on one row · disbursal chip · receipt · apply */}
+      <View>
+        <View style={styles.amountRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>Eligible amount</Text>
+            <Text style={[font(800), styles.amount]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{rupee(offer.amount)}</Text>
+          </View>
+          <View style={styles.rateCol}>
+            <View style={styles.rateIcon}><Icon name="percent" size={13} color={colors.primary} /></View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft }]}>Interest rate</Text>
+              <Text style={[font(800), { fontSize: 15, color: colors.text, marginTop: 1 }]}>{offer.apr}% p.a.</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.disbursalChip}>
+          <Icon name="schedule" size={13} color={colors.greenDeep} />
+          <Text style={[font(700), { fontSize: 11.5, color: colors.greenDeep }]}>{disbursal} disbursal</Text>
+        </View>
+
+        <View style={styles.receipt}>
+          <View style={{ flex: 1 }}>
+            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>Processing fee</Text>
+            <Text style={[font(700), { fontSize: 12.5, color: colors.text, marginTop: 1 }]} numberOfLines={1}>
+              {rupee(offer.processingFeeAmount)} <Text style={{ color: colors.textSoft, fontSize: 11 }}>+ {rupee(offer.gstOnProcessingFee)} GST</Text>
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>You receive</Text>
+            <Text style={[font(800), { fontSize: 14, color: colors.greenDeep, marginTop: 1 }]}>{rupee(offer.netDisbursalAmount)}</Text>
+          </View>
+        </View>
+
+        <Pressable onPress={() => onSelect(offer)} style={styles.applyBtn}>
+          <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>{applied ? 'View in My Loans' : (offer.redirectionUrl ? 'Apply Loan' : 'Select Offer')}</Text>
+          <Icon name="arrow_forward" size={18} color="#fff" />
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -167,6 +252,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, height: 38, marginTop: 2, minWidth: 104, justifyContent: 'center',
   },
   refreshLabel: { fontSize: 13, color: colors.primary },
+
+  // ── Offer card ─────────────────────────────────────────────────────────
+  card: {
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: 22, padding: 16,
+    shadowColor: '#0A3F41', shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2,
+  },
+  headRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  logoBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  logoBoxImg: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
+  lender: { fontSize: 16, color: colors.text, letterSpacing: -0.2 },
+  divider: { height: 1, backgroundColor: colors.line, marginTop: 12, marginBottom: 14 },
+  matchChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 5,
+    backgroundColor: colors.chip, borderRadius: 9999, paddingVertical: 3, paddingHorizontal: 8,
+  },
+  partnerPill: {
+    // Floats over the divider between the header and the amount, on the right.
+    position: 'absolute', top: 56, right: 16, zIndex: 2,
+    backgroundColor: colors.primary, borderRadius: 9999, paddingVertical: 6, paddingHorizontal: 12,
+    shadowColor: '#0A3F41', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3,
+  },
+  amount: { fontSize: 24, color: colors.primary, letterSpacing: -0.6, marginTop: 2 },
+  amountRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  rateCol: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  rateIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center' },
+  disbursalChip: {
+    flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 5, marginTop: 12,
+    backgroundColor: colors.chip, borderRadius: 9999, paddingVertical: 4, paddingHorizontal: 10,
+  },
+  receipt: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
+  applyBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: 14, height: 48, marginTop: 14 },
+  moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18, paddingHorizontal: 20 },
+
   empty: { alignItems: 'center', paddingTop: 36, paddingHorizontal: 6 },
   emptyIcon: { width: 92, height: 92, borderRadius: 46, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
   benefits: { width: '100%', marginTop: 24, gap: 12 },
