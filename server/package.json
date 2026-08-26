@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:push": "echo \"prisma:push is disabled — it can DROP COLUMNS. Use: npm run prisma:migrate (dev) or npm run prisma:deploy (prod)\" && exit 1",
+    "prisma:push": "echo \"prisma:push is disabled \u2014 it can DROP COLUMNS. Use: npm run prisma:migrate (dev) or npm run prisma:deploy (prod)\" && exit 1",
     "seed": "tsx prisma/seed.ts",
     "seed:ws4": "tsx prisma/seed.ws4.ts",
     "seed:integrations": "tsx prisma/seed.integrations.ts",
@@ -23,7 +23,8 @@
     "ello:sync": "tsx scripts/ello-sync-agent.ts",
     "ello:agents": "tsx scripts/ello-agents.ts",
     "conversations:backfill": "tsx scripts/backfill-conversations.ts",
-    "admin:create": "tsx scripts/create-admin.ts"
+    "admin:create": "tsx scripts/create-admin.ts",
+    "backfill:customer-links": "tsx scripts/backfill-customer-links.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1105.0",
