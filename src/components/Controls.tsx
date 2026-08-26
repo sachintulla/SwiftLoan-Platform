@@ -131,6 +131,42 @@ export function GhostButton({
   );
 }
 
+/**
+ * Compact header CTA — a small teal pill for the top-right action slot of a
+ * screen header (e.g. "Continue" / "Upload PAN & Verify" on the funnel steps).
+ * Registered as a voice target like the other buttons.
+ */
+export function HeaderCta({
+  label,
+  onPress,
+  disabled = false,
+  icon,
+  voiceId,
+}: {
+  label: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  icon?: string;
+  voiceId?: string;
+}) {
+  const { state } = useStore();
+  useEffect(() => {
+    return registerTarget(state.screen, voiceId || label, { kind: 'button', label, onTap: onPress });
+  }, [state.screen, voiceId, label, onPress]);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      style={({ pressed }) => [styles.headerCta, disabled && { opacity: 0.5 }, pressed && { opacity: 0.85 }]}
+    >
+      <Text style={[font(700), { color: '#fff', fontSize: 13.5 }]} numberOfLines={1}>{label}</Text>
+      {icon ? <Icon name={icon} size={16} color="#fff" /> : null}
+    </Pressable>
+  );
+}
+
 /* Toggle switch — track on #2FB183 / off #D3DDDD, 46×27, knob 21.
  * Toggle has no visible text of its own (the label lives in the parent
  * screen's own <Text>), so it needs an explicit voiceId or label prop to be
@@ -436,6 +472,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     backgroundColor: 'rgba(255,255,255,0.6)',
+  },
+  headerCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 40,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
   },
   track: { width: 46, height: 27, borderRadius: 9999, padding: 3, justifyContent: 'center' },
   knob: {

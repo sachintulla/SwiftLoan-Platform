@@ -275,8 +275,23 @@ export async function resolveCustomer(input: ResolveCustomerInput) {
   if (input.utmCampaign && !customer.utmCampaign) patch.utmCampaign = input.utmCampaign;
   if (input.referrer && !customer.referrer) patch.referrer = input.referrer;
 
+  // Never backfill `phone` onto this record if another customer already owns it
+  // — `phone` is unique, and a prior website lead may hold the same number.
+  // Overwriting it here would throw P2002 and abort the whole journey promotion.
+  if (patch.phone && phone) {
+    const clash = await prisma.customer.findUnique({ where: { phone } });
+    if (clash && clash.id !== customer.id) delete (patch as { phone?: string }).phone;
+  }
+
   if (Object.keys(patch).length) {
-    customer = await prisma.customer.update({ where: { id: customer.id }, data: patch });
+    try {
+      customer = await prisma.customer.update({ where: { id: customer.id }, data: patch });
+    } catch (e) {
+      // Backstop for a unique field (phone/userId) held by another record or a
+      // race: skip the backfill rather than failing journey promotion outright.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return customer;
+      throw e;
+    }
   }
   return customer;
 }

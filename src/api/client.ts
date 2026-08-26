@@ -234,6 +234,14 @@ export function friendlyAurixError(aurixResponse: any, offerCount: number): stri
   return '';
 }
 
+export interface NudgeConfigDTO {
+  nudgeEnabled: boolean;
+  nudgeIdleMs: number;
+  nudgeDropoffMs: number;
+  nudgeEligibleMs: number;
+  version: number;
+}
+
 export const api = {
   health: () => request('GET', '/health'),
 
@@ -272,7 +280,6 @@ export const api = {
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
     request('PATCH', '/users/me/notifications', prefs),
-  creditScore: () => request('GET', '/users/me/credit-score'),
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
@@ -316,6 +323,8 @@ export const api = {
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
   marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
+  // Admin-tunable nudge timers (public). The app fetches this on launch/foreground.
+  nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>

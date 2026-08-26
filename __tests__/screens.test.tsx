@@ -24,7 +24,6 @@ import Selfie from '../src/screens/selfie';
 import Status from '../src/screens/status';
 import Disbursed from '../src/screens/disbursed';
 import Repay from '../src/screens/repay';
-import CreditScore from '../src/screens/creditscore';
 import Profile from '../src/screens/profile';
 import Help from '../src/screens/help';
 
@@ -43,7 +42,7 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S4 mobile', Mobile, ['Enter your mobile number']],
   ['UC-S5 permissions', Permissions, ['Permissions', 'Allow permissions']],
   ['UC-S6 aboutyou', AboutYou, ["Just the basics — we'll ask for more only when you apply."]],
-  ['UC-S7 home', Home, ['Browse loan types']],
+  ['UC-S7 home', Home, ['Ask Ruby']],
   ['UC-S8 loans', Loans, ['My Loans']],
   ['UC-S9 fare', Fare, ['My Offers']],
   ['UC-S9b calculator', Calculator, ['Your monthly EMI']],
@@ -61,7 +60,6 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S20 status', Status, ['No application yet']],
   ['UC-S21 disbursed', Disbursed, ['Funds on the way!']],
   ['UC-S22 repay', Repay, ['Repayment Overview']],
-  ['UC-S23 creditscore', CreditScore, ['Credit Score', 'Current CIBIL Score']],
   ['UC-S24 profile', Profile, ['Account Settings']],
   ['UC-S25 help', Help, ['How can we help you today?']],
 ];

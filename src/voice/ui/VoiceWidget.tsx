@@ -211,6 +211,8 @@ export default function VoiceWidget() {
   // nothing with a spin + overshoot while a ring bursts out around it.
   const entrance = useRef(new Animated.Value(fabEntrancePlayed ? 1 : 0)).current;
   const burst = useRef(new Animated.Value(fabEntrancePlayed ? 1 : 0)).current;
+  // "Look at me" flourish fired by the dashboard's "Ask Ruby" (state.voiceTrigger).
+  const attention = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     // Hold the FAB hidden on the splash; play the grand entrance the first time
     // the user lands on a real screen, so it's actually seen.
@@ -306,8 +308,28 @@ export default function VoiceWidget() {
             ? t.voiceStatusExecuting
             : t.voiceStatusIdle;
 
+  // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
+  const startAgent = () => {
+    // Play the connect cue, then start the agent ONLY once the cue has finished
+    // — the cue and the voice session must never hold the audio session at the
+    // same time (that overlap killed Ruby's playback + mic on iOS).
+    playConnectThen(() => {
+      agent.start().catch(e => {
+        vlog('agent.start() rejected:', e?.message || String(e));
+        // Offline failures already get the dedicated OfflineNotice banner (see
+        // agent.ts) — don't also toast those. Everything else previously failed
+        // silently from the user's point of view (no banner, no toast), which
+        // read as the button just not working.
+        const message: string = e?.message || '';
+        if (message.startsWith('offline:')) return;
+        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+      });
+    });
+  };
+
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
+    setNudgeLabel(null); // clear any proactive-help label once the user engages
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
       // Tear the session down first; once the mic/playback session is released,
@@ -319,23 +341,55 @@ export default function VoiceWidget() {
           setTimeout(() => playFabOff(), 150);
         });
     } else {
-      // Play the connect cue, then start the agent ONLY once the cue has finished
-      // — the cue and the voice session must never hold the audio session at the
-      // same time (that overlap killed Ruby's playback + mic on iOS).
-      playConnectThen(() => {
-        agent.start().catch(e => {
-          vlog('agent.start() rejected:', e?.message || String(e));
-          // Offline failures already get the dedicated OfflineNotice banner (see
-          // agent.ts) — don't also toast those. Everything else previously failed
-          // silently from the user's point of view (no banner, no toast), which
-          // read as the button just not working.
-          const message: string = e?.message || '';
-          if (message.startsWith('offline:')) return;
-          showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
-        });
-      });
+      startAgent();
     }
   };
+
+  // Shared "look at me" flourish: a quick spring wiggle + a burst ring.
+  const playAttention = (onDone?: () => void) => {
+    Animated.sequence([
+      Animated.timing(burst, { toValue: 0, duration: 0, useNativeDriver: true }),
+      Animated.parallel([
+        Animated.sequence([
+          Animated.spring(attention, { toValue: 1, friction: 3.5, tension: 90, useNativeDriver: true }),
+          Animated.spring(attention, { toValue: 0, friction: 4, tension: 80, useNativeDriver: true }),
+        ]),
+        Animated.timing(burst, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ]).start(() => onDone && onDone());
+  };
+
+  // "Ask Ruby" on the dashboard bumps state.voiceTrigger: draw attention to the
+  // FAB, then start the session once the flourish has played. Skipped on the
+  // initial mount (trigger 0) and while a session is already live. Starts at 0
+  // (not the current value) so an unlock+trigger in the same update still fires.
+  const lastTrigger = useRef(0);
+  useEffect(() => {
+    if (state.voiceTrigger === lastTrigger.current) return;
+    lastTrigger.current = state.voiceTrigger;
+    if (active) return;
+    playAttention(() => startAgent());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.voiceTrigger]);
+
+  // Proactive-help nudge (idle / drop-off / eligible-but-didn't-apply): vibrate,
+  // wiggle the FAB and show a contextual label — but DON'T start a session (the
+  // user taps to ask). The label auto-dismisses after a few seconds.
+  const [nudgeLabel, setNudgeLabel] = useState<string | null>(null);
+  const lastNudgeId = useRef(0);
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const n = state.voiceNudge;
+    if (!n || n.id === lastNudgeId.current) return;
+    lastNudgeId.current = n.id;
+    if (active) return; // never interrupt a live session
+    Vibration.vibrate(Platform.OS === 'android' ? [0, 45, 60, 45] : 30);
+    playAttention();
+    setNudgeLabel(n.label);
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = setTimeout(() => setNudgeLabel(null), 9000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.voiceNudge]);
 
   // Two fixed offsets, not one — screens with a BottomNav pill need real
   // clearance above it; screens without one (intro, language, etc.) should
@@ -370,6 +424,8 @@ export default function VoiceWidget() {
   const entranceOpacity = entrance.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 1, 1] });
   const burstScale = burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.8] });
   const burstOpacity = burst.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.5, 0] });
+  const attentionScale = attention.interpolate({ inputRange: [0, 1], outputRange: [1, 1.32] });
+  const attentionRotate = attention.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['0deg', '-12deg', '10deg'] });
   // Always show the Ruby avatar — same face in the notch and floating in the
   // corner — so the FAB is visually consistent across every screen.
   const showRuby = true;
@@ -383,6 +439,13 @@ export default function VoiceWidget() {
       pointerEvents="box-none"
       style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
     >
+      {/* Proactive-help label — a tappable speech bubble above the FAB. */}
+      {nudgeLabel && !active ? (
+        <Pressable onPress={onPress} style={styles.nudgeBubble} accessibilityLabel={nudgeLabel}>
+          <Text style={styles.nudgeText}>{nudgeLabel}</Text>
+          <View style={styles.nudgeTail} />
+        </Pressable>
+      ) : null}
       {/* Status pill only while floating (on tab screens the tab label carries it). */}
       {active && !isTab ? (
         <View style={styles.statusPill} pointerEvents="none">
@@ -400,7 +463,7 @@ export default function VoiceWidget() {
         <Ripple active={showBars} delay={0} color={accent} />
         <Ripple active={showBars} delay={550} color={accent} />
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
-          <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale) }, { rotate: roll }, { rotate: entranceRotate }] }]}>
+          <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
               {showRuby ? (
                 <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabAvatar} resizeMode="cover" />
@@ -449,6 +512,18 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusText: { ...font(600), fontSize: 11.5, color: '#fff' },
+  nudgeBubble: {
+    maxWidth: 216, marginBottom: 12, marginRight: 4,
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: colors.line,
+    paddingVertical: 9, paddingHorizontal: 13,
+    shadowColor: '#0A3F41', shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 5,
+  },
+  nudgeText: { ...font(700), fontSize: 12.5, color: colors.text, lineHeight: 17 },
+  nudgeTail: {
+    position: 'absolute', right: 22, bottom: -6, width: 12, height: 12,
+    backgroundColor: '#fff', borderRightWidth: 1, borderBottomWidth: 1, borderColor: colors.line,
+    transform: [{ rotate: '45deg' }],
+  },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
   entranceBurst: {
