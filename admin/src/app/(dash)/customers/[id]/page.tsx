@@ -76,12 +76,11 @@ export default function CustomerDetail() {
   const d = (data?.data ?? {}) as Detail;
   const c = d.customer;
 
-  // paginated timeline (falls back to the inline timeline on page 1 if the
-  // paginated call has not resolved yet)
-  const [tPage, setTPage] = useState(1);
-  const { data: tRes } = useSWR(`/api/admin/customers/${id}/timeline?page=${tPage}&pageSize=50`, swrFetcher);
-  const timeline = asArray<TimelineEntry>(tRes?.data ?? d.timeline);
-  const tPg = tRes?.pagination;
+  // Most recent touchpoint, for the Activity card teaser. The full, filterable
+  // log lives on /customers/:id/activity. d.timeline is chronological (asc), so
+  // the newest is the last entry.
+  const tl = asArray<TimelineEntry>(d.timeline);
+  const recentActivity = tl.length ? tl[tl.length - 1] : null;
 
   // Cross-channel conversation history is keyed on the phone number, not the
   // customer id — that is what stitches website, phone and app together. A 404
@@ -263,6 +262,17 @@ export default function CustomerDetail() {
         </div>
 
         <div style={{ display: 'grid', gap: 6, justifyItems: 'end', minWidth: 220 }}>
+          {user && (
+            <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 2 }}>
+              {user.kyc && (
+                <span className="row" style={{ gap: 6 }}>
+                  <span className="muted" style={{ fontSize: 11.5 }}>KYC</span>
+                  <StatusBadge status={user.kyc.status || 'pending'} />
+                </span>
+              )}
+              <button className="btn" onClick={() => router.push(`/users/${user.id}`)}>View profile →</button>
+            </div>
+          )}
           <button
             className="btn btn-primary"
             disabled={noPhone || call.busy === 'whole'}
@@ -346,17 +356,40 @@ export default function CustomerDetail() {
         </Card>
       </div>
 
-      {/* ── lender applications (independent journeys + roll-up) ────────── */}
-      {d.applicationSummary && d.applicationSummary.submitted > 0 && (
+      {/* ── applications (the single, consolidated list) ────────────────── */}
+      {(user?.applications ?? []).length > 0 && (
         <div style={{ marginTop: 16 }}>
           <Card
-            title={`Lender applications (${d.applicationSummary.submitted})`}
-            sub="After submission the journey continues independently for each lender. Statuses match what the customer sees in the app."
+            title={`Applications (${user!.applications!.length})`}
+            sub="Each lender application runs its own journey after submission. Tap any to open its full detail."
           >
-            <div style={{ marginBottom: 14 }}><LenderRollup s={d.applicationSummary} /></div>
-            {(d.user?.applications ?? [])
-              .flatMap((a) => (a.offers ?? []).filter((o) => o.applied))
-              .map((o) => <LenderTrack key={o.id} offer={o} />)}
+            {d.applicationSummary && d.applicationSummary.submitted > 0 && (
+              <div style={{ marginBottom: 14 }}><LenderRollup s={d.applicationSummary} /></div>
+            )}
+            {(user?.applications ?? []).map((a) => {
+              const applied = (a.offers ?? []).filter((o) => o.applied);
+              if (applied.length) {
+                return applied.map((o) => <LenderTrack key={o.id} offer={{ ...o, applicationId: a.id }} />);
+              }
+              // Application with no lender submitted yet — compact clickable row.
+              return (
+                <div
+                  key={a.id}
+                  onClick={() => router.push(`/loans/${a.id}`)}
+                  className="row between"
+                  style={{ padding: '13px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                >
+                  <div style={{ fontSize: 13 }}>
+                    <b className="mono">{a.ref}</b>
+                    <span className="muted"> · {inr(a.amount)}{a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}</span>
+                  </div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <LoanStatusBadge status={a.status} />
+                    <span className="muted" style={{ fontSize: 12 }}>View →</span>
+                  </div>
+                </div>
+              );
+            })}
           </Card>
         </div>
       )}
@@ -513,77 +546,38 @@ export default function CustomerDetail() {
         </Card>
       </div>
 
-      {/* ── linked app account ─────────────────────────────────────────── */}
+      {/* ── loans (disbursed) ──────────────────────────────────────────── */}
+      {(user?.loans ?? []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Card title="Loans" sub="Disbursed loans for the linked user">
+            <div className="table-wrap"><table className="data">
+              <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
+              <tbody>{user!.loans!.map((l) => (
+                <tr key={l.id}><td className="mono">{inr(l.principal)}</td><td className="mono">{inr(l.outstanding)}</td><td><LoanStatusBadge status={l.status} /></td></tr>
+              ))}</tbody>
+            </table></div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── activity (opens the full, filterable log) ───────────────────── */}
       <div style={{ marginTop: 16 }}>
-        <Card
-          title="App account"
-          sub={user ? 'Applications, loans and KYC for the linked user' : undefined}
-          right={user ? <button className="btn" onClick={() => router.push(`/users/${user.id}`)}>View profile →</button> : undefined}
+        <button
+          onClick={() => router.push(`/customers/${id}/activity`)}
+          className="card card-pad"
+          style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--card, #fff)' }}
         >
-          {!user ? <Empty label="This customer has not signed up in the app yet" /> : (
-            <>
-              <div className="row wrap" style={{ gap: 16, marginBottom: 14 }}>
-                <b>{user.fullName || user.phone}</b>
-                <span className="muted mono" style={{ fontSize: 12 }}>{user.phone}</span>
-                {user.createdAt && <span className="muted" style={{ fontSize: 12 }}>joined {dateStr(user.createdAt)}</span>}
-                {user.kyc && (
-                  <span className="row" style={{ gap: 8 }}>
-                    <span className="muted" style={{ fontSize: 12 }}>KYC</span>
-                    <StatusBadge status={user.kyc.status || 'pending'} />
-                    {user.kyc.panVerified && <span className="badge tone-green">PAN</span>}
-                    {user.kyc.aadhaarVerified && <span className="badge tone-green">Aadhaar</span>}
-                  </span>
-                )}
-              </div>
-
-              <div className="muted" style={{ fontSize: 12, margin: '4px 0 6px' }}>Applications</div>
-              {(user.applications ?? []).length === 0 ? <Empty label="No applications" /> : (
-                <div className="table-wrap"><table className="data">
-                  <thead><tr><th>Ref</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead>
-                  <tbody>{user.applications!.map((a) => (
-                    <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
-                      <td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td>
-                      <td><LoanStatusBadge status={a.status} /></td><td className="muted">{a.createdAt ? dateStr(a.createdAt) : '—'}</td>
-                    </tr>
-                  ))}</tbody>
-                </table></div>
-              )}
-
-              {(user.loans ?? []).length > 0 && (
-                <>
-                  <div className="muted" style={{ fontSize: 12, margin: '14px 0 6px' }}>Loans</div>
-                  <div className="table-wrap"><table className="data">
-                    <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
-                    <tbody>{user.loans!.map((l) => (
-                      <tr key={l.id}><td className="mono">{inr(l.principal)}</td><td className="mono">{inr(l.outstanding)}</td><td><StatusBadge status={l.status} /></td></tr>
-                    ))}</tbody>
-                  </table></div>
-                </>
-              )}
-            </>
-          )}
-        </Card>
-      </div>
-
-      {/* ── raw timeline ───────────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <Card title="Timeline" sub="Every tracked touchpoint, newest first">
-          {timeline.length === 0 ? <Empty label="No activity recorded for this customer yet" /> : (
-            <div style={{ display: 'grid', gap: 2 }}>
-              {timeline.map((e) => (
-                <div key={e.id} className="row" style={{ gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <ChannelBadge channel={e.channel} />
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{humanStatus(e.name)}</span>
-                  {e.stage && <span className="badge tone-grey">{e.stageLabel || stageLabel(e.stage)}</span>}
-                  {e.screen && <span className="muted" style={{ fontSize: 12 }}>· {e.screen}</span>}
-                  <span className="spacer" />
-                  <span className="muted mono" style={{ fontSize: 11.5 }} title={e.occurredAt}>{timeAgo(e.occurredAt)}</span>
-                </div>
-              ))}
+          <div className="row between" style={{ alignItems: 'center' }}>
+            <div>
+              <h3 className="card-title">Activity</h3>
+              <p className="card-sub" style={{ marginTop: 2 }}>
+                Full touchpoint history — searchable and filterable by channel.
+                {recentActivity ? ` Last: ${humanStatus(recentActivity.name)} · ${timeAgo(recentActivity.occurredAt)}.` : ''}
+              </p>
             </div>
-          )}
-          {tPg && <Pagination page={tPg.page} totalPages={tPg.totalPages} onPage={setTPage} />}
-        </Card>
+            <span className="btn btn-primary">View full activity →</span>
+          </div>
+        </button>
       </div>
     </div>
   );

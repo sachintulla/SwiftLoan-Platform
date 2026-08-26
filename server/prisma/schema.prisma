@@ -321,8 +321,17 @@ model Offer {
   // application id; KFT's later journey webhooks (which carry lender_name) update
   // `lenderStatus` for the matching offer so My Loans shows per-lender progress.
   applied          Boolean            @default(false)
-  appliedAt        DateTime?
+  appliedAt        DateTime? // when this lender application was submitted
   lenderStatus     ApplicationStatus?
+  // Per-stage timestamps for this lender application — set once, the first time
+  // the lender's status reaches each stage (via the KFT webhook). Drive the
+  // "when submitted / under review / approved / failed / disbursed" timeline in
+  // the app and admin. Canonical order: appliedAt → underReviewAt →
+  // approvedAt|rejectedAt → disbursedAt.
+  underReviewAt    DateTime?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  disbursedAt      DateTime?
   kftApplicationId String? // application_id from KFT's application_submitted event
   applicationUrl   String? // ApplicationUrl from KFT, if provided
   failureReason    String? // why the lender application failed (e.g. web flow error)
