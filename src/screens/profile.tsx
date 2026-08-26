@@ -4,11 +4,13 @@ import { launchCamera, launchImageLibrary, Asset } from 'react-native-image-pick
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Toggle } from '../components/Controls';
+import { Calendar, formatDob as formatDobParts, useDobVoiceTarget } from '../components/Calendar';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
+import { requestConfirmation } from '../voice/ui/confirmationBridge';
 
 const AVATAR_MIME: Record<string, 'image/jpeg' | 'image/png' | 'image/webp'> = {
   jpg: 'image/jpeg',
@@ -43,6 +45,12 @@ export default function Profile() {
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  // Local {y,m,d} mirror of state.pdDob (a plain ISO string) — the shared
+  // Calendar picker + its voice target both work in this shape (see
+  // aboutyou.tsx, which wires DOB the same way). Synced from pdDob whenever
+  // edit mode opens, written back into pdDob on save.
+  const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
+  useDobVoiceTarget(dob, setDob);
 
   // Hidden gesture: tapping the "Personal details" header 5× in a row (each tap
   // within 1.5s of the last) reveals the voice assistant FAB. See App.tsx.
@@ -101,12 +109,29 @@ export default function Profile() {
   const saveProfile = async () => {
     if (!isAuthed()) { set({ pdEdit: false }); return; }
     try {
-      const { user }: any = await api.updateProfile({ fullName: state.pdName, email: state.pdEmail });
-      set({ pdEdit: false, authUser: user });
+      const { user }: any = await api.updateProfile({
+        fullName: state.pdName,
+        email: state.pdEmail,
+        ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
+      });
+      set({
+        pdEdit: false,
+        pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
+        authUser: user,
+      });
       showToast(t.tSaved);
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : 'Could not save. Please try again.');
     }
+  };
+  // Enter edit mode, seeding the local DOB picker from whatever's already on
+  // file (pdDob is a plain ISO string; the picker/voice-target need {y,m,d}).
+  const startEditingProfile = () => {
+    if (state.pdDob) {
+      const d = new Date(state.pdDob);
+      if (!Number.isNaN(d.getTime())) setDob({ y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate() });
+    }
+    set({ pdEdit: true });
   };
   const changeLang = async (code: string) => {
     const prevLang = state.lang;
@@ -135,32 +160,36 @@ export default function Profile() {
       showToast('Could not save. Please try again.');
     }
   };
+  // Manual tap must ask before acting — the voice agent's `logout` tool
+  // already gates on the same on-screen confirmation (see the prompt's
+  // "sensitive actions" rule); the manual buttons here had no equivalent, so
+  // a stray tap signed people out immediately with no way to back out. Uses
+  // our own branded ConfirmationSheet (via requestConfirmation), not the
+  // native OS Alert, so this reads identically whether the agent or the
+  // user's own tap triggered it.
   const logout = async () => {
+    const allowed = await requestConfirmation(
+      "Log out? You'll need to verify your mobile number again to sign back in.",
+      { confirmLabel: 'Log out', cancelLabel: 'Cancel' },
+    );
+    if (!allowed) return;
     await api.logout().catch(() => {});
     reset();
   };
 
-  const deleteAccount = () => {
+  const deleteAccount = async () => {
     if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
-    Alert.alert(
-      'Delete your account?',
-      'This permanently removes your profile, applications, loans, and KYC records. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.deleteAccount();
-              reset();
-            } catch (e) {
-              showToast(e instanceof ApiError ? e.message : 'Could not delete your account. Please try again.');
-            }
-          },
-        },
-      ],
+    const allowed = await requestConfirmation(
+      'Delete your account? This permanently removes your profile, applications, loans, and KYC records. This cannot be undone.',
+      { confirmLabel: 'Delete', cancelLabel: 'Cancel' },
     );
+    if (!allowed) return;
+    try {
+      await api.deleteAccount();
+      reset();
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Could not delete your account. Please try again.');
+    }
   };
 
   const uploadPickedAsset = async (asset: Asset) => {
@@ -255,7 +284,7 @@ export default function Profile() {
             </View>
             <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{t.memberBadge}</Text>
           </View>
-          <Pressable onPress={() => set({ pdEdit: true })} style={styles.editIcon} accessibilityLabel="Edit profile"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
+          <Pressable onPress={startEditingProfile} style={styles.editIcon} accessibilityLabel="Edit profile"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
         </View>
         <View style={styles.statsRow}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -271,7 +300,7 @@ export default function Profile() {
       <SectionCard>
         <SectionHead icon="person" title={t.personalDetails} onTitlePress={onSecretTap}
           right={
-            <Pressable onPress={() => { if (state.pdEdit) saveProfile(); else set({ pdEdit: true }); }} style={styles.editBtn}>
+            <Pressable onPress={() => { if (state.pdEdit) saveProfile(); else startEditingProfile(); }} style={styles.editBtn}>
               <Icon name={state.pdEdit ? 'check' : 'edit'} size={15} color={colors.primary} />
               <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{state.pdEdit ? t.saveChanges : t.edit}</Text>
             </Pressable>
@@ -289,6 +318,26 @@ export default function Profile() {
             <Field label={t.fullName} value={state.pdName} onChangeText={v => set({ pdName: v })} />
             <Field label={t.email} value={state.pdEmail} onChangeText={v => set({ pdEmail: v })} autoCapitalize="none" />
             <Field label={t.phone} value={state.pdPhone} onChangeText={v => set({ pdPhone: v })} />
+            <View style={{ gap: 6 }}>
+              <Text style={[font(600), { color: colors.textMid, fontSize: 13 }]}>{t.dobLabel}</Text>
+              <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
+                <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>
+                  {dob ? formatDobParts(dob.y, dob.m, dob.d) : t.selectDate}
+                </Text>
+                <Icon name="calendar_month" size={20} color={colors.textSoft} />
+              </Pressable>
+              {state.dobOpen ? (
+                <Calendar
+                  year={dob?.y ?? state.calY}
+                  month={dob?.m ?? state.calM}
+                  selectedDay={dob?.d}
+                  onSelect={(y, m, d) => {
+                    setDob({ y, m, d });
+                    set({ dobOpen: false });
+                  }}
+                />
+              ) : null}
+            </View>
           </View>
         )}
       </SectionCard>
@@ -417,6 +466,11 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   statDiv: { width: 1, height: 32, backgroundColor: colors.lineSoft, marginHorizontal: 12 },
   editBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(7,159,160,0.1)', borderRadius: 9999, paddingHorizontal: 12, paddingVertical: 6 },
+  dobBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1.5, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+  },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
   langRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: '#fff' },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },

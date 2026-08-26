@@ -17,7 +17,7 @@ const DOCS = [
 ];
 
 export default function Handoff() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const [offer, setOffer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -36,12 +36,13 @@ export default function Handoff() {
       const selected = (application.offers || []).find((o: any) => o.id === state.selectedOfferId);
       if (!selected) throw new Error('Selected offer not found.');
       setOffer(selected);
+      mergeApiContext({ applicationDetail: application });
     } catch (e: any) {
       setErr(e?.message || 'Could not load your offer.');
     } finally {
       setLoading(false);
     }
-  }, [state.applicationId, state.selectedOfferId]);
+  }, [state.applicationId, state.selectedOfferId, mergeApiContext]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -51,6 +52,7 @@ export default function Handoff() {
     try {
       const { loan }: any = await api.handoff(state.applicationId);
       set({ loanId: loan.id });
+      mergeApiContext({ handoffResult: loan });
       go('disbursed');
     } catch (e: any) {
       showToast(e?.message || 'Could not complete the handoff. Please try again.');

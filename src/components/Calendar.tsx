@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import Icon from './Icon';
 import { colors, font } from '../theme/tokens';
@@ -57,6 +57,11 @@ export function Calendar({
 }) {
   const [y, setY] = useState(year);
   const [m, setM] = useState(month);
+  // Stepping month-by-month (or even year-by-year) to reach a birth year far
+  // from the default was reported as taking "around ten minutes" — tapping
+  // the header now jumps straight to a year list, then a month grid, the way
+  // every standard date picker works, instead of forcing incremental paging.
+  const [mode, setMode] = useState<'days' | 'years' | 'months'>('days');
 
   const firstDow = new Date(y, m, 1).getDay();
   const days = new Date(y, m + 1, 0).getDate();
@@ -73,43 +78,90 @@ export function Calendar({
     setM(nm); setY(ny);
   };
 
+  // Descending (most recent first) — most DOB entries land within the last
+  // ~60 years, so this keeps the scroll short for the common case.
+  const currentYear = new Date().getFullYear();
+  const YEARS = Array.from({ length: 101 }, (_, i) => currentYear - i);
+
   return (
     <View style={styles.wrap}>
       <View style={styles.head}>
-        <View style={{ flexDirection: 'row', gap: 4 }}>
-          <NavBtn icon="keyboard_double_arrow_left" onPress={() => setY(y - 1)} />
-          <NavBtn icon="chevron_left" onPress={() => stepMonth(-1)} />
-        </View>
-        <Text style={[font(700), { fontSize: 14, color: colors.text }]}>{MONTHS[m]} {y}</Text>
-        <View style={{ flexDirection: 'row', gap: 4 }}>
-          <NavBtn icon="chevron_right" onPress={() => stepMonth(1)} />
-          <NavBtn icon="keyboard_double_arrow_right" onPress={() => setY(y + 1)} />
-        </View>
+        {mode === 'days' ? (
+          <>
+            <NavBtn icon="chevron_left" onPress={() => stepMonth(-1)} />
+            <Pressable onPress={() => setMode('years')} hitSlop={6}>
+              <Text style={[font(700), { fontSize: 14, color: colors.text }]}>{MONTHS[m]} {y} ▾</Text>
+            </Pressable>
+            <NavBtn icon="chevron_right" onPress={() => stepMonth(1)} />
+          </>
+        ) : (
+          <>
+            <NavBtn icon="chevron_left" onPress={() => setMode('days')} />
+            <Text style={[font(700), { fontSize: 14, color: colors.text }]}>
+              {mode === 'years' ? 'Select year' : `Select month — ${y}`}
+            </Text>
+            <View style={{ width: 30 }} />
+          </>
+        )}
       </View>
 
-      <View style={styles.dowRow}>
-        {DOW.map((d, i) => (
-          <Text key={i} style={[font(600), styles.dow]}>{d}</Text>
-        ))}
-      </View>
+      {mode === 'years' && (
+        <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.pickerGrid}>
+            {YEARS.map(yr => (
+              <Pressable
+                key={yr}
+                onPress={() => { setY(yr); setMode('months'); }}
+                style={[styles.pickerCell, yr === y && { backgroundColor: colors.primary }]}
+              >
+                <Text style={[font(yr === y ? 700 : 500), { fontSize: 14, color: yr === y ? '#fff' : colors.text }]}>{yr}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+      )}
 
-      <View style={styles.grid}>
-        {cells.map((c, i) => {
-          const on = c != null && selectedDay === c && m === month && y === year;
-          return (
-            <View key={i} style={styles.cell}>
-              {c != null ? (
-                <Pressable
-                  onPress={() => onSelect(y, m, c)}
-                  style={[styles.day, on && { backgroundColor: colors.primary }]}
-                >
-                  <Text style={[font(on ? 700 : 500), { fontSize: 13, color: on ? '#fff' : colors.text }]}>{c}</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          );
-        })}
-      </View>
+      {mode === 'months' && (
+        <View style={styles.pickerGrid}>
+          {MONTHS_SHORT.map((label, idx) => (
+            <Pressable
+              key={label}
+              onPress={() => { setM(idx); setMode('days'); }}
+              style={[styles.pickerCell, idx === m && { backgroundColor: colors.primary }]}
+            >
+              <Text style={[font(idx === m ? 700 : 500), { fontSize: 14, color: idx === m ? '#fff' : colors.text }]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {mode === 'days' && (
+        <>
+          <View style={styles.dowRow}>
+            {DOW.map((d, i) => (
+              <Text key={i} style={[font(600), styles.dow]}>{d}</Text>
+            ))}
+          </View>
+
+          <View style={styles.grid}>
+            {cells.map((c, i) => {
+              const on = c != null && selectedDay === c && m === month && y === year;
+              return (
+                <View key={i} style={styles.cell}>
+                  {c != null ? (
+                    <Pressable
+                      onPress={() => onSelect(y, m, c)}
+                      style={[styles.day, on && { backgroundColor: colors.primary }]}
+                    >
+                      <Text style={[font(on ? 700 : 500), { fontSize: 13, color: on ? '#fff' : colors.text }]}>{c}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -138,4 +190,10 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
   cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   day: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  pickerScroll: { maxHeight: 220 },
+  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
+  pickerCell: {
+    width: `${100 / 3}%`, paddingVertical: 12, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

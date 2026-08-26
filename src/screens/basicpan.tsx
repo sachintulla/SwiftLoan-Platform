@@ -12,7 +12,7 @@ import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanRes
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
 export default function BasicPan() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const t = useT();
   const [busy, setBusy] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
@@ -101,6 +101,7 @@ export default function BasicPan() {
     if (isAuthed()) {
       try {
         const { applications }: any = await api.listApplications();
+        mergeApiContext({ applications: applications || [] });
         const match = (applications || []).find(
           (a: any) => (a.panNumber || '').toUpperCase() === pan &&
             (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status),

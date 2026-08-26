@@ -35,7 +35,7 @@ function Sparkle({ size, color = colors.mint }: { size: number; color?: string }
 }
 
 export default function Finding() {
-  const { state, go, set } = useStore();
+  const { state, go, set, mergeApiContext } = useStore();
   const insets = useSafeAreaInsets();
   const pulse = useRef(new Animated.Value(0)).current;
   const prog = useRef(new Animated.Value(0)).current;
@@ -58,7 +58,9 @@ export default function Finding() {
     if (state.applicationId) {
       api.prequalify(state.applicationId)
         .then((res) => {
-          set({ offersError: (res as any)?.friendlyError || '' });
+          const { offers, friendlyError } = res as any;
+          set({ offersError: friendlyError || '' });
+          mergeApiContext({ prequalifyResult: { offers, friendlyError } });
           finish();
         })
         .catch(() => {

@@ -24,7 +24,7 @@ const FAIL_URL = /(fail|failure|error|cancel|declin|reject|abort|timeout|expired
  * lands the user on My Loans, where the lender now shows "Failed".
  */
 export default function LenderWeb() {
-  const { state, go } = useStore();
+  const { state, mergeApiContext, go } = useStore();
   const url = state.webUrl;
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
@@ -63,7 +63,9 @@ export default function LenderWeb() {
     setFailed(reason);
     // Fire-and-forget: record the failure against this lender's application.
     if (state.applicationId && state.selectedOfferId) {
-      api.failApplication(state.applicationId, state.selectedOfferId, reason).catch(() => {});
+      api.failApplication(state.applicationId, state.selectedOfferId, reason)
+        .then((res: any) => mergeApiContext({ offerFailResult: res }))
+        .catch(() => {});
     }
   };
 

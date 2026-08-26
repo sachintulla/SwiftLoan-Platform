@@ -9,7 +9,7 @@ import { saveSelectedPlan } from '../state/selectedPlan';
 import { loadMarketOffersCache, saveMarketOffersCache } from '../state/session';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { LENDER_LOGOS } from '../theme/lenderLogos';
-import { useT } from '../state/store';
+import { useStore, useT } from '../state/store';
 
 function amountLine(p: MarketLoanOffer) {
   if (p.amountAtApproval) return { label: 'Amount at approval', value: '' };
@@ -208,6 +208,7 @@ export function MarketLoanOffers({
   showIntro?: boolean;
 }) {
   const isHome = mode === 'home';
+  const { mergeApiContext } = useStore();
   const [plans, setPlans] = useState<MarketLoanOffer[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -229,6 +230,7 @@ export function MarketLoanOffers({
         const r = await api.marketLoanOffers();
         const data = r.data ?? [];
         apply(data);
+        mergeApiContext({ marketOffers: data });
         if (data.length > 0) saveMarketOffersCache({ savedAt: Date.now(), offers: data });
       } catch {
         // Offline / error → fall back to any (stale) cached copy, else empty.

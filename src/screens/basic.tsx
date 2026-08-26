@@ -24,7 +24,7 @@ const EMP_SLUG: Record<string, string> = {
 };
 
 export default function Basic() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const t = useT();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
@@ -127,9 +127,11 @@ export default function Basic() {
         loanType: 'personal',
       });
       set({ applicationId: application.id });
+      mergeApiContext({ applicationCreated: application });
       // Persist the PAN captured on the first step now that the application exists.
       if (state.panNumber) {
-        await api.updateApplication(application.id, { panNumber: state.panNumber }).catch(() => {});
+        const updated: any = await api.updateApplication(application.id, { panNumber: state.panNumber }).catch(() => null);
+        if (updated?.application) mergeApiContext({ applicationUpdated: updated.application });
       }
       go('moredetails');
     } catch (e) {

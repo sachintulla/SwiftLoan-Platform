@@ -10,6 +10,7 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
+import { fetchUserContext } from '../../api/client';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -190,11 +191,38 @@ function RobotHead() {
   );
 }
 
+/**
+ * The avatar's open/close glyph, drawn with plain shapes rather than the
+ * Material Symbols ligature font — inside a tightly clipped, absolutely-
+ * filled circular overlay, an unresolved ligature falls back to rendering
+ * its raw letter sequence (e.g. "more_vert" character-by-character), which
+ * showed up as stray blob artifacts smeared across the avatar photo. Three
+ * dots / an X are simple enough that hand-drawing them is both safer and
+ * cheaper than debugging font fallback behavior.
+ */
+function MoreOrCloseGlyph({ expanded }: { expanded: boolean }) {
+  if (expanded) {
+    return (
+      <View style={styles.glyphCloseBox}>
+        <View style={[styles.glyphBar, { transform: [{ rotate: '45deg' }] }]} />
+        <View style={[styles.glyphBar, { transform: [{ rotate: '-45deg' }] }]} />
+      </View>
+    );
+  }
+  return (
+    <View style={styles.glyphDotsCol}>
+      <View style={styles.glyphDot} />
+      <View style={styles.glyphDot} />
+      <View style={styles.glyphDot} />
+    </View>
+  );
+}
+
 /** Floating mic FAB — a constant-color button; bars + ripple carry all state color. */
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { state, showToast } = useStore();
+  const { state, set, showToast } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   // Which edge the FAB is docked to — persisted so the user's choice survives
@@ -206,6 +234,15 @@ export default function VoiceWidget() {
   // position math per screen width.
   const [dragX, setDragX] = useState(0);
   const pulse = useRef(new Animated.Value(1)).current;
+  // Whether the end-call/mute controls are fanned out. Only meaningful while a
+  // session is active — reset the moment the call ends (see the statusChange
+  // effect below) so a fresh call always starts collapsed.
+  const [expanded, setExpanded] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const expand = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(expand, { toValue: expanded ? 1 : 0, friction: 7, tension: 70, useNativeDriver: true }).start();
+  }, [expanded, expand]);
 
   // One-time GRAND ENTRANCE the first time the FAB appears: it springs in from
   // nothing with a spin + overshoot while a ring bursts out around it.
@@ -267,7 +304,27 @@ export default function VoiceWidget() {
     // lifetime (connecting through executingTool), not just while speaking.
     if (live) activateKeepAwake();
     else deactivateKeepAwake();
+    if (!live) {
+      // Every call starts collapsed and unmuted — don't carry either state
+      // over into the next session.
+      setExpanded(false);
+      expand.setValue(0);
+      setMuted(false);
+      agent.setMuted(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
+
+  // Call duration shown in the expanded panel (mm:ss) — counts from 0 each
+  // time a call goes live, stops (but doesn't reset the display) on end.
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    // `active` isn't computed until after this component's early-return guard
+    // below, so this checks status directly rather than depending on it.
+    if (status === 'idle' || status === 'ended') { setElapsedSec(0); return undefined; }
+    const id = setInterval(() => setElapsedSec(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [status]);
 
   useEffect(() => {
     if (status === 'listening' || status === 'speaking') {
@@ -306,44 +363,68 @@ export default function VoiceWidget() {
             ? t.voiceStatusExecuting
             : t.voiceStatusIdle;
 
+  // Fresh, per-call-open read of where this user actually is in the funnel —
+  // refetched here rather than relying on store.ts's once-at-login snapshot,
+  // which goes stale the moment the user progresses (or stalls) mid-session.
+  // Fire-and-forget, fired alongside agent.start(): GET /context/me is a
+  // single small authenticated read, lighter than the voice REST+WebSocket
+  // handshake agent.start() itself has to complete before it builds its
+  // first page_context payload, so this almost always lands first. If it
+  // doesn't, the agent falls back to whatever snapshot it already had.
+  const refreshSessionContext = () => {
+    fetchUserContext()
+      .then(ctx => { if (ctx?.hasHistory) set({ userContext: ctx }); })
+      .catch(() => undefined);
+  };
+
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
-    // Play the connect cue, then start the agent ONLY once the cue has finished
-    // — the cue and the voice session must never hold the audio session at the
-    // same time (that overlap killed Ruby's playback + mic on iOS).
-    playConnectThen(() => {
-      agent.start().catch(e => {
-        vlog('agent.start() rejected:', e?.message || String(e));
-        // Offline failures already get the dedicated OfflineNotice banner (see
-        // agent.ts) — don't also toast those. Everything else previously failed
-        // silently from the user's point of view (no banner, no toast), which
-        // read as the button just not working.
-        const message: string = e?.message || '';
-        if (message.startsWith('offline:')) return;
-        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
-      });
+    refreshSessionContext();
+    agent.start().catch(e => {
+      vlog('agent.start() rejected:', e?.message || String(e));
+      // Offline failures already get the dedicated OfflineNotice banner (see
+      // agent.ts) — don't also toast those. Everything else previously failed
+      // silently from the user's point of view (no banner, no toast), which
+      // read as the button just not working.
+      const message: string = e?.message || '';
+      if (message.startsWith('offline:')) return;
+      showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
     });
   };
 
+  // Tapping the FAB itself never hangs up directly anymore — while a call is
+  // live it just fans the end-call/mute controls in or out, so a stray tap
+  // mid-call can't drop it. Ending the call is now only reachable through the
+  // dedicated end-call button (see endCall below).
   const onPress = () => {
-    vlog('FAB tapped; status=', status, 'active=', active);
+    vlog('FAB tapped; status=', status, 'active=', active, 'expanded=', expanded);
     setNudgeLabel(null); // clear any proactive-help label once the user engages
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
-      agent.stop()
-        .catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
+      setExpanded(e => !e);
     } else {
-      agent.start().catch(e => {
-        vlog('agent.start() rejected:', e?.message || String(e));
-        // Offline failures already get the dedicated OfflineNotice banner (see
-        // agent.ts) — don't also toast those. Everything else previously failed
-        // silently from the user's point of view (no banner, no toast), which
-        // read as the button just not working.
-        const message: string = e?.message || '';
-        if (message.startsWith('offline:')) return;
-        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
-      });
+      startAgent();
     }
+  };
+
+  const endCall = () => {
+    Vibration.vibrate(20);
+    agent.stop().catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
+  };
+
+  const toggleMute = () => {
+    Vibration.vibrate(15);
+    setMuted(m => {
+      const next = !m;
+      agent.setMuted(next);
+      return next;
+    });
+  };
+
+  const formatElapsed = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   // Shared "look at me" flourish: a quick spring wiggle + a burst ring.
@@ -430,6 +511,16 @@ export default function VoiceWidget() {
   // Always show the Ruby avatar — same face in the notch and floating in the
   // corner — so the FAB is visually consistent across every screen.
   const showRuby = true;
+  // The expanded call panel grows directly out of the FAB circle, anchored on
+  // whichever edge touches it (transformOrigin), and switches orientation with
+  // where the FAB itself lives: nested in the tab-bar notch (main dashboard,
+  // `isTab`) it's dead centre, so the panel opens upward, vertically; docked to
+  // a screen edge (e.g. mid-application screens) it opens sideways, horizontally,
+  // same as the FAB itself only ever sits at a left/right edge there.
+  const isHorizontal = !isTab;
+  const panelOpacity = expand.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const panelScale = expand.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  const panelSlide = expand.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
 
   // On screens with a pinned bottom CTA bar (the Screen `footer`), lift the
   // floating FAB above that bar so the button and the FAB never overlap.
@@ -447,8 +538,10 @@ export default function VoiceWidget() {
           <View style={styles.nudgeTail} />
         </Pressable>
       ) : null}
-      {/* Status pill only while floating (on tab screens the tab label carries it). */}
-      {active && !isTab ? (
+      {/* Status pill only while floating and collapsed — once the panel opens
+          it carries the same status text itself, so showing both would be
+          redundant (on tab screens the tab label carries it either way). */}
+      {active && !isTab && !expanded ? (
         <View style={styles.statusPill} pointerEvents="none">
           <View style={[styles.statusDot, { backgroundColor: status === 'listening' ? colors.green : accent }]} />
           <Text style={styles.statusText}>{a11yLabel}</Text>
@@ -463,6 +556,48 @@ export default function VoiceWidget() {
         <IdleHalo />
         <Ripple active={showBars} delay={0} color={accent} />
         <Ripple active={showBars} delay={550} color={accent} />
+        {/* Call panel — status/timer + mic/end-call. Only exists during a live
+            call; grows directly out of the FAB circle it's anchored to
+            (transformOrigin), horizontally when the FAB floats at a screen
+            edge, vertically (opening upward) when nested in the dashboard's
+            tab-bar notch. */}
+        {active ? (
+          <Animated.View
+            pointerEvents={expanded ? 'auto' : 'none'}
+            style={[
+              styles.callPanel,
+              isHorizontal ? styles.callPanelHorizontal : styles.callPanelVertical,
+              {
+                opacity: panelOpacity,
+                transformOrigin: isHorizontal ? 'right center' : 'center bottom',
+                transform: [
+                  { scale: panelScale },
+                  isHorizontal ? { translateX: panelSlide } : { translateY: panelSlide },
+                ],
+              },
+            ]}
+          >
+            {/* The bars already say "something's happening" — a "Listening…"
+                label next to them is redundant, so the meta block is just
+                level + timer. Vertical stacks the timer under the bars;
+                horizontal keeps them side by side (see styles). */}
+            <View style={isHorizontal ? styles.callPanelMetaHorizontal : styles.callPanelMetaVertical}>
+              <EqualizerBars color={colors.mint} />
+              <Text style={styles.callPanelTimer}>{formatElapsed(elapsedSec)}</Text>
+            </View>
+            <Pressable
+              onPress={toggleMute}
+              accessibilityLabel={muted ? 'Unmute microphone' : 'Mute microphone'}
+              accessibilityRole="button"
+              style={[styles.callPanelBtn, muted ? styles.callPanelBtnMuted : styles.callPanelBtnGray]}
+            >
+              <Icon name={muted ? 'mic_off' : 'mic'} size={17} color={muted ? '#fff' : colors.ink} />
+            </Pressable>
+            <Pressable onPress={endCall} accessibilityLabel="End call" accessibilityRole="button" style={[styles.callPanelBtn, styles.endCallBtn]}>
+              <Icon name="call_end" size={17} color="#fff" />
+            </Pressable>
+          </Animated.View>
+        ) : null}
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
           <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
             <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
@@ -471,6 +606,20 @@ export default function VoiceWidget() {
               ) : (
                 <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
               )}
+              {/* Open/close affordance for the call panel — lives inside `.fab`
+                  itself (which already clips to a circle) so it exactly fills
+                  the avatar with no separate badge shape to align. Before any
+                  call starts this never renders, so the avatar stays plain. */}
+              {active ? (
+                <Pressable
+                  onPress={() => { Vibration.vibrate(15); setExpanded(e => !e); }}
+                  accessibilityLabel={expanded ? 'Close call controls' : 'Open call controls'}
+                  accessibilityRole="button"
+                  style={styles.avatarToggleOverlay}
+                >
+                  <MoreOrCloseGlyph expanded={expanded} />
+                </Pressable>
+              ) : null}
             </LinearGradient>
           </Animated.View>
         </Pressable>
@@ -497,6 +646,10 @@ const RIPPLE_SIZE = FAB_SIZE + 8;
 const HALO_SIZE = FAB_SIZE + 20;
 const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
 const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
+// The panel's "cross-axis" size: its height when horizontal, its width when
+// vertical — the dimension perpendicular to how its contents stack.
+const CALL_PANEL_CROSS = 52;
+const CALL_BTN_SIZE = 38;
 
 const styles = StyleSheet.create({
   wrap: { position: 'absolute', alignItems: 'flex-end' },
@@ -527,6 +680,76 @@ const styles = StyleSheet.create({
   },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
+  // The frosted "growing out of the FAB" panel. No native blur view is wired
+  // up in this project (see CLAUDE.md — no Expo, and no
+  // @react-native-community/blur dependency either), so this approximates
+  // frosted glass with a translucent light-gray fill instead of a real blur.
+  callPanel: {
+    position: 'absolute',
+    backgroundColor: 'rgba(244,247,246,0.97)',
+    borderWidth: 1,
+    borderColor: colors.line,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  callPanelHorizontal: {
+    right: HALO_SIZE,
+    top: (HALO_SIZE - CALL_PANEL_CROSS) / 2,
+    height: CALL_PANEL_CROSS,
+    borderRadius: CALL_PANEL_CROSS / 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  callPanelVertical: {
+    bottom: HALO_SIZE,
+    right: (HALO_SIZE - CALL_PANEL_CROSS) / 2,
+    width: CALL_PANEL_CROSS,
+    borderRadius: CALL_PANEL_CROSS / 2,
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 8,
+  },
+  // Horizontal: bars beside the timer, both beside the buttons. Vertical: the
+  // timer sits directly under the bars, stacked as one small block above the
+  // mic/end-call buttons.
+  callPanelMetaHorizontal: { flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 34 },
+  callPanelMetaVertical: { flexDirection: 'column', alignItems: 'center', gap: 3, marginBottom: 14 },
+  callPanelTimer: { ...font(600), fontSize: 10.5, color: colors.muted },
+  callPanelBtn: {
+    width: CALL_BTN_SIZE,
+    height: CALL_BTN_SIZE,
+    borderRadius: CALL_BTN_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  callPanelBtnGray: { backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.line },
+  callPanelBtnMuted: { backgroundColor: colors.amber },
+  endCallBtn: { backgroundColor: colors.redDeep },
+  // Fills `.fab` exactly (which already clips to a circle via overflow:hidden)
+  // — a translucent dark scrim plus a gray icon, not a separate badge shape.
+  avatarToggleOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(10,63,65,0.34)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyphDotsCol: { alignItems: 'center', gap: 3 },
+  glyphDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.muted },
+  glyphCloseBox: { width: 16, height: 16 },
+  glyphBar: {
+    position: 'absolute',
+    top: 7,
+    left: 1,
+    width: 14,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: colors.muted,
+  },
   entranceBurst: {
     position: 'absolute',
     width: FAB_SIZE,
