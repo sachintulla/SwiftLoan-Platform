@@ -23,7 +23,7 @@ export default function NotificationsPage() {
   return (
     <div className="page">
       <div className="row between wrap">
-        <div><h1 className="page-title">Notifications</h1><p className="page-sub">{payload?.unread ?? 0} unread · stalled loans, new leads, and system alerts.</p></div>
+        <div><h1 className="page-title">Notifications</h1><p className="page-sub">{payload?.unread ?? 0} unread · inactive loans, new leads, and system alerts.</p></div>
         <div className="row" style={{ gap: 8 }}>
           <button className={`chip-filter ${unreadOnly ? 'active' : ''}`} onClick={() => { setUnreadOnly((v) => !v); setPage(1); }}>Unread only</button>
           <button className="btn" onClick={markAll}>Mark all read</button>

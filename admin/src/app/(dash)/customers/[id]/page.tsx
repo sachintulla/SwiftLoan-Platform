@@ -305,7 +305,7 @@ export default function CustomerDetail() {
           value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{c.firstSource || 'unknown'}</span>}
           foot={campaigns[0]?.name || c.campaignId || undefined} />
         <StatCard label="City" value={c.city || lead?.city || '—'} tone="grey" icon="⌖" />
-        <StatCard label="Stalled for" value={stalledLabel(stalled)} icon="⏱"
+        <StatCard label="Inactive for" value={stalledLabel(stalled)} icon="⏱"
           tone={(stalled ?? 0) > 1440 ? 'red' : (stalled ?? 0) > 60 ? 'amber' : 'green'}
           foot={d.dropOff?.isTerminal ? 'terminal stage' : d.dropOff?.label ? `at ${d.dropOff.label}` : undefined} />
       </div>

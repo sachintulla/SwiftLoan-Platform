@@ -129,7 +129,7 @@ export default function CustomersPage() {
           <>
             <StatCard label="Customers" value={num(pg?.total ?? rows.length)} icon="◉" tone="blue"
               foot={stage || source || search || stalledMinutes || campaignId ? 'matching these filters' : 'known in total'} />
-            <StatCard label="Stalled over an hour" value={num(stalledCount)} icon="⏱" tone={stalledCount > 0 ? 'amber' : 'green'}
+            <StatCard label="Inactive over an hour" value={num(stalledCount)} icon="⏱" tone={stalledCount > 0 ? 'amber' : 'green'}
               foot={`of the ${num(rows.length)} shown — these are the ones to call`} />
             <StatCard label="Cross-channel" value={convIndexed ? num(crossChannel) : '—'} icon="⇄" tone="teal"
               foot={convIndexed ? 'used more than one surface' : 'conversation index unavailable'} />
@@ -159,7 +159,7 @@ export default function CustomersPage() {
           {/* drop-off filter is first-class: this is the whole point of the view */}
           <div className="row wrap between" style={{ gap: 12 }}>
             <div className="row wrap" style={{ gap: 10 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600 }}>Stalled for</span>
+              <span style={{ fontSize: 12.5, fontWeight: 600 }}>Inactive for</span>
               <FilterChips options={STALLED} value={stalledMinutes} onChange={(v) => { setStalledMinutes(v); setPage(1); }} />
             </div>
             <button className="btn" onClick={reset}>Clear filters</button>

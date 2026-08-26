@@ -178,7 +178,7 @@ export default function StallRulesPage() {
         <div>
           <h1 className="page-title">Notification Rules</h1>
           <p className="page-sub">
-            Step-stall rules watch for a customer who did one step but never reached the next one in time,
+            Inactivity rules watch for a customer who did one step but never reached the next one in time,
             and fire a named event into Upshot. This screen only fires the event — the actual message copy,
             creative and delivery channel live on the Upshot dashboard, configured against the event name below.
           </p>
@@ -224,9 +224,9 @@ export default function StallRulesPage() {
         ) : rules.length === 0 ? (
           <div className="empty">
             <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'left' }}>
-              <b>No stall rules yet.</b>
+              <b>No inactivity rules yet.</b>
               <p style={{ marginTop: 8 }}>
-                A stall rule says: <i>“if a customer did step X but hasn&apos;t done step Y within N minutes,
+                An inactivity rule says: <i>“if a customer did step X but hasn&apos;t done step Y within N minutes,
                 fire this Upshot event.”</i> Upshot then sends the push or WhatsApp nudge using whatever
                 content you have configured there for that event name.
               </p>
@@ -427,7 +427,7 @@ function RuleForm({ rule, events, onClose, onSaved }: {
   return (
     <div style={{ marginTop: 16 }}>
     <Card
-      title={rule ? `Edit rule — ${rule.name}` : 'New stall rule'}
+      title={rule ? `Edit rule — ${rule.name}` : 'New inactivity rule'}
       sub="The Upshot event name is the contract with the Upshot dashboard — the message body is authored there."
       right={<button className="btn" onClick={onClose}>Close</button>}
     >

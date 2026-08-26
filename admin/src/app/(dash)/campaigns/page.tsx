@@ -53,8 +53,8 @@ export default function CampaignsPage() {
           // These calls never got a terminal webhook, so they are closed as
           // failed with no outcome — say so rather than implying we learned
           // what happened on the line.
-          ? `Closed ${d.updated ?? 0} stalled call(s) with no result; released ${d.contactsReleased ?? 0} contact(s) for retry.`
-          : 'No stalled calls — nothing to reconcile.',
+          ? `Closed ${d.updated ?? 0} stuck call(s) with no result; released ${d.contactsReleased ?? 0} contact(s) for retry.`
+          : 'No stuck calls — nothing to reconcile.',
       });
       mutate();
     } catch (e) {

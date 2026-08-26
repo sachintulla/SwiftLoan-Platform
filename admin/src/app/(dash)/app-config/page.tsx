@@ -82,7 +82,7 @@ export default function AppConfigPage() {
       <div>
         <h1 className="page-title">App Config</h1>
         <p className="page-sub">
-          Tune the proactive-help “Ask Ruby” nudges. When a user stalls this long on a screen, the app
+          Tune the proactive-help “Ask Ruby” nudges. When a user is inactive this long on a screen, the app
           vibrates, animates the Ruby assistant and shows a contextual help label. Changes are picked up
           by the app on its next launch or when it returns to the foreground.
         </p>
