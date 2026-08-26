@@ -29,7 +29,7 @@ function agoLabel(ts: number | null): string {
  * Aurix). With no offers, the screen becomes an engaging "apply for a loan" CTA.
  */
 export default function MyOffers() {
-  const { set, go, showToast } = useStore();
+  const { set, mergeApiContext, go, showToast } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -58,6 +58,7 @@ export default function MyOffers() {
     try {
       const r: any = await api.listApplications();
       const apps: any[] = r?.applications || [];
+      mergeApiContext({ applications: apps });
       const withOffers =
         apps.find(a => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ||
         apps.find(a => (a.offers?.length ?? 0) > 0);

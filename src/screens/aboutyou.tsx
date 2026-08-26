@@ -79,7 +79,11 @@ export default function AboutYou() {
         <>
           <PrimaryButton label={busy ? t.saving : t.continueBtn} icon={null} disabled={busy} onPress={onContinue} />
           <View style={{ height: 10 }} />
-          <GhostButton label={t.commonSkip} onPress={() => { set({ exploreFromHome: false }); go('explore'); }} />
+          {/* Reaching this screen always means OTP verification already succeeded
+              (its only parent is permissions -> mobile) — this is never a guest
+              path, so skipping the optional details goes to the real dashboard,
+              not the pre-signup `explore` preview. */}
+          <GhostButton label={t.commonSkip} onPress={() => go('home')} />
         </>
       }
     >

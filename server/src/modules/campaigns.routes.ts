@@ -43,15 +43,36 @@ const upload = multer({
 
 /** contact-state + call-outcome counts for one campaign. */
 async function campaignCounts(campaignId: string) {
-  const [byState, byOutcome] = await Promise.all([
+  const [byState, byOutcome, byStateAnswered, byCallStatus] = await Promise.all([
     prisma.campaignContact.groupBy({ by: ['state'], where: { campaignId }, _count: { _all: true } }),
     prisma.callAttempt.groupBy({ by: ['outcome'], where: { campaignId }, _count: { _all: true } }),
+    prisma.campaignContact.groupBy({ by: ['state', 'answered'], where: { campaignId }, _count: { _all: true } }),
+    prisma.callAttempt.groupBy({ by: ['status'], where: { campaignId }, _count: { _all: true } }),
   ]);
   const contacts: Record<string, number> = { pending: 0, queued: 0, called: 0, failed: 0, skipped: 0 };
   byState.forEach((g) => { contacts[g.state] = g._count._all; });
   const outcomes: Record<string, number> = {};
   byOutcome.forEach((g) => { outcomes[g.outcome ?? 'pending'] = g._count._all; });
-  return { contacts, outcomes };
+  const callStatus: Record<string, number> = {};
+  byCallStatus.forEach((g) => { callStatus[g.status ?? 'queued'] = g._count._all; });
+
+  // Per-contact breakdown for the dashboard's progress view — splits the
+  // generic 'called' ContactState by whether that contact's call actually
+  // connected, since the state alone can't tell "rang, no pickup" apart from
+  // "genuinely spoke to someone".
+  let answered = 0; let noConnect = 0; let pending = 0; let failed = 0; let skipped = 0;
+  byStateAnswered.forEach((g) => {
+    const n = g._count._all;
+    if (g.state === 'called' && g.answered) answered += n;
+    else if (g.state === 'called') noConnect += n;
+    else if (g.state === 'pending' || g.state === 'queued') pending += n;
+    else if (g.state === 'failed') failed += n;
+    else if (g.state === 'skipped') skipped += n;
+  });
+  const total = answered + noConnect + pending + failed + skipped;
+  const progress = { answered, noConnect, pending, failed, skipped, total, dialled: answered + noConnect + failed };
+
+  return { contacts, outcomes, callStatus, progress };
 }
 
 /* ───────────────────────── schedule validation ───────────────────────── */
@@ -274,6 +295,63 @@ campaignsRouter.post('/:id/restore', requireRole(...CAN_ADMINISTER), ah(async (r
   return ok(res, { id: updated.id }, 'Campaign restored');
 }));
 
+// POST /api/admin/campaigns/:id/duplicate
+// Clones the campaign's settings and contact list into a fresh draft — never
+// its run state (status/startedAt/completedAt/providerCampaignId) or any
+// contact's dial history (state/attempts/answered/error/nextEligibleAt all
+// reset), so the copy is a clean slate rather than a paused mid-dial clone.
+campaignsRouter.post('/:id/duplicate', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const source = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!source) return fail(res, 404, 'Campaign not found');
+
+  const contacts = await prisma.campaignContact.findMany({
+    where: { campaignId: source.id },
+    select: { customerId: true, name: true, phone: true, email: true, city: true, product: true, amount: true, extra: true },
+  });
+
+  const name = `${source.name} (copy)`;
+  const code = await uniqueCode(slugifyCode(name));
+
+  const clone = await prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.create({
+      data: {
+        name,
+        code,
+        concurrency: source.concurrency,
+        assistantId: source.assistantId,
+        assistantName: source.assistantName,
+        note: source.note,
+        createdBy: req.admin?.sub ?? null,
+        scheduleType: source.scheduleType,
+        timezone: source.timezone,
+        dailyStartMinute: source.dailyStartMinute,
+        dailyEndMinute: source.dailyEndMinute,
+        daysOfWeek: source.daysOfWeek,
+        retryStrategy: source.retryStrategy,
+        maxAttemptsPerContact: source.maxAttemptsPerContact,
+        attemptsPerDay: source.attemptsPerDay,
+        retryIntervalDays: source.retryIntervalDays,
+        retryIntervalMinutes: source.retryIntervalMinutes,
+        stopOnAnswer: source.stopOnAnswer,
+        totalContacts: contacts.length,
+      },
+    });
+    if (contacts.length) {
+      await tx.campaignContact.createMany({
+        data: contacts.map((c) => ({
+          ...c,
+          campaignId: campaign.id,
+          extra: (c.extra as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+        })),
+      });
+    }
+    return campaign;
+  });
+
+  log.info('campaign duplicated', { fromId: source.id, id: clone.id, name: clone.name, contacts: contacts.length, duplicatedBy: req.admin?.sub ?? null });
+  return created(res, clone, `Duplicated as "${clone.name}"`);
+}));
+
 // ─────────────────────────── single campaign ───────────────────────────
 
 // GET /api/admin/campaigns/:id  — campaign + counts + a page of contacts
@@ -283,11 +361,25 @@ campaignsRouter.get('/:id', ah(async (req, res) => {
 
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>, 25);
   const state = req.query.state ? String(req.query.state) : undefined;
+  const search = req.query.search ? String(req.query.search).trim() : undefined;
+  // Dashboard-friendly grouping on top of the raw ContactState — 'answered'
+  // and 'no_connect' both narrow to state='called', split by whether the
+  // call actually connected (see campaignCounts' `progress` breakdown, which
+  // these mirror so the filter pills and their counts always agree).
+  const filter = req.query.filter ? String(req.query.filter) : undefined;
+  let filterWhere: Prisma.CampaignContactWhereInput = {};
+  if (filter === 'answered') filterWhere = { state: 'called', answered: true };
+  else if (filter === 'no_connect') filterWhere = { state: 'called', answered: false };
+  else if (filter === 'pending') filterWhere = { state: { in: ['pending', 'queued'] } };
+  else if (filter === 'failed') filterWhere = { state: 'failed' };
+
   const where: Prisma.CampaignContactWhereInput = {
     campaignId: campaign.id,
     ...(state && ['pending', 'queued', 'called', 'failed', 'skipped'].includes(state)
       ? { state: state as Prisma.CampaignContactWhereInput['state'] }
       : {}),
+    ...filterWhere,
+    ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] } : {}),
   };
 
   const [total, contacts, counts] = await Promise.all([
@@ -298,7 +390,10 @@ campaignsRouter.get('/:id', ah(async (req, res) => {
 
   return ok(
     res,
-    { campaign, counts: counts.contacts, outcomes: counts.outcomes, contacts, running: isCampaignTicking(campaign.id) },
+    {
+      campaign, counts: counts.contacts, outcomes: counts.outcomes, callStatus: counts.callStatus,
+      progress: counts.progress, contacts, running: isCampaignTicking(campaign.id),
+    },
     'Campaign',
     paginate(page, pageSize, total),
   );
@@ -386,15 +481,6 @@ campaignsRouter.get('/:id/schedule-preview', ah(async (req, res) => {
     remaining,
     lastRunAt: campaign.lastRunAt,
   }, 'Schedule preview');
-}));
-
-// DELETE /api/admin/campaigns/:id  — contacts cascade via the schema relation.
-campaignsRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
-  const existing = await prisma.campaign.findUnique({ where: { id: req.params.id } });
-  if (!existing) return fail(res, 404, 'Campaign not found');
-  await prisma.campaign.delete({ where: { id: existing.id } });
-  log.warn('campaign deleted', { id: existing.id, name: existing.name });
-  return ok(res, { id: existing.id }, 'Campaign deleted');
 }));
 
 // ─────────────────────────── contact upload ───────────────────────────
@@ -712,12 +798,7 @@ campaignsRouter.get('/:id/stats', ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
 
-  const [counts, byStatus] = await Promise.all([
-    campaignCounts(campaign.id),
-    prisma.callAttempt.groupBy({ by: ['status'], where: { campaignId: campaign.id }, _count: { _all: true } }),
-  ]);
-  const callsByStatus: Record<string, number> = {};
-  byStatus.forEach((g) => { callsByStatus[g.status ?? 'queued'] = g._count._all; });
+  const counts = await campaignCounts(campaign.id);
 
   return ok(res, {
     campaign: {
@@ -727,7 +808,8 @@ campaignsRouter.get('/:id/stats', ah(async (req, res) => {
     },
     contactsByState: counts.contacts,
     callsByOutcome: counts.outcomes,
-    callsByStatus,
+    callsByStatus: counts.callStatus,
+    progress: counts.progress,
     running: isCampaignTicking(campaign.id),
   }, 'Campaign stats');
 }));

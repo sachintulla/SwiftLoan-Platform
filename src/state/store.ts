@@ -153,6 +153,13 @@ export interface AppState {
   // One-line summary of the offers the user just received (or the issue), pushed
   // to the voice agent so it can proactively talk about them / any problem.
   offersSummary: string;
+  // Real API responses for the loan-application lifecycle, keyed by which call
+  // produced them (applicationCreated, applicationUpdated, applications,
+  // applicationDetail, prequalifyResult, offerApplyResult, offerFailResult,
+  // handoffResult, marketOffers) — pushed to the voice agent as `api_context`
+  // so it has the actual data, not just whatever happens to be rendered as
+  // visible text on the current screen. See store.ts's registerPageContext.
+  apiContext: Record<string, unknown>;
   // The screen the user opened `offers` from, so its back button returns there.
   // (Kept for compatibility; back navigation now uses the real `history` stack.)
   offersReturn: Screen;
@@ -214,6 +221,7 @@ export const initialState: AppState = {
   webUrl: '', webTitle: '',
   offersError: '',
   offersSummary: '',
+  apiContext: {},
   offersReturn: 'home',
   voiceFabUnlocked: false,
   voiceTrigger: 0,
@@ -224,6 +232,15 @@ export const initialState: AppState = {
 
 type Action =
   | { type: 'set'; patch: Partial<AppState> }
+  // Merges into apiContext using the reducer's own always-current state,
+  // never the caller's closure — several call sites (e.g. offers.tsx's
+  // retry() calling load()) write to apiContext from two different async
+  // functions bound to the same render's (stale) `state`; a plain
+  // `set({ apiContext: { ...state.apiContext, k: v } })` from either one
+  // would silently clobber whatever the other just wrote, since both read
+  // the same pre-dispatch snapshot. Dispatching this instead is immune to
+  // that regardless of how many fire in sequence.
+  | { type: 'mergeApiContext'; patch: Record<string, unknown> }
   // `replace` forward-navigations don't push onto the back stack — used for
   // auto/boot transitions (splash→…, finding→offers) so Back never lands on a
   // transient/loading screen the user never chose to visit.
@@ -266,6 +283,8 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'set':
       return { ...state, ...action.patch };
+    case 'mergeApiContext':
+      return { ...state, apiContext: { ...state.apiContext, ...action.patch } };
     case 'go': {
       const { screen } = action;
       // No-op navigations don't touch the stack.
@@ -324,6 +343,10 @@ export const _reducer = reducer;
 interface Ctx {
   state: AppState;
   set: (patch: Partial<AppState>) => void;
+  // Use this (not `set`) for apiContext writes — see the 'mergeApiContext'
+  // Action comment for why a plain set() is unsafe when multiple call sites
+  // can write to it from the same render's stale `state` closure.
+  mergeApiContext: (patch: Record<string, unknown>) => void;
   go: (screen: Screen) => void;
   back: () => void;
   showToast: (msg: string) => void;
@@ -344,6 +367,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const prevOnboardingStep = useRef<{ step: number; screen: Screen } | null>(null);
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
+  const mergeApiContext = useCallback((patch: Record<string, unknown>) => dispatch({ type: 'mergeApiContext', patch }), []);
 
   const clearAuto = () => {
     if (timers.current.auto) clearTimeout(timers.current.auto);
@@ -522,8 +546,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const s = stateRef.current;
       const userName =
         (s.authUser?.firstName || s.authUser?.fullName || s.pdName || '').trim().split(/\s+/)[0] || '';
+      // Only relevant on the Profile screen itself — these are exactly the
+      // fields skipped at aboutyou/never filled via the application flow that
+      // Profile lets the user edit directly. Computed fresh every time the
+      // screen context refreshes, not just once, so it reflects whatever's
+      // true right now (e.g. filled in via the application flow since).
+      const missingProfileFields =
+        s.screen === 'profile'
+          ? [
+              ...(!s.pdName.trim() ? ['full name'] : []),
+              ...(!s.pdEmail.trim() ? ['email'] : []),
+              ...(!s.pdDob ? ['date of birth'] : []),
+            ]
+          : [];
       return {
       ...buildPageContext(s.screen),
+      missing_profile_fields: missingProfileFields.length ? missingProfileFields : undefined,
       // The language the user picked on the language-selection screen — the
       // voice agent should speak in this language from the first word,
       // regardless of what language it's addressed in, unless the user
@@ -543,10 +581,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // conversation instead of restarting it. Read from stateRef so this closure
       // never goes stale.
       userContext: stateRef.current.userContext ?? undefined,
+      // Real API responses for the loan-application lifecycle (see the
+      // apiContext field comment) — more complete/authoritative than
+      // screen_overview for these entities since it's the actual response,
+      // not scraped visible text. Populated by whichever of these calls has
+      // run so far this session; absent until at least one has.
+      api_context: Object.keys(stateRef.current.apiContext).length ? stateRef.current.apiContext : undefined,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // apiContext changes don't reach the agent on their own — reading a ref
+  // doesn't trigger a re-pull; this must explicitly ask it to refresh, same
+  // as offersSummary's own effect below (offers.tsx). One shared effect here
+  // covers every application-lifecycle call site instead of repeating this
+  // in each screen.
+  useEffect(() => {
+    if (Object.keys(state.apiContext).length) agent.updatePageContext();
+  }, [state.apiContext]);
 
   // ── WS4: start a tracking session on app boot; end it when backgrounded ──
   useEffect(() => {
@@ -714,7 +767,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: Ctx = { state, set, go, back, showToast, reset, parentOf };
+  const value: Ctx = { state, set, mergeApiContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
 }
 

@@ -67,7 +67,7 @@ function SparkleButton({ label, onPress }: { label: string; onPress: () => void 
  * `onApplied` lets the caller optimistically flag the tile as applied.
  */
 export function useOfferSelect(onApplied?: (offerId: string) => void) {
-  const { state, set, go } = useStore();
+  const { state, set, mergeApiContext, go } = useStore();
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
     if (offer.applied) { go('loans'); return; }
     if (offer.redirectionUrl) {
@@ -77,7 +77,9 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
       // abandons/fails on the lender page, lenderweb marks it failed instead.
       if (state.applicationId) {
         set({ selectedOfferId: offer.id });
-        api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+        api.applyOffer(state.applicationId, offer.id, emiOptionId)
+          .then((res: any) => mergeApiContext({ offerApplyResult: res }))
+          .catch(() => {});
         onApplied?.(offer.id);
       }
       set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
@@ -86,15 +88,16 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
     }
     if (state.applicationId) {
       set({ selectedOfferId: offer.id });
-      await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+      const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
+      if (res) mergeApiContext({ offerApplyResult: res });
       onApplied?.(offer.id);
     }
     go('handoff');
-  }, [state.applicationId, set, go, onApplied]);
+  }, [state.applicationId, set, mergeApiContext, go, onApplied]);
 }
 
 export default function Offers() {
-  const { state, set, go } = useStore();
+  const { state, set, mergeApiContext, go } = useStore();
   const t = useT();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
@@ -111,6 +114,7 @@ export default function Offers() {
       // exist, My Offers is the single place they're shown. Bounce there.
       if (list.length > 0) { setLoading(false); go('fare'); return; }
       setOffers(list);
+      mergeApiContext({ applicationDetail: r.application });
       // Give the voice agent a one-line summary of what came back (or the issue),
       // then push a fresh page-context so it can proactively talk about the offers.
       const top = list[0];
@@ -128,7 +132,7 @@ export default function Offers() {
     } finally {
       setLoading(false);
     }
-  }, [state.applicationId]);
+  }, [state.applicationId, state.offersError, set, mergeApiContext]);
 
   // Push the page-context update from an effect on the committed value, not
   // synchronously after set() above — set() dispatches to the store
@@ -154,6 +158,7 @@ export default function Offers() {
     try {
       const res: any = await api.prequalify(state.applicationId);
       set({ offersError: res?.friendlyError || '' });
+      mergeApiContext({ prequalifyResult: { offers: res?.offers, friendlyError: res?.friendlyError } });
       await load();
     } catch {
       set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });

@@ -38,7 +38,7 @@ function formatDateTime(iso?: string | null): string {
 }
 
 export default function Loans() {
-  const { set, go } = useStore();
+  const { set, mergeApiContext, go } = useStore();
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
@@ -52,12 +52,13 @@ export default function Loans() {
       const { applications }: any = await api.listApplications();
       const list = applications || [];
       setApps(list);
+      mergeApiContext({ applications: list });
     } catch (e: any) {
       if (!silent) setErr(e?.message || 'Could not load your loans.');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [mergeApiContext]);
   // Load on open, then poll silently so lender status updates (pushed to the
   // backend via the KFT status webhook) surface in near-real-time while viewing.
   useEffect(() => {

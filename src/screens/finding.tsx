@@ -36,7 +36,7 @@ function Sparkle({ size, color = colors.mint }: { size: number; color?: string }
 }
 
 export default function Finding() {
-  const { state, go, set } = useStore();
+  const { state, go, set, mergeApiContext } = useStore();
   const insets = useSafeAreaInsets();
   const pulse = useRef(new Animated.Value(0)).current;
   const prog = useRef(new Animated.Value(0)).current;
@@ -62,8 +62,10 @@ export default function Finding() {
     if (state.applicationId) {
       api.prequalify(state.applicationId)
         .then((res: any) => {
-          const list = res?.offers || [];
-          set({ offersError: res?.friendlyError || '' });
+          const { offers, friendlyError } = res as any;
+          const list = offers || [];
+          set({ offersError: friendlyError || '' });
+          mergeApiContext({ prequalifyResult: { offers, friendlyError } });
           if (list.length > 0) {
             // Cache so My Offers renders instantly (before its own re-fetch).
             saveOffersCache({ applicationId: state.applicationId!, savedAt: Date.now(), offers: list });

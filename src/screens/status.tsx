@@ -64,7 +64,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 };
 
 export default function Status() {
-  const { state, back } = useStore();
+  const { state, mergeApiContext, back } = useStore();
   const [app, setApp] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -75,12 +75,13 @@ export default function Status() {
     try {
       const { application }: any = await api.getApplication(state.applicationId);
       setApp(application);
+      mergeApiContext({ applicationDetail: application });
     } catch (e: any) {
       setErr(e?.message || 'Could not load your application.');
     } finally {
       setLoading(false);
     }
-  }, [state.applicationId]);
+  }, [state.applicationId, mergeApiContext]);
   useEffect(() => { load(); }, [load]);
 
   // Prefer the specific lender the user opened from My Loans (selectedOfferId),
