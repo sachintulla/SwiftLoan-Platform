@@ -9,6 +9,7 @@ import { LogoMark, Wordmark } from '../components/Logo';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api } from '../api/client';
+import { saveOffersCache } from '../state/session';
 
 const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
@@ -49,24 +50,32 @@ export default function Finding() {
   useEffect(() => {
     let done = false;
     const started = Date.now();
-    const finish = () => {
+    // On success (offers returned) go straight to My Offers, which now shows the
+    // results — the old "Review your offers" screen is only used for the
+    // error/empty case. Keeps a ~2.6s minimum on the loader.
+    const finish = (hasOffers: boolean) => {
       if (done) return;
       done = true;
       const wait = Math.max(0, 2600 - (Date.now() - started));
-      setTimeout(() => go('offers'), wait);
+      setTimeout(() => go(hasOffers ? 'fare' : 'offers'), wait);
     };
     if (state.applicationId) {
       api.prequalify(state.applicationId)
-        .then((res) => {
-          set({ offersError: (res as any)?.friendlyError || '' });
-          finish();
+        .then((res: any) => {
+          const list = res?.offers || [];
+          set({ offersError: res?.friendlyError || '' });
+          if (list.length > 0) {
+            // Cache so My Offers renders instantly (before its own re-fetch).
+            saveOffersCache({ applicationId: state.applicationId!, savedAt: Date.now(), offers: list });
+          }
+          finish(list.length > 0);
         })
         .catch(() => {
           set({ offersError: 'We couldn’t reach our lending partners just now. Please check your connection and try again.' });
-          finish();
+          finish(false);
         });
     } else {
-      setTimeout(finish, 100); // demo path (no live application)
+      setTimeout(() => finish(false), 100); // demo path (no live application)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

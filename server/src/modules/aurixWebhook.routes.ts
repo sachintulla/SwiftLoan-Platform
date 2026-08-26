@@ -86,10 +86,12 @@ function mapJourney(state: string, status: string, reason: string): ApplicationS
   if (/reject|declin|denied/.test(r)) return 'rejected';
 
   if (!success) {
-    // A failure at an eligibility/lender step is a rejection; earlier-step
-    // failures are transient and don't change the tracked status.
+    // An explicit lender decline is caught by the reason check above (→ rejected).
+    // A bare failure at an eligibility/lender step is a TECHNICAL failure (API
+    // error, timeout, aborted hand-off) → 'failed', which the app shows as a
+    // distinct end-state. Earlier-step failures are transient — no status change.
     if (['eligibility_check', 'bureau_soft_pull', 'lender_selection', 'lender_api_journey',
-      'application_submitted', 'post_lender_redirection_journey'].includes(st)) return 'rejected';
+      'application_submitted', 'post_lender_redirection_journey'].includes(st)) return 'failed';
     return null;
   }
 

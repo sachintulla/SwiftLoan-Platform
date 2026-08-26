@@ -76,7 +76,7 @@ export default function Home() {
   // "Ask Ruby" reveals + animates the support FAB and starts a session, so a
   // first-time user learns the assistant is always one tap away (see VoiceWidget).
   const askRuby = () => set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 });
-  const viewOffers = () => { set({ offersReturn: 'home' }); go('offers'); };
+  const viewOffers = () => { set({ offersReturn: 'home' }); go('fare'); };
   const changeAmount = () => { set({ offersReturn: 'home' }); go('basic'); };
   const startFresh = () => { set({ offersReturn: 'home' }); go('basicpan'); };
 
