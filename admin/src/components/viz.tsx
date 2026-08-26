@@ -152,3 +152,48 @@ export function LiveFeed({ events }: { events: FeedEvent[] }) {
     </div>
   );
 }
+
+// ─── Recently active users ───────────────────────────────────────────────────
+export interface ActiveUser {
+  userId: string | null;
+  customerId: string | null;
+  name: string | null;
+  phone: string | null;
+  stage: string | null;
+  os: string | null;
+  device: string | null;
+  appVersion: string | null;
+  lastActiveAt: string;
+  online: boolean;
+  pagesVisited: number;
+}
+
+/** Newest-first list of who's been using the app, with phone + OS at a glance. */
+export function ActiveUsers({ users }: { users: ActiveUser[] }) {
+  if (!users.length) return <div className="empty">No recent sessions</div>;
+  return (
+    <div style={{ display: 'grid', gap: 2 }}>
+      {users.map((u, i) => {
+        const who = u.name || u.phone || 'Guest';
+        const href = u.customerId ? `/customers/${u.customerId}` : u.userId ? `/users/${u.userId}` : null;
+        const inner = (
+          <div className="row" style={{ gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+            <span title={u.online ? 'Active now' : 'Recently active'} style={{ width: 8, height: 8, borderRadius: '50%', background: u.online ? 'var(--green)' : 'var(--grey)', flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{who}</div>
+              <div className="muted" style={{ fontSize: 11.5 }}>
+                {u.phone || '—'}{u.os ? ` · ${u.os}` : ''}{u.device ? ` · ${u.device}` : ''}{u.appVersion ? ` · v${u.appVersion}` : ''}
+              </div>
+            </div>
+            <span className="spacer" />
+            {u.stage && <span className="badge tone-grey" style={{ fontSize: 10.5 }}>{humanStatus(u.stage)}</span>}
+            <span className="muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{timeAgo(u.lastActiveAt)}</span>
+          </div>
+        );
+        return href
+          ? <Link key={u.userId ?? i} href={href} style={{ color: 'inherit', textDecoration: 'none' }}>{inner}</Link>
+          : <div key={u.userId ?? i}>{inner}</div>;
+      })}
+    </div>
+  );
+}
