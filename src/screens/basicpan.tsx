@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Animated, ActivityIndicator, Alert } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
+import { ConsentRow, HeaderCta, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
@@ -125,7 +125,10 @@ export default function BasicPan() {
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader title={<View />} />
+        <AppHeader
+          title={<View />}
+          right={<HeaderCta label={busy ? t.submitting : 'Upload PAN & Verify'} disabled={busy} onPress={onContinue} />}
+        />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
         <StepBadge step={1} of={4} label="PAN" />
@@ -185,8 +188,7 @@ export default function BasicPan() {
           </ConsentRow>
         </View>
 
-        <View style={{ height: 20 }} />
-        <PrimaryButton label={busy ? t.submitting : t.panContinue} icon={null} disabled={busy} onPress={onContinue} />
+        <View style={{ height: 12 }} />
       </View>
     </Screen>
   );

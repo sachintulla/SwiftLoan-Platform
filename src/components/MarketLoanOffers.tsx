@@ -6,6 +6,7 @@ import { Skeleton } from './common/Loading';
 import { colors, font, inr } from '../theme/tokens';
 import { api, MarketLoanOffer } from '../api/client';
 import { saveSelectedPlan } from '../state/selectedPlan';
+import { loadMarketOffersCache, saveMarketOffersCache } from '../state/session';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { LENDER_LOGOS } from '../theme/lenderLogos';
 import { useT } from '../state/store';
@@ -212,14 +213,30 @@ export function MarketLoanOffers({
 
   useEffect(() => {
     let cancelled = false;
-    api.marketLoanOffers()
-      .then(r => {
-        if (cancelled) return;
+    const apply = (data: MarketLoanOffer[]) => {
+      if (cancelled) return;
+      setPlans(data);
+      if (!isHome && data.length > 0) setSelectedId(data[0].id); // pre-select the top (best-rate) plan
+    };
+    (async () => {
+      // Cache-first: the available-offers catalog rarely changes, so once it's
+      // been fetched we reuse the locally-saved copy (fresh for 12h) instead of
+      // calling the cloud again on every mount.
+      const cache = await loadMarketOffersCache();
+      const fresh = cache && Date.now() - cache.savedAt < 12 * 60 * 60 * 1000;
+      if (fresh) { apply(cache!.offers as MarketLoanOffer[]); return; }
+      try {
+        const r = await api.marketLoanOffers();
         const data = r.data ?? [];
-        setPlans(data);
-        if (!isHome && data.length > 0) setSelectedId(data[0].id); // pre-select the top (best-rate) plan
-      })
-      .catch(() => { if (!cancelled) setPlans([]); });
+        apply(data);
+        if (data.length > 0) saveMarketOffersCache({ savedAt: Date.now(), offers: data });
+      } catch {
+        // Offline / error → fall back to any (stale) cached copy, else empty.
+        if (cancelled) return;
+        if (cache) apply(cache.offers as MarketLoanOffer[]);
+        else setPlans([]);
+      }
+    })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

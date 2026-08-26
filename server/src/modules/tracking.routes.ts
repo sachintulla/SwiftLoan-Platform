@@ -4,6 +4,7 @@ import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { journeyNameFor } from '../lib/appEventMap.js';
+import { handleAppNudge } from '../lib/appNudge.js';
 import { verifyAccess } from '../lib/jwt.js';
 import { scoped } from '../lib/log.js';
 
@@ -115,6 +116,15 @@ trackingRouter.post('/event', ah(async (req, res) => {
         },
       ).catch((e) => log.error('journey promotion failed', { userId, eventName, error: String(e) }));
     }
+  }
+
+  // Proactive-help nudge from the app (user stalled): raise an admin alert and,
+  // for actionable stalls, expedite an outbound follow-up (callback/SMS).
+  // Fire-and-forget — analytics must never fail the request.
+  if (event.eventType === 'nudge' && userId) {
+    const label = typeof (b.metadata as any)?.label === 'string' ? (b.metadata as any).label : undefined;
+    handleAppNudge(userId, String(eventName), b.screen ?? null, label)
+      .catch((e) => log.error('app nudge follow-up threw', { userId, error: String(e) }));
   }
 
   return created(res, { event_id: event.id }, 'Event recorded');

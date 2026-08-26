@@ -19,6 +19,7 @@ import { trackingRouter } from './modules/tracking.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
 import { adminAuthRouter } from './modules/adminAuth.routes.js';
 import { contextRouter } from './modules/context.routes.js';
+import { configRouter } from './modules/config.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
 import { customersRouter } from './modules/customers.routes.js';
@@ -144,6 +145,7 @@ export function createApp() {
 
   // ── WS3: context handoff + app-download landing pages ──
   app.use('/api/context', leadLimiter, contextRouter);
+  app.use('/api/config', configRouter); // PUBLIC — app fetches admin-tuned config
   // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for
   // the marketing site. Separate from /api/auth/otp/*: that flow creates a
   // User row and issues real app tokens, the wrong side effect here. Each

@@ -9,7 +9,6 @@ import { colors, font, rupee } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api, isAuthed } from '../api/client';
 
-const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 const TYPE_ICON: Record<string, string> = {
   personal: 'bolt', business: 'business_center', home: 'home', education: 'school', vehicle: 'directions_car',
 };
@@ -27,13 +26,21 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   closed: { label: 'Closed', color: colors.muted },
 };
 
+/** "24 Aug 2026, 3:14 PM" — the application's most recent update. */
+function formatDateTime(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
 export default function Loans() {
   const { set, go } = useStore();
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
-  const [score, setScore] = useState<number | null>(null);
-  const [hasOffers, setHasOffers] = useState(false);
 
   // `silent` refreshes (the background poll) skip the full-screen spinner so the
   // list updates in place as lender webhooks change each application's status.
@@ -44,14 +51,11 @@ export default function Loans() {
       const { applications }: any = await api.listApplications();
       const list = applications || [];
       setApps(list);
-      // A real CIBIL score is only meaningful once offers have been pulled (soft check).
-      setHasOffers(list.some((a: any) => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)));
     } catch (e: any) {
       if (!silent) setErr(e?.message || 'Could not load your loans.');
     } finally {
       if (!silent) setLoading(false);
     }
-    api.creditScore().then((r: any) => setScore(r?.score ?? null)).catch(() => setScore(null));
   }, []);
   // Load on open, then poll silently so lender status updates (pushed to the
   // backend via the KFT status webhook) surface in near-real-time while viewing.
@@ -80,9 +84,6 @@ export default function Loans() {
         const st = o.lenderStatus || 'handoff';
         const meta = STATUS_META[st] || { label: st, color: colors.muted };
         const apr = app.loan?.apr ?? o.apr ?? o.roi ?? null;
-        const appliedDate = o.appliedAt
-          ? new Date(o.appliedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-          : '';
         return (
           <AppCard
             key={o.id}
@@ -92,7 +93,7 @@ export default function Loans() {
             status={meta.label}
             statusColor={meta.color}
             logoUrl={o.lenderLogoUrl}
-            appliedOn={appliedDate}
+            updatedAt={formatDateTime(app.updatedAt)}
             left={{ label: 'Amount', value: rupee(o.amount ?? app.amount) }}
             right={
               app.loan
@@ -107,6 +108,35 @@ export default function Loans() {
       });
     }
 
+    // Eligibility completed — Aurix returned offers (the eligibility_check
+    // webhook succeeded) but the user hasn't picked/applied to a specific lender
+    // yet. Surface it as a trackable in-progress application; tapping opens the
+    // offers so they can review and apply.
+    if ((app.offers || []).length > 0) {
+      const meta = STATUS_META[app.status] || { label: 'In Progress', color: colors.amber };
+      const aprs = (app.offers || []).map((o: any) => o.apr).filter((n: any) => typeof n === 'number' && n > 0);
+      const bestApr = aprs.length ? Math.min(...aprs) : null;
+      const n = app.offers.length;
+      // Lender image: the recommended/best offer's logo (any lender's if none flagged).
+      const rec = (app.offers || []).find((o: any) => o.recommended) ?? app.offers[0];
+      const logoUrl = rec?.lenderLogoUrl ?? (app.offers || []).find((o: any) => o.lenderLogoUrl)?.lenderLogoUrl ?? null;
+      return [(
+        <AppCard
+          key={app.id}
+          icon={TYPE_ICON[app.loanType] || 'account_balance'}
+          name={typeName}
+          ref_={`Ref ${app.ref}`}
+          status={meta.label}
+          statusColor={meta.color}
+          logoUrl={logoUrl}
+          updatedAt={formatDateTime(app.updatedAt)}
+          left={{ label: 'Amount', value: rupee(app.amount) }}
+          right={bestApr != null ? { label: 'Rates from', value: `${bestApr}% p.a.` } : { label: 'Offers', value: `${n} matched` }}
+          onPress={() => { set({ applicationId: app.id, offersReturn: 'loans' }); go('offers'); }}
+        />
+      )];
+    }
+
     // Legacy safety net: an active/disbursed loan with no applied-offer tracking
     // still shows so existing loans never vanish.
     if (app.loan) {
@@ -119,6 +149,7 @@ export default function Loans() {
           ref_={`Ref ${app.ref}`}
           status={meta.label}
           statusColor={meta.color}
+          updatedAt={formatDateTime(app.updatedAt)}
           left={{ label: 'Amount', value: rupee(app.amount) }}
           right={{ label: 'Next EMI', value: rupee(app.loan.emiAmount) }}
           onPress={() => open(app)}
@@ -131,29 +162,11 @@ export default function Loans() {
 
   return (
     <Screen scroll bottomNav padded>
-      <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <View style={{ flex: 1 }}>
-          <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text }]}>My Loans</Text>
-          <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 2 }]}>
-            Track your applications and manage active loans.
-          </Text>
-        </View>
-        {/* CIBIL score chip. Real score once offers are pulled → tap opens the
-            score screen; otherwise it nudges the user to get offers first. */}
-        {hasOffers && score != null ? (
-          <Pressable onPress={() => go('creditscore')} style={styles.scoreChip} accessibilityLabel="View CIBIL score">
-            <Icon name="speed" size={16} color={colors.primary} />
-            <View>
-              <Text style={[font(500), { fontSize: 9.5, color: colors.textSoft }]}>CIBIL</Text>
-              <Text style={[font(800), { fontSize: 15, color: colors.text, marginTop: -1 }]}>{score}</Text>
-            </View>
-          </Pressable>
-        ) : (
-          <Pressable onPress={() => go('fare')} style={styles.scoreChipGhost} accessibilityLabel="Get your CIBIL score">
-            <Icon name="speed" size={15} color={colors.primary} />
-            <Text style={[font(600), { fontSize: 11, color: colors.primary, maxWidth: 92 }]}>Get real CIBIL score</Text>
-          </Pressable>
-        )}
+      <View style={{ marginTop: 8 }}>
+        <Text style={[font(800), { fontSize: 27, letterSpacing: -0.6, color: colors.text }]}>My Loans</Text>
+        <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 2 }]}>
+          Track your applications and manage active loans.
+        </Text>
       </View>
 
       <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 20, marginBottom: 12 }]}>Your applications</Text>
@@ -172,7 +185,7 @@ export default function Loans() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[font(700), { fontSize: 15.5, color: colors.text }]}>Check offers & apply</Text>
-              <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>See your credit score and eligibility</Text>
+              <Text style={[font(400), { fontSize: 12.5, color: colors.textSoft, marginTop: 1 }]}>See your offers and eligibility</Text>
             </View>
             <Icon name="arrow_forward" size={20} color={colors.primary} />
           </Pressable>
@@ -186,11 +199,11 @@ export default function Loans() {
 
 function AppCard({
   icon, name, ref_, status, statusColor, left, right, onPress,
-  logoUrl, appliedOn,
+  logoUrl, updatedAt,
 }: {
   icon: string; name: string; ref_: string; status: string; statusColor: string;
   left: { label: string; value: string }; right: { label: string; value: string }; onPress: () => void;
-  logoUrl?: string | null; appliedOn?: string | null;
+  logoUrl?: string | null; updatedAt?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} style={styles.card}>
@@ -206,8 +219,8 @@ function AppCard({
           <View style={{ flex: 1 }}>
             <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>{name}</Text>
             <Text style={[font(400), { fontSize: 12, color: colors.muted }]}>{ref_}</Text>
-            {appliedOn ? (
-              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 2 }]}>Applied on {appliedOn}</Text>
+            {updatedAt ? (
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 2 }]}>Updated {updatedAt}</Text>
             ) : null}
           </View>
         </View>
@@ -233,16 +246,6 @@ function AppCard({
 }
 
 const styles = StyleSheet.create({
-  scoreChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    backgroundColor: colors.chip, borderRadius: 14, borderWidth: 1, borderColor: colors.line,
-    paddingVertical: 6, paddingHorizontal: 12,
-  },
-  scoreChipGhost: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: colors.chip, borderRadius: 14, borderWidth: 1, borderColor: colors.line,
-    paddingVertical: 8, paddingHorizontal: 12,
-  },
   applyCard: {
     flexDirection: 'row',
     alignItems: 'center',

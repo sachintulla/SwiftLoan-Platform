@@ -9,8 +9,6 @@ describe('UC-N7 agent screen-name resolution (bug: "My Loan" opened Repayment)',
     ['repayment', 'repay'],
     ['repay', 'repay'],
     ['My Offers', 'fare'],
-    ['CIBIL', 'creditscore'],
-    ['credit score', 'creditscore'],
     ['Home', 'home'],
     ['dashboard', 'home'],
     ['profile', 'profile'],
@@ -49,7 +47,6 @@ describe('UC-N3 back-stack fallback (prevMap)', () => {
     ['panv', 'kyc'],
     ['bankv', 'kyc'],
     ['selfie', 'kyc'],
-    ['creditscore', 'repay'],
     ['language', 'splash'],
     ['intro', 'language'],
     ['mobile', 'intro'],
@@ -88,13 +85,17 @@ describe('UC-N3b real back stack returns to actual origin', () => {
     expect(s.history).toEqual([]);
   });
 
-  it('Back skips transient loaders (finding)', () => {
-    // basic → finding (loader) → offers: Back from offers skips finding → basic.
-    let s = _reducer(initialState, { type: 'go', screen: 'basic' });
+  it('Back from the offers result returns to the funnel origin, not the funnel', () => {
+    // My Offers (fare) → apply funnel → offers: Back returns to fare, skipping
+    // the whole funnel (Verify PAN → details → finding), per offersReturn.
+    let s: typeof initialState = { ...initialState, offersReturn: 'fare' };
+    s = _reducer(s, { type: 'go', screen: 'fare' });
+    s = _reducer(s, { type: 'go', screen: 'basicpan' });
+    s = _reducer(s, { type: 'go', screen: 'basic' });
     s = _reducer(s, { type: 'go', screen: 'finding' });
     s = _reducer(s, { type: 'go', screen: 'offers' });
     s = _reducer(s, { type: 'back' });
-    expect(s.screen).toBe('basic');
+    expect(s.screen).toBe('fare');
   });
 
   it('back() on an empty stack falls back to the PREV map', () => {

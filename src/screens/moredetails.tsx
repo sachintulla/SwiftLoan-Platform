@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
-import { Field, Chips, PrimaryButton, GhostButton, StepBadge } from '../components/Controls';
+import { Field, Chips, HeaderCta, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
@@ -70,19 +70,18 @@ export default function MoreDetails() {
   };
 
   return (
-    <Screen
-      footer={
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <View style={{ flex: 1 }}>
-            <GhostButton label="Skip" onPress={() => go('finding')} />
+    <Screen>
+      <AppHeader
+        title={<View />}
+        right={
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Pressable onPress={() => go('finding')} hitSlop={8} accessibilityRole="button">
+              <Text style={[font(700), { fontSize: 14, color: colors.textSoft }]}>Skip</Text>
+            </Pressable>
+            <HeaderCta label={busy ? 'Saving…' : 'Continue'} disabled={busy} onPress={onContinue} />
           </View>
-          <View style={{ flex: 1.4 }}>
-            <PrimaryButton label={busy ? 'Saving…' : 'Continue'} icon={null} disabled={busy} onPress={onContinue} />
-          </View>
-        </View>
-      }
-    >
-      <AppHeader title={<View />} />
+        }
+      />
       <StepBadge step={3} of={4} label="Optional" />
       <StepDots total={4} active={3} />
       <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>A few more details</Text>

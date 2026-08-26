@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Pressable, Linking } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { Screen, AppHeader } from '../components/Frame';
 import { Icon } from '../components/Icon';
 import { colors, font } from '../theme/tokens';
@@ -33,6 +33,29 @@ export default function LenderWeb() {
   const reportedRef = useRef(false);
 
   const toLoans = () => go('loans');
+
+  // KFT / lender pages signal "flow finished, take the user back to the app" via
+  // window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'NAVIGATE' })).
+  // We land on My Loans (the natural home for a submitted application); the
+  // status then updates via the lender webhook + My Loans' background poll.
+  const handleMessage = (event: WebViewMessageEvent) => {
+    let message: any;
+    try {
+      message = JSON.parse(event.nativeEvent.data);
+    } catch {
+      // Many web SDKs post non-JSON noise on the same channel — ignore it.
+      return;
+    }
+    switch (message?.type) {
+      case 'NAVIGATE':
+        go('loans');
+        break;
+      default:
+        // Any other control message also returns to the native app.
+        go('loans');
+        break;
+    }
+  };
 
   const markFailed = (reason: string) => {
     if (reportedRef.current) return;
@@ -75,6 +98,8 @@ export default function LenderWeb() {
           <>
             <WebView
               source={{ uri: url }}
+              // Navigation back from the KFT / lender page into native screens.
+              onMessage={handleMessage}
               onLoadStart={() => setLoading(true)}
               onLoadEnd={() => setLoading(false)}
               startInLoadingState

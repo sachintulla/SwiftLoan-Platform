@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert, Image, ActivityIndicator } from 'react-native';
 import { launchCamera, launchImageLibrary, Asset } from 'react-native-image-picker';
 import { Screen } from '../components/Frame';
@@ -43,6 +43,23 @@ export default function Profile() {
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+
+  // Hidden gesture: tapping the "Personal details" header 5× in a row (each tap
+  // within 1.5s of the last) reveals the voice assistant FAB. See App.tsx.
+  const tapCount = useRef(0);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSecretTap = useCallback(() => {
+    if (state.voiceFabUnlocked) return;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapCount.current += 1;
+    if (tapCount.current >= 5) {
+      tapCount.current = 0;
+      set({ voiceFabUnlocked: true });
+      showToast('Voice assistant unlocked');
+      return;
+    }
+    tapTimer.current = setTimeout(() => { tapCount.current = 0; }, 1500);
+  }, [state.voiceFabUnlocked, set, showToast]);
 
   // Load the profile from the backend (when signed in) and hydrate the store.
   const load = useCallback(async () => {
@@ -241,13 +258,6 @@ export default function Profile() {
           <Pressable onPress={() => set({ pdEdit: true })} style={styles.editIcon} accessibilityLabel="Edit profile"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
         </View>
         <View style={styles.statsRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>{t.statCreditScore}</Text>
-            <Text style={[font(800), { fontSize: 20, color: colors.text }]}>
-              {state.authUser?.creditScore ?? '—'}<Text style={[font(500), { fontSize: 12, color: colors.muted }]}> / 900</Text>
-            </Text>
-          </View>
-          <View style={styles.statDiv} />
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Icon name="event_available" size={18} color={colors.mint} />
             <Text style={[font(600), { fontSize: 12, color: colors.textMid }]}>
@@ -259,7 +269,7 @@ export default function Profile() {
 
       {/* Personal details */}
       <SectionCard>
-        <SectionHead icon="person" title={t.personalDetails}
+        <SectionHead icon="person" title={t.personalDetails} onTitlePress={onSecretTap}
           right={
             <Pressable onPress={() => { if (state.pdEdit) saveProfile(); else set({ pdEdit: true }); }} style={styles.editBtn}>
               <Icon name={state.pdEdit ? 'check' : 'edit'} size={15} color={colors.primary} />
@@ -364,13 +374,13 @@ export default function Profile() {
 function SectionCard({ children }: { children: React.ReactNode }) {
   return <View style={[styles.card, { marginTop: 16 }]}>{children}</View>;
 }
-function SectionHead({ icon, title, right }: { icon: string; title: string; right?: React.ReactNode }) {
+function SectionHead({ icon, title, right, onTitlePress }: { icon: string; title: string; right?: React.ReactNode; onTitlePress?: () => void }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Pressable onPress={onTitlePress} disabled={!onTitlePress} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon name={icon} size={20} color={colors.primary} />
         <Text style={[font(800), { fontSize: 15.5, color: colors.text }]}>{title}</Text>
-      </View>
+      </Pressable>
       {right}
     </View>
   );

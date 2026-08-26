@@ -3,7 +3,7 @@ import { View, Text, Image, Pressable, StyleSheet, Animated, Easing } from 'reac
 import LinearGradient from 'react-native-linear-gradient';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { StepBadge, Chips } from '../components/Controls';
+import { StepBadge, Chips, PrimaryButton } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
@@ -14,15 +14,6 @@ import { api, Offer } from '../api/client';
 import { agent } from '../voice';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 
-function bandColor(band: string): string {
-  if (band.includes('EXCELLENT') || band.includes('GOOD')) return colors.green;
-  if (band.includes('FAIR') || band.includes('AVERAGE')) return colors.amber;
-  if (band.includes('POOR')) return colors.red;
-  return colors.green;
-}
-function bandLabel(band: string): string {
-  return band.charAt(0) + band.slice(1).toLowerCase();
-}
 
 /** Primary CTA with a repeating "sparkle" shine sweeping across it. */
 function SparkleButton({ label, onPress }: { label: string; onPress: () => void }) {
@@ -69,12 +60,46 @@ function SparkleButton({ label, onPress }: { label: string; onPress: () => void 
   );
 }
 
+/**
+ * Shared offer-selection behavior, reused by the Offers result screen and the
+ * My Offers tab: applied → My Loans; a real lender (deep link) → in-app web
+ * flow; otherwise create the per-lender application and go to handoff.
+ * `onApplied` lets the caller optimistically flag the tile as applied.
+ */
+export function useOfferSelect(onApplied?: (offerId: string) => void) {
+  const { state, set, go } = useStore();
+  return useCallback(async (offer: Offer, emiOptionId?: string) => {
+    if (offer.applied) { go('loans'); return; }
+    if (offer.redirectionUrl) {
+      // Record the hand-off BEFORE opening the lender page so this lender shows
+      // in My Loans with an applied status (previously the redirect flow never
+      // marked the offer applied, so nothing updated on return). If the user
+      // abandons/fails on the lender page, lenderweb marks it failed instead.
+      if (state.applicationId) {
+        set({ selectedOfferId: offer.id });
+        api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+        onApplied?.(offer.id);
+      }
+      set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
+      go('lenderweb');
+      return;
+    }
+    if (state.applicationId) {
+      set({ selectedOfferId: offer.id });
+      await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+      onApplied?.(offer.id);
+    }
+    go('handoff');
+  }, [state.applicationId, set, go, onApplied]);
+}
+
 export default function Offers() {
   const { state, set, go } = useStore();
   const t = useT();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   const load = useCallback(async () => {
     if (!state.applicationId) { setOffers([]); setLoading(false); return; }
@@ -114,36 +139,28 @@ export default function Offers() {
 
   useEffect(() => { load(); }, [load]);
 
-  const select = async (offer: Offer, emiOptionId?: string) => {
-    // Already applied to this lender → don't re-apply; take the user to My Loans
-    // to see this lender application's live status.
-    if (offer.applied) {
-      go('loans');
-      return;
+  const select = useOfferSelect(id =>
+    setOffers(prev => prev.map(o => (o.id === id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o))),
+  );
+
+  // Retry: re-run eligibility (→ Aurix) for this application, then reload. Used
+  // by the failure state so the user can re-attempt without leaving the screen.
+  const retry = async () => {
+    if (!state.applicationId || retrying) return;
+    setRetrying(true);
+    try {
+      const res: any = await api.prequalify(state.applicationId);
+      set({ offersError: res?.friendlyError || '' });
+      await load();
+    } catch {
+      set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });
+    } finally {
+      setRetrying(false);
     }
-    // Real lender (carries a deep link): do NOT create the application yet. Open
-    // the lender's web flow; the per-lender application is created only once KFT
-    // confirms the submission (application_submitted webhook) — i.e. after the
-    // user completes OTP verification on the lender's page. Returning from the
-    // lender page lands the user on My Loans (see lenderweb).
-    if (offer.redirectionUrl) {
-      if (state.applicationId) set({ selectedOfferId: offer.id });
-      set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
-      go('lenderweb');
-      return;
-    }
-    // Mock / no-redirect lender (dev/demo, no OTP web flow): create immediately
-    // and go to the native handoff screen.
-    if (state.applicationId) {
-      set({ selectedOfferId: offer.id });
-      await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
-      setOffers(prev => prev.map(o => (o.id === offer.id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o)));
-    }
-    go('handoff');
   };
 
   return (
-    <Screen scroll padded={false}>
+    <Screen scroll padded={false} contentStyle={{ paddingBottom: 96 }}>
       <View style={{ paddingHorizontal: 20 }}>
         <AppHeader title={<View />} />
       </View>
@@ -164,51 +181,77 @@ export default function Offers() {
         ) : err ? (
           <ErrorState message={err} onRetry={load} />
         ) : offers.length === 0 ? (
+          // No offers — a clean, purposeful failure/empty state. We do NOT show
+          // the "Offer Validity"/"Flexible Adjustments" cards here (they only make
+          // sense once real offers exist); instead the recovery actions lead.
           !state.applicationId ? (
-            <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
-          ) : state.offersError ? (
-            // Show the offer API's own message verbatim (no hardcoded rephrasing).
-            <Empty icon="error" title="Couldn’t fetch offers" message={state.offersError} />
+            <View>
+              <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
+              <View style={{ marginTop: 8 }}>
+                <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basicpan')} />
+              </View>
+            </View>
           ) : (
-            <Empty icon="search_off" title="No offers yet" message="We couldn't match a partner to this profile. Try adjusting your amount." />
+            <View>
+              <Empty
+                icon={state.offersError ? 'error' : 'search_off'}
+                title={state.offersError ? 'Couldn’t fetch offers' : 'No offers yet'}
+                // Show the offer API's own message verbatim (no hardcoded rephrasing).
+                message={state.offersError || "We couldn't match a partner to this profile. Try adjusting your amount."}
+              />
+              <View style={{ gap: 10, marginTop: 8 }}>
+                <PrimaryButton
+                  label={retrying ? 'Retrying…' : 'Retry'}
+                  icon="refresh"
+                  disabled={retrying}
+                  onPress={retry}
+                />
+                <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
+                  <Icon name="tune" size={18} color={colors.text} />
+                  <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
+                </Pressable>
+              </View>
+            </View>
           )
         ) : (
-        <View style={{ gap: 14, marginTop: 18 }}>
-          {offers.map(o => (
-            <OfferCard key={o.id} offer={o} onSelect={select} />
-          ))}
-        </View>
+          <>
+            <View style={{ gap: 14, marginTop: 18 }}>
+              {offers.map(o => (
+                <OfferCard key={o.id} offer={o} onSelect={select} />
+              ))}
+            </View>
+
+            {/* Offer validity — only meaningful when there are real offers. */}
+            <View style={styles.info}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Icon name="info" size={18} color={colors.blue} />
+                <Text style={[font(700), { fontSize: 14, color: colors.text }]}>Offer Validity</Text>
+              </View>
+              <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 6 }]}>
+                These offers are based on your preliminary credit assessment. Final approval and terms are subject to verification by the respective lenders.
+              </Text>
+              <View style={{ gap: 6, marginTop: 10 }}>
+                <ValidRow text="Rates locked for 48 hours" />
+                <ValidRow text="No impact on credit score for comparison" />
+              </View>
+            </View>
+
+            {/* Flexible adjustments */}
+            <View style={styles.flex}>
+              <View style={styles.flexIcon}>
+                <Icon name="payments" size={20} color={colors.primary} />
+              </View>
+              <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 10 }]}>Flexible Adjustments</Text>
+              <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
+                Need a different amount or time frame? Adjust and refresh offers.
+              </Text>
+              <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
+                <Icon name="tune" size={18} color={colors.text} />
+                <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update Details</Text>
+              </Pressable>
+            </View>
+          </>
         )}
-
-        {/* Offer validity */}
-        <View style={styles.info}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Icon name="info" size={18} color={colors.blue} />
-            <Text style={[font(700), { fontSize: 14, color: colors.text }]}>Offer Validity</Text>
-          </View>
-          <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 6 }]}>
-            These offers are based on your preliminary credit assessment. Final approval and terms are subject to verification by the respective lenders.
-          </Text>
-          <View style={{ gap: 6, marginTop: 10 }}>
-            <ValidRow text="Rates locked for 48 hours" />
-            <ValidRow text="No impact on credit score for comparison" />
-          </View>
-        </View>
-
-        {/* Flexible adjustments */}
-        <View style={styles.flex}>
-          <View style={styles.flexIcon}>
-            <Icon name="payments" size={20} color={colors.primary} />
-          </View>
-          <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 10 }]}>Flexible Adjustments</Text>
-          <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
-            Need a different amount or time frame? Adjust and refresh offers. Current Goal: Debt Consolidation
-          </Text>
-          <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
-            <Icon name="tune" size={18} color={colors.text} />
-            <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update Details</Text>
-          </Pressable>
-        </View>
       </View>
     </Screen>
   );
@@ -231,11 +274,31 @@ const LENDER_STATUS_LABEL: Record<string, string> = {
  * server marked `recommended`. Mirrors the sample lender-API response shape
  * (rating/RBI badge, fee + GST breakdown, net disbursal, feature bullets).
  */
-function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer, emiOptionId?: string) => void }) {
+/**
+ * Lender names come from the partner/Aurix feed in inconsistent casing —
+ * brand-cased ("Herofin", "MoneyView"), or SCREAMING ALL-CAPS
+ * ("UNITY SMALL FINANCE BANK"). Normalise so every offer tile reads the same:
+ * title-case screaming multi-word names, but leave brand casing and short
+ * single-word acronyms (IDFC, HDFC, SBI) untouched.
+ */
+export function displayLenderName(raw?: string | null): string {
+  const name = (raw || '').trim();
+  if (!name) return 'Lender';
+  const isAllUpper = name === name.toUpperCase() && /[A-Z]/.test(name);
+  if (!isAllUpper) return name; // already brand-cased — leave it
+  if (!name.includes(' ') && name.length <= 5) return name; // acronym
+  return name.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer, emiOptionId?: string) => void }) {
   const t = useT();
-  const recommendedOption = offer.emiOptions.find(o => o.recommended) ?? offer.emiOptions[0];
+  const lenderName = displayLenderName(offer.lenderName || offer.partner?.name);
+  // emiOptions can be undefined for a cached/locally-stored offer (e.g. the My
+  // Offers tab) or a lender whose BRE hasn't priced anything — guard every use.
+  const emiOptions = offer.emiOptions ?? [];
+  const recommendedOption = emiOptions.find(o => o.recommended) ?? emiOptions[0];
   const [tenureMonths, setTenureMonths] = useState<number | undefined>(recommendedOption?.tenureMonths);
-  const selected = offer.emiOptions.find(o => o.tenureMonths === tenureMonths) ?? recommendedOption;
+  const selected = emiOptions.find(o => o.tenureMonths === tenureMonths) ?? recommendedOption;
   // Some lenders (or a real integration whose BRE hasn't priced anything yet —
   // an empty offers/options response is a real case, not just a bug) don't
   // give a fixed EMI upfront. The card still needs to render something useful
@@ -243,7 +306,7 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
   const hasEmi = !!selected;
 
   useVoiceTarget(
-    offer.partner.name,
+    lenderName,
     { kind: 'button', onTap: () => onSelect(offer, selected?.id) },
     [offer, selected],
   );
@@ -254,18 +317,18 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
   return (
     <View style={[styles.card, offer.recommended && styles.cardRecommended]}>
       <View style={styles.cardTop}>
-        <View style={[styles.bank, (offer.lenderLogoUrl || offer.partner.logoUrl) && styles.bankLogo]}>
-          {(offer.lenderLogoUrl || offer.partner.logoUrl) ? (
-            <Image source={{ uri: (offer.lenderLogoUrl || offer.partner.logoUrl)! }} style={{ width: 42, height: 42 }} resizeMode="contain" />
+        <View style={[styles.bank, (offer.lenderLogoUrl || offer.partner?.logoUrl) && styles.bankLogo]}>
+          {(offer.lenderLogoUrl || offer.partner?.logoUrl) ? (
+            <Image source={{ uri: (offer.lenderLogoUrl || offer.partner?.logoUrl)! }} style={{ width: 42, height: 42 }} resizeMode="contain" />
           ) : (
-            <Icon name={offer.partner.icon} size={22} color={colors.primary} />
+            <Icon name={offer.partner?.icon || "account_balance"} size={22} color={colors.primary} />
           )}
         </View>
         <View style={{ flex: 1 }}>
           {/* Real lender's name (from the partner API) headlines; the aggregator
               partner it came through is shown small underneath. */}
-          <Text style={[font(800), { fontSize: 17, color: colors.text, letterSpacing: -0.2 }]}>{offer.lenderName || offer.partner.name}</Text>
-          {offer.lenderName ? (
+          <Text style={[font(800), { fontSize: 17, color: colors.text, letterSpacing: -0.2 }]} numberOfLines={1}>{lenderName}</Text>
+          {offer.lenderName && offer.partner?.name ? (
             <Text style={[font(500), { fontSize: 10.5, color: colors.muted, marginTop: 1 }]}>via {offer.partner.name}</Text>
           ) : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
@@ -281,16 +344,16 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
                 <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>High match</Text>
               </View>
             ) : null}
-            {offer.partner.rbiApproved ? (
+            {offer.partner?.rbiApproved ? (
               <View style={styles.trustPill}>
                 <Icon name="verified" size={12} color={colors.greenDeep} />
                 <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>RBI Approved</Text>
               </View>
             ) : null}
-            {offer.partner.rating != null ? (
+            {offer.partner?.rating != null ? (
               <View style={styles.ratingPill}>
                 <Icon name="star" size={11} color={colors.amber} />
-                <Text style={[font(700), { fontSize: 11, color: colors.text }]}>{offer.partner.rating.toFixed(1)}</Text>
+                <Text style={[font(700), { fontSize: 11, color: colors.text }]}>{offer.partner?.rating.toFixed(1)}</Text>
               </View>
             ) : null}
           </View>
@@ -304,10 +367,10 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
 
       {hasEmi ? (
         <>
-          {offer.emiOptions.length > 1 ? (
+          {emiOptions.length > 1 ? (
             <Chips
               style={{ marginTop: 16 }}
-              options={offer.emiOptions.map(o => ({ label: `${o.tenureMonths} mo`, value: String(o.tenureMonths) }))}
+              options={emiOptions.map(o => ({ label: `${o.tenureMonths} mo`, value: String(o.tenureMonths) }))}
               value={String(tenureMonths)}
               onChange={v => setTenureMonths(Number(v))}
             />
@@ -335,7 +398,7 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
         <View style={styles.pendingBox}>
           <Metric label="Eligible amount" value={rupee(offer.amount)} highlight />
           <Metric label="Interest rate" value={`${offer.apr}% p.a.`} />
-          <Metric label="Disbursal time" value={offer.partner.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} hr` : 'Instant'} />
+          <Metric label="Disbursal time" value={offer.partner?.disbursalTimeHrs ? `${offer.partner?.disbursalTimeHrs} hr` : 'Instant'} />
         </View>
       )}
 
@@ -354,9 +417,9 @@ function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer,
         </View>
       </View>
 
-      {offer.partner.features.length ? (
+      {offer.partner?.features?.length ? (
         <View style={styles.featuresBox}>
-          {offer.partner.features.map((f, i) => <ValidRow key={i} text={f} />)}
+          {offer.partner?.features.map((f, i) => <ValidRow key={i} text={f} />)}
         </View>
       ) : null}
 
@@ -409,19 +472,6 @@ function ValidRow({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  creditCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 16,
-    backgroundColor: 'rgba(255,255,255,0.75)',
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 16,
-    padding: 14,
-  },
-  creditIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
-  bandPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 20,

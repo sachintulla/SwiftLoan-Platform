@@ -27,7 +27,7 @@ export const SCREEN_NAMES = [
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
-  'status', 'disbursed', 'repay', 'creditscore', 'calculator',
+  'status', 'disbursed', 'repay', 'calculator',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -41,7 +41,6 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   repay: 'repay', emi: 'repay', myrepayments: 'repay',
   myoffers: 'fare', offers: 'fare', fare: 'fare',
   calculator: 'calculator', emicalculator: 'calculator', loancalculator: 'calculator',
-  creditscore: 'creditscore', cibil: 'creditscore', cibilscore: 'creditscore', score: 'creditscore',
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
@@ -67,7 +66,7 @@ export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
 // Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
 // floating FAB lifts above this bar on these screens so the two never overlap.
 export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
-  'basic', 'moredetails', 'aboutyou', 'privacy',
+  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy',
 ]);
 
 // Spelled out in full for the voice agent's page context — more reliable for
@@ -86,7 +85,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   // (state.offersReturn); this parent is used if that's ever unset.
   offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
   aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
-  disbursed: 'home', repay: 'home', creditscore: 'repay',
+  disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home', explore: 'mobile',
 };
 
@@ -157,6 +156,19 @@ export interface AppState {
   // The screen the user opened `offers` from, so its back button returns there.
   // (Kept for compatibility; back navigation now uses the real `history` stack.)
   offersReturn: Screen;
+  // Voice assistant FAB is hidden by default; unlocked via a hidden gesture
+  // (tap the Personal details header 5× in a row on Profile) or the dashboard's
+  // "Ask Ruby" affordance.
+  voiceFabUnlocked: boolean;
+  // Monotonic nonce: bumping it asks the VoiceWidget to draw attention to itself
+  // (an entrance/wiggle animation) and start a session — driven by "Ask Ruby" on
+  // the dashboard so first-time users discover the always-available support FAB.
+  voiceTrigger: number;
+  // Proactive-help nudge: when the user stalls (idle / drops off / eligible but
+  // hasn't applied), the idle detector sets this so the VoiceWidget vibrates,
+  // wiggles the Ruby FAB, and shows a contextual label — WITHOUT starting a
+  // session (the user taps to ask). `id` is a monotonic nonce.
+  voiceNudge: { id: number; label: string; reason: string } | null;
   // Real back stack: every `go()` pushes the current screen here; `back()` pops it
   // to the screen the user actually came from — no more hardcoded parent map.
   history: Screen[];
@@ -203,6 +215,9 @@ export const initialState: AppState = {
   offersError: '',
   offersSummary: '',
   offersReturn: 'home',
+  voiceFabUnlocked: false,
+  voiceTrigger: 0,
+  voiceNudge: null,
   history: [],
   hasSavedOffers: false,
 };
@@ -236,7 +251,6 @@ const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   offers: 'offers_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
   aadhaar: 'kyc_submitted', panv: 'kyc_submitted', bankv: 'kyc_submitted', selfie: 'kyc_submitted',
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
-  creditscore: 'credit_score_viewed',
 };
 
 /** WS5: one install report per app process (see the boot effect below). */
@@ -273,6 +287,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, screen, history };
     }
     case 'back': {
+      // The offers RESULT is a funnel endpoint: pressing back must return to
+      // wherever the funnel was started from (My Offers / Home) — never back into
+      // the funnel (Verify PAN → details → …). offersReturn records that origin.
+      if (state.screen === 'offers') {
+        return { ...state, screen: state.offersReturn || 'home', history: [] };
+      }
       // Pop to the screen the user actually came from; fall back to the PREV map
       // (then home) only when the stack is empty (e.g. deep-linked entry).
       if (state.history.length > 0) {
