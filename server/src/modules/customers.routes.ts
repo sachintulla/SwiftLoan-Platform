@@ -163,10 +163,14 @@ customersRouter.get('/:id', ah(async (req, res) => {
     isTerminal: TERMINAL_STAGES.includes(customer.currentStage),
   };
 
+  // Resolve the linked app user. Prefer the explicit link, but fall back to
+  // matching on phone: a Customer created from lead/journey tracking is only
+  // linked to its User at OTP verify, so an unlinked-but-registered customer
+  // (same phone) would otherwise show no applications/loans/device at all.
   const [user, leads] = await Promise.all([
-    customer.userId
+    customer.userId || customer.phone
       ? prisma.user.findUnique({
-          where: { id: customer.userId },
+          where: customer.userId ? { id: customer.userId } : { phone: customer.phone! },
           include: {
             applications: {
               orderBy: { createdAt: 'desc' },
@@ -196,9 +200,10 @@ customersRouter.get('/:id', ah(async (req, res) => {
 
   // Latest device the person used (phone + OS shown in their profile). Falls
   // back to nothing if they have only ever used the website widget.
-  const session = customer.userId
+  const resolvedUserId = customer.userId ?? user?.id ?? null;
+  const session = resolvedUserId
     ? await prisma.session.findFirst({
-        where: { userId: customer.userId },
+        where: { userId: resolvedUserId },
         orderBy: { startedAt: 'desc' },
         select: { deviceInfo: true, startedAt: true },
       })
