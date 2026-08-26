@@ -194,6 +194,25 @@ customersRouter.get('/:id', ah(async (req, res) => {
       : Promise.resolve([]),
   ]);
 
+  // Latest device the person used (phone + OS shown in their profile). Falls
+  // back to nothing if they have only ever used the website widget.
+  const session = customer.userId
+    ? await prisma.session.findFirst({
+        where: { userId: customer.userId },
+        orderBy: { startedAt: 'desc' },
+        select: { deviceInfo: true, startedAt: true },
+      })
+    : null;
+  const di = (session?.deviceInfo ?? {}) as Record<string, unknown>;
+  const device = session
+    ? {
+        os: di.platform ? `${di.platform}${di.osVersion ? ` ${di.osVersion}` : ''}` : null,
+        model: di.model ? String(di.model) : null,
+        appVersion: di.appVersion ? String(di.appVersion) : null,
+        lastSeenAt: session.startedAt,
+      }
+    : null;
+
   // Roll-up across every lender the customer applied to. One "submitted
   // application" = one applied offer; its lenderStatus is that lender's own
   // outcome. A customer with 3 lender applications can be approved by one,
@@ -227,6 +246,7 @@ customersRouter.get('/:id', ah(async (req, res) => {
     user,
     leads,
     applicationSummary,
+    device,
     nextAction: nextActionFor(customer.currentStage),
   }, 'Customer 360');
 }));

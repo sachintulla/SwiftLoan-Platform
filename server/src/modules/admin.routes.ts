@@ -191,6 +191,63 @@ adminRouter.get('/live-feed', ah(async (req, res) => {
   return ok(res, enriched, 'Live feed');
 }));
 
+// GET /api/admin/active-users?limit=  — most-recently-active users, newest first,
+// each with their phone and device/OS (from the latest session).
+adminRouter.get('/active-users', ah(async (req, res) => {
+  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit ?? '15'), 10) || 15));
+  // Pull a generous window of recent sessions, then keep the newest one per user
+  // so a chatty user does not crowd out everyone else.
+  const sessions = await prisma.session.findMany({
+    orderBy: { startedAt: 'desc' },
+    take: limit * 8,
+    select: { id: true, userId: true, deviceInfo: true, startedAt: true, endedAt: true, pagesVisited: true },
+  });
+
+  const seen = new Set<string>();
+  const picked: typeof sessions = [];
+  for (const s of sessions) {
+    const key = s.userId ?? `anon:${s.id}`; // anonymous sessions never dedupe together
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push(s);
+    if (picked.length >= limit) break;
+  }
+
+  const userIds = [...new Set(picked.map((s) => s.userId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true, currentStage: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const custByUserId = new Map(customers.map((c) => [c.userId!, c]));
+
+  const rows = picked.map((s) => {
+    const u = s.userId ? userById.get(s.userId) : null;
+    const c = s.userId ? custByUserId.get(s.userId) : null;
+    const d = (s.deviceInfo ?? {}) as Record<string, unknown>;
+    const platform = d.platform ? String(d.platform) : null;
+    const osVersion = d.osVersion ? String(d.osVersion) : null;
+    return {
+      userId: s.userId ?? null,
+      customerId: c?.id ?? null,
+      name: u?.fullName ?? null,
+      phone: u?.phone ?? null,
+      stage: c?.currentStage ?? null,
+      os: platform ? `${platform}${osVersion ? ` ${osVersion}` : ''}` : null,
+      device: d.model ? String(d.model) : null,
+      appVersion: d.appVersion ? String(d.appVersion) : null,
+      lastActiveAt: s.startedAt,
+      online: !s.endedAt,
+      pagesVisited: s.pagesVisited,
+    };
+  });
+  return ok(res, rows, 'Active users');
+}));
+
 // ─────────────────────────── loans / pipeline ───────────────────────────
 
 // GET /api/admin/loans?status=&search=&page=&pageSize=

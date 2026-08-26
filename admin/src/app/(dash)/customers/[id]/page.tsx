@@ -50,6 +50,7 @@ interface Detail {
   campaigns?: CampaignRef[];
   user?: LinkedUser | null;
   applicationSummary?: { lenders: number; submitted: number; approved: number; rejected: number; disbursed: number; inProgress: number };
+  device?: { os?: string | null; model?: string | null; appVersion?: string | null; lastSeenAt?: string } | null;
   leads?: LeadRef[];
   nextAction?: string | null;
 }
@@ -250,6 +251,15 @@ export default function CustomerDetail() {
             {` · from ${c.firstSource || 'unknown source'}`}
             {c.createdAt ? ` · first seen ${dateStr(c.createdAt)}` : ''}
           </p>
+          {d.device && (d.device.os || d.device.model) && (
+            <p className="page-sub" style={{ marginTop: 2 }}>
+              <span aria-hidden>📱</span>{' '}
+              {d.device.os || 'Unknown OS'}
+              {d.device.model ? ` · ${d.device.model}` : ''}
+              {d.device.appVersion ? ` · app v${d.device.appVersion}` : ''}
+              {d.device.lastSeenAt ? ` · last seen ${dateStr(d.device.lastSeenAt)}` : ''}
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'grid', gap: 6, justifyItems: 'end', minWidth: 220 }}>
