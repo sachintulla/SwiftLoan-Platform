@@ -71,7 +71,15 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
     if (offer.applied) { go('loans'); return; }
     if (offer.redirectionUrl) {
-      if (state.applicationId) set({ selectedOfferId: offer.id });
+      // Record the hand-off BEFORE opening the lender page so this lender shows
+      // in My Loans with an applied status (previously the redirect flow never
+      // marked the offer applied, so nothing updated on return). If the user
+      // abandons/fails on the lender page, lenderweb marks it failed instead.
+      if (state.applicationId) {
+        set({ selectedOfferId: offer.id });
+        api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => {});
+        onApplied?.(offer.id);
+      }
       set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
       go('lenderweb');
       return;
