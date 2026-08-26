@@ -23,26 +23,33 @@ adminRouter.use(auditAdmin);
 // The 8-stage business funnel (WS4). Each stage is derived from existing data so
 // the dashboard shows real numbers without needing the app to be instrumented first.
 async function buildFunnel() {
-  const [sessions, leads, qualifiedLeads, apps, kyc, review, approved, disbursed] = await Promise.all([
+  // Two populations, split at "Application submitted": the stages up to and
+  // including submission count unique CUSTOMERS/applications, but once a
+  // customer applies to several lenders the downstream stages count PER-LENDER
+  // applications (an applied Offer). One customer can be approved by two lenders
+  // and rejected by a third, so approved/disbursed here are lender-application
+  // counts, deliberately not customer counts.
+  const [sessions, leads, qualifiedLeads, apps, kyc, submittedToLenders, lenderApproved, lenderDisbursed] = await Promise.all([
     prisma.session.count(),
     prisma.lead.count(),
     prisma.lead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
     prisma.loanApplication.count(),
     prisma.loanApplication.count({ where: { status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
-    prisma.loanApplication.count({ where: { status: { in: ['under_review', 'approved', 'disbursed', 'closed'] } } }),
-    prisma.loanApplication.count({ where: { status: { in: ['approved', 'disbursed', 'closed'] } } }),
-    prisma.loanApplication.count({ where: { status: { in: ['disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { applied: true } }),
+    prisma.offer.count({ where: { applied: true, lenderStatus: { in: ['approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { applied: true, lenderStatus: { in: ['disbursed', 'closed'] } } }),
   ]);
 
   const stages = [
-    { key: 'visit', label: 'Visit / Session', value: sessions },
-    { key: 'lead', label: 'Lead captured', value: leads },
-    { key: 'qualified', label: 'Qualified lead', value: qualifiedLeads },
-    { key: 'application', label: 'Application started', value: apps },
-    { key: 'kyc', label: 'KYC / docs submitted', value: kyc },
-    { key: 'compliance', label: 'Compliance / review', value: review },
-    { key: 'approved', label: 'Approved', value: approved },
-    { key: 'disbursed', label: 'Disbursed', value: disbursed },
+    { key: 'visit', label: 'Visit / Session', value: sessions, unit: 'customers' },
+    { key: 'lead', label: 'Lead captured', value: leads, unit: 'customers' },
+    { key: 'qualified', label: 'Qualified lead', value: qualifiedLeads, unit: 'customers' },
+    { key: 'application', label: 'Application started', value: apps, unit: 'customers' },
+    { key: 'kyc', label: 'KYC / docs submitted', value: kyc, unit: 'customers' },
+    // From here on, one unit = one lender application (an applied offer).
+    { key: 'submitted', label: 'Submitted to lenders', value: submittedToLenders, unit: 'applications' },
+    { key: 'approved', label: 'Approved by lender', value: lenderApproved, unit: 'applications' },
+    { key: 'disbursed', label: 'Disbursed', value: lenderDisbursed, unit: 'applications' },
   ];
 
   // conversion % vs previous stage, drop-off % vs previous stage.
@@ -68,7 +75,7 @@ const APP_STATUSES = [
 
 // GET /api/admin/dashboard/overview
 adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
-  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups] = await Promise.all([
+  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
     prisma.user.count(),
     prisma.loanApplication.count(),
     prisma.loan.count(),
@@ -77,10 +84,16 @@ adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
     prisma.loan.aggregate({ _sum: { principal: true, outstanding: true } }),
     buildFunnel(),
     prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
+    // Per-lender application pipeline: one applied offer = one lender application,
+    // bucketed by that lender's own status (matches the app's My Loans).
+    prisma.offer.groupBy({ by: ['lenderStatus'], where: { applied: true }, _count: { _all: true } }),
   ]);
 
   const byStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
   statusGroups.forEach((g) => { byStatus[g.status] = g._count._all; });
+
+  const byLenderStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
+  lenderGroups.forEach((g) => { if (g.lenderStatus) byLenderStatus[g.lenderStatus] = g._count._all; });
 
   const totalDisbursed = disbursedAgg._sum.principal ?? 0;
   const approved = byStatus['approved'] + byStatus['disbursed'] + byStatus['closed'];
@@ -101,6 +114,8 @@ adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
     },
     funnel,
     applicationsByStatus: byStatus,
+    // Per-lender application pipeline (applied offers by their own status).
+    lenderApplicationsByStatus: byLenderStatus,
   }, 'Overview');
 }));
 
@@ -151,7 +166,86 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
 adminRouter.get('/live-feed', ah(async (req, res) => {
   const limit = Math.min(100, Math.max(5, parseInt(String(req.query.limit ?? '30'), 10) || 30));
   const events = await prisma.activityEvent.findMany({ orderBy: { ts: 'desc' }, take: limit });
-  return ok(res, events, 'Live feed');
+
+  // Attach who each event belongs to, so the feed can name the person and link
+  // through to them. Batched (one query for the whole page) rather than a join
+  // per row. ActivityEvent.userId is a User id; the drill-through page is keyed
+  // by Customer, so resolve both here.
+  const userIds = [...new Set(events.map((e) => e.userId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const customerByUserId = new Map(customers.map((c) => [c.userId!, c.id]));
+
+  const enriched = events.map((e) => ({
+    ...e,
+    user: e.userId ? userById.get(e.userId) ?? null : null,
+    customerId: e.userId ? customerByUserId.get(e.userId) ?? null : null,
+  }));
+  return ok(res, enriched, 'Live feed');
+}));
+
+// GET /api/admin/active-users?limit=  — most-recently-active users, newest first,
+// each with their phone and device/OS (from the latest session).
+adminRouter.get('/active-users', ah(async (req, res) => {
+  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit ?? '15'), 10) || 15));
+  // Pull a generous window of recent sessions, then keep the newest one per user
+  // so a chatty user does not crowd out everyone else.
+  const sessions = await prisma.session.findMany({
+    orderBy: { startedAt: 'desc' },
+    take: limit * 8,
+    select: { id: true, userId: true, deviceInfo: true, startedAt: true, endedAt: true, pagesVisited: true },
+  });
+
+  const seen = new Set<string>();
+  const picked: typeof sessions = [];
+  for (const s of sessions) {
+    const key = s.userId ?? `anon:${s.id}`; // anonymous sessions never dedupe together
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push(s);
+    if (picked.length >= limit) break;
+  }
+
+  const userIds = [...new Set(picked.map((s) => s.userId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true, currentStage: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const custByUserId = new Map(customers.map((c) => [c.userId!, c]));
+
+  const rows = picked.map((s) => {
+    const u = s.userId ? userById.get(s.userId) : null;
+    const c = s.userId ? custByUserId.get(s.userId) : null;
+    const d = (s.deviceInfo ?? {}) as Record<string, unknown>;
+    const platform = d.platform ? String(d.platform) : null;
+    const osVersion = d.osVersion ? String(d.osVersion) : null;
+    return {
+      userId: s.userId ?? null,
+      customerId: c?.id ?? null,
+      name: u?.fullName ?? null,
+      phone: u?.phone ?? null,
+      stage: c?.currentStage ?? null,
+      os: platform ? `${platform}${osVersion ? ` ${osVersion}` : ''}` : null,
+      device: d.model ? String(d.model) : null,
+      appVersion: d.appVersion ? String(d.appVersion) : null,
+      lastActiveAt: s.startedAt,
+      online: !s.endedAt,
+      pagesVisited: s.pagesVisited,
+    };
+  });
+  return ok(res, rows, 'Active users');
 }));
 
 // ─────────────────────────── loans / pipeline ───────────────────────────
@@ -177,7 +271,18 @@ adminRouter.get('/loans', ah(async (req, res) => {
       where,
       orderBy: { createdAt: 'desc' },
       skip, take,
-      include: { user: { select: { id: true, fullName: true, phone: true, pincode: true } }, loan: true, _count: { select: { offers: true } } },
+      include: {
+        user: { select: { id: true, fullName: true, phone: true, pincode: true } },
+        loan: true,
+        _count: { select: { offers: true } },
+        // Per-lender applications for this row (applied offers + their own
+        // status), so the pipeline can show "3 lenders · 1 approved, 2 pending"
+        // rather than just the parent application's single status.
+        offers: {
+          where: { applied: true },
+          select: { id: true, lenderName: true, lenderStatus: true, partner: { select: { name: true } } },
+        },
+      },
     }),
     prisma.loanApplication.count({ where }),
   ]);

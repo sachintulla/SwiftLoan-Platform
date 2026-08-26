@@ -2,10 +2,56 @@
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { Card, StatusBadge, StatCard, TableSkeleton } from '@/components/ui';
-import { inr, dateStr, humanStatus, timeAgo } from '@/lib/format';
+import { Card, StatusBadge, LoanStatusBadge, StatCard, TableSkeleton } from '@/components/ui';
+import { inr, dateStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
 
-const STAGES = ['draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
+// Shared trunk: the stages every application goes through before it fans out to
+// individual lenders (ending at "submitted to lenders" = handoff).
+const STAGES = ['draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handoff'];
+
+// Per-lender ladder AFTER submission. Each applied offer runs this independently.
+const LENDER_STEPS: { key: string; label: string }[] = [
+  { key: 'handoff', label: 'Submitted' },
+  { key: 'under_review', label: 'Under Review' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'disbursed', label: 'Active' },
+];
+const LENDER_RANK: Record<string, number> = { handoff: 0, under_review: 1, approved: 2, disbursed: 3 };
+
+/** One lender's own journey after submission — matches what the app shows. */
+function LenderTrack({ offer }: { offer: any }) {
+  const st: string = offer.lenderStatus ?? 'handoff';
+  const failed = st === 'rejected' || st === 'failed';
+  const idx = LENDER_RANK[st] ?? 0;
+  return (
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+      <div className="row between wrap" style={{ marginBottom: 8 }}>
+        <b>{offer.partner?.name ?? offer.lenderName ?? 'Lender'}</b>
+        <LoanStatusBadge status={st} />
+      </div>
+      <div className="row wrap" style={{ gap: 0 }}>
+        {LENDER_STEPS.map((s, i) => {
+          const done = !failed && i <= idx;
+          const isFailNode = failed && i === Math.min(idx, 1) + 1;
+          const bg = isFailNode ? 'var(--red)' : done ? 'var(--brand)' : 'var(--border)';
+          return (
+            <div key={s.key} className="row" style={{ gap: 0 }}>
+              <div style={{ display: 'grid', placeItems: 'center', gap: 5, minWidth: 84 }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, color: '#fff', background: bg }}>
+                  {isFailNode ? '×' : done && i < idx ? '✓' : i + 1}
+                </div>
+                <span style={{ fontSize: 10, color: done || isFailNode ? 'var(--text)' : 'var(--text-faint)', textAlign: 'center' }}>
+                  {isFailNode ? loanStatusLabel(st) : s.label}
+                </span>
+              </div>
+              {i < LENDER_STEPS.length - 1 && <div style={{ width: 20, height: 2, background: !failed && i < idx ? 'var(--brand)' : 'var(--border)' }} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function LoanDetail() {
   const { id } = useParams<{ id: string }>();
@@ -16,15 +62,33 @@ export default function LoanDetail() {
 
   if (isLoading || !app) return <div className="page"><TableSkeleton rows={8} /></div>;
 
-  const stageIdx = STAGES.indexOf(app.status);
+  // The parent application only tracks the shared trunk; clamp so a
+  // post-submission app.status still lights the whole trunk.
+  const stageIdx = Math.min(STAGES.indexOf(app.status), STAGES.length - 1) < 0
+    ? STAGES.length - 1
+    : STAGES.indexOf(app.status);
   const loan = app.loan;
+
+  // Per-lender applications = offers actually applied to. Each has its own status.
+  const appliedOffers: any[] = (app.offers ?? []).filter((o: any) => o.applied);
+  const count = (sts: string[]) => appliedOffers.filter((o) => sts.includes(o.lenderStatus)).length;
+  const approved = count(['approved']);
+  const rejected = count(['rejected', 'failed']);
+  const disbursed = count(['disbursed']);
+  const summary = {
+    submitted: appliedOffers.length,
+    approved,
+    rejected,
+    disbursed,
+    inProgress: appliedOffers.length - approved - rejected - disbursed,
+  };
 
   return (
     <div className="page">
       <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.back()}>← Back</button>
       <div className="row between wrap">
         <div>
-          <h1 className="page-title">{app.ref} <StatusBadge status={app.status} /></h1>
+          <h1 className="page-title">{app.ref} <LoanStatusBadge status={app.status} /></h1>
           <p className="page-sub">{app.user?.fullName} · {app.user?.phone} · applied {dateStr(app.createdAt)}</p>
         </div>
       </div>
@@ -36,14 +100,14 @@ export default function LoanDetail() {
         <StatCard label="Offers" value={app.offers?.length ?? 0} tone="amber" />
       </div>
 
-      {/* stage tracker */}
-      <Card title="Stage progress" className="" >
+      {/* shared trunk — before the application fans out to individual lenders */}
+      <Card title="Shared journey (before lenders)" className="" >
         <div className="row wrap" style={{ gap: 0 }}>
           {STAGES.map((s, i) => (
             <div key={s} className="row" style={{ gap: 0 }}>
               <div style={{ display: 'grid', placeItems: 'center', gap: 6, minWidth: 90 }}>
                 <div style={{ width: 26, height: 26, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700, color: '#fff', background: i <= stageIdx ? 'var(--brand)' : 'var(--border)' }}>{i < stageIdx ? '✓' : i + 1}</div>
-                <span style={{ fontSize: 10.5, color: i <= stageIdx ? 'var(--text)' : 'var(--text-faint)', textAlign: 'center' }}>{humanStatus(s)}</span>
+                <span style={{ fontSize: 10.5, color: i <= stageIdx ? 'var(--text)' : 'var(--text-faint)', textAlign: 'center' }}>{loanStatusLabel(s)}</span>
               </div>
               {i < STAGES.length - 1 && <div style={{ width: 22, height: 2, background: i < stageIdx ? 'var(--brand)' : 'var(--border)' }} />}
             </div>
@@ -51,13 +115,27 @@ export default function LoanDetail() {
         </div>
       </Card>
 
+      {/* per-lender rollup + independent journeys */}
+      {appliedOffers.length > 0 && (
+        <Card title={`Lender applications (${summary.submitted})`} className="" >
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', marginBottom: 6 }}>
+            <StatCard label="Submitted" value={summary.submitted} tone="blue" />
+            <StatCard label="In progress" value={summary.inProgress} tone="amber" />
+            <StatCard label="Approved" value={summary.approved} tone="green" />
+            <StatCard label="Rejected" value={summary.rejected} tone="red" />
+            <StatCard label="Disbursed" value={summary.disbursed} tone="teal" />
+          </div>
+          {appliedOffers.map((o) => <LenderTrack key={o.id} offer={o} />)}
+        </Card>
+      )}
+
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16, alignItems: 'start' }}>
         <Card title="Offers">
           {(app.offers ?? []).length === 0 ? <div className="empty">No offers generated</div> : (
             <div className="table-wrap"><table className="data">
-              <thead><tr><th>Lender</th><th>APR</th><th>EMI</th><th>Fee</th><th></th></tr></thead>
+              <thead><tr><th>Lender</th><th>APR</th><th>EMI</th><th>Fee</th><th>Status</th><th></th></tr></thead>
               <tbody>{app.offers.map((o: any) => (
-                <tr key={o.id}><td>{o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inr(o.emi)}</td><td className="mono">{inr(o.processingFee)}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
+                <tr key={o.id}><td>{o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inr(o.emi)}</td><td className="mono">{inr(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
               ))}</tbody>
             </table></div>
           )}

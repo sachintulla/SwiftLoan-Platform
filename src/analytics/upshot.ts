@@ -14,6 +14,8 @@
  * import, so a missing package is a no-op instead of a red-screen at boot.
  */
 
+import { NativeModules } from 'react-native';
+
 const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? "aa5b7c7f-0ec1-4888-9bd8-35c210f0e5fb";
 const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? "f3bf1d6f-5771-41f7-a6ff-640d3af4805e";
 
@@ -60,6 +62,15 @@ let resolved = false;
 function sdk(): UpshotNative | null {
   if (resolved) return native;
   resolved = true;
+  // The wrapper builds `new NativeEventEmitter(NativeModules.UpshotReact)` at
+  // import time. In any build where the native module isn't linked (e.g. a
+  // simulator build with Upshot excluded), UpshotReact is undefined and that
+  // constructor throws an *uncaught* invariant red-screen at boot. Guard by
+  // confirming the native module is present before we require the JS wrapper.
+  if (!(NativeModules as { UpshotReact?: unknown })?.UpshotReact) {
+    native = null;
+    return native;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require('react-native-upshotsdk');

@@ -28,10 +28,17 @@ function buildSteps(app: any): Step[] {
     { key: 'disbursed', icon: 'payments', title: 'Disbursed', desc: 'Funds are credited to your linked bank account.' },
   ];
 
-  if (app?.status === 'rejected') {
+  // Terminal negative outcomes replace the forward timeline with a single
+  // clear end-state: 'rejected' = the lender declined; 'failed' = the
+  // application couldn't be completed for a technical reason (lender API error,
+  // web hand-off abandoned/errored, timeout).
+  if (app?.status === 'rejected' || app?.status === 'failed') {
+    const isFail = app.status === 'failed';
     return [
       { ...base[0], state: 'done' },
-      { key: 'rejected', icon: 'cancel', title: 'Rejected', desc: 'Unfortunately your application was not approved this time.', state: 'active', danger: true },
+      isFail
+        ? { key: 'failed', icon: 'error', title: 'Failed', desc: 'We couldn’t complete this application due to a technical issue. Please try again or choose another lender.', state: 'active', danger: true }
+        : { key: 'rejected', icon: 'cancel', title: 'Rejected', desc: 'Unfortunately your application was not approved this time.', state: 'active', danger: true },
     ];
   }
 

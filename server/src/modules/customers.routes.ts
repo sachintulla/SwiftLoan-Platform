@@ -163,14 +163,30 @@ customersRouter.get('/:id', ah(async (req, res) => {
     isTerminal: TERMINAL_STAGES.includes(customer.currentStage),
   };
 
+  // Resolve the linked app user. Prefer the explicit link, but fall back to
+  // matching on phone: a Customer created from lead/journey tracking is only
+  // linked to its User at OTP verify, so an unlinked-but-registered customer
+  // (same phone) would otherwise show no applications/loans/device at all.
   const [user, leads] = await Promise.all([
-    customer.userId
+    customer.userId || customer.phone
       ? prisma.user.findUnique({
-          where: { id: customer.userId },
+          where: customer.userId ? { id: customer.userId } : { phone: customer.phone! },
           include: {
             applications: {
               orderBy: { createdAt: 'desc' },
-              include: { loan: true, _count: { select: { offers: true } } },
+              include: {
+                loan: true,
+                _count: { select: { offers: true } },
+                // Per-lender applications live on the offers: an offer with
+                // applied=true is one submitted lender application, and its
+                // lenderStatus is that lender's own progress (independent of the
+                // parent application's eligibility status). Surfaced so the admin
+                // can show one journey per lender after submission.
+                offers: {
+                  orderBy: [{ applied: 'desc' }, { recommended: 'desc' }],
+                  include: { partner: { select: { name: true, logoUrl: true } } },
+                },
+              },
             },
             loans: { orderBy: { disbursedAt: 'desc' } },
             kyc: true,
@@ -182,6 +198,49 @@ customersRouter.get('/:id', ah(async (req, res) => {
       : Promise.resolve([]),
   ]);
 
+  // Latest device the person used (phone + OS shown in their profile). Falls
+  // back to nothing if they have only ever used the website widget.
+  const resolvedUserId = customer.userId ?? user?.id ?? null;
+  const session = resolvedUserId
+    ? await prisma.session.findFirst({
+        where: { userId: resolvedUserId },
+        orderBy: { startedAt: 'desc' },
+        select: { deviceInfo: true, startedAt: true },
+      })
+    : null;
+  const di = (session?.deviceInfo ?? {}) as Record<string, unknown>;
+  const device = session
+    ? {
+        os: di.platform ? `${di.platform}${di.osVersion ? ` ${di.osVersion}` : ''}` : null,
+        model: di.model ? String(di.model) : null,
+        appVersion: di.appVersion ? String(di.appVersion) : null,
+        lastSeenAt: session.startedAt,
+      }
+    : null;
+
+  // Roll-up across every lender the customer applied to. One "submitted
+  // application" = one applied offer; its lenderStatus is that lender's own
+  // outcome. A customer with 3 lender applications can be approved by one,
+  // rejected by another and still under review at a third — so these are
+  // independent counts, not a single status.
+  const appliedOffers = (user?.applications ?? []).flatMap((a) =>
+    (a.offers ?? []).filter((o) => o.applied),
+  );
+  const countStatus = (statuses: string[]) =>
+    appliedOffers.filter((o) => o.lenderStatus && statuses.includes(o.lenderStatus)).length;
+  const approved = countStatus(['approved']);
+  const rejected = countStatus(['rejected', 'failed']);
+  const disbursed = countStatus(['disbursed']);
+  const applicationSummary = {
+    lenders: appliedOffers.length,          // how many lender applications submitted
+    submitted: appliedOffers.length,
+    approved,
+    rejected,
+    disbursed,
+    // Still-open applications: submitted but no terminal outcome yet.
+    inProgress: appliedOffers.length - approved - rejected - disbursed,
+  };
+
   return ok(res, {
     customer,
     timeline,
@@ -191,6 +250,8 @@ customersRouter.get('/:id', ah(async (req, res) => {
     campaigns: campaignContacts,
     user,
     leads,
+    applicationSummary,
+    device,
     nextAction: nextActionFor(customer.currentStage),
   }, 'Customer 360');
 }));

@@ -11,8 +11,8 @@ import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
-import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS } from '@/components/journey';
+import { Card, StatCard, StatusBadge, LoanStatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
+import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
 import { inr, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
@@ -37,7 +37,7 @@ interface LeadRef {
 }
 interface LinkedUser {
   id: string; fullName?: string | null; phone?: string | null; email?: string | null; createdAt?: string;
-  applications?: { id: string; ref: string; amount: number; status: string; createdAt?: string }[];
+  applications?: { id: string; ref: string; amount: number; status: string; createdAt?: string; offers?: LenderOffer[] }[];
   loans?: { id: string; principal: number; outstanding: number; status: string }[];
   kyc?: { status?: string | null; panVerified?: boolean; aadhaarVerified?: boolean } | null;
 }
@@ -49,6 +49,8 @@ interface Detail {
   calls?: CallAttemptDetail[];
   campaigns?: CampaignRef[];
   user?: LinkedUser | null;
+  applicationSummary?: { lenders: number; submitted: number; approved: number; rejected: number; disbursed: number; inProgress: number };
+  device?: { os?: string | null; model?: string | null; appVersion?: string | null; lastSeenAt?: string } | null;
   leads?: LeadRef[];
   nextAction?: string | null;
 }
@@ -249,6 +251,15 @@ export default function CustomerDetail() {
             {` · from ${c.firstSource || 'unknown source'}`}
             {c.createdAt ? ` · first seen ${dateStr(c.createdAt)}` : ''}
           </p>
+          {d.device && (d.device.os || d.device.model) && (
+            <p className="page-sub" style={{ marginTop: 2 }}>
+              <span aria-hidden>📱</span>{' '}
+              {d.device.os || 'Unknown OS'}
+              {d.device.model ? ` · ${d.device.model}` : ''}
+              {d.device.appVersion ? ` · app v${d.device.appVersion}` : ''}
+              {d.device.lastSeenAt ? ` · last seen ${dateStr(d.device.lastSeenAt)}` : ''}
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'grid', gap: 6, justifyItems: 'end', minWidth: 220 }}>
@@ -334,6 +345,21 @@ export default function CustomerDetail() {
           />
         </Card>
       </div>
+
+      {/* ── lender applications (independent journeys + roll-up) ────────── */}
+      {d.applicationSummary && d.applicationSummary.submitted > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Card
+            title={`Lender applications (${d.applicationSummary.submitted})`}
+            sub="After submission the journey continues independently for each lender. Statuses match what the customer sees in the app."
+          >
+            <div style={{ marginBottom: 14 }}><LenderRollup s={d.applicationSummary} /></div>
+            {(d.user?.applications ?? [])
+              .flatMap((a) => (a.offers ?? []).filter((o) => o.applied))
+              .map((o) => <LenderTrack key={o.id} offer={o} />)}
+          </Card>
+        </div>
+      )}
 
       {/* ── what has been said ─────────────────────────────────────────── */}
       <div style={{ marginTop: 16 }}>
@@ -517,7 +543,7 @@ export default function CustomerDetail() {
                   <tbody>{user.applications!.map((a) => (
                     <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
                       <td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td>
-                      <td><StatusBadge status={a.status} /></td><td className="muted">{a.createdAt ? dateStr(a.createdAt) : '—'}</td>
+                      <td><LoanStatusBadge status={a.status} /></td><td className="muted">{a.createdAt ? dateStr(a.createdAt) : '—'}</td>
                     </tr>
                   ))}</tbody>
                 </table></div>

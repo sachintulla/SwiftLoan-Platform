@@ -110,6 +110,9 @@ export default function Offers() {
     try {
       const r: any = await api.getApplication(state.applicationId);
       const list = (r.application?.offers || []) as Offer[];
+      // This screen is now the error/failed fallback only — when offers actually
+      // exist, My Offers is the single place they're shown. Bounce there.
+      if (list.length > 0) { setLoading(false); go('fare'); return; }
       setOffers(list);
       mergeApiContext({ applicationDetail: r.application });
       // Give the voice agent a one-line summary of what came back (or the issue),
