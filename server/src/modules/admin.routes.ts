@@ -166,7 +166,29 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
 adminRouter.get('/live-feed', ah(async (req, res) => {
   const limit = Math.min(100, Math.max(5, parseInt(String(req.query.limit ?? '30'), 10) || 30));
   const events = await prisma.activityEvent.findMany({ orderBy: { ts: 'desc' }, take: limit });
-  return ok(res, events, 'Live feed');
+
+  // Attach who each event belongs to, so the feed can name the person and link
+  // through to them. Batched (one query for the whole page) rather than a join
+  // per row. ActivityEvent.userId is a User id; the drill-through page is keyed
+  // by Customer, so resolve both here.
+  const userIds = [...new Set(events.map((e) => e.userId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const customerByUserId = new Map(customers.map((c) => [c.userId!, c.id]));
+
+  const enriched = events.map((e) => ({
+    ...e,
+    user: e.userId ? userById.get(e.userId) ?? null : null,
+    customerId: e.userId ? customerByUserId.get(e.userId) ?? null : null,
+  }));
+  return ok(res, enriched, 'Live feed');
 }));
 
 // ─────────────────────────── loans / pipeline ───────────────────────────
