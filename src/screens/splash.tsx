@@ -36,6 +36,8 @@ export default function Splash() {
   const orbs = useRef([0, 1, 2, 3].map(() => new Animated.Value(0))).current;
   const streaks = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
   const pop = useRef(new Animated.Value(0)).current; // subtle mark pop as lines land
+  const glow = useRef(new Animated.Value(0)).current; // continuous pulsing halo
+  const breathe = useRef(new Animated.Value(0)).current; // continuous gentle scale
   const wSwift = useRef(new Animated.Value(0)).current;
   const wLoan = useRef(new Animated.Value(0)).current;
   const tagWords = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
@@ -76,6 +78,17 @@ export default function Splash() {
       ]).start();
     });
 
+    // Continuous life so the splash never reads as static: a breathing mark and
+    // a pulsing halo that keep going until the auto-transition to the next screen.
+    loop(breathe, 2200);
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 1600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(200),
+      ]),
+    ).start();
+
     // Gentle continuous float + dual-ring loader + ambient orbs.
     loop(float, 1800);
     Animated.loop(Animated.timing(spin, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true })).start();
@@ -110,6 +123,9 @@ export default function Splash() {
 
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
   const popScale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const breatheScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] });
+  const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.55] });
+  const glowOpacity = glow.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.4, 0] });
   const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const spin2Deg = spin2.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
 
@@ -132,7 +148,9 @@ export default function Splash() {
 
         <View style={styles.center}>
           {/* Logo mark — lines-less base + the three lines flown in on top. */}
-          <Animated.View style={{ transform: [{ translateY: floatY }, { scale: popScale }] }}>
+          <Animated.View style={{ transform: [{ translateY: floatY }, { scale: Animated.multiply(popScale, breatheScale) }] }}>
+            {/* Continuous pulsing halo behind the mark. */}
+            <Animated.View pointerEvents="none" style={[styles.halo, { opacity: glowOpacity, transform: [{ scale: glowScale }] }]} />
             <View style={styles.tileClip} ref={logoRef}>
               <Image source={require('../../assets/brand/logo_nolines.png')} resizeMode="contain" style={styles.mark} />
             </View>
@@ -192,6 +210,7 @@ const styles = StyleSheet.create({
   orb: { position: 'absolute' },
   streakLayer: { position: 'absolute', top: 0, left: 0, width: TILE, height: TILE },
   streak: { position: 'absolute', height: 6, borderRadius: 3 },
+  halo: { position: 'absolute', width: 190, height: 190, borderRadius: 95, left: (TILE - 190) / 2, top: (TILE - 190) / 2, backgroundColor: 'rgba(234,251,243,0.55)' },
   tileClip: { width: TILE, height: TILE, borderRadius: TILE * 0.29, overflow: 'hidden' },
   mark: { width: TILE, height: TILE },
   word: { flexDirection: 'row', marginTop: 26 },

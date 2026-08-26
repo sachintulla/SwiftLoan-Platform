@@ -195,3 +195,79 @@ export function ChannelBadge({ channel }: { channel: string }) {
     </span>
   );
 }
+
+// ─── Per-lender application track (post-submission) ──────────────────────────
+// After "Application submitted" the journey fans out: each lender the customer
+// applied to runs this ladder independently. Labels match the mobile app.
+import { loanStatusLabel } from '@/lib/format';
+import { LoanStatusBadge } from '@/components/ui';
+
+const LENDER_STEPS: { key: string; label: string }[] = [
+  { key: 'handoff', label: 'Submitted' },
+  { key: 'under_review', label: 'Under Review' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'disbursed', label: 'Active' },
+];
+const LENDER_RANK: Record<string, number> = { handoff: 0, under_review: 1, approved: 2, disbursed: 3 };
+
+export interface LenderOffer {
+  id: string;
+  applied?: boolean;
+  lenderName?: string | null;
+  lenderStatus?: string | null;
+  partner?: { name?: string | null } | null;
+}
+
+/** One lender's own journey after submission — independent of the others. */
+export function LenderTrack({ offer }: { offer: LenderOffer }) {
+  const st = offer.lenderStatus ?? 'handoff';
+  const failed = st === 'rejected' || st === 'failed';
+  const idx = LENDER_RANK[st] ?? 0;
+  return (
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+      <div className="row between wrap" style={{ marginBottom: 8 }}>
+        <b>{offer.partner?.name ?? offer.lenderName ?? 'Lender'}</b>
+        <LoanStatusBadge status={st} />
+      </div>
+      <div className="row wrap" style={{ gap: 0 }}>
+        {LENDER_STEPS.map((s, i) => {
+          const done = !failed && i <= idx;
+          const isFailNode = failed && i === Math.min(idx, 1) + 1;
+          const bg = isFailNode ? 'var(--red)' : done ? 'var(--brand)' : 'var(--border)';
+          return (
+            <div key={s.key} className="row" style={{ gap: 0 }}>
+              <div style={{ display: 'grid', placeItems: 'center', gap: 5, minWidth: 84 }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, color: '#fff', background: bg }}>
+                  {isFailNode ? '×' : done && i < idx ? '✓' : i + 1}
+                </div>
+                <span style={{ fontSize: 10, color: done || isFailNode ? 'var(--text)' : 'var(--text-faint)', textAlign: 'center' }}>
+                  {isFailNode ? loanStatusLabel(st) : s.label}
+                </span>
+              </div>
+              {i < LENDER_STEPS.length - 1 && <div style={{ width: 20, height: 2, background: !failed && i < idx ? 'var(--brand)' : 'var(--border)' }} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Roll-up of a customer's lender applications, matching the app's outcomes. */
+export function LenderRollup({ s }: { s: { submitted: number; inProgress: number; approved: number; rejected: number; disbursed: number } }) {
+  const cell = (label: string, value: number, tone: string) => (
+    <div style={{ flex: '1 1 90px', minWidth: 90, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10 }}>
+      <div className={`badge tone-${tone}`} style={{ marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+  return (
+    <div className="row wrap" style={{ gap: 10 }}>
+      {cell('Submitted', s.submitted, 'blue')}
+      {cell('In progress', s.inProgress, 'amber')}
+      {cell('Approved', s.approved, 'green')}
+      {cell('Rejected', s.rejected, 'red')}
+      {cell('Disbursed', s.disbursed, 'teal')}
+    </div>
+  );
+}

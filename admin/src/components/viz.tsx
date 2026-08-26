@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { num, pct, humanStatus, timeAgo } from '@/lib/format';
+import { num, pct, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
 
 export interface FunnelStage { key: string; label: string; value: number; conversion: number; dropOff: number; fromTopPct: number }
 
@@ -47,7 +47,7 @@ export function PipelineBar({ byStatus }: { byStatus: Record<string, number> }) 
     <div>
       <div className="pipeline">
         {entries.map(([k, v]) => (
-          <div key={k} className="pipeline-seg" style={{ width: `${(v / total) * 100}%`, background: PIPE_COLORS[k] || '#98a2b3' }} title={`${humanStatus(k)}: ${v}`}>
+          <div key={k} className="pipeline-seg" style={{ width: `${(v / total) * 100}%`, background: PIPE_COLORS[k] || '#98a2b3' }} title={`${loanStatusLabel(k)}: ${v}`}>
             {v / total > 0.06 ? v : ''}
           </div>
         ))}
@@ -56,7 +56,7 @@ export function PipelineBar({ byStatus }: { byStatus: Record<string, number> }) 
         {entries.map(([k, v]) => (
           <span key={k} className="row" style={{ gap: 6, fontSize: 12 }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: PIPE_COLORS[k] || '#98a2b3' }} />
-            <span className="muted">{humanStatus(k)}</span><b>{v}</b>
+            <span className="muted">{loanStatusLabel(k)}</span><b>{v}</b>
           </span>
         ))}
       </div>
