@@ -329,6 +329,7 @@ export default function VoiceWidget() {
 
   const onPress = () => {
     vlog('FAB tapped; status=', status, 'active=', active);
+    setNudgeLabel(null); // clear any proactive-help label once the user engages
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
       // Tear the session down first; once the mic/playback session is released,
@@ -344,17 +345,8 @@ export default function VoiceWidget() {
     }
   };
 
-  // "Ask Ruby" on the dashboard bumps state.voiceTrigger: draw attention to the
-  // FAB (a spring wiggle + burst so first-time users see where support lives),
-  // then start the session once the flourish has played. Skipped on the initial
-  // mount (trigger 0) and while a session is already live.
-  // Starts at 0 (not the current value) so if "Ask Ruby" unlocks + triggers in
-  // the same update, this freshly-mounted widget still sees the change and fires.
-  const lastTrigger = useRef(0);
-  useEffect(() => {
-    if (state.voiceTrigger === lastTrigger.current) return;
-    lastTrigger.current = state.voiceTrigger;
-    if (active) return;
+  // Shared "look at me" flourish: a quick spring wiggle + a burst ring.
+  const playAttention = (onDone?: () => void) => {
     Animated.sequence([
       Animated.timing(burst, { toValue: 0, duration: 0, useNativeDriver: true }),
       Animated.parallel([
@@ -364,9 +356,40 @@ export default function VoiceWidget() {
         ]),
         Animated.timing(burst, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]),
-    ]).start(() => startAgent());
+    ]).start(() => onDone && onDone());
+  };
+
+  // "Ask Ruby" on the dashboard bumps state.voiceTrigger: draw attention to the
+  // FAB, then start the session once the flourish has played. Skipped on the
+  // initial mount (trigger 0) and while a session is already live. Starts at 0
+  // (not the current value) so an unlock+trigger in the same update still fires.
+  const lastTrigger = useRef(0);
+  useEffect(() => {
+    if (state.voiceTrigger === lastTrigger.current) return;
+    lastTrigger.current = state.voiceTrigger;
+    if (active) return;
+    playAttention(() => startAgent());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.voiceTrigger]);
+
+  // Proactive-help nudge (idle / drop-off / eligible-but-didn't-apply): vibrate,
+  // wiggle the FAB and show a contextual label — but DON'T start a session (the
+  // user taps to ask). The label auto-dismisses after a few seconds.
+  const [nudgeLabel, setNudgeLabel] = useState<string | null>(null);
+  const lastNudgeId = useRef(0);
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const n = state.voiceNudge;
+    if (!n || n.id === lastNudgeId.current) return;
+    lastNudgeId.current = n.id;
+    if (active) return; // never interrupt a live session
+    Vibration.vibrate(Platform.OS === 'android' ? [0, 45, 60, 45] : 30);
+    playAttention();
+    setNudgeLabel(n.label);
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = setTimeout(() => setNudgeLabel(null), 9000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.voiceNudge]);
 
   // Two fixed offsets, not one — screens with a BottomNav pill need real
   // clearance above it; screens without one (intro, language, etc.) should
@@ -416,6 +439,13 @@ export default function VoiceWidget() {
       pointerEvents="box-none"
       style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
     >
+      {/* Proactive-help label — a tappable speech bubble above the FAB. */}
+      {nudgeLabel && !active ? (
+        <Pressable onPress={onPress} style={styles.nudgeBubble} accessibilityLabel={nudgeLabel}>
+          <Text style={styles.nudgeText}>{nudgeLabel}</Text>
+          <View style={styles.nudgeTail} />
+        </Pressable>
+      ) : null}
       {/* Status pill only while floating (on tab screens the tab label carries it). */}
       {active && !isTab ? (
         <View style={styles.statusPill} pointerEvents="none">
@@ -482,6 +512,18 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusText: { ...font(600), fontSize: 11.5, color: '#fff' },
+  nudgeBubble: {
+    maxWidth: 216, marginBottom: 12, marginRight: 4,
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: colors.line,
+    paddingVertical: 9, paddingHorizontal: 13,
+    shadowColor: '#0A3F41', shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 5,
+  },
+  nudgeText: { ...font(700), fontSize: 12.5, color: colors.text, lineHeight: 17 },
+  nudgeTail: {
+    position: 'absolute', right: 22, bottom: -6, width: 12, height: 12,
+    backgroundColor: '#fff', borderRightWidth: 1, borderBottomWidth: 1, borderColor: colors.line,
+    transform: [{ rotate: '45deg' }],
+  },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
   entranceBurst: {

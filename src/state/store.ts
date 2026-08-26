@@ -164,6 +164,11 @@ export interface AppState {
   // (an entrance/wiggle animation) and start a session — driven by "Ask Ruby" on
   // the dashboard so first-time users discover the always-available support FAB.
   voiceTrigger: number;
+  // Proactive-help nudge: when the user stalls (idle / drops off / eligible but
+  // hasn't applied), the idle detector sets this so the VoiceWidget vibrates,
+  // wiggles the Ruby FAB, and shows a contextual label — WITHOUT starting a
+  // session (the user taps to ask). `id` is a monotonic nonce.
+  voiceNudge: { id: number; label: string; reason: string } | null;
   // Real back stack: every `go()` pushes the current screen here; `back()` pops it
   // to the screen the user actually came from — no more hardcoded parent map.
   history: Screen[];
@@ -212,6 +217,7 @@ export const initialState: AppState = {
   offersReturn: 'home',
   voiceFabUnlocked: false,
   voiceTrigger: 0,
+  voiceNudge: null,
   history: [],
   hasSavedOffers: false,
 };
