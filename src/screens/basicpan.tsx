@@ -109,9 +109,9 @@ export default function BasicPan() {
             (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status),
         );
         if (match) {
-          set({ applicationId: match.id, loanId: match.loan?.id ?? null, hasSavedOffers: true });
+          set({ applicationId: match.id, loanId: match.loan?.id ?? null, hasSavedOffers: true, offersReturn: 'home' });
           setBusy(false);
-          go('offers');
+          go('fare');
           return;
         }
       } catch {
