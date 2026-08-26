@@ -63,6 +63,32 @@ export function statusTone(status: string | null | undefined): StatusTone {
   return STATUS_TONE[status] ?? 'grey';
 }
 
+/**
+ * Loan / lender application status → the EXACT label the customer sees in the
+ * mobile app's My Loans (src/screens/loans.tsx STATUS_META). Kept in sync so a
+ * status an ops user reads in the admin matches what the customer was shown —
+ * e.g. `disbursed` reads "Active", and every pre-offer state reads "In Progress".
+ * Used for both a parent application's status and a per-lender offer status.
+ */
+export const LOAN_STATUS_LABEL: Record<string, string> = {
+  draft: 'In Progress',
+  pan_pending: 'In Progress',
+  prequalifying: 'In Progress',
+  offers_ready: 'In Progress',
+  handoff: 'In Progress',
+  under_review: 'Under Review',
+  approved: 'Approved',
+  disbursed: 'Active',
+  rejected: 'Rejected',
+  failed: 'Failed',
+  closed: 'Closed',
+};
+
+export function loanStatusLabel(status: string | null | undefined): string {
+  if (!status) return '—';
+  return LOAN_STATUS_LABEL[status] ?? humanStatus(status);
+}
+
 export function humanStatus(status: string | null | undefined): string {
   if (!status) return '—';
   // Defensive: every call site pulls `status` off a loosely-typed API

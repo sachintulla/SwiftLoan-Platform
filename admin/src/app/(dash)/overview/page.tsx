@@ -11,6 +11,7 @@ interface Overview {
   stats: { totalUsers: number; totalApplications: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursedPaise: number; outstandingPaise: number; approvedCount: number; applicationToDisbursalPct: number };
   funnel: FunnelStage[];
   applicationsByStatus: Record<string, number>;
+  lenderApplicationsByStatus?: Record<string, number>;
 }
 
 interface Charts {
@@ -61,8 +62,14 @@ export default function OverviewPage() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <Card title="Application pipeline" sub="Distribution across every funnel stage">
+        <Card title="Application pipeline" sub="Parent applications by stage (one per customer application)">
           {o ? <PipelineBar byStatus={o.applicationsByStatus} /> : <TableSkeleton rows={1} cols={6} />}
+        </Card>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Card title="Lender application pipeline" sub="Per-lender applications after submission — one customer can appear under several lenders">
+          {o ? <PipelineBar byStatus={o.lenderApplicationsByStatus ?? {}} /> : <TableSkeleton rows={1} cols={6} />}
         </Card>
       </div>
 

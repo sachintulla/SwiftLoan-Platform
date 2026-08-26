@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { statusTone, humanStatus, StatusTone } from '@/lib/format';
+import { statusTone, humanStatus, loanStatusLabel, StatusTone } from '@/lib/format';
 
 export function Card({ title, sub, right, children, className = '' }: { title?: string; sub?: string; right?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
@@ -37,6 +37,15 @@ export function StatCard({ label, value, icon, tone = 'teal', foot }: { label: s
 export function StatusBadge({ status, label }: { status: string | null | undefined; label?: string }) {
   const tone = statusTone(status);
   return <span className={`badge tone-${tone}`}>{label ?? humanStatus(status)}</span>;
+}
+
+/**
+ * A loan / lender-application status pill whose text matches the mobile app's
+ * My Loans exactly (via loanStatusLabel), while keeping the admin tone palette.
+ * Use this for every application/lender status so admin ↔ app read the same.
+ */
+export function LoanStatusBadge({ status }: { status: string | null | undefined }) {
+  return <StatusBadge status={status} label={loanStatusLabel(status)} />;
 }
 
 export function Skeleton({ h = 16, w = '100%', style }: { h?: number; w?: number | string; style?: React.CSSProperties }) {

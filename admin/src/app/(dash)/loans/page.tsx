@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
+import { Card, LoanStatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { inr, dateStr } from '@/lib/format';
 
 // Every ApplicationStatus, in funnel order. The mid-funnel states
@@ -24,7 +24,24 @@ const STATUS_FILTERS = [
   { key: 'closed', label: 'Closed' },
 ] as const;
 
-interface Row { id: string; ref: string; amount: number; loanType: string; status: string; createdAt: string; user?: { fullName?: string; phone?: string }; loan?: { id: string } | null; _count?: { offers: number } }
+interface AppliedOffer { id: string; lenderName?: string | null; lenderStatus?: string | null; partner?: { name?: string } | null }
+interface Row { id: string; ref: string; amount: number; loanType: string; status: string; createdAt: string; user?: { fullName?: string; phone?: string }; loan?: { id: string } | null; _count?: { offers: number }; offers?: AppliedOffer[] }
+
+/** Compact per-lender summary for a pipeline row, e.g. "3 lenders · 1 Active". */
+function lenderSummary(offers: AppliedOffer[] | undefined): string {
+  const applied = offers ?? [];
+  if (applied.length === 0) return '—';
+  const approved = applied.filter((o) => o.lenderStatus === 'approved').length;
+  const disbursed = applied.filter((o) => o.lenderStatus === 'disbursed').length;
+  const rejected = applied.filter((o) => o.lenderStatus === 'rejected' || o.lenderStatus === 'failed').length;
+  const parts: string[] = [];
+  if (disbursed) parts.push(`${disbursed} Active`);
+  if (approved) parts.push(`${approved} Approved`);
+  if (rejected) parts.push(`${rejected} Rejected`);
+  const pending = applied.length - approved - disbursed - rejected;
+  if (pending) parts.push(`${pending} in progress`);
+  return `${applied.length} lender${applied.length === 1 ? '' : 's'}${parts.length ? ' · ' + parts.join(', ') : ''}`;
+}
 
 export default function LoansPage() {
   const router = useRouter();
@@ -51,7 +68,7 @@ export default function LoansPage() {
         {isLoading ? <TableSkeleton /> : rows.length === 0 ? <Empty label="No applications match" /> : (
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>Ref</th><th>Applicant</th><th>Type</th><th>Amount</th><th>Offers</th><th>Status</th><th>Applied</th></tr></thead>
+              <thead><tr><th>Ref</th><th>Applicant</th><th>Type</th><th>Amount</th><th>Status</th><th>Lender applications</th><th>Applied</th></tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} onClick={() => router.push(`/loans/${r.id}`)}>
@@ -59,8 +76,8 @@ export default function LoansPage() {
                     <td>{r.user?.fullName || '—'}<div className="muted" style={{ fontSize: 11.5 }}>{r.user?.phone}</div></td>
                     <td style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.loanType}</td>
                     <td className="mono">{inr(r.amount)}</td>
-                    <td className="mono">{r._count?.offers ?? 0}</td>
-                    <td><StatusBadge status={r.status} /></td>
+                    <td><LoanStatusBadge status={r.status} /></td>
+                    <td className="muted" style={{ fontSize: 12.5 }}>{lenderSummary(r.offers)}</td>
                     <td className="muted">{dateStr(r.createdAt)}</td>
                   </tr>
                 ))}
