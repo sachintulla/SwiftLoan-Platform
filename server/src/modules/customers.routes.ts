@@ -78,10 +78,27 @@ customersRouter.get('/', ah(async (req, res) => {
     prisma.customer.count({ where }),
   ]);
 
+  // Many Customer rows have no name of their own (they were created from a lead
+  // or an app session before the person typed one), yet the linked User row does
+  // have it — so the list was showing "Unknown" for people we actually know.
+  // Fall back to the registered user's name, matched by phone (batched).
+  const needName = rows.filter((r) => !r.name || !r.name.trim());
+  const phones = [...new Set(needName.map((r) => r.phone).filter(Boolean) as string[])];
+  const namedUsers = phones.length
+    ? await prisma.user.findMany({
+        where: { phone: { in: phones } },
+        select: { phone: true, fullName: true, firstName: true, lastName: true },
+      })
+    : [];
+  const nameByPhone = new Map(
+    namedUsers.map((u) => [u.phone, (u.fullName || [u.firstName, u.lastName].filter(Boolean).join(' ')).trim() || null]),
+  );
+
   return ok(
     res,
     rows.map((r) => ({
       ...r,
+      name: r.name && r.name.trim() ? r.name : (r.phone ? nameByPhone.get(r.phone) ?? null : null),
       stageLabel: STAGE_LABELS[r.currentStage],
       stalledMinutes: minutesSince(r.stageEnteredAt),
     })),
@@ -163,14 +180,21 @@ customersRouter.get('/:id', ah(async (req, res) => {
     isTerminal: TERMINAL_STAGES.includes(customer.currentStage),
   };
 
-  // Resolve the linked app user. Prefer the explicit link, but fall back to
-  // matching on phone: a Customer created from lead/journey tracking is only
-  // linked to its User at OTP verify, so an unlinked-but-registered customer
-  // (same phone) would otherwise show no applications/loans/device at all.
+  // Resolve the app-data user. The customer's PHONE is the strong identity, so
+  // prefer the user registered with that phone. This both (a) covers a customer
+  // only linked to its User at OTP verify, and (b) heals a customer mis-linked
+  // to the wrong/older user id — the applications, loans and device all live
+  // under the phone's user. Fall back to the explicit userId link when there is
+  // no phone match.
+  const phoneUser = customer.phone
+    ? await prisma.user.findUnique({ where: { phone: customer.phone }, select: { id: true } }).catch(() => null)
+    : null;
+  const appUserId = phoneUser?.id ?? customer.userId ?? null;
+
   const [user, leads] = await Promise.all([
-    customer.userId || customer.phone
+    appUserId
       ? prisma.user.findUnique({
-          where: customer.userId ? { id: customer.userId } : { phone: customer.phone! },
+          where: { id: appUserId },
           include: {
             applications: {
               orderBy: { createdAt: 'desc' },
@@ -200,7 +224,7 @@ customersRouter.get('/:id', ah(async (req, res) => {
 
   // Latest device the person used (phone + OS shown in their profile). Falls
   // back to nothing if they have only ever used the website widget.
-  const resolvedUserId = customer.userId ?? user?.id ?? null;
+  const resolvedUserId = appUserId ?? user?.id ?? null;
   const session = resolvedUserId
     ? await prisma.session.findFirst({
         where: { userId: resolvedUserId },
