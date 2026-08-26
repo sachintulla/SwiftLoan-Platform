@@ -23,7 +23,7 @@ interface Charts {
 export default function OverviewPage() {
   const [days, setDays] = useState('14');
   const { data, isLoading } = useSWR('/api/admin/dashboard/overview', swrFetcher, { refreshInterval: 15000 });
-  const { data: feed } = useSWR('/api/admin/live-feed?limit=12', swrFetcher, { refreshInterval: 8000 });
+  const { data: feed } = useSWR('/api/admin/live-feed?limit=40', swrFetcher, { refreshInterval: 8000 });
   // Trends are a separate, slower query — it takes a day range and must not be
   // dragged into the 15s live-refresh above.
   const { data: chartsRes, isLoading: chartsLoading } =
@@ -56,8 +56,8 @@ export default function OverviewPage() {
         <Card title="Conversion funnel" sub="8-stage journey from first session to disbursal">
           {!o ? <TableSkeleton rows={8} cols={3} /> : <FunnelChart stages={o.funnel} />}
         </Card>
-        <Card title="Live activity" sub="Most recent app + widget events" right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
-          <LiveFeed events={events} />
+        <Card title="Recent activity" sub="Newest first, grouped by day — tap any event for details" right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
+          <div style={{ maxHeight: 440, overflowY: 'auto' }}><LiveFeed events={events} /></div>
         </Card>
       </div>
 

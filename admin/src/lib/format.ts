@@ -41,6 +41,24 @@ export function dateStr(iso: string | Date | null | undefined): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+/** Clock time, e.g. "3:07 PM" — for per-activity precision. */
+export function timeStr(iso: string | Date | null | undefined): string {
+  if (!iso) return '—';
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+/** Day-group header: "Today" / "Yesterday" / "Mon, 24 Aug 2026". */
+export function dayLabel(iso: string | Date | null | undefined): string {
+  if (!iso) return '—';
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(d)) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 // Status → colour token. Mirrors the palette defined in CLAUDE.md so the mobile app,
 // server, and dashboard agree.
 export type StatusTone = 'green' | 'blue' | 'amber' | 'red' | 'grey' | 'teal';
