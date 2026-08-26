@@ -64,6 +64,40 @@ export function PipelineBar({ byStatus }: { byStatus: Record<string, number> }) 
   );
 }
 
+/** One flat-track bar per row — label, proportional bar, count — for a small
+ * fixed set of categories where a full chart would be overkill (e.g. a
+ * campaign's call outcomes). */
+export function HorizontalBarList({ rows }: { rows: { key: string; label: string; value: number; color: string }[] }) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {rows.map((r) => (
+        <div key={r.key} className="row" style={{ gap: 12 }}>
+          <div style={{ width: 92, flexShrink: 0, fontSize: 12.5, color: 'var(--text-dim)' }}>{r.label}</div>
+          <div style={{ flex: 1, background: 'var(--surface-2)', borderRadius: 999, height: 10, overflow: 'hidden' }}>
+            <div style={{ width: `${(r.value / max) * 100}%`, height: '100%', background: r.color, borderRadius: 999, transition: 'width .4s ease' }} />
+          </div>
+          <div style={{ width: 24, textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{r.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Thin rounded multi-segment bar — the at-a-glance "how far along is this
+ * campaign" indicator on the campaign detail page. Segments left empty
+ * (value 0) are simply omitted rather than rendered as a zero-width sliver. */
+export function SegmentedProgressBar({ segments }: { segments: { key: string; value: number; color: string }[] }) {
+  const total = Math.max(1, segments.reduce((s, seg) => s + seg.value, 0));
+  return (
+    <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--surface-2)' }}>
+      {segments.filter((s) => s.value > 0).map((s) => (
+        <div key={s.key} style={{ width: `${(s.value / total) * 100}%`, background: s.color, transition: 'width .4s ease' }} />
+      ))}
+    </div>
+  );
+}
+
 export interface FeedEvent { id: string; eventType: string; eventName: string; screen?: string | null; userId?: string | null; ts: string }
 
 const EVENT_TONE: Record<string, string> = { navigation: 'var(--blue)', action: 'var(--brand)', funnel: 'var(--teal)', system: 'var(--grey)', error: 'var(--red)' };

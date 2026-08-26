@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
+import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
 import { colors, font } from '../../theme/tokens';
 import { useStore, useT, SCREENS_WITH_FOOTER_CTA } from '../../state/store';
@@ -9,7 +10,6 @@ import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { playFabOff, playConnectThen, setSfxLang, setVoiceBusy } from '../../utils/sfx';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -236,11 +236,6 @@ export default function VoiceWidget() {
     Animated.spring(move, { toValue: isTab ? 1 : 0, useNativeDriver: true, friction: 8, tension: 62 }).start();
   }, [isTab, move]);
 
-  // Keep spoken cues in the user's selected language.
-  useEffect(() => {
-    setSfxLang(state.lang);
-  }, [state.lang]);
-
   useEffect(() => {
     loadVoiceFabSide().then(saved => { if (saved) setSide(saved); });
   }, []);
@@ -264,9 +259,12 @@ export default function VoiceWidget() {
 
   useEffect(() => agent.on('statusChange', (s) => {
     setStatus(s);
-    // Mute all UI cues for the whole live session — they run on a separate audio
-    // session that would otherwise steal Ruby's playback/mic. Cleared on idle/end.
-    setVoiceBusy(s !== 'idle' && s !== 'ended');
+    const live = s !== 'idle' && s !== 'ended';
+    // The screen locking mid-call kills the mic/socket on most OEMs — a call
+    // needs the same "stay awake" guarantee a phone call gets, for its whole
+    // lifetime (connecting through executingTool), not just while speaking.
+    if (live) activateKeepAwake();
+    else deactivateKeepAwake();
   }), []);
 
   useEffect(() => {
@@ -310,29 +308,18 @@ export default function VoiceWidget() {
     vlog('FAB tapped; status=', status, 'active=', active);
     Vibration.vibrate(20); // small haptic to confirm the tap registered
     if (active) {
-      // Tear the session down first; once the mic/playback session is released,
-      // play the "thanks" sign-off cue on its own audio session (no overlap).
       agent.stop()
-        .catch(e => vlog('agent.stop() rejected:', e?.message || String(e)))
-        .finally(() => {
-          setVoiceBusy(false);
-          setTimeout(() => playFabOff(), 150);
-        });
+        .catch(e => vlog('agent.stop() rejected:', e?.message || String(e)));
     } else {
-      // Play the connect cue, then start the agent ONLY once the cue has finished
-      // — the cue and the voice session must never hold the audio session at the
-      // same time (that overlap killed Ruby's playback + mic on iOS).
-      playConnectThen(() => {
-        agent.start().catch(e => {
-          vlog('agent.start() rejected:', e?.message || String(e));
-          // Offline failures already get the dedicated OfflineNotice banner (see
-          // agent.ts) — don't also toast those. Everything else previously failed
-          // silently from the user's point of view (no banner, no toast), which
-          // read as the button just not working.
-          const message: string = e?.message || '';
-          if (message.startsWith('offline:')) return;
-          showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
-        });
+      agent.start().catch(e => {
+        vlog('agent.start() rejected:', e?.message || String(e));
+        // Offline failures already get the dedicated OfflineNotice banner (see
+        // agent.ts) — don't also toast those. Everything else previously failed
+        // silently from the user's point of view (no banner, no toast), which
+        // read as the button just not working.
+        const message: string = e?.message || '';
+        if (message.startsWith('offline:')) return;
+        showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
       });
     }
   };

@@ -180,8 +180,19 @@ export class ElloAgent {
       vlog('REST ok conv=', conversationId);
 
       const socket = new ElloSocket(this.options.wsUrl!);
-      socket.onMessage(msg => this.handleMessage(msg));
+      // A WebSocket close is asynchronous (see ElloSocket#close) — frames the
+      // server sends (or its own close event) in that in-between window can
+      // still fire onMessage/onClose on THIS socket well after a newer
+      // start() has replaced it as this.socket. Without this check, that
+      // stale traffic (a superseded session's audio, tool-calls, or its own
+      // eventual session-ended) gets processed against the current session:
+      // observed live as two calls' audio interleaving into the same native
+      // player, and a stale session-ended tearing down the session that
+      // replaced it.
+      const isCurrent = () => this.socket === socket;
+      socket.onMessage(msg => { if (isCurrent()) this.handleMessage(msg); });
       socket.onClose(() => {
+        if (!isCurrent()) return;
         vlog('WS CLOSED');
         this.teardown();
       });

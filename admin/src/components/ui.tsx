@@ -195,6 +195,56 @@ export function ConfirmDialog({
   );
 }
 
+export interface MenuItem { key: string; label: React.ReactNode; onSelect: () => void; danger?: boolean; disabled?: boolean }
+
+/** Small "..." overflow menu for secondary page actions that don't need to
+ * sit in the main button row (e.g. Pause / Cancel / Delete on a campaign). */
+export function Menu({ trigger, items }: { trigger: React.ReactNode; items: MenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointer(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false); }
+    document.addEventListener('mousedown', onDocPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <button type="button" className="btn" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+        {trigger}
+      </button>
+      {open && (
+        <div className="select-menu card" style={{ left: 'auto', right: 0, width: 190, padding: 6 }} role="menu">
+          {items.map((it) => (
+            <div
+              key={it.key}
+              role="menuitem"
+              className="select-option"
+              style={{
+                color: it.danger ? 'var(--red)' : undefined,
+                opacity: it.disabled ? 0.5 : 1,
+                cursor: it.disabled ? 'not-allowed' : 'pointer',
+              }}
+              onClick={() => { if (it.disabled) return; setOpen(false); it.onSelect(); }}
+            >
+              {it.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Pagination({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
   if (totalPages <= 1) return null;
   return (
