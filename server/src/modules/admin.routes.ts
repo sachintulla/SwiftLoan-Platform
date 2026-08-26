@@ -5,6 +5,7 @@ import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
+import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('admin');
@@ -444,4 +445,25 @@ adminRouter.patch('/notifications/:id/read', ah(async (req, res) => {
 adminRouter.post('/notifications/read-all', ah(async (_req, res) => {
   await prisma.notification.updateMany({ where: { read: false }, data: { read: true } });
   return ok(res, null, 'All marked read');
+}));
+
+// ─────────────────────────── app configuration ───────────────────────────
+
+// GET /api/admin/config — current nudge timers (any admin can view).
+adminRouter.get('/config', ah(async (_req, res) => {
+  return ok(res, await getNudgeConfig(true), 'App config');
+}));
+
+// PUT /api/admin/config — update nudge timers (administer role only). The mobile
+// app picks up the change on its next config fetch (launch / foreground).
+adminRouter.put('/config', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const b = req.body ?? {};
+  const updated = await setNudgeConfig({
+    nudgeEnabled: b.nudgeEnabled,
+    nudgeIdleMs: b.nudgeIdleMs,
+    nudgeDropoffMs: b.nudgeDropoffMs,
+    nudgeEligibleMs: b.nudgeEligibleMs,
+  });
+  log.info('nudge config updated', { by: (req as any).admin?.email, ...updated });
+  return ok(res, updated, 'Config saved');
 }));

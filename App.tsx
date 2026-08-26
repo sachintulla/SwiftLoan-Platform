@@ -3,7 +3,7 @@
  * A faithful, screen-for-screen mirror with the original navigation flow.
  */
 import React, { useCallback, useEffect, useRef } from 'react';
-import { BackHandler, View } from 'react-native';
+import { AppState, BackHandler, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
@@ -12,8 +12,16 @@ import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
-import { nudgeFor } from './src/voice/nudges';
-import { trackEvent } from './src/api/client';
+import { nudgeFor, DEFAULT_TIMERS, NudgeTimers } from './src/voice/nudges';
+import { trackEvent, api, NudgeConfigDTO } from './src/api/client';
+import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
+
+const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
+  enabled: d.nudgeEnabled,
+  idleMs: d.nudgeIdleMs,
+  dropoffMs: d.nudgeDropoffMs,
+  eligibleMs: d.nudgeEligibleMs,
+});
 
 // Voice FAB is hidden by default and revealed via a hidden gesture (tap the
 // Personal details header 5× in a row on Profile → state.voiceFabUnlocked).
@@ -61,11 +69,28 @@ function AppShell() {
   // lot), which would clear + restart the idle timer and it'd never elapse.
   const setRef = useRef(set); setRef.current = set;
   const screenRef = useRef(screen); screenRef.current = screen;
+  // Admin-tuned timers (from the backend); falls back to built-in defaults.
+  const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
+
+  // Load the last-known config instantly, then fetch fresh; re-fetch on every
+  // foreground so an admin change is picked up without an app restart.
+  const refreshConfig = useCallback(async () => {
+    try {
+      const r = await api.nudgeConfig();
+      if (r?.data) { timersRef.current = toTimers(r.data); saveNudgeTimers(timersRef.current); }
+    } catch { /* keep current timers on failure */ }
+  }, []);
+  useEffect(() => {
+    loadNudgeTimers<NudgeTimers>().then((t) => { if (t) timersRef.current = t; });
+    refreshConfig();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') refreshConfig(); });
+    return () => sub.remove();
+  }, [refreshConfig]);
 
   const armIdle = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     const scr = screenRef.current;
-    const cfg = nudgeFor(scr);
+    const cfg = nudgeFor(scr, timersRef.current);
     if (!cfg || nudgedScreenRef.current === scr) return;
     timerRef.current = setTimeout(() => {
       nudgedScreenRef.current = scr;

@@ -1268,3 +1268,17 @@ model StallRule {
   @@unique([triggerEvent, expectedEvent, channel])
   @@index([enabled])
 }
+
+// ─────────────────── Admin-tunable app configuration ───────────────────
+// Single-row settings the admin dashboard edits and the mobile app fetches.
+// Currently holds the proactive-help nudge thresholds (see App.tsx idle
+// detector + lib/appNudge.ts). `updatedAt` doubles as the app's change-detection
+// version so a client can tell when the config changed.
+model AppConfig {
+  id              String   @id @default("singleton")
+  nudgeEnabled    Boolean  @default(true)
+  nudgeIdleMs     Int      @default(30000) // main screens
+  nudgeDropoffMs  Int      @default(18000) // application funnel
+  nudgeEligibleMs Int      @default(20000) // offers / My Offers
+  updatedAt       DateTime @updatedAt
+}

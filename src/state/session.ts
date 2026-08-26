@@ -117,3 +117,22 @@ export async function loadMarketOffersCache(): Promise<MarketOffersCache | null>
     return null;
   }
 }
+
+// ── Admin-tuned nudge timers cache ───────────────────────────────────────────
+// Cached so the idle detector uses the last-known config instantly on launch
+// (before the network fetch returns), and offline.
+const NUDGE_TIMERS_KEY = 'swiftloan.nudge.timers';
+
+export async function saveNudgeTimers(timers: unknown): Promise<void> {
+  await AsyncStorage.setItem(NUDGE_TIMERS_KEY, JSON.stringify(timers)).catch(() => {});
+}
+
+export async function loadNudgeTimers<T>(): Promise<T | null> {
+  const raw = await AsyncStorage.getItem(NUDGE_TIMERS_KEY).catch(() => null);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
