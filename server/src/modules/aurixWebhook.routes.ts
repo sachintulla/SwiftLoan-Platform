@@ -248,11 +248,21 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     // Update if the offer is already applied, or CREATE it now if this event is
     // the submission confirmation. Otherwise (pre-OTP event, not yet applied) skip.
     if (match && (match.applied || createsApplication) && advances(match.lenderStatus, mapped)) {
+      // Stamp the timestamp for the stage we're entering — once only (keep the
+      // first time we saw it). Drives the "when under review / approved /
+      // failed / disbursed" timeline in the app and admin.
+      const now = new Date();
+      const stamp: Record<string, Date> = {};
+      if (mapped === 'under_review' && !match.underReviewAt) stamp.underReviewAt = now;
+      if (mapped === 'approved' && !match.approvedAt) stamp.approvedAt = now;
+      if ((mapped === 'rejected' || mapped === 'failed') && !match.rejectedAt) stamp.rejectedAt = now;
+      if (mapped === 'disbursed' && !match.disbursedAt) stamp.disbursedAt = now;
       await prisma.offer.update({
         where: { id: match.id },
         data: {
           lenderStatus: mapped,
-          ...(match.applied ? {} : { applied: true, appliedAt: match.appliedAt ?? new Date() }),
+          ...(match.applied ? {} : { applied: true, appliedAt: match.appliedAt ?? now }),
+          ...stamp,
           ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}),
           ...(data.ApplicationUrl != null ? { applicationUrl: String(data.ApplicationUrl) } : {}),
         },

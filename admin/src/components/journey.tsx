@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import Link from 'next/link';
 import { dateStr, timeAgo } from '@/lib/format';
 
 // Canonical customer journey — these keys are the server's JourneyStage enum
@@ -199,58 +200,119 @@ export function ChannelBadge({ channel }: { channel: string }) {
 // ─── Per-lender application track (post-submission) ──────────────────────────
 // After "Application submitted" the journey fans out: each lender the customer
 // applied to runs this ladder independently. Labels match the mobile app.
-import { loanStatusLabel } from '@/lib/format';
+import { loanStatusLabel, inr, timeStr } from '@/lib/format';
 import { LoanStatusBadge } from '@/components/ui';
 
-const LENDER_STEPS: { key: string; label: string }[] = [
-  { key: 'handoff', label: 'Submitted' },
-  { key: 'under_review', label: 'Under Review' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'disbursed', label: 'Active' },
-];
-const LENDER_RANK: Record<string, number> = { handoff: 0, under_review: 1, approved: 2, disbursed: 3 };
+// Canonical progress rank for a lender application, used everywhere.
+const LENDER_RANK: Record<string, number> = {
+  handoff: 1, submitted: 1, under_review: 2, approved: 3, disbursed: 4,
+};
 
 export interface LenderOffer {
   id: string;
+  applicationId?: string | null; // parent application — tap navigates to its detail
   applied?: boolean;
   lenderName?: string | null;
+  lenderLogoUrl?: string | null;
   lenderStatus?: string | null;
-  partner?: { name?: string | null } | null;
+  partner?: { name?: string | null; logoUrl?: string | null } | null;
+  // Offer economics
+  amount?: number | null;
+  apr?: number | null;
+  roi?: number | null;
+  emi?: number | null;
+  tenureMonths?: number | null;
+  processingFee?: number | null;
+  netDisbursalAmount?: number | null;
+  // Per-stage timestamps (canonical order)
+  appliedAt?: string | null;
+  underReviewAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  disbursedAt?: string | null;
+  failureReason?: string | null;
 }
 
-/** One lender's own journey after submission — independent of the others. */
-export function LenderTrack({ offer }: { offer: LenderOffer }) {
-  const st = offer.lenderStatus ?? 'handoff';
+const ts = (v?: string | null) => (v ? `${dateStr(v)} · ${timeStr(v)}` : null);
+
+/**
+ * One lender's own application journey — independent of the others, and shown
+ * the same way across the whole admin: lender (name + logo), the applied offer
+ * economics, and a timestamped timeline in the canonical sequence
+ * Submitted → Under Review → Approved / Failed → Disbursed.
+ */
+export function LenderTrack({ offer: o }: { offer: LenderOffer }) {
+  const st = o.lenderStatus ?? 'handoff';
   const failed = st === 'rejected' || st === 'failed';
-  const idx = LENDER_RANK[st] ?? 0;
-  return (
-    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-      <div className="row between wrap" style={{ marginBottom: 8 }}>
-        <b>{offer.partner?.name ?? offer.lenderName ?? 'Lender'}</b>
-        <LoanStatusBadge status={st} />
+  const rank = LENDER_RANK[st] ?? 1;
+  const name = o.partner?.name ?? o.lenderName ?? 'Lender';
+  const logo = o.lenderLogoUrl ?? o.partner?.logoUrl ?? null;
+  const rate = o.apr ?? o.roi ?? null;
+
+  // Canonical timeline. `minRank` is when this step is considered reached; the
+  // terminal step is Failed (if rejected) instead of Approved/Disbursed.
+  const steps: { label: string; at: string | null; minRank: number; fail?: boolean }[] = [
+    { label: 'Submitted', at: ts(o.appliedAt), minRank: 1 },
+    { label: 'Under Review', at: ts(o.underReviewAt), minRank: 2 },
+    ...(failed
+      ? [{ label: 'Failed', at: ts(o.rejectedAt), minRank: 2, fail: true }]
+      : [
+          { label: 'Approved', at: ts(o.approvedAt), minRank: 3 },
+          { label: 'Disbursed', at: ts(o.disbursedAt), minRank: 4 },
+        ]),
+  ];
+
+  const detail = [
+    o.amount != null ? `Loan ${inr(o.amount)}` : null,
+    rate != null ? `${rate}% p.a.` : null,
+    o.emi != null ? `EMI ${inr(o.emi)}` : null,
+    o.tenureMonths ? `${o.tenureMonths} mo` : null,
+    o.processingFee != null ? `Fee ${inr(o.processingFee)}` : null,
+  ].filter(Boolean).join('  ·  ');
+
+  const inner = (
+    <div style={{ padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+      {/* header: logo + lender + current status */}
+      <div className="row between wrap" style={{ gap: 10, marginBottom: 6 }}>
+        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+          {logo
+            ? <img src={logo} alt={name} width={30} height={30} style={{ borderRadius: 8, objectFit: 'contain', background: '#fff', border: '1px solid var(--border)' }} />
+            : <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>{name.slice(0, 2).toUpperCase()}</div>}
+          <b style={{ fontSize: 14 }}>{name}</b>
+        </div>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <LoanStatusBadge status={st} />
+          {o.applicationId && <span className="muted" style={{ fontSize: 12 }}>View →</span>}
+        </div>
       </div>
-      <div className="row wrap" style={{ gap: 0 }}>
-        {LENDER_STEPS.map((s, i) => {
-          const done = !failed && i <= idx;
-          const isFailNode = failed && i === Math.min(idx, 1) + 1;
-          const bg = isFailNode ? 'var(--red)' : done ? 'var(--brand)' : 'var(--border)';
+      {detail && <div className="muted" style={{ fontSize: 12, marginBottom: 10, marginLeft: 40 }}>{detail}</div>}
+
+      {/* timestamped vertical timeline */}
+      <div style={{ marginLeft: 8 }}>
+        {steps.map((s, i) => {
+          const reached = s.fail ? true : rank >= s.minRank;
+          const color = s.fail ? 'var(--red)' : reached ? 'var(--brand)' : 'var(--border)';
+          const last = i === steps.length - 1;
           return (
-            <div key={s.key} className="row" style={{ gap: 0 }}>
-              <div style={{ display: 'grid', placeItems: 'center', gap: 5, minWidth: 84 }}>
-                <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, color: '#fff', background: bg }}>
-                  {isFailNode ? '×' : done && i < idx ? '✓' : i + 1}
-                </div>
-                <span style={{ fontSize: 10, color: done || isFailNode ? 'var(--text)' : 'var(--text-faint)', textAlign: 'center' }}>
-                  {isFailNode ? loanStatusLabel(st) : s.label}
-                </span>
+            <div key={s.label} className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ display: 'grid', placeItems: 'center', width: 18 }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                {!last && <div style={{ width: 2, height: 26, background: reached ? 'var(--brand)' : 'var(--border)' }} />}
               </div>
-              {i < LENDER_STEPS.length - 1 && <div style={{ width: 20, height: 2, background: !failed && i < idx ? 'var(--brand)' : 'var(--border)' }} />}
+              <div style={{ paddingBottom: last ? 0 : 8, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: reached ? 'var(--text)' : 'var(--text-faint)' }}>{s.label}</div>
+                <div className="muted" style={{ fontSize: 11.5 }}>{s.at ?? (reached ? 'time not recorded' : 'pending')}</div>
+                {s.fail && o.failureReason && <div style={{ fontSize: 11.5, color: 'var(--red)' }}>{o.failureReason}</div>}
+              </div>
             </div>
           );
         })}
       </div>
     </div>
   );
+  return o.applicationId
+    ? <Link href={`/loans/${o.applicationId}`} style={{ display: 'block', color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}>{inner}</Link>
+    : inner;
 }
 
 /** Roll-up of a customer's lender applications, matching the app's outcomes. */
