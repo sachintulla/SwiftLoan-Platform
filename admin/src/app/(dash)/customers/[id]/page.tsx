@@ -76,12 +76,11 @@ export default function CustomerDetail() {
   const d = (data?.data ?? {}) as Detail;
   const c = d.customer;
 
-  // paginated timeline (falls back to the inline timeline on page 1 if the
-  // paginated call has not resolved yet)
-  const [tPage, setTPage] = useState(1);
-  const { data: tRes } = useSWR(`/api/admin/customers/${id}/timeline?page=${tPage}&pageSize=50`, swrFetcher);
-  const timeline = asArray<TimelineEntry>(tRes?.data ?? d.timeline);
-  const tPg = tRes?.pagination;
+  // Most recent touchpoint, for the Activity card teaser. The full, filterable
+  // log lives on /customers/:id/activity. d.timeline is chronological (asc), so
+  // the newest is the last entry.
+  const tl = asArray<TimelineEntry>(d.timeline);
+  const recentActivity = tl.length ? tl[tl.length - 1] : null;
 
   // Cross-channel conversation history is keyed on the phone number, not the
   // customer id — that is what stitches website, phone and app together. A 404
@@ -561,25 +560,24 @@ export default function CustomerDetail() {
         </div>
       )}
 
-      {/* ── raw timeline ───────────────────────────────────────────────── */}
+      {/* ── activity (opens the full, filterable log) ───────────────────── */}
       <div style={{ marginTop: 16 }}>
-        <Card title="Timeline" sub="Every tracked touchpoint, newest first">
-          {timeline.length === 0 ? <Empty label="No activity recorded for this customer yet" /> : (
-            <div style={{ display: 'grid', gap: 2 }}>
-              {timeline.map((e) => (
-                <div key={e.id} className="row" style={{ gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <ChannelBadge channel={e.channel} />
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{humanStatus(e.name)}</span>
-                  {e.stage && <span className="badge tone-grey">{e.stageLabel || stageLabel(e.stage)}</span>}
-                  {e.screen && <span className="muted" style={{ fontSize: 12 }}>· {e.screen}</span>}
-                  <span className="spacer" />
-                  <span className="muted mono" style={{ fontSize: 11.5 }} title={e.occurredAt}>{timeAgo(e.occurredAt)}</span>
-                </div>
-              ))}
+        <button
+          onClick={() => router.push(`/customers/${id}/activity`)}
+          className="card card-pad"
+          style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--card, #fff)' }}
+        >
+          <div className="row between" style={{ alignItems: 'center' }}>
+            <div>
+              <h3 className="card-title">Activity</h3>
+              <p className="card-sub" style={{ marginTop: 2 }}>
+                Full touchpoint history — searchable and filterable by channel.
+                {recentActivity ? ` Last: ${humanStatus(recentActivity.name)} · ${timeAgo(recentActivity.occurredAt)}.` : ''}
+              </p>
             </div>
-          )}
-          {tPg && <Pagination page={tPg.page} totalPages={tPg.totalPages} onPage={setTPage} />}
-        </Card>
+            <span className="btn btn-primary">View full activity →</span>
+          </div>
+        </button>
       </div>
     </div>
   );

@@ -94,11 +94,28 @@ customersRouter.get('/', ah(async (req, res) => {
     namedUsers.map((u) => [u.phone, (u.fullName || [u.firstName, u.lastName].filter(Boolean).join(' ')).trim() || null]),
   );
 
+  // "Last active" must mean the person actually used the WEBSITE or MOBILE APP —
+  // not an outbound call, a campaign send, or an admin/system touch (all of which
+  // otherwise bump Customer.lastActivityAt). Derive it from the latest
+  // website/app journey event for each customer on this page.
+  const ids = rows.map((r) => r.id);
+  const activity = ids.length
+    ? await prisma.journeyEvent.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: ids }, channel: { in: ['website', 'app'] } },
+        _max: { occurredAt: true },
+      })
+    : [];
+  const lastActiveByCustomer = new Map(activity.map((a) => [a.customerId, a._max.occurredAt]));
+
   return ok(
     res,
     rows.map((r) => ({
       ...r,
       name: r.name && r.name.trim() ? r.name : (r.phone ? nameByPhone.get(r.phone) ?? null : null),
+      // Overrides the raw Customer.lastActivityAt so the UI shows genuine
+      // app/website activity only (null when they've never used either).
+      lastActivityAt: lastActiveByCustomer.get(r.id) ?? null,
       stageLabel: STAGE_LABELS[r.currentStage],
       stalledMinutes: minutesSince(r.stageEnteredAt),
     })),
@@ -286,15 +303,30 @@ customersRouter.get('/:id/timeline', ah(async (req, res) => {
   const exists = await prisma.customer.findUnique({ where: { id: req.params.id }, select: { id: true } });
   if (!exists) throw new HttpError(404, 'Customer not found');
 
-  const where = { customerId: req.params.id };
-  const [rows, total] = await Promise.all([
+  const q = req.query as Record<string, string | undefined>;
+  const where: Prisma.JourneyEventWhereInput = { customerId: req.params.id };
+  if (q.channel) where.channel = q.channel;
+  if (q.search && q.search.trim()) {
+    const s = q.search.trim();
+    where.OR = [
+      { name: { contains: s, mode: 'insensitive' } },
+      { screen: { contains: s, mode: 'insensitive' } },
+    ];
+  }
+  const [rows, total, channelGroups] = await Promise.all([
     prisma.journeyEvent.findMany({ where, orderBy: { occurredAt: 'desc' }, skip, take }),
     prisma.journeyEvent.count({ where }),
+    // Channel counts for the whole customer (unfiltered) so the filter chips can
+    // show how many of each there are.
+    prisma.journeyEvent.groupBy({ by: ['channel'], where: { customerId: req.params.id }, _count: { _all: true } }),
   ]);
 
   return ok(
     res,
-    rows.map((e) => ({ ...e, stageLabel: e.stage ? STAGE_LABELS[e.stage] : null })),
+    {
+      events: rows.map((e) => ({ ...e, stageLabel: e.stage ? STAGE_LABELS[e.stage] : null })),
+      channels: channelGroups.map((g) => ({ channel: g.channel, count: g._count._all })),
+    },
     'Timeline',
     paginate(page, pageSize, total),
   );
