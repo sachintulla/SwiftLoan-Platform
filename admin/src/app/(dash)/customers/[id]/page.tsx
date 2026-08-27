@@ -14,7 +14,7 @@ import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatCard, StatusBadge, LoanStatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderRollup, LenderOffer } from '@/components/journey';
 import { CallLog, CallAttemptDetail } from '@/components/callDetail';
-import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
+import { ChannelChips, ConversationLog, asConversations, inferredCount, relTime } from '@/components/conversation';
 import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
 
 interface Customer {
@@ -320,8 +320,9 @@ export default function CustomerDetail() {
           foot={d.dropOff?.isTerminal ? 'terminal stage' : d.dropOff?.label ? `at ${d.dropOff.label}` : undefined} />
       </div>
 
-      {/* ── where they are ─────────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
+      {/* ── where they are — journey (70%) beside a nudge panel (30%) ────── */}
+      <div className="row wrap" style={{ marginTop: 16, gap: 16, alignItems: 'stretch' }}>
+        <div style={{ flex: '7 1 420px', minWidth: 0 }}>
         <Card
           title="Journey"
           sub="Where they got to, and what to call them about. Each step dials with that exact drop-off."
@@ -354,6 +355,43 @@ export default function CustomerDetail() {
             }}
           />
         </Card>
+        </div>
+
+        {/* Right rail beside the journey (≈30%): Send nudge, then Origin & attribution
+            stacked below it. Stacks under the journey on narrow screens. */}
+        <div style={{ flex: '3 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Card title="Send nudge" sub="Re-engage this customer through Upshot">
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Channel</label>
+            <div className="row wrap" style={{ gap: 8, margin: '8px 0 14px' }}>
+              {CHANNELS.map((ch) => (
+                <button key={ch} className={`chip-filter ${nudgeChannel === ch ? 'active' : ''}`} onClick={() => { setNudgeChannel(ch); setNudgeResult(null); }}>
+                  {humanStatus(ch)}
+                </button>
+              ))}
+            </div>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Event name <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+            <input className="input mono" style={{ margin: '6px 0 14px' }} value={nudgeEvent} onChange={(e) => setNudgeEvent(e.target.value)} placeholder="e.g. resume_application" />
+            <div className="row wrap" style={{ gap: 10 }}>
+              <button className="btn btn-primary" disabled={nudging} onClick={sendNudge}>{nudging ? 'Sending…' : 'Send nudge'}</button>
+              {nudgeResult && <span style={{ fontSize: 12.5, color: nudgeResult.ok ? 'var(--green)' : 'var(--red)' }}>{nudgeResult.text}</span>}
+            </div>
+          </Card>
+
+          <Card title="Origin & attribution">
+            {[
+              ['First source', c.firstSource || '—'],
+              ['Campaign', campaigns.map((x) => x.name).join(', ') || c.campaignId || '—'],
+              ['UTM source', c.utmSource || '—'],
+              ['UTM medium', c.utmMedium || '—'],
+              ['UTM campaign', c.utmCampaign || '—'],
+              ['Referrer', c.referrer || lead?.referrer || '—'],
+            ].map(([k, v], i, arr) => (
+              <div key={k} className="row between" style={{ padding: '7px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>
+                <span className="muted">{k}</span><b className="mono" style={{ fontSize: 12, textAlign: 'right', wordBreak: 'break-all' }}>{v}</b>
+              </div>
+            ))}
+          </Card>
+        </div>
       </div>
 
       {/* ── applications (the single, consolidated list) ────────────────── */}
@@ -410,9 +448,8 @@ export default function CustomerDetail() {
                 </div>
               )}
 
-              <div style={{ marginTop: 6 }}>
-                {conversations.map((cv) => <ConversationCard key={cv.id} c={cv} />)}
-              </div>
+              <ConversationLog conversations={conversations} />
+
             </>
           )}
         </Card>
@@ -485,41 +522,6 @@ export default function CustomerDetail() {
               ))}
             </div>
           )}
-        </Card>
-      </div>
-
-      {/* ── attribution + nudge ────────────────────────────────────────── */}
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', marginTop: 16, alignItems: 'start' }}>
-        <Card title="Origin & attribution">
-          {[
-            ['First source', c.firstSource || '—'],
-            ['Campaign', campaigns.map((x) => x.name).join(', ') || c.campaignId || '—'],
-            ['UTM source', c.utmSource || '—'],
-            ['UTM medium', c.utmMedium || '—'],
-            ['UTM campaign', c.utmCampaign || '—'],
-            ['Referrer', c.referrer || lead?.referrer || '—'],
-          ].map(([k, v], i, arr) => (
-            <div key={k} className="row between" style={{ padding: '7px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>
-              <span className="muted">{k}</span><b className="mono" style={{ fontSize: 12, textAlign: 'right', wordBreak: 'break-all' }}>{v}</b>
-            </div>
-          ))}
-        </Card>
-
-        <Card title="Send nudge" sub="Re-engage this customer through Upshot">
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Channel</label>
-          <div className="row wrap" style={{ gap: 8, margin: '8px 0 14px' }}>
-            {CHANNELS.map((ch) => (
-              <button key={ch} className={`chip-filter ${nudgeChannel === ch ? 'active' : ''}`} onClick={() => { setNudgeChannel(ch); setNudgeResult(null); }}>
-                {humanStatus(ch)}
-              </button>
-            ))}
-          </div>
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Event name <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
-          <input className="input mono" style={{ margin: '6px 0 14px' }} value={nudgeEvent} onChange={(e) => setNudgeEvent(e.target.value)} placeholder="e.g. resume_application" />
-          <div className="row" style={{ gap: 10 }}>
-            <button className="btn btn-primary" disabled={nudging} onClick={sendNudge}>{nudging ? 'Sending…' : 'Send nudge'}</button>
-            {nudgeResult && <span style={{ fontSize: 12.5, color: nudgeResult.ok ? 'var(--green)' : 'var(--red)' }}>{nudgeResult.text}</span>}
-          </div>
         </Card>
       </div>
 
