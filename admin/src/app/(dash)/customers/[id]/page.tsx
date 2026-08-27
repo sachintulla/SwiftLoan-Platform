@@ -15,7 +15,7 @@ import { Card, StatCard, StatusBadge, LoanStatusBadge, Pagination, TableSkeleton
 import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderRollup, LenderOffer } from '@/components/journey';
 import { CallLog, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationLog, asConversations, inferredCount, relTime } from '@/components/conversation';
-import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
+import { inr, inrRupees, dateStr, timeStr, timeAgo, humanStatus, num } from '@/lib/format';
 
 interface Customer {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
@@ -598,6 +598,18 @@ function appEffStatus(a: { status: string; offers?: LenderOffer[] }): string {
   return a.status;
 }
 
+// The lender that heads an application's column: the one it applied to, else a
+// selected offer, else the first offer on file. Name + logo come from the offer
+// or its partner record.
+function appLender(a: { offers?: LenderOffer[] }): { name: string | null; logo: string | null } {
+  const offers = a.offers ?? [];
+  const pick = offers.find((o) => o.applied) || offers.find((o) => (o as { selected?: boolean }).selected) || offers[0] || null;
+  return {
+    name: pick?.lenderName || pick?.partner?.name || null,
+    logo: pick?.lenderLogoUrl || pick?.partner?.logoUrl || null,
+  };
+}
+
 function StageMark({ kind }: { kind: 'done' | 'current' | 'pending' | 'blocked' }) {
   if (kind === 'done') {
     return <span style={{ display: 'inline-flex', width: 22, height: 22, borderRadius: 11, background: 'var(--green)', color: '#fff', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>✓</span>;
@@ -631,21 +643,20 @@ function ApplicationsMatrix({ apps, onOpen }: { apps: any[]; onOpen: (id: string
             <th style={{ ...stickyLeft, verticalAlign: 'bottom', padding: '10px 12px' }}>
               <span style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Journey stage</span>
             </th>
-            {apps.map((a, i) => {
-              const applied = (a.offers ?? []).filter((o: any) => o.applied);
-              const lender = applied[0]?.lenderName || applied[0]?.partner?.name || null;
-              const logo = applied[0]?.lenderLogoUrl || applied[0]?.partner?.logoUrl || null;
+            {apps.map((a) => {
+              const { name: lender, logo } = appLender(a);
               return (
                 <th key={a.id} onClick={() => onOpen(a.id)} style={{ ...cell, cursor: 'pointer', verticalAlign: 'top', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Application {i + 1}</div>
-                  <div className="row" style={{ gap: 7, marginTop: 5, alignItems: 'center', justifyContent: 'center' }}>
-                    {logo ? <img src={logo} alt="" style={{ width: 20, height: 20, borderRadius: 5, objectFit: 'contain' }} /> : null}
-                    <b style={{ fontSize: 13 }}>{lender || 'Not submitted'}</b>
+                  <div className="row" style={{ gap: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    {logo ? (
+                      <img src={logo} alt="" style={{ width: 26, height: 26, borderRadius: 6, objectFit: 'contain' }} />
+                    ) : (
+                      <span style={{ display: 'inline-flex', width: 26, height: 26, borderRadius: 6, background: 'var(--grey-bg)', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--muted)' }}>🏦</span>
+                    )}
+                    <b style={{ fontSize: 13.5 }}>{lender || 'No lender selected'}</b>
                   </div>
-                  <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{a.ref}</div>
-                  <div style={{ fontSize: 12, marginTop: 2 }}>
-                    {inrRupees(a.amount)}{a.createdAt ? <span style={{ color: 'var(--muted)' }}> · {dateStr(a.createdAt)}</span> : null}
-                  </div>
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{a.ref}</div>
+                  <div style={{ fontSize: 12, marginTop: 2 }}>{inrRupees(a.amount)}</div>
                   <div style={{ fontSize: 11, marginTop: 5, color: 'var(--accent)', fontWeight: 600 }}>Open →</div>
                 </th>
               );
@@ -680,6 +691,25 @@ function ApplicationsMatrix({ apps, onOpen }: { apps: any[]; onOpen: (id: string
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--red)', borderRadius: 999, padding: '3px 10px' }}>✕ {label}</span>
                   ) : disbursed ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--green)', borderRadius: 999, padding: '3px 10px' }}>✓ Completed</span>
+                  ) : (
+                    <span style={{ color: 'var(--muted)', opacity: 0.5 }}>—</span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+          {/* Last updated — its own row: date on top, time beneath. */}
+          <tr>
+            <th style={{ ...stickyLeft, fontSize: 13, fontWeight: 600, padding: '14px 12px', borderTop: '1px solid var(--border)' }}>Last updated</th>
+            {apps.map((a) => {
+              const when = a.updatedAt ?? a.createdAt ?? null;
+              return (
+                <td key={a.id} style={{ ...cell, borderTop: '1px solid var(--border)' }}>
+                  {when ? (
+                    <>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{dateStr(when)}</div>
+                      <div className="muted" style={{ fontSize: 11.5 }}>{timeStr(when)}</div>
+                    </>
                   ) : (
                     <span style={{ color: 'var(--muted)', opacity: 0.5 }}>—</span>
                   )}
