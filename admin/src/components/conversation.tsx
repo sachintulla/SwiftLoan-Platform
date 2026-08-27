@@ -206,6 +206,120 @@ export function ConversationCard({ c }: { c: Conversation }) {
   );
 }
 
+/* ── conversation log: a table, newest first, expandable to the full thread ──
+ *
+ * Same shape as the Voice-calls log (callDetail's CallLog): the row is a scannable
+ * timestamp + source + one-line-ish summary; tapping it drops open the full
+ * conversation (outcome, captured details, transcript). Mirrors that table so the
+ * two sections on the customer page read identically. */
+function whenOfConv(c: Conversation): { iso: string | null; t: number } {
+  const iso = c.startedAt ?? c.endedAt ?? null;
+  const t = iso ? new Date(iso).getTime() : 0;
+  return { iso, t: Number.isNaN(t) ? 0 : t };
+}
+
+// "Wednesday, 27 Aug 2026" — weekday + date, matching the voice-call log.
+function fmtDay(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
+
+export function ConversationLog({ conversations, emptyLabel = 'No conversations recorded' }: {
+  conversations: Conversation[] | null | undefined; emptyLabel?: string;
+}) {
+  const [open, setOpen] = React.useState<string | null>(null);
+  const list = Array.isArray(conversations) ? conversations : [];
+  if (list.length === 0) return <p className="muted" style={{ fontSize: 12.5, padding: '10px 0' }}>{emptyLabel}</p>;
+  const rows = [...list].sort((a, b) => whenOfConv(b).t - whenOfConv(a).t);
+  const clamp2: React.CSSProperties = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
+
+  return (
+    <div className="table-wrap" style={{ marginTop: 6 }}>
+      <table className="data">
+        <thead>
+          <tr><th style={{ width: 190 }}>Timestamp</th><th style={{ width: 150 }}>Source</th><th>Conversation</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => {
+            const { iso } = whenOfConv(c);
+            const isOpen = open === c.id;
+            const detailRows = detailEntries(c.details);
+            return (
+              <React.Fragment key={c.id}>
+                <tr onClick={() => setOpen(isOpen ? null : c.id)} style={{ cursor: 'pointer' }}>
+                  <td style={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtDay(iso)}</div>
+                    <div className="muted" style={{ fontSize: 11.5 }}>
+                      {fmtTime(iso)}{fmtTime(iso) && c.durationSec != null ? ' · ' : ''}{c.durationSec != null ? secs(c.durationSec) : ''}
+                    </div>
+                    {iso ? <div className="muted" style={{ fontSize: 11 }}>{relTime(iso)}</div> : null}
+                  </td>
+                  <td style={{ verticalAlign: 'top' }}>
+                    <ChannelChip channel={c.channel} label={c.channelLabel} />
+                    {c.agentRole ? <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{c.agentRole}</div> : null}
+                  </td>
+                  <td style={{ verticalAlign: 'top' }}>
+                    <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {c.outcome ? (
+                          <div style={{ marginBottom: 5 }}>
+                            <ConversationOutcome outcome={c.outcome} outcomeConfirmed={c.outcomeConfirmed} outcomeSource={c.outcomeSource} />
+                          </div>
+                        ) : null}
+                        <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', ...(isOpen ? {} : clamp2) }}>
+                          {c.summary || <span className="muted">No summary for this conversation.</span>}
+                        </div>
+                      </div>
+                      <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{isOpen ? 'Hide ▲' : 'Open ▾'}</span>
+                    </div>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={3} style={{ background: 'var(--grey-bg)' }}>
+                      {c.recordingUrl ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <a className="btn" style={{ padding: '4px 11px', fontSize: 11.5 }} href={c.recordingUrl} target="_blank" rel="noreferrer">Listen to recording ↗</a>
+                        </div>
+                      ) : null}
+                      {detailRows.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={CAP}>Captured in this conversation</div>
+                          <div style={{ marginTop: 4 }}>
+                            {detailRows.map(([k, v]) => (
+                              <div key={k} className="row between" style={{ gap: 12, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                                <span className="muted" style={{ fontSize: 12.5 }}>{k}</span>
+                                <b style={{ fontSize: 12.5, textAlign: 'right' }}>{v}</b>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <Transcript transcript={c.transcript} />
+                      {c.transcript == null && <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>No transcript stored for this conversation.</p>}
+                      {c.providerConversationId && (
+                        <p className="mono muted" style={{ fontSize: 11, marginTop: 8 }}>provider id: {c.providerConversationId}</p>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // How many of these outcomes we merely guessed — the banner an operator must see.
 export function inferredCount(list: Conversation[]): number {
   return list.filter((c) => c.outcome && provenanceSource(c.outcomeSource, c.outcomeConfirmed) === 'inferred').length;
