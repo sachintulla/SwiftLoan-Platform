@@ -13,7 +13,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatCard, StatusBadge, LoanStatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderRollup, LenderOffer } from '@/components/journey';
-import { CallList, CallAttemptDetail } from '@/components/callDetail';
+import { CallLog, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
 import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
 
@@ -420,8 +420,8 @@ export default function CustomerDetail() {
 
       {/* ── voice calls ────────────────────────────────────────────────── */}
       <div style={{ marginTop: 16 }}>
-        <Card title={`Voice calls (${calls.length})`} sub="Every outbound voice attempt, with what the agent knew and what it reported back">
-          <CallList calls={calls} emptyLabel="No voice calls placed to this customer" />
+        <Card title={`Voice calls (${calls.length})`} sub="Every outbound voice attempt, newest first. Tap a row to read the full transcript.">
+          <CallLog calls={calls} emptyLabel="No voice calls placed to this customer" />
         </Card>
       </div>
 

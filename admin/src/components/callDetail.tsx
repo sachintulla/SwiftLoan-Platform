@@ -321,3 +321,79 @@ export function CallList({ calls, emptyLabel = 'No voice calls placed yet' }: { 
     </>
   );
 }
+
+/* ── compact call log (table) ───────────────────────────────────────────────
+ * Timestamp + one-line summary per row; tapping a row expands to the full
+ * transcript (and recording). Preferred over CallList where a scannable log is
+ * more useful than stacked cards.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+function whenOf(c: CallAttemptDetail): { iso: string | null; t: number } {
+  const iso = c.startedAt ?? c.queuedAt ?? c.endedAt ?? null;
+  const t = iso ? new Date(iso).getTime() : 0;
+  return { iso, t: Number.isNaN(t) ? 0 : t };
+}
+
+export function CallLog({ calls, emptyLabel = 'No voice calls placed yet' }: { calls: CallAttemptDetail[] | null | undefined; emptyLabel?: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const list = Array.isArray(calls) ? calls : [];
+  if (list.length === 0) return <Empty label={emptyLabel} />;
+  // Newest first — a call log reads top-down like a timeline.
+  const rows = [...list].sort((a, b) => whenOf(b).t - whenOf(a).t);
+  const clamp2: React.CSSProperties = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
+
+  return (
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr><th style={{ width: 190 }}>Timestamp</th><th>Call summary</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => {
+            const { iso } = whenOf(c);
+            const dur = c.durationSec ?? c.durationSeconds ?? null;
+            const isOpen = open === c.id;
+            return (
+              <React.Fragment key={c.id}>
+                <tr onClick={() => setOpen(isOpen ? null : c.id)} style={{ cursor: 'pointer' }}>
+                  <td style={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{iso ? dateStr(iso) : '—'}</div>
+                    <div className="muted" style={{ fontSize: 11.5 }}>
+                      {iso ? timeAgo(iso) : ''}{dur != null ? ` · ${secs(dur)}` : ''}
+                    </div>
+                  </td>
+                  <td style={{ verticalAlign: 'top' }}>
+                    <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="row" style={{ gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+                          <StatusBadge status={c.status} />
+                          {c.outcome ? <OutcomeCell outcome={c.outcome} source={c.outcomeSource} evidence={c.outcomeEvidence} /> : null}
+                        </div>
+                        <div style={{ fontSize: 13, lineHeight: 1.5, ...(isOpen ? {} : clamp2) }}>
+                          {c.summary || <span className="muted">No summary for this call.</span>}
+                        </div>
+                      </div>
+                      <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{isOpen ? 'Hide ▲' : 'Transcript ▾'}</span>
+                    </div>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={2} style={{ background: 'var(--grey-bg)' }}>
+                      {c.recordingUrl ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <a className="btn" style={{ padding: '4px 11px', fontSize: 11.5 }} href={c.recordingUrl} target="_blank" rel="noreferrer">Listen to recording ↗</a>
+                        </div>
+                      ) : null}
+                      <Transcript transcript={c.transcript} />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
