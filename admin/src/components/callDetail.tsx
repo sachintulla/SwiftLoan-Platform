@@ -334,6 +334,20 @@ function whenOf(c: CallAttemptDetail): { iso: string | null; t: number } {
   return { iso, t: Number.isNaN(t) ? 0 : t };
 }
 
+// "Wednesday, 27 Aug 2026" and "2:45 PM" — weekday + date, and time.
+function fmtDay(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
+
 export function CallLog({ calls, emptyLabel = 'No voice calls placed yet' }: { calls: CallAttemptDetail[] | null | undefined; emptyLabel?: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const list = Array.isArray(calls) ? calls : [];
@@ -357,10 +371,11 @@ export function CallLog({ calls, emptyLabel = 'No voice calls placed yet' }: { c
               <React.Fragment key={c.id}>
                 <tr onClick={() => setOpen(isOpen ? null : c.id)} style={{ cursor: 'pointer' }}>
                   <td style={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{iso ? dateStr(iso) : '—'}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtDay(iso)}</div>
                     <div className="muted" style={{ fontSize: 11.5 }}>
-                      {iso ? timeAgo(iso) : ''}{dur != null ? ` · ${secs(dur)}` : ''}
+                      {fmtTime(iso)}{fmtTime(iso) && dur != null ? ' · ' : ''}{dur != null ? secs(dur) : ''}
                     </div>
+                    {iso ? <div className="muted" style={{ fontSize: 11 }}>{timeAgo(iso)}</div> : null}
                   </td>
                   <td style={{ verticalAlign: 'top' }}>
                     <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
