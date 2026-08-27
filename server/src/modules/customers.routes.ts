@@ -58,9 +58,11 @@ customersRouter.get('/', ah(async (req, res) => {
   }
   const stalled = parseInt(String(q.stalledMinutes ?? ''), 10);
   if (Number.isFinite(stalled) && stalled > 0) {
-    // "Stalled" only means anything for a customer still in play, so terminal
-    // stages are excluded — as an AND so an explicit ?stage= still applies.
-    where.stageEnteredAt = { lt: new Date(Date.now() - stalled * 60_000) };
+    // "Inactive for > N minutes" = no genuine WEBSITE/APP activity in the last N
+    // minutes (outbound calls / campaigns / admin touches don't count). Terminal
+    // stages excluded; AND so an explicit ?stage= still applies.
+    const cutoff = new Date(Date.now() - stalled * 60_000);
+    where.events = { none: { channel: { in: ['website', 'app'] }, occurredAt: { gte: cutoff } } };
     where.AND = [{ currentStage: { notIn: TERMINAL_STAGES } }];
   }
 
@@ -117,7 +119,8 @@ customersRouter.get('/', ah(async (req, res) => {
       // app/website activity only (null when they've never used either).
       lastActivityAt: lastActiveByCustomer.get(r.id) ?? null,
       stageLabel: STAGE_LABELS[r.currentStage],
-      stalledMinutes: minutesSince(r.stageEnteredAt),
+      // "Inactive for" = time since last website/app activity, not stage dwell.
+      stalledMinutes: minutesSince(lastActiveByCustomer.get(r.id) ?? null),
     })),
     'Customers',
     paginate(page, pageSize, total),
@@ -190,10 +193,19 @@ customersRouter.get('/:id', ah(async (req, res) => {
     };
   });
 
+  // Most recent genuine website/app touchpoint — drives "Inactive for" so it
+  // reflects real user activity, not how long they've sat in the current stage.
+  let lastWebAppAt: Date | null = null;
+  for (let i = timelineRows.length - 1; i >= 0; i--) {
+    const ch = timelineRows[i].channel;
+    if (ch === 'website' || ch === 'app') { lastWebAppAt = timelineRows[i].occurredAt; break; }
+  }
+
   const dropOff = {
     stage: customer.currentStage,
     label: STAGE_LABELS[customer.currentStage],
-    stalledMinutes: minutesSince(customer.stageEnteredAt),
+    stalledMinutes: minutesSince(lastWebAppAt),
+    lastActiveAt: lastWebAppAt,
     isTerminal: TERMINAL_STAGES.includes(customer.currentStage),
   };
 
