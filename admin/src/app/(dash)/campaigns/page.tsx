@@ -84,6 +84,26 @@ export default function CampaignsPage() {
     }
   }
 
+  // --- kill switch: stop every running/paused campaign at once -----------
+  const [confirmStopAll, setConfirmStopAll] = useState(false);
+  const [stoppingAll, setStoppingAll] = useState(false);
+  async function stopAllRunning() {
+    setStoppingAll(true); setOpsMsg(null); setExportErr('');
+    try {
+      const res = await apiFetch<{ cancelled?: number; ello?: number }>('/api/admin/campaigns/cancel-all', { method: 'POST' });
+      const d = res.data ?? {};
+      setOpsMsg({
+        ok: true,
+        text: d.cancelled
+          ? `Stopped ${d.cancelled} campaign(s) and cancelled their upcoming calls${d.ello ? ` — ${d.ello} were on Ello, cancel those on Ello's dashboard too` : ''}.`
+          : 'No running or paused campaigns to stop.',
+      });
+      mutate();
+    } catch (e) {
+      setOpsMsg({ ok: false, text: (e as Error).message || 'Stop-all failed' });
+    } finally { setStoppingAll(false); setConfirmStopAll(false); }
+  }
+
   return (
     <div className="page">
       <div className="row between wrap">
@@ -94,9 +114,32 @@ export default function CampaignsPage() {
         <div className="row wrap" style={{ gap: 10 }}>
           <button className="btn" disabled={exporting} onClick={exportCalls}>{exporting ? 'Exporting…' : '⭳ Export calls CSV'}</button>
           <button className="btn" disabled={reconciling} onClick={reconcile}>{reconciling ? 'Reconciling…' : '⟳ Reconcile calls'}</button>
+          <button className="btn" style={{ color: 'var(--red)', borderColor: 'var(--red)' }} disabled={stoppingAll} title="Stop every running/paused campaign and cancel all upcoming calls" onClick={() => setConfirmStopAll(true)}>
+            {stoppingAll ? 'Stopping…' : '■ Stop all running'}
+          </button>
           <button className="btn btn-primary" onClick={() => router.push('/campaigns/new')}>+ New campaign</button>
         </div>
       </div>
+
+      {confirmStopAll && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => !stoppingAll && setConfirmStopAll(false)}
+        >
+          <div className="card card-pad" style={{ width: '100%', maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="card-title">Stop all running campaigns?</h3>
+            <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginTop: 8, marginBottom: 20 }}>
+              This stops <b>every running and paused campaign</b> and <b>cancels all their upcoming calls</b> that haven&apos;t been placed yet. Calls already made are kept. This can&apos;t be undone.
+            </div>
+            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn" disabled={stoppingAll} onClick={() => setConfirmStopAll(false)}>Keep them running</button>
+              <button className="btn btn-primary" style={{ background: 'var(--red)', borderColor: 'var(--red)' }} disabled={stoppingAll} onClick={stopAllRunning}>
+                {stoppingAll ? 'Stopping…' : 'Stop all'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ops results — .card has no margin of its own */}
       {(opsMsg || exportErr) && (
