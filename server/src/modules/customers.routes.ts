@@ -137,7 +137,7 @@ customersRouter.get('/:id', ah(async (req, res) => {
   // Bounded: a long-lived customer accumulates hundreds of journey events, and
   // this endpoint renders one page. The paginated /timeline endpoint below is
   // the way to read the full history.
-  const [timelineRows, calls, campaignContacts] = await Promise.all([
+  const [timelineRows, calls, campaignContacts, outboundRequests] = await Promise.all([
     prisma.journeyEvent.findMany({
       where: { customerId: customer.id },
       orderBy: { occurredAt: 'desc' },
@@ -148,11 +148,22 @@ customersRouter.get('/:id', ah(async (req, res) => {
       orderBy: { queuedAt: 'desc' },
       take: 50,
     }),
+    // A campaign upload sometimes lands a contact row before it is linked to a
+    // Customer (or the link never happens if the two get created out of order),
+    // so a customerId-only match silently drops real campaign history. Phone is
+    // the same strong join key used everywhere else on this page.
     prisma.campaignContact.findMany({
-      where: { customerId: customer.id },
+      where: customer.phone ? { OR: [{ customerId: customer.id }, { phone: customer.phone }] } : { customerId: customer.id },
       include: { campaign: { select: { id: true, name: true, code: true, status: true } } },
       orderBy: { createdAt: 'desc' },
       take: 50,
+    }),
+    // Every nudge this customer was ever queued for, delivered or not — the
+    // timeline's `nudge_sent` events only record that a send was *attempted*,
+    // not whether Upshot actually accepted it.
+    prisma.outboundRequest.findMany({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: 'asc' },
     }),
   ]);
   // Fetched newest-first so the cap keeps the *recent* events, then flipped
@@ -251,16 +262,31 @@ customersRouter.get('/:id', ah(async (req, res) => {
       : Promise.resolve([]),
   ]);
 
-  // Latest device the person used (phone + OS shown in their profile). Falls
-  // back to nothing if they have only ever used the website widget.
+  // Every app session the person has had (phone + OS shown in their profile
+  // comes from the latest one). Falls back to nothing if they have only ever
+  // used the website widget.
   const resolvedUserId = appUserId ?? user?.id ?? null;
-  const session = resolvedUserId
-    ? await prisma.session.findFirst({
-        where: { userId: resolvedUserId },
-        orderBy: { startedAt: 'desc' },
-        select: { deviceInfo: true, startedAt: true },
-      })
-    : null;
+  const [sessionRows, otpTokens, notifications] = await Promise.all([
+    resolvedUserId
+      ? prisma.session.findMany({
+          where: { userId: resolvedUserId },
+          orderBy: { startedAt: 'desc' },
+          select: { id: true, deviceInfo: true, startedAt: true, endedAt: true, pagesVisited: true },
+          take: 20,
+        })
+      : Promise.resolve([]),
+    customer.phone
+      ? prisma.otpToken.findMany({ where: { phone: customer.phone }, select: { purpose: true, consumed: true, createdAt: true } })
+      : Promise.resolve([]),
+    // Admin-facing alerts raised about this person (e.g. "stalled, needs help"),
+    // keyed by whichever id the alert was filed under.
+    prisma.notification.findMany({
+      where: { entityId: { in: [customer.id, resolvedUserId].filter((v): v is string => !!v) } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    }),
+  ]);
+  const session = sessionRows[0] ?? null;
   const di = (session?.deviceInfo ?? {}) as Record<string, unknown>;
   const device = session
     ? {
@@ -270,6 +296,21 @@ customersRouter.get('/:id', ah(async (req, res) => {
         lastSeenAt: session.startedAt,
       }
     : null;
+  const sessions = sessionRows.map((s) => ({
+    id: s.id,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    pagesVisited: s.pagesVisited,
+    durationSec: s.endedAt ? Math.max(0, Math.round((s.endedAt.getTime() - s.startedAt.getTime()) / 1000)) : null,
+  }));
+  const otpSummary = { total: otpTokens.length, consumed: otpTokens.filter((t) => t.consumed).length };
+  const nudgeSummary = {
+    total: outboundRequests.length,
+    delivered: outboundRequests.filter((r) => r.status === 'sent').length,
+    failed: outboundRequests.filter((r) => r.status === 'failed').length,
+    pending: outboundRequests.filter((r) => r.status === 'pending').length,
+    lastError: [...outboundRequests].reverse().find((r) => r.lastError)?.lastError ?? null,
+  };
 
   // Roll-up across every lender the customer applied to. One "submitted
   // application" = one applied offer; its lenderStatus is that lender's own
@@ -305,6 +346,10 @@ customersRouter.get('/:id', ah(async (req, res) => {
     leads,
     applicationSummary,
     device,
+    sessions,
+    otpSummary,
+    nudgeSummary,
+    notifications,
     nextAction: nextActionFor(customer.currentStage),
   }, 'Customer 360');
 }));

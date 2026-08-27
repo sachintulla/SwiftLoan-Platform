@@ -221,29 +221,36 @@ export function buildPageContext(screen: string): Record<string, unknown> {
     // instruction that would make the agent speak first is gated on that greeting
     // being non-empty — so nothing tells it to start. This supplies that
     // instruction, which is what the integration guide's step 3 intends.
-    interactionGuide: {
-      goal: `Help the user do what the SwiftLoan "${screen}" screen is for, by calling tools rather than describing steps.`,
-      // Same reasoning as `opening` below: a rule sitting only in the (much
-      // larger, static) dashboard system prompt loses out to whatever's
-      // structurally closest to the model at generation time. Observed
-      // failure this fixes: model calls select_option, sees a result whose
-      // controls_now already lists the newly-enabled "Continue with X"
-      // button, then still stops and asks the user "what else can I help
-      // with" instead of pressing it. Repeating the instruction here, fresh
-      // every turn, gives it the same recency the opening instruction has.
-      autoAdvance:
-        'If the tool result you just received shows this screen\'s forward button now enabled ' +
-        '(e.g. "Continue with X" appearing in controls_now/available_actions) because of the ' +
-        'action you just took, call continue_next yourself immediately, in this same turn — ' +
-        'before saying anything else to the user. Do not stop to ask "shall I continue?" or ' +
-        '"what else can I help with?" and wait for them to say "continue."',
-      opening:
-        'Speak first, right away, before the user says anything. Open warmly, like ' +
-        '"Welcome to SwiftLoan!" — then in the same short sentence, name this screen in ' +
-        'plain everyday words (never speak an internal screen id like "basicpan" or ' +
-        '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
-        'Then stop and listen.',
-    },
+    //
+    // Commented out at request, NOT deleted — this is a deliberate, reversible
+    // disable, not a cleanup. Known risk if left off: the agent may go silent
+    // at call start (no `opening` instruction) and may stop mid-flow asking
+    // "what else can I help with?" instead of auto-advancing (no `autoAdvance`
+    // instruction) — both were real observed bugs this field was added to fix.
+    // Re-enable by uncommenting if either regresses.
+    // interactionGuide: {
+    //   goal: `Help the user do what the SwiftLoan "${screen}" screen is for, by calling tools rather than describing steps.`,
+    //   // Same reasoning as `opening` below: a rule sitting only in the (much
+    //   // larger, static) dashboard system prompt loses out to whatever's
+    //   // structurally closest to the model at generation time. Observed
+    //   // failure this fixes: model calls select_option, sees a result whose
+    //   // controls_now already lists the newly-enabled "Continue with X"
+    //   // button, then still stops and asks the user "what else can I help
+    //   // with" instead of pressing it. Repeating the instruction here, fresh
+    //   // every turn, gives it the same recency the opening instruction has.
+    //   autoAdvance:
+    //     'If the tool result you just received shows this screen\'s forward button now enabled ' +
+    //     '(e.g. "Continue with X" appearing in controls_now/available_actions) because of the ' +
+    //     'action you just took, call continue_next yourself immediately, in this same turn — ' +
+    //     'before saying anything else to the user. Do not stop to ask "shall I continue?" or ' +
+    //     '"what else can I help with?" and wait for them to say "continue."',
+    //   opening:
+    //     'Speak first, right away, before the user says anything. Open warmly, like ' +
+    //     '"Welcome to SwiftLoan!" — then in the same short sentence, name this screen in ' +
+    //     'plain everyday words (never speak an internal screen id like "basicpan" or ' +
+    //     '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
+    //     'Then stop and listen.',
+    // },
     available_actions: targets.map(t => ({
       kind: t.kind,
       label: t.label,

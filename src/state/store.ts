@@ -279,12 +279,39 @@ export function parentScreen(s: Screen): Screen {
   return PREV[s] || 'home';
 }
 
+// apiContext exists purely to feed the voice agent's page_context (every
+// mergeApiContext call site renders from its own local state, never reads
+// apiContext back — see e.g. home.tsx, which keeps its own `offers` state
+// and only pushes into apiContext as a side effect) — so it's safe, and
+// necessary, to strip fields the voice model has no use for but that are
+// huge: each Offer carries the same lender logo twice, once as a base64
+// data: URI (`lenderLogoUrl`) and again buried in the untouched provider
+// payload (`rawOffer.Lender.LenderLogo`). With ~10 offers per application
+// that's enough bloat to blow past the Gemini Live session's WebSocket
+// frame size and kill it outright (close code 1007, "invalid frame payload
+// data"). Deep and key-name-based (rather than shape-specific) since patches
+// arrive in several different shapes (`applications`, `applicationDetail`,
+// `prequalifyResult`, ...) — new call sites are covered automatically.
+const VOICE_CONTEXT_STRIP_KEYS = new Set(['lenderLogoUrl', 'rawOffer']);
+function stripForVoiceContext<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(stripForVoiceContext) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (VOICE_CONTEXT_STRIP_KEYS.has(k)) continue;
+      out[k] = stripForVoiceContext(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'set':
       return { ...state, ...action.patch };
     case 'mergeApiContext':
-      return { ...state, apiContext: { ...state.apiContext, ...action.patch } };
+      return { ...state, apiContext: { ...state.apiContext, ...stripForVoiceContext(action.patch) } };
     case 'go': {
       const { screen } = action;
       // No-op navigations don't touch the stack.
@@ -303,22 +330,27 @@ function reducer(state: AppState, action: Action): AppState {
         // Normal forward nav — remember where we came from (cap depth defensively).
         history = [...state.history, state.screen].slice(-50);
       }
-      return { ...state, screen, history };
+      // apiContext is a voice-only snapshot of whichever API calls the
+      // screen(s) the user was just on happened to make (see the reducer
+      // comment above) — reset on every real screen change so a call started
+      // later never carries forward data fetched for a screen the user has
+      // since left. Each new screen repopulates it from its own API calls.
+      return { ...state, screen, history, apiContext: {} };
     }
     case 'back': {
       // The offers RESULT is a funnel endpoint: pressing back must return to
       // wherever the funnel was started from (My Offers / Home) — never back into
       // the funnel (Verify PAN → details → …). offersReturn records that origin.
       if (state.screen === 'offers') {
-        return { ...state, screen: state.offersReturn || 'home', history: [] };
+        return { ...state, screen: state.offersReturn || 'home', history: [], apiContext: {} };
       }
       // Pop to the screen the user actually came from; fall back to the PREV map
       // (then home) only when the stack is empty (e.g. deep-linked entry).
       if (state.history.length > 0) {
         const history = state.history.slice(0, -1);
-        return { ...state, screen: state.history[state.history.length - 1], history };
+        return { ...state, screen: state.history[state.history.length - 1], history, apiContext: {} };
       }
-      return { ...state, screen: PREV[state.screen] || 'home' };
+      return { ...state, screen: PREV[state.screen] || 'home', apiContext: {} };
     }
     case 'reset':
       // Logout: clear all session/profile state, but KEEP device-level consent

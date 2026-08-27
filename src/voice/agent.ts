@@ -126,6 +126,7 @@ export class ElloAgent {
         tools: this.registry.toWire(),
         page_context: ctx,
       });
+      vlog('page_context sent (client-tools-update):', JSON.stringify(ctx));
     });
   }
 
@@ -229,13 +230,15 @@ export class ElloAgent {
       // reciting the former instead of following the latter. The real, full
       // context follows moments later via updatePageContext() below, once the
       // mic is live — in time for everything the model does after the greeting.
+      const startPageContext = { ...fullContext, screen_overview: '', available_actions: [] };
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
         client_tools: tools,
-        page_context: { ...fullContext, screen_overview: '', available_actions: [] },
+        page_context: startPageContext,
       });
       vlog('sent voice-session-start; tools=', tools.map(t => t.name));
+      vlog('page_context sent:', JSON.stringify(startPageContext));
 
       let sentChunks = 0;
       await this.mic.start(base64 => {
@@ -264,6 +267,11 @@ export class ElloAgent {
       // Deliver the full page_context (withheld above) shortly after the
       // greeting-triggering message — enough of a beat that the model's first
       // utterance is already underway before it has screen specifics to work with.
+      // Restored: removing this left screen_overview/available_actions empty
+      // for the whole call on the starting screen, and confirmed live that the
+      // model then has no grounding in what screen it's actually on — observed
+      // making up a generic/wrong opening ("which language would you prefer?")
+      // on the Home screen instead of recognizing an existing logged-in user.
       setTimeout(() => this.updatePageContext(), 500);
     } catch (e: any) {
       const message = e?.message || String(e);

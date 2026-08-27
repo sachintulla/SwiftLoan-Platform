@@ -45,6 +45,13 @@ export default function Loans() {
 
   // `silent` refreshes (the background poll) skip the full-screen spinner so the
   // list updates in place as lender webhooks change each application's status.
+  // The voice agent only gets a one-time snapshot from the initial, non-silent
+  // load that fires on entering this screen — mergeApiContext is deliberately
+  // NOT called from silent polls, even when they turn up a real change.
+  // mergeApiContext always creates a new apiContext object, which store.ts
+  // treats as "changed" and re-sends the full page_context to the voice agent
+  // over the live socket; without this guard, that fired on every 20s poll
+  // tick for as long as the user sat on this screen, silence included.
   const load = useCallback(async (silent = false) => {
     if (!isAuthed()) { setLoading(false); return; }
     if (!silent) { setErr(null); setLoading(true); }
@@ -52,7 +59,7 @@ export default function Loans() {
       const { applications }: any = await api.listApplications();
       const list = applications || [];
       setApps(list);
-      mergeApiContext({ applications: list });
+      if (!silent) mergeApiContext({ applications: list });
     } catch (e: any) {
       if (!silent) setErr(e?.message || 'Could not load your loans.');
     } finally {

@@ -145,6 +145,48 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(18,183,106,.5); animation: pulse 1.8s infinite; display: inline-block; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(18,183,106,.5); } 70% { box-shadow: 0 0 0 7px rgba(18,183,106,0); } 100% { box-shadow: 0 0 0 0 rgba(18,183,106,0); } }
 
+/* ── section tabs (customer detail page etc.) ── */
+.tab-bar { display: flex; gap: 22px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-item { position: relative; padding: 11px 2px; font-size: 13.5px; font-weight: 600; color: var(--text-dim); white-space: nowrap; border: none; background: none; flex-shrink: 0; }
+.tab-item:hover { color: var(--text); }
+.tab-item.active { color: var(--brand-ink); }
+.tab-item.active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--brand); border-radius: 2px 2px 0 0; }
+.tab-count { margin-left: 6px; color: var(--text-faint); font-weight: 700; font-size: 12px; }
+.tab-item.active .tab-count { color: var(--brand); }
+
+/* ── facts grid (customer detail header) ── */
+.facts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; }
+.fact-label { font-size: 11.5px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 3px; }
+.fact-value { font-size: 13.5px; font-weight: 600; color: var(--text); }
+
+/* ── callout (amber/red/blue explanatory note) ── */
+.callout { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.55; margin-top: 14px; }
+.callout-amber { background: var(--amber-bg); color: #7a4b06; }
+.callout-red { background: var(--red-bg); color: #8f271d; }
+.callout-blue { background: var(--blue-bg); color: #10457e; }
+.callout-grey { background: var(--surface-2); color: var(--text-dim); }
+.callout-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4; }
+
+/* ── horizontal stage stepper ── */
+.stepper { display: flex; align-items: flex-start; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; }
+.stepper-node { display: flex; flex-direction: column; align-items: center; flex: 0 0 108px; width: 108px; text-align: center; }
+.stepper-connector { flex: 1 1 24px; height: 2px; margin-top: 13px; min-width: 20px; }
+.stepper-dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+.stepper-label { font-size: 11.5px; font-weight: 600; margin-top: 8px; line-height: 1.3; }
+.stepper-date { font-size: 10.5px; color: var(--text-faint); margin-top: 2px; line-height: 1.3; }
+
+/* ── app session bars ── */
+.session-row { display: grid; grid-template-columns: 92px 1fr 60px 72px; gap: 10px; align-items: center; padding: 7px 0; }
+.session-bar-track { background: var(--surface-2); border-radius: 6px; height: 18px; overflow: hidden; position: relative; }
+.session-bar { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--brand), var(--brand-mint)); }
+
+/* ── activity feed (condensed narrative) ── */
+.activity-row { display: grid; grid-template-columns: 90px 16px 1fr; gap: 12px; padding: 9px 0; }
+.activity-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; justify-self: center; }
+.activity-title { font-size: 13px; font-weight: 650; }
+.activity-detail { font-size: 12px; color: var(--text-dim); margin-top: 1px; line-height: 1.45; }
+
 @media (max-width: 900px) {
   .sidebar { transform: translateX(-100%); }
   .main { margin-left: 0; }

@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import Link from 'next/link';
-import { dateStr, timeAgo } from '@/lib/format';
+import { dateStr } from '@/lib/format';
 
 // Canonical customer journey — these keys are the server's JourneyStage enum
 // (server/src/lib/journey.ts STAGE_ORDER / STAGE_LABELS). They must match exactly:
@@ -68,7 +68,7 @@ export interface StageProgress {
 }
 
 /**
- * Vertical journey tracker used on the customer page.
+ * Horizontal stage stepper used on the customer page.
  *
  * Three states have to be told apart at a glance, so each one differs in SHAPE
  * and WEIGHT as well as colour (colour alone fails for ~8% of male operators):
@@ -78,103 +78,73 @@ export interface StageProgress {
  *                know they got past it. Reads deliberately less solid.
  *   not reached— faint dotted outline with the step number
  *
- * `action` renders the per-stage control (the Call button). It is only called
- * for stages that were actually reached — offering to call someone about a step
- * they never got to is nonsense.
+ * A 12-step vertical list read as one long, hard-to-scan page — laid flat and
+ * horizontal it reads in one glance instead, with the summary line underneath
+ * carrying the "N inferred, no event recorded" caveat instead of repeating it
+ * per row.
  */
-export function JourneyTracker({ steps, currentStage, action, stalledMinutes }: {
+export function JourneyTracker({ steps, currentStage, stalledMinutes }: {
   steps: StageProgress[];
   currentStage?: string | null;
-  action?: (step: StageProgress, isCurrent: boolean) => React.ReactNode;
   /** Minutes in the current stage — surfaced loudly, it is the cue to call. */
   stalledMinutes?: number | null;
 }) {
   if (!steps.length) return <div className="empty">No journey recorded yet</div>;
   const currentIdx = steps.findIndex((s) => s.stage === currentStage);
+  const reachedCount = steps.filter((s) => s.reached).length;
+  const inferredCount = steps.filter((s) => s.inferred).length;
 
   return (
-    <div style={{ display: 'grid' }}>
-      {steps.map((s, i) => {
-        const isCurrent = i === currentIdx;
-        const confirmed = s.reached && !!s.at;
-        const inferred = s.reached && !s.at;
-        const done = s.reached && !isCurrent;
+    <div>
+      <div className="stepper">
+        {steps.map((s, i) => {
+          const isCurrent = i === currentIdx;
+          const confirmed = s.reached && !!s.at;
+          const inferred = s.reached && !s.at;
+          const connectorFilled = i > 0 && steps[i - 1].reached && s.reached;
 
-        // rail below this node is only "travelled" if the NEXT step was reached
-        const nextReached = i < steps.length - 1 && steps[i + 1].reached;
+          const marker = confirmed
+            ? { background: 'var(--brand)', border: '2px solid var(--brand)', color: '#fff', glyph: '✓' }
+            : inferred
+              ? { background: 'var(--surface)', border: '2px dashed var(--brand)', color: 'var(--brand)', glyph: '✓' }
+              : { background: 'var(--surface)', border: '2px dotted var(--border)', color: 'var(--text-faint)', glyph: String(i + 1) };
 
-        const marker = confirmed
-          ? { background: 'var(--brand)', border: '2px solid var(--brand)', color: '#fff', glyph: '✓' }
-          : inferred
-            ? { background: 'var(--surface)', border: '2px dashed var(--brand)', color: 'var(--brand)', glyph: '✓' }
-            : { background: 'var(--surface)', border: '2px dotted var(--border)', color: 'var(--text-faint)', glyph: String(i + 1) };
-
-        return (
-          <div key={s.stage} className="row" style={{ gap: 14, alignItems: 'stretch' }}>
-            {/* rail */}
-            <div style={{ display: 'grid', justifyItems: 'center', width: 30, flexShrink: 0 }}>
-              <div
-                aria-hidden
-                style={{
-                  width: isCurrent ? 26 : 22, height: isCurrent ? 26 : 22, borderRadius: '50%',
-                  display: 'grid', placeItems: 'center', fontSize: isCurrent ? 12 : 11,
-                  fontWeight: 800, flexShrink: 0,
-                  background: marker.background, border: marker.border, color: marker.color,
-                  boxShadow: isCurrent ? '0 0 0 5px var(--teal-bg)' : undefined,
-                }}
-              >
-                {marker.glyph}
-              </div>
-              {i < steps.length - 1 && (
-                <div style={{
-                  width: 2, flex: 1, minHeight: 20,
-                  background: nextReached ? 'var(--brand)' : 'var(--border)',
-                  opacity: nextReached ? 1 : .7,
-                }} />
+          return (
+            <React.Fragment key={s.stage}>
+              {i > 0 && (
+                <div className="stepper-connector" style={{ background: connectorFilled ? 'var(--brand)' : 'var(--border)', opacity: connectorFilled ? 1 : .7 }} />
               )}
-            </div>
-
-            {/* label + meta + action */}
-            <div className="row between wrap" style={{ gap: 10, alignItems: 'flex-start', flex: 1, paddingBottom: 16, minWidth: 0 }}>
-              <div style={{ minWidth: 0 }}>
-                <div className="row wrap" style={{ gap: 8 }}>
-                  <span style={{
-                    fontSize: 13.5,
-                    fontWeight: isCurrent ? 750 : done ? 600 : 500,
-                    color: s.reached ? 'var(--text)' : 'var(--text-faint)',
-                  }}>
-                    {s.label || stageLabel(s.stage)}
-                  </span>
-                  {isCurrent && <span className="badge tone-blue">They are here now</span>}
+              <div className="stepper-node">
+                <div
+                  className="stepper-dot"
+                  style={{
+                    background: marker.background, border: marker.border, color: marker.color,
+                    boxShadow: isCurrent ? '0 0 0 4px var(--teal-bg)' : undefined,
+                  }}
+                >
+                  {marker.glyph}
                 </div>
-                <div style={{ fontSize: 11.5, marginTop: 2, color: inferred ? 'var(--amber)' : 'var(--text-dim)' }}>
-                  {confirmed
-                    ? `${dateStr(s.at)} · ${timeAgo(s.at)}`
-                    : inferred
-                      // Say what we actually know. "implied · no event recorded"
-                      // was jargon; this is the plain-English version.
-                      ? 'Inferred — we know they got past this, but no event was recorded'
-                      : 'Not reached yet'}
+                <div className="stepper-label" style={{ color: s.reached ? 'var(--text)' : 'var(--text-faint)', fontWeight: isCurrent ? 750 : 600 }}>
+                  {s.label || stageLabel(s.stage)}
                 </div>
-                {isCurrent && stalledMinutes != null && stalledMinutes >= 15 && (
-                  <div
-                    className={`badge ${stalledMinutes > 1440 ? 'tone-red' : 'tone-amber'}`}
-                    style={{ marginTop: 6 }}
-                    title="How long they have been sitting on this step"
-                  >
-                    Stuck here {stalledLabel(stalledMinutes)}
-                  </div>
-                )}
+                <div className="stepper-date" style={{ color: inferred ? 'var(--amber)' : 'var(--text-faint)' }}>
+                  {confirmed ? dateStr(s.at) : inferred ? 'inferred' : isCurrent ? 'here now' : 'not reached'}
+                </div>
               </div>
-              {/* Reached stages, plus the current one — the server does not mark
-                  channel-entry stages (lead_captured / contacted) as reached
-                  without a recorded event, and that is exactly the person an
-                  operator most needs to ring. */}
-              {(s.reached || isCurrent) && action ? <div style={{ flexShrink: 0 }}>{action(s, isCurrent)}</div> : null}
-            </div>
-          </div>
-        );
-      })}
+            </React.Fragment>
+          );
+        })}
+      </div>
+      <div className="row between wrap" style={{ marginTop: 8, gap: 10 }}>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {reachedCount} of {steps.length} reached{inferredCount ? ` · ${inferredCount} inferred, no event recorded` : ''}
+        </span>
+        {stalledMinutes != null && stalledMinutes >= 15 && currentIdx >= 0 && (
+          <span className={`badge ${stalledMinutes > 1440 ? 'tone-red' : 'tone-amber'}`} title="How long they have been sitting on the current step">
+            Stuck on “{steps[currentIdx].label || stageLabel(steps[currentIdx].stage)}” for {stalledLabel(stalledMinutes)}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

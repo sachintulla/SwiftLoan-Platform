@@ -151,6 +151,14 @@ function detailEntries(details: unknown): [string, string][] {
 
 const CAP = { fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-dim)' } as React.CSSProperties;
 
+/** The provider sometimes sends a summary field that is just an empty JSON
+ * object — the call never produced real content, not a summary worth showing. */
+export function hasRealSummary(summary?: string | null): summary is string {
+  if (!summary) return false;
+  const s = summary.trim();
+  return s !== '' && s !== '{}' && s !== '[]';
+}
+
 export function ConversationCard({ c }: { c: Conversation }) {
   const rows = detailEntries(c.details);
   return (
@@ -176,12 +184,14 @@ export function ConversationCard({ c }: { c: Conversation }) {
         <ConversationOutcome outcome={c.outcome} outcomeConfirmed={c.outcomeConfirmed} outcomeSource={c.outcomeSource} />
       </div>
 
-      {c.summary ? (
+      {hasRealSummary(c.summary) ? (
         <div style={{ marginTop: 12 }}>
           <div style={{ ...CAP, marginBottom: 4 }}>Summary</div>
           <div style={{ fontSize: 12.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{c.summary}</div>
         </div>
-      ) : null}
+      ) : (
+        <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>No summary — the call never produced real content.</p>
+      )}
 
       {rows.length > 0 && (
         <div style={{ marginTop: 12 }}>
