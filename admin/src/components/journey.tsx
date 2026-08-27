@@ -200,7 +200,7 @@ export function ChannelBadge({ channel }: { channel: string }) {
 // ─── Per-lender application track (post-submission) ──────────────────────────
 // After "Application submitted" the journey fans out: each lender the customer
 // applied to runs this ladder independently. Labels match the mobile app.
-import { loanStatusLabel, inr, timeStr } from '@/lib/format';
+import { loanStatusLabel, inrRupees, timeStr } from '@/lib/format';
 import { LoanStatusBadge } from '@/components/ui';
 
 // Canonical progress rank for a lender application, used everywhere.
@@ -263,11 +263,11 @@ export function LenderTrack({ offer: o }: { offer: LenderOffer }) {
   ];
 
   const detail = [
-    o.amount != null ? `Loan ${inr(o.amount)}` : null,
+    o.amount != null ? `Loan ${inrRupees(o.amount)}` : null,
     rate != null ? `${rate}% p.a.` : null,
-    o.emi != null ? `EMI ${inr(o.emi)}` : null,
+    o.emi ? `EMI ${inrRupees(o.emi)}` : null,
     o.tenureMonths ? `${o.tenureMonths} mo` : null,
-    o.processingFee != null ? `Fee ${inr(o.processingFee)}` : null,
+    o.processingFee != null ? `Fee ${inrRupees(o.processingFee)}` : null,
   ].filter(Boolean).join('  ·  ');
 
   const inner = (

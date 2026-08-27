@@ -15,7 +15,7 @@ import { Card, StatCard, StatusBadge, LoanStatusBadge, Pagination, TableSkeleton
 import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
-import { inr, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
+import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
 
 interface Customer {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
@@ -381,7 +381,7 @@ export default function CustomerDetail() {
                 >
                   <div style={{ fontSize: 13 }}>
                     <b className="mono">{a.ref}</b>
-                    <span className="muted"> · {inr(a.amount)}{a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}</span>
+                    <span className="muted"> · {inrRupees(a.amount)}{a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}</span>
                   </div>
                   <div className="row" style={{ gap: 8 }}>
                     <LoanStatusBadge status={a.status} />
@@ -553,7 +553,7 @@ export default function CustomerDetail() {
             <div className="table-wrap"><table className="data">
               <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
               <tbody>{user!.loans!.map((l) => (
-                <tr key={l.id}><td className="mono">{inr(l.principal)}</td><td className="mono">{inr(l.outstanding)}</td><td><LoanStatusBadge status={l.status} /></td></tr>
+                <tr key={l.id}><td className="mono">{inrRupees(l.principal)}</td><td className="mono">{inrRupees(l.outstanding)}</td><td><LoanStatusBadge status={l.status} /></td></tr>
               ))}</tbody>
             </table></div>
           </Card>
