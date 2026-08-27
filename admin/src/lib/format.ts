@@ -21,6 +21,18 @@ export function num(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString('en-IN');
 }
 
+/**
+ * Rupee amount that is ALREADY in rupees (NOT paise). Loan-domain money —
+ * LoanApplication.amount, Offer.amount/emi/processingFee, Loan.principal, etc. —
+ * is stored in whole rupees, the same way the mobile app displays it. `inr()`
+ * divides by 100 (paise); using it on these fields showed ₹5,000 for ₹5,00,000.
+ * Use this for anything a customer/application/offer/loan amount.
+ */
+export function inrRupees(rupees: number | null | undefined): string {
+  if (rupees == null) return '₹0';
+  return '₹' + Math.round(rupees).toLocaleString('en-IN');
+}
+
 export function pct(n: number | null | undefined): string {
   return `${Math.round(n ?? 0)}%`;
 }
