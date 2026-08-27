@@ -12,8 +12,8 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatCard, StatusBadge, LoanStatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
-import { CallList, CallAttemptDetail } from '@/components/callDetail';
+import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderRollup, LenderOffer } from '@/components/journey';
+import { CallLog, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
 import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
 
@@ -361,35 +361,12 @@ export default function CustomerDetail() {
         <div style={{ marginTop: 16 }}>
           <Card
             title={`Applications (${user!.applications!.length})`}
-            sub="Each lender application runs its own journey after submission. Tap any to open its full detail."
+            sub="Journey stages down the side, one column per application — see at a glance where each one stands. Tap a column to open its full detail."
           >
             {d.applicationSummary && d.applicationSummary.submitted > 0 && (
               <div style={{ marginBottom: 14 }}><LenderRollup s={d.applicationSummary} /></div>
             )}
-            {(user?.applications ?? []).map((a) => {
-              const applied = (a.offers ?? []).filter((o) => o.applied);
-              if (applied.length) {
-                return applied.map((o) => <LenderTrack key={o.id} offer={{ ...o, applicationId: a.id }} />);
-              }
-              // Application with no lender submitted yet — compact clickable row.
-              return (
-                <div
-                  key={a.id}
-                  onClick={() => router.push(`/loans/${a.id}`)}
-                  className="row between"
-                  style={{ padding: '13px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                >
-                  <div style={{ fontSize: 13 }}>
-                    <b className="mono">{a.ref}</b>
-                    <span className="muted"> · {inrRupees(a.amount)}{a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}</span>
-                  </div>
-                  <div className="row" style={{ gap: 8 }}>
-                    <LoanStatusBadge status={a.status} />
-                    <span className="muted" style={{ fontSize: 12 }}>View →</span>
-                  </div>
-                </div>
-              );
-            })}
+            <ApplicationsMatrix apps={user!.applications ?? []} onOpen={(id) => router.push(`/loans/${id}`)} />
           </Card>
         </div>
       )}
@@ -443,8 +420,8 @@ export default function CustomerDetail() {
 
       {/* ── voice calls ────────────────────────────────────────────────── */}
       <div style={{ marginTop: 16 }}>
-        <Card title={`Voice calls (${calls.length})`} sub="Every outbound voice attempt, with what the agent knew and what it reported back">
-          <CallList calls={calls} emptyLabel="No voice calls placed to this customer" />
+        <Card title={`Voice calls (${calls.length})`} sub="Every outbound voice attempt, newest first. Tap a row to read the full transcript.">
+          <CallLog calls={calls} emptyLabel="No voice calls placed to this customer" />
         </Card>
       </div>
 
@@ -579,6 +556,137 @@ export default function CustomerDetail() {
           </div>
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Applications matrix — journey stages down the side, one column per
+ * application. Each cell shows whether that application has passed (done),
+ * is currently at (now), or hasn't yet reached that stage; a rejected/failed
+ * application lights the Outcome row in red.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const MATRIX_ROWS: { key: string; label: string; lvl: number }[] = [
+  { key: 'pending', label: 'Pending', lvl: 0 },
+  { key: 'applied', label: 'Applied', lvl: 1 },
+  { key: 'under_review', label: 'Under Review', lvl: 2 },
+  { key: 'approved', label: 'Approved', lvl: 3 },
+  { key: 'disbursed', label: 'Disbursed', lvl: 4 },
+];
+
+// How far each status sits on the journey ladder.
+const MATRIX_LEVEL: Record<string, number> = {
+  draft: 0, pan_pending: 0, prequalifying: 0, offers_ready: 0,
+  handoff: 1, applied: 1, submitted: 1,
+  under_review: 2, approved: 3, disbursed: 4, closed: 4,
+  rejected: 2, failed: 1,
+};
+
+// An application's effective status = the furthest-progressed lender it applied
+// to (the per-lender webhook status is the source of truth), else the app status.
+function appEffStatus(a: { status: string; offers?: LenderOffer[] }): string {
+  const applied = (a.offers ?? []).filter((o) => o.applied);
+  if (applied.length) {
+    const rank = (s?: string | null) => MATRIX_LEVEL[s ?? ''] ?? 0;
+    let best = applied[0];
+    for (const o of applied) if (rank(o.lenderStatus ?? 'handoff') > rank(best.lenderStatus ?? 'handoff')) best = o;
+    return best.lenderStatus ?? 'handoff';
+  }
+  return a.status;
+}
+
+function StageMark({ kind }: { kind: 'done' | 'current' | 'pending' | 'blocked' }) {
+  if (kind === 'done') {
+    return <span style={{ display: 'inline-flex', width: 22, height: 22, borderRadius: 11, background: 'var(--green)', color: '#fff', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>✓</span>;
+  }
+  if (kind === 'current') {
+    return (
+      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+        <span style={{ width: 22, height: 22, borderRadius: 11, background: 'var(--amber)', boxShadow: '0 0 0 4px color-mix(in srgb, var(--amber) 22%, transparent)' }} />
+        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--amber)' }}>Now</span>
+      </span>
+    );
+  }
+  if (kind === 'blocked') return <span style={{ color: 'var(--muted)', opacity: 0.5 }}>—</span>;
+  return <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 6, border: '1.5px solid var(--border)' }} />;
+}
+
+function ApplicationsMatrix({ apps, onOpen }: { apps: any[]; onOpen: (id: string) => void }) {
+  if (!apps.length) return <Empty label="No applications yet" />;
+
+  const stickyLeft: React.CSSProperties = {
+    position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)',
+    textAlign: 'left', minWidth: 132, borderRight: '1px solid var(--border)',
+  };
+  const cell: React.CSSProperties = { textAlign: 'center', padding: '14px 10px', minWidth: 172, verticalAlign: 'middle' };
+
+  return (
+    <div className="table-wrap">
+      <table className="data" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+        <thead>
+          <tr>
+            <th style={{ ...stickyLeft, verticalAlign: 'bottom', padding: '10px 12px' }}>
+              <span style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Journey stage</span>
+            </th>
+            {apps.map((a, i) => {
+              const applied = (a.offers ?? []).filter((o: any) => o.applied);
+              const lender = applied[0]?.lenderName || applied[0]?.partner?.name || null;
+              const logo = applied[0]?.lenderLogoUrl || applied[0]?.partner?.logoUrl || null;
+              return (
+                <th key={a.id} onClick={() => onOpen(a.id)} style={{ ...cell, cursor: 'pointer', verticalAlign: 'top', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Application {i + 1}</div>
+                  <div className="row" style={{ gap: 7, marginTop: 5, alignItems: 'center', justifyContent: 'center' }}>
+                    {logo ? <img src={logo} alt="" style={{ width: 20, height: 20, borderRadius: 5, objectFit: 'contain' }} /> : null}
+                    <b style={{ fontSize: 13 }}>{lender || 'Not submitted'}</b>
+                  </div>
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{a.ref}</div>
+                  <div style={{ fontSize: 12, marginTop: 2 }}>
+                    {inrRupees(a.amount)}{a.createdAt ? <span style={{ color: 'var(--muted)' }}> · {dateStr(a.createdAt)}</span> : null}
+                  </div>
+                  <div style={{ fontSize: 11, marginTop: 5, color: 'var(--accent)', fontWeight: 600 }}>Open →</div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {MATRIX_ROWS.map((row) => (
+            <tr key={row.key}>
+              <th style={{ ...stickyLeft, fontSize: 13, fontWeight: 600, padding: '14px 12px' }}>{row.label}</th>
+              {apps.map((a) => {
+                const st = appEffStatus(a);
+                const terminal = st === 'rejected' || st === 'failed';
+                const L = MATRIX_LEVEL[st] ?? 0;
+                let kind: 'done' | 'current' | 'pending' | 'blocked';
+                if (terminal) kind = row.lvl <= L ? 'done' : 'blocked';
+                else kind = row.lvl < L ? 'done' : row.lvl === L ? 'current' : 'pending';
+                return <td key={a.id} style={{ ...cell, background: kind === 'current' ? 'color-mix(in srgb, var(--amber) 8%, transparent)' : undefined }}><StageMark kind={kind} /></td>;
+              })}
+            </tr>
+          ))}
+          {/* Outcome row — red for a rejected/failed application, green when disbursed. */}
+          <tr>
+            <th style={{ ...stickyLeft, fontSize: 13, fontWeight: 600, padding: '14px 12px', borderTop: '1px solid var(--border)' }}>Outcome</th>
+            {apps.map((a) => {
+              const st = appEffStatus(a);
+              const label = st === 'rejected' ? 'Rejected' : st === 'failed' ? 'Failed' : null;
+              const disbursed = (MATRIX_LEVEL[st] ?? 0) >= 4 && !label;
+              return (
+                <td key={a.id} style={{ ...cell, borderTop: '1px solid var(--border)' }}>
+                  {label ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--red)', borderRadius: 999, padding: '3px 10px' }}>✕ {label}</span>
+                  ) : disbursed ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--green)', borderRadius: 999, padding: '3px 10px' }}>✓ Completed</span>
+                  ) : (
+                    <span style={{ color: 'var(--muted)', opacity: 0.5 }}>—</span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
