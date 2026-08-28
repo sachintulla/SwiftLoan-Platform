@@ -29,7 +29,7 @@ function minEmiOf(offer: Offer): number | null {
 
 export default function Home() {
   const t = useT();
-  const { state, set, mergeApiContext, go, showToast } = useStore();
+  const { state, set, go, showToast } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   // The amount this user actually enquired about — pulled from their live
   // application on the backend, so the hero headline is dynamic per user.
@@ -42,7 +42,9 @@ export default function Home() {
     api.listApplications()
       .then((r: any) => {
         const apps: any[] = r?.applications || [];
-        mergeApiContext({ applications: apps });
+        // Deliberately NOT pushed into apiContext (mergeApiContext) — this
+        // fetch exists purely to render Home's own hero headline/offers
+        // card/CTA state below, not to feed the voice agent.
         const withOffers =
           apps.find(a => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ||
           apps.find(a => (a.offers?.length ?? 0) > 0) ||

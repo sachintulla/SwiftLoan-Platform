@@ -558,7 +558,32 @@ export async function fetchUserContext(): Promise<UserContext | null> {
   try {
     const json = await request<{ data?: UserContext }>('GET', '/context/me');
     const data = (json as any)?.data ?? json;
-    return data && typeof data === 'object' && 'hasHistory' in data ? (data as UserContext) : null;
+    if (!data || typeof data !== 'object' || !('hasHistory' in data)) return null;
+    // This is forwarded to the voice agent verbatim as page_context.userContext
+    // on every turn (see store.ts's registerPageContext) — allowlisted to
+    // exactly the fields prompts/ello-inapp-copilot-prompt.md's `userContext`
+    // section documents (matching the UserContext type below), rather than
+    // trusting whatever /context/me happens to return. The endpoint's actual
+    // response carries extra fields (conversationBrief, a full conversations[]
+    // transcript list) meant for other consumers — the prompt's own STRICT
+    // RULE is to open from the single `brief` line, never the raw history, so
+    // those extras were pure bloat riding along on every call, roughly
+    // doubling this payload for a field the agent was never told to read.
+    const d = data as UserContext;
+    return {
+      hasHistory: d.hasHistory,
+      name: d.name,
+      city: d.city,
+      email: d.email,
+      stage: d.stage,
+      stageLabel: d.stageLabel,
+      nextAction: d.nextAction,
+      inquiries: d.inquiries,
+      lastCall: d.lastCall,
+      application: d.application,
+      loan: d.loan,
+      brief: d.brief,
+    };
   } catch {
     return null;
   }

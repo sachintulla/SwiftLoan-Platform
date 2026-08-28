@@ -308,10 +308,10 @@ export default function Profile() {
         />
         {!state.pdEdit ? (
           <View style={{ marginTop: 12 }}>
-            <DetailRow label={t.fullName} value={state.pdName} />
-            <DetailRow label={t.email} value={state.pdEmail} />
-            <DetailRow label={t.phone} value={state.pdPhone} />
-            <DetailRow label={t.dob} value={formatDob(state.pdDob)} last />
+            <DetailRow label={t.fullName} value={state.pdName} accessibilityLabel={`${t.fullName}: ${state.pdName}`} />
+            <DetailRow label={t.email} value={state.pdEmail} accessibilityLabel={`${t.email}: ${state.pdEmail}`} />
+            <DetailRow label={t.phone} value={state.pdPhone} accessibilityLabel={`${t.phone}: ${state.pdPhone}`} />
+            <DetailRow label={t.dob} value={formatDob(state.pdDob)} accessibilityLabel={`${t.dob}: ${formatDob(state.pdDob)}`} last />
           </View>
         ) : (
           <View style={{ gap: 14, marginTop: 12 }}>
@@ -434,9 +434,20 @@ function SectionHead({ icon, title, right, onTitlePress }: { icon: string; title
     </View>
   );
 }
-function DetailRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+// `accessibilityLabel` is declared here (unused internally — the View below
+// already computes its own from `label`/`value`) purely so callers can pass
+// one on the `<DetailRow .../>` element itself. The voice screen-scraper
+// (src/voice/screenGraph.ts:collectText) walks the *unrendered* element tree
+// via props.children — it never actually executes DetailRow, so it can only
+// see props declared at the call site, not anything this component renders
+// internally. Without a prop set there, DetailRow's content (name/email/DOB
+// on the profile screen) was invisible to screen_overview.
+function DetailRow({ label, value, last }: { label: string; value: string; last?: boolean; accessibilityLabel?: string }) {
   return (
-    <View style={[styles.detailRow, !last && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}>
+    <View
+      accessibilityLabel={`${label}: ${value}`}
+      style={[styles.detailRow, !last && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}
+    >
       <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>{label}</Text>
       <Text style={[font(600), { fontSize: 13.5, color: colors.text }]}>{value}</Text>
     </View>

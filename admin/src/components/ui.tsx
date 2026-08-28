@@ -70,6 +70,17 @@ export function Empty({ label = 'No data yet' }: { label?: string }) {
   return <div className="empty">{label}</div>;
 }
 
+/** An explanatory note that summarises what a section's rows actually mean —
+ * used instead of making the operator read every row to spot the pattern. */
+export function Callout({ tone = 'amber', icon, children }: { tone?: 'amber' | 'red' | 'blue' | 'grey'; icon?: string; children: React.ReactNode }) {
+  return (
+    <div className={`callout callout-${tone}`}>
+      <span className="callout-icon" aria-hidden>{icon ?? (tone === 'red' ? '⚠' : tone === 'blue' ? 'ℹ' : tone === 'grey' ? '·' : '⚠')}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 export function SearchBox({ value, onChange, placeholder = 'Search…' }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <input className="input" style={{ maxWidth: 280 }} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
