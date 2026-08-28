@@ -106,7 +106,7 @@ export function Calendar({
       </View>
 
       {mode === 'years' && (
-        <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
           <View style={styles.pickerGrid}>
             {YEARS.map(yr => (
               <Pressable

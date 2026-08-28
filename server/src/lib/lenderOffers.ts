@@ -592,10 +592,18 @@ const PROVIDERS: Record<string, LenderOfferProvider> = {
   aurix: new AurixOfferProvider(),
 };
 
+/**
+ * LENDER_PROVIDER (env) is the authority on which adapter runs — e.g.
+ * "aurix" or "mock" — so switching the whole app between real and mock
+ * offers is a deploy-time env change, not a per-row DB edit that a reseed
+ * could silently undo. Falls back to the partner's own `provider` column
+ * when the env var isn't set, so existing per-partner rows keep working.
+ */
 export function getLenderOfferProvider(partner: LenderPartner): LenderOfferProvider {
-  const provider = PROVIDERS[partner.provider];
+  const key = process.env.LENDER_PROVIDER || partner.provider;
+  const provider = PROVIDERS[key];
   if (!provider) {
-    throw new Error(`Lender provider "${partner.provider}" is not implemented yet (partner: ${partner.name})`);
+    throw new Error(`Lender provider "${key}" is not implemented yet (partner: ${partner.name})`);
   }
   return provider;
 }
