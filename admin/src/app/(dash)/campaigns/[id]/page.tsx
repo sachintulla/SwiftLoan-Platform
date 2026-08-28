@@ -205,9 +205,9 @@ export default function CampaignDetail() {
     { key: 'failed', label: 'Failed', value: progress.failed, color: 'var(--red)' },
   ];
 
+  const canStop = running || campaign.status === 'paused';
   const menuItems = [
     { key: 'pause', label: '❙❙ Pause', onSelect: () => act('pause'), disabled: !running },
-    { key: 'cancel', label: '✕ Cancel', onSelect: () => setConfirmCancel(true), disabled: !(running || campaign.status === 'paused') },
     campaign.deletedAt
       ? { key: 'restore', label: '↺ Restore', onSelect: () => apiFetch(`/api/admin/campaigns/${id}/restore`, { method: 'POST' }).then(() => mutate()) }
       : { key: 'delete', label: '🗑 Delete', onSelect: () => setConfirmDelete(true), disabled: campaign.status === 'running', danger: true },
@@ -243,6 +243,17 @@ export default function CampaignDetail() {
           <button className="btn" disabled={busy} onClick={duplicateCampaign}>Duplicate</button>
           <button className="btn btn-primary" disabled={busy || running || total === 0} onClick={() => act('start')}>
             {busy ? '…' : running ? 'Running' : 'Start dialling'}
+          </button>
+          {/* Stop is a first-class, visible action (was buried in the ⋯ menu) —
+              it halts the campaign and cancels all upcoming, not-yet-placed calls. */}
+          <button
+            className="btn"
+            style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
+            disabled={busy || !canStop}
+            title={canStop ? 'Stop the campaign and cancel all upcoming calls' : 'Only a running or paused campaign can be stopped'}
+            onClick={() => setConfirmCancel(true)}
+          >
+            ■ Stop
           </button>
           <Menu trigger="⋯" items={menuItems} />
         </div>

@@ -793,6 +793,32 @@ campaignsRouter.post('/:id/cancel', requireRole(...CAN_ADMINISTER), ah(async (re
   );
 }));
 
+// POST /api/admin/campaigns/cancel-all — stop EVERY running/paused campaign at
+// once and cancel all their upcoming (not-yet-placed) calls. The kill switch.
+campaignsRouter.post('/cancel-all', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const targets = await prisma.campaign.findMany({
+    where: { status: { in: ['running', 'paused'] } },
+    select: { id: true, name: true, providerCampaignId: true },
+  });
+  if (!targets.length) return ok(res, { cancelled: 0, ello: 0, names: [] }, 'No running or paused campaigns to stop');
+
+  const ids = targets.map((t) => t.id);
+  await prisma.$transaction([
+    prisma.campaign.updateMany({ where: { id: { in: ids } }, data: { status: 'cancelled', completedAt: new Date() } }),
+    prisma.campaignContact.updateMany({
+      where: { campaignId: { in: ids }, state: { in: ['pending', 'queued'] } },
+      data: { state: 'skipped' },
+    }),
+  ]);
+  const ello = targets.filter((t) => t.providerCampaignId).length;
+  log.info('all campaigns cancelled', { count: ids.length, ello, cancelledBy: req.admin?.sub ?? null });
+  return ok(
+    res,
+    { cancelled: ids.length, ello, names: targets.map((t) => t.name) },
+    `Stopped ${ids.length} campaign${ids.length === 1 ? '' : 's'}` + (ello ? ` — ${ello} were sent to Ello, so also cancel those on Ello's dashboard` : ''),
+  );
+}));
+
 // GET /api/admin/campaigns/:id/stats
 campaignsRouter.get('/:id/stats', ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });

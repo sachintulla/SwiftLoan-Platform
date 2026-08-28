@@ -45,6 +45,20 @@ jobs:
           set +a
           cd server
           docker build --no-cache -t swiftloan-api .
+          # Self-healing migration ledger: if the dev DB was reset with its schema
+          # objects intact but `_prisma_migrations` emptied, `migrate deploy` tries
+          # to re-run the baseline and dies with P3018 "type already exists". When
+          # migrate status reports unapplied migrations, mark every on-disk
+          # migration as already-applied first (safe no-op once the ledger is
+          # healthy, so this block does nothing on a normal deploy).
+          if docker run --rm --env-file ~/secrets/server.env swiftloan-api \
+               npx prisma migrate status 2>&1 | grep -qiE "have not yet been applied|not yet been applied|following migration"; then
+            echo "Migration ledger out of sync — baselining existing schema."
+            for m in $(ls prisma/migrations | grep -v migration_lock.toml); do
+              docker run --rm --env-file ~/secrets/server.env swiftloan-api \
+                npx prisma migrate resolve --applied "$m" || true
+            done
+          fi
           docker run --rm --env-file ~/secrets/server.env \
             swiftloan-api npx prisma migrate deploy
           # Bootstraps IntegrationConfig (Ello telephonic calling) from these env

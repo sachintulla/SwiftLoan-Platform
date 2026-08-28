@@ -84,6 +84,43 @@ export default function CampaignsPage() {
     }
   }
 
+  // --- kill switch: stop every running/paused campaign at once -----------
+  const [confirmStopAll, setConfirmStopAll] = useState(false);
+  const [stoppingAll, setStoppingAll] = useState(false);
+  async function stopAllRunning() {
+    setStoppingAll(true); setOpsMsg(null); setExportErr('');
+    try {
+      const res = await apiFetch<{ cancelled?: number; ello?: number }>('/api/admin/campaigns/cancel-all', { method: 'POST' });
+      const d = res.data ?? {};
+      setOpsMsg({
+        ok: true,
+        text: d.cancelled
+          ? `Stopped ${d.cancelled} campaign(s) and cancelled their upcoming calls${d.ello ? ` — ${d.ello} were on Ello, cancel those on Ello's dashboard too` : ''}.`
+          : 'No running or paused campaigns to stop.',
+      });
+      mutate();
+    } catch (e) {
+      setOpsMsg({ ok: false, text: (e as Error).message || 'Stop-all failed' });
+    } finally { setStoppingAll(false); setConfirmStopAll(false); }
+  }
+
+  // --- stop a single campaign straight from the list -------------------
+  const [confirmStopId, setConfirmStopId] = useState<string | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
+  async function stopOne(id: string) {
+    setStoppingId(id); setOpsMsg(null); setExportErr('');
+    try {
+      const res = await apiFetch<{ elloSideNotCancelled?: boolean }>(`/api/admin/campaigns/${id}/cancel`, { method: 'POST' });
+      setOpsMsg({ ok: true, text: (res.data as { elloSideNotCancelled?: boolean } | undefined)?.elloSideNotCancelled
+        ? 'Campaign stopped — it was on Ello, so also cancel it on Ello\'s dashboard.'
+        : 'Campaign stopped and upcoming calls cancelled.' });
+      mutate();
+    } catch (e) {
+      setOpsMsg({ ok: false, text: (e as Error).message || 'Could not stop the campaign' });
+    } finally { setStoppingId(null); setConfirmStopId(null); }
+  }
+  const stopTarget = confirmStopId ? rows.find((r) => r.id === confirmStopId) : null;
+
   return (
     <div className="page">
       <div className="row between wrap">
@@ -94,9 +131,52 @@ export default function CampaignsPage() {
         <div className="row wrap" style={{ gap: 10 }}>
           <button className="btn" disabled={exporting} onClick={exportCalls}>{exporting ? 'Exporting…' : '⭳ Export calls CSV'}</button>
           <button className="btn" disabled={reconciling} onClick={reconcile}>{reconciling ? 'Reconciling…' : '⟳ Reconcile calls'}</button>
+          <button className="btn" style={{ color: 'var(--red)', borderColor: 'var(--red)' }} disabled={stoppingAll} title="Stop every running/paused campaign and cancel all upcoming calls" onClick={() => setConfirmStopAll(true)}>
+            {stoppingAll ? 'Stopping…' : '■ Stop all running'}
+          </button>
           <button className="btn btn-primary" onClick={() => router.push('/campaigns/new')}>+ New campaign</button>
         </div>
       </div>
+
+      {confirmStopAll && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => !stoppingAll && setConfirmStopAll(false)}
+        >
+          <div className="card card-pad" style={{ width: '100%', maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="card-title">Stop all running campaigns?</h3>
+            <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginTop: 8, marginBottom: 20 }}>
+              This stops <b>every running and paused campaign</b> and <b>cancels all their upcoming calls</b> that haven&apos;t been placed yet. Calls already made are kept. This can&apos;t be undone.
+            </div>
+            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn" disabled={stoppingAll} onClick={() => setConfirmStopAll(false)}>Keep them running</button>
+              <button className="btn btn-primary" style={{ background: 'var(--red)', borderColor: 'var(--red)' }} disabled={stoppingAll} onClick={stopAllRunning}>
+                {stoppingAll ? 'Stopping…' : 'Stop all'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stopTarget && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => !stoppingId && setConfirmStopId(null)}
+        >
+          <div className="card card-pad" style={{ width: '100%', maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="card-title">Stop “{stopTarget.name}”?</h3>
+            <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginTop: 8, marginBottom: 20 }}>
+              This stops the campaign and <b>cancels its upcoming calls</b> that haven&apos;t been placed yet. Calls already made are kept. This can&apos;t be undone.
+            </div>
+            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn" disabled={!!stoppingId} onClick={() => setConfirmStopId(null)}>Keep running</button>
+              <button className="btn btn-primary" style={{ background: 'var(--red)', borderColor: 'var(--red)' }} disabled={!!stoppingId} onClick={() => stopOne(stopTarget.id)}>
+                {stoppingId ? 'Stopping…' : 'Stop campaign'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ops results — .card has no margin of its own */}
       {(opsMsg || exportErr) && (
@@ -120,7 +200,7 @@ export default function CampaignsPage() {
           <div className="table-wrap"><table className="data">
             <thead><tr>
               <th>Name</th><th>Code</th><th>Status</th><th>Type</th><th>Window</th><th>Agent</th>
-              <th>Next run</th><th>Contacts</th><th>Called</th><th>Failed</th><th>Created</th>
+              <th>Next run</th><th>Contacts</th><th>Called</th><th>Failed</th><th>Created</th><th></th>
               {viewingDeleted && <th></th>}
             </tr></thead>
             <tbody>{rows.map((c) => {
@@ -142,6 +222,19 @@ export default function CampaignsPage() {
                   <td className="mono">{num(c.calledContacts)}</td>
                   <td className="mono" style={{ color: c.failedContacts ? 'var(--red)' : undefined }}>{num(c.failedContacts)}</td>
                   <td className="muted">{dateStr(c.createdAt)}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    {(c.status === 'running' || c.status === 'paused') ? (
+                      <button
+                        className="btn"
+                        style={{ color: 'var(--red)', borderColor: 'var(--red)', padding: '3px 10px', fontSize: 11.5 }}
+                        disabled={stoppingId === c.id}
+                        title="Stop this campaign and cancel its upcoming calls"
+                        onClick={() => setConfirmStopId(c.id)}
+                      >
+                        {stoppingId === c.id ? 'Stopping…' : '■ Stop'}
+                      </button>
+                    ) : null}
+                  </td>
                   {viewingDeleted && (
                     <td onClick={(e) => e.stopPropagation()}>
                       <button className="btn" disabled={restoringId === c.id} onClick={() => restore(c.id)}>
