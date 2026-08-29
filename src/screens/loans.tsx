@@ -121,37 +121,11 @@ export default function Loans() {
       });
     }
 
-    // Eligibility completed — Aurix returned offers (the eligibility_check
-    // webhook succeeded) but the user hasn't picked/applied to a specific lender
-    // yet. Surface it as a trackable in-progress application; tapping opens the
-    // offers so they can review and apply.
-    if ((app.offers || []).length > 0) {
-      const meta = STATUS_META[app.status] || { label: 'In Progress', color: colors.amber };
-      const aprs = (app.offers || []).map((o: any) => o.apr).filter((n: any) => typeof n === 'number' && n > 0);
-      const bestApr = aprs.length ? Math.min(...aprs) : null;
-      const n = app.offers.length;
-      // Best/recommended offer drives the lender name + logo shown on the card.
-      const rec = (app.offers || []).find((o: any) => o.recommended) ?? app.offers[0];
-      const logoUrl = rec?.lenderLogoUrl ?? (app.offers || []).find((o: any) => o.lenderLogoUrl)?.lenderLogoUrl ?? null;
-      return [(
-        <AppCard
-          key={app.id}
-          icon={TYPE_ICON[app.loanType] || 'account_balance'}
-          name={displayLenderName(rec?.lenderName) || typeName}
-          ref_={`Ref ${app.ref}`}
-          typeLabel={typeName}
-          status={meta.label}
-          statusColor={meta.color}
-          logoUrl={logoUrl}
-          updated={updated}
-          metrics={[
-            { label: 'Amount', value: rupee(app.amount) },
-            bestApr != null ? { label: 'Rates from', value: `${bestApr}% p.a.` } : { label: 'Offers', value: `${n} matched` },
-          ]}
-          onPress={() => open(app)}
-        />
-      )];
-    }
+    // Eligibility-only runs — Aurix returned offers but the user has NOT applied
+    // to any lender yet — are intentionally NOT shown here. They are not loan
+    // applications; the user reviews and applies from My Offers. Surfacing them as
+    // "In Progress" loans wrongly implied an application existed. Once a lender is
+    // applied to (offer.applied via the KFT handoff/webhook) it shows above.
 
     // Legacy safety net: an active/disbursed loan with no applied-offer tracking
     // still shows so existing loans never vanish.
