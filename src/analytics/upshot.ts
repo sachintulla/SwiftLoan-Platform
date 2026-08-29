@@ -33,8 +33,8 @@ type UpshotNative = {
   initializeUpshotUsingOptions: (optionsJson: string) => void;
   terminate?: () => void;
   setDispatchInterval?: (seconds: number) => void;
-  createPageViewEvent?: (screen: string) => void;
-  createCustomEvent?: (name: string, payload: string, isTimed: boolean) => void;
+  createPageViewEvent?: (screen: string, callback: () => void) => void;
+  createCustomEvent?: (name: string, payload: string, isTimed: boolean, callback: () => void) => void;
   setUserProfile?: (profileJson: string) => void;
   getUserId?: () => Promise<string>;
   getUserDetails?: () => Promise<unknown>;
@@ -151,12 +151,19 @@ export function initUpshot(): boolean {
 
 /* ─────────────────────────── events ─────────────────────────── */
 
+// The native iOS bridge declares these methods with a required
+// RCTResponseSenderBlock callback (react-native-upshotsdk's JS wrapper is
+// `createPageViewEvent(screenName, callback)` / `createCustomEvent(name,
+// payload, isTimed, callback)`). Omitting it makes the bridge throw "argument
+// must be a function. Got undefined" — so pass a no-op callback.
+const noop = (): void => {};
+
 export function upshotScreen(screen: string): void {
-  safe(() => sdk()?.createPageViewEvent?.(screen));
+  safe(() => sdk()?.createPageViewEvent?.(screen, noop));
 }
 
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
-  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false));
+  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false, noop));
 }
 
 /* ───────────────────────── identity ───────────────────────── */
