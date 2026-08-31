@@ -80,17 +80,12 @@ export default function Home() {
   const viewOffers = () => { set({ offersReturn: 'home' }); go('fare'); };
   const changeAmount = () => { set({ offersReturn: 'home' }); go('basic'); };
   const startFresh = () => { set({ offersReturn: 'home' }); go('basicpan'); };
-  // Accept a pre-qualified offer. Seeds the amount, then: if the offer carries a
-  // lender handoff URL, open it (the chosen terminus); otherwise collect via the
-  // standard funnel. NOTE: gating PAN + KYC *before* the handoff is a follow-up.
-  const acceptPrequal = (o: PrequalifyingOffer) => {
+  // A sponsored "featured offer" ad — tapping "Check eligibility" seeds the
+  // advertised amount and drops the user into the normal application funnel.
+  // (These ads are marketing, not firm offers, so there is no "accept".)
+  const checkEligibility = (o: PrequalifyingOffer) => {
     set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home' });
-    if (o.redirectionUrl) {
-      set({ webUrl: o.redirectionUrl, webTitle: o.lenderName });
-      go('lenderweb');
-    } else {
-      go('basicpan');
-    }
+    go('basicpan');
   };
 
   return (
@@ -159,8 +154,8 @@ export default function Home() {
 
       </View>
 
-      {/* ── Pre-qualified for you — firm admin-curated offers, shown on login ── */}
-      <PrequalifiedOffers onAccept={acceptPrequal} />
+      {/* ── Featured offers — sponsored lender ads, shown on login ──────── */}
+      <PrequalifiedOffers onCheckEligibility={checkEligibility} />
 
       {/* ── Recommended / available loan offers (static market catalog) ──── */}
       <Text style={[font(800), styles.sectionTitle]}>{t.availableOffers}</Text>
