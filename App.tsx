@@ -23,11 +23,12 @@ const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
   eligibleMs: d.nudgeEligibleMs,
 });
 
-// Voice FAB is hidden by default and revealed via a hidden gesture (tap the
-// Personal details header 5× in a row on Profile → state.voiceFabUnlocked).
+// Voice FAB is always shown (Ruby is a first-class entry point). VoiceWidget
+// self-hides only when Ello isn't configured. The `voiceFabUnlocked` flag (and
+// the Profile 5-tap gesture / nudge that set it) are retained but no longer gate
+// visibility.
 function VoiceFabGate() {
-  const { state } = useStore();
-  return state.voiceFabUnlocked ? <VoiceWidget /> : null;
+  return <VoiceWidget />;
 }
 
 /**
