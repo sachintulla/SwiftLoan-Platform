@@ -162,6 +162,27 @@ export interface MarketLoanOffer {
   active: boolean;
 }
 
+// A firm, global "pre-approved for you" offer — shown at the top of Home the
+// moment the user logs in, independent of the application funnel. Distinct from
+// MarketLoanOffer (soft marketing catalog, ranges): firm economics, and its
+// Accept path skips eligibility and hands off to the lender. Amounts in paise.
+export interface PrequalifyingOffer {
+  id: string;
+  lenderName: string;
+  logoUrl?: string | null;
+  icon: string;
+  badge?: string | null;
+  amount: number; // paise
+  rate: number; // % p.a.
+  tenureMonths: number;
+  processingFeePercent?: number | null;
+  redirectionUrl?: string | null;
+  terms?: string | null;
+  validTill?: string | null;
+  displayOrder: number;
+  active: boolean;
+}
+
 // A real per-application lender offer (distinct from MarketLoanOffer above,
 // which is admin-curated marketing data). Amounts are plain rupees, matching
 // LoanApplication/Offer's existing convention (not paise). Server-side this is
@@ -323,6 +344,9 @@ export const api = {
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
   marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
+  // Firm "pre-approved for you" offers shown at the top of Home on login. Auth'd,
+  // active + unexpired, admin-ordered. Amounts in paise.
+  prequalifyingOffers: (): Promise<{ data: PrequalifyingOffer[] }> => request('GET', '/prequalifying-offers'),
   // Admin-tunable nudge timers (public). The app fetches this on launch/foreground.
   nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
   emi: (amount: number, tenureMonths: number, rate: number) =>

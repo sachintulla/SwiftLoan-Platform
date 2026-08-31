@@ -4,9 +4,10 @@ import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { LogoLockup } from '../components/Logo';
 import { MarketLoanOffers } from '../components/MarketLoanOffers';
+import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
-import { api, isAuthed, Offer } from '../api/client';
+import { api, isAuthed, Offer, PrequalifyingOffer } from '../api/client';
 import { displayLenderName } from './offers';
 
 // Applications whose offers are still worth surfacing on the dashboard.
@@ -82,6 +83,18 @@ export default function Home() {
   const viewOffers = () => { set({ offersReturn: 'home' }); go('fare'); };
   const changeAmount = () => { set({ offersReturn: 'home' }); go('basic'); };
   const startFresh = () => { set({ offersReturn: 'home' }); go('basicpan'); };
+  // Accept a pre-qualified offer. Seeds the amount, then: if the offer carries a
+  // lender handoff URL, open it (the chosen terminus); otherwise collect via the
+  // standard funnel. NOTE: gating PAN + KYC *before* the handoff is a follow-up.
+  const acceptPrequal = (o: PrequalifyingOffer) => {
+    set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home' });
+    if (o.redirectionUrl) {
+      set({ webUrl: o.redirectionUrl, webTitle: o.lenderName });
+      go('lenderweb');
+    } else {
+      go('basicpan');
+    }
+  };
 
   return (
     <Screen scroll bottomNav padded>
@@ -148,6 +161,9 @@ export default function Home() {
         </View>
 
       </View>
+
+      {/* ── Pre-qualified for you — firm admin-curated offers, shown on login ── */}
+      <PrequalifiedOffers onAccept={acceptPrequal} />
 
       {/* ── Recommended / available loan offers (static market catalog) ──── */}
       <Text style={[font(800), styles.sectionTitle]}>{t.availableOffers}</Text>

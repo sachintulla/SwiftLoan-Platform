@@ -22,6 +22,7 @@ import { contextRouter } from './modules/context.routes.js';
 import { configRouter } from './modules/config.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
+import { prequalifyingRouter } from './modules/prequalifying.routes.js';
 import { customersRouter } from './modules/customers.routes.js';
 import { integrationsRouter } from './modules/integrations.routes.js';
 import { apiKeysRouter } from './modules/apiKeys.routes.js';
@@ -153,6 +154,7 @@ export function createApp() {
   app.use('/api/website', leadLimiter, websiteRouter);
   app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
   app.use('/', preapprovedRouter); // /api/preapproved-plans + /api/admin/preapproved-plans
+  app.use('/', prequalifyingRouter); // /api/prequalifying-offers + /api/admin/prequalifying-offers
 
   // Allow the admin dashboard (localhost:4001) to call this API in the browser.
   // (cors() above is permissive; this comment marks the intended consumer.)

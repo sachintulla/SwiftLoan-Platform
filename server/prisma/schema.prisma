@@ -1305,3 +1305,39 @@ model AppConfig {
   nudgeEligibleMs Int      @default(20000) // offers / My Offers
   updatedAt       DateTime @updatedAt
 }
+
+// ─────────────────── Pre-qualifying offers (admin-curated) ───────────────────
+// A firm, global "pre-approved for you" offer shown at the TOP of the home
+// screen the moment a user logs in — independent of whether they run the
+// application funnel. Distinct from MarketLoanOffer (the soft marketing
+// catalog under "Available offers", which uses rate/amount RANGES and always
+// starts the full PAN → eligibility funnel): a PrequalifyingOffer carries firm
+// economics and its "Accept" path skips the Aurix eligibility step, going PAN +
+// KYC → lender handoff (redirectionUrl). Global (no userId): the same
+// admin-managed list is shown to every logged-in user. Admin CRUD lives at
+// /api/admin/prequalifying-offers; the app reads /api/prequalifying-offers.
+model PrequalifyingOffer {
+  id                   String    @id @default(uuid())
+  lenderName           String
+  logoUrl              String?
+  icon                 String    @default("account_balance") // fallback glyph
+  badge                String? // e.g. "Pre-approved" · "Instant"
+  /// Firm pre-approved amount, in paise (server convention).
+  amount               Int
+  /// Firm annual interest rate, %.
+  rate                 Float
+  tenureMonths         Int
+  processingFeePercent Float?
+  /// Lender page opened at the end of the shortened accept flow (after PAN+KYC).
+  redirectionUrl       String?
+  /// Short eligibility / terms note shown on the card.
+  terms                String?
+  /// Optional offer expiry; a lapsed offer is filtered out of the app read.
+  validTill            DateTime?
+  displayOrder         Int       @default(0)
+  active               Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([active, displayOrder])
+}
