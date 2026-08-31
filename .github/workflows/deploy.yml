@@ -45,22 +45,32 @@ jobs:
           set +a
           cd server
           docker build --no-cache -t swiftloan-api .
-          # Self-healing migration ledger: if the dev DB was reset with its schema
-          # objects intact but `_prisma_migrations` emptied, `migrate deploy` tries
-          # to re-run the baseline and dies with P3018 "type already exists". When
-          # migrate status reports unapplied migrations, mark every on-disk
-          # migration as already-applied first (safe no-op once the ledger is
-          # healthy, so this block does nothing on a normal deploy).
-          if docker run --rm --env-file ~/secrets/server.env swiftloan-api \
-               npx prisma migrate status 2>&1 | grep -qiE "have not yet been applied|not yet been applied|following migration"; then
-            echo "Migration ledger out of sync — baselining existing schema."
-            for m in $(ls prisma/migrations | grep -v migration_lock.toml); do
-              docker run --rm --env-file ~/secrets/server.env swiftloan-api \
-                npx prisma migrate resolve --applied "$m" || true
-            done
+          # Try a normal deploy first — genuinely NEW migrations must run their
+          # SQL here. Only if this fails do we consider self-healing.
+          #
+          # (Previously this baselined — marked every on-disk migration
+          # `--applied` WITHOUT running its SQL — whenever `migrate status`
+          # showed anything unapplied. That silently flagged a brand-new
+          # migration as applied and never created its table. The self-heal must
+          # run ONLY for the "ledger emptied but schema objects still exist"
+          # case, which surfaces as P3018 / "already exists" — never as the
+          # response to a normal unapplied migration.)
+          if ! docker run --rm --env-file ~/secrets/server.env swiftloan-api \
+                 npx prisma migrate deploy 2> /tmp/migErr.log; then
+            cat /tmp/migErr.log
+            if grep -qiE "P3018|already exists" /tmp/migErr.log; then
+              echo "Baseline drift (P3018) — marking existing migrations applied, then retrying."
+              for m in $(ls prisma/migrations | grep -v migration_lock.toml); do
+                docker run --rm --env-file ~/secrets/server.env swiftloan-api \
+                  npx prisma migrate resolve --applied "$m" || true
+              done
+              docker run --rm --env-file ~/secrets/server.env \
+                swiftloan-api npx prisma migrate deploy
+            else
+              echo "::error::migrate deploy failed and it is not a baseline-drift (P3018) case."
+              exit 1
+            fi
           fi
-          docker run --rm --env-file ~/secrets/server.env \
-            swiftloan-api npx prisma migrate deploy
           # Bootstraps IntegrationConfig (Ello telephonic calling) from these env
           # vars — merges, never clears a secret left blank. The admin dashboard's
           # /integrations page remains the real place to manage these afterward.
