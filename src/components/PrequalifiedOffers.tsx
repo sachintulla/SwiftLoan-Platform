@@ -46,8 +46,8 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
         {/* Coloured ad band — lender logo + name. */}
         <View style={[styles.band, { backgroundColor: tint }]}>
           <View style={styles.logoTile}>
-            {logo ? <Image source={logo} style={{ width: 22, height: 22 }} resizeMode="contain" />
-                  : <Icon name={offer.icon || 'account_balance'} size={16} color={colors.primary} />}
+            {logo ? <Image source={logo} style={{ width: 34, height: 34 }} resizeMode="contain" />
+                  : <Icon name={offer.icon || 'account_balance'} size={22} color={colors.primary} />}
           </View>
           <Text style={[font(800), { flex: 1, fontSize: 12, color: '#fff' }]} numberOfLines={1}>{offer.lenderName}</Text>
         </View>
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     shadowColor: '#0A3F41', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
   },
   band: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 9 },
-  logoTile: { width: 28, height: 28, borderRadius: 7, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  logoTile: { width: 40, height: 40, borderRadius: 9, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   body: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 },
   badge: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1.5, marginTop: 6 },
   cta: {
