@@ -49,7 +49,7 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
             {logo ? <Image source={logo} style={{ width: 34, height: 34 }} resizeMode="contain" />
                   : <Icon name={offer.icon || 'account_balance'} size={22} color={colors.primary} />}
           </View>
-          <Text style={[font(800), { flex: 1, fontSize: 12, color: '#fff' }]} numberOfLines={1}>{offer.lenderName}</Text>
+          <Text style={[font(800), { flex: 1, fontSize: 12, color: '#fff', lineHeight: 15 }]} numberOfLines={2}>{offer.lenderName}</Text>
         </View>
 
         <View style={styles.body}>
@@ -57,11 +57,15 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
           <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 5 }]}>Loans up to</Text>
           <Text style={[font(800), { fontSize: 19, color: colors.text, letterSpacing: -0.5 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(amountR)}</Text>
           <Text style={[font(600), { fontSize: 11, color: colors.greenDeep, marginTop: 2 }]} numberOfLines={1}>from {offer.rate}% · {offer.tenureMonths} mo</Text>
-          {offer.badge ? (
-            <View style={[styles.badge, { borderColor: tint }]}>
-              <Text style={[font(700), { fontSize: 9, color: tint }]} numberOfLines={1}>{offer.badge}</Text>
-            </View>
-          ) : <View style={{ height: 6 }} />}
+          {/* Fixed-height tag slot — reserved whether or not there's a tag, so
+              every tile is the same height regardless of badges. */}
+          <View style={styles.tagSlot}>
+            {offer.badge ? (
+              <View style={[styles.badge, { borderColor: tint }]}>
+                <Text style={[font(700), { fontSize: 9, color: tint }]} numberOfLines={1}>{offer.badge}</Text>
+              </View>
+            ) : null}
+          </View>
 
           <Pressable onPress={() => onCheckEligibility(offer)} style={styles.cta}>
             <Text style={[font(700), { fontSize: 11.5, color: colors.primary }]}>Check eligibility</Text>
@@ -125,7 +129,8 @@ const styles = StyleSheet.create({
   band: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 9 },
   logoTile: { width: 40, height: 40, borderRadius: 9, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   body: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 },
-  badge: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1.5, marginTop: 6 },
+  tagSlot: { height: 22, justifyContent: 'center', marginTop: 8 },
+  badge: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1.5 },
   cta: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
     backgroundColor: 'rgba(7,159,160,0.10)', borderRadius: 10, paddingVertical: 10, marginTop: 10,
