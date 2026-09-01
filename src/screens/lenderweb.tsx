@@ -71,14 +71,26 @@ export default function LenderWeb() {
   // event funnels through here. De-duped on status+reason so we don't re-send
   // the page_context to the agent for no-op repeats.
   const lastFlowRef = useRef<string>('');
-  const pushFlow = useCallback((status: string, extra?: Record<string, unknown>) => {
+  // Narrate the FIRST load ("opening the lender's page") but stay quiet on the
+  // subsequent step-to-step loads inside the flow — those refresh context
+  // silently. Success/failure always narrate regardless.
+  const narratedFirstLoadRef = useRef(false);
+  // `narrate: true` marks a transition the agent should SPEAK about the moment it
+  // arrives (loading → success/failed), not just quietly absorb — a whitelisted
+  // proactive moment per the prompt. Terminal + first-load transitions narrate;
+  // intermediate snapshots and repeats stay silent so the agent isn't chatty.
+  const pushFlow = useCallback((status: string, narrate: boolean, extra?: Record<string, unknown>) => {
     const sig = status + '|' + (extra?.reason ?? '') + '|' + (extra?.url ?? '');
     if (lastFlowRef.current === sig) return;
     lastFlowRef.current = sig;
     mergeApiContext({
       lenderWebFlow: {
-        status,           // loading | loaded | http_error | crashed | failed | completed
+        status,           // loading | loaded | page_error | http_error | crashed | failed | completed
         lender,
+        narrate,
+        // A monotonically-changing marker so the agent can tell a genuinely new
+        // transition from a re-sent context (it should narrate each new one once).
+        seq: sig,
         ...extra,
       },
     });
@@ -100,7 +112,8 @@ export default function LenderWeb() {
       // The injected bridge reporting what the lender page is showing — this is
       // the detail the agent speaks from. Not a terminal event; just context.
       case 'FLOW_SNAPSHOT':
-        pushFlow(failed ? 'failed' : 'loaded', {
+        // Context only — a fresh look at what the page shows, not a spoken beat.
+        pushFlow(failed ? 'failed' : 'loaded', false, {
           pageTitle: message.title || undefined,
           pageSnippet: message.text || undefined,
           url: message.url || undefined,
@@ -108,16 +121,16 @@ export default function LenderWeb() {
         return;
       case 'FLOW_ERROR':
         // A script error inside the page isn't necessarily fatal to the flow —
-        // surface it as context, but don't mark the application failed.
-        pushFlow('page_error', { reason: message.message || 'page script error', url: message.url || undefined });
+        // surface it as context, but don't mark the application failed or speak.
+        pushFlow('page_error', false, { reason: message.message || 'page script error', url: message.url || undefined });
         return;
       case 'NAVIGATE':
-        pushFlow('completed', { reason: 'lender returned control to the app' });
+        pushFlow('completed', true, { reason: 'lender returned control to the app' });
         go('loans');
         break;
       default:
         // Any other control message also returns to the native app.
-        pushFlow('completed', { reason: 'lender flow finished' });
+        pushFlow('completed', true, { reason: 'lender flow finished' });
         go('loans');
         break;
     }
@@ -127,7 +140,7 @@ export default function LenderWeb() {
     if (reportedRef.current) return;
     reportedRef.current = true;
     setFailed(reason);
-    pushFlow('failed', { reason });
+    pushFlow('failed', true, { reason });
     // Fire-and-forget: record the failure against this lender's application.
     if (state.applicationId && state.selectedOfferId) {
       api.failApplication(state.applicationId, state.selectedOfferId, reason, state.selectedLenderApplicationId)
@@ -173,8 +186,15 @@ export default function LenderWeb() {
               // a fresh snapshot (title + visible text) as the user moves through
               // the lender's steps.
               injectedJavaScript={INJECTED_BRIDGE}
-              onLoadStart={() => { setLoading(true); if (!failed) pushFlow('loading', { url }); }}
-              onLoadEnd={() => { setLoading(false); if (!failed) pushFlow('loaded', { url }); }}
+              onLoadStart={() => {
+                setLoading(true);
+                if (!failed) {
+                  const first = !narratedFirstLoadRef.current;
+                  narratedFirstLoadRef.current = true;
+                  pushFlow('loading', first, { url });
+                }
+              }}
+              onLoadEnd={() => { setLoading(false); if (!failed) pushFlow('loaded', false, { url }); }}
               startInLoadingState
               style={styles.web}
               // Hard load failure (DNS, TLS, no route, connection reset).
@@ -192,7 +212,7 @@ export default function LenderWeb() {
               onNavigationStateChange={(nav) => {
                 if (!nav.url) return;
                 if (FAIL_URL.test(nav.url)) markFailed(`Lender flow ended at: ${nav.url.slice(0, 120)}`);
-                else if (SUCCESS_URL.test(nav.url)) pushFlow('completed', { reason: 'reached a success page', url: nav.url.slice(0, 120) });
+                else if (SUCCESS_URL.test(nav.url)) pushFlow('completed', true, { reason: 'reached a success page', url: nav.url.slice(0, 120) });
               }}
             />
             {loading && (
