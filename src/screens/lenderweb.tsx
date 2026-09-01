@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Pressable, Linking } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { Screen, AppHeader } from '../components/Frame';
@@ -12,6 +12,36 @@ import { api } from '../api/client';
 // navigated URL so we can mark the application failed even when the webhook
 // never tells us (many lender web flows only redirect, they don't call back).
 const FAIL_URL = /(fail|failure|error|cancel|declin|reject|abort|timeout|expired)/i;
+// A lender page reaching one of these URLs is a positive terminal — the
+// application went through. Reported to the agent as a 'completed' flow so it
+// can congratulate the user instead of nudging them to keep going.
+const SUCCESS_URL = /(success|approved|complete|thank|congrat|disburs|submitted)/i;
+
+/**
+ * Injected into the lender page so the app can read what the page is actually
+ * showing — its title, a short text snapshot, and any in-page script error.
+ * This is what lets the Ello voice agent describe the live web flow ("the
+ * lender is asking for your bank details", "the page hit an error") instead of
+ * only knowing the load succeeded. Posts structured messages on the standard
+ * ReactNativeWebView channel; handleMessage routes them into lenderWebFlow.
+ */
+const INJECTED_BRIDGE = `
+(function () {
+  try {
+    var post = function (o) { try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch (e) {} };
+    var snapshot = function (reason) {
+      var body = (document.body && document.body.innerText) || '';
+      post({ type: 'FLOW_SNAPSHOT', reason: reason, title: document.title || '', url: location.href, text: body.replace(/\\s+/g, ' ').trim().slice(0, 600) });
+    };
+    window.addEventListener('error', function (e) {
+      post({ type: 'FLOW_ERROR', message: (e && e.message) || 'script error', url: location.href });
+    }, true);
+    if (document.readyState === 'complete') snapshot('ready');
+    else window.addEventListener('load', function () { snapshot('load'); });
+  } catch (e) {}
+  true;
+})();
+`;
 
 /**
  * In-app browser for a lender's application page. Opened when a user applies to
@@ -33,6 +63,26 @@ export default function LenderWeb() {
   const reportedRef = useRef(false);
 
   const toLoans = () => go('loans');
+  const lender = state.webTitle || 'the lender';
+
+  // Live status of the lender web flow, mirrored into apiContext so the Ello
+  // voice agent can speak about what's happening ("the page is loading", "it
+  // hit an error", "you're back — the application went through"). Every webview
+  // event funnels through here. De-duped on status+reason so we don't re-send
+  // the page_context to the agent for no-op repeats.
+  const lastFlowRef = useRef<string>('');
+  const pushFlow = useCallback((status: string, extra?: Record<string, unknown>) => {
+    const sig = status + '|' + (extra?.reason ?? '') + '|' + (extra?.url ?? '');
+    if (lastFlowRef.current === sig) return;
+    lastFlowRef.current = sig;
+    mergeApiContext({
+      lenderWebFlow: {
+        status,           // loading | loaded | http_error | crashed | failed | completed
+        lender,
+        ...extra,
+      },
+    });
+  }, [mergeApiContext, lender]);
 
   // KFT / lender pages signal "flow finished, take the user back to the app" via
   // window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'NAVIGATE' })).
@@ -47,11 +97,27 @@ export default function LenderWeb() {
       return;
     }
     switch (message?.type) {
+      // The injected bridge reporting what the lender page is showing — this is
+      // the detail the agent speaks from. Not a terminal event; just context.
+      case 'FLOW_SNAPSHOT':
+        pushFlow(failed ? 'failed' : 'loaded', {
+          pageTitle: message.title || undefined,
+          pageSnippet: message.text || undefined,
+          url: message.url || undefined,
+        });
+        return;
+      case 'FLOW_ERROR':
+        // A script error inside the page isn't necessarily fatal to the flow —
+        // surface it as context, but don't mark the application failed.
+        pushFlow('page_error', { reason: message.message || 'page script error', url: message.url || undefined });
+        return;
       case 'NAVIGATE':
+        pushFlow('completed', { reason: 'lender returned control to the app' });
         go('loans');
         break;
       default:
         // Any other control message also returns to the native app.
+        pushFlow('completed', { reason: 'lender flow finished' });
         go('loans');
         break;
     }
@@ -61,6 +127,7 @@ export default function LenderWeb() {
     if (reportedRef.current) return;
     reportedRef.current = true;
     setFailed(reason);
+    pushFlow('failed', { reason });
     // Fire-and-forget: record the failure against this lender's application.
     if (state.applicationId && state.selectedOfferId) {
       api.failApplication(state.applicationId, state.selectedOfferId, reason, state.selectedLenderApplicationId)
@@ -102,8 +169,12 @@ export default function LenderWeb() {
               source={{ uri: url }}
               // Navigation back from the KFT / lender page into native screens.
               onMessage={handleMessage}
-              onLoadStart={() => setLoading(true)}
-              onLoadEnd={() => setLoading(false)}
+              // Inject the page-reader bridge on every document so the agent gets
+              // a fresh snapshot (title + visible text) as the user moves through
+              // the lender's steps.
+              injectedJavaScript={INJECTED_BRIDGE}
+              onLoadStart={() => { setLoading(true); if (!failed) pushFlow('loading', { url }); }}
+              onLoadEnd={() => { setLoading(false); if (!failed) pushFlow('loaded', { url }); }}
               startInLoadingState
               style={styles.web}
               // Hard load failure (DNS, TLS, no route, connection reset).
@@ -116,9 +187,12 @@ export default function LenderWeb() {
               // Web content process died (Android/iOS).
               onRenderProcessGone={() => markFailed('The lender page crashed (render process gone)')}
               onContentProcessDidTerminate={() => markFailed('The lender page stopped responding')}
-              // Parse redirects — a failure/cancel URL means the flow dead-ended.
+              // Parse redirects — a success URL is a positive terminal, a
+              // failure/cancel URL means the flow dead-ended.
               onNavigationStateChange={(nav) => {
-                if (nav.url && FAIL_URL.test(nav.url)) markFailed(`Lender flow ended at: ${nav.url.slice(0, 120)}`);
+                if (!nav.url) return;
+                if (FAIL_URL.test(nav.url)) markFailed(`Lender flow ended at: ${nav.url.slice(0, 120)}`);
+                else if (SUCCESS_URL.test(nav.url)) pushFlow('completed', { reason: 'reached a success page', url: nav.url.slice(0, 120) });
               }}
             />
             {loading && (
