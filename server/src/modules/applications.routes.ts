@@ -39,7 +39,7 @@ applicationsRouter.get('/', ah(async (req, res) => {
   const apps = await prisma.loanApplication.findMany({
     where: { userId: req.user!.sub },
     orderBy: { createdAt: 'desc' },
-    include: { offers: true, loan: true },
+    include: { offers: true, loan: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
   });
   res.json({ applications: apps });
 }));
@@ -49,7 +49,7 @@ applicationsRouter.get('/:id', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
   const full = await prisma.loanApplication.findUnique({
     where: { id: app.id },
-    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true },
+    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
   });
   res.json({ application: full });
 }));
@@ -214,23 +214,35 @@ applicationsRouter.post('/:id/offers/:offerId/select',
  */
 applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
+  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id }, include: { partner: true } });
   if (!existing) throw new HttpError(404, 'Offer not found for this application');
-  const alreadyApplied = existing.applied;
+
+  // Each apply creates a NEW LenderApplication, so the same lender can be
+  // applied to more than once — each with its own tracked status and My Loans
+  // card. We snapshot the offer economics because they can change later.
+  const lenderApp = await prisma.lenderApplication.create({
+    data: {
+      applicationId: app.id,
+      offerId: existing.id,
+      lenderName: existing.lenderName ?? existing.partner?.name ?? null,
+      lenderLogoUrl: existing.lenderLogoUrl ?? existing.partner?.logoUrl ?? null,
+      amount: existing.amount,
+      apr: existing.apr,
+      emi: existing.emi,
+      tenureMonths: existing.tenureMonths,
+      processingFeeAmount: existing.processingFeeAmount ?? 0,
+      redirectionUrl: existing.redirectionUrl,
+      status: 'handoff',
+    },
+  });
 
   // `selected` still points at the offer being handed off (the native /handoff
-  // path reads it); clear others so a subsequent handoff targets this lender.
+  // path reads it); `applied` flags the offer as "has ≥1 application" for tiles.
   await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
-  const offer = await prisma.offer.update({
+  await prisma.offer.update({
     where: { id: existing.id },
-    data: {
-      selected: true,
-      applied: true,
-      appliedAt: existing.appliedAt ?? new Date(),
-      lenderStatus: existing.lenderStatus ?? 'handoff',
-    },
-    include: { partner: true, emiOptions: true },
-  });
+    data: { selected: true, applied: true, appliedAt: existing.appliedAt ?? new Date(), lenderStatus: existing.lenderStatus ?? 'handoff' },
+  }).catch(() => {});
 
   // Nudge the parent application forward to handoff (it may go further via
   // webhooks); never regress a further status.
@@ -239,19 +251,17 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
     await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } }).catch(() => {});
   }
 
-  if (!alreadyApplied) {
-    trackJourney(
-      { userId: req.user!.sub },
-      {
-        channel: 'app',
-        name: JOURNEY_EVENTS.OFFER_SELECTED,
-        metadata: { applicationId: app.id, offerId: offer.id, lenderName: offer.lenderName ?? offer.partner?.name, apr: offer.apr, applied: true },
-      },
-    ).catch(() => {});
-  }
+  trackJourney(
+    { userId: req.user!.sub },
+    {
+      channel: 'app',
+      name: JOURNEY_EVENTS.OFFER_SELECTED,
+      metadata: { applicationId: app.id, offerId: existing.id, lenderApplicationId: lenderApp.id, lenderName: lenderApp.lenderName, apr: lenderApp.apr, applied: true },
+    },
+  ).catch(() => {});
 
-  // Offer.id is the per-lender application id the client tracks.
-  res.json({ offer, lenderApplicationId: offer.id, alreadyApplied });
+  // lenderApplication.id is the per-application id the client now tracks.
+  res.json({ lenderApplication: lenderApp, lenderApplicationId: lenderApp.id });
 }));
 
 /**
@@ -261,31 +271,34 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
  * outcome the lender already reported (approved/disbursed/rejected/closed).
  */
 applicationsRouter.post('/:id/offers/:offerId/fail',
-  validate(z.object({ reason: z.string().max(500).optional() })),
+  validate(z.object({ reason: z.string().max(500).optional(), lenderApplicationId: z.string().optional() })),
   ah(async (req, res) => {
     const app = await owned(req.user!.sub, req.params.id);
     const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
     if (!offer) throw new HttpError(404, 'Offer not found for this application');
-    // A per-lender application only exists once it was actually submitted (marked
-    // applied — created via the KFT application_submitted webhook after OTP). A
-    // web-flow error BEFORE that point means the user abandoned before submitting,
-    // so there's nothing to mark failed — don't create a stray failed item.
-    if (!offer.applied) {
-      return res.json({ offer, unchanged: true, notApplied: true });
+    // Fail the specific lender application the client handed off (if it passed
+    // its id), else the most recent one for this offer. Nothing to fail if none
+    // was created (user abandoned before applying).
+    const target = req.body.lenderApplicationId
+      ? await prisma.lenderApplication.findFirst({ where: { id: req.body.lenderApplicationId, applicationId: app.id } })
+      : await prisma.lenderApplication.findFirst({ where: { offerId: offer.id, applicationId: app.id }, orderBy: { appliedAt: 'desc' } });
+    if (!target) {
+      return res.json({ unchanged: true, notApplied: true });
     }
-    if (offer.lenderStatus && ['approved', 'disbursed', 'rejected', 'closed'].includes(offer.lenderStatus)) {
-      return res.json({ offer, unchanged: true });
+    // Never override a terminal outcome the lender already reported.
+    if (['approved', 'disbursed', 'rejected', 'closed'].includes(target.status)) {
+      return res.json({ lenderApplication: target, unchanged: true });
     }
     const reason = req.body.reason?.slice(0, 500) || 'The lender web flow could not be completed.';
-    const updated = await prisma.offer.update({
-      where: { id: offer.id },
-      data: { lenderStatus: 'failed', failureReason: reason },
+    const updated = await prisma.lenderApplication.update({
+      where: { id: target.id },
+      data: { status: 'failed', failureReason: reason },
     });
     trackJourney(
       { userId: req.user!.sub },
-      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderName: offer.lenderName, failed: true, reason } },
+      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderApplicationId: updated.id, lenderName: updated.lenderName, failed: true, reason } },
     ).catch(() => {});
-    res.json({ offer: updated });
+    res.json({ lenderApplication: updated });
   }));
 
 /** Secure handoff → disburse: create the loan + repayment schedule. */

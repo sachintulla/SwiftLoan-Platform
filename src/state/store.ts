@@ -133,6 +133,7 @@ export interface AppState {
   authUser: Record<string, any> | null;
   applicationId: string | null;
   selectedOfferId: string | null;
+  selectedLenderApplicationId: string | null;
   loanId: string | null;
   // WS3 context-aware install (context build only)
   contextLoaded: boolean;
@@ -218,7 +219,7 @@ export const initialState: AppState = {
   pdEdit: false, pdName: '', pdEmail: '',
   pdPhone: '', pdDob: '',
   pdDobOpen: false, pdCalY: 1995, pdCalM: 0,
-  authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
+  authUser: null, applicationId: null, selectedOfferId: null, selectedLenderApplicationId: null, loanId: null,
   contextLoaded: false, contextData: null,
   priorInquiries: [],
   userContext: null,

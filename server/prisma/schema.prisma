@@ -208,9 +208,10 @@ model LoanApplication {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  offers Offer[]
-  loan   Loan?
-  kyc    KycVerification[]
+  offers             Offer[]
+  loan               Loan?
+  kyc                KycVerification[]
+  lenderApplications LenderApplication[]
 
   @@index([userId, status])
   @@index([leadId])
@@ -342,10 +343,53 @@ model Offer {
   applicationUrl   String? // ApplicationUrl from KFT, if provided
   failureReason    String? // why the lender application failed (e.g. web flow error)
 
-  emiOptions OfferEmiOption[]
+  emiOptions         OfferEmiOption[]
+  lenderApplications LenderApplication[]
 
   @@index([applicationId])
   @@index([applied])
+}
+
+// One tracked application to a lender. Each "Apply" creates a NEW row, so a user
+// can apply to the same lender more than once (each is its own My Loans card
+// with its own status). Distinct from Offer (the eligible offer the user picked
+// from): an Offer can spawn many LenderApplications over time. Snapshots the
+// offer economics at apply time, since the offer's figures can change later.
+model LenderApplication {
+  id            String          @id @default(uuid())
+  applicationId String // parent LoanApplication (the eligibility run)
+  application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  offerId       String // the eligible Offer this was applied from
+  offer         Offer           @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  // Snapshot of what was applied to (offer figures can change afterwards).
+  lenderName          String?
+  lenderLogoUrl       String?
+  amount              Int
+  apr                 Float?
+  emi                 Int?
+  tenureMonths        Int?
+  processingFeeAmount Int     @default(0)
+  redirectionUrl      String?
+
+  // This application's own status + canonical stage timestamps (independent of
+  // the parent application and of any sibling application to the same lender).
+  status        ApplicationStatus @default(handoff)
+  appliedAt     DateTime          @default(now())
+  underReviewAt DateTime?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  disbursedAt   DateTime?
+  // KFT/Aurix ids used to match inbound status webhooks to THIS application.
+  kftApplicationId String?
+  failureReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([offerId])
+  @@index([kftApplicationId])
 }
 
 // One row per tenure choice offered for a given Offer — lets a single lender

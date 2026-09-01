@@ -63,7 +63,7 @@ export default function LenderWeb() {
     setFailed(reason);
     // Fire-and-forget: record the failure against this lender's application.
     if (state.applicationId && state.selectedOfferId) {
-      api.failApplication(state.applicationId, state.selectedOfferId, reason)
+      api.failApplication(state.applicationId, state.selectedOfferId, reason, state.selectedLenderApplicationId)
         .then((res: any) => mergeApiContext({ offerFailResult: res }))
         .catch(() => {});
     }

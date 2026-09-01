@@ -212,7 +212,7 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
         </View>
 
         <Pressable onPress={() => onSelect(offer)} style={styles.applyBtn}>
-          <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>{applied ? 'View in My Loans' : (offer.redirectionUrl ? 'Apply Loan' : 'Select Offer')}</Text>
+          <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>{applied ? 'Apply Again' : (offer.redirectionUrl ? 'Apply Loan' : 'Select Offer')}</Text>
           <Icon name="arrow_forward" size={18} color="#fff" />
         </Pressable>
       </View>

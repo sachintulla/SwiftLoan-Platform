@@ -227,6 +227,30 @@ export interface Offer {
   kftApplicationId?: string | null;
 }
 
+// One tracked application to a lender. Each "Apply" creates a new one, so the
+// same lender can appear multiple times in My Loans, each with its own status.
+// Included on each application by GET /applications (newest first).
+export interface LenderApplication {
+  id: string;
+  applicationId: string;
+  offerId: string;
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  amount: number;
+  apr?: number | null;
+  emi?: number | null;
+  tenureMonths?: number | null;
+  processingFeeAmount: number;
+  redirectionUrl?: string | null;
+  status: string; // handoff | under_review | approved | rejected | disbursed | failed | …
+  appliedAt: string;
+  underReviewAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  disbursedAt?: string | null;
+  failureReason?: string | null;
+}
+
 /**
  * Surface the offer API's OWN message when a prequalify run returns no offers,
  * shown to the user verbatim (no hardcoded rephrasing) so testers/users see
@@ -342,8 +366,13 @@ export const api = {
   applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined),
   // Mark a per-lender application failed (e.g. the lender web flow errored out).
-  failApplication: (id: string, offerId: string, reason?: string) =>
-    request('POST', `/applications/${id}/offers/${offerId}/fail`, reason ? { reason } : {}),
+  // Pass lenderApplicationId to target the exact application; the server falls
+  // back to the latest apply for the offer when omitted.
+  failApplication: (id: string, offerId: string, reason?: string, lenderApplicationId?: string | null) =>
+    request('POST', `/applications/${id}/offers/${offerId}/fail`, {
+      ...(reason ? { reason } : {}),
+      ...(lenderApplicationId ? { lenderApplicationId } : {}),
+    }),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
 
   // KYC / loans / misc

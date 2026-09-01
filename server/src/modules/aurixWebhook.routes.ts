@@ -268,6 +268,27 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
         },
       });
       offerUpdated = match.id;
+
+      // Mirror onto the tracked LenderApplication (the client's My Loans card).
+      // Match by KFT application_id when we have it, else the most recent apply
+      // for this offer; stamp the KFT id so later events for the same lender
+      // land on the same application (crucial when the lender was applied to
+      // more than once).
+      const laTarget =
+        (data.application_id != null &&
+          (await prisma.lenderApplication.findFirst({ where: { kftApplicationId: String(data.application_id), applicationId: application.id } }))) ||
+        (await prisma.lenderApplication.findFirst({ where: { offerId: match.id, applicationId: application.id }, orderBy: { appliedAt: 'desc' } }));
+      if (laTarget && advances(laTarget.status, mapped)) {
+        const laStamp: Record<string, Date> = {};
+        if (mapped === 'under_review' && !laTarget.underReviewAt) laStamp.underReviewAt = now;
+        if (mapped === 'approved' && !laTarget.approvedAt) laStamp.approvedAt = now;
+        if ((mapped === 'rejected' || mapped === 'failed') && !laTarget.rejectedAt) laStamp.rejectedAt = now;
+        if (mapped === 'disbursed' && !laTarget.disbursedAt) laStamp.disbursedAt = now;
+        await prisma.lenderApplication.update({
+          where: { id: laTarget.id },
+          data: { status: mapped, ...laStamp, ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}) },
+        });
+      }
     }
   }
 

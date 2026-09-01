@@ -69,17 +69,17 @@ function SparkleButton({ label, onPress }: { label: string; onPress: () => void 
 export function useOfferSelect(onApplied?: (offerId: string) => void) {
   const { state, set, mergeApiContext, go } = useStore();
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
-    if (offer.applied) { go('loans'); return; }
+    // Every select creates a NEW lender application — a user can apply to the
+    // same lender more than once (each is its own My Loans card). We no longer
+    // short-circuit an "already applied" offer to My Loans.
     if (offer.redirectionUrl) {
-      // Record the hand-off BEFORE opening the lender page so this lender shows
-      // in My Loans with an applied status (previously the redirect flow never
-      // marked the offer applied, so nothing updated on return). If the user
-      // abandons/fails on the lender page, lenderweb marks it failed instead.
+      // Record the hand-off BEFORE opening the lender page so this application
+      // shows in My Loans. If the user abandons/fails on the lender page,
+      // lenderweb marks THIS application failed (via selectedLenderApplicationId).
       if (state.applicationId) {
-        set({ selectedOfferId: offer.id });
-        api.applyOffer(state.applicationId, offer.id, emiOptionId)
-          .then((res: any) => mergeApiContext({ offerApplyResult: res }))
-          .catch(() => {});
+        const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
+        if (res) mergeApiContext({ offerApplyResult: res });
+        set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
         onApplied?.(offer.id);
       }
       set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
@@ -87,9 +87,9 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
       return;
     }
     if (state.applicationId) {
-      set({ selectedOfferId: offer.id });
       const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
       if (res) mergeApiContext({ offerApplyResult: res });
+      set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
       onApplied?.(offer.id);
     }
     go('handoff');
@@ -436,7 +436,7 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
             page in the in-app WebView (or the handoff screen when there's no
             deep link). */}
         <SparkleButton
-          label={offer.applied ? 'View in My Loans' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}
+          label={offer.applied ? 'Apply Again' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}
           onPress={() => onSelect(offer, selected?.id)}
         />
       </View>

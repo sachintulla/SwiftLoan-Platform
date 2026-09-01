@@ -74,22 +74,63 @@ export default function Loans() {
     return () => clearInterval(id);
   }, [load]);
 
-  const open = (app: any, offer?: any) => {
-    set({ applicationId: app.id, loanId: app.loan?.id ?? null, selectedOfferId: offer?.id ?? null });
+  const open = (app: any, opts?: { offer?: any; lenderApp?: any }) => {
+    set({
+      applicationId: app.id,
+      loanId: app.loan?.id ?? null,
+      selectedOfferId: opts?.offer?.id ?? opts?.lenderApp?.offerId ?? null,
+      selectedLenderApplicationId: opts?.lenderApp?.id ?? null,
+    });
     go(app.loan ? 'repay' : 'status');
   };
 
-  // My Loans shows a card per lender the user ACTUALLY applied to — an applied
-  // offer, which is created only after the lender confirms submission (post-OTP,
-  // via the KFT webhook) — plus any active/disbursed loan. Bare eligibility runs
-  // (offers pulled but no lender applied, no OTP, no webhook) are NOT shown: they
-  // are not loan applications and were cluttering the list.
+  // My Loans shows ONE card per lender application. Each "Apply" from My Offers
+  // creates a new LenderApplication, so the same lender can appear multiple times
+  // — each with its own status, tracked independently by the KFT status webhook.
+  // Bare eligibility runs (offers pulled but nothing applied to) are NOT shown.
   const cards = apps.flatMap((app: any) => {
     const typeName = `${app.loanType[0].toUpperCase()}${app.loanType.slice(1)} Loan`;
-    const appliedOffers = (app.offers || []).filter((o: any) => o.applied);
+    const lenderApps = (app.lenderApplications || []) as any[];
+
+    if (lenderApps.length > 0) {
+      return lenderApps.map((la: any) => {
+        const meta = STATUS_META[la.status] || { label: la.status, color: colors.muted };
+        const isDisbursedLoan = la.status === 'disbursed' && app.loan;
+        const apr = la.apr ?? app.loan?.apr ?? null;
+        const midMetric = isDisbursedLoan
+          ? { label: 'Next EMI', value: rupee(app.loan.emiAmount) }
+          : la.emi != null
+            ? { label: 'EMI', value: rupee(la.emi) }
+            : apr != null
+              ? { label: 'Interest', value: `${apr}% p.a.` }
+              : { label: 'Status', value: meta.label };
+        return (
+          <AppCard
+            key={la.id}
+            icon={TYPE_ICON[app.loanType] || 'account_balance'}
+            name={displayLenderName(la.lenderName) || typeName}
+            ref_={`Ref ${app.ref}`}
+            typeLabel={typeName}
+            status={meta.label}
+            statusColor={meta.color}
+            logoUrl={la.lenderLogoUrl}
+            updated={formatDateTime(la.updatedAt || la.appliedAt)}
+            metrics={[
+              { label: 'Amount', value: rupee(la.amount ?? app.amount) },
+              midMetric,
+            ]}
+            onPress={() => open(app, { lenderApp: la })}
+          />
+        );
+      });
+    }
 
     const updated = formatDateTime(app.updatedAt);
 
+    // Legacy safety net: pre-LenderApplication data — an applied offer with no
+    // LenderApplication row. Show one card per applied offer so old data keeps
+    // rendering. New applies always go through lenderApplications above.
+    const appliedOffers = (app.offers || []).filter((o: any) => o.applied);
     if (appliedOffers.length > 0) {
       return appliedOffers.map((o: any) => {
         const st = o.lenderStatus || 'handoff';
@@ -115,17 +156,11 @@ export default function Loans() {
               { label: 'Amount', value: rupee(o.amount ?? app.amount) },
               midMetric,
             ]}
-            onPress={() => open(app, o)}
+            onPress={() => open(app, { offer: o })}
           />
         );
       });
     }
-
-    // Eligibility-only runs — Aurix returned offers but the user has NOT applied
-    // to any lender yet — are intentionally NOT shown here. They are not loan
-    // applications; the user reviews and applies from My Offers. Surfacing them as
-    // "In Progress" loans wrongly implied an application existed. Once a lender is
-    // applied to (offer.applied via the KFT handoff/webhook) it shows above.
 
     // Legacy safety net: an active/disbursed loan with no applied-offer tracking
     // still shows so existing loans never vanish.

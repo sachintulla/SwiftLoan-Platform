@@ -84,25 +84,31 @@ export default function Status() {
   }, [state.applicationId, mergeApiContext]);
   useEffect(() => { load(); }, [load]);
 
-  // Prefer the specific lender the user opened from My Loans (selectedOfferId),
-  // then any applied/selected offer.
+  // Prefer the specific LenderApplication the user opened from My Loans. Each
+  // Apply creates its own LenderApplication, so this is the true per-application
+  // record; fall back to the matching offer, then any applied/selected offer.
+  const la = app
+    ? (app.lenderApplications || []).find((x: any) => x.id === state.selectedLenderApplicationId) || null
+    : null;
   const sel = app
-    ? (app.offers || []).find((o: any) => o.id === state.selectedOfferId)
+    ? (app.offers || []).find((o: any) => o.id === (la?.offerId ?? state.selectedOfferId))
       || (app.offers || []).find((o: any) => o.applied || o.selected)
       || null
     : null;
-  const apr = app?.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
-  const emi = app?.loan?.emiAmount ?? sel?.emi ?? null;
-  const tenure = app?.loan?.tenureMonths ?? sel?.tenureMonths ?? app?.tenureMonths ?? null;
-  const lender = sel?.lenderName ?? app?.loan?.partnerName ?? null;
-  const logoUrl = sel?.lenderLogoUrl ?? null;
-  const appliedOn = sel?.appliedAt
-    ? new Date(sel.appliedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const apr = la?.apr ?? app?.loan?.apr ?? sel?.apr ?? sel?.roi ?? null;
+  const emi = la?.emi ?? app?.loan?.emiAmount ?? sel?.emi ?? null;
+  const tenure = la?.tenureMonths ?? app?.loan?.tenureMonths ?? sel?.tenureMonths ?? app?.tenureMonths ?? null;
+  const lender = la?.lenderName ?? sel?.lenderName ?? app?.loan?.partnerName ?? null;
+  const logoUrl = la?.lenderLogoUrl ?? sel?.lenderLogoUrl ?? null;
+  const appliedAtIso = la?.appliedAt ?? sel?.appliedAt;
+  const appliedOn = appliedAtIso
+    ? new Date(appliedAtIso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
-  const processingFee = sel?.processingFeeAmount ?? null;
+  const processingFee = la?.processingFeeAmount ?? sel?.processingFeeAmount ?? null;
+  const failureReason = la?.failureReason ?? sel?.failureReason ?? null;
   // The per-lender application's own status (from the webhook) is the source of
   // truth when present; fall back to the parent application status.
-  const effStatus = sel?.lenderStatus ?? app?.status;
+  const effStatus = la?.status ?? sel?.lenderStatus ?? app?.status;
   const meta = app ? STATUS_LABEL[effStatus] || { label: effStatus, color: colors.muted } : null;
 
   return (
@@ -148,7 +154,7 @@ export default function Status() {
 
             {/* Real loan summary */}
             <View style={styles.summary}>
-              <SummaryCell label="Amount" value={rupee(app.amount)} />
+              <SummaryCell label="Amount" value={rupee(la?.amount ?? app.amount)} />
               <View style={styles.summaryDiv} />
               <SummaryCell label="Interest" value={apr != null ? `${apr}% p.a.` : '—'} />
               <View style={styles.summaryDiv} />
@@ -166,8 +172,8 @@ export default function Status() {
                     Processing fee <Text style={[font(700), { color: colors.text }]}>{rupee(processingFee)}</Text>
                   </Text>
                 ) : null}
-                {sel?.failureReason ? (
-                  <Text style={[font(500), { fontSize: 12.5, color: colors.red }]}>{sel.failureReason}</Text>
+                {failureReason ? (
+                  <Text style={[font(500), { fontSize: 12.5, color: colors.red }]}>{failureReason}</Text>
                 ) : null}
               </View>
             ) : null}
