@@ -108,14 +108,22 @@ export default function MyOffers() {
             {hasOffers ? `${offers.length} saved · updated ${agoLabel(savedAt)}` : 'Your personalised loan offers'}
           </Text>
         </View>
-        <Pressable
-          onPress={refresh}
-          accessibilityLabel="Recheck offers"
-          style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}
-        >
-          <Icon name="autorenew" size={19} color={colors.primary} />
-          <Text style={[font(700), styles.refreshLabel]}>Recheck offers</Text>
-        </Pressable>
+        {/* "Recheck" only makes sense once there's an existing offer set to
+            recheck — with none yet, this was an always-visible second button
+            doing the exact same thing as EmptyOffers' "Apply for a loan"
+            below (both just call startApply()), which left two competing,
+            differently-labelled CTAs for one action — a person who's never
+            applied doesn't have anything to "recheck". */}
+        {hasOffers && (
+          <Pressable
+            onPress={refresh}
+            accessibilityLabel="Recheck offers"
+            style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Icon name="autorenew" size={19} color={colors.primary} />
+            <Text style={[font(700), styles.refreshLabel]}>Recheck offers</Text>
+          </Pressable>
+        )}
       </View>
 
       {loading ? (
