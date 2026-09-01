@@ -6,7 +6,7 @@ import { PrimaryButton } from '../components/Controls';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api, isAuthed, Offer } from '../api/client';
-import { loadOffersCache, saveOffersCache } from '../state/session';
+import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
 
 // Statuses whose applications still carry showable offers.
@@ -70,6 +70,17 @@ export default function MyOffers() {
         setSavedAt(now);
         set({ applicationId: withOffers.id, offersReturn: 'fare' });
         saveOffersCache({ applicationId: withOffers.id, savedAt: now, offers: list });
+      } else {
+        // The backend authoritatively has NO eligible offers for this account
+        // (fresh login, deleted data, or a superseded run). The fetch succeeded,
+        // so the cache is stale — clear it and the display instead of leaving
+        // the previous offers on screen. (On a fetch FAILURE we fall to the
+        // catch below and keep the cache, for offline resilience.)
+        setOffers([]);
+        setAppId(null);
+        setSavedAt(null);
+        set({ applicationId: null });
+        await clearOffersCache().catch(() => {});
       }
     } catch {
       /* offline / not signed in — keep whatever the cache gave us */
