@@ -146,7 +146,8 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
   const candidates = await prisma.customer.findMany({
     where: {
       currentStage: 'lead_captured',
-      phone: { not: null },
+      // Customer.phone is required at the schema level now — every row here
+      // already has one.
       // A lead whose number was never proven real cannot be called at all —
       // it's just as likely to be a typo or a fake entry as a real customer.
       // Set once by the website OTP flow (context.routes.ts) and never

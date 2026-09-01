@@ -118,7 +118,8 @@ export async function immediateCallback(now: Date = new Date()): Promise<number>
       phoneVerified: true,
       callbackStatus: 'requested',
       callbackNextAttemptAt: { lte: now },
-      phone: { not: null },
+      // Customer.phone is required at the schema level now — every row here
+      // already has one.
     },
     orderBy: { callbackNextAttemptAt: 'asc' },
     take: Math.min(MAX_PER_TICK, budget),

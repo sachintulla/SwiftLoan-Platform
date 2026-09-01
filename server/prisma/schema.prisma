@@ -86,6 +86,12 @@ model User {
   businessEmail       String?
 
   lang           Lang            @default(en)
+  // The language the user has spoken to the voice agent, distinct from `lang`
+  // (the app's UI-copy language set on the language-selection screen /
+  // Profile). Null until the user has explicitly stated a spoken-language
+  // preference during a call; `preferred_language` in page_context falls
+  // back to `lang` until then.
+  voiceLang      Lang?
   creditScore    Int             @default(750)
   phoneVerified  Boolean         @default(false)
   emailVerified  Boolean         @default(false)
@@ -568,7 +574,10 @@ model Lead {
   /// Short opaque code carried in the app deep link (was ContextSession.token).
   token           String     @unique
   name            String?
-  phone           String?
+  /// Every Lead is required to resolve to a real phone number — the join key
+  /// that lets a website/campaign touch later become one Customer, one User,
+  /// one 360 view. POST /api/context/create validates this before creation.
+  phone           String
   city            String?
   productInterest String?
   amount          Int? // paise
@@ -761,7 +770,12 @@ enum JourneyStage {
 /// the app OTP schema validates 10 digits, so string equality is safe.
 model Customer {
   id             String       @id @default(uuid())
-  phone          String?      @unique
+  /// Required, not just conventional: phone is the one identity every
+  /// Customer must resolve to, on both the app and website side. See
+  /// resolveCustomer() in lib/journey.ts, the single place Customer rows are
+  /// created — it now backfills phone from the linked User when a caller only
+  /// has a userId, and refuses to create a Customer if no phone can be found.
+  phone          String       @unique
   email          String?
   name           String?
   city           String?

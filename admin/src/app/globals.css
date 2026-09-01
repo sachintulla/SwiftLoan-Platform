@@ -65,7 +65,11 @@ button { font-family: inherit; cursor: pointer; }
 .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; }
 
 /* ── cards ── */
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+/* min-width: 0 stops a card from blowing past its grid/flex track when it
+   holds wide, non-wrapping content (e.g. the stepper below) — without it the
+   card (and everything after it) overflows off the right edge of the page
+   instead of the content scrolling/shrinking inside the card itself. */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
 .card-pad { padding: 18px; }
 .card-title { font-size: 14px; font-weight: 650; margin: 0 0 2px; }
 .card-sub { color: var(--text-dim); font-size: 12px; margin: 0 0 14px; }
@@ -155,10 +159,84 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .tab-count { margin-left: 6px; color: var(--text-faint); font-weight: 700; font-size: 12px; }
 .tab-item.active .tab-count { color: var(--brand); }
 
-/* ── facts grid (customer detail header) ── */
-.facts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; }
-.fact-label { font-size: 11.5px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 3px; }
-.fact-value { font-size: 13.5px; font-weight: 600; color: var(--text); }
+/* ── identity header (customer detail) ──────────────────────────────────
+   One row: avatar, name and the contact values, all centred on the same
+   axis. Profile fields sit below in labelled groups — labels
+   sentence case and faint on purpose, since 22 uppercase labels shouted as
+   loudly as their values is what made this block unreadable. */
+.identity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 28px; }
+.identity-main { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1 1 420px; }
+.avatar-lg {
+  width: 52px; height: 52px; border-radius: 16px; flex-shrink: 0;
+  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 17px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-mint));
+  box-shadow: 0 4px 12px rgba(7,159,160,.26);
+}
+.identity-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; font-size: 13px; color: var(--text-dim); }
+/* Each contact value is a quiet pill: it gives the row structure on a wide
+   card, houses the copy button, and keeps a long email from reading as
+   run-on text against the value next to it. */
+.identity-meta-item {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%;
+  padding: 4px 9px; border-radius: 8px; background: var(--surface-2);
+  border: 1px solid transparent; transition: border-color .12s, background .12s;
+}
+.identity-meta-item:hover { border-color: var(--border); background: var(--surface); }
+.ico { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-faint); }
+.tick { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9px; font-weight: 800; line-height: 1; color: #fff; background: var(--green); flex-shrink: 0; }
+.tick.no { background: transparent; color: var(--text-faint); border: 1px solid var(--border); font-weight: 700; }
+.icon-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; background: none; border-radius: 6px; padding: 2px 5px; font-size: 11px; font-weight: 600; line-height: 1.4; color: var(--text-faint); transition: background .12s, color .12s, border-color .12s; }
+.icon-btn:hover { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+.copy-done { color: var(--green); font-size: 11px; font-weight: 800; line-height: 1.2; }
+
+
+/* ── profile sections (customer detail) ──────────────────────────────────
+   Four groups, one topic each, inside the same card as the person — split by
+   whitespace and a plain title rather than by four more boxes. */
+.fact-sections {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 20px 32px;
+  margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border);
+}
+.fact-section { min-width: 0; }
+.fact-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.fact-section-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.fact-list { margin: 0; }
+.fact-row { display: grid; grid-template-columns: minmax(100px, 40%) 1fr; gap: 12px; padding: 5px 0; font-size: 13px; }
+.fact-label { margin: 0; color: var(--text-dim); font-weight: 400; }
+.fact-value { margin: 0; color: var(--text); font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+.fact-value.is-empty { color: var(--text-faint); }
+.fact-value.is-stale, .is-stale { color: var(--red); }
+.score { font-weight: 600; }
+.score-band { color: var(--text-dim); font-weight: 400; margin-left: 7px; }
+.id-val { font-size: 12px; overflow-wrap: anywhere; }
+
+/* ── funnel strip: four numbers, one card ── */
+.stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 4px 0; }
+.stat-cell { padding: 2px 22px; border-left: 1px solid var(--border); min-width: 0; }
+.stat-cell:first-child { border-left: none; padding-left: 2px; }
+.stat-cell-label { font-size: 12.5px; color: var(--text-dim); }
+.stat-cell-value { font-size: 23px; font-weight: 700; letter-spacing: -.02em; margin-top: 5px; line-height: 1.15; }
+.stat-cell-foot { font-size: 11.5px; color: var(--text-faint); margin-top: 5px; }
+
+/* ── list toolbar: search + narrowing filters on one line ── */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+.toolbar-search { flex: 1 1 240px; min-width: 200px; }
+.toolbar-search .input { max-width: none !important; }
+
+/* ── row avatar (people lists) ── */
+.avatar-sm {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+  background: var(--teal-bg); color: var(--brand-ink); font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+}
+
+/* ── empty state (a list with nothing in it says what to do next) ── */
+.empty-state { text-align: center; padding: 44px 20px 48px; }
+.empty-state h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; color: var(--text); }
+.empty-state p { margin: 0 auto 16px; max-width: 420px; font-size: 13px; line-height: 1.6; color: var(--text-dim); }
+
+/* ── mini progress bar (campaign rows) ── */
+.mini-bar { height: 5px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.mini-bar > span { display: block; height: 100%; background: var(--brand); border-radius: 3px; transition: width .4s ease; }
 
 /* ── callout (amber/red/blue explanatory note) ── */
 .callout { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.55; margin-top: 14px; }
@@ -169,12 +247,17 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .callout-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4; }
 
 /* ── horizontal stage stepper ── */
+/* Node width is small enough that all 12 steps fit most desktop widths
+   without triggering the scroll fallback; connectors flex-grow to fill
+   whatever room is left, so the row spans the full card edge-to-edge
+   instead of bunching on the left. overflow-x stays as a fallback for
+   narrow windows, now properly contained by .card's min-width: 0 above. */
 .stepper { display: flex; align-items: flex-start; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; }
-.stepper-node { display: flex; flex-direction: column; align-items: center; flex: 0 0 108px; width: 108px; text-align: center; }
-.stepper-connector { flex: 1 1 24px; height: 2px; margin-top: 13px; min-width: 20px; }
-.stepper-dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
-.stepper-label { font-size: 11.5px; font-weight: 600; margin-top: 8px; line-height: 1.3; }
-.stepper-date { font-size: 10.5px; color: var(--text-faint); margin-top: 2px; line-height: 1.3; }
+.stepper-node { display: flex; flex-direction: column; align-items: center; flex: 0 0 76px; width: 76px; text-align: center; }
+.stepper-connector { flex: 1 1 16px; height: 2px; margin-top: 11px; min-width: 8px; }
+.stepper-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 800; flex-shrink: 0; }
+.stepper-label { font-size: 10.5px; font-weight: 600; margin-top: 7px; line-height: 1.25; }
+.stepper-date { font-size: 9.5px; color: var(--text-faint); margin-top: 2px; line-height: 1.25; }
 
 /* ── app session bars ── */
 .session-row { display: grid; grid-template-columns: 92px 1fr 60px 72px; gap: 10px; align-items: center; padding: 7px 0; }

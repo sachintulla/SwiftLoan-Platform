@@ -51,6 +51,14 @@ export default function Profile() {
   // edit mode opens, written back into pdDob on save.
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
+  // Seed the voice-visible `dob` from the persisted pdDob as soon as it loads,
+  // not just when edit mode opens — otherwise the voice agent's "Date" target
+  // reads empty even though a DOB is already on file and shown read-only above.
+  useEffect(() => {
+    if (dob || !state.pdDob) return;
+    const d = new Date(state.pdDob);
+    if (!Number.isNaN(d.getTime())) setDob({ y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate() });
+  }, [state.pdDob, dob]);
 
   // Hidden gesture: tapping the "Personal details" header 5× in a row (each tap
   // within 1.5s of the last) reveals the voice assistant FAB. See App.tsx.

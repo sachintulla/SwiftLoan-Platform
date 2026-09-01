@@ -26,10 +26,21 @@ function shortToken(len = 8): string {
   return out;
 }
 
+// A bare 10-digit Indian mobile, matching website.routes.ts's own OTP
+// validator and the client-side check in useLeadCapture.ts — the one field
+// this endpoint cannot treat as optional. Every identity in the system (app
+// or website) is required to resolve to a real phone number; a Lead created
+// without one used to be able to slip through here with nothing to anchor it
+// to, silently producing an untrackable, unmergeable record.
+const LEAD_PHONE_RE = /^[6-9]\d{9}$/;
+
 // POST /api/context/create
-// body: { name?, phone?, city?, product?, amount?, summary?, source? }
+// body: { phone, name?, city?, product?, amount?, summary?, source? }
 contextRouter.post('/create', ah(async (req, res) => {
   const b = req.body ?? {};
+  if (typeof b.phone !== 'string' || !LEAD_PHONE_RE.test(b.phone)) {
+    return fail(res, 400, 'A valid 10-digit mobile number is required');
+  }
   let token = shortToken();
   // extremely unlikely collision, but retry once
   if (await prisma.lead.findUnique({ where: { token } })) token = shortToken(10);

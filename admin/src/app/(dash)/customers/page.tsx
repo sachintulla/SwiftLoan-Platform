@@ -6,31 +6,23 @@ import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile } from '@/lib/api';
-import { Card, StatCard, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { dateStr, timeAgo, num } from '@/lib/format';
+import { Card, Stat, Select, StatusBadge, SearchBox, Pagination, TableSkeleton } from '@/components/ui';
+import { dateStr, timeAgo, num, inrRupees } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
-import { ChannelChips } from '@/components/conversation';
 
 const SOURCES = [
   { key: '', label: 'All sources' }, { key: 'website', label: 'Website' }, { key: 'campaign', label: 'Campaign' },
   { key: 'app', label: 'App' }, { key: 'voice', label: 'Voice' }, { key: 'referral', label: 'Referral' },
 ];
 
-const STALLED = [
-  { key: '', label: 'Any' }, { key: '15', label: '> 15m' }, { key: '60', label: '> 1h' },
-  { key: '1440', label: '> 1d' }, { key: '10080', label: '> 1w' },
-];
-
 interface CustomerRow {
-  id: string; name?: string | null; phone?: string | null; firstSource?: string | null;
-  campaignId?: string | null; currentStage: string; stageEnteredAt?: string | null;
+  id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
+  firstSource?: string | null; campaignId?: string | null; currentStage: string; stageEnteredAt?: string | null;
   lastActivityAt?: string | null; stalledMinutes?: number | null;
-}
-
-/** Per-number conversation roll-up, joined in by phone. */
-interface ConvRollup {
-  phone?: string | null; city?: string | null; conversationCount?: number | null;
-  channels?: string[] | null; channelLabels?: string[] | null; lastAt?: string | null;
+  /** Phone legs only — website-widget and app chats are not calls. */
+  callCount?: number | null;
+  /** Their most recent application amount, in rupees. */
+  loanAmount?: number | null;
 }
 
 function asArray<T>(x: unknown): T[] {
@@ -39,14 +31,22 @@ function asArray<T>(x: unknown): T[] {
   return Array.isArray(items) ? (items as T[]) : [];
 }
 
-const digits = (p?: string | null) => (p ?? '').replace(/\D/g, '');
+/** Two letters for the row avatar — a name if we have one, else the last two
+ *  digits of the number, which is what an agent recognises a caller by. */
+function initials(name?: string | null, phone?: string | null): string {
+  const src = (name ?? '').trim();
+  if (src) {
+    const parts = src.split(/\s+/).filter(Boolean);
+    return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || src[0].toUpperCase();
+  }
+  return phone ? phone.slice(-2) : '?';
+}
 
 export default function CustomersPage() {
   const router = useRouter();
   const [stage, setStage] = useState('');
   const [source, setSource] = useState('');
   const [campaignId, setCampaignId] = useState('');
-  const [stalledMinutes, setStalledMinutes] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
@@ -54,7 +54,6 @@ export default function CustomersPage() {
     page: String(page), pageSize: '25',
     ...(stage ? { stage } : {}), ...(source ? { source } : {}),
     ...(campaignId ? { campaignId } : {}), ...(search ? { search } : {}),
-    ...(stalledMinutes ? { stalledMinutes } : {}),
   });
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers?${qs.toString()}`, swrFetcher);
   const rows = asArray<CustomerRow>(data?.data);
@@ -63,29 +62,15 @@ export default function CustomersPage() {
   // campaign picker options — reuse the campaigns list endpoint
   const { data: campRes } = useSWR('/api/admin/campaigns?page=1&pageSize=100', swrFetcher);
   const campaigns = asArray<{ id: string; name: string; code: string }>(campRes?.data);
+  const campaignName = useMemo(() => new Map(campaigns.map((x) => [x.id, x.name])), [campaigns]);
 
-  // Conversation roll-ups are keyed by phone, not customer id, and there is no
-  // bulk-by-phone lookup — so we pull the most recently active numbers once and
-  // join locally. A number that is not in that window shows "—" (unknown),
-  // never "none", because absence here is not evidence we have never spoken.
-  const { data: convRes } = useSWR('/api/admin/conversations?page=1&pageSize=100', swrFetcher);
-  const convByPhone = useMemo(() => {
-    const m = new Map<string, ConvRollup>();
-    for (const r of asArray<ConvRollup>(convRes?.data)) {
-      const k = digits(r.phone);
-      if (k) m.set(k, r);
-    }
-    return m;
-  }, [convRes]);
-  const convIndexed = convByPhone.size > 0;
+  const reset = () => { setStage(''); setSource(''); setCampaignId(''); setSearch(''); setPage(1); };
 
-  const reset = () => { setStage(''); setSource(''); setCampaignId(''); setStalledMinutes(''); setSearch(''); setPage(1); };
-
+  // Page-scoped roll-ups — the labels say "of the N shown" so a total that only
+  // covers this page is never read as a total across every customer.
   const stalledCount = rows.filter((r) => (r.stalledMinutes ?? 0) > 60).length;
-  const crossChannel = rows.filter((r) => {
-    const c = convByPhone.get(digits(r.phone));
-    return Array.isArray(c?.channels) && c!.channels!.length > 1;
-  }).length;
+  const requestedTotal = rows.reduce((sum, r) => sum + (r.loanAmount ?? 0), 0);
+  const callsTotal = rows.reduce((sum, r) => sum + (r.callCount ?? 0), 0);
 
   // CSV export mirrors the filters the table is showing (the endpoint supports
   // stage / source / campaignId only — search and stalled stay UI-side).
@@ -106,9 +91,11 @@ export default function CustomersPage() {
     }
   }
 
+  const filtered = Boolean(stage || source || campaignId || search);
+
   return (
     <div className="page">
-      <div className="row between wrap">
+      <div className="row between wrap" style={{ gap: 12 }}>
         <div>
           <h1 className="page-title">Customers</h1>
           <p className="page-sub">
@@ -118,52 +105,58 @@ export default function CustomersPage() {
         </div>
         <div className="row" style={{ gap: 10 }}>
           {exportErr && <span style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
-          <button className="btn" disabled={exporting} onClick={exportCsv}>{exporting ? 'Exporting…' : '⭳ Export CSV'}</button>
+          <button className="btn" disabled={exporting} onClick={exportCsv}>{exporting ? 'Exporting…' : 'Export CSV'}</button>
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', marginTop: 18 }}>
-        {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
-        ) : (
-          <>
-            <StatCard label="Customers" value={num(pg?.total ?? rows.length)} icon="◉" tone="blue"
-              foot={stage || source || search || stalledMinutes || campaignId ? 'matching these filters' : 'known in total'} />
-            <StatCard label="Inactive over an hour" value={num(stalledCount)} icon="⏱" tone={stalledCount > 0 ? 'amber' : 'green'}
-              foot={`of the ${num(rows.length)} shown — these are the ones to call`} />
-            <StatCard label="Cross-channel" value={convIndexed ? num(crossChannel) : '—'} icon="⇄" tone="teal"
-              foot={convIndexed ? 'used more than one surface' : 'conversation index unavailable'} />
-          </>
+      {/* the numbers an operator acts on, in one card */}
+      <Card className="mt-16">
+        {isLoading ? <div className="skeleton" style={{ height: 58 }} /> : (
+          <div className="stat-strip">
+            <Stat label="Customers" value={num(pg?.total ?? rows.length)}
+              foot={filtered ? 'matching these filters' : 'known in total'} />
+            <Stat label="Requested" value={requestedTotal ? inrRupees(requestedTotal) : '—'}
+              tone={requestedTotal ? undefined : 'text-faint'}
+              foot={`applied for across the ${num(rows.length)} shown`} />
+            <Stat label="Calls placed" value={num(callsTotal)} tone={callsTotal ? undefined : 'text-faint'}
+              foot={`to the ${num(rows.length)} shown`} />
+            <Stat label="Inactive over an hour" value={num(stalledCount)} tone={stalledCount > 0 ? 'amber' : undefined}
+              foot="no app or website activity — these are the ones to call" />
+          </div>
         )}
-      </div>
+      </Card>
 
       <div style={{ marginTop: 16 }}>
       <Card>
-        <div style={{ display: 'grid', gap: 12, marginBottom: 14 }}>
-          <div className="row between wrap" style={{ gap: 12 }}>
-            <div className="row wrap" style={{ gap: 10 }}>
-              <select className="input" style={{ width: 'auto', fontSize: 12.5 }} value={stage} onChange={(e) => { setStage(e.target.value); setPage(1); }}>
-                <option value="">All stages</option>
-                {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
-              <select className="input" style={{ width: 'auto', fontSize: 12.5 }} value={source} onChange={(e) => { setSource(e.target.value); setPage(1); }}>
-                {SOURCES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
-              <select className="input" style={{ width: 'auto', fontSize: 12.5 }} value={campaignId} onChange={(e) => { setCampaignId(e.target.value); setPage(1); }}>
-                <option value="">All campaigns</option>
-                {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+        {/* one toolbar: search first (what people reach for), then the three
+            narrowing filters, then a reset that only exists when it can do
+            something. The inactivity chips lived here and are gone. */}
+        <div className="toolbar">
+          <div className="toolbar-search">
             <SearchBox value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search name, phone or email…" />
           </div>
-          {/* drop-off filter is first-class: this is the whole point of the view */}
-          <div className="row wrap between" style={{ gap: 12 }}>
-            <div className="row wrap" style={{ gap: 10 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600 }}>Inactive for</span>
-              <FilterChips options={STALLED} value={stalledMinutes} onChange={(v) => { setStalledMinutes(v); setPage(1); }} />
-            </div>
-            <button className="btn" onClick={reset}>Clear filters</button>
+          <div style={{ width: 176 }}>
+            <Select
+              value={stage}
+              onChange={(v) => { setStage(v); setPage(1); }}
+              options={[{ value: '', label: 'All stages' }, ...STAGES.map((x) => ({ value: x.key, label: x.label }))]}
+            />
           </div>
+          <div style={{ width: 150 }}>
+            <Select
+              value={source}
+              onChange={(v) => { setSource(v); setPage(1); }}
+              options={SOURCES.map((x) => ({ value: x.key, label: x.label }))}
+            />
+          </div>
+          <div style={{ width: 176 }}>
+            <Select
+              value={campaignId}
+              onChange={(v) => { setCampaignId(v); setPage(1); }}
+              options={[{ value: '', label: 'All campaigns' }, ...campaigns.map((x) => ({ value: x.id, label: x.name }))]}
+            />
+          </div>
+          {filtered && <button className="btn" onClick={reset}>Clear</button>}
         </div>
 
         {error ? (
@@ -171,48 +164,74 @@ export default function CustomersPage() {
             <div><button className="btn" style={{ marginTop: 12 }} onClick={() => mutate()}>Retry</button></div>
           </div>
         ) : isLoading ? <TableSkeleton rows={8} cols={7} /> : rows.length === 0 ? (
-          <Empty label={stage || source || search || stalledMinutes || campaignId ? 'No customers match these filters' : 'No customers yet'} />
+          <div className="empty-state">
+            <h3>{filtered ? 'No customers match these filters' : 'No customers yet'}</h3>
+            <p>
+              {filtered
+                ? 'Nothing in this slice. Widen the stage, source or inactivity filter to see more people.'
+                : 'People appear here the moment they enquire on the website, get dialled by a campaign, or open the app.'}
+            </p>
+            {filtered && <button className="btn" onClick={reset}>Clear filters</button>}
+          </div>
         ) : (
           <div className="table-wrap"><table className="data">
             <thead><tr>
-              <th>Name</th><th>Phone</th><th>City</th><th>Origin</th><th>Stage</th>
-              <th>Conversations</th><th>Last activity</th>
+              <th>Customer</th><th>Email</th><th>Location</th><th>Stage</th>
+              <th style={{ textAlign: 'right' }}>Loan amount</th>
+              <th style={{ textAlign: 'right' }}>Calls</th>
+              <th style={{ textAlign: 'right' }}>Last activity</th>
             </tr></thead>
             <tbody>{rows.map((c) => {
-              const conv = convByPhone.get(digits(c.phone));
-              const n = conv?.conversationCount ?? null;
               const st = c.stalledMinutes ?? null;
+              const calls = c.callCount ?? 0;
               return (
                 <tr key={c.id} onClick={() => router.push(`/customers/${c.id}`)}>
-                  <td>{c.name || <span className="muted">Unknown</span>}</td>
-                  <td className="mono">{c.phone || '—'}</td>
-                  <td>{conv?.city || <span className="muted">—</span>}</td>
-                  <td><span className="badge tone-grey">{c.firstSource || 'unknown'}{c.campaignId ? ' · campaign' : ''}</span></td>
+                  {/* name, number and where they came from identify one person */}
                   <td>
-                    <div style={{ display: 'grid', gap: 3 }}>
+                    <div className="row" style={{ gap: 10 }}>
+                      <span className="avatar-sm" aria-hidden>{initials(c.name, c.phone)}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600 }}>{c.name || <span className="muted">Unknown</span>}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>
+                          <span className="mono">{c.phone || 'no phone'}</span>
+                          {' · '}
+                          {/* a campaign keeps its own casing; only the bare
+                              source word ("app", "website") gets capitalised */}
+                          {c.campaignId ? (
+                            <span>{campaignName.get(c.campaignId) ?? 'Campaign'}</span>
+                          ) : (
+                            <span style={{ textTransform: 'capitalize' }}>{c.firstSource || 'unknown'}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ fontSize: 12.5, maxWidth: 220, overflowWrap: 'anywhere' }}>
+                    {c.email || <span className="muted">—</span>}
+                  </td>
+                  <td style={{ fontSize: 12.5 }}>{c.city || <span className="muted">—</span>}</td>
+                  <td>
+                    {/* justifyItems:start — a grid child stretches, which is why
+                        this badge used to run the full width of the column */}
+                    <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
                       <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
                       <span
-                        className="mono"
                         style={{ fontSize: 11.5, color: (st ?? 0) > 1440 ? 'var(--red)' : (st ?? 0) > 60 ? 'var(--amber)' : 'var(--text-faint)' }}
                         title={c.stageEnteredAt ? `in this stage since ${dateStr(c.stageEnteredAt)}` : undefined}
                       >
-                        {st == null ? '—' : `here ${stalledLabel(st)}`}
+                        {st == null ? 'just arrived' : `here ${stalledLabel(st)}`}
                       </span>
                     </div>
                   </td>
-                  <td>
-                    {!conv ? (
-                      <span className="muted" title="Not in the recent conversation index — open the customer to check">—</span>
-                    ) : n === 0 ? (
-                      <span className="muted">never spoken</span>
-                    ) : (
-                      <div style={{ display: 'grid', gap: 3 }}>
-                        <span className="mono" style={{ fontSize: 12 }}>{num(n)}</span>
-                        <ChannelChips channels={conv.channels} labels={conv.channelLabels} />
-                      </div>
-                    )}
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {c.loanAmount ? inrRupees(c.loanAmount) : <span className="muted">—</span>}
                   </td>
-                  <td className="muted">{c.lastActivityAt ? timeAgo(c.lastActivityAt) : '—'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {calls ? num(calls) : <span className="muted">0</span>}
+                  </td>
+                  <td className="muted" style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12.5 }}>
+                    {c.lastActivityAt ? timeAgo(c.lastActivityAt) : '—'}
+                  </td>
                 </tr>
               );
             })}</tbody>

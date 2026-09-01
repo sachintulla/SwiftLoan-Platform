@@ -26,6 +26,25 @@ export interface VoiceActions {
   logout: () => void | Promise<void>;
   /** Look up a loan/application by its reference number and open it. */
   openLoan: (reference: string) => Promise<Record<string, unknown>>;
+  /**
+   * Persist the language the user has explicitly told the agent to speak, as
+   * its own preference (`voiceLang`) separate from the app's UI-copy
+   * language — so it becomes `preferred_language` on this call's very next
+   * turn AND on every future call, without also flipping the app's screen
+   * text. Synced to AsyncStorage + the user's account.
+   */
+  setLanguage: (lang: 'en' | 'hi' | 'te') => void;
+}
+
+/** Accepts the language name, native script, or code the user/model used. */
+const LANGUAGE_CODES: Record<string, 'en' | 'hi' | 'te'> = {
+  en: 'en', english: 'en',
+  hi: 'hi', hindi: 'hi', 'हिन्दी': 'hi', 'हिंदी': 'hi',
+  te: 'te', telugu: 'te', 'తెలుగు': 'te',
+};
+
+function normalizeLanguage(input: string): 'en' | 'hi' | 'te' | null {
+  return LANGUAGE_CODES[String(input ?? '').trim().toLowerCase()] ?? null;
 }
 
 interface PerformUiActionArgs {
@@ -462,5 +481,27 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       required: ['reference'],
     },
     handler: ({ reference }) => actions.openLoan(reference),
+  });
+
+  /* ── 6. Language preference ─────────────────────────────────── */
+  agent.registerTool<{ language: string }>({
+    name: 'set_language',
+    description:
+      'Persist the language the user wants to speak — English, Hindi, or Telugu — as their ' +
+      'preferred_language, for the rest of THIS call and every future call (it is saved to their ' +
+      "account, not just remembered for this session). Call this when the user explicitly asks to " +
+      'switch language, or clearly states which language they want, e.g. "speak to me in Telugu" ' +
+      'or "मुझसे हिंदी में बात करो" — not just because they said one sentence in another language.',
+    schema: {
+      type: 'object',
+      properties: { language: { type: 'string', description: '"English", "Hindi", or "Telugu" (or en/hi/te)' } },
+      required: ['language'],
+    },
+    handler: ({ language }) => {
+      const code = normalizeLanguage(language);
+      if (!code) return { ok: false, reason: 'unsupported_language', supported: ['English', 'Hindi', 'Telugu'] };
+      actions.setLanguage(code);
+      return { ok: true, lang: code };
+    },
   });
 }
