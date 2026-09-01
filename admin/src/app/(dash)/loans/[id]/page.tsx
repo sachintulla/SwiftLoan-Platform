@@ -86,7 +86,7 @@ export default function LoanDetail() {
             <div className="table-wrap"><table className="data">
               <thead><tr><th>Lender</th><th>APR</th><th>EMI</th><th>Fee</th><th>Status</th><th></th></tr></thead>
               <tbody>{app.offers.map((o: any) => (
-                <tr key={o.id}><td>{o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inrRupees(o.emi)}</td><td className="mono">{inrRupees(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
+                <tr key={o.id}><td>{o.lenderName ?? o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inrRupees(o.emi)}</td><td className="mono">{inrRupees(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
               ))}</tbody>
             </table></div>
           )}

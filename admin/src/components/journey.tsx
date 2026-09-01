@@ -215,7 +215,11 @@ export function LenderTrack({ offer: o }: { offer: LenderOffer }) {
   const st = o.lenderStatus ?? 'handoff';
   const failed = st === 'rejected' || st === 'failed';
   const rank = LENDER_RANK[st] ?? 1;
-  const name = o.partner?.name ?? o.lenderName ?? 'Lender';
+  // Prefer the real lender's own name (from Aurix) over the aggregator partner
+  // name — otherwise every applied offer shows the partner ("Aurix (Knight
+  // Fintech)") instead of MoneyView / Zype / Prefr / FREO. Mirrors the logo
+  // ordering below, and how the app itself resolves the display name.
+  const name = o.lenderName ?? o.partner?.name ?? 'Lender';
   const logo = o.lenderLogoUrl ?? o.partner?.logoUrl ?? null;
   const rate = o.apr ?? o.roi ?? null;
 
