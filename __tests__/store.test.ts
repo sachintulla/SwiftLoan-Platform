@@ -1,4 +1,5 @@
 import { _reducer, initialState, parentScreen, PREV_MAP, AppState, resolveScreenName } from '../src/state/store';
+import { setTokens } from '../src/api/client';
 
 describe('UC-N7 agent screen-name resolution (bug: "My Loan" opened Repayment)', () => {
   const cases: [string, string | null][] = [
@@ -138,5 +139,33 @@ describe('UC-N6 reset (logout) clears state, keeps consent/language, lands on lo
     expect(s.privacyAccepted).toBe(true);
     expect(s.lang).toBe('te');
     expect(s.selectedLang).toBe('telugu');
+  });
+});
+
+describe('UC-N14 onboarding screens are unreachable once logged in', () => {
+  // Bug: the voice agent's navigate_screen('language') — meant to change the
+  // app's UI-copy language for a *guest* — dumped an already-authenticated
+  // user back onto the onboarding language picker, because nothing stopped
+  // go()/back() from crossing the login boundary the wrong way. Only this
+  // direction is guarded (see the comment on PRE_LOGIN_ONLY in store.ts) —
+  // home/basicpan/fare etc. stay reachable without a session by design.
+  afterEach(() => setTokens(null));
+
+  it('go() redirects a pre-login screen to home once a session exists', () => {
+    setTokens('fake-access-token');
+    const s = _reducer({ ...initialState, screen: 'profile' }, { type: 'go', screen: 'language' });
+    expect(s.screen).toBe('home');
+  });
+
+  it('go() still allows the pre-login screen with no session', () => {
+    const s = _reducer(initialState, { type: 'go', screen: 'language' });
+    expect(s.screen).toBe('language');
+  });
+
+  it('back() redirects too — a stale pre-login entry on the stack cannot resurface after login', () => {
+    setTokens('fake-access-token');
+    const withStaleHistory: AppState = { ...initialState, screen: 'aboutyou', history: ['splash', 'language', 'intro', 'mobile', 'permissions'] };
+    const s = _reducer(withStaleHistory, { type: 'back' });
+    expect(s.screen).toBe('home');
   });
 });

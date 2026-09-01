@@ -29,9 +29,9 @@ export interface VoiceActions {
   /**
    * Persist the language the user has explicitly told the agent to speak, as
    * its own preference (`voiceLang`) separate from the app's UI-copy
-   * language — so it becomes `preferred_language` on this call's very next
-   * turn AND on every future call, without also flipping the app's screen
-   * text. Synced to AsyncStorage + the user's account.
+   * language — so it becomes `agent_language` on this call's very next turn
+   * AND on every future call, without also flipping the app's screen text
+   * (`preferred_language`). Synced to AsyncStorage + the user's account.
    */
   setLanguage: (lang: 'en' | 'hi' | 'te') => void;
 }
@@ -487,11 +487,13 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   agent.registerTool<{ language: string }>({
     name: 'set_language',
     description:
-      'Persist the language the user wants to speak — English, Hindi, or Telugu — as their ' +
-      'preferred_language, for the rest of THIS call and every future call (it is saved to their ' +
-      "account, not just remembered for this session). Call this when the user explicitly asks to " +
-      'switch language, or clearly states which language they want, e.g. "speak to me in Telugu" ' +
-      'or "मुझसे हिंदी में बात करो" — not just because they said one sentence in another language.',
+      'Persist the language the user wants the AGENT to speak — English, Hindi, or Telugu — as ' +
+      'their agent_language, for the rest of THIS call and every future call (it is saved to their ' +
+      "account, not just remembered for this session). This is separate from preferred_language, " +
+      "which is the app's own screen-text language and is never changed by this tool. Call this " +
+      'when the user explicitly asks to switch language, or clearly states which language they ' +
+      'want, e.g. "speak to me in Telugu" or "मुझसे हिंदी में बात करो" — not just because they said ' +
+      'one sentence in another language.',
     schema: {
       type: 'object',
       properties: { language: { type: 'string', description: '"English", "Hindi", or "Telugu" (or en/hi/te)' } },

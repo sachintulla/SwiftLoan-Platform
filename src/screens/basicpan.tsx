@@ -11,6 +11,13 @@ import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanRes
 
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
+// A genuinely concluded application — the loan cycle actually ended
+// (disbursed/closed) or a lender made a real decision (rejected). Only these
+// justify starting fresh; `failed` (prequalify ran, zero eligible offers —
+// a soft, retriable outcome) and every in-progress status should be
+// continued instead of quietly spawning a duplicate.
+const TERMINAL_STATUSES = ['disbursed', 'closed', 'rejected'];
+
 export default function BasicPan() {
   const { state, set, mergeApiContext, go, showToast } = useStore();
   const t = useT();
@@ -96,26 +103,51 @@ export default function BasicPan() {
       return;
     }
     setBusy(true);
-    // If this PAN already has offers pulled (this user, prior application), skip
-    // the details form and jump straight to the saved offers.
+    // Never silently multiply applications: POST /applications always inserts
+    // a fresh row with no memory of a prior attempt, so every trip through
+    // this screen used to create a brand-new one — including on a bare retry
+    // right after Aurix returned zero eligible offers (a genuinely retriable,
+    // soft outcome, not a real decision on this person). A new application is
+    // only warranted once a prior one reached an actual final outcome
+    // (disbursed/closed — a loan cycle that's actually over — or rejected —
+    // a lender's real decision). Anything else in progress for this PAN
+    // should be continued, not duplicated.
     if (isAuthed()) {
       try {
         const { applications }: any = await api.listApplications();
         mergeApiContext({ applications: applications || [] });
-        const match = (applications || []).find(
-          (a: any) => (a.panNumber || '').toUpperCase() === pan &&
-            (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status),
-        );
-        if (match) {
-          set({ applicationId: match.id, loanId: match.loan?.id ?? null, hasSavedOffers: true, offersReturn: 'home' });
+        const forThisPan = (applications || [])
+          .filter((a: any) => (a.panNumber || '').toUpperCase() === pan && !TERMINAL_STATUSES.includes(a.status))
+          .sort((a: any, b: any) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime());
+        const existing = forThisPan[0];
+        if (existing) {
+          const hasRealOffers = (existing.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(existing.status);
+          set({
+            applicationId: existing.id,
+            loanId: existing.loan?.id ?? null,
+            hasSavedOffers: hasRealOffers,
+            ...(hasRealOffers ? { offersReturn: 'home' } : {}),
+          });
           setBusy(false);
-          go('fare');
+          // Real offers already exist for this attempt — go look at them
+          // rather than re-running eligibility from scratch. Otherwise
+          // continue the same application into the details step (basic.tsx
+          // updates it in place instead of creating another one — see there).
+          go(hasRealOffers ? 'fare' : 'basic');
           return;
         }
       } catch {
         /* fall through to the details step */
       }
     }
+    // No open application for this PAN — this really is a fresh start.
+    // applicationId is a shared field also set just by viewing an old
+    // application from My Loans, so it must be explicitly cleared here:
+    // otherwise a stale id from browsing an old (unrelated, possibly
+    // terminal) application could leak into basic.tsx's create-vs-update
+    // check and silently update the wrong record instead of creating a new
+    // one.
+    set({ applicationId: null });
     go('basic');
     setBusy(false);
   };

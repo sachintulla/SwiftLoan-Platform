@@ -99,6 +99,27 @@ describe('UC-V3 varied control types across screens', () => {
     expect(listTargets('profile').length).toBeGreaterThan(0);
   });
 
+  it('exposes a tappable Save control once personal-details editing starts', () => {
+    // Regression: the Save/Edit toggle is passed to SectionHead via its
+    // `right` prop, not as a direct child, so screenGraph.ts's auto-discovery
+    // (which only walks `children`) can never see it — confirmed live: the
+    // voice agent's available_actions never once contained "Save Changes",
+    // so it told the user their edits auto-save (they don't). profile.tsx
+    // now registers it explicitly via useVoiceTarget; this asserts that
+    // registration actually flips with edit mode.
+    renderAt('profile', <Profile />);
+    const editToggle = listTargets('profile').find(t => t.kind === 'button' && t.label === 'Edit');
+    expect(editToggle).toBeDefined();
+    expect(listTargets('profile').some(t => t.label === 'Save Changes')).toBe(false);
+
+    act(() => editToggle!.onTap!());
+
+    expect(listTargets('profile').some(t => t.label === 'Edit' && t.kind === 'button')).toBe(false);
+    const saveTarget = listTargets('profile').find(t => t.kind === 'button' && t.label === 'Save Changes');
+    expect(saveTarget).toBeDefined();
+    expect(saveTarget?.onTap).toBeInstanceOf(Function);
+  });
+
   it('discovers controls on a slider screen (fare)', () => {
     renderAt('fare', <Fare />);
     expect(listTargets('fare').length).toBeGreaterThan(0);
@@ -334,6 +355,32 @@ describe('UC-V12 post-action state is reported event-driven, not on a fixed dela
     const started = Date.now();
     await waitForNextPublish(60);
     expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+  });
+});
+
+describe('UC-V15 ticking a checkbox notifies the agent; typing in a field does not', () => {
+  // Bug: ConsentRow's PAN consent checkbox never proactively told the agent
+  // it was ticked — kind and label are identical before and after a toggle,
+  // so the publish signature (deliberately built from kind+label only, to
+  // avoid firing on every keystroke) never changed either. Toggling a
+  // checkbox is a single, rare, discrete event though — nothing like a
+  // keystroke stream — so folding its value into the signature is safe and
+  // closes the gap without reopening the keystroke-spam problem this
+  // signature exists to prevent.
+  it('a consent/toggle value flip is treated as a real change', () => {
+    const { publishScreenGraph } = require('../src/voice/actionRegistry');
+    const unchecked = [{ id: 'consent:Accept terms', kind: 'consent' as const, label: 'Accept terms', getValue: () => false }];
+    const checked = [{ id: 'consent:Accept terms', kind: 'consent' as const, label: 'Accept terms', getValue: () => true }];
+    expect(publishScreenGraph('basicpan', unchecked, [])).toBe(true); // first publish always "changes"
+    expect(publishScreenGraph('basicpan', checked, [])).toBe(true); // same kind+label, value flipped — must still notify
+  });
+
+  it('a field value change alone still does not (no per-keystroke spam)', () => {
+    const { publishScreenGraph } = require('../src/voice/actionRegistry');
+    const empty = [{ id: 'field:PAN Number', kind: 'field' as const, label: 'PAN Number', getValue: () => '' }];
+    const typed = [{ id: 'field:PAN Number', kind: 'field' as const, label: 'PAN Number', getValue: () => 'ABCDE1234F' }];
+    expect(publishScreenGraph('basicpan', empty, [])).toBe(true); // first publish always "changes"
+    expect(publishScreenGraph('basicpan', typed, [])).toBe(false); // same kind+label — value alone must not notify
   });
 });
 

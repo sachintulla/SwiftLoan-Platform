@@ -10,6 +10,7 @@ import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
   trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
+  isAuthed,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
 import { loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted } from './session';
@@ -94,7 +95,7 @@ export interface AppState {
   lang: string | null; // null until chosen; effective default 'en'
   // The language the user has spoken to the voice agent (set via the
   // set_language tool), distinct from `lang` above. Null until stated;
-  // preferred_language falls back to `lang` until then.
+  // agent_language (sent in page_context) falls back to `lang` until then.
   voiceLang: string | null;
   selectedLang: string | null;
   privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
@@ -264,6 +265,32 @@ const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile', 'help', '
 // loaders and lands on the last real screen (e.g. offers → moredetails).
 const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 
+// Screens from before the user has ever set up the app / logged in. Nothing
+// should land here once a session (guest or real) exists — this is what let
+// the voice agent's generic navigate_screen tool dump an already-logged-in
+// user back on the onboarding language picker, just because the requested
+// screen happened to be literally named "language" (changing the AGENT's
+// spoken language is set_language, not a navigation at all — see
+// voice/tools.ts).
+//
+// Deliberately one-directional: an earlier version of this also blocked the
+// reverse (post-login screens with no session), but home/basicpan/fare/...
+// are legitimately guest-accessible by design (the app's own anonymous-
+// session flow, and every existing navigation test, both rely on that) —
+// only pre-login-while-authed is an actual bug.
+const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions']);
+
+/**
+ * Redirects away from a pre-login screen if a session (guest or real)
+ * already exists. Applied to every real screen change (go AND back, see the
+ * reducer below), not only the voice agent's navigate_screen: a stale
+ * back-stack entry from before login, or any other caller, can hit the same
+ * case, and this is meant to be a hard rule, not a per-caller courtesy.
+ */
+function guardScreen(screen: Screen): Screen {
+  return PRE_LOGIN_ONLY.has(screen) && isAuthed() ? 'home' : screen;
+}
+
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
 // Used only to emit fire-and-forget analytics; no effect on navigation.
 const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
@@ -319,7 +346,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'mergeApiContext':
       return { ...state, apiContext: { ...state.apiContext, ...stripForVoiceContext(action.patch) } };
     case 'go': {
-      const { screen } = action;
+      const screen = guardScreen(action.screen);
       // No-op navigations don't touch the stack.
       if (screen === state.screen) return state;
       let history: Screen[];
@@ -348,15 +375,18 @@ function reducer(state: AppState, action: Action): AppState {
       // wherever the funnel was started from (My Offers / Home) — never back into
       // the funnel (Verify PAN → details → …). offersReturn records that origin.
       if (state.screen === 'offers') {
-        return { ...state, screen: state.offersReturn || 'home', history: [], apiContext: {} };
+        return { ...state, screen: guardScreen(state.offersReturn || 'home'), history: [], apiContext: {} };
       }
       // Pop to the screen the user actually came from; fall back to the PREV map
       // (then home) only when the stack is empty (e.g. deep-linked entry).
+      // guardScreen covers a stale entry from before login (e.g. `permissions`
+      // still sitting on the stack from just before OTP verify) the same way
+      // it covers `go()` — Back is just as capable of surfacing one.
       if (state.history.length > 0) {
         const history = state.history.slice(0, -1);
-        return { ...state, screen: state.history[state.history.length - 1], history, apiContext: {} };
+        return { ...state, screen: guardScreen(state.history[state.history.length - 1]), history, apiContext: {} };
       }
-      return { ...state, screen: PREV[state.screen] || 'home', apiContext: {} };
+      return { ...state, screen: guardScreen(PREV[state.screen] || 'home'), apiContext: {} };
     }
     case 'reset':
       // Logout: clear all session/profile state, but KEEP device-level consent
@@ -440,9 +470,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Restore a persisted session on boot, so a returning user skips onboarding
   // entirely instead of re-verifying OTP every single app launch — and the
-  // voice agent's preferred_language is correct from the very first turn,
-  // not just within one session's memory. The language itself restores even
-  // for a guest who never logged in.
+  // voice agent's agent_language is correct from the very first turn, not
+  // just within one session's memory. The language itself restores even for
+  // a guest who never logged in.
   useEffect(() => {
     (async () => {
       const savedLang = await loadLang();
@@ -559,8 +589,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // from the UI-copy `lang` (language-selection screen / Profile toggle),
       // so speaking Telugu to the agent doesn't also flip the app's own
       // screen text. The persistence effect below (AsyncStorage +
-      // api.setVoiceLanguage) picks it up, and preferred_language prefers it
-      // over `lang` on the very next turn — and on every future call.
+      // api.setVoiceLanguage) picks it up, and agent_language (page_context)
+      // prefers it over `lang` on the very next turn — and on every future call.
       setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
       // Bug fix: open a specific loan/application by its reference number.
       openLoan: async (reference: string) => {
@@ -618,12 +648,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return {
       ...buildPageContext(s.screen),
       missing_profile_fields: missingProfileFields.length ? missingProfileFields : undefined,
-      // The language the agent should speak from the first word: whatever the
-      // user has explicitly told Ruby to speak (voiceLang, set via the
-      // set_language tool) takes priority; otherwise fall back to the
-      // language picked on the language-selection screen (see the prompt's
-      // preferred_language STRICT RULE).
-      preferred_language: LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English',
+      // Two distinct fields, deliberately not one: preferred_language is the
+      // app's own UI-copy language (language-selection screen / Profile
+      // toggle) — nothing to do with speech. agent_language is what Ruby
+      // should actually SPEAK, set independently via the set_language voice
+      // tool (voiceLang) and falling back to the UI language only until the
+      // user has stated one. Collapsing these into one field is what made
+      // the agent's spoken language unreliable — a change meant for the app
+      // screen could get read as a change to how the agent talks, or vice
+      // versa, depending on which one a given prompt happened to key off.
+      preferred_language: LANGUAGE_NAMES[s.lang ?? 'en'] ?? 'English',
+      agent_language: LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English',
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,

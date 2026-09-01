@@ -136,7 +136,18 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
       include: { emiOptions: true, partner: true },
     });
   }));
-  await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'offers_ready' } });
+  // "offers_ready" must mean real offers exist — it used to be set
+  // unconditionally the moment this call finished, whether `created` held 3
+  // offers or 0. Every downstream reader (the admin dashboard's stage
+  // tracking, and the voice agent's api_context/userContext) trusts this
+  // field over the actual offers array, so a wrongly-"ready" status doesn't
+  // just look odd in the UI — it actively tells the agent offers exist when
+  // none do, and it never proactively suggests applying because the data
+  // says there's nothing to suggest.
+  await prisma.loanApplication.update({
+    where: { id: app.id },
+    data: { status: created.length > 0 ? 'offers_ready' : 'failed' },
+  });
 
   // WS5: eligibility genuinely finished here (server-side truth). The client
   // previously only recorded "arrived at the offers screen", which is not the

@@ -13,6 +13,7 @@ import {
   Animated,
   Easing,
   Vibration,
+  Keyboard,
 } from 'react-native';
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -198,6 +199,23 @@ export function Screen({
       // discovery is best-effort — never break rendering over it
     }
   }, [children, state.screen]);
+
+  // A typed field's VALUE is deliberately excluded from the publish signature
+  // above (see its comment) — otherwise every keystroke would push a
+  // client-tools-update over the socket. That means the agent only ever
+  // learned what someone typed by coincidence, next time it happened to act
+  // or read the screen — it had no way to know "the user just finished
+  // entering their PAN" the moment it actually happened. `keyboardDidHide`
+  // is a global, once-per-blur RN event (dismiss, Return key, tapping away,
+  // or focus moving to a non-text control) — never fires mid-keystroke, so
+  // it's exactly the natural throttle a per-value signature would have to
+  // build from scratch. autoByScreen/screenTexts are already current (every
+  // render updates them regardless of whether a notification fired), so this
+  // just needs to trigger the send — updatePageContext() reads them fresh.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => agent.updatePageContext());
+    return () => sub.remove();
+  }, []);
 
   // Registers this screen's scroll container as a voice-agent target — the RN
   // equivalent of the web SDK never needing one (browsers already scroll by

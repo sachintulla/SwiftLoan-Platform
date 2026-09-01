@@ -15,14 +15,21 @@ export function formatDob(y: number, m: number, d: number) {
 type Dob = { y: number; m: number; d: number };
 
 /**
- * Registers the "Date" voice target for a screen's date-of-birth field,
- * independent of whether the calendar grid is currently open on screen.
- * Setting a date by voice should apply instantly — it shouldn't require
- * visually opening the picker UI first just so a target exists to set.
+ * Registers the "Date of birth" voice target for a screen's date-of-birth
+ * field, independent of whether the calendar grid is currently open on
+ * screen. Setting a date by voice should apply instantly — it shouldn't
+ * require visually opening the picker UI first just so a target exists to
+ * set.
+ *
+ * Labelled "Date of birth", not the bare "Date" this used to send: a plain
+ * "Date" in page_context's available_actions gave the agent no way to be
+ * sure this was the user's DOB rather than some other date on screen, and it
+ * kept asking whether the date of birth was missing even when `value` was
+ * already populated — the ambiguity was in the label, not the data.
  */
 export function useDobVoiceTarget(dob: Dob | null, setDob: (v: Dob) => void) {
   useVoiceTarget(
-    'Date',
+    'Date of birth',
     {
       kind: 'date',
       getValue: () => (dob ? formatDob(dob.y, dob.m, dob.d) : ''),

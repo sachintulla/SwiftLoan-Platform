@@ -111,7 +111,17 @@ export function publishScreenGraph(
   // on data screens (e.g. offers) the buttons are unchanged while async-loaded
   // content arrives, so a controls-only signature would never re-notify the agent
   // and it would keep describing stale/placeholder data.
-  const elementsSig = elements.map(e => `${e.kind}|${e.label}`).join('~');
+  //
+  // Checkbox/toggle values are folded in too, deliberately unlike fields:
+  // ticking consent is one discrete, rare flip — nothing like a keystroke
+  // stream — so including it can't reintroduce the per-keypress spam this
+  // signature exists to prevent. Without this, ticking "Accept terms" never
+  // notified the agent at all: kind and label stay identical before and
+  // after, so the agent only ever found out by coincidence, next time it
+  // happened to read the screen for an unrelated reason.
+  const elementsSig = elements
+    .map(e => (e.kind === 'toggle' || e.kind === 'consent') ? `${e.kind}|${e.label}|${e.getValue?.()}` : `${e.kind}|${e.label}`)
+    .join('~');
   const sig = elementsSig + '§' + texts.join('¶');
   if (lastSignature.get(screen) === sig) return false;
 
