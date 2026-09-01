@@ -1,5 +1,5 @@
 import NetInfo from '@react-native-community/netinfo';
-import { saveTokens, clearTokens } from '../state/session';
+import { saveTokens, clearTokens, clearOffersCache } from '../state/session';
 import { reportOfflineAttempt } from '../state/offlineBridge';
 
 /**
@@ -281,6 +281,10 @@ export const api = {
       session_id: getTrackingSessionId(),
     });
     setTokens(r.accessToken, r.refreshToken);
+    // Drop any eligible-offers cache left by a previous session (e.g. one that
+    // ended without a clean logout), so a freshly-logged-in phone never inherits
+    // the last user's "My Offers".
+    await clearOffersCache().catch(() => {});
     return r;
   },
   login: async (identifier: string, password: string): Promise<AuthResult> => {
@@ -291,6 +295,10 @@ export const api = {
   logout: async () => {
     if (refreshToken) await request('POST', '/auth/logout', { refreshToken }).catch(() => {});
     setTokens(null, null);
+    // Per-user eligible-offers cache is persisted (fare.tsx "My Offers" reads it
+    // local-first). Clear it on logout, or the NEXT phone number to log in sees
+    // the previous user's offers until a slower backend re-fetch overwrites them.
+    await clearOffersCache().catch(() => {});
   },
 
   // Users
