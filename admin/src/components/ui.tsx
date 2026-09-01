@@ -34,6 +34,21 @@ export function StatCard({ label, value, icon, tone = 'teal', foot }: { label: s
   );
 }
 
+/**
+ * One cell of a stat strip: several numbers inside a single card, rather than
+ * one bordered box per number. Pass `tone` only when the value itself carries
+ * a warning — a coloured number should mean something.
+ */
+export function Stat({ label, value, foot, tone }: { label: string; value: React.ReactNode; foot?: React.ReactNode; tone?: string }) {
+  return (
+    <div className="stat-cell">
+      <div className="stat-cell-label">{label}</div>
+      <div className="stat-cell-value" style={tone ? { color: `var(--${tone})` } : undefined}>{value}</div>
+      {foot != null && <div className="stat-cell-foot">{foot}</div>}
+    </div>
+  );
+}
+
 export function StatusBadge({ status, label }: { status: string | null | undefined; label?: string }) {
   const tone = statusTone(status);
   return <span className={`badge tone-${tone}`}>{label ?? humanStatus(status)}</span>;

@@ -73,28 +73,36 @@ customersRouter.get('/', ah(async (req, res) => {
       skip,
       take,
       select: {
-        id: true, name: true, phone: true, firstSource: true, campaignId: true,
+        id: true, name: true, phone: true, email: true, city: true, firstSource: true, campaignId: true,
         currentStage: true, stageEnteredAt: true, lastActivityAt: true,
       },
     }),
     prisma.customer.count({ where }),
   ]);
 
-  // Many Customer rows have no name of their own (they were created from a lead
-  // or an app session before the person typed one), yet the linked User row does
-  // have it — so the list was showing "Unknown" for people we actually know.
-  // Fall back to the registered user's name, matched by phone (batched).
-  const needName = rows.filter((r) => !r.name || !r.name.trim());
-  const phones = [...new Set(needName.map((r) => r.phone).filter(Boolean) as string[])];
-  const namedUsers = phones.length
+  // A Customer row is usually thinner than the User behind it: it gets created
+  // from a lead or an app session before the person types anything, so name,
+  // email and city sit null while the registered User (matched by phone) has
+  // all three — plus their applications. One batched lookup backs every
+  // fallback below; without it the list reads "Unknown / — / —" for people we
+  // know perfectly well.
+  const phones = [...new Set(rows.map((r) => r.phone).filter(Boolean) as string[])];
+  const linkedUsers = phones.length
     ? await prisma.user.findMany({
         where: { phone: { in: phones } },
-        select: { phone: true, fullName: true, firstName: true, lastName: true },
+        select: {
+          phone: true, fullName: true, firstName: true, lastName: true, email: true, city: true,
+          // Newest application = what they are actually asking for now.
+          applications: { select: { amount: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+        },
       })
     : [];
-  const nameByPhone = new Map(
-    namedUsers.map((u) => [u.phone, (u.fullName || [u.firstName, u.lastName].filter(Boolean).join(' ')).trim() || null]),
-  );
+  const userByPhone = new Map(linkedUsers.map((u) => [u.phone, u]));
+  const nameOf = (phone: string | null) => {
+    const u = phone ? userByPhone.get(phone) : null;
+    if (!u) return null;
+    return (u.fullName || [u.firstName, u.lastName].filter(Boolean).join(' ')).trim() || null;
+  };
 
   // "Last active" must mean the person actually used the WEBSITE or MOBILE APP —
   // not an outbound call, a campaign send, or an admin/system touch (all of which
@@ -110,18 +118,40 @@ customersRouter.get('/', ah(async (req, res) => {
     : [];
   const lastActiveByCustomer = new Map(activity.map((a) => [a.customerId, a._max.occurredAt]));
 
+  // Telephony volume per person — phone legs only, so website-widget and app
+  // conversations don't inflate what an operator reads as "we called them N
+  // times". Bounded by the page (25 ids), one grouped query.
+  const callRows = ids.length
+    ? await prisma.callAttempt.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: ids }, channel: { in: ['phone_outbound', 'phone_inbound'] } },
+        _count: { _all: true },
+      })
+    : [];
+  const callsByCustomer = new Map(callRows.map((r) => [r.customerId, r._count._all]));
+
   return ok(
     res,
-    rows.map((r) => ({
-      ...r,
-      name: r.name && r.name.trim() ? r.name : (r.phone ? nameByPhone.get(r.phone) ?? null : null),
-      // Overrides the raw Customer.lastActivityAt so the UI shows genuine
-      // app/website activity only (null when they've never used either).
-      lastActivityAt: lastActiveByCustomer.get(r.id) ?? null,
-      stageLabel: STAGE_LABELS[r.currentStage],
-      // "Inactive for" = time since last website/app activity, not stage dwell.
-      stalledMinutes: minutesSince(lastActiveByCustomer.get(r.id) ?? null),
-    })),
+    rows.map((r) => {
+      const u = r.phone ? userByPhone.get(r.phone) : null;
+      return {
+        ...r,
+        name: r.name && r.name.trim() ? r.name : nameOf(r.phone),
+        // The Customer row is often thinner than the User behind it.
+        email: r.email || u?.email || null,
+        city: r.city || u?.city || null,
+        // Overrides the raw Customer.lastActivityAt so the UI shows genuine
+        // app/website activity only (null when they've never used either).
+        lastActivityAt: lastActiveByCustomer.get(r.id) ?? null,
+        stageLabel: STAGE_LABELS[r.currentStage],
+        /** Phone calls placed to / received from this person. */
+        callCount: callsByCustomer.get(r.id) ?? 0,
+        /** Their most recent application amount, in RUPEES (null = never applied). */
+        loanAmount: u?.applications[0]?.amount ?? null,
+        // "Inactive for" = time since last website/app activity, not stage dwell.
+        stalledMinutes: minutesSince(lastActiveByCustomer.get(r.id) ?? null),
+      };
+    }),
     'Customers',
     paginate(page, pageSize, total),
   );

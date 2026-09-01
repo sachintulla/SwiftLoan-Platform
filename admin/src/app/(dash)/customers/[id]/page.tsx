@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
-import { Card, StatCard, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout, Menu } from '@/components/ui';
+import { Card, Stat, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout } from '@/components/ui';
 import { JourneyTracker, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
@@ -45,7 +45,7 @@ interface LinkedUser {
   dob?: string | null; gender?: string | null; maritalStatus?: string | null; qualification?: string | null;
   employment?: string | null; company?: string | null; monthlyIncome?: number | null; salaryMode?: string | null;
   residenceType?: string | null; addressLine1?: string | null; addressLine2?: string | null; landmark?: string | null;
-  city?: string | null; state?: string | null; loanPurpose?: string | null; panNumber?: string | null;
+  city?: string | null; state?: string | null; pincode?: string | null; loanPurpose?: string | null; panNumber?: string | null;
   aadhaarLast4?: string | null; creditScore?: number | null; phoneVerified?: boolean | null; emailVerified?: boolean | null;
   aurixTokenExpiresAt?: string | null;
   applications?: { id: string; ref: string; amount: number; tenureMonths?: number | null; status: string; panNumber?: string | null; createdAt?: string; updatedAt?: string; offers?: LenderOffer[] }[];
@@ -84,10 +84,102 @@ function initials(name?: string | null, phone?: string | null): string {
   return phone ? phone.slice(-2) : '?';
 }
 
-/** Show only the first 2 and last 2 characters — PAN is sensitive, shown masked by default. */
-function maskMiddle(value: string): string {
-  if (value.length <= 4) return value;
-  return value.slice(0, 2) + '•'.repeat(value.length - 4) + value.slice(-2);
+/**
+ * PAN renders as the last 3 characters and nothing else — enough for an agent
+ * to confirm they are on the right record while on a call, useless to anyone
+ * shoulder-surfing the dashboard. There is deliberately no "show" affordance:
+ * a value that can be revealed is a value that gets screenshotted.
+ */
+function maskPan(value: string): string {
+  const tail = value.slice(-3);
+  return '•'.repeat(Math.max(value.length - 3, 3)) + tail;
+}
+
+/** CIBIL band, so 750 reads as a verdict and not just a number. */
+function scoreBand(score: number): { label: string; tone: string } {
+  if (score >= 750) return { label: 'Excellent', tone: 'green' };
+  if (score >= 700) return { label: 'Good', tone: 'teal' };
+  if (score >= 650) return { label: 'Fair', tone: 'amber' };
+  return { label: 'Poor', tone: 'red' };
+}
+
+/**
+ * Monochrome 14px line icons. Emoji were doing this job and read as clip-art
+ * next to the type — these inherit colour and weight from the row they sit in.
+ */
+const ICON_PATHS: Record<string, React.ReactNode> = {
+  phone: <path d="M3.2 3.2h3l1.1 2.8L6 7.4a8.6 8.6 0 0 0 3.6 3.6l1.4-1.3 2.8 1.1v3a1 1 0 0 1-1.1 1A11.6 11.6 0 0 1 2.2 4.3a1 1 0 0 1 1-1.1Z" />,
+  mail: <><rect x="1.8" y="3.4" width="12.4" height="9.2" rx="1.6" /><path d="m2.4 4.6 5.6 4 5.6-4" /></>,
+  pin: <><path d="M13 6.8c0 3.6-5 8-5 8s-5-4.4-5-8a5 5 0 0 1 10 0Z" /><circle cx="8" cy="6.7" r="1.8" /></>,
+  device: <><rect x="4.4" y="1.6" width="7.2" height="12.8" rx="1.8" /><path d="M7 12.4h2" /></>,
+  clock: <><circle cx="8" cy="8" r="6.2" /><path d="M8 4.6V8l2.4 1.6" /></>,
+  copy: <><rect x="5.6" y="5.6" width="8" height="8" rx="1.6" /><path d="M10.6 3.4H3.9a1.5 1.5 0 0 0-1.5 1.5v6.7" /></>,
+};
+function Ico({ name }: { name: keyof typeof ICON_PATHS }) {
+  return (
+    <svg className="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden focusable="false">
+      {ICON_PATHS[name]}
+    </svg>
+  );
+}
+
+/** Verification mark that sits on the value it verifies (phone, email). */
+function Tick({ ok, what }: { ok: boolean; what: string }) {
+  return (
+    <span className={`tick${ok ? '' : ' no'}`} title={`${what} ${ok ? 'verified' : 'not verified'}`}>
+      {ok ? '✓' : '!'}
+    </span>
+  );
+}
+
+/** Copy-to-clipboard for the values an operator retypes into another system. */
+function CopyBtn({ value, label }: { value: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className="icon-btn"
+      title={`Copy ${label}`}
+      aria-label={`Copy ${label}`}
+      onClick={() => {
+        navigator.clipboard?.writeText(value).catch(() => {});
+        setDone(true);
+        setTimeout(() => setDone(false), 1200);
+      }}
+    >
+      {done ? <span className="copy-done">✓</span> : <Ico name="copy" />}
+    </button>
+  );
+}
+
+/**
+ * One profile field. An absent value renders as a faint em dash rather than
+ * "not set" / "none" / "—" in three different weights, so the eye skips the
+ * blanks and lands on the data that is actually there.
+ */
+function Fact({ label, children, mono }: { label: string; children?: React.ReactNode; mono?: boolean }) {
+  const empty = children == null || children === '' || children === '—';
+  return (
+    <div className="fact-row">
+      <dt className="fact-label">{label}</dt>
+      <dd className={`fact-value${mono ? ' mono' : ''}${empty ? ' is-empty' : ''}`}>{empty ? '\u2014' : children}</dd>
+    </div>
+  );
+}
+
+/** One titled panel. Each group is its own card so the four topics read as
+ *  four separate things rather than one wall split by hairlines. */
+function FactGroup({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="fact-section">
+      <div className="fact-section-head">
+        <h3 className="fact-section-title">{title}</h3>
+        {action}
+      </div>
+      <dl className="fact-list">{children}</dl>
+    </section>
+  );
 }
 
 const CHANNELS = ['push', 'whatsapp', 'sms', 'email', 'voice'] as const;
@@ -136,15 +228,10 @@ export default function CustomerDetail() {
   const [nudgeResult, setNudgeResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [call, setCall] = useState<CallState>({ busy: null, key: null, ok: false, text: '' });
-  const [wa, setWa] = useState<{ busy: boolean; ok: boolean; text: string }>({ busy: false, ok: false, text: '' });
-  // Only offer the button when WhatsApp is actually configured — an action that
-  // always fails is worse than no action at all.
-  const { data: waStatus } = useSWR('/api/admin/whatsapp/status', swrFetcher);
-  const waReady = Boolean((waStatus?.data as { configured?: boolean } | undefined)?.configured);
   const [leadBusy, setLeadBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState('journey');
-  const [showPan, setShowPan] = useState(false);
+  const [showSystem, setShowSystem] = useState(false);
 
   /**
    * Place a real outbound call, right now.
@@ -182,43 +269,6 @@ export default function CustomerDetail() {
       setCall({
         busy: null, key, ok: false,
         text: /403/.test(msg) ? 'Only a super admin can place calls.' : msg,
-      });
-    }
-  }
-
-  /**
-   * Send the configured WhatsApp template to this customer.
-   *
-   * Confirmed like a call: it reaches a real person on a channel they consider
-   * personal. Business-initiated messages must use a pre-approved template, so
-   * the operator picks the customer, not the wording — the server supplies the
-   * template from the Infobip config.
-   */
-  async function sendWhatsApp() {
-    const phone = c?.phone;
-    const who = c?.name || 'this customer';
-    if (!phone) return;
-    if (!window.confirm(`Send the WhatsApp template to ${who} on ${phone}?\n\nThis messages a real person.`)) return;
-
-    setWa({ busy: true, ok: false, text: '' });
-    try {
-      const res = await apiFetch<{ messageId?: string; providerStatus?: string }>(
-        '/api/admin/whatsapp/send',
-        { method: 'POST', body: JSON.stringify({ customerId: c?.id, phone }) },
-      );
-      const r = res.data ?? {};
-      setWa({
-        busy: false, ok: true,
-        text: `WhatsApp queued for ${phone}${r.providerStatus ? ` (${r.providerStatus})` : ''}. It appears in the conversation history once delivered.`,
-      });
-      await mutate();
-    } catch (e) {
-      const msg = (e as Error).message || 'Could not send the message';
-      setWa({
-        busy: false, ok: false,
-        text: /403/.test(msg) ? 'Only a super admin can send WhatsApp messages.'
-          : /409/.test(msg) ? 'This customer is marked do-not-contact.'
-          : msg,
       });
     }
   }
@@ -299,140 +349,159 @@ export default function CustomerDetail() {
 
   const pan = user?.panNumber || applications[0]?.panNumber || '';
   const deviceLine = [d.device?.os, d.device?.model, d.device?.appVersion ? `v${d.device.appVersion}` : null].filter(Boolean).join(' · ');
+  const email = c.email || user?.email || '';
+  const city = c.city || user?.city || lead?.city || '';
+  const fullName = user?.fullName || c.name || '';
+  const address = [user?.addressLine1, user?.addressLine2, user?.landmark, user?.city, user?.state, user?.pincode]
+    .filter(Boolean).join(', ');
+  const aurixExpired = user?.aurixTokenExpiresAt ? new Date(user.aurixTokenExpiresAt).getTime() < Date.now() : false;
 
   return (
     <div className="page">
       <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/customers')}>← Back to customers</button>
 
-      {/* ── who they are ───────────────────────────────────────────────── */}
+      {/* ── who they are ───────────────────────────────────────────────────
+          Two jobs, kept visually apart: the person (who they are, how to reach
+          them, what to do next) and their profile fields. The fields used to be
+          one flat 22-cell grid — no reading order, and a long email in a 140px
+          column collided with its neighbour — so they are grouped now, with the
+          system/attribution plumbing folded away until it is asked for. */}
       <Card>
-        <div className="row between wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
-          <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-              background: 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center',
-              fontWeight: 800, fontSize: 15,
-            }} aria-hidden>{initials(c.name, c.phone)}</div>
-            <div>
+        <div className="identity">
+          <div className="identity-main">
+            <div className="avatar-lg" aria-hidden>{initials(c.name, c.phone)}</div>
+            <div style={{ minWidth: 0 }}>
               <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
-                <h1 className="page-title" style={{ fontSize: 19 }}>{c.name || c.phone || 'Unknown customer'}</h1>
+                <h1 className="page-title" style={{ fontSize: 20 }}>{c.name || c.phone || 'Unknown customer'}</h1>
                 <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
                 {stalled != null && stalled >= 15 && (
                   <span className={`badge ${stalled > 1440 ? 'tone-red' : 'tone-amber'}`}>Stalled {stalledLabel(stalled)}</span>
                 )}
               </div>
-              <p className="page-sub">
-                <span className="mono">{c.phone || 'no phone'}</span>
-                {(c.email || user?.email) ? ` · ${c.email || user?.email}` : ''}
-                {(c.city || user?.city) ? ` · ${c.city || user?.city}` : ''}
-              </p>
-              {d.device && (d.device.os || d.device.model) && (
-                <p className="page-sub" style={{ marginTop: 2 }}>
-                  <span aria-hidden>📱</span> {d.device.os || 'Unknown OS'}{d.device.appVersion ? ` · v${d.device.appVersion}` : ''}
-                </p>
-              )}
-            </div>
-          </div>
 
-          <div style={{ display: 'grid', gap: 8, justifyItems: 'end', minWidth: 200 }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-faint)' }}>Next action</div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{d.nextAction || '—'}</div>
-              {c.stageEnteredAt && <div className="muted" style={{ fontSize: 11 }}>Stage entered {dateStr(c.stageEnteredAt)}</div>}
+              {/* Contact line — verification sits on the value it verifies
+                  rather than in a separate "Verified: phone yes · email no" cell. */}
+              <div className="identity-meta">
+                <span className="identity-meta-item">
+                  <Ico name="phone" />
+                  <span className="mono">{c.phone || 'No phone number'}</span>
+                  {c.phone && <Tick ok={!!user?.phoneVerified} what="Phone" />}
+                  {c.phone && <CopyBtn value={c.phone} label="phone number" />}
+                </span>
+                {email && (
+                  <span className="identity-meta-item">
+                    <Ico name="mail" />
+                    <span style={{ overflowWrap: 'anywhere' }}>{email}</span>
+                    <Tick ok={!!user?.emailVerified} what="Email" />
+                    <CopyBtn value={email} label="email address" />
+                  </span>
+                )}
+                {city && <span className="identity-meta-item"><Ico name="pin" />{city}</span>}
+                {deviceLine && <span className="identity-meta-item"><Ico name="device" />{deviceLine}</span>}
+                {c.lastActivityAt && (
+                  <span className="identity-meta-item"><Ico name="clock" />Active {timeAgo(c.lastActivityAt)}</span>
+                )}
+              </div>
             </div>
-            <div className="row" style={{ gap: 8 }}>
-              <button
-                className="btn btn-primary"
-                disabled={noPhone || call.busy === 'whole'}
-                title={c.phone ? `Call ${c.phone} now` : 'This customer has no phone number'}
-                onClick={() => placeCall('whole', 'where they have got to')}
-              >
-                {call.busy === 'whole' ? 'Dialling…' : '📞 Call'}
-              </button>
-              <Menu
-                trigger="···"
-                items={[
-                  ...(user ? [{ key: 'profile', label: 'View full user profile →', onSelect: () => router.push(`/users/${user.id}`) }] : []),
-                  ...(waReady ? [{ key: 'wa', label: wa.busy ? 'Sending…' : '💬 Send WhatsApp', disabled: noPhone || wa.busy, onSelect: sendWhatsApp }] : []),
-                ]}
-              />
-            </div>
-            {noPhone && <span className="muted" style={{ fontSize: 11.5, textAlign: 'right' }}>No phone number on this customer</span>}
-            {wa.text && (
-              <span style={{ fontSize: 11.5, textAlign: 'right', color: wa.ok ? 'var(--green)' : 'var(--red)' }}>{wa.text}</span>
-            )}
-            {call.key === 'whole' && callResult}
           </div>
         </div>
 
-        {/* profile — same card, visually separated by a divider */}
-        <div className="facts-grid" style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
-          <div><div className="fact-label">Full name</div><div className="fact-value">{user?.fullName || c.name || '—'}</div></div>
-          <div><div className="fact-label">Email</div><div className="fact-value">{c.email || user?.email || '—'}</div></div>
-          <div>
-            <div className="fact-label">Verified</div>
-            <div className="fact-value">
-              <span style={{ color: user?.phoneVerified ? 'var(--green)' : 'var(--text-faint)' }}>phone {user?.phoneVerified ? 'yes' : 'no'}</span>
-              {' · '}
-              <span style={{ color: user?.emailVerified ? 'var(--green)' : 'var(--text-faint)' }}>email {user?.emailVerified ? 'yes' : 'no'}</span>
-            </div>
-          </div>
-          <div><div className="fact-label">City</div><div className="fact-value">{c.city || user?.city || lead?.city || '—'}</div></div>
-          <div><div className="fact-label">DOB</div><div className="fact-value">{user?.dob ? dateStr(user.dob) : '—'}</div></div>
-          <div><div className="fact-label">Credit score</div><div className="fact-value" style={{ color: user?.creditScore ? 'var(--brand)' : undefined }}>{user?.creditScore ?? '—'}</div></div>
-          <div><div className="fact-label">Employment</div><div className="fact-value">{user?.employment ? humanStatus(user.employment) : '—'}{user?.company ? ` · ${user.company}` : ''}</div></div>
-          <div><div className="fact-label">Qualification</div><div className="fact-value">{user?.qualification || '—'}</div></div>
-          <div><div className="fact-label">Salary mode</div><div className="fact-value">{user?.salaryMode || '—'}</div></div>
-          <div><div className="fact-label">Residence</div><div className="fact-value">{user?.residenceType ? humanStatus(user.residenceType) : '—'}</div></div>
-          <div><div className="fact-label">Address</div><div className="fact-value">{[user?.addressLine1, user?.city, user?.state].filter(Boolean).join(', ') || '—'}</div></div>
-          <div><div className="fact-label">Loan purpose</div><div className="fact-value">{user?.loanPurpose || '—'}</div></div>
-          <div>
-            <div className="fact-label">PAN</div>
-            <div className="fact-value mono row" style={{ gap: 6 }}>
-              {pan ? (showPan ? pan : maskMiddle(pan)) : '—'}
-              {pan && (
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ padding: '1px 8px', fontSize: 10.5 }}
-                  onClick={() => setShowPan((v) => !v)}
-                >
-                  {showPan ? 'Hide' : 'Show'}
-                </button>
-              )}
-            </div>
-          </div>
-          <div><div className="fact-label">Aadhaar last 4</div><div className="fact-value mono">{user?.aadhaarLast4 || 'not set'}</div></div>
-          <div><div className="fact-label">Marital status</div><div className="fact-value">{user?.maritalStatus || 'not set'}</div></div>
-          <div><div className="fact-label">KYC records</div><div className="fact-value">{user?.kyc?.length ? (user.kyc[0].status || 'pending') : 'none'}</div></div>
-          <div><div className="fact-label">Aurix token</div><div className="fact-value">{user?.aurixTokenExpiresAt ? `valid to ${dateStr(user.aurixTokenExpiresAt)}` : 'none'}</div></div>
-          <div><div className="fact-label">Device</div><div className="fact-value">{deviceLine || '—'}</div></div>
-          <div><div className="fact-label">Last activity</div><div className="fact-value">{c.lastActivityAt ? timeAgo(c.lastActivityAt) : '—'}</div></div>
-          <div><div className="fact-label">Source</div><div className="fact-value" style={{ textTransform: 'capitalize' }}>{c.firstSource || 'unknown'}{c.campaignId ? ` · ${c.campaignId}` : ''}</div></div>
-          <div><div className="fact-label">Customer id</div><div className="fact-value mono" style={{ fontSize: 11.5 }} title={c.id}>{c.id.slice(0, 8)}…</div></div>
-          <div><div className="fact-label">App user id</div><div className="fact-value mono" style={{ fontSize: 11.5 }} title={user?.id}>{user?.id ? `${user.id.slice(0, 8)}…` : '—'}</div></div>
+        {/* profile — four groups in the one card, split by whitespace */}
+        <div className="fact-sections">
+          <FactGroup title="Identity">
+            {fullName && fullName !== (c.name || '') && <Fact label="Full name">{fullName}</Fact>}
+            <Fact label="Date of birth">{user?.dob ? dateStr(user.dob) : null}</Fact>
+            <Fact label="Gender">{user?.gender ? humanStatus(user.gender) : null}</Fact>
+            <Fact label="Marital status">{user?.maritalStatus ? humanStatus(user.maritalStatus) : null}</Fact>
+            <Fact label="Qualification">{user?.qualification}</Fact>
+            <Fact label="Address">{address}</Fact>
+          </FactGroup>
+
+          <FactGroup title="Work & income">
+            <Fact label="Employment">{user?.employment ? humanStatus(user.employment) : null}</Fact>
+            <Fact label="Employer">{user?.company}</Fact>
+            <Fact label="Monthly income">{user?.monthlyIncome ? inrRupees(user.monthlyIncome) : null}</Fact>
+            <Fact label="Salary mode">{user?.salaryMode ? humanStatus(user.salaryMode) : null}</Fact>
+            <Fact label="Residence">{user?.residenceType ? humanStatus(user.residenceType) : null}</Fact>
+            <Fact label="Loan purpose">{user?.loanPurpose}</Fact>
+          </FactGroup>
+
+          <FactGroup title="Verification & risk">
+            <Fact label="Credit score">
+              {user?.creditScore ? (
+                <span className="score" style={{ color: `var(--${scoreBand(user.creditScore).tone})` }}>
+                  {user.creditScore}
+                  <span className="score-band">{scoreBand(user.creditScore).label}</span>
+                </span>
+              ) : null}
+            </Fact>
+            <Fact label="KYC records">{user?.kyc?.length ? humanStatus(user.kyc[0].status || 'pending') : null}</Fact>
+            <Fact label="PAN" mono>{pan ? maskPan(pan) : null}</Fact>
+            <Fact label="Aadhaar last 4" mono>{user?.aadhaarLast4}</Fact>
+            <Fact label="Aurix token">
+              {user?.aurixTokenExpiresAt ? (
+                <span className={aurixExpired ? 'is-stale' : undefined}>
+                  {aurixExpired ? 'Expired ' : 'Valid to '}{dateStr(user.aurixTokenExpiresAt)}
+                </span>
+              ) : null}
+            </Fact>
+          </FactGroup>
+
+          {/* Plumbing: needed when something has gone wrong, noise the rest of
+              the time — so it starts folded. */}
+          <FactGroup
+            title="App & attribution"
+            action={
+              <button type="button" className="icon-btn" onClick={() => setShowSystem((v) => !v)}>
+                {showSystem ? 'Hide ids' : 'Show ids'}
+              </button>
+            }
+          >
+            <Fact label="Source">
+              <span style={{ textTransform: 'capitalize' }}>{c.firstSource || 'Unknown'}</span>
+            </Fact>
+            <Fact label="Campaign">{c.campaignId}</Fact>
+            <Fact label="Device">{deviceLine}</Fact>
+            <Fact label="First seen">{c.createdAt ? dateStr(c.createdAt) : null}</Fact>
+            {showSystem && (
+              <>
+                <Fact label="Customer id" mono>
+                  <span className="row" style={{ gap: 6 }}><span className="id-val">{c.id}</span><CopyBtn value={c.id} label="customer id" /></span>
+                </Fact>
+                <Fact label="App user id" mono>
+                  {user?.id ? (
+                    <span className="row" style={{ gap: 6 }}><span className="id-val">{user.id}</span><CopyBtn value={user.id} label="app user id" /></span>
+                  ) : null}
+                </Fact>
+              </>
+            )}
+        </FactGroup>
         </div>
       </Card>
 
-      {/* ── funnel numbers at a glance ──────────────────────────────────── */}
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', marginTop: 16 }}>
-        {(() => {
-          const primaryApp = applications.find((a) => a.id === submittedAppId) ?? applications[0];
-          return (
-            <StatCard label="Requested" tone="blue" icon="◎"
-              value={primaryApp ? inrRupees(primaryApp.amount) : lead?.amount ? inr(lead.amount) : '—'}
-              foot={primaryApp ? `${primaryApp.tenureMonths ?? '—'} months · personal` : lead ? `from their ${lead.source} enquiry` : 'no application yet'} />
-          );
-        })()}
-        <StatCard label="Applications" tone="teal" icon="▤" value={applications.length}
-          foot={applications.length ? `${submittedAppId ? 1 : 0} submitted, ${applications.length - (submittedAppId ? 1 : 0)} abandoned` : 'none yet'} />
-        <StatCard label="Lender offers" tone={appliedLenderCount ? 'green' : 'grey'} icon="⇢" value={appliedLenderCount}
-          foot={appliedLenderCount ? undefined : 'no lender applied to'} />
-        <StatCard label="Nudges delivered" icon="↻"
-          tone={!nudgeSummary || nudgeSummary.total === 0 ? 'grey' : nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : 'green'}
-          value={nudgeSummary ? `${nudgeSummary.delivered}/${nudgeSummary.total}` : '—'}
-          foot={!nudgeSummary || nudgeSummary.total === 0 ? 'none sent' : nudgeSummary.failed === nudgeSummary.total ? 'all dispatches failed' : nudgeSummary.failed > 0 ? `${nudgeSummary.failed} failed` : 'all delivered'} />
-      </div>
+      {/* ── funnel numbers at a glance — one strip, not four boxes ────── */}
+      <Card className="mt-16">
+        <div className="stat-strip">
+          {(() => {
+            const primaryApp = applications.find((a) => a.id === submittedAppId) ?? applications[0];
+            return (
+              <Stat
+                label="Requested"
+                value={primaryApp ? inrRupees(primaryApp.amount) : lead?.amount ? inr(lead.amount) : '—'}
+                foot={primaryApp ? `${primaryApp.tenureMonths ?? '—'} months · personal` : lead ? `from their ${lead.source} enquiry` : 'no application yet'}
+              />
+            );
+          })()}
+          <Stat label="Applications" value={applications.length}
+            foot={applications.length ? `${submittedAppId ? 1 : 0} submitted, ${applications.length - (submittedAppId ? 1 : 0)} abandoned` : 'none yet'} />
+          <Stat label="Lender offers" value={appliedLenderCount} tone={appliedLenderCount ? undefined : 'text-faint'}
+            foot={appliedLenderCount ? 'applied to' : 'no lender applied to'} />
+          <Stat label="Nudges delivered"
+            value={nudgeSummary ? `${nudgeSummary.delivered}/${nudgeSummary.total}` : '—'}
+            tone={!nudgeSummary || nudgeSummary.total === 0 ? 'text-faint' : nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : undefined}
+            foot={!nudgeSummary || nudgeSummary.total === 0 ? 'none sent' : nudgeSummary.failed === nudgeSummary.total ? 'all dispatches failed' : nudgeSummary.failed > 0 ? `${nudgeSummary.failed} failed` : 'all delivered'} />
+        </div>
+      </Card>
 
       {/* ── section tabs — everything below is one section at a time ────── */}
       <div className="tab-bar" style={{ marginTop: 22 }}>

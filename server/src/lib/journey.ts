@@ -223,20 +223,47 @@ function cleanPhone(phone?: string | null): string | null {
  * activity and post-login app activity land on a single record.
  */
 export async function resolveCustomer(input: ResolveCustomerInput) {
-  const phone = cleanPhone(input.phone);
+  let phone = cleanPhone(input.phone);
   const { userId } = input;
+
+  // A userId always belongs to an authenticated app User, who by definition has
+  // a verified phone — yet most of the post-login funnel (applications.routes.ts,
+  // kyc.routes.ts, the Aurix webhook) calls trackJourney with only { userId },
+  // never the phone. Without this, a userId lookup that misses (a stale link,
+  // a User row recreated after a dev reset) has nothing to fall back to and
+  // silently creates a second, permanently phone-less Customer for someone
+  // whose phone was one query away. Look it up whenever it's missing, before
+  // any matching or creation happens below.
+  if (!phone && userId) {
+    const linkedUser = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } }).catch(() => null);
+    if (linkedUser?.phone) phone = cleanPhone(linkedUser.phone);
+  }
 
   if (!phone && !userId) return null;
 
+  // Phone is the strong identity everywhere else in this codebase (see
+  // customers.routes.ts's 360 view) — a Customer.userId can go stale (the
+  // User it pointed at was replaced or deleted) while its phone never
+  // changes. Matching userId first let a stale link silently attribute real
+  // activity to a different, phone-less "ghost" Customer row that happened
+  // to hold the same (now-wrong) userId. Phone first avoids that class of
+  // mis-attribution; userId is only the fallback for phone-less identity
+  // (e.g. a website visitor who hasn't given a number yet).
   let customer =
-    (userId ? await prisma.customer.findUnique({ where: { userId } }) : null) ??
-    (phone ? await prisma.customer.findUnique({ where: { phone } }) : null);
+    (phone ? await prisma.customer.findUnique({ where: { phone } }) : null) ??
+    (userId ? await prisma.customer.findUnique({ where: { userId } }) : null);
+
+  // Customer.phone is required at the schema level — every identity in the
+  // system, app or website, must resolve to a real number. Every current
+  // caller already supplies one (directly, or backfilled from User above),
+  // so this is a hard guarantee for future call sites, not a live path today.
+  if (!customer && !phone) return null;
 
   if (!customer) {
     try {
       customer = await prisma.customer.create({
         data: {
-          phone,
+          phone: phone as string,
           userId: userId ?? null,
           name: input.name ?? null,
           email: input.email ?? null,
