@@ -108,8 +108,8 @@ When that refresh arrives:
   which call produced it: `applicationCreated`, `applicationUpdated`,
   `applications` (the full list), `applicationDetail` (one application, full
   offers/loan/KYC), `prequalifyResult` (`{offers, friendlyError}`),
-  `offerApplyResult`, `offerFailResult`, `handoffResult` (the created loan),
-  `marketOffers`, `lenderWebFlow`. Only the keys for calls that have actually happened are
+  `offerApplyResult`, `offerFailResult`, `offerOutcomeResult`, `handoffResult`
+  (the created loan), `marketOffers`, `lenderWebFlow`. Only the keys for calls that have actually happened are
   present — absent entirely until at least one has. This is more complete and
   authoritative than `screen_overview` for these entities (exact amounts,
   refs, statuses, offer counts) since it's the real response, not text
@@ -136,6 +136,18 @@ When that refresh arrives:
     `lenderWebFlow` you just saw — is `failed`/`rejected`. Match the lender
     application the user is asking about (the one they just applied to / opened
     from My Loans) by its offer/lender, and speak *its* status.
+  - **`lenderApplications[].internalStatus`** — a SECOND, app-side state on each
+    lender application, separate from the lender's decision `status` above:
+    `just_applied` (handed off, nothing terminal yet), `success` (the web flow
+    completed), `failed` (the user cancelled/was declined in the flow), or
+    `error` (a technical problem — page crash, HTTP error, load failure). It's
+    what the app itself saw happen in the lender web page, shown as its own
+    chip in My Loans, and never depends on the webhook. Use it to be precise
+    about *where* something stands: e.g. `internalStatus: 'error'` → the
+    hand-off hit a technical issue on our side (suggest trying again / another
+    lender); `success` with `status: 'under_review'` → "it went through and the
+    lender's now reviewing it". Don't conflate the two — `internalStatus` is the
+    hand-off outcome, `status` is the lender's decision.
   - **`lenderWebFlow`** — live status of the lender's own web page while the
     user is on the `lenderweb` screen (the in-app browser completing an
     application on the lender's site). Shape: `{ status, lender, reason?,

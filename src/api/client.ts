@@ -243,6 +243,8 @@ export interface LenderApplication {
   processingFeeAmount: number;
   redirectionUrl?: string | null;
   status: string; // handoff | under_review | approved | rejected | disbursed | failed | …
+  // App-side hand-off outcome, distinct from the webhook-driven `status`.
+  internalStatus?: 'just_applied' | 'success' | 'failed' | 'error';
   appliedAt: string;
   underReviewAt?: string | null;
   approvedAt?: string | null;
@@ -365,9 +367,17 @@ export const api = {
   // application (returns { offer, lenderApplicationId, alreadyApplied }).
   applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined),
-  // Mark a per-lender application failed (e.g. the lender web flow errored out).
-  // Pass lenderApplicationId to target the exact application; the server falls
-  // back to the latest apply for the offer when omitted.
+  // Record the app-side outcome of a lender web flow: 'success' | 'failed' |
+  // 'error'. Sets the application's internalStatus (shown as its own state in My
+  // Loans); failed/error also mark the lender status failed. Pass
+  // lenderApplicationId to target the exact application (falls back to latest).
+  reportLenderOutcome: (id: string, offerId: string, outcome: 'success' | 'failed' | 'error', reason?: string, lenderApplicationId?: string | null) =>
+    request('POST', `/applications/${id}/offers/${offerId}/outcome`, {
+      outcome,
+      ...(reason ? { reason } : {}),
+      ...(lenderApplicationId ? { lenderApplicationId } : {}),
+    }),
+  // Back-compat: mark a per-lender application failed. Prefer reportLenderOutcome.
   failApplication: (id: string, offerId: string, reason?: string, lenderApplicationId?: string | null) =>
     request('POST', `/applications/${id}/offers/${offerId}/fail`, {
       ...(reason ? { reason } : {}),

@@ -13,6 +13,15 @@ import { displayLenderName } from './offers';
 const TYPE_ICON: Record<string, string> = {
   personal: 'bolt', business: 'business_center', home: 'home', education: 'school', vehicle: 'directions_car',
 };
+// App-side hand-off outcome — its own state, shown alongside the lender status.
+// Distinct from STATUS_META (the webhook-driven lender decision).
+const INTERNAL_STATUS_META: Record<string, { label: string; color: string }> = {
+  just_applied: { label: 'Just applied', color: colors.blue },
+  success: { label: 'Application success', color: colors.green },
+  failed: { label: 'Application failed', color: colors.red },
+  error: { label: 'Application error', color: colors.amber },
+};
+
 const STATUS_META: Record<string, { label: string; color: string }> = {
   draft: { label: 'In Progress', color: colors.amber },
   pan_pending: { label: 'In Progress', color: colors.amber },
@@ -95,6 +104,7 @@ export default function Loans() {
     if (lenderApps.length > 0) {
       return lenderApps.map((la: any) => {
         const meta = STATUS_META[la.status] || { label: la.status, color: colors.muted };
+        const internal = INTERNAL_STATUS_META[la.internalStatus] || INTERNAL_STATUS_META.just_applied;
         const isDisbursedLoan = la.status === 'disbursed' && app.loan;
         const apr = la.apr ?? app.loan?.apr ?? null;
         const midMetric = isDisbursedLoan
@@ -113,6 +123,8 @@ export default function Loans() {
             typeLabel={typeName}
             status={meta.label}
             statusColor={meta.color}
+            internalLabel={internal.label}
+            internalColor={internal.color}
             logoUrl={la.lenderLogoUrl}
             updated={formatDateTime(la.updatedAt || la.appliedAt)}
             metrics={[
@@ -226,10 +238,11 @@ export default function Loans() {
 }
 
 function AppCard({
-  icon, name, ref_, typeLabel, updated, status, statusColor, metrics, onPress, logoUrl,
+  icon, name, ref_, typeLabel, updated, status, statusColor, internalLabel, internalColor, metrics, onPress, logoUrl,
 }: {
   icon: string; name: string; ref_: string; typeLabel?: string; updated?: string | null;
   status: string; statusColor: string;
+  internalLabel?: string; internalColor?: string;
   metrics: { label: string; value: string }[]; onPress: () => void;
   logoUrl?: string | null;
 }) {
@@ -260,6 +273,14 @@ function AppCard({
           {/* Line 3: loan type · updated time. */}
           {line3 ? (
             <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft, marginTop: 2 }]} numberOfLines={1}>{line3}</Text>
+          ) : null}
+          {/* Line 4: app-side outcome (internal status) — its own state, separate
+              from the lender's decision pill up top. */}
+          {internalLabel && internalColor ? (
+            <View style={[styles.internalChip, { backgroundColor: internalColor + '18', borderColor: internalColor + '44' }]}>
+              <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: internalColor }} />
+              <Text style={[font(700), { fontSize: 10.5, color: internalColor }]}>{internalLabel}</Text>
+            </View>
           ) : null}
         </View>
       </View>
@@ -302,6 +323,11 @@ const styles = StyleSheet.create({
   appIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
   appIconLogo: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 9999, paddingVertical: 4, paddingHorizontal: 9 },
+  internalChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start', marginTop: 6,
+    borderRadius: 9999, borderWidth: 1, paddingVertical: 3, paddingHorizontal: 8,
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -162,6 +162,17 @@ model Consent {
 
 // ─────────────────────── Application funnel ───────────────────────
 
+// App-side view of a lender application's hand-off outcome, distinct from the
+// webhook-driven lender `status` (under_review/approved/…). This is what the app
+// itself observed happen when the user completed (or didn't) the lender's web
+// flow, shown as its own state in My Loans. It never depends on the KFT webhook.
+enum InternalStatus {
+  just_applied // handed off to the lender; no terminal web-flow signal yet
+  success // the lender web flow completed / reached a success page
+  failed // the flow dead-ended (user cancelled, declined, fail redirect)
+  error // a technical problem (page crash, HTTP error, load failure)
+}
+
 enum ApplicationStatus {
   draft // Step 1 details captured
   pan_pending // Step 2
@@ -375,6 +386,10 @@ model LenderApplication {
   // This application's own status + canonical stage timestamps (independent of
   // the parent application and of any sibling application to the same lender).
   status        ApplicationStatus @default(handoff)
+  // App-side hand-off outcome (see InternalStatus). Set by the app as the user
+  // moves through the lender web flow; NOT driven by the KFT webhook — the
+  // webhook still drives `status` above.
+  internalStatus InternalStatus   @default(just_applied)
   appliedAt     DateTime          @default(now())
   underReviewAt DateTime?
   approvedAt    DateTime?

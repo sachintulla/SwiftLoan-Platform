@@ -265,40 +265,82 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
 }));
 
 /**
- * Mark a per-lender application as failed — e.g. the lender's web flow (opened
- * after apply) errored out and the user couldn't complete it. Records the reason
- * so My Loans shows it as "Failed" for that lender. Never overrides a terminal
- * outcome the lender already reported (approved/disbursed/rejected/closed).
+ * Record the app-side outcome of a lender application's web-flow hand-off. This
+ * sets `internalStatus` (just_applied → success | failed | error) — the app's
+ * OWN view of what happened in the lender web flow, shown as its own state in My
+ * Loans. It does NOT touch the webhook-driven lender `status`, EXCEPT that a
+ * failed/error outcome also marks the lender `status` 'failed' (the lender never
+ * calls back for a client-side dead-end), while a `success` outcome leaves the
+ * lender status alone (the lender still decides under_review/approved/…).
+ * Never overrides a terminal outcome the lender already reported.
+ */
+async function recordLenderOutcome(
+  userSub: string,
+  applicationId: string,
+  offerId: string,
+  outcome: 'success' | 'failed' | 'error',
+  reason: string | undefined,
+  lenderApplicationId: string | undefined,
+  res: import('express').Response,
+) {
+  const app = await owned(userSub, applicationId);
+  const offer = await prisma.offer.findFirst({ where: { id: offerId, applicationId: app.id } });
+  if (!offer) throw new HttpError(404, 'Offer not found for this application');
+  // Target the specific lender application the client handed off (if it passed
+  // its id), else the most recent one for this offer. Nothing to record if none
+  // was created (user abandoned before applying).
+  const target = lenderApplicationId
+    ? await prisma.lenderApplication.findFirst({ where: { id: lenderApplicationId, applicationId: app.id } })
+    : await prisma.lenderApplication.findFirst({ where: { offerId: offer.id, applicationId: app.id }, orderBy: { appliedAt: 'desc' } });
+  if (!target) {
+    return res.json({ unchanged: true, notApplied: true });
+  }
+  // Never override a terminal outcome the lender already reported.
+  if (['approved', 'disbursed', 'rejected', 'closed'].includes(target.status)) {
+    return res.json({ lenderApplication: target, unchanged: true });
+  }
+  const isBad = outcome === 'failed' || outcome === 'error';
+  const cleanReason = reason?.slice(0, 500);
+  const updated = await prisma.lenderApplication.update({
+    where: { id: target.id },
+    data: {
+      internalStatus: outcome,
+      // Only a bad outcome touches the lender status (client-side dead-end the
+      // webhook won't report); success leaves it for the webhook to advance.
+      ...(isBad ? { status: 'failed', failureReason: cleanReason || 'The lender web flow could not be completed.' } : {}),
+    },
+  });
+  if (isBad) {
+    trackJourney(
+      { userId: userSub },
+      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderApplicationId: updated.id, lenderName: updated.lenderName, failed: true, outcome, reason: cleanReason } },
+    ).catch(() => {});
+  }
+  return res.json({ lenderApplication: updated });
+}
+
+/**
+ * App-side outcome of the lender web flow: success | failed | error. Sets
+ * `internalStatus` (and, for failed/error, the lender `status` to 'failed').
+ */
+applicationsRouter.post('/:id/offers/:offerId/outcome',
+  validate(z.object({
+    outcome: z.enum(['success', 'failed', 'error']),
+    reason: z.string().max(500).optional(),
+    lenderApplicationId: z.string().optional(),
+  })),
+  ah(async (req, res) => {
+    await recordLenderOutcome(req.user!.sub, req.params.id, req.params.offerId, req.body.outcome, req.body.reason, req.body.lenderApplicationId, res);
+  }));
+
+/**
+ * Back-compat alias: mark a per-lender application failed. Equivalent to
+ * /outcome with outcome='failed'.
  */
 applicationsRouter.post('/:id/offers/:offerId/fail',
   validate(z.object({ reason: z.string().max(500).optional(), lenderApplicationId: z.string().optional() })),
   ah(async (req, res) => {
-    const app = await owned(req.user!.sub, req.params.id);
-    const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id } });
-    if (!offer) throw new HttpError(404, 'Offer not found for this application');
-    // Fail the specific lender application the client handed off (if it passed
-    // its id), else the most recent one for this offer. Nothing to fail if none
-    // was created (user abandoned before applying).
-    const target = req.body.lenderApplicationId
-      ? await prisma.lenderApplication.findFirst({ where: { id: req.body.lenderApplicationId, applicationId: app.id } })
-      : await prisma.lenderApplication.findFirst({ where: { offerId: offer.id, applicationId: app.id }, orderBy: { appliedAt: 'desc' } });
-    if (!target) {
-      return res.json({ unchanged: true, notApplied: true });
-    }
-    // Never override a terminal outcome the lender already reported.
-    if (['approved', 'disbursed', 'rejected', 'closed'].includes(target.status)) {
-      return res.json({ lenderApplication: target, unchanged: true });
-    }
-    const reason = req.body.reason?.slice(0, 500) || 'The lender web flow could not be completed.';
-    const updated = await prisma.lenderApplication.update({
-      where: { id: target.id },
-      data: { status: 'failed', failureReason: reason },
-    });
-    trackJourney(
-      { userId: req.user!.sub },
-      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderApplicationId: updated.id, lenderName: updated.lenderName, failed: true, reason } },
-    ).catch(() => {});
-    res.json({ lenderApplication: updated });
+    await recordLenderOutcome(req.user!.sub, req.params.id, req.params.offerId, 'failed', req.body.reason, req.body.lenderApplicationId, res);
   }));
 
 /** Secure handoff → disburse: create the loan + repayment schedule. */

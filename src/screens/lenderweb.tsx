@@ -136,17 +136,35 @@ export default function LenderWeb() {
     }
   };
 
-  const markFailed = (reason: string) => {
+  // Fire-and-forget: record the app-side outcome (internalStatus) for this
+  // lender application. success | failed | error — shown as its own state in My
+  // Loans, independent of the webhook-driven lender status.
+  const reportOutcome = (outcome: 'success' | 'failed' | 'error', reason?: string) => {
+    if (state.applicationId && state.selectedOfferId) {
+      api.reportLenderOutcome(state.applicationId, state.selectedOfferId, outcome, reason, state.selectedLenderApplicationId)
+        .then((res: any) => mergeApiContext({ offerOutcomeResult: res }))
+        .catch(() => {});
+    }
+  };
+
+  // A terminal bad end to the web flow. `kind` splits a plain dead-end
+  // ('failed' — user cancelled/declined/fail redirect) from a technical problem
+  // ('error' — crash, HTTP error, load failure), mirrored into internalStatus.
+  const markFailed = (reason: string, kind: 'failed' | 'error' = 'failed') => {
     if (reportedRef.current) return;
     reportedRef.current = true;
     setFailed(reason);
-    pushFlow('failed', true, { reason });
-    // Fire-and-forget: record the failure against this lender's application.
-    if (state.applicationId && state.selectedOfferId) {
-      api.failApplication(state.applicationId, state.selectedOfferId, reason, state.selectedLenderApplicationId)
-        .then((res: any) => mergeApiContext({ offerFailResult: res }))
-        .catch(() => {});
-    }
+    pushFlow(kind === 'error' ? 'error' : 'failed', true, { reason });
+    reportOutcome(kind, reason);
+  };
+
+  // The web flow completed successfully (reached a success page). Records
+  // internalStatus='success'; the lender status still advances via the webhook.
+  const markSuccess = (reason: string) => {
+    if (reportedRef.current) return;
+    reportedRef.current = true;
+    pushFlow('completed', true, { reason });
+    reportOutcome('success', reason);
   };
 
   return (
@@ -198,21 +216,21 @@ export default function LenderWeb() {
               startInLoadingState
               style={styles.web}
               // Hard load failure (DNS, TLS, no route, connection reset).
-              onError={(e) => markFailed(`Web flow load error: ${e.nativeEvent.description || 'unknown'}`)}
+              onError={(e) => markFailed(`Web flow load error: ${e.nativeEvent.description || 'unknown'}`, 'error')}
               // Main-document HTTP error (lender's server returned 4xx/5xx).
               onHttpError={(e) => {
                 const { statusCode, url: u } = e.nativeEvent;
-                if (statusCode >= 400 && (!u || u === url)) markFailed(`Lender page returned HTTP ${statusCode}`);
+                if (statusCode >= 400 && (!u || u === url)) markFailed(`Lender page returned HTTP ${statusCode}`, 'error');
               }}
               // Web content process died (Android/iOS).
-              onRenderProcessGone={() => markFailed('The lender page crashed (render process gone)')}
-              onContentProcessDidTerminate={() => markFailed('The lender page stopped responding')}
+              onRenderProcessGone={() => markFailed('The lender page crashed (render process gone)', 'error')}
+              onContentProcessDidTerminate={() => markFailed('The lender page stopped responding', 'error')}
               // Parse redirects — a success URL is a positive terminal, a
               // failure/cancel URL means the flow dead-ended.
               onNavigationStateChange={(nav) => {
                 if (!nav.url) return;
-                if (FAIL_URL.test(nav.url)) markFailed(`Lender flow ended at: ${nav.url.slice(0, 120)}`);
-                else if (SUCCESS_URL.test(nav.url)) pushFlow('completed', true, { reason: 'reached a success page', url: nav.url.slice(0, 120) });
+                if (FAIL_URL.test(nav.url)) markFailed(`Lender flow ended at: ${nav.url.slice(0, 120)}`, 'failed');
+                else if (SUCCESS_URL.test(nav.url)) markSuccess(`reached a success page: ${nav.url.slice(0, 120)}`);
               }}
             />
             {loading && (
