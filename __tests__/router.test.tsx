@@ -21,7 +21,7 @@ describe('UC-X2 route registry completeness', () => {
   const EXPECTED = [
     'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
     'home', 'fare', 'loans', 'basic', 'basicpan', 'finding', 'offers', 'handoff',
-    'kyc', 'aadhaar', 'panv', 'bankv', 'selfie', 'status', 'disbursed', 'repay',
+    'status', 'disbursed', 'repay',
     'calculator', 'profile', 'help',
   ];
   it.each(EXPECTED)('route "%s" is registered', route => {

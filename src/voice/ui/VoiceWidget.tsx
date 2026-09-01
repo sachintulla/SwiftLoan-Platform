@@ -24,7 +24,7 @@ const EDGE_MARGIN = 32;
 // Screens that render <BottomNav> (grep `bottomNav` across src/screens) — the
 // FAB needs extra clearance only on these; everywhere else it should sit
 // close to the bottom edge like a normal FAB, not float above empty space.
-const SCREENS_WITH_BOTTOM_NAV = new Set(['explore', 'fare', 'help', 'home', 'loans', 'profile']);
+const SCREENS_WITH_BOTTOM_NAV = new Set(['fare', 'help', 'home', 'loans', 'profile']);
 
 // Plays the FAB's grand entrance only once per app session (survives navigation;
 // resets on a full JS reload).

@@ -442,7 +442,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
     'Navigate to a named app screen: home, loans, fare, help, profile, basic, basicpan, offers, ' +
-    'handoff, kyc, aadhaar, panv, bankv, selfie, status, disbursed, repay, mobile, ' +
+    'handoff, status, disbursed, repay, mobile, ' +
     'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
 
   const navHandler = ({ screen }: { screen: string }) => {

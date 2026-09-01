@@ -16,11 +16,6 @@ import BasicPan from '../src/screens/basicpan';
 import Finding from '../src/screens/finding';
 import Offers from '../src/screens/offers';
 import Handoff from '../src/screens/handoff';
-import Kyc from '../src/screens/kyc';
-import Aadhaar from '../src/screens/aadhaar';
-import Panv from '../src/screens/panv';
-import Bankv from '../src/screens/bankv';
-import Selfie from '../src/screens/selfie';
 import Status from '../src/screens/status';
 import Disbursed from '../src/screens/disbursed';
 import Repay from '../src/screens/repay';
@@ -51,11 +46,6 @@ const CASES: [string, React.ComponentType, string[]][] = [
   ['UC-S12 finding', Finding, ['Finding your personalised offers…']],
   ['UC-S13 offers', Offers, ['Review Your Offers', 'No application yet']],
   ['UC-S14 handoff', Handoff, ['Finalize your connection to the lender.', 'No offer selected.']],
-  ['UC-S15 kyc', Kyc, ['Complete verification']],
-  ['UC-S16 aadhaar', Aadhaar, ['Aadhaar Verification']],
-  ['UC-S17 panv', Panv, ['PAN Verification']],
-  ['UC-S18 bankv', Bankv, ['Bank Verification']],
-  ['UC-S19 selfie', Selfie, ['Live Selfie']],
   // No authed session in tests → the status screen shows its empty state.
   ['UC-S20 status', Status, ['No application yet']],
   ['UC-S21 disbursed', Disbursed, ['Funds on the way!']],

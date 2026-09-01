@@ -24,10 +24,9 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 // navigate_screen tool can validate an incoming screen name at runtime.
 export const SCREEN_NAMES = [
   'splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
-  'home', 'loans', 'fare', 'help', 'profile', 'explore',
+  'home', 'loans', 'fare', 'help', 'profile',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
   'status', 'disbursed', 'repay', 'calculator',
 ] as const;
 
@@ -61,7 +60,7 @@ export type Screen = (typeof SCREEN_NAMES)[number];
 // and the FAB nests in its notch; on any other (full) screen the tab bar slides
 // down and the FAB rolls out to the bottom-right corner.
 export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
-  'home', 'loans', 'fare', 'help', 'profile', 'explore',
+  'home', 'loans', 'fare', 'help', 'profile',
 ]);
 
 // Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
@@ -81,13 +80,12 @@ const PREV: Partial<Record<Screen, Screen>> = {
   permissions: 'mobile', aboutyou: 'permissions',
   basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
-  prequalify: 'consent', kyc: 'prequalify',
+  prequalify: 'consent',
   // Fallback only — back() dynamically returns offers to its actual origin
   // (state.offersReturn); this parent is used if that's ever unset.
   offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
-  aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
   disbursed: 'home', repay: 'home',
-  loans: 'home', fare: 'home', calculator: 'home', explore: 'mobile',
+  loans: 'home', fare: 'home', calculator: 'home',
 };
 
 export interface AppState {
@@ -146,10 +144,6 @@ export interface AppState {
   // user is signed in and handed to the in-app agent so it opens from where they
   // left off rather than from scratch. Null until fetched, or when they are new.
   userContext: UserContext | null;
-  // True only when 'explore' was opened from home's "Explore more plans" link
-  // (already signed in) rather than a pre-signup skip button — changes explore's
-  // back-target and hides its "sign up" CTA. Reset by both skip handlers.
-  exploreFromHome: boolean;
   // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
   // user taps Continue on an offer that carries a lender deep link.
   webUrl: string; webTitle: string;
@@ -224,7 +218,6 @@ export const initialState: AppState = {
   contextLoaded: false, contextData: null,
   priorInquiries: [],
   userContext: null,
-  exploreFromHome: false,
   webUrl: '', webTitle: '',
   offersError: '',
   offersSummary: '',
@@ -258,7 +251,7 @@ type Action =
 // Top-level destinations (the bottom-nav roots). Navigating to one resets the
 // back stack — each acts as a fresh root, so Back from a flow launched off a tab
 // returns to that tab, and tab↔tab switches don't accumulate history.
-const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile', 'help', 'explore']);
+const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile', 'help']);
 
 // Transient/loading screens the user never chooses to sit on — leaving one is
 // never recorded on the back stack, so Back skips the splash + "finding offers"
@@ -298,8 +291,7 @@ const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
 };
 const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
-  offers: 'offers_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
-  aadhaar: 'kyc_submitted', panv: 'kyc_submitted', bankv: 'kyc_submitted', selfie: 'kyc_submitted',
+  offers: 'offers_viewed', handoff: 'offer_selected',
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
 };
 
