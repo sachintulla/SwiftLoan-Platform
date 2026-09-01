@@ -101,6 +101,17 @@ usersRouter.patch('/me/language', validate(z.object({ lang: z.enum(['en', 'hi', 
     res.json({ user: publicUser(user) });
   }));
 
+/**
+ * Set the language the user has spoken to the voice agent — distinct from
+ * `/me/language` (the app's UI-copy language). The agent's `set_language`
+ * voice tool calls this so the preference survives across calls/devices.
+ */
+usersRouter.patch('/me/voice-language', validate(z.object({ lang: z.enum(['en', 'hi', 'te', 'hinglish', 'tenglish']) })),
+  ah(async (req, res) => {
+    const user = await prisma.user.update({ where: { id: req.user!.sub }, data: { voiceLang: req.body.lang } });
+    res.json({ user: publicUser(user) });
+  }));
+
 /** Notification preferences. */
 usersRouter.patch('/me/notifications',
   validate(z.object({ loanUpdates: z.boolean().optional(), securityAlerts: z.boolean().optional(), promoOffers: z.boolean().optional() })),

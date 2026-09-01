@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TOKENS_KEY = 'swiftloan.session.tokens';
 const LANG_KEY = 'swiftloan.session.lang';
+const VOICE_LANG_KEY = 'swiftloan.session.voiceLang';
 const VOICE_FAB_SIDE_KEY = 'swiftloan.session.voiceFabSide';
 const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
 
@@ -41,6 +42,20 @@ export async function saveLang(lang: string): Promise<void> {
 
 export async function loadLang(): Promise<string | null> {
   return AsyncStorage.getItem(LANG_KEY).catch(() => null);
+}
+
+/**
+ * The language the user has spoken to the voice agent — distinct from
+ * `lang`/`saveLang` above, which is the app's UI-copy language. Set only via
+ * the agent's `set_language` voice tool; `preferred_language` falls back to
+ * `lang` until this is set.
+ */
+export async function saveVoiceLang(lang: string): Promise<void> {
+  await AsyncStorage.setItem(VOICE_LANG_KEY, lang).catch(() => {});
+}
+
+export async function loadVoiceLang(): Promise<string | null> {
+  return AsyncStorage.getItem(VOICE_LANG_KEY).catch(() => null);
 }
 
 /** Whether the user has accepted the Privacy Policy — shown once, at first launch. */

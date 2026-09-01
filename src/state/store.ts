@@ -12,7 +12,7 @@ import {
   trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
-import { loadTokens, loadLang, saveLang, loadPrivacyAccepted } from './session';
+import { loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted } from './session';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -92,6 +92,10 @@ const PREV: Partial<Record<Screen, Screen>> = {
 export interface AppState {
   screen: Screen;
   lang: string | null; // null until chosen; effective default 'en'
+  // The language the user has spoken to the voice agent (set via the
+  // set_language tool), distinct from `lang` above. Null until stated;
+  // preferred_language falls back to `lang` until then.
+  voiceLang: string | null;
   selectedLang: string | null;
   privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
   supportOpen: boolean; // the tab-bar Support (Ruby) bottom-sheet is showing
@@ -188,6 +192,7 @@ export interface AppState {
 export const initialState: AppState = {
   screen: 'splash',
   lang: null,
+  voiceLang: null,
   selectedLang: null,
   privacyAccepted: false,
   supportOpen: false,
@@ -441,6 +446,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const savedLang = await loadLang();
       if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
+      const savedVoiceLang = await loadVoiceLang();
+      if (savedVoiceLang) dispatch({ type: 'set', patch: { voiceLang: savedVoiceLang } });
 
       // Privacy consent gate — loaded before any routing decision.
       const accepted = await loadPrivacyAccepted();
@@ -463,6 +470,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             // voice agent, restored from AsyncStorage) over the backend's value,
             // so a fresh selection isn't clobbered by a stale server `lang`.
             lang: stateRef.current.lang || user.lang || null,
+            voiceLang: stateRef.current.voiceLang || user.voiceLang || null,
           },
         });
         // Only jump the user automatically if they haven't already moved
@@ -487,6 +495,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     saveLang(state.lang);
     if (state.authUser) api.setLanguage(state.lang).catch(() => {});
   }, [state.lang, state.authUser]);
+
+  // Same persistence pattern for the voice-spoken-language preference — kept
+  // as its own effect/key/endpoint so it never overwrites the UI-copy `lang`.
+  useEffect(() => {
+    if (!state.voiceLang) return;
+    saveVoiceLang(state.voiceLang);
+    if (state.authUser) api.setVoiceLanguage(state.voiceLang).catch(() => {});
+  }, [state.voiceLang, state.authUser]);
 
   // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
@@ -538,6 +554,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await api.logout().catch(() => {});
         dispatch({ type: 'reset' });
       },
+      // Voice-stated language preference: writes `voiceLang`, a key separate
+      // from the UI-copy `lang` (language-selection screen / Profile toggle),
+      // so speaking Telugu to the agent doesn't also flip the app's own
+      // screen text. The persistence effect below (AsyncStorage +
+      // api.setVoiceLanguage) picks it up, and preferred_language prefers it
+      // over `lang` on the very next turn — and on every future call.
+      setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
       // Bug fix: open a specific loan/application by its reference number.
       openLoan: async (reference: string) => {
         const want = (reference || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -594,11 +617,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return {
       ...buildPageContext(s.screen),
       missing_profile_fields: missingProfileFields.length ? missingProfileFields : undefined,
-      // The language the user picked on the language-selection screen — the
-      // voice agent should speak in this language from the first word,
-      // regardless of what language it's addressed in, unless the user
-      // explicitly asks to switch (see the prompt's Voice style section).
-      preferred_language: LANGUAGE_NAMES[s.lang ?? 'en'] ?? 'English',
+      // The language the agent should speak from the first word: whatever the
+      // user has explicitly told Ruby to speak (voiceLang, set via the
+      // set_language tool) takes priority; otherwise fall back to the
+      // language picked on the language-selection screen (see the prompt's
+      // preferred_language STRICT RULE).
+      preferred_language: LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English',
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,

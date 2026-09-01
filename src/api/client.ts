@@ -307,6 +307,8 @@ export const api = {
   deleteAccount: () => request('DELETE', '/users/me'),
   updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
+  /** The language the user has spoken to the voice agent — distinct from setLanguage's UI-copy language. */
+  setVoiceLanguage: (lang: string) => request('PATCH', '/users/me/voice-language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
     request('PATCH', '/users/me/notifications', prefs),
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>

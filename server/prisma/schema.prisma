@@ -86,6 +86,12 @@ model User {
   businessEmail       String?
 
   lang           Lang            @default(en)
+  // The language the user has spoken to the voice agent, distinct from `lang`
+  // (the app's UI-copy language set on the language-selection screen /
+  // Profile). Null until the user has explicitly stated a spoken-language
+  // preference during a call; `preferred_language` in page_context falls
+  // back to `lang` until then.
+  voiceLang      Lang?
   creditScore    Int             @default(750)
   phoneVerified  Boolean         @default(false)
   emailVerified  Boolean         @default(false)
