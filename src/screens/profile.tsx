@@ -11,6 +11,7 @@ import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
 import { requestConfirmation } from '../voice/ui/confirmationBridge';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 const AVATAR_MIME: Record<string, 'image/jpeg' | 'image/png' | 'image/webp'> = {
   jpg: 'image/jpeg',
@@ -141,6 +142,23 @@ export default function Profile() {
     }
     set({ pdEdit: true });
   };
+
+  // The Save/Edit toggle is passed to SectionHead via its `right` prop, not as
+  // a direct child — screenGraph.ts's auto-discovery only walks `children`, so
+  // this button was entirely invisible to the voice agent. Confirmed live on
+  // device: "Save changes" never once appeared in the agent's available
+  // actions, in or out of edit mode, so it told the user their edits
+  // auto-save (they don't) rather than admit it couldn't find a save control.
+  // Explicit registration closes the gap, the same way useDobVoiceTarget does
+  // for the date picker below. Deps mirror exactly what saveProfile reads, so
+  // a voice "save" always commits what was just typed, not a stale snapshot
+  // from whenever edit mode started.
+  useVoiceTarget(
+    state.pdEdit ? t.saveChanges : t.edit,
+    { kind: 'button', onTap: () => { if (state.pdEdit) saveProfile(); else startEditingProfile(); } },
+    [state.pdEdit, state.pdName, state.pdEmail, dob],
+  );
+
   const changeLang = async (code: string) => {
     const prevLang = state.lang;
     set({ lang: code });
@@ -292,7 +310,16 @@ export default function Profile() {
             </View>
             <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{t.memberBadge}</Text>
           </View>
-          <Pressable onPress={startEditingProfile} style={styles.editIcon} accessibilityLabel="Edit profile"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
+          {/* Same action as the Personal Details "Edit"/"Save Changes" toggle
+              below — this is just a second, header-level entry point into the
+              same edit mode. Its label used to be "Edit profile", one word
+              away from that toggle's "Edit" and confusingly close to the
+              *different* "Edit profile" wording a person might use to mean
+              "let me change my details" in general — the voice agent picked
+              this button as the target for filling in an email address (it's
+              a button, not a field) and failed. A distinct label removes the
+              ambiguity without changing what either button does. */}
+          <Pressable onPress={startEditingProfile} style={styles.editIcon} accessibilityLabel="Edit personal details"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
         </View>
         <View style={styles.statsRow}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>

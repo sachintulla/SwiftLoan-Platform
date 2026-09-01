@@ -121,18 +121,34 @@ export default function Basic() {
         pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
       });
 
-      const { application }: any = await api.createApplication({
-        amount: state.appAmount,
-        tenureMonths: state.appTenure || 12,
-        loanType: 'personal',
-      });
-      set({ applicationId: application.id });
-      mergeApiContext({ applicationCreated: application });
-      // Persist the PAN captured on the first step now that the application exists.
-      if (state.panNumber) {
-        const updated: any = await api.updateApplication(application.id, { panNumber: state.panNumber }).catch(() => null);
-        if (updated?.application) mergeApiContext({ applicationUpdated: updated.application });
+      // basicpan.tsx already reused an existing in-progress application for
+      // this PAN when one exists (see there) — continue THAT one instead of
+      // inserting another row. Only actually create when there's genuinely
+      // none to continue.
+      let application: any;
+      if (state.applicationId) {
+        const { application: updated }: any = await api.updateApplication(state.applicationId, {
+          amount: state.appAmount,
+          tenureMonths: state.appTenure || 12,
+          ...(state.panNumber ? { panNumber: state.panNumber } : {}),
+        });
+        application = updated;
+        mergeApiContext({ applicationUpdated: application });
+      } else {
+        const { application: created }: any = await api.createApplication({
+          amount: state.appAmount,
+          tenureMonths: state.appTenure || 12,
+          loanType: 'personal',
+        });
+        application = created;
+        mergeApiContext({ applicationCreated: application });
+        // Persist the PAN captured on the first step now that the application exists.
+        if (state.panNumber) {
+          const updated: any = await api.updateApplication(application.id, { panNumber: state.panNumber }).catch(() => null);
+          if (updated?.application) { application = updated.application; mergeApiContext({ applicationUpdated: application }); }
+        }
       }
+      set({ applicationId: application.id });
       go('moredetails');
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : t.basicErrStart);

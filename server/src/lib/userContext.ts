@@ -135,7 +135,13 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
     }),
     userId
       ? prisma.loanApplication.findFirst({
-          where: { userId, status: { notIn: ['closed', 'rejected'] } },
+          // `failed` belongs alongside closed/rejected here — it means
+          // prequalify ran and returned zero eligible offers (see
+          // applications.routes.ts), a dead end exactly like the other two.
+          // Leaving it out let a failed application still surface as "the
+          // current application", and buildBrief below would then describe
+          // it as "in progress" — actively contradicting its own status.
+          where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] } },
           orderBy: { createdAt: 'desc' },
           include: { _count: { select: { offers: true } } },
         })

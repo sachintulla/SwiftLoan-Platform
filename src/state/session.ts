@@ -33,8 +33,10 @@ export async function clearTokens(): Promise<void> {
 /**
  * The language choice itself persists independently of login — a guest who
  * picks Telugu and never logs in should still get Telugu next time, and this
- * is also what the voice agent's `preferred_language` reads from on every
- * fresh app launch, not just within one session's memory.
+ * is also what the voice agent's `preferred_language` (the app's own
+ * screen-text language, not what the agent speaks — see `saveVoiceLang`
+ * below) reads from on every fresh app launch, not just within one session's
+ * memory.
  */
 export async function saveLang(lang: string): Promise<void> {
   await AsyncStorage.setItem(LANG_KEY, lang).catch(() => {});
@@ -47,8 +49,9 @@ export async function loadLang(): Promise<string | null> {
 /**
  * The language the user has spoken to the voice agent — distinct from
  * `lang`/`saveLang` above, which is the app's UI-copy language. Set only via
- * the agent's `set_language` voice tool; `preferred_language` falls back to
- * `lang` until this is set.
+ * the agent's `set_language` voice tool; the page_context `agent_language`
+ * field (what the agent actually speaks) falls back to `lang` until this is
+ * set.
  */
 export async function saveVoiceLang(lang: string): Promise<void> {
   await AsyncStorage.setItem(VOICE_LANG_KEY, lang).catch(() => {});

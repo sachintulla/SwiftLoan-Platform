@@ -59,7 +59,18 @@ export default function Loans() {
       const { applications }: any = await api.listApplications();
       const list = applications || [];
       setApps(list);
-      if (!silent) mergeApiContext({ applications: list });
+      // Same criterion `cards` below uses to decide whether an application
+      // gets a card at all: an offer someone actually applied to, or a real
+      // loan. Sending the agent the raw, unfiltered list meant it would
+      // describe applications the screen deliberately hides (bare
+      // eligibility runs — offers checked, nobody applied to any lender) —
+      // "I see these applications" while the person's own screen showed
+      // none, because it isn't lying: those aren't applications by this
+      // screen's own definition, and the agent shouldn't say otherwise.
+      if (!silent) {
+        const meaningful = list.filter((app: any) => (app.offers || []).some((o: any) => o.applied) || app.loan);
+        mergeApiContext({ applications: meaningful });
+      }
     } catch (e: any) {
       if (!silent) setErr(e?.message || 'Could not load your loans.');
     } finally {
