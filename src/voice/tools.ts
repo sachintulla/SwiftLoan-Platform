@@ -442,7 +442,10 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
     'Navigate to a named app screen: home, loans, fare, help, profile, basic, basicpan, offers, ' +
-    'handoff, status, disbursed, repay, mobile, ' +
+    // 'repay' removed for now — that screen is disabled; navigateToScreen()
+    // redirects it to 'status' anyway, but keeping it out of the description
+    // stops the model from reaching for it in the first place.
+    'handoff, status, disbursed, mobile, ' +
     'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
 
   const navHandler = ({ screen }: { screen: string }) => {
@@ -473,8 +476,8 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     description:
       'Open a specific loan or application when the user gives its Loan Reference Number ' +
       '(e.g. "open loan SL-2024-00042" or "show me reference 42"). Looks the reference up and ' +
-      'navigates to that loan\'s details / repayment screen (or its application status if not yet ' +
-      'disbursed). Use this instead of navigate_screen whenever the user names a reference number.',
+      'navigates to its application/loan status screen. Use this instead of navigate_screen ' +
+      'whenever the user names a reference number.',
     schema: {
       type: 'object',
       properties: { reference: { type: 'string', description: 'the loan/application reference number the user said' } },
