@@ -182,6 +182,17 @@ export function Screen({
   useEffect(() => {
     try {
       const graph = buildScreenGraph(children);
+      // A freshly-mounted data screen's (profile, offers, loans) very first
+      // render fires before its async load() resolves, so this walk finds
+      // nothing yet — no real screen ever settles at zero. Publishing that
+      // snapshot doesn't just cause a redundant resend once the real content
+      // arrives a moment later — on this session's very first visit to such a
+      // screen, fields sourced from data that load() hasn't populated yet
+      // (e.g. profile's date of birth) are genuinely empty in it, and the
+      // agent had no way to know that snapshot wasn't real: it read "date of
+      // birth: ''" as the user's actual data and proactively suggested filling
+      // it in. Never publish a 0-control snapshot; wait for the real one.
+      if (graph.elements.length === 0) return;
       // Only notify the agent when the control set actually changed — otherwise
       // every keystroke would push a client-tools-update over the socket.
       if (publishScreenGraph(state.screen, graph.elements, graph.texts)) {

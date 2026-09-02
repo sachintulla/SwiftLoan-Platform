@@ -9,7 +9,7 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
+  trackLoanStep, trackInstall, fetchContext, setTokens, api,
   isAuthed,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
@@ -566,8 +566,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ensureToolsRegistered({
       navigateToScreen: (screenName: string) => {
-        const target = resolveScreenName(screenName);
+        let target = resolveScreenName(screenName);
         if (!target) return false;
+        // repay is disabled for now (SCREENS.repay is commented out in
+        // screens/index.ts) — redirect here too, since resolveScreenName still
+        // maps "repayment"/"emi"/etc. to it. status.tsx is our own application
+        // tracker (not lender-sourced) and is the replacement destination.
+        if (target === 'repay') target = 'status';
         go(target);
         return true;
       },
@@ -600,15 +605,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const loan = loans.find((l) => norm(l?.ref) === want || norm(l?.id) === want);
           if (loan) {
             dispatch({ type: 'set', patch: { loanId: loan.id, applicationId: loan.applicationId ?? stateRef.current.applicationId } });
-            go('repay');
-            return { ok: true, opened: 'loan', reference, screen: 'repay' };
+            // repay is disabled for now — status.tsx (our own application
+            // tracker) covers a disbursed loan too. go('repay');
+            go('status');
+            return { ok: true, opened: 'loan', reference, screen: 'status' };
           }
           const app = apps.find((a) => norm(a?.ref) === want || norm(a?.id) === want);
           if (app) {
             const hasLoan = !!app.loan?.id;
             dispatch({ type: 'set', patch: { applicationId: app.id, loanId: app.loan?.id ?? null } });
-            go(hasLoan ? 'repay' : 'status');
-            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: hasLoan ? 'repay' : 'status' };
+            // go(hasLoan ? 'repay' : 'status'); — repay disabled for now, see above.
+            go('status');
+            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: 'status' };
           }
           return { ok: false, reason: 'not_found', message: `No loan or application matches reference "${reference}".` };
         } catch {
@@ -715,34 +723,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
 
-  // ── WS8: load what the backend already knows about this phone ──────────
-  //
-  // Runs when the user becomes authenticated, by either route (OTP verify or the
-  // anonymous "Skip" session). This is the non-deep-link path: an organic
-  // Play Store install arrives with just a phone number, so without this the
-  // in-app agent greets a returning customer as a stranger and re-asks what they
-  // already told the website and the phone agent.
-  //
-  // Fire-and-forget and never awaited by a screen: if it fails or the user is
-  // brand new, `userContext` stays null and the agent behaves exactly as before.
-  const contextFetched = useRef(false);
-  useEffect(() => {
-    if (!state.authUser || contextFetched.current) return;
-    contextFetched.current = true;
-    fetchUserContext()
-      .then((ctx) => {
-        // Only store it when there is something to say. An empty context would
-        // put `hasHistory: false` in front of the agent, which is noise.
-        if (!ctx?.hasHistory) return;
-        dispatch({ type: 'set', patch: { userContext: ctx } });
-        trackEvent('funnel', 'user_context_loaded', 'home', {
-          inquiries: ctx.inquiries.length,
-          hadCall: !!ctx.lastCall,
-          stage: ctx.stage,
-        });
-      })
-      .catch(() => undefined);
-  }, [state.authUser]);
+  // WS8's cross-channel userContext fetch (GET /api/context/me) — the
+  // *once-at-login* copy of it — was removed from here: its "application in
+  // progress" used to be any non-terminal LoanApplication row, never
+  // requiring an actual applied-to-a-lender offer, which got a stale
+  // snapshot describing an application to the user that their own My Loans
+  // screen (by its own, deliberate definition) correctly showed nothing for.
+  // `userContext` is NOT null, though — VoiceWidget.tsx does its own fresh,
+  // per-call-open fetch of the same endpoint (see the comment on
+  // refreshSessionContext there) and writes straight into this state, on
+  // purpose: the prompt's opening-line logic (see
+  // prompts/ello-inapp-copilot-prompt.md's "Case A/B/C") depends on
+  // userContext.application/nextAction/brief to greet a returning user with
+  // their real progress. The actual bug was the loose "in progress" query,
+  // fixed at the source in server/src/lib/userContext.ts (now requires
+  // offers.applied), so that field matches loans.tsx's stricter definition
+  // again. `user_name` was always unaffected — it comes from the logged-in
+  // account, not this fetch.
 
   // ── Restore the returning user's last-pulled offers on login ──────────
   //
