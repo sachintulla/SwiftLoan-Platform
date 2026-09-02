@@ -36,6 +36,47 @@ export interface ActionTarget {
 const targetsByScreen = new Map<string, Map<string, ActionTarget>>();
 let currentScreen = '';
 
+// Fires when the *set* of explicitly self-registered target ids changes
+// (anywhere — a control appearing or disappearing on any screen), never on a
+// value/handler refresh of one that's already there. This is what lets a
+// control that registers late — e.g. a screen's own async load() finishing
+// well after the auto-discovered scan already settled, confirmed live to run
+// 500ms-1.5s on profile's notification toggles — extend the agent's debounced
+// page_context send itself instead of the send guessing a fixed wait long
+// enough to always outlast an unpredictable network fetch.
+//
+// Deferred to a microtask rather than checked at each call: React runs a
+// component's effect cleanup (unregister) and its re-run (register) back to
+// back on every re-render whenever any dependency changes — for a Field that
+// includes `value`, that's every keystroke, re-registering the same id under
+// a fresh closure. Reacting to the individual add/remove would see the
+// delete as a removal and the immediate re-add as new, firing twice per
+// keystroke — exactly the spam this file's other dedup logic (the
+// `elementsSig` comment above) exists to prevent. Comparing a full signature
+// of every screen's id set once all of a commit's synchronous effects have
+// run absorbs that delete-then-immediately-re-add into a net no-op.
+const targetSetListeners = new Set<() => void>();
+export function onTargetSetChanged(cb: () => void): () => void {
+  targetSetListeners.add(cb);
+  return () => targetSetListeners.delete(cb);
+}
+let targetSetCheckScheduled = false;
+let lastTargetSetSignature = '';
+function scheduleTargetSetCheck(): void {
+  if (targetSetCheckScheduled) return;
+  targetSetCheckScheduled = true;
+  Promise.resolve().then(() => {
+    targetSetCheckScheduled = false;
+    const sig = Array.from(targetsByScreen.entries())
+      .map(([screen, m]) => `${screen}:${Array.from(m.keys()).sort().join(',')}`)
+      .sort()
+      .join('|');
+    if (sig === lastTargetSetSignature) return;
+    lastTargetSetSignature = sig;
+    targetSetListeners.forEach(cb => cb());
+  });
+}
+
 // Auto-discovered elements from the rendered element tree (see screenGraph.ts),
 // kept separate from explicit registrations so a re-render can replace the whole
 // auto set without clobbering primitives that registered themselves.
@@ -170,8 +211,10 @@ export function getCurrentScreen(): string {
 
 export function registerTarget(screen: string, id: string, target: ActionTarget): () => void {
   screenMap(screen).set(id, target);
+  scheduleTargetSetCheck();
   return () => {
     targetsByScreen.get(screen)?.delete(id);
+    scheduleTargetSetCheck();
   };
 }
 

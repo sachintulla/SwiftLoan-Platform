@@ -5,6 +5,7 @@ import { registerCoreTools, type VoiceActions } from './tools';
 // swappable WebRTC transport under transports/webrtc/ remains available for
 // experiments but its tool-calling protocol is unverified — do not wire it in.
 import { ElloAgent } from './agent';
+import { onTargetSetChanged } from './actionRegistry';
 import { ELLO_API_BASE, ELLO_API_KEY, ELLO_ASSISTANT_ID, ELLO_WS_URL } from './config';
 import { micCapture, pcmPlayer } from './audio/nativeAudioBridge';
 import { requestConfirmation } from './ui/confirmationBridge';
@@ -20,6 +21,13 @@ export const agent = new ElloAgent(
   pcmPlayer,
   requestConfirmation,
 );
+
+// A control appearing/disappearing anywhere (any screen, not just the current
+// one — updatePageContext() itself always reads whatever's current) resets
+// the debounced page_context send. See the long comment on updatePageContext
+// in agent.ts for why: it's what lets a control fed by its own async fetch
+// extend the wait instead of the debounce guessing a fixed duration upfront.
+onTargetSetChanged(() => agent.updatePageContext());
 
 let toolsRegistered = false;
 

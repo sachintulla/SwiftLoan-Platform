@@ -27,6 +27,18 @@ const MAX_TIMEOUT_MS = 30_000;
 // session forever. If the user doesn't respond in this window — or the request
 // is aborted — treat it as a denial so the tool call resolves and status clears.
 const CONFIRM_TIMEOUT_MS = 45_000;
+// A freshly-mounted data screen (profile, offers, loans) commonly renders
+// through several distinct states in quick succession — a loading skeleton,
+// then a partial paint, then the fully-loaded content — before settling.
+// Debouncing the actual send by this long after the last updatePageContext()
+// call means only the settled state (the last one in the burst) ever gets
+// read and sent, instead of one full send per intermediate render. Needs to
+// comfortably outlast a data screen's real async load — confirmed live the
+// gap between store.ts's immediate on-navigation call and the discovery
+// effect's call once real content actually renders can run 600-900ms
+// (profile's api.me() fetch), so a shorter window still let the immediate
+// call's own timer fire first, on stale/incomplete data.
+const PAGE_CONTEXT_DEBOUNCE_MS = 900;
 
 export class ElloAgent {
   conversationId: string | null = null;
@@ -41,7 +53,12 @@ export class ElloAgent {
   // client-side batching, each is executed and answered independently.
   private inflight = new Map<string, AbortController>();
   private pageContextFn: PageContextProvider | null = null;
-  private pageContextFlushScheduled = false;
+  private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  // Full page_context already sent this session, keyed by screen — lets a
+  // revisit with nothing changed (Home -> Profile -> Home -> Profile) send a
+  // cheap page-marker instead of the whole object again. Reset per call in
+  // start(); the model can always call read_screen itself for specifics.
+  private lastSentPerScreen = new Map<string, string>();
   private audioOutCount = 0;
   // Fallback so the FAB never gets stuck on "speaking": if audio chunks stop
   // arriving and no 'voice-audio-stream-end' follows (server timing, or the
@@ -77,20 +94,33 @@ export class ElloAgent {
   // Gemini Live cannot add function declarations mid-session. Calling this after
   // that point only refreshes the (advisory) `available` flag + page_context.
   //
-  // Coalesced via a microtask: every navigation fires TWO callers in the same
-  // commit — store.ts's screen-change effect and Frame.tsx's control-discovery
-  // effect — each calling this independently. Without batching that sent two
-  // near-identical client-tools-update messages back to back, which cost the
-  // backend an extra full turn to process (observed server-side as a doubled
-  // "provider can't update tools live" log line and real added latency before
-  // the agent spoke). Queuing the actual send lets both synchronous calls
-  // collapse into one message using the freshest tools/page_context by the
-  // time the microtask runs.
+  // Debounced, not just coalesced: every navigation fires TWO callers around
+  // the same time — store.ts's screen-change effect (immediate, before any of
+  // the new screen's async data has loaded) and Frame.tsx's control-discovery
+  // effect (fires again each time the discovered control set changes, e.g. as
+  // a profile/offers/loans screen goes from loading skeleton to real content).
+  // A microtask-only coalesce used to only catch callers in the very same
+  // commit, so those two still landed as separate sends (observed server-side
+  // as a doubled "provider can't update tools live" log line and real added
+  // latency before the agent spoke, plus a stale partially-loaded snapshot
+  // getting sent as if it were real content). Using a real timer instead
+  // means any call that lands within PAGE_CONTEXT_DEBOUNCE_MS of another
+  // resets the wait, so only the last call in a burst — by which point the
+  // screen has actually settled — reads page context and sends.
+  //
+  // That still assumes real content always arrives within the window, which
+  // isn't true for a control fed by its own async fetch (a screen's load()
+  // resolving anywhere from ~200ms to over a second depending on the network)
+  // — confirmed live sending before such a control had registered at all. See
+  // index.ts's onTargetSetChanged(agent.updatePageContext) subscription: a
+  // control appearing or disappearing anywhere re-triggers this method too
+  // (screenGraph.ts/actionRegistry.ts, not this file), which resets this same
+  // timer — so a late registration extends the wait itself instead of the
+  // debounce having to guess a fixed duration long enough to always outlast it.
   updatePageContext(): void {
-    if (this.pageContextFlushScheduled) return;
-    this.pageContextFlushScheduled = true;
-    Promise.resolve().then(() => {
-      this.pageContextFlushScheduled = false;
+    if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
+    this.pageContextFlushTimer = setTimeout(() => {
+      this.pageContextFlushTimer = null;
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
       // A client-tools-update that lands while the agent is mid-utterance gets
       // treated server-side as a barge-in: confirmed live (RECV voice-audio-purge
@@ -99,7 +129,11 @@ export class ElloAgent {
       // the language screen's rotating greeting ticking over — cut the agent off
       // mid-sentence and made it restart, twice in a row, never finishing a single
       // reply. Deferring the send until speech actually ends fixes that without
-      // dropping the update — it fires the instant status leaves 'speaking'.
+      // dropping the update — it fires the instant status leaves 'speaking'. This
+      // guard is independent of the debounce timer above (which only settles
+      // *when* the screen has stopped changing, not *whether* the agent is mid-
+      // reply) — losing it here would reintroduce the same interruption bug even
+      // though the payload it interrupts with is now smaller/deduped.
       if (this.status === 'speaking') {
         const unsubscribe = this.emitter.on('statusChange', next => {
           if (next !== 'speaking') {
@@ -121,13 +155,57 @@ export class ElloAgent {
         const { opening: _drop, ...guide } = ctx.interactionGuide;
         ctx.interactionGuide = guide;
       }
+
+      // Same screen, same content as the last full send this session -> this
+      // is a bare revisit (or an unrelated update firing while nothing on this
+      // particular screen actually changed). Send just the page name instead
+      // of the full payload; read_screen covers the model needing specifics.
+      //
+      // available_actions is sorted before fingerprinting only (never in the
+      // payload actually sent) — its order comes from merging two separate
+      // registration maps (auto-discovered elements + explicit component
+      // registrations, see actionRegistry.ts's mergedTargets) whose relative
+      // order isn't stable across re-renders even when the control set itself
+      // hasn't changed. Raw stringify treated that incidental reshuffling as a
+      // real change, so every profile revisit re-sent in full while home
+      // (whose order happens to stay stable) deduped correctly.
+      // api_context is cleared to {} on every navigation (store.ts's nav
+      // reducer cases) and repopulated moments later by whichever screen
+      // feeds it (e.g. Home's own offers fetch) — so "key absent" and
+      // "key present with an empty array" both mean the same thing (no data
+      // yet) but fingerprint as different, causing the exact resend-on-every-
+      // revisit this dedup exists to prevent. Drop empty-array values before
+      // fingerprinting so that distinction can't register as a real change.
+      const screenKey = String(ctx.page ?? '');
+      const fingerprintOf = (c: any): string => {
+        const actions = Array.isArray(c.available_actions)
+          ? [...c.available_actions].sort((a: any, b: any) => {
+              const ka = `${a?.kind}|${a?.label}`;
+              const kb = `${b?.kind}|${b?.label}`;
+              return ka < kb ? -1 : ka > kb ? 1 : 0;
+            })
+          : c.available_actions;
+        let apiContext = c.api_context;
+        if (apiContext && typeof apiContext === 'object') {
+          const meaningful = Object.fromEntries(
+            Object.entries(apiContext).filter(([, v]) => !(Array.isArray(v) && v.length === 0)),
+          );
+          apiContext = Object.keys(meaningful).length ? meaningful : undefined;
+        }
+        return JSON.stringify({ ...c, available_actions: actions, api_context: apiContext });
+      };
+      const fingerprint = fingerprintOf(ctx);
+      const unchanged = this.lastSentPerScreen.get(screenKey) === fingerprint;
+      const payload = unchanged ? { page: ctx.page } : ctx;
+      if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
+
       this.socket!.send({
         type: 'client-tools-update',
         tools: this.registry.toWire(),
-        page_context: ctx,
+        page_context: payload,
       });
-      vlog('page_context sent (client-tools-update):', JSON.stringify(ctx));
-    });
+      vlog('page_context sent (client-tools-update):', unchanged ? '[unchanged, marker only] ' : '', JSON.stringify(payload));
+    }, PAGE_CONTEXT_DEBOUNCE_MS);
   }
 
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void {
@@ -160,6 +238,7 @@ export class ElloAgent {
     // otherwise the first chunk of a fresh call can print as "#450" purely by
     // landing on a stale %50 boundary, making response-time impossible to read.
     this.audioOutCount = 0;
+    this.lastSentPerScreen.clear();
 
     this.setStatus('connecting');
     try {
@@ -318,6 +397,7 @@ export class ElloAgent {
   // safe no-op, so this is fine to call unconditionally from either path.
   private teardown(): void {
     if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
+    if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;
