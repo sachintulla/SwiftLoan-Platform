@@ -12,6 +12,7 @@ import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
 import { requestConfirmation } from '../voice/ui/confirmationBridge';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { VoiceHidden } from '../voice/screenGraph';
 
 const AVATAR_MIME: Record<string, 'image/jpeg' | 'image/png' | 'image/webp'> = {
   jpg: 'image/jpeg',
@@ -42,7 +43,7 @@ const LINKS = [
 
 export default function Profile() {
   const t = useT();
-  const { state, set, go, showToast, reset } = useStore();
+  const { state, set, go, showToast, reset, mergeApiContext } = useStore();
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -129,8 +130,17 @@ export default function Profile() {
         authUser: user,
       });
       showToast(t.tSaved);
+      // Tapping "Save Changes" (voice or touch) only confirms the tap itself —
+      // the actual outcome is this async call, which the voice agent has no
+      // other way to see (a toast is UI-only). Surfaced via apiContext, same
+      // as offerApplyResult/prequalifyResult elsewhere, so the agent can speak
+      // it — confirm success, or explain a real error, instead of silently
+      // not knowing whether the save the user asked for actually went through.
+      mergeApiContext({ profileSaveResult: { ok: true } });
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not save. Please try again.');
+      const message = e instanceof ApiError ? e.message : 'Could not save. Please try again.';
+      showToast(message);
+      mergeApiContext({ profileSaveResult: { ok: false, error: message } });
     }
   };
   // Enter edit mode, seeding the local DOB picker from whatever's already on
@@ -406,20 +416,24 @@ export default function Profile() {
       {/* Consent & privacy */}
       <SectionCard>
         <SectionHead icon="verified_user" title={t.consentPrivacy} />
-        <View style={styles.protected}>
-          <View style={styles.shieldIcon}><Icon name="shield" size={20} color={colors.primary} /></View>
-          <Text style={[font(700), { fontSize: 14, color: colors.text, marginTop: 8 }]}>{t.protectedTitle}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
-            <Icon name="check_circle" size={14} color={colors.mint} />
-            <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.consentStatus}</Text>
+        <VoiceHidden>
+          <View style={styles.protected}>
+            <View style={styles.shieldIcon}><Icon name="shield" size={20} color={colors.primary} /></View>
+            <Text style={[font(700), { fontSize: 14, color: colors.text, marginTop: 8 }]}>{t.protectedTitle}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+              <Icon name="check_circle" size={14} color={colors.mint} />
+              <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.consentStatus}</Text>
+            </View>
           </View>
-        </View>
-        <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 12 }]}>{t.dataSharingBody}</Text>
+          <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 12 }]}>{t.dataSharingBody}</Text>
+        </VoiceHidden>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
           <Pressable style={styles.partnerBtn} onPress={() => showToast(t.tSoon)}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.managePartners}</Text></Pressable>
           <Pressable style={styles.partnerBtn} onPress={() => showToast(t.tSoon)}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.requestExport}</Text></Pressable>
         </View>
-        <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, marginTop: 12 }]}>{t.privacyNote} <Text style={{ color: colors.primary }}>{t.privacyPolicy}</Text>.</Text>
+        <VoiceHidden>
+          <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, marginTop: 12 }]}>{t.privacyNote} <Text style={{ color: colors.primary }}>{t.privacyPolicy}</Text>.</Text>
+        </VoiceHidden>
       </SectionCard>
 
       {/* Links */}
@@ -438,11 +452,13 @@ export default function Profile() {
       </View>
 
       {/* About */}
-      <View style={{ marginTop: 20 }}>
-        <Text style={[font(700), { fontSize: 13, color: colors.textMid }]}>{t.aboutTitle}</Text>
-        <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 4 }]}>{t.aboutBody}</Text>
-        <Text style={[font(400), { fontSize: 11.5, lineHeight: 16, color: colors.muted, marginTop: 8 }]}>{t.aboutGrievance}</Text>
-      </View>
+      <VoiceHidden>
+        <View style={{ marginTop: 20 }}>
+          <Text style={[font(700), { fontSize: 13, color: colors.textMid }]}>{t.aboutTitle}</Text>
+          <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 4 }]}>{t.aboutBody}</Text>
+          <Text style={[font(400), { fontSize: 11.5, lineHeight: 16, color: colors.muted, marginTop: 8 }]}>{t.aboutGrievance}</Text>
+        </View>
+      </VoiceHidden>
 
       <Pressable style={styles.logoutBtn} onPress={logout}>
         <Text style={[font(700), { fontSize: 15, color: colors.redDeep }]}>{t.logout}</Text>
@@ -450,7 +466,9 @@ export default function Profile() {
       <Pressable style={{ paddingVertical: 12, alignItems: 'center' }} onPress={logout}>
         <Text style={[font(500), { fontSize: 13, color: colors.muted }]}>{t.startFresh}</Text>
       </Pressable>
-      <Text style={[font(400), { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 4 }]}>v0.1.0</Text>
+      <VoiceHidden>
+        <Text style={[font(400), { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 4 }]}>v0.1.0</Text>
+      </VoiceHidden>
     </Screen>
   );
 }

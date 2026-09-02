@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { LogoLockup } from '../components/Logo';
+import { VoiceHidden } from '../voice/screenGraph';
 import { MarketLoanOffers } from '../components/MarketLoanOffers';
 import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
 import { colors, font, rupee } from '../theme/tokens';
@@ -119,21 +120,23 @@ export default function Home() {
           <View style={styles.bubbleTail} />
         </Pressable>
 
-        <Text style={[font(700), styles.welcomeText]}>
-          {firstName ? `Welcome back, ${firstName} 👋` : 'Welcome 👋'}
-        </Text>
+        <VoiceHidden>
+          <Text style={[font(700), styles.welcomeText]}>
+            {firstName ? `Welcome back, ${firstName} 👋` : 'Welcome 👋'}
+          </Text>
 
-        <Text style={[font(800), styles.heroTitle]}>
-          Your {rupee(amount)}{'\n'}{hasOffers ? 'personal loan journey' : 'loan journey starts here'}
-        </Text>
+          <Text style={[font(800), styles.heroTitle]}>
+            Your {rupee(amount)}{'\n'}{hasOffers ? 'personal loan journey' : 'loan journey starts here'}
+          </Text>
 
-        <Text style={[font(400), styles.heroSub]}>
-          {hasOffers
-            ? `${count} offer${count === 1 ? '' : 's'} matched to your profile` +
-              (minRate != null ? `  ·  Rates from ${minRate}% p.a.` : '') +
-              (minEmi != null ? `  ·  EMI from ${rupee(minEmi)}/mo` : '')
-            : 'Apply once and get personalised offers from our lending partners in minutes.'}
-        </Text>
+          <Text style={[font(400), styles.heroSub]}>
+            {hasOffers
+              ? `${count} offer${count === 1 ? '' : 's'} matched to your profile` +
+                (minRate != null ? `  ·  Rates from ${minRate}% p.a.` : '') +
+                (minEmi != null ? `  ·  EMI from ${rupee(minEmi)}/mo` : '')
+              : 'Apply once and get personalised offers from our lending partners in minutes.'}
+          </Text>
+        </VoiceHidden>
 
         <View style={styles.heroBtns}>
           {hasOffers ? (
@@ -175,7 +178,9 @@ export default function Home() {
         />
       </View>
 
-      <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>
+      <VoiceHidden>
+        <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>
+      </VoiceHidden>
     </Screen>
   );
 }
