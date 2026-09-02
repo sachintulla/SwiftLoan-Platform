@@ -95,6 +95,29 @@ export default function Loans() {
   }, [load]);
 
   const open = (app: any, opts?: { offer?: any; lenderApp?: any }) => {
+    const la = opts?.lenderApp;
+    // Resume a still-pending hand-off. If the user applied but hasn't finished
+    // the lender's web flow yet (internalStatus still 'just_applied' and the
+    // lender hasn't reported a decision beyond 'handoff') and we have the
+    // lender's URL, reopen the lender/KFT web UI to continue applying — rather
+    // than dropping them on a static status page. Once the flow reaches a real
+    // outcome (success/failed/error, or the lender advances the status), tapping
+    // goes to status/repay as before.
+    const pending = la
+      && (la.internalStatus ?? 'just_applied') === 'just_applied'
+      && (!la.status || la.status === 'handoff')
+      && !!la.redirectionUrl;
+    if (pending) {
+      set({
+        applicationId: app.id,
+        selectedOfferId: la.offerId ?? null,
+        selectedLenderApplicationId: la.id,
+        webUrl: la.redirectionUrl,
+        webTitle: displayLenderName(la.lenderName) || 'Complete your application',
+      });
+      go('lenderweb');
+      return;
+    }
     set({
       applicationId: app.id,
       loanId: app.loan?.id ?? null,
