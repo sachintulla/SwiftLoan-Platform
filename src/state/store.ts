@@ -407,6 +407,9 @@ interface Ctx {
   // Action comment for why a plain set() is unsafe when multiple call sites
   // can write to it from the same render's stale `state` closure.
   mergeApiContext: (patch: Record<string, unknown>) => void;
+  // Marks the *next* screen change as urgent — see the ref of the same name
+  // in StoreProvider for what that actually does and why it's rare to call.
+  markUrgentContext: () => void;
   go: (screen: Screen) => void;
   back: () => void;
   showToast: (msg: string) => void;
@@ -428,6 +431,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
   const mergeApiContext = useCallback((patch: Record<string, unknown>) => dispatch({ type: 'mergeApiContext', patch }), []);
+  // One-shot flag consumed by the very next screen-change effect run below —
+  // set by a screen right before its own go() call to mark THAT specific
+  // transition as urgent (interrupts Ruby immediately instead of waiting for
+  // her current reply to finish). Reserved for genuinely time-sensitive
+  // moments — finding.tsx calling this when real offers just came back is
+  // the first and, for now, only caller. Not app state: this never needs to
+  // trigger a re-render, and nothing should read it back.
+  const urgentNextContext = useRef(false);
+  const markUrgentContext = useCallback(() => { urgentNextContext.current = true; }, []);
 
   const clearAuto = () => {
     if (timers.current.auto) clearTimeout(timers.current.auto);
@@ -534,7 +546,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // Keep the voice agent's view of the current screen + available actions fresh.
     setCurrentScreen(state.screen);
-    agent.updatePageContext();
+    const urgent = urgentNextContext.current;
+    urgentNextContext.current = false;
+    agent.updatePageContext(urgent ? { urgent: true } : undefined);
 
     // Track page view for all screens
     trackEvent('page_view', `viewed_${state.screen}`, state.screen);
@@ -848,7 +862,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: Ctx = { state, set, mergeApiContext, go, back, showToast, reset, parentOf };
+  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
 }
 

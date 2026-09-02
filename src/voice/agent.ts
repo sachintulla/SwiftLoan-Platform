@@ -117,95 +117,115 @@ export class ElloAgent {
   // (screenGraph.ts/actionRegistry.ts, not this file), which resets this same
   // timer — so a late registration extends the wait itself instead of the
   // debounce having to guess a fixed duration long enough to always outlast it.
-  updatePageContext(): void {
+  // `urgent` is the deliberate, narrow exception to the speaking-guard below —
+  // reserved for a genuinely time-sensitive announcement (e.g. finding.tsx's
+  // real offers actually arriving while the user's still on the waiting
+  // screen) where Ruby cutting in immediately is the point, not a bug. It
+  // skips both the debounce timer and the defer-while-speaking check, so use
+  // it sparingly: every other caller should keep using the plain (debounced,
+  // non-interrupting) form. See flushPageContext's own comment for why the
+  // defer exists in the first place.
+  updatePageContext(opts?: { urgent?: boolean }): void {
+    if (opts?.urgent) {
+      if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
+      this.flushPageContext(true);
+      return;
+    }
     if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
     this.pageContextFlushTimer = setTimeout(() => {
       this.pageContextFlushTimer = null;
-      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-      // A client-tools-update that lands while the agent is mid-utterance gets
-      // treated server-side as a barge-in: confirmed live (RECV voice-audio-purge
-      // "clearing playback" immediately followed by a truncated, restarted
-      // conversation-text) that a routine, purely-cosmetic page-context refresh —
-      // the language screen's rotating greeting ticking over — cut the agent off
-      // mid-sentence and made it restart, twice in a row, never finishing a single
-      // reply. Deferring the send until speech actually ends fixes that without
-      // dropping the update — it fires the instant status leaves 'speaking'. This
-      // guard is independent of the debounce timer above (which only settles
-      // *when* the screen has stopped changing, not *whether* the agent is mid-
-      // reply) — losing it here would reintroduce the same interruption bug even
-      // though the payload it interrupts with is now smaller/deduped.
-      if (this.status === 'speaking') {
-        const unsubscribe = this.emitter.on('statusChange', next => {
-          if (next !== 'speaking') {
-            unsubscribe();
-            this.updatePageContext();
-          }
-        });
-        return;
-      }
-      // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
-      // reads msg.get("tools")) — note this differs from voice-session-start's
-      // own "client_tools" field below; that asymmetry is real, not a typo.
-      // Strip the "speak first / Welcome to SwiftLoan" opening from navigation
-      // updates — that instruction must only fire once, at session start. Left in,
-      // the agent re-greets on every screen change. The rest of the page context
-      // (screen_overview, goal, autoAdvance, available_actions) still refreshes.
-      const ctx: any = this.pageContextFn?.() ?? {};
-      if (ctx.interactionGuide && 'opening' in ctx.interactionGuide) {
-        const { opening: _drop, ...guide } = ctx.interactionGuide;
-        ctx.interactionGuide = guide;
-      }
-
-      // Same screen, same content as the last full send this session -> this
-      // is a bare revisit (or an unrelated update firing while nothing on this
-      // particular screen actually changed). Send just the page name instead
-      // of the full payload; read_screen covers the model needing specifics.
-      //
-      // available_actions is sorted before fingerprinting only (never in the
-      // payload actually sent) — its order comes from merging two separate
-      // registration maps (auto-discovered elements + explicit component
-      // registrations, see actionRegistry.ts's mergedTargets) whose relative
-      // order isn't stable across re-renders even when the control set itself
-      // hasn't changed. Raw stringify treated that incidental reshuffling as a
-      // real change, so every profile revisit re-sent in full while home
-      // (whose order happens to stay stable) deduped correctly.
-      // api_context is cleared to {} on every navigation (store.ts's nav
-      // reducer cases) and repopulated moments later by whichever screen
-      // feeds it (e.g. Home's own offers fetch) — so "key absent" and
-      // "key present with an empty array" both mean the same thing (no data
-      // yet) but fingerprint as different, causing the exact resend-on-every-
-      // revisit this dedup exists to prevent. Drop empty-array values before
-      // fingerprinting so that distinction can't register as a real change.
-      const screenKey = String(ctx.page ?? '');
-      const fingerprintOf = (c: any): string => {
-        const actions = Array.isArray(c.available_actions)
-          ? [...c.available_actions].sort((a: any, b: any) => {
-              const ka = `${a?.kind}|${a?.label}`;
-              const kb = `${b?.kind}|${b?.label}`;
-              return ka < kb ? -1 : ka > kb ? 1 : 0;
-            })
-          : c.available_actions;
-        let apiContext = c.api_context;
-        if (apiContext && typeof apiContext === 'object') {
-          const meaningful = Object.fromEntries(
-            Object.entries(apiContext).filter(([, v]) => !(Array.isArray(v) && v.length === 0)),
-          );
-          apiContext = Object.keys(meaningful).length ? meaningful : undefined;
-        }
-        return JSON.stringify({ ...c, available_actions: actions, api_context: apiContext });
-      };
-      const fingerprint = fingerprintOf(ctx);
-      const unchanged = this.lastSentPerScreen.get(screenKey) === fingerprint;
-      const payload = unchanged ? { page: ctx.page } : ctx;
-      if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
-
-      this.socket!.send({
-        type: 'client-tools-update',
-        tools: this.registry.toWire(),
-        page_context: payload,
-      });
-      vlog('page_context sent (client-tools-update):', unchanged ? '[unchanged, marker only] ' : '', JSON.stringify(payload));
+      this.flushPageContext(false);
     }, PAGE_CONTEXT_DEBOUNCE_MS);
+  }
+
+  private flushPageContext(urgent: boolean): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    // A client-tools-update that lands while the agent is mid-utterance gets
+    // treated server-side as a barge-in: confirmed live (RECV voice-audio-purge
+    // "clearing playback" immediately followed by a truncated, restarted
+    // conversation-text) that a routine, purely-cosmetic page-context refresh —
+    // the language screen's rotating greeting ticking over — cut the agent off
+    // mid-sentence and made it restart, twice in a row, never finishing a single
+    // reply. Deferring the send until speech actually ends fixes that without
+    // dropping the update — it fires the instant status leaves 'speaking'. This
+    // guard is independent of the debounce timer above (which only settles
+    // *when* the screen has stopped changing, not *whether* the agent is mid-
+    // reply) — losing it here would reintroduce the same interruption bug even
+    // though the payload it interrupts with is now smaller/deduped.
+    //
+    // `urgent` deliberately skips this — the whole point of that path is to
+    // interrupt whatever Ruby is currently saying.
+    if (!urgent && this.status === 'speaking') {
+      const unsubscribe = this.emitter.on('statusChange', next => {
+        if (next !== 'speaking') {
+          unsubscribe();
+          this.flushPageContext(false);
+        }
+      });
+      return;
+    }
+    // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
+    // reads msg.get("tools")) — note this differs from voice-session-start's
+    // own "client_tools" field below; that asymmetry is real, not a typo.
+    // Strip the "speak first / Welcome to SwiftLoan" opening from navigation
+    // updates — that instruction must only fire once, at session start. Left in,
+    // the agent re-greets on every screen change. The rest of the page context
+    // (screen_overview, goal, autoAdvance, available_actions) still refreshes.
+    const ctx: any = this.pageContextFn?.() ?? {};
+    if (ctx.interactionGuide && 'opening' in ctx.interactionGuide) {
+      const { opening: _drop, ...guide } = ctx.interactionGuide;
+      ctx.interactionGuide = guide;
+    }
+
+    // Same screen, same content as the last full send this session -> this
+    // is a bare revisit (or an unrelated update firing while nothing on this
+    // particular screen actually changed). Send just the page name instead
+    // of the full payload; read_screen covers the model needing specifics.
+    //
+    // available_actions is sorted before fingerprinting only (never in the
+    // payload actually sent) — its order comes from merging two separate
+    // registration maps (auto-discovered elements + explicit component
+    // registrations, see actionRegistry.ts's mergedTargets) whose relative
+    // order isn't stable across re-renders even when the control set itself
+    // hasn't changed. Raw stringify treated that incidental reshuffling as a
+    // real change, so every profile revisit re-sent in full while home
+    // (whose order happens to stay stable) deduped correctly.
+    // api_context is cleared to {} on every navigation (store.ts's nav
+    // reducer cases) and repopulated moments later by whichever screen
+    // feeds it (e.g. Home's own offers fetch) — so "key absent" and
+    // "key present with an empty array" both mean the same thing (no data
+    // yet) but fingerprint as different, causing the exact resend-on-every-
+    // revisit this dedup exists to prevent. Drop empty-array values before
+    // fingerprinting so that distinction can't register as a real change.
+    const screenKey = String(ctx.page ?? '');
+    const fingerprintOf = (c: any): string => {
+      const actions = Array.isArray(c.available_actions)
+        ? [...c.available_actions].sort((a: any, b: any) => {
+            const ka = `${a?.kind}|${a?.label}`;
+            const kb = `${b?.kind}|${b?.label}`;
+            return ka < kb ? -1 : ka > kb ? 1 : 0;
+          })
+        : c.available_actions;
+      let apiContext = c.api_context;
+      if (apiContext && typeof apiContext === 'object') {
+        const meaningful = Object.fromEntries(
+          Object.entries(apiContext).filter(([, v]) => !(Array.isArray(v) && v.length === 0)),
+        );
+        apiContext = Object.keys(meaningful).length ? meaningful : undefined;
+      }
+      return JSON.stringify({ ...c, available_actions: actions, api_context: apiContext });
+    };
+    const fingerprint = fingerprintOf(ctx);
+    const unchanged = this.lastSentPerScreen.get(screenKey) === fingerprint;
+    const payload = unchanged ? { page: ctx.page } : ctx;
+    if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
+
+    this.socket!.send({
+      type: 'client-tools-update',
+      tools: this.registry.toWire(),
+      page_context: payload,
+    });
+    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[unchanged, marker only] ' : '', JSON.stringify(payload));
   }
 
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void {
