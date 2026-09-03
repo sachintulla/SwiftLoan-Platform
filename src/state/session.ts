@@ -6,6 +6,7 @@ const VOICE_LANG_KEY = 'swiftloan.session.voiceLang';
 const VOICE_FAB_SIDE_KEY = 'swiftloan.session.voiceFabSide';
 const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
 const PREFILL_DRAFT_KEY = 'swiftloan.applicant.prefillDraft';
+const INTRO_PITCH_HEARD_KEY = 'swiftloan.voice.introPitchHeard';
 
 export interface StoredTokens {
   accessToken: string;
@@ -143,6 +144,30 @@ export async function loadPrefillDraft(): Promise<Record<string, unknown> | null
 // follows for "My Offers".
 export async function clearPrefillDraft(): Promise<void> {
   await AsyncStorage.removeItem(PREFILL_DRAFT_KEY).catch(() => {});
+}
+
+/**
+ * Whether Ruby has already given the full first-time product pitch (the
+ * "India's number one loan provider, 15+ lenders" opener) on this device for
+ * the current account. Device-local, not account-level: `hasHistory` (from
+ * userContext) doesn't track in-app voice calls at all — only website leads,
+ * outbound calls, and applications — so a user who only ever talks to Ruby
+ * had nothing that would ever stop the full pitch from repeating on every
+ * single call. This flag closes that gap. Same account on a different
+ * device, or after a reinstall, hears it once more there too — accepted
+ * trade-off, consistent with the rest of this file's device-local caches.
+ */
+export async function markIntroPitchHeard(): Promise<void> {
+  await AsyncStorage.setItem(INTRO_PITCH_HEARD_KEY, '1').catch(() => {});
+}
+
+export async function loadIntroPitchHeard(): Promise<boolean> {
+  return (await AsyncStorage.getItem(INTRO_PITCH_HEARD_KEY).catch(() => null)) === '1';
+}
+
+// Cleared on login/logout, same reasoning as clearPrefillDraft above.
+export async function clearIntroPitchHeard(): Promise<void> {
+  await AsyncStorage.removeItem(INTRO_PITCH_HEARD_KEY).catch(() => {});
 }
 
 // ── Market (available) loan offers catalog cache ─────────────────────────────

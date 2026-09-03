@@ -16,6 +16,7 @@ import {
 import {
   loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
   loadPrefillDraft, savePrefillDraft,
+  loadIntroPitchHeard,
 } from './session';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent } from '../analytics/upshot';
@@ -154,6 +155,11 @@ export interface AppState {
   // prefill draft) so it survives across calls, even a different day; cleared
   // on login/logout so it never leaks across accounts on a shared device.
   savedApplicantDraft: Record<string, unknown> | null;
+  // Whether Ruby has already given this device's first-time product pitch on
+  // a previous call — see session.ts's markIntroPitchHeard for why this
+  // exists (hasHistory doesn't track in-app voice calls at all). Loaded from
+  // AsyncStorage on boot; cleared on login/logout like savedApplicantDraft.
+  introPitchHeard: boolean;
   // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
   // user taps Continue on an offer that carries a lender deep link.
   webUrl: string; webTitle: string;
@@ -229,6 +235,7 @@ export const initialState: AppState = {
   priorInquiries: [],
   userContext: null,
   savedApplicantDraft: null,
+  introPitchHeard: false,
   webUrl: '', webTitle: '',
   offersError: '',
   offersSummary: '',
@@ -496,6 +503,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (savedVoiceLang) dispatch({ type: 'set', patch: { voiceLang: savedVoiceLang } });
       const savedDraft = await loadPrefillDraft();
       if (savedDraft) dispatch({ type: 'set', patch: { savedApplicantDraft: savedDraft } });
+      const pitchHeard = await loadIntroPitchHeard();
+      if (pitchHeard) dispatch({ type: 'set', patch: { introPitchHeard: true } });
 
       // Privacy consent gate — loaded before any routing decision.
       const accepted = await loadPrivacyAccepted();
@@ -702,6 +711,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // Whether this device has already heard the first-time product pitch on
+      // an earlier call — see session.ts's markIntroPitchHeard for why this
+      // exists. Always sent (never omitted), even `false` — the Opening Call
+      // Protocol's first-time pitch is conditioned on this being false.
+      heard_intro_pitch: stateRef.current.introPitchHeard,
       // The offers the user just received (or the problem) so the agent can speak
       // about them proactively on the offers screen.
       offers_summary: s.offersSummary || undefined,
