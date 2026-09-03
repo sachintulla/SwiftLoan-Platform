@@ -156,9 +156,15 @@ export class ElloAgent {
     // `urgent` deliberately skips this — the whole point of that path is to
     // interrupt whatever Ruby is currently saying.
     if (!urgent && this.status === 'speaking') {
+      // No visibility into this path previously — every "repeats herself"
+      // report had to be diagnosed from timestamp-guessing alone. This is
+      // exactly the moment worth knowing about: an update queued because
+      // she was mid-utterance, about to land the instant she stops.
+      vlog('page_context deferred — agent is speaking, will flush once status leaves speaking');
       const unsubscribe = this.emitter.on('statusChange', next => {
         if (next !== 'speaking') {
           unsubscribe();
+          vlog('page_context flushing now — speaking ended (status ->', next, ')');
           this.flushPageContext(false);
         }
       });
