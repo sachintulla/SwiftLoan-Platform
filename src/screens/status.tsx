@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Loading } from '../components/common/Loading';
@@ -64,7 +64,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 };
 
 export default function Status() {
-  const { state, mergeApiContext, back } = useStore();
+  const { state, mergeApiContext, back, go, set, showToast } = useStore();
   const [app, setApp] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -110,6 +110,26 @@ export default function Status() {
   // truth when present; fall back to the parent application status.
   const effStatus = la?.status ?? sel?.lenderStatus ?? app?.status;
   const meta = app ? STATUS_LABEL[effStatus] || { label: effStatus, color: colors.muted } : null;
+
+  // "Did not reach KFT": no lender webhook has ever advanced this application
+  // (status is still 'handoff'), so the user applied but the application never
+  // registered with the KFT/lender side. Offer a Re-Apply CTA that reopens the
+  // lender web UI to continue the SAME application (not a new one).
+  const redirectionUrl = la?.redirectionUrl ?? sel?.redirectionUrl ?? null;
+  const canReapply = !!redirectionUrl && effStatus === 'handoff';
+  const reapply = () => {
+    set({
+      selectedOfferId: la?.offerId ?? sel?.id ?? state.selectedOfferId,
+      selectedLenderApplicationId: la?.id ?? state.selectedLenderApplicationId,
+      webUrl: redirectionUrl!,
+      webTitle: lender || 'Complete your application',
+    });
+    go('lenderweb');
+  };
+  // Pull the latest status for this application. For now this re-fetches what we
+  // have (whatever the KFT webhook has pushed so far); once KFT ships their
+  // status-pull API this handler is where that call plugs in.
+  const refreshStatus = () => { showToast('Checking latest status…'); load(); };
 
   return (
     <Screen scroll padded={false}>
@@ -178,6 +198,22 @@ export default function Status() {
               </View>
             ) : null}
 
+            {/* Actions: Re-Apply shows only when the application never reached
+                KFT (no webhook, status still 'handoff'); Refresh status is on
+                every tracker to pull the latest lender status. */}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
+              {canReapply ? (
+                <Pressable onPress={reapply} style={[styles.reapplyBtn, { flex: 1 }]}>
+                  <Icon name="open_in_new" size={18} color="#fff" />
+                  <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>Re-Apply</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={refreshStatus} style={[styles.refreshBtn, canReapply ? null : { flex: 1 }]}>
+                <Icon name="refresh" size={18} color={colors.primary} />
+                <Text style={[font(700), { fontSize: 15, color: colors.primary }]}>Refresh status</Text>
+              </Pressable>
+            </View>
+
             {/* Status timeline (driven by the real application status) */}
             <View style={{ marginTop: 24 }}>
               {buildSteps({ ...app, status: effStatus }).map((s, i, arr) => {
@@ -227,6 +263,16 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  reapplyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: colors.primary,
+    paddingVertical: 14, borderRadius: 14,
+  },
+  refreshBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: colors.primary,
+    paddingVertical: 14, paddingHorizontal: 16, borderRadius: 14,
+  },
   lenderLogo: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   lenderLogoFallback: { backgroundColor: '#E1F3F3', borderColor: 'transparent' },
   summary: {

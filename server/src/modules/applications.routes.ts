@@ -228,9 +228,34 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id }, include: { partner: true } });
   if (!existing) throw new HttpError(404, 'Offer not found for this application');
 
+  // Duplicate guard: a user may apply to the same lender more than once ONLY
+  // with a DIFFERENT loan amount. Same lender + same amount is a duplicate — we
+  // return the existing application instead of creating another, so the app can
+  // send the user to that application's tracker. (Different-amount applications
+  // to the same lender are allowed and each tracked separately.)
+  const lenderKey = existing.lenderName ?? existing.partner?.name ?? null;
+  const dupe = await prisma.lenderApplication.findFirst({
+    where: {
+      application: { userId: req.user!.sub },
+      amount: existing.amount,
+      ...(lenderKey ? { lenderName: lenderKey } : { offerId: existing.id }),
+    },
+    orderBy: { appliedAt: 'desc' },
+  });
+  if (dupe) {
+    return res.json({
+      duplicate: true,
+      lenderApplication: dupe,
+      lenderApplicationId: dupe.id,
+      applicationId: dupe.applicationId,
+      message: 'You’ve already applied to this lender for this amount.',
+    });
+  }
+
   // Each apply creates a NEW LenderApplication, so the same lender can be
-  // applied to more than once — each with its own tracked status and My Loans
-  // card. We snapshot the offer economics because they can change later.
+  // applied to more than once (with a different amount) — each with its own
+  // tracked status and My Loans card. We snapshot the offer economics because
+  // they can change later.
   const lenderApp = await prisma.lenderApplication.create({
     data: {
       applicationId: app.id,

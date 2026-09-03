@@ -67,33 +67,38 @@ function SparkleButton({ label, onPress }: { label: string; onPress: () => void 
  * `onApplied` lets the caller optimistically flag the tile as applied.
  */
 export function useOfferSelect(onApplied?: (offerId: string) => void) {
-  const { state, set, mergeApiContext, go } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
-    // Every select creates a NEW lender application — a user can apply to the
-    // same lender more than once (each is its own My Loans card). We no longer
-    // short-circuit an "already applied" offer to My Loans.
-    if (offer.redirectionUrl) {
-      // Record the hand-off BEFORE opening the lender page so this application
-      // shows in My Loans. If the user abandons/fails on the lender page,
-      // lenderweb marks THIS application failed (via selectedLenderApplicationId).
-      if (state.applicationId) {
-        const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
-        if (res) mergeApiContext({ offerApplyResult: res });
-        set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
-        onApplied?.(offer.id);
+    // A user can apply to the same lender more than once — but ONLY with a
+    // different loan amount. Same lender + same amount is a duplicate: the
+    // server returns the existing application and we send the user to its
+    // tracker instead of creating (or reopening) another.
+    if (state.applicationId) {
+      const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
+      if (res) mergeApiContext({ offerApplyResult: res });
+      if (res?.duplicate) {
+        set({
+          applicationId: res.applicationId ?? state.applicationId,
+          selectedOfferId: offer.id,
+          selectedLenderApplicationId: res.lenderApplicationId ?? null,
+        });
+        showToast(res.message || 'You’ve already applied to this lender for this amount.');
+        go('status');
+        return;
       }
+      set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
+      onApplied?.(offer.id);
+    }
+    // New application recorded — open the lender web page if there's a deep
+    // link, else the handoff screen. If the user abandons/fails on the lender
+    // page, lenderweb marks THIS application failed (via selectedLenderApplicationId).
+    if (offer.redirectionUrl) {
       set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
       go('lenderweb');
       return;
     }
-    if (state.applicationId) {
-      const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
-      if (res) mergeApiContext({ offerApplyResult: res });
-      set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
-      onApplied?.(offer.id);
-    }
     go('handoff');
-  }, [state.applicationId, set, mergeApiContext, go, onApplied]);
+  }, [state.applicationId, set, mergeApiContext, go, onApplied, showToast]);
 }
 
 export default function Offers() {
