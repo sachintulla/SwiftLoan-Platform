@@ -716,13 +716,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Details Ruby gathered conversationally on a previous call (or earlier
       // this one), before the user had reached the application form — see
       // save_applicant_details / the prompt's "Proactive Details Collection"
-      // rule. Gated on no real applicationId existing yet: once a real
-      // application exists, its actual saved values (via api_context) are
-      // authoritative and this draft is stale, so it deliberately stops being
-      // sent rather than risk the agent citing an old, possibly-since-changed
-      // conversational answer over the user's real submitted data.
+      // rule. Was gated on `!applicationId`, which was wrong: a
+      // LoanApplication row gets created right after the PAN step, well
+      // before `basic`'s actual fields (name/DOB/income/...) are ever
+      // filled in — so that gate suppressed the draft for exactly the
+      // window it exists to help, confirmed live as savedApplicantDraft
+      // missing from page_context entirely on a fresh call despite real
+      // data sitting in AsyncStorage. Gate on userContext.application
+      // instead — per userContext.ts's own fix, that only appears once the
+      // user has actually applied to a lender, meaning `basic` was for-real
+      // submitted and its saved values are genuinely authoritative now.
       savedApplicantDraft:
-        !stateRef.current.applicationId && stateRef.current.savedApplicantDraft
+        !stateRef.current.userContext?.application && stateRef.current.savedApplicantDraft
           ? stateRef.current.savedApplicantDraft
           : undefined,
       // Real API responses for the loan-application lifecycle (see the
