@@ -47,7 +47,7 @@ function formatDateTime(iso?: string | null): string {
 }
 
 export default function Loans() {
-  const { set, mergeApiContext, go } = useStore();
+  const { mergeApiContext, go } = useStore();
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
@@ -94,17 +94,19 @@ export default function Loans() {
     return () => clearInterval(id);
   }, [load]);
 
-  const open = (app: any, opts?: { offer?: any; lenderApp?: any }) => {
-    set({
-      applicationId: app.id,
-      loanId: app.loan?.id ?? null,
-      selectedOfferId: opts?.offer?.id ?? opts?.lenderApp?.offerId ?? null,
-      selectedLenderApplicationId: opts?.lenderApp?.id ?? null,
-    });
-    // repay is disabled for now — status.tsx (our own application tracker,
-    // not lender-sourced) covers a disbursed loan too. go(app.loan ? 'repay' : 'status');
-    go('status');
-  };
+  // Unused for now — every call site below is commented out along with it,
+  // since repay/status (the drill-down tracking screens this fed) are both
+  // disabled and there's nothing left to navigate to. Kept, not deleted, so
+  // restoring a details screen later is a straight uncomment.
+  // const open = (app: any, opts?: { offer?: any; lenderApp?: any }) => {
+  //   set({
+  //     applicationId: app.id,
+  //     loanId: app.loan?.id ?? null,
+  //     selectedOfferId: opts?.offer?.id ?? opts?.lenderApp?.offerId ?? null,
+  //     selectedLenderApplicationId: opts?.lenderApp?.id ?? null,
+  //   });
+  //   go(app.loan ? 'repay' : 'status');
+  // };
 
   // My Loans shows ONE card per lender application. Each "Apply" from My Offers
   // creates a new LenderApplication, so the same lender can appear multiple times
@@ -144,7 +146,9 @@ export default function Loans() {
               { label: 'Amount', value: rupee(la.amount ?? app.amount) },
               midMetric,
             ]}
-            onPress={() => open(app, { lenderApp: la })}
+            // No drill-down screen left to open (repay/status both disabled
+            // for now) — cards are informational-only until one exists again.
+            // onPress={() => open(app, { lenderApp: la })}
           />
         );
       });
@@ -181,7 +185,7 @@ export default function Loans() {
               { label: 'Amount', value: rupee(o.amount ?? app.amount) },
               midMetric,
             ]}
-            onPress={() => open(app, { offer: o })}
+            // onPress={() => open(app, { offer: o })} — see the comment above.
           />
         );
       });
@@ -205,7 +209,7 @@ export default function Loans() {
             { label: 'Amount', value: rupee(app.amount) },
             { label: 'Next EMI', value: rupee(app.loan.emiAmount) },
           ]}
-          onPress={() => open(app)}
+          // onPress={() => open(app)} — see the comment above.
         />
       )];
     }
@@ -256,7 +260,7 @@ function AppCard({
   icon: string; name: string; ref_: string; typeLabel?: string; updated?: string | null;
   status: string; statusColor: string;
   internalLabel?: string; internalColor?: string;
-  metrics: { label: string; value: string }[]; onPress: () => void;
+  metrics: { label: string; value: string }[]; onPress?: () => void;
   logoUrl?: string | null;
 }) {
   // Line 3 combines the loan type and the last-updated time so neither truncates

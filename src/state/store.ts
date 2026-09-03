@@ -595,11 +595,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       navigateToScreen: (screenName: string) => {
         let target = resolveScreenName(screenName);
         if (!target) return false;
-        // repay is disabled for now (SCREENS.repay is commented out in
-        // screens/index.ts) — redirect here too, since resolveScreenName still
-        // maps "repayment"/"emi"/etc. to it. status.tsx is our own application
-        // tracker (not lender-sourced) and is the replacement destination.
-        if (target === 'repay') target = 'status';
+        // repay AND status are both disabled for now (SCREENS.repay /
+        // SCREENS.status are commented out in screens/index.ts) — redirect
+        // here too, since resolveScreenName still maps "repayment"/"emi"/
+        // "applicationstatus"/etc. to them. loans.tsx (My Loans) is the only
+        // tracking surface left — each card already shows lender, status
+        // badge, and next-EMI-when-disbursed without a drill-down screen.
+        if (target === 'repay' || target === 'status') target = 'loans';
         go(target);
         return true;
       },
@@ -643,18 +645,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const loan = loans.find((l) => norm(l?.ref) === want || norm(l?.id) === want);
           if (loan) {
             dispatch({ type: 'set', patch: { loanId: loan.id, applicationId: loan.applicationId ?? stateRef.current.applicationId } });
-            // repay is disabled for now — status.tsx (our own application
-            // tracker) covers a disbursed loan too. go('repay');
-            go('status');
-            return { ok: true, opened: 'loan', reference, screen: 'status' };
+            // repay and status are both disabled for now — loans.tsx (My
+            // Loans) is the only tracking surface left. go('repay'); / go('status');
+            go('loans');
+            return { ok: true, opened: 'loan', reference, screen: 'loans' };
           }
           const app = apps.find((a) => norm(a?.ref) === want || norm(a?.id) === want);
           if (app) {
             const hasLoan = !!app.loan?.id;
             dispatch({ type: 'set', patch: { applicationId: app.id, loanId: app.loan?.id ?? null } });
-            // go(hasLoan ? 'repay' : 'status'); — repay disabled for now, see above.
-            go('status');
-            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: 'status' };
+            // go(hasLoan ? 'repay' : 'status'); — both disabled for now, see above.
+            go('loans');
+            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: 'loans' };
           }
           return { ok: false, reason: 'not_found', message: `No loan or application matches reference "${reference}".` };
         } catch {

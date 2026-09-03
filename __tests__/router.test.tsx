@@ -21,8 +21,8 @@ describe('UC-X2 route registry completeness', () => {
   const EXPECTED = [
     'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
     'home', 'fare', 'loans', 'basic', 'basicpan', 'finding', 'offers', 'handoff',
-    // 'repay' omitted — disabled for now (see screens/index.ts).
-    'status', 'disbursed',
+    // 'repay' and 'status' omitted — both disabled for now (see screens/index.ts).
+    'disbursed',
     'calculator', 'profile', 'help',
   ];
   it.each(EXPECTED)('route "%s" is registered', route => {
