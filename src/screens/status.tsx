@@ -198,22 +198,6 @@ export default function Status() {
               </View>
             ) : null}
 
-            {/* Actions: Re-Apply shows only when the application never reached
-                KFT (no webhook, status still 'handoff'); Refresh status is on
-                every tracker to pull the latest lender status. */}
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
-              {canReapply ? (
-                <Pressable onPress={reapply} style={[styles.reapplyBtn, { flex: 1 }]}>
-                  <Icon name="open_in_new" size={18} color="#fff" />
-                  <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>Re-Apply</Text>
-                </Pressable>
-              ) : null}
-              <Pressable onPress={refreshStatus} style={[styles.refreshBtn, canReapply ? null : { flex: 1 }]}>
-                <Icon name="refresh" size={18} color={colors.primary} />
-                <Text style={[font(700), { fontSize: 15, color: colors.primary }]}>Refresh status</Text>
-              </Pressable>
-            </View>
-
             {/* Status timeline (driven by the real application status) */}
             <View style={{ marginTop: 24 }}>
               {buildSteps({ ...app, status: effStatus }).map((s, i, arr) => {
@@ -244,6 +228,22 @@ export default function Status() {
               <Text style={[font(400), { flex: 1, fontSize: 11, lineHeight: 16, color: colors.muted }]}>
                 Status updates come directly from the lender. You'll be notified here of any required documents or next steps.
               </Text>
+            </View>
+
+            {/* Actions (bottom): Re-Apply shows only when the application never
+                reached KFT (no webhook, status still 'handoff'); Refresh status
+                is on every tracker to pull the latest lender status. */}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 24, marginBottom: 8 }}>
+              {canReapply ? (
+                <Pressable onPress={reapply} style={[styles.reapplyBtn, { flex: 1 }]}>
+                  <Icon name="open_in_new" size={18} color="#fff" />
+                  <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>Re-Apply</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={refreshStatus} style={[styles.refreshBtn, canReapply ? null : { flex: 1 }]}>
+                <Icon name="refresh" size={18} color={colors.primary} />
+                <Text style={[font(700), { fontSize: 15, color: colors.primary }]}>Refresh status</Text>
+              </Pressable>
             </View>
           </>
         )}
