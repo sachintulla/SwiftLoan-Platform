@@ -90,11 +90,13 @@ export default function MyOffers() {
 
   useEffect(() => { hydrate(); }, [hydrate]);
 
-  // Refresh = start a fresh application flow (Verify PAN → details → …), all
-  // pre-filled with the user's saved info so they can change anything and get
-  // better offers. Completing it re-runs eligibility (→ Aurix); the new offers
-  // replace the saved ones on return (hydrate), otherwise the previous persist.
-  const refresh = () => startApply();
+  // Recheck offers = run the WHOLE funnel again, every time: Verify PAN →
+  // details (Continue) → optional details (Continue/Skip) → eligibility. The
+  // forceRecheck flag makes basicpan run the funnel end-to-end (instead of
+  // short-circuiting back here because offers already exist) and start a fresh
+  // application, so the new offers replace the saved ones on return (hydrate)
+  // while any existing My Loans applications stay intact.
+  const refresh = () => { set({ offersReturn: 'fare', forceRecheck: true }); go('basicpan'); };
 
   const hasOffers = offers.length > 0;
 

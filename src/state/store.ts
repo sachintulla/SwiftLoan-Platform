@@ -183,6 +183,10 @@ export interface AppState {
   // (restored on login). Lets Home surface a "view your offers" shortcut so they
   // don't re-enter details — applicationId points at that application.
   hasSavedOffers: boolean;
+  // Set when the user taps "Recheck offers": makes the funnel run end-to-end
+  // (PAN → details → optional → eligibility) and produce a fresh offer set,
+  // instead of basicpan short-circuiting back to the existing offers.
+  forceRecheck: boolean;
 }
 
 export const initialState: AppState = {
@@ -228,6 +232,7 @@ export const initialState: AppState = {
   voiceNudge: null,
   history: [],
   hasSavedOffers: false,
+  forceRecheck: false,
 };
 
 type Action =

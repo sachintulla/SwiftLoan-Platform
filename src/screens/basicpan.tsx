@@ -103,6 +103,18 @@ export default function BasicPan() {
       return;
     }
     setBusy(true);
+    // "Recheck offers": run the whole funnel fresh and produce a NEW offer set,
+    // regardless of any existing application for this PAN. Start a brand-new
+    // application (basic.tsx creates it, using the PAN just entered) so the
+    // previous offers and any My Loans applications stay intact; the new offers
+    // replace what My Offers shows on return. Consume the flag so normal
+    // navigation afterward isn't affected.
+    if (state.forceRecheck) {
+      set({ applicationId: null, forceRecheck: false });
+      setBusy(false);
+      go('basic');
+      return;
+    }
     // Never silently multiply applications: POST /applications always inserts
     // a fresh row with no memory of a prior attempt, so every trip through
     // this screen used to create a brand-new one — including on a bare retry
