@@ -332,10 +332,34 @@ export class ElloAgent {
       // the raw `screen_overview`/`available_actions` data — otherwise the
       // model's very first turn (the greeting) has raw screen data sitting right
       // next to the system prompt's greeting instructions and tends to lean on
-      // reciting the former instead of following the latter. The real, full
-      // context follows moments later via updatePageContext() below, once the
-      // mic is live — in time for everything the model does after the greeting.
-      const startPageContext = { ...fullContext, screen_overview: '', available_actions: [] };
+      // reciting the former instead of following the latter.
+      //
+      // Also withholds userContext/savedApplicantDraft/api_context — deliberate
+      // product decision: the very first turn of every call should be a generic
+      // greeting, never tailored to which screen the user's on or what's known
+      // about their account. `page` itself still goes through (has to, for the
+      // speak-first gate above), so the greeting isn't literally blind, just
+      // generic. Every send after this one is unaffected — a real navigation
+      // still delivers full context exactly as before.
+      //
+      // No automatic full-context follow-up after this either (there used to be
+      // one, 500ms later) — by design by this same product decision: the whole
+      // starting screen is meant to be "generic" for this call, not just its
+      // opening line, so nothing here should quietly upgrade it moments later.
+      // Known, accepted consequence (confirmed true before, still true now):
+      // available_actions/screen_overview/userContext stay empty for as long as
+      // the user remains on the starting screen — Ruby can still navigate blind
+      // (navigate_screen doesn't need available_actions) but can't describe or
+      // tap anything specific there until an actual screen change delivers a
+      // real update. If that ever needs to change back, this is the exact spot.
+      const startPageContext = {
+        ...fullContext,
+        screen_overview: '',
+        available_actions: [],
+        userContext: undefined,
+        savedApplicantDraft: undefined,
+        api_context: undefined,
+      };
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
@@ -369,15 +393,16 @@ export class ElloAgent {
       }
       vlog('mic.start() resolved — streaming audio');
       this.setStatus('listening');
-      // Deliver the full page_context (withheld above) shortly after the
-      // greeting-triggering message — enough of a beat that the model's first
-      // utterance is already underway before it has screen specifics to work with.
-      // Restored: removing this left screen_overview/available_actions empty
-      // for the whole call on the starting screen, and confirmed live that the
-      // model then has no grounding in what screen it's actually on — observed
-      // making up a generic/wrong opening ("which language would you prefer?")
-      // on the Home screen instead of recognizing an existing logged-in user.
-      setTimeout(() => this.updatePageContext(), 500);
+      // No automatic full-context follow-up here anymore — see the long
+      // comment above startPageContext for why this was deliberately removed
+      // (was: setTimeout(() => this.updatePageContext(), 500)). This exact
+      // removal was tried once before and reverted after it left the starting
+      // screen's available_actions/screen_overview/userContext empty for the
+      // whole call and produced a wrong/generic opening — that finding is
+      // still accurate, it's just now the intended behavior rather than a
+      // regression, per the same product decision. A real screen navigation
+      // still triggers a full update exactly as before; only this specific
+      // startup follow-up is gone.
     } catch (e: any) {
       const message = e?.message || String(e);
       vlog('START FAILED:', message);
