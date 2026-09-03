@@ -16,7 +16,16 @@ import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 
 /** Primary CTA with a repeating "sparkle" shine sweeping across it. */
-function SparkleButton({ label, onPress }: { label: string; onPress: () => void }) {
+// accessibilityLabel is declared here (unused internally — the Text below
+// already renders `label`) purely so callers can pass one on the
+// <SparkleButton .../> element itself. The voice screen-scraper
+// (src/voice/screenGraph.ts) walks the *unrendered* element tree via
+// props.children — it never actually executes SparkleButton, so it can only
+// see props declared at the call site, not this component's own <Text>{label}</Text>.
+// Without a label set there, every Apply/Apply Again/Select Offer button on
+// the offers screen was invisible to screen_overview and available_actions —
+// confirmed live as the agent returning not_found for "apply to this offer."
+function SparkleButton({ label, onPress, accessibilityLabel }: { label: string; onPress: () => void; accessibilityLabel?: string }) {
   const shine = useRef(new Animated.Value(0)).current;
   const twinkle = useRef(new Animated.Value(0)).current;
 
@@ -41,7 +50,7 @@ function SparkleButton({ label, onPress }: { label: string; onPress: () => void 
   const sparkScale = twinkle.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] });
 
   return (
-    <Pressable style={styles.selectBtn} onPress={onPress}>
+    <Pressable style={styles.selectBtn} onPress={onPress} accessibilityLabel={accessibilityLabel || label}>
       <Animated.View style={{ opacity: sparkOpacity, transform: [{ scale: sparkScale }] }}>
         <Icon name="auto_awesome" size={16} color="#fff" />
       </Animated.View>
@@ -83,7 +92,10 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
           selectedLenderApplicationId: res.lenderApplicationId ?? null,
         });
         showToast(res.message || 'You’ve already applied to this lender for this amount.');
-        go('status');
+        // status (the tracker this used to open) is disabled for now, same as
+        // loans.tsx's card taps — loans.tsx's own card already shows this
+        // application's status without a drill-down screen. go('status');
+        go('loans');
         return;
       }
       set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
@@ -318,8 +330,16 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
   // instead of quietly disappearing.
   const hasEmi = !!selected;
 
+  // Labelled "Apply to <lender>", not bare lenderName: findTarget matches by
+  // label, and a bare "MoneyView" never matches a generic "apply"/"apply for
+  // this offer" query — only a query that names the lender specifically.
+  // Confirmed live: telling the agent to apply (without naming a lender)
+  // returned not_found even though this target was registered the whole
+  // time. "Apply to MoneyView" satisfies all of: a bare "apply" (startsWith),
+  // a bare "moneyview" (substring), and the full natural phrase "apply to
+  // moneyview" (exact) a user is just as likely to say.
   useVoiceTarget(
-    lenderName,
+    `Apply to ${lenderName}`,
     { kind: 'button', onTap: () => onSelect(offer, selected?.id) },
     [offer, selected],
   );
@@ -443,6 +463,11 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
         <SparkleButton
           label={offer.applied ? 'Apply Again' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}
           onPress={() => onSelect(offer, selected?.id)}
+          // Includes the lender name — the offers screen can show several
+          // cards at once, each with an otherwise-identical "Apply"/"Apply
+          // Again" label; without this every card registered under the same
+          // id and the agent could only ever reach the first one in the list.
+          accessibilityLabel={`${offer.applied ? 'Apply Again' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)} — ${lenderName}`}
         />
       </View>
     </View>
