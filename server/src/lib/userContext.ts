@@ -141,7 +141,17 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           // Leaving it out let a failed application still surface as "the
           // current application", and buildBrief below would then describe
           // it as "in progress" — actively contradicting its own status.
-          where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] } },
+          //
+          // offers: { some: { applied: true } } — an application only counts
+          // as "in progress" here once the user has actually applied to a
+          // lender, matching loans.tsx's own definition of a trackable
+          // application on the My Loans screen. Without this, a bare
+          // eligibility check (offers_ready, nobody applied to any of them)
+          // still surfaced here and got spoken to the user as "you have an
+          // application in progress" while their own My Loans screen — by
+          // its own, deliberate, unchanged definition — correctly showed
+          // nothing, since checking eligibility isn't the same as applying.
+          where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] }, offers: { some: { applied: true } } },
           orderBy: { createdAt: 'desc' },
           include: { _count: { select: { offers: true } } },
         })

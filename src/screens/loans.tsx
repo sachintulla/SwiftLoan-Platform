@@ -124,7 +124,9 @@ export default function Loans() {
       selectedOfferId: opts?.offer?.id ?? opts?.lenderApp?.offerId ?? null,
       selectedLenderApplicationId: opts?.lenderApp?.id ?? null,
     });
-    go(app.loan ? 'repay' : 'status');
+    // repay is disabled for now — status.tsx (our own application tracker,
+    // not lender-sourced) covers a disbursed loan too. go(app.loan ? 'repay' : 'status');
+    go('status');
   };
 
   // My Loans shows ONE card per lender application. Each "Apply" from My Offers

@@ -27,7 +27,9 @@ const FUNNEL = new Set<Screen>(['basicpan', 'basic', 'moredetails']);
 // Offers surfaces — eligibility done, but they haven't picked/applied to a lender.
 const OFFERS = new Set<Screen>(['offers', 'fare']);
 // Main tab screens — a generic "need help?" is appropriate after a longer wait.
-const MAIN = new Set<Screen>(['home', 'loans', 'profile', 'help', 'calculator', 'repay']);
+// 'repay' removed — disabled for now, and unreachable since loans.tsx/
+// disbursed.tsx redirect to 'status' instead.
+const MAIN = new Set<Screen>(['home', 'loans', 'profile', 'help', 'calculator']);
 
 /** Nudge config for a screen, or null when nudging is off / on a non-nudge screen. */
 export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS): NudgeConfig | null {

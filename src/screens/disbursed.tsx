@@ -44,7 +44,9 @@ export default function Disbursed() {
           <Row label="First EMI date" value="Oct 05, 2023" />
         </View>
 
-        <Pressable style={styles.primaryBtn} onPress={() => go('repay')}>
+        {/* repay is disabled for now — status.tsx (our own application tracker,
+            not lender-sourced) is the destination instead. onPress={() => go('repay')} */}
+        <Pressable style={styles.primaryBtn} onPress={() => go('status')}>
           <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>Go to Dashboard</Text>
           <Icon name="arrow_forward" size={18} color="#fff" />
         </Pressable>
