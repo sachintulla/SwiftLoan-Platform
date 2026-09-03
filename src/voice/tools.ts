@@ -34,6 +34,16 @@ export interface VoiceActions {
    * (`preferred_language`). Synced to AsyncStorage + the user's account.
    */
   setLanguage: (lang: 'en' | 'hi' | 'te') => void;
+  /**
+   * Merge-saves free-form applicant details Ruby has gathered conversationally
+   * from a first-time caller, before any application form exists to fill (see
+   * the prompt's "Proactive Details Collection" rule). Persisted on-device
+   * (session.ts's prefill draft) so a LATER call can read it back via
+   * page_context's `savedApplicantDraft` and prefill `basic` instead of
+   * asking everything again. Cleared on login/logout so it never leaks
+   * across accounts on a shared device.
+   */
+  saveApplicantDetails: (details: Record<string, unknown>) => void;
 }
 
 /** Accepts the language name, native script, or code the user/model used. */
@@ -507,6 +517,31 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       if (!code) return { ok: false, reason: 'unsupported_language', supported: ['English', 'Hindi', 'Telugu'] };
       actions.setLanguage(code);
       return { ok: true, lang: code };
+    },
+  });
+
+  /* ── 6. Save applicant details gathered before an application exists ── */
+  agent.registerTool<{ details: Record<string, unknown> }>({
+    name: 'save_applicant_details',
+    description:
+      'Save applicant details the user told you conversationally BEFORE they reached the application ' +
+      'form — a first-time caller with no history yet, per the prompt\'s "Proactive Details Collection" ' +
+      'rule. Keys are free-form: use whatever field names fit what was actually said (e.g. fullName, ' +
+      'dob, gender, qualification, email, pincode, addressLine1, city, state, residenceType, ' +
+      'employmentType, monthlyIncome, salaryMode, company, loanPurpose, loanAmount). Safe to call more ' +
+      'than once as more comes up in conversation — each call merges into what is already saved, it ' +
+      'does not replace it. Persisted on-device, so even a call on a LATER day can read this back (via ' +
+      'page_context\'s savedApplicantDraft) and prefill the application instead of asking again. Never ' +
+      'save anything covered by the Sensitive Data Handling Protocol (PAN, Aadhaar, PINs, passwords, ' +
+      'card numbers) — those were never collected this way in the first place.',
+    schema: {
+      type: 'object',
+      properties: { details: { type: 'object', description: 'key→value applicant details collected so far' } },
+      required: ['details'],
+    },
+    handler: ({ details }) => {
+      actions.saveApplicantDetails(details || {});
+      return { ok: true, saved: Object.keys(details || {}) };
     },
   });
 }

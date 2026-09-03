@@ -13,7 +13,10 @@ import {
   isAuthed,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
-import { loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted } from './session';
+import {
+  loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
+  loadPrefillDraft, savePrefillDraft,
+} from './session';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -144,6 +147,13 @@ export interface AppState {
   // user is signed in and handed to the in-app agent so it opens from where they
   // left off rather than from scratch. Null until fetched, or when they are new.
   userContext: UserContext | null;
+  // Free-form applicant details the voice agent has gathered conversationally
+  // from a first-time caller, before an application/basic screen exists to
+  // fill — see the prompt's "Proactive Details Collection" rule and the
+  // save_applicant_details tool. Loaded from AsyncStorage on boot (session.ts's
+  // prefill draft) so it survives across calls, even a different day; cleared
+  // on login/logout so it never leaks across accounts on a shared device.
+  savedApplicantDraft: Record<string, unknown> | null;
   // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
   // user taps Continue on an offer that carries a lender deep link.
   webUrl: string; webTitle: string;
@@ -218,6 +228,7 @@ export const initialState: AppState = {
   contextLoaded: false, contextData: null,
   priorInquiries: [],
   userContext: null,
+  savedApplicantDraft: null,
   webUrl: '', webTitle: '',
   offersError: '',
   offersSummary: '',
@@ -483,6 +494,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
       const savedVoiceLang = await loadVoiceLang();
       if (savedVoiceLang) dispatch({ type: 'set', patch: { voiceLang: savedVoiceLang } });
+      const savedDraft = await loadPrefillDraft();
+      if (savedDraft) dispatch({ type: 'set', patch: { savedApplicantDraft: savedDraft } });
 
       // Privacy consent gate — loaded before any routing decision.
       const accepted = await loadPrivacyAccepted();
@@ -603,6 +616,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // api.setVoiceLanguage) picks it up, and agent_language (page_context)
       // prefers it over `lang` on the very next turn — and on every future call.
       setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
+      // Merges (never replaces) into whatever's already saved — the model
+      // calls this incrementally as details come up across a conversation.
+      // Persisted immediately so it survives the call ending, not just this
+      // session's memory; reads stateRef so a rapid sequence of calls within
+      // one turn each merge onto the previous one's result, not a stale
+      // closure's snapshot.
+      saveApplicantDetails: (details: Record<string, unknown>) => {
+        const merged = { ...(stateRef.current.savedApplicantDraft ?? {}), ...details };
+        dispatch({ type: 'set', patch: { savedApplicantDraft: merged } });
+        savePrefillDraft(merged);
+      },
       // Bug fix: open a specific loan/application by its reference number.
       openLoan: async (reference: string) => {
         const want = (reference || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -687,6 +711,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // conversation instead of restarting it. Read from stateRef so this closure
       // never goes stale.
       userContext: stateRef.current.userContext ?? undefined,
+      // Details Ruby gathered conversationally on a previous call (or earlier
+      // this one), before the user had reached the application form — see
+      // save_applicant_details / the prompt's "Proactive Details Collection"
+      // rule. Gated on no real applicationId existing yet: once a real
+      // application exists, its actual saved values (via api_context) are
+      // authoritative and this draft is stale, so it deliberately stops being
+      // sent rather than risk the agent citing an old, possibly-since-changed
+      // conversational answer over the user's real submitted data.
+      savedApplicantDraft:
+        !stateRef.current.applicationId && stateRef.current.savedApplicantDraft
+          ? stateRef.current.savedApplicantDraft
+          : undefined,
       // Real API responses for the loan-application lifecycle (see the
       // apiContext field comment) — more complete/authoritative than
       // screen_overview for these entities since it's the actual response,

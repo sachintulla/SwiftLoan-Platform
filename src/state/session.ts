@@ -5,6 +5,7 @@ const LANG_KEY = 'swiftloan.session.lang';
 const VOICE_LANG_KEY = 'swiftloan.session.voiceLang';
 const VOICE_FAB_SIDE_KEY = 'swiftloan.session.voiceFabSide';
 const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
+const PREFILL_DRAFT_KEY = 'swiftloan.applicant.prefillDraft';
 
 export interface StoredTokens {
   accessToken: string;
@@ -109,6 +110,39 @@ export async function loadOffersCache(): Promise<OffersCache | null> {
 
 export async function clearOffersCache(): Promise<void> {
   await AsyncStorage.removeItem(OFFERS_CACHE_KEY).catch(() => {});
+}
+
+/**
+ * Free-form applicant details the voice agent gathers conversationally from a
+ * first-time caller (no history yet) BEFORE they've reached the application
+ * form — see the prompt's "Proactive Details Collection" rule. Deliberately
+ * not a fixed schema: whatever keys the model used (fullName, dob, gender,
+ * ...) are stored as-is and read back verbatim into a later call's
+ * page_context, where the agent matches them against whatever's actually on
+ * screen at the time. Persisted so this survives the call ending — the whole
+ * point is a LATER call (even a different day) can reuse it instead of
+ * asking everything again.
+ */
+export async function savePrefillDraft(details: Record<string, unknown>): Promise<void> {
+  await AsyncStorage.setItem(PREFILL_DRAFT_KEY, JSON.stringify(details)).catch(() => {});
+}
+
+export async function loadPrefillDraft(): Promise<Record<string, unknown> | null> {
+  const raw = await AsyncStorage.getItem(PREFILL_DRAFT_KEY).catch(() => null);
+  if (!raw) return null;
+  try {
+    const d = JSON.parse(raw);
+    return d && typeof d === 'object' && !Array.isArray(d) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+// Cleared on login/logout (api/client.ts) so it never leaks across accounts
+// on a shared device — the same reasoning clearOffersCache above already
+// follows for "My Offers".
+export async function clearPrefillDraft(): Promise<void> {
+  await AsyncStorage.removeItem(PREFILL_DRAFT_KEY).catch(() => {});
 }
 
 // ── Market (available) loan offers catalog cache ─────────────────────────────
