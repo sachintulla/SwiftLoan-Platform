@@ -11,6 +11,16 @@ import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanRes
 
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
+// Real PAN structure, not just "5 letters + 4 digits + 1 letter" — that bare
+// shape alone lets through obvious placeholders like "AAAAA0000A". The 4th
+// character is a real holder-type code (P=Individual, C=Company, H=HUF,
+// A=AOP, B=BOI, G=Government, J=Artificial Judicial Person, L=Local
+// Authority, F=Firm, T=Trust) — every genuine PAN has one of these there.
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+function isValidPan(v: string): boolean {
+  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v) && PAN_HOLDER_CODES.includes(v[3]);
+}
+
 // A genuinely concluded application — the loan cycle actually ended
 // (disbursed/closed) or a lender made a real decision (rejected). Only these
 // justify starting fresh; `failed` (prequalify ran, zero eligible offers —
@@ -94,12 +104,18 @@ export default function BasicPan() {
     // exist yet — capture the PAN into state and persist it once the details
     // step creates the application. Just validate + advance here.
     const pan = state.panNumber.trim().toUpperCase();
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) {
+    if (!isValidPan(pan)) {
       showToast(t.panValidate);
+      // A toast is UI-only — same reasoning as profile.tsx's
+      // profileSaveResult. Without this, a voice-driven continue just does
+      // nothing with no way for the agent to know why, and it either
+      // repeats the same failing tap or tells the user it worked.
+      mergeApiContext({ panValidationResult: { ok: false, error: t.panValidate } });
       return;
     }
     if (!state.panConsent) {
       showToast(t.panConsentValidate);
+      mergeApiContext({ panValidationResult: { ok: false, error: t.panConsentValidate } });
       return;
     }
     setBusy(true);
@@ -152,6 +168,12 @@ export default function BasicPan() {
     setBusy(false);
   };
 
+  // Only gates the button once a full, confidently-wrong PAN is typed — matches
+  // this screen's existing convention of otherwise leaving Continue tappable
+  // (empty PAN, missing consent) and explaining what's missing via toast.
+  const panTyped = state.panNumber.trim().toUpperCase();
+  const panInvalid = panTyped.length === 10 && !isValidPan(panTyped);
+
   const borderColor = glow.interpolate({ inputRange: [0, 1], outputRange: [colors.line, colors.primary] });
   const bg = glow.interpolate({ inputRange: [0, 1], outputRange: ['rgba(255,255,255,0.7)', 'rgba(7,159,160,0.10)'] });
 
@@ -160,7 +182,7 @@ export default function BasicPan() {
       <View style={{ paddingHorizontal: 20 }}>
         <AppHeader
           title={<View />}
-          right={<HeaderCta label={busy ? t.submitting : 'Upload PAN & Verify'} disabled={busy} onPress={onContinue} />}
+          right={<HeaderCta label={busy ? t.submitting : 'Upload PAN & Verify'} disabled={busy || panInvalid} onPress={onContinue} />}
         />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
@@ -203,7 +225,7 @@ export default function BasicPan() {
         <Animated.View style={[styles.panRow, { borderColor, backgroundColor: bg }]}>
           <TextInput
             style={[styles.panInput, font(700)]}
-            placeholder="ABCDE1234F"
+            placeholder="AAAPL1234C"
             placeholderTextColor={colors.muted}
             autoCapitalize="characters"
             maxLength={10}
@@ -213,6 +235,9 @@ export default function BasicPan() {
           <Icon name="edit" size={18} color={colors.muted} />
         </Animated.View>
         <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 6 }]}>{t.panHint}</Text>
+        {panInvalid ? (
+          <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: 4 }]}>{t.panValidate}</Text>
+        ) : null}
 
         <View style={styles.consentBox}>
           <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>

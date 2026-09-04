@@ -8,6 +8,7 @@ import { useStore } from '../state/store';
 import { api, isAuthed, Offer } from '../api/client';
 import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 
 // Statuses whose applications still carry showable offers.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
@@ -156,6 +157,20 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
   const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
   const disbursal = offer.partner?.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} hr` : 'Instant';
   const applied = offer.applied;
+
+  // Same reasoning as offers.tsx's OfferCard (see its own comment): a bare
+  // lender name auto-discovered from the card never matches a generic "apply"
+  // query, only a query that happens to name the lender exactly — and this
+  // card had NO voice registration at all before, generic or otherwise
+  // (confirmed live: select_option on a lender name here returned not_found
+  // even though the card was on screen), so "Apply to <lender>" is a genuinely
+  // new fix here, not just a label rename.
+  useVoiceTarget(
+    `Apply to ${name}`,
+    { kind: 'button', onTap: () => onSelect(offer) },
+    [offer],
+  );
+
   return (
     <View style={styles.card}>
       {/* Partner-lender pill floats over the divider on the right. */}
