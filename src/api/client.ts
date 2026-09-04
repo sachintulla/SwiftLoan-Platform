@@ -1,5 +1,5 @@
 import NetInfo from '@react-native-community/netinfo';
-import { saveTokens, clearTokens, clearOffersCache } from '../state/session';
+import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
 import { reportOfflineAttempt } from '../state/offlineBridge';
 
 /**
@@ -309,8 +309,15 @@ export const api = {
     setTokens(r.accessToken, r.refreshToken);
     // Drop any eligible-offers cache left by a previous session (e.g. one that
     // ended without a clean logout), so a freshly-logged-in phone never inherits
-    // the last user's "My Offers".
+    // the last user's "My Offers". Same reasoning for the voice agent's saved
+    // applicant-details draft — a fresh login must never surface a previous
+    // account's name/DOB/address/income as if they belonged to this user. And
+    // for whether Ruby's already given this device's intro pitch — a
+    // different phone number logging in on this device is a genuinely new
+    // person, who should hear it.
     await clearOffersCache().catch(() => {});
+    await clearPrefillDraft().catch(() => {});
+    await clearIntroPitchHeard().catch(() => {});
     return r;
   },
   login: async (identifier: string, password: string): Promise<AuthResult> => {
@@ -324,7 +331,11 @@ export const api = {
     // Per-user eligible-offers cache is persisted (fare.tsx "My Offers" reads it
     // local-first). Clear it on logout, or the NEXT phone number to log in sees
     // the previous user's offers until a slower backend re-fetch overwrites them.
+    // Same for the voice agent's saved applicant-details draft and its
+    // intro-pitch-heard flag.
     await clearOffersCache().catch(() => {});
+    await clearPrefillDraft().catch(() => {});
+    await clearIntroPitchHeard().catch(() => {});
   },
 
   // Users

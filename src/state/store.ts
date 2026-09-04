@@ -13,7 +13,11 @@ import {
   isAuthed,
   type ContextPayload, type PriorInquiry, type UserContext,
 } from '../api/client';
-import { loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted } from './session';
+import {
+  loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
+  loadPrefillDraft, savePrefillDraft,
+  loadIntroPitchHeard,
+} from './session';
 import { BUILD } from '../config/build';
 import { initUpshot, upshotScreen, upshotEvent } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -144,6 +148,18 @@ export interface AppState {
   // user is signed in and handed to the in-app agent so it opens from where they
   // left off rather than from scratch. Null until fetched, or when they are new.
   userContext: UserContext | null;
+  // Free-form applicant details the voice agent has gathered conversationally
+  // from a first-time caller, before an application/basic screen exists to
+  // fill — see the prompt's "Proactive Details Collection" rule and the
+  // save_applicant_details tool. Loaded from AsyncStorage on boot (session.ts's
+  // prefill draft) so it survives across calls, even a different day; cleared
+  // on login/logout so it never leaks across accounts on a shared device.
+  savedApplicantDraft: Record<string, unknown> | null;
+  // Whether Ruby has already given this device's first-time product pitch on
+  // a previous call — see session.ts's markIntroPitchHeard for why this
+  // exists (hasHistory doesn't track in-app voice calls at all). Loaded from
+  // AsyncStorage on boot; cleared on login/logout like savedApplicantDraft.
+  introPitchHeard: boolean;
   // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
   // user taps Continue on an offer that carries a lender deep link.
   webUrl: string; webTitle: string;
@@ -218,6 +234,8 @@ export const initialState: AppState = {
   contextLoaded: false, contextData: null,
   priorInquiries: [],
   userContext: null,
+  savedApplicantDraft: null,
+  introPitchHeard: false,
   webUrl: '', webTitle: '',
   offersError: '',
   offersSummary: '',
@@ -407,6 +425,9 @@ interface Ctx {
   // Action comment for why a plain set() is unsafe when multiple call sites
   // can write to it from the same render's stale `state` closure.
   mergeApiContext: (patch: Record<string, unknown>) => void;
+  // Marks the *next* screen change as urgent — see the ref of the same name
+  // in StoreProvider for what that actually does and why it's rare to call.
+  markUrgentContext: () => void;
   go: (screen: Screen) => void;
   back: () => void;
   showToast: (msg: string) => void;
@@ -428,6 +449,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
   const mergeApiContext = useCallback((patch: Record<string, unknown>) => dispatch({ type: 'mergeApiContext', patch }), []);
+  // One-shot flag consumed by the very next screen-change effect run below —
+  // set by a screen right before its own go() call to mark THAT specific
+  // transition as urgent (interrupts Ruby immediately instead of waiting for
+  // her current reply to finish). Reserved for genuinely time-sensitive
+  // moments — finding.tsx calling this when real offers just came back is
+  // the first and, for now, only caller. Not app state: this never needs to
+  // trigger a re-render, and nothing should read it back.
+  const urgentNextContext = useRef(false);
+  const markUrgentContext = useCallback(() => { urgentNextContext.current = true; }, []);
 
   const clearAuto = () => {
     if (timers.current.auto) clearTimeout(timers.current.auto);
@@ -471,6 +501,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
       const savedVoiceLang = await loadVoiceLang();
       if (savedVoiceLang) dispatch({ type: 'set', patch: { voiceLang: savedVoiceLang } });
+      const savedDraft = await loadPrefillDraft();
+      if (savedDraft) dispatch({ type: 'set', patch: { savedApplicantDraft: savedDraft } });
+      const pitchHeard = await loadIntroPitchHeard();
+      if (pitchHeard) dispatch({ type: 'set', patch: { introPitchHeard: true } });
 
       // Privacy consent gate — loaded before any routing decision.
       const accepted = await loadPrivacyAccepted();
@@ -534,7 +568,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // Keep the voice agent's view of the current screen + available actions fresh.
     setCurrentScreen(state.screen);
-    agent.updatePageContext();
+    const urgent = urgentNextContext.current;
+    urgentNextContext.current = false;
+    agent.updatePageContext(urgent ? { urgent: true } : undefined);
 
     // Track page view for all screens
     trackEvent('page_view', `viewed_${state.screen}`, state.screen);
@@ -568,11 +604,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       navigateToScreen: (screenName: string) => {
         let target = resolveScreenName(screenName);
         if (!target) return false;
-        // repay is disabled for now (SCREENS.repay is commented out in
-        // screens/index.ts) — redirect here too, since resolveScreenName still
-        // maps "repayment"/"emi"/etc. to it. status.tsx is our own application
-        // tracker (not lender-sourced) and is the replacement destination.
-        if (target === 'repay') target = 'status';
+        // repay AND status are both disabled for now (SCREENS.repay /
+        // SCREENS.status are commented out in screens/index.ts) — redirect
+        // here too, since resolveScreenName still maps "repayment"/"emi"/
+        // "applicationstatus"/etc. to them. loans.tsx (My Loans) is the only
+        // tracking surface left — each card already shows lender, status
+        // badge, and next-EMI-when-disbursed without a drill-down screen.
+        if (target === 'repay' || target === 'status') target = 'loans';
         go(target);
         return true;
       },
@@ -589,6 +627,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // api.setVoiceLanguage) picks it up, and agent_language (page_context)
       // prefers it over `lang` on the very next turn — and on every future call.
       setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
+      // Merges (never replaces) into whatever's already saved — the model
+      // calls this incrementally as details come up across a conversation.
+      // Persisted immediately so it survives the call ending, not just this
+      // session's memory; reads stateRef so a rapid sequence of calls within
+      // one turn each merge onto the previous one's result, not a stale
+      // closure's snapshot.
+      saveApplicantDetails: (details: Record<string, unknown>) => {
+        const merged = { ...(stateRef.current.savedApplicantDraft ?? {}), ...details };
+        dispatch({ type: 'set', patch: { savedApplicantDraft: merged } });
+        savePrefillDraft(merged);
+      },
       // Bug fix: open a specific loan/application by its reference number.
       openLoan: async (reference: string) => {
         const want = (reference || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -605,18 +654,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const loan = loans.find((l) => norm(l?.ref) === want || norm(l?.id) === want);
           if (loan) {
             dispatch({ type: 'set', patch: { loanId: loan.id, applicationId: loan.applicationId ?? stateRef.current.applicationId } });
-            // repay is disabled for now — status.tsx (our own application
-            // tracker) covers a disbursed loan too. go('repay');
-            go('status');
-            return { ok: true, opened: 'loan', reference, screen: 'status' };
+            // repay and status are both disabled for now — loans.tsx (My
+            // Loans) is the only tracking surface left. go('repay'); / go('status');
+            go('loans');
+            return { ok: true, opened: 'loan', reference, screen: 'loans' };
           }
           const app = apps.find((a) => norm(a?.ref) === want || norm(a?.id) === want);
           if (app) {
             const hasLoan = !!app.loan?.id;
             dispatch({ type: 'set', patch: { applicationId: app.id, loanId: app.loan?.id ?? null } });
-            // go(hasLoan ? 'repay' : 'status'); — repay disabled for now, see above.
-            go('status');
-            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: 'status' };
+            // go(hasLoan ? 'repay' : 'status'); — both disabled for now, see above.
+            go('loans');
+            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: 'loans' };
           }
           return { ok: false, reason: 'not_found', message: `No loan or application matches reference "${reference}".` };
         } catch {
@@ -662,6 +711,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // Whether this device has already heard the first-time product pitch on
+      // an earlier call — see session.ts's markIntroPitchHeard for why this
+      // exists. Always sent (never omitted), even `false` — the Opening Call
+      // Protocol's first-time pitch is conditioned on this being false.
+      heard_intro_pitch: stateRef.current.introPitchHeard,
       // The offers the user just received (or the problem) so the agent can speak
       // about them proactively on the offers screen.
       offers_summary: s.offersSummary || undefined,
@@ -673,6 +727,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // conversation instead of restarting it. Read from stateRef so this closure
       // never goes stale.
       userContext: stateRef.current.userContext ?? undefined,
+      // Details Ruby gathered conversationally on a previous call (or earlier
+      // this one), before the user had reached the application form — see
+      // save_applicant_details / the prompt's "Proactive Details Collection"
+      // rule. Was gated on `!applicationId`, which was wrong: a
+      // LoanApplication row gets created right after the PAN step, well
+      // before `basic`'s actual fields (name/DOB/income/...) are ever
+      // filled in — so that gate suppressed the draft for exactly the
+      // window it exists to help, confirmed live as savedApplicantDraft
+      // missing from page_context entirely on a fresh call despite real
+      // data sitting in AsyncStorage. Gate on userContext.application
+      // instead — per userContext.ts's own fix, that only appears once the
+      // user has actually applied to a lender, meaning `basic` was for-real
+      // submitted and its saved values are genuinely authoritative now.
+      savedApplicantDraft:
+        !stateRef.current.userContext?.application && stateRef.current.savedApplicantDraft
+          ? stateRef.current.savedApplicantDraft
+          : undefined,
       // Real API responses for the loan-application lifecycle (see the
       // apiContext field comment) — more complete/authoritative than
       // screen_overview for these entities since it's the actual response,
@@ -848,7 +919,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: Ctx = { state, set, mergeApiContext, go, back, showToast, reset, parentOf };
+  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
 }
 

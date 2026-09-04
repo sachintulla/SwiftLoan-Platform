@@ -36,7 +36,7 @@ function Sparkle({ size, color = colors.mint }: { size: number; color?: string }
 }
 
 export default function Finding() {
-  const { state, go, set, mergeApiContext } = useStore();
+  const { state, go, set, mergeApiContext, markUrgentContext } = useStore();
   const insets = useSafeAreaInsets();
   const pulse = useRef(new Animated.Value(0)).current;
   const prog = useRef(new Animated.Value(0)).current;
@@ -57,7 +57,14 @@ export default function Finding() {
       if (done) return;
       done = true;
       const wait = Math.max(0, 2600 - (Date.now() - started));
-      setTimeout(() => go(hasOffers ? 'fare' : 'offers'), wait);
+      setTimeout(() => {
+        // Real offers is the one outcome on this screen worth Ruby cutting
+        // herself off for — she may still be mid-"let me check that for
+        // you" when this lands. The empty/error case isn't urgent the same
+        // way; that one goes through the normal (deferred) path.
+        if (hasOffers) markUrgentContext();
+        go(hasOffers ? 'fare' : 'offers');
+      }, wait);
     };
     if (state.applicationId) {
       api.prequalify(state.applicationId)
