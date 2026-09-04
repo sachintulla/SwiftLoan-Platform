@@ -59,6 +59,16 @@ export class ElloAgent {
   // cheap page-marker instead of the whole object again. Reset per call in
   // start(); the model can always call read_screen itself for specifics.
   private lastSentPerScreen = new Map<string, string>();
+  // Whether this call's first client-tools-update (the one that actually
+  // matters — Gemini Live can't add function declarations mid-session, see
+  // the comment on updatePageContext below) has already carried the tools
+  // array. Every later client-tools-update in the same call omits `tools`
+  // entirely instead of resending the identical array: the server's own
+  // handler is literally on_client_tools_update(msg.get("tools")) — a
+  // missing key is a no-op there, not an error — and resending changes
+  // nothing anyway since no tool here defines availableWhen (the only thing
+  // a repeat send could actually refresh). Reset per call in start().
+  private toolsSentThisSession = false;
   private audioOutCount = 0;
   // Fallback so the FAB never gets stuck on "speaking": if audio chunks stop
   // arriving and no 'voice-audio-stream-end' follows (server timing, or the
@@ -226,12 +236,14 @@ export class ElloAgent {
     const payload = unchanged ? { page: ctx.page } : ctx;
     if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
 
+    const includeTools = !this.toolsSentThisSession;
+    this.toolsSentThisSession = true;
     this.socket!.send({
       type: 'client-tools-update',
-      tools: this.registry.toWire(),
+      ...(includeTools ? { tools: this.registry.toWire() } : {}),
       page_context: payload,
     });
-    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[unchanged, marker only] ' : '', JSON.stringify(payload));
+    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[unchanged, marker only] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
   }
 
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void {
@@ -265,6 +277,7 @@ export class ElloAgent {
     // landing on a stale %50 boundary, making response-time impossible to read.
     this.audioOutCount = 0;
     this.lastSentPerScreen.clear();
+    this.toolsSentThisSession = false;
 
     this.setStatus('connecting');
     try {
