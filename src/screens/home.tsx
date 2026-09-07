@@ -83,13 +83,13 @@ export default function Home() {
   const askRuby = () => set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 });
   const viewOffers = () => { set({ offersReturn: 'home' }); go('fare'); };
   const changeAmount = () => { set({ offersReturn: 'home' }); go('basic'); };
-  const startFresh = () => { set({ offersReturn: 'home' }); go('basicpan'); };
+  const startFresh = () => { set({ offersReturn: 'home', applicationId: null, offersError: '' }); go('basic'); };
   // A sponsored "featured offer" ad — tapping "Check eligibility" seeds the
   // advertised amount and drops the user into the normal application funnel.
   // (These ads are marketing, not firm offers, so there is no "accept".)
   const checkEligibility = (o: PrequalifyingOffer) => {
-    set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home' });
-    go('basicpan');
+    set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home', applicationId: null, offersError: '' });
+    go('basic');
   };
 
   return (
@@ -172,8 +172,8 @@ export default function Home() {
           showIntro={false}
           onApply={plan => {
             if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
-            set({ offersReturn: 'home' });
-            go('basicpan');
+            set({ offersReturn: 'home', applicationId: null, offersError: '' });
+            go('basic');
           }}
         />
       </View>

@@ -46,8 +46,8 @@ Testing Library). IDs map to `describe`/`it` blocks in `__tests__/`.
 | UC-S7 | home | `Browse loan types` |
 | UC-S8 | loans | `My Loans` |
 | UC-S9 | fare | EMI calculator renders (`Your monthly EMI`) |
-| UC-S10 | basic | `Tell us about yourself`, `Step 1 of 4` |
-| UC-S11 | basicpan | `Verify your PAN`, `Step 2 of 4` |
+| UC-S10 | basic | `Tell us about yourself`, `Step 1 of 3` |
+| UC-S11 | basicpan | `Verify your PAN`, `Step 3 of 3` |
 | UC-S12 | finding | `Finding your personalised offers…` |
 | UC-S13 | offers | `Review Your Offers`, `BlueChip Finance` |
 | UC-S14 | handoff | `Secure Handoff`, `Slide to confirm handoff` |

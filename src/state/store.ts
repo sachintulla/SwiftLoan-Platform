@@ -48,7 +48,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
-  applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
+  applyforaloan: 'basic', apply: 'basic', applyloan: 'basic', newloan: 'basic',
 };
 
 /** Resolve a spoken/typed screen name to a canonical screen id, or null. */
@@ -82,7 +82,7 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 const PREV: Partial<Record<Screen, Screen>> = {
   privacy: 'splash', language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
   permissions: 'mobile', aboutyou: 'permissions',
-  basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
+  basic: 'home', moredetails: 'basic', basicpan: 'moredetails', finding: 'basicpan',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
   prequalify: 'consent',
   // Fallback only — back() dynamically returns offers to its actual origin
@@ -602,15 +602,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ensureToolsRegistered({
       navigateToScreen: (screenName: string) => {
-        let target = resolveScreenName(screenName);
+        const target = resolveScreenName(screenName);
         if (!target) return false;
-        // repay AND status are both disabled for now (SCREENS.repay /
-        // SCREENS.status are commented out in screens/index.ts) — redirect
-        // here too, since resolveScreenName still maps "repayment"/"emi"/
-        // "applicationstatus"/etc. to them. loans.tsx (My Loans) is the only
-        // tracking surface left — each card already shows lender, status
-        // badge, and next-EMI-when-disbursed without a drill-down screen.
-        if (target === 'repay' || target === 'status') target = 'loans';
         go(target);
         return true;
       },
@@ -654,18 +647,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const loan = loans.find((l) => norm(l?.ref) === want || norm(l?.id) === want);
           if (loan) {
             dispatch({ type: 'set', patch: { loanId: loan.id, applicationId: loan.applicationId ?? stateRef.current.applicationId } });
-            // repay and status are both disabled for now — loans.tsx (My
-            // Loans) is the only tracking surface left. go('repay'); / go('status');
-            go('loans');
-            return { ok: true, opened: 'loan', reference, screen: 'loans' };
+            go('repay');
+            return { ok: true, opened: 'loan', reference, screen: 'repay' };
           }
           const app = apps.find((a) => norm(a?.ref) === want || norm(a?.id) === want);
           if (app) {
             const hasLoan = !!app.loan?.id;
             dispatch({ type: 'set', patch: { applicationId: app.id, loanId: app.loan?.id ?? null } });
-            // go(hasLoan ? 'repay' : 'status'); — both disabled for now, see above.
-            go('loans');
-            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: 'loans' };
+            go(hasLoan ? 'repay' : 'status');
+            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: hasLoan ? 'repay' : 'status' };
           }
           return { ok: false, reason: 'not_found', message: `No loan or application matches reference "${reference}".` };
         } catch {
