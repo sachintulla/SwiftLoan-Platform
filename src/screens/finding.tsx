@@ -61,9 +61,11 @@ export default function Finding() {
         // Real offers is the one outcome on this screen worth Ruby cutting
         // herself off for — she may still be mid-"let me check that for
         // you" when this lands. The empty/error case isn't urgent the same
-        // way; that one goes through the normal (deferred) path.
+        // way; that one goes through the normal (deferred) path. Either way,
+        // My Offers is the single destination — it shows the failure/empty
+        // state itself now, instead of a separate screen.
         if (hasOffers) markUrgentContext();
-        go(hasOffers ? 'fare' : 'offers');
+        go('fare');
       }, wait);
     };
     if (state.applicationId) {

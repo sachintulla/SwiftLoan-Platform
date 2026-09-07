@@ -38,10 +38,10 @@ describe('UC-N3 back-stack fallback (prevMap)', () => {
   // PREV is now only the fallback for back() when the real history stack is empty
   // (e.g. deep-linked entry). These assert the fallback parents match the map.
   const cases: [string, string][] = [
-    ['basicpan', 'home'],
-    ['basic', 'basicpan'],
+    ['basic', 'home'],
     ['moredetails', 'basic'],
-    ['finding', 'moredetails'],
+    ['basicpan', 'moredetails'],
+    ['finding', 'basicpan'],
     ['offers', 'home'],
     ['handoff', 'offers'],
     ['language', 'splash'],
@@ -84,7 +84,7 @@ describe('UC-N3b real back stack returns to actual origin', () => {
 
   it('Back from the offers result returns to the funnel origin, not the funnel', () => {
     // My Offers (fare) → apply funnel → offers: Back returns to fare, skipping
-    // the whole funnel (Verify PAN → details → finding), per offersReturn.
+    // the whole funnel (details → optional → Verify PAN → finding), per offersReturn.
     let s: typeof initialState = { ...initialState, offersReturn: 'fare' };
     s = _reducer(s, { type: 'go', screen: 'fare' });
     s = _reducer(s, { type: 'go', screen: 'basicpan' });

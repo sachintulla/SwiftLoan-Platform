@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, PanResponder, Animated, LayoutChangeEvent } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { StepBadge } from '../components/Controls';
-import { StepDots } from '../components/StepDots';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { colors, font, rupee } from '../theme/tokens';
@@ -77,8 +75,6 @@ export default function Handoff() {
         <AppHeader title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={4} of={4} label="Secure Handoff" />
-        <StepDots total={4} active={4} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Secure Handoff</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>Finalize your connection to the lender.</Text>
 

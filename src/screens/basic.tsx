@@ -77,9 +77,6 @@ export default function Basic() {
   }, []);
 
   const onContinue = async () => {
-    // PAN + soft-enquiry consent were captured on the previous (PAN-first) step.
-    // These are required by the lender (Aurix) to return offers, so enforce them
-    // here rather than letting the offer call fail later.
     if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
     if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }
     if (!state.basicQualification) { showToast(t.basicValQual); return; }
@@ -121,16 +118,14 @@ export default function Basic() {
         pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
       });
 
-      // basicpan.tsx already reused an existing in-progress application for
-      // this PAN when one exists (see there) — continue THAT one instead of
-      // inserting another row. Only actually create when there's genuinely
-      // none to continue.
+      // Reuse the in-progress application already held in state (e.g. the user
+      // went back and is re-submitting this screen) instead of inserting
+      // another row. PAN is attached later, on basicpan.tsx (the last step).
       let application: any;
       if (state.applicationId) {
         const { application: updated }: any = await api.updateApplication(state.applicationId, {
           amount: state.appAmount,
           tenureMonths: state.appTenure || 12,
-          ...(state.panNumber ? { panNumber: state.panNumber } : {}),
         });
         application = updated;
         mergeApiContext({ applicationUpdated: application });
@@ -142,11 +137,6 @@ export default function Basic() {
         });
         application = created;
         mergeApiContext({ applicationCreated: application });
-        // Persist the PAN captured on the first step now that the application exists.
-        if (state.panNumber) {
-          const updated: any = await api.updateApplication(application.id, { panNumber: state.panNumber }).catch(() => null);
-          if (updated?.application) { application = updated.application; mergeApiContext({ applicationUpdated: application }); }
-        }
       }
       set({ applicationId: application.id });
       go('moredetails');
@@ -188,8 +178,8 @@ export default function Basic() {
       headerRight={<HeaderCta label={busy ? t.basicStarting : t.continueBtn} disabled={busy} onPress={onContinue} />}
     >
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={2} of={4} label={t.basicStepLabel} />
-        <StepDots total={4} active={2} />
+        <StepBadge step={1} of={3} label={t.basicStepLabel} />
+        <StepDots total={3} active={1} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.basicTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {t.basicSub}
