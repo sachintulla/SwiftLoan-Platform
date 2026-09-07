@@ -13,7 +13,7 @@ import {
 const PanOcrModule: { recognize?: (path: string) => Promise<string> } =
   NativeModules?.PanOcrModule ?? {};
 
-/** True PAN shape: 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F). */
+/** True PAN shape: 5 letters, 4 digits, 1 letter (e.g. AAAPL1234C). */
 const PAN_RE = /[A-Z]{5}[0-9]{4}[A-Z]/;
 
 /**

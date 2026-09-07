@@ -20,6 +20,15 @@ usersRouter.get('/me', ah(async (req, res) => {
   res.json({ user: publicUser(user) });
 }));
 
+// Real PAN structure, not just "10 characters" — see applications.routes.ts's
+// panSchema comment for the holder-type-code reasoning; duplicated here rather
+// than shared, matching how phoneSchema is independently defined per module.
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+const panSchema = z
+  .string()
+  .regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'panNumber must be a valid PAN (e.g. AAAPL1234C)')
+  .refine(p => PAN_HOLDER_CODES.includes(p[3]), 'panNumber must be a valid PAN (e.g. AAAPL1234C)');
+
 const profilePatch = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
@@ -32,7 +41,7 @@ const profilePatch = z.object({
   employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
   monthlyIncome: z.number().int().nonnegative().optional(),
   company: z.string().optional(),
-  panNumber: z.string().length(10).optional(),
+  panNumber: panSchema.optional(),
   // Aurix applicant fields collected across the PAN / details / optional screens.
   qualification: z.string().optional(),
   maritalStatus: z.string().optional(),

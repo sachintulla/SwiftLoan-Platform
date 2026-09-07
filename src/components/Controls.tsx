@@ -296,25 +296,35 @@ export function Field({
   hint?: string;
   voiceId?: string;
 } & React.ComponentProps<typeof TextInput>) {
-  const { state } = useStore();
   const id = voiceId || label || hint;
-
-  useEffect(() => {
-    if (!id) return undefined;
-    const sensitive = isSensitiveField(id, {
-      secureTextEntry: props.secureTextEntry,
-      textContentType: props.textContentType as string | undefined,
-      autoComplete: props.autoComplete as string | undefined,
-    });
-    return registerTarget(state.screen, id, {
+  // Registered via useVoiceTarget (like Slider below), NOT a hand-rolled
+  // registerTarget call — Field is the one Controls.tsx primitive whose own
+  // call site passes onChangeText directly (`<Field ... onChangeText={...}/>`
+  // in every screen that uses it), which is exactly the prop name
+  // screenGraph.ts's auto-discovery walk checks for, so every Field is ALSO
+  // auto-discovered independently. A hand-rolled registerTarget(state.screen,
+  // id, ...) used to register under the bare id ("First name (as per PAN)")
+  // while the auto-discovered copy registers under "field:First name (as per
+  // PAN)" — different keys, so mergedTargets() never deduped them, and every
+  // text field on a screen was listed twice in available_actions. Confirmed
+  // live: a bloated, duplicated available_actions payload landing after a
+  // tool call is a plausible contributor to the agent repeating itself.
+  // useVoiceTarget already produces the matching `field:${id}` key.
+  const sensitive = isSensitiveField(id || '', {
+    secureTextEntry: props.secureTextEntry,
+    textContentType: props.textContentType as string | undefined,
+    autoComplete: props.autoComplete as string | undefined,
+  });
+  useVoiceTarget(
+    id,
+    {
       kind: 'field',
-      label: id,
       sensitive,
       getValue: () => value as string,
       setValue: v => onChangeText?.(String(v)),
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.screen, id, value, onChangeText, props.secureTextEntry, props.textContentType, props.autoComplete]);
+    },
+    [value, onChangeText, props.secureTextEntry, props.textContentType, props.autoComplete],
+  );
 
   return (
     <View style={{ gap: 6 }}>

@@ -6,7 +6,7 @@ import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-k
 import Icon from '../../components/Icon';
 import { colors, font } from '../../theme/tokens';
 import { useStore, useT, SCREENS_WITH_FOOTER_CTA } from '../../state/store';
-import { loadVoiceFabSide, saveVoiceFabSide } from '../../state/session';
+import { loadVoiceFabSide, saveVoiceFabSide, markIntroPitchHeard } from '../../state/session';
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
@@ -380,7 +380,16 @@ export default function VoiceWidget() {
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
     refreshSessionContext();
-    agent.start().catch(e => {
+    agent.start().then(() => {
+      // Runs after voice-session-start (and this call's own first
+      // page_context, carrying whatever heard_intro_pitch was at the time)
+      // has already gone out — marking it here can't affect THIS call's own
+      // pitch decision, only every call after it.
+      if (!state.introPitchHeard) {
+        set({ introPitchHeard: true });
+        markIntroPitchHeard();
+      }
+    }).catch(e => {
       vlog('agent.start() rejected:', e?.message || String(e));
       // Offline failures already get the dedicated OfflineNotice banner (see
       // agent.ts) — don't also toast those. Everything else previously failed

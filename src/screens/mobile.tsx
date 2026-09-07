@@ -9,6 +9,14 @@ import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent } from '../analytics/upshot';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { VoiceHidden } from '../voice/screenGraph';
+
+// Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
+// ("0000000000", "9999999999") — the server's own phoneSchema only checked
+// length (`^\d{10}$`), so those sailed straight through to a real OTP send.
+function isValidMobile(v: string): boolean {
+  return /^[6-9]\d{9}$/.test(v) && !/^(\d)\1{9}$/.test(v);
+}
 
 export default function Mobile() {
   const { state, set, go } = useStore();
@@ -25,11 +33,16 @@ export default function Mobile() {
   const hiddenOtpInput = useRef<TextInput>(null);
 
   const mobileLen = state.mobileVal.length;
-  const sendEnabled = mobileLen === 10 && state.terms && !busy;
+  const mobileInvalid = mobileLen === 10 && !isValidMobile(state.mobileVal);
+  const sendEnabled = mobileLen === 10 && isValidMobile(state.mobileVal) && state.terms && !busy;
 
   // Request an OTP from the backend, then reveal the code entry.
   const sendOtp = async () => {
     setErr(null);
+    if (!isValidMobile(state.mobileVal)) {
+      setErr(t.mobileErrInvalid);
+      return;
+    }
     setBusy(true);
     try {
       await api.requestOtp(state.mobileVal);
@@ -47,7 +60,21 @@ export default function Mobile() {
     setBusy(true);
     try {
       const r = await api.verifyOtp(state.mobileVal, otpCode);
-      set({ authUser: r.user, otpSent: false, priorInquiries: r.priorInquiries });
+      // api.verifyOtp() already clears the intro-pitch-heard flag and the
+      // saved applicant-details draft from AsyncStorage (new phone number =
+      // genuinely new person), but that only touches storage — this app
+      // session's in-memory state.introPitchHeard/savedApplicantDraft is left
+      // over from before this login (e.g. an earlier call this session, or a
+      // previous account on a shared device) and must be reset here too, or
+      // the very next page_context still reports heard_intro_pitch: true and
+      // Ruby skips the first-time pitch for someone who's never heard it.
+      set({
+        authUser: r.user,
+        otpSent: false,
+        priorInquiries: r.priorInquiries,
+        introPitchHeard: false,
+        savedApplicantDraft: null,
+      });
 
       // Upshot: this is the first moment we know who this person is. Identify
       // with the same E.164 phone the website and server use, so all three
@@ -140,6 +167,9 @@ export default function Mobile() {
               />
             </View>
             <Text style={styles.hint}>{t.mobileHint}</Text>
+            {mobileInvalid ? (
+              <Text style={[font(500), { fontSize: 12, color: colors.redDeep, marginTop: 4 }]}>{t.mobileErrInvalid}</Text>
+            ) : null}
 
             <Pressable style={styles.terms} onPress={() => set({ terms: !state.terms })}>
               <View style={[styles.box, state.terms && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
@@ -196,10 +226,21 @@ export default function Mobile() {
               />
             </Pressable>
 
-            <Pressable style={{ alignSelf: 'center', marginTop: 14 }} onPress={resend}>
-              <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>
-                {t.otpResend} <Text style={{ color: colors.muted }}>{timerText}</Text>
-              </Text>
+            <Pressable style={{ alignSelf: 'center', marginTop: 14, flexDirection: 'row' }} onPress={resend}>
+              <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>{t.otpResend}</Text>
+              {/* The countdown ticks every second (setInterval above) — a
+                  string that changes that often was landing as new
+                  screen_overview content every second and prompting a fresh
+                  spoken response each time (same root cause as the language
+                  screen's rotating greeting). VoiceHidden only takes effect
+                  when the walker visits a node directly; nesting it inside
+                  the button's own label Text wouldn't work (label collection
+                  reads through VoiceHidden), so this has to be a sibling Text
+                  node, not a child of the one above. The button's own label
+                  still resolves to the stable "Resend OTP" text, unaffected. */}
+              <VoiceHidden>
+                <Text style={{ color: colors.muted, fontSize: 13 }}> {timerText}</Text>
+              </VoiceHidden>
             </Pressable>
 
             <View style={styles.secureNote}>

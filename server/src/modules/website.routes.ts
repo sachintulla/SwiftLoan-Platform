@@ -22,7 +22,10 @@ const log = scoped('website');
  */
 export const websiteRouter = Router();
 
-const phoneSchema = z.string().regex(/^[6-9]\d{9}$/, 'phone must be a valid 10-digit Indian mobile number');
+const phoneSchema = z
+  .string()
+  .regex(/^[6-9]\d{9}$/, 'phone must be a valid 10-digit Indian mobile number')
+  .refine(p => !/^(\d)\1{9}$/.test(p), 'phone must be a valid 10-digit Indian mobile number');
 
 // POST /api/website/otp/request  { phone }
 websiteRouter.post(

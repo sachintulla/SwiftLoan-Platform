@@ -44,9 +44,11 @@ export default function Disbursed() {
           <Row label="First EMI date" value="Oct 05, 2023" />
         </View>
 
-        {/* repay is disabled for now — status.tsx (our own application tracker,
-            not lender-sourced) is the destination instead. onPress={() => go('repay')} */}
-        <Pressable style={styles.primaryBtn} onPress={() => go('status')}>
+        {/* repay and status (the drill-down tracking screens) are both
+            disabled for now, and the button's own label ("Go to Dashboard")
+            already reads correctly for the Home destination.
+            onPress={() => go('repay')} / onPress={() => go('status')} */}
+        <Pressable style={styles.primaryBtn} onPress={() => go('home')}>
           <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>Go to Dashboard</Text>
           <Icon name="arrow_forward" size={18} color="#fff" />
         </Pressable>

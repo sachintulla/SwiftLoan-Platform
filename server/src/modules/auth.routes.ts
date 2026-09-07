@@ -15,7 +15,13 @@ const log = scoped('auth');
 
 export const authRouter = Router();
 
-const phoneSchema = z.string().regex(/^\d{10}$/, 'phone must be 10 digits');
+// Real Indian mobile numbers start with 6-9; reject one digit repeated ten
+// times ("0000000000", "9999999999") too — the app's own client-side check
+// mirrors this, but that alone is bypassable, so this is the real boundary.
+const phoneSchema = z
+  .string()
+  .regex(/^[6-9]\d{9}$/, 'phone must be a valid 10-digit Indian mobile number')
+  .refine(p => !/^(\d)\1{9}$/.test(p), 'phone must be a valid 10-digit Indian mobile number');
 
 async function issueTokens(userId: string, phone: string) {
   const access = signAccess({ sub: userId, phone });

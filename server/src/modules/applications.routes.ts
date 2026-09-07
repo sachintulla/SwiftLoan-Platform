@@ -15,6 +15,17 @@ const log = scoped('applications');
 export const applicationsRouter = Router();
 applicationsRouter.use(requireAuth);
 
+// Real PAN structure, not just "10 characters" — the 4th character is a real
+// holder-type code (P=Individual, C=Company, H=HUF, A=AOP, B=BOI,
+// G=Government, J=Artificial Judicial Person, L=Local Authority, F=Firm,
+// T=Trust), so this also rejects obvious placeholders like "AAAAAAAAAA" that
+// a bare length check let through. Mirrors the app's own basicpan.tsx check.
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+const panSchema = z
+  .string()
+  .regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'panNumber must be a valid PAN (e.g. AAAPL1234C)')
+  .refine(p => PAN_HOLDER_CODES.includes(p[3]), 'panNumber must be a valid PAN (e.g. AAAPL1234C)');
+
 /** Create a loan application (Step 1 — "Tell us about yourself"). */
 applicationsRouter.post('/',
   validate(z.object({
@@ -59,7 +70,7 @@ applicationsRouter.patch('/:id',
   validate(z.object({
     amount: z.number().int().min(25000).max(1500000).optional(),
     tenureMonths: z.number().int().min(6).max(72).optional(),
-    panNumber: z.string().length(10).optional(),
+    panNumber: panSchema.optional(),
   })),
   ah(async (req, res) => {
     await owned(req.user!.sub, req.params.id);

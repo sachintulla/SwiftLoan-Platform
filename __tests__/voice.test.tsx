@@ -78,8 +78,12 @@ describe('UC-V2 screen reading', () => {
   it('collects visible text so the agent can describe the screen', () => {
     renderAt('language', <Language />);
 
+    // The rotating greeting banner ("Choose your language" + its cycling
+    // headline) is intentionally VoiceHidden — it changes every 2.6s and
+    // was triggering a fresh page_context send (and a re-spoken nudge) on
+    // every rotation. The language options themselves stay visible to voice.
     const texts = getScreenTexts('language');
-    expect(texts.join(' ')).toContain('Choose your language');
+    expect(texts.join(' ')).toContain('English');
   });
 
   it('page context exposes screen name, summary and available actions', () => {

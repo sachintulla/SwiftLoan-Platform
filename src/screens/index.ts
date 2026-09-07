@@ -19,10 +19,10 @@ import Finding from './finding';
 import Offers from './offers';
 import Handoff from './handoff';
 import LenderWeb from './lenderweb';
-import StatusScreen from './status';
+// Disabled for now — both repay and status (the application/loan tracker
+// screens) are off; My Loans (loans.tsx) is the only tracking surface left.
+// import StatusScreen from './status';
 import Disbursed from './disbursed';
-// Disabled for now — repayment tracking moved off this screen; status.tsx
-// (our own application tracker, not lender-sourced) is the entry point instead.
 // import Repay from './repay';
 import Profile from './profile';
 import Help from './help';
@@ -49,9 +49,9 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   offers: Offers,
   handoff: Handoff,
   lenderweb: LenderWeb,
-  status: StatusScreen,
+  // status: StatusScreen, — disabled for now, see the import comment above.
   disbursed: Disbursed,
-  // repay: Repay, — disabled for now, see the import comment above.
+  // repay: Repay,
   profile: Profile,
   help: Help,
 };
