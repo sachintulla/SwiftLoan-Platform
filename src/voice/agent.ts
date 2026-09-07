@@ -285,8 +285,12 @@ export class ElloAgent {
       // used to hang on the REST call until it timed out (see
       // SESSION_START_TIMEOUT_MS in sessionApi.ts) before the user learned why
       // nothing was happening. A NetInfo probe resolves in well under a second.
+      // Only bail on `isConnected === false` (no network interface). Do NOT bail
+      // on `isInternetReachable === false`: that probe is unreliable (notably in
+      // the iOS Simulator it reports false/null while the Mac is online), and a
+      // genuine dead connection still fails at createVoiceSession below.
       const netState = await NetInfo.fetch();
-      if (netState.isConnected === false || netState.isInternetReachable === false) {
+      if (netState.isConnected === false) {
         throw new Error('offline: no internet connection');
       }
       vlog('POST call ->', this.options.apiBaseUrl);

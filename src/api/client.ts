@@ -79,8 +79,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // user-facing screen (OTP, application, offers, loans…) goes through, so
     // catching "no signal" here means those screens fail fast with a clear
     // reason instead of sitting on a spinner for the full request timeout.
+    // Only pre-block on `isConnected === false` (no interface at all). We do NOT
+    // block on `isInternetReachable === false`: that probe is unreliable —
+    // notably in the iOS Simulator it reports false/null even when the Mac is
+    // fully online — and a genuine "reachable but no internet" case still fails
+    // at the fetch below, which the catch reports via reportOfflineAttempt().
     const netState = await NetInfo.fetch();
-    if (netState.isConnected === false || netState.isInternetReachable === false) {
+    if (netState.isConnected === false) {
       throw new TypeError('offline: no internet connection');
     }
     res = await fetch(API_BASE + path, {
