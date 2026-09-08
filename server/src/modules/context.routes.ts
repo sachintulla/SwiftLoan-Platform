@@ -191,8 +191,17 @@ contextRouter.get('/me', requireAuth, ah(async (req, res) => {
  * person's full profile and loan status for any phone number given to it —
  * the secret is the only thing standing between a caller and that lookup, so
  * this is NEVER allowed to run unauthenticated, including in development.
+ *
+ * On its OWN router (not contextRouter) so app.ts can give it a rate limit
+ * sized for an agent-facing tool call (like /api/conversations's 120/min),
+ * not leadLimiter's 5/min — this was accidentally inheriting that 5/min from
+ * being mounted under /api/context alongside /create (real per-call
+ * telephony cost, correctly strict), and rejected a real Ello call within
+ * a minute of normal use. Confirmed live: 429 "Too many submissions" on the
+ * 6th call in under 60 seconds.
  */
-contextRouter.post('/lookup', ah(async (req, res) => {
+export const contextLookupRouter = Router();
+contextLookupRouter.post('/', ah(async (req, res) => {
   const provided =
     String(req.headers['x-api-key'] ?? '') ||
     String(req.headers['x-webhook-secret'] ?? '');

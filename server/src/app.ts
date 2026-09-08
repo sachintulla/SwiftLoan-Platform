@@ -19,7 +19,7 @@ import { supportRouter } from './modules/support.routes.js';
 import { trackingRouter } from './modules/tracking.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
 import { adminAuthRouter } from './modules/adminAuth.routes.js';
-import { contextRouter } from './modules/context.routes.js';
+import { contextRouter, contextLookupRouter } from './modules/context.routes.js';
 import { configRouter } from './modules/config.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
@@ -149,6 +149,12 @@ export function createApp() {
   app.use('/api/admin', adminRouter);
 
   // ── WS3: context handoff + app-download landing pages ──
+  // /lookup mounted separately, BEFORE the general /api/context line, so it
+  // gets its own agent-facing-tool-sized limit instead of falling through to
+  // leadLimiter's 5/min (correctly strict for /create, far too strict for a
+  // pre-call tool Ello calls on every call — see contextLookupRouter's own
+  // comment in context.routes.ts).
+  app.use('/api/context/lookup', limiter(60_000, 120, 'Too many context lookup requests'), contextLookupRouter);
   app.use('/api/context', leadLimiter, contextRouter);
   app.use('/api/config', configRouter); // PUBLIC — app fetches admin-tuned config
   // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for
