@@ -15,12 +15,12 @@ tool below, under either `x-api-key` or `x-webhook-secret`.
 
 ## Which agent needs what
 
-| Agent | Ello ID | get_customer_history | save_conversation | report_call_outcome |
-|---|---|---|---|---|
-| **Loan_campaign_agent** (all outbound calls) | `6a6c630e2f3448069caa1fe5` | **required** | recommended | **required** |
-| **mobile companion app** | `6a7197be89c98da763e29b22` | optional | **required** | — |
-| **Website companion app** | `6a7197ff89c98da763e29b23` | optional | **see note** | — |
-| **Admin companion app** | `6a71988489c98da763e29b24` | — | — | — |
+| Agent | Ello ID | get_customer_history | get_user_context | save_conversation | report_call_outcome |
+|---|---|---|---|---|---|
+| **Loan_campaign_agent** (all outbound calls) | `6a6c630e2f3448069caa1fe5` | **required** | optional | recommended | **required** |
+| **mobile companion app** | `6a7197be89c98da763e29b22` | optional | optional | **required** | — |
+| **Website companion app** | `6a7197ff89c98da763e29b23` | optional | — | **see note** | — |
+| **Admin companion app** | `6a71988489c98da763e29b24` | — | — | — | — |
 
 **Admin needs nothing.** It is an internal ops co-pilot with its own browser-side
 tools; it never speaks to a customer, so there is no conversation worth
@@ -176,6 +176,60 @@ page context, so a tool would be a second route to the same information. Add it
 only if the agent is not reliably receiving that context — configuration is
 identical to **1a** above.
 
+## 2c. `get_user_context` — OPTIONAL
+
+Same situation as 2b: the app already fetches this and passes it as
+`page_context.userContext` on every turn, so this tool is a fallback for when
+that push is not reliably reaching the agent, not the default path. Distinct
+from `get_customer_history` — that one returns cross-channel **conversation**
+memory (what was said); this one returns the user's real **profile and loan
+application status** (where they are): name/DOB/employment/income, which
+lender they applied to and at what rate/EMI, and a live loan if disbursed.
+
+Backed by `POST /api/context/lookup` — a separate endpoint from the app's own
+`GET /api/context/me`, which requires the signed-in user's own session token
+and so can never be called by Ello directly.
+
+| Field | Value |
+|---|---|
+| Tool Name | `get_user_context` |
+| Description | `Look up this user's profile and loan application status. Call this ONCE at the very start of the call, before speaking, using the number being called. If hasHistory is false, this is a brand-new user with no profile or application yet — greet them normally. Never state a raw status code (e.g. "handoff") to the customer — always use the paired *Label field instead (e.g. applicationStatusLabel).` |
+| Request URL | `https://HOST/api/context/lookup` |
+| Timeout | `20` |
+| HTTP Method | `POST` |
+| Headers | `Content-Type: application/json`<br>`x-api-key: SECRET` |
+
+**Request Body**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `phone` | string | yes | `The phone number being called, any format` |
+
+**Response Body → variables**
+
+| Extract | Variable name |
+|---|---|
+| `data.hasHistory` | `has_history` |
+| `data.profile.name` | `customer_name` |
+| `data.applicationStatus` | `application_status` |
+| `data.applicationStatusLabel` | `application_status_label` |
+| `data.application.ref` | `application_ref` |
+| `data.application.amount` | `requested_amount` |
+
+The full response carries considerably more than these six fields (the
+complete `profile` object, every lender `offer` with its own rate/EMI/status,
+and `loan` details once disbursed) — Ello's model sees the entire JSON result
+regardless of which fields are pulled into named variables above, so extract
+only what a scripted message elsewhere needs to reference by `{{name}}`;
+everything else the agent can already reason over directly from the raw
+result.
+
+**Messages:** leave empty, same reasoning as `get_customer_history` above.
+
+> SECURITY note carried over from `/api/conversations/context`: this returns a
+> person's full profile and application status for any phone number given to
+> it. The api-key is the only thing standing between a caller and that lookup.
+
 ---
 
 # 3. Website companion app — `6a7197ff89c98da763e29b23`
@@ -224,6 +278,14 @@ For an agent with `save_conversation`:
 > Before the conversation ends, call `save_conversation` with a one to three
 > sentence summary of what was discussed and agreed.
 
+For an agent with `get_user_context`:
+
+> At the start of the conversation, call `get_user_context` with the customer's
+> phone number. If `has_history` is false, this is a brand-new user — greet them
+> normally and do not reference an application or profile. Never read a raw
+> status code aloud; always use the paired label field (e.g.
+> `application_status_label`, not `application_status`).
+
 ---
 
 # Verified endpoint behaviour
@@ -239,3 +301,7 @@ Tested against the running API:
 | any endpoint, wrong key | `401` |
 | `POST /api/conversations` twice, same `provider_conversation_id` | updates one record, no duplicate |
 | `POST /call-outcome-report`, unmatched id | `200 matched:false` — deliberately not a 4xx, so retries do not loop |
+| `POST /api/context/lookup` known number | `200`, full profile + application + offers returned |
+| same, unknown number | `200` with `hasHistory:false` — **not** an error |
+| same, `phone` missing | `400 phone is required` |
+| same, wrong key | `401` |

@@ -8,6 +8,7 @@ import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/jour
 import { requireAuth } from '../middleware/auth.js';
 import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
+import { verifyApiKey } from '../lib/apiKeys.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('context');
@@ -171,6 +172,47 @@ contextRouter.get('/me', requireAuth, ah(async (req, res) => {
 
   // 200 with hasHistory:false rather than 404 — "we know nothing about you" is a
   // normal answer for a brand-new user, not an error the app should log.
+  return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+}));
+
+/**
+ * POST /api/context/lookup
+ *
+ * The Ello-callable twin of GET /api/context/me — same buildUserContext()
+ * payload, for a caller with no signed-in user session at all (Ello's
+ * tool-calling servers, same as get_customer_history in
+ * conversations.routes.ts). /me derives its phone from the caller's own
+ * access token; a third-party tool call has none, so this takes `phone` in
+ * the body instead and authenticates with the same shared x-api-key secret
+ * conversations.routes.ts uses, for the identical reason: no admin/user
+ * session to present.
+ *
+ * SECURITY: exactly like conversations.routes.ts's /context, this returns a
+ * person's full profile and loan status for any phone number given to it —
+ * the secret is the only thing standing between a caller and that lookup, so
+ * this is NEVER allowed to run unauthenticated, including in development.
+ */
+contextRouter.post('/lookup', ah(async (req, res) => {
+  const provided =
+    String(req.headers['x-api-key'] ?? '') ||
+    String(req.headers['x-webhook-secret'] ?? '');
+  const legacySecret = process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET || '';
+  const authed = !!provided && (!!(await verifyApiKey(provided)) || (!!legacySecret && provided === legacySecret));
+  if (!authed) {
+    // Same "not configured" vs "wrong key" distinction as conversations.routes.ts.
+    if (!legacySecret && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
+      log.error('no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing', { path: req.path });
+      return fail(res, 503, 'Context API is not configured');
+    }
+    log.warn('rejected — invalid or missing API key', { path: req.path });
+    return fail(res, 401, 'Invalid or missing API key');
+  }
+
+  const phone = String(req.body?.phone ?? '').replace(/\D/g, '').slice(-10);
+  if (phone.length !== 10) return fail(res, 400, 'phone is required');
+
+  const user = await prisma.user.findFirst({ where: { phone } });
+  const ctx = await buildUserContext(phone, user?.id);
   return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
 }));
 
