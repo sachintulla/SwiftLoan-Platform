@@ -94,10 +94,10 @@ export default function Loans() {
     return () => clearInterval(id);
   }, [load]);
 
-  // Open the application tracker (status.tsx). repay stays disabled, so every
-  // card — including a disbursed loan — opens status, which our own tracker
-  // renders. selectedLenderApplicationId tells status which lender application
-  // to show (and gates its Re-Apply/Refresh actions).
+  // Open the drill-down tracker for a card: an active/disbursed loan goes to
+  // its repayment view, anything still in flight to the application-status
+  // timeline (status.tsx, which gates its Re-Apply/Refresh actions via
+  // selectedLenderApplicationId).
   const open = (app: any, opts?: { offer?: any; lenderApp?: any }) => {
     set({
       applicationId: app.id,
@@ -105,7 +105,7 @@ export default function Loans() {
       selectedOfferId: opts?.offer?.id ?? opts?.lenderApp?.offerId ?? null,
       selectedLenderApplicationId: opts?.lenderApp?.id ?? null,
     });
-    go('status');
+    go(app.loan ? 'repay' : 'status');
   };
 
   // My Loans shows ONE card per lender application. Each "Apply" from My Offers

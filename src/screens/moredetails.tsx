@@ -66,7 +66,7 @@ export default function MoreDetails() {
     setBusy(true);
     const ok = await save();
     setBusy(false);
-    if (ok) go('finding');
+    if (ok) go('basicpan');
   };
 
   return (
@@ -75,15 +75,15 @@ export default function MoreDetails() {
         title={<View />}
         right={
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Pressable onPress={() => go('finding')} hitSlop={8} accessibilityRole="button">
+            <Pressable onPress={() => go('basicpan')} hitSlop={8} accessibilityRole="button">
               <Text style={[font(700), { fontSize: 14, color: colors.textSoft }]}>Skip</Text>
             </Pressable>
             <HeaderCta label={busy ? 'Saving…' : 'Continue'} disabled={busy} onPress={onContinue} />
           </View>
         }
       />
-      <StepBadge step={3} of={4} label="Optional" />
-      <StepDots total={4} active={3} />
+      <StepBadge step={2} of={3} label="Optional" />
+      <StepDots total={3} active={2} />
       <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>A few more details</Text>
       <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
         Optional — sharing a bit more can unlock better offers. You can skip and continue.

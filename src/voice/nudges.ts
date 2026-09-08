@@ -27,8 +27,8 @@ const FUNNEL = new Set<Screen>(['basicpan', 'basic', 'moredetails']);
 // Offers surfaces — eligibility done, but they haven't picked/applied to a lender.
 const OFFERS = new Set<Screen>(['offers', 'fare']);
 // Main tab screens — a generic "need help?" is appropriate after a longer wait.
-// 'repay' and 'status' both removed — both disabled for now, and unreachable
-// since loans.tsx/disbursed.tsx redirect to 'loans' instead.
+// 'repay'/'status' are drill-down detail screens reached from 'loans', not
+// tabs, so they're deliberately not in this set either.
 const MAIN = new Set<Screen>(['home', 'loans', 'profile', 'help', 'calculator']);
 
 /** Nudge config for a screen, or null when nudging is off / on a non-nudge screen. */

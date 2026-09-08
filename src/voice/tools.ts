@@ -452,10 +452,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
     'Navigate to a named app screen: home, loans, fare, help, profile, basic, basicpan, offers, ' +
-    // 'repay' and 'status' removed for now — both screens are disabled;
-    // navigateToScreen() redirects them to 'loans' anyway, but keeping them
-    // out of the description stops the model from reaching for them first.
-    'handoff, disbursed, mobile, ' +
+    'handoff, status, repay, disbursed, mobile, ' +
     'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
 
   const navHandler = ({ screen }: { screen: string }) => {

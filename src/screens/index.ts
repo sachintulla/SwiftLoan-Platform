@@ -19,11 +19,11 @@ import Finding from './finding';
 import Offers from './offers';
 import Handoff from './handoff';
 import LenderWeb from './lenderweb';
-// status.tsx is the re-enabled application/loan tracker (opened from My Loans);
-// repay stays off — status.tsx covers disbursed loans too.
+// status.tsx (application/loan tracker) and repay are both re-enabled — the
+// drill-down tracking restored in develop's funnel reorder.
 import StatusScreen from './status';
 import Disbursed from './disbursed';
-// import Repay from './repay';
+import Repay from './repay';
 import Profile from './profile';
 import Help from './help';
 
@@ -51,7 +51,7 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   lenderweb: LenderWeb,
   status: StatusScreen,
   disbursed: Disbursed,
-  // repay: Repay,
+  repay: Repay,
   profile: Profile,
   help: Help,
 };

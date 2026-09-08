@@ -30,15 +30,16 @@ function agoLabel(ts: number | null): string {
  * Aurix). With no offers, the screen becomes an engaging "apply for a loan" CTA.
  */
 export default function MyOffers() {
-  const { set, mergeApiContext, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
-  const startApply = () => { set({ offersReturn: 'fare' }); go('basicpan'); };
+  const startApply = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
 
   // Tapping a tile applies inline via the shared handler; optimistically flag it.
   const select = useOfferSelect(id =>
@@ -77,10 +78,14 @@ export default function MyOffers() {
         // so the cache is stale — clear it and the display instead of leaving
         // the previous offers on screen. (On a fetch FAILURE we fall to the
         // catch below and keep the cache, for offline resilience.)
+        //
+        // Exception: a fresh offersError means we just landed here straight
+        // from a failed/empty finding.tsx attempt — keep applicationId in
+        // that case, or the Retry button below has nothing left to retry.
         setOffers([]);
         setAppId(null);
         setSavedAt(null);
-        set({ applicationId: null });
+        if (!state.offersError) set({ applicationId: null });
         await clearOffersCache().catch(() => {});
       }
     } catch {
@@ -91,13 +96,37 @@ export default function MyOffers() {
 
   useEffect(() => { hydrate(); }, [hydrate]);
 
-  // Recheck offers = run the WHOLE funnel again, every time: Verify PAN →
-  // details (Continue) → optional details (Continue/Skip) → eligibility. The
-  // forceRecheck flag makes basicpan run the funnel end-to-end (instead of
-  // short-circuiting back here because offers already exist) and start a fresh
-  // application, so the new offers replace the saved ones on return (hydrate)
-  // while any existing My Loans applications stay intact.
-  const refresh = () => { set({ offersReturn: 'fare', forceRecheck: true }); go('basicpan'); };
+  // Recheck offers = run the WHOLE funnel again, every time: details (Continue)
+  // → optional (Continue/Skip) → Verify PAN → eligibility. Clearing
+  // applicationId starts a brand-new application (basic.tsx creates it), so a
+  // fresh eligibility run's offers replace the saved ones on return (hydrate)
+  // while any existing My Loans applications stay intact. Same entry as
+  // startApply — the funnel now begins at the details step.
+  const refresh = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
+
+  // Retry: re-run eligibility (→ Aurix) for this application without leaving
+  // My Offers — the failure/empty state (e.g. from finding.tsx after a zero-
+  // offer or errored attempt) is shown right here now, not on a separate screen.
+  const retryEligibility = async () => {
+    if (!state.applicationId || retrying) return;
+    setRetrying(true);
+    try {
+      const res: any = await api.prequalify(state.applicationId);
+      const list = (res?.offers || []) as Offer[];
+      set({ offersError: res?.friendlyError || '' });
+      mergeApiContext({ prequalifyResult: { offers: res.offers, friendlyError: res?.friendlyError } });
+      if (list.length > 0) {
+        const now = Date.now();
+        setOffers(list);
+        setSavedAt(now);
+        saveOffersCache({ applicationId: state.applicationId, savedAt: now, offers: list });
+      }
+    } catch {
+      set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const hasOffers = offers.length > 0;
 
@@ -146,7 +175,12 @@ export default function MyOffers() {
           </View>
         </>
       ) : (
-        <EmptyOffers onApply={startApply} />
+        <EmptyOffers
+          onApply={startApply}
+          onRetry={retryEligibility}
+          retrying={retrying}
+          offersError={state.offersError}
+        />
       )}
     </Screen>
   );
@@ -245,27 +279,58 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
   );
 }
 
-/** Engaging no-offers state — the screen becomes an apply prompt. */
-function EmptyOffers({ onApply }: { onApply: () => void }) {
+/**
+ * No-offers state. Plain "never applied yet" is an engaging apply prompt.
+ * A failed/empty attempt (offersError set, e.g. returning from the loader)
+ * shows what went wrong instead, with a lighter Retry alongside the option
+ * to go change details — this used to be a separate "Offers" screen, but
+ * My Offers is the one place results (good or bad) are shown.
+ */
+function EmptyOffers({
+  onApply,
+  onRetry,
+  retrying,
+  offersError,
+}: {
+  onApply: () => void;
+  onRetry: () => void;
+  retrying: boolean;
+  offersError: string;
+}) {
+  const failed = !!offersError;
   return (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
-        <Icon name="local_offer" size={40} color={colors.primary} />
+        <Icon name={failed ? 'error' : 'local_offer'} size={40} color={colors.primary} />
       </View>
-      <Text style={[font(800), { fontSize: 20, color: colors.text, marginTop: 18, textAlign: 'center' }]}>No offers yet</Text>
+      <Text style={[font(800), { fontSize: 20, color: colors.text, marginTop: 18, textAlign: 'center' }]}>
+        {failed ? 'Couldn’t fetch offers' : 'No offers yet'}
+      </Text>
       <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
-        Apply once and we’ll match you with personalised offers from our lending partners — they’ll be saved right here.
+        {offersError || 'Apply once and we’ll match you with personalised offers from our lending partners — they’ll be saved right here.'}
       </Text>
 
-      <View style={styles.benefits}>
-        <Benefit icon="bolt" text="Real offers in ~2 minutes" />
-        <Benefit icon="shield" text="Soft check — no impact on your credit score" />
-        <Benefit icon="storefront" text="Compare multiple partners in one place" />
-      </View>
+      {failed ? (
+        <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
+          <PrimaryButton label={retrying ? 'Retrying…' : 'Retry'} icon="refresh" disabled={retrying} onPress={onRetry} />
+          <Pressable style={styles.updateBtn} onPress={onApply}>
+            <Icon name="tune" size={18} color={colors.text} />
+            <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <View style={styles.benefits}>
+            <Benefit icon="bolt" text="Real offers in ~2 minutes" />
+            <Benefit icon="shield" text="Soft check — no impact on your credit score" />
+            <Benefit icon="storefront" text="Compare multiple partners in one place" />
+          </View>
 
-      <View style={{ width: '100%', marginTop: 22 }}>
-        <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={onApply} />
-      </View>
+          <View style={{ width: '100%', marginTop: 22 }}>
+            <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={onApply} />
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -289,6 +354,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, height: 38, marginTop: 2, minWidth: 104, justifyContent: 'center',
   },
   refreshLabel: { fontSize: 13, color: colors.primary },
+  updateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 54, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line },
 
   // ── Offer card ─────────────────────────────────────────────────────────
   card: {

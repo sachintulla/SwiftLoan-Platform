@@ -12,7 +12,7 @@ import { useStore, useT } from '../state/store';
  * as a modal. "Apply" drops into the loan funnel.
  */
 export default function Calculator() {
-  const { go, back } = useStore();
+  const { go, back, set } = useStore();
   const t = useT();
   return (
     <Screen scroll bottomNav padded>
@@ -25,7 +25,7 @@ export default function Calculator() {
           <Text style={[font(400), styles.sub]}>{t.fareSub}</Text>
         </View>
       </View>
-      <EmiCalculator onApply={() => go('basicpan')} />
+      <EmiCalculator onApply={() => { set({ applicationId: null, offersError: '' }); go('basic'); }} />
     </Screen>
   );
 }

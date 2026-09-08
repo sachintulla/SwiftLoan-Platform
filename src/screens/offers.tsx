@@ -3,8 +3,7 @@ import { View, Text, Image, Pressable, StyleSheet, Animated, Easing } from 'reac
 import LinearGradient from 'react-native-linear-gradient';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { StepBadge, Chips, PrimaryButton } from '../components/Controls';
-import { StepDots } from '../components/StepDots';
+import { Chips, PrimaryButton } from '../components/Controls';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { Empty } from '../components/common/Empty';
@@ -92,10 +91,7 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
           selectedLenderApplicationId: res.lenderApplicationId ?? null,
         });
         showToast(res.message || 'You’ve already applied to this lender for this amount.');
-        // status (the tracker this used to open) is disabled for now, same as
-        // loans.tsx's card taps — loans.tsx's own card already shows this
-        // application's status without a drill-down screen. go('status');
-        go('loans');
+        go('status');
         return;
       }
       set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
@@ -190,8 +186,6 @@ export default function Offers() {
         <AppHeader title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={4} of={4} label="Your Offers" />
-        <StepDots total={4} active={4} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.reviewOffers}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {offers.length > 0
@@ -213,7 +207,7 @@ export default function Offers() {
             <View>
               <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
               <View style={{ marginTop: 8 }}>
-                <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basicpan')} />
+                <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basic')} />
               </View>
             </View>
           ) : (
@@ -231,7 +225,7 @@ export default function Offers() {
                   disabled={retrying}
                   onPress={retry}
                 />
-                <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
+                <Pressable style={styles.updateBtn} onPress={() => go('basic')}>
                   <Icon name="tune" size={18} color={colors.text} />
                   <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
                 </Pressable>
@@ -270,7 +264,7 @@ export default function Offers() {
               <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
                 Need a different amount or time frame? Adjust and refresh offers.
               </Text>
-              <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
+              <Pressable style={styles.updateBtn} onPress={() => go('basic')}>
                 <Icon name="tune" size={18} color={colors.text} />
                 <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update Details</Text>
               </Pressable>
