@@ -347,21 +347,28 @@ export class ElloAgent {
       // next to the system prompt's greeting instructions and tends to lean on
       // reciting the former instead of following the latter.
       //
-      // Also withholds userContext/savedApplicantDraft/api_context — deliberate
-      // product decision: the very first turn of every call should be a generic
+      // Also withholds savedApplicantDraft/api_context — deliberate product
+      // decision: the very first turn of every call should be a generic
       // greeting, never tailored to which screen the user's on or what's known
       // about their account. `page` itself still goes through (has to, for the
       // speak-first gate above), so the greeting isn't literally blind, just
       // generic. Every send after this one is unaffected — a real navigation
       // still delivers full context exactly as before.
       //
+      // userContext itself is no longer part of page_context at all (removed
+      // from store.ts's builder — it's now only supplied via the get_user_context
+      // pre-call tool, which is both more reliable for shaping the opening line
+      // — guaranteed to resolve before the agent speaks, unlike this per-turn
+      // push racing the WebSocket handshake — and shares it with Ello once
+      // per call instead of continuously on every turn).
+      //
       // No automatic full-context follow-up after this either (there used to be
       // one, 500ms later) — by design by this same product decision: the whole
       // starting screen is meant to be "generic" for this call, not just its
       // opening line, so nothing here should quietly upgrade it moments later.
       // Known, accepted consequence (confirmed true before, still true now):
-      // available_actions/screen_overview/userContext stay empty for as long as
-      // the user remains on the starting screen — Ruby can still navigate blind
+      // available_actions/screen_overview stay empty for as long as the user
+      // remains on the starting screen — Ruby can still navigate blind
       // (navigate_screen doesn't need available_actions) but can't describe or
       // tap anything specific there until an actual screen change delivers a
       // real update. If that ever needs to change back, this is the exact spot.
@@ -369,7 +376,6 @@ export class ElloAgent {
         ...fullContext,
         screen_overview: '',
         available_actions: [],
-        userContext: undefined,
         savedApplicantDraft: undefined,
         api_context: undefined,
       };
