@@ -199,16 +199,18 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           // Leaving it out let a failed application still surface as "the
           // current application" — contradicting its own status.
           //
-          // offers: { some: { applied: true } } — an application only counts
-          // as "in progress" here once the user has actually applied to a
-          // lender, matching loans.tsx's own definition of a trackable
-          // application on the My Loans screen. Without this, a bare
-          // eligibility check (offers_ready, nobody applied to any of them)
-          // still surfaced here and got spoken to the user as "you have an
-          // application in progress" while their own My Loans screen — by
-          // its own, deliberate, unchanged definition — correctly showed
-          // nothing, since checking eligibility isn't the same as applying.
-          where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] }, offers: { some: { applied: true } } },
+          // No `offers: { some: { applied: true } }` filter (removed) — that
+          // used to hide an application until the user actually applied to a
+          // lender, matching loans.tsx's own "trackable application" cutoff.
+          // But this endpoint isn't loans.tsx: it now needs to tell "never
+          // started" (no row at all) apart from "got offers, never applied"
+          // (offers_ready, real offers sitting there) — collapsing the
+          // second into the first was itself misleading, just in the
+          // opposite direction from the bug this filter originally fixed.
+          // The fix for BOTH is the same one: applicationStatusLabel gives
+          // each real status its own accurate phrasing, so "offers_ready"
+          // never gets spoken as "application in progress" OR "not started".
+          where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] } },
           orderBy: { createdAt: 'desc' },
           include: { offers: { include: { partner: true }, orderBy: { createdAt: 'asc' } } },
         })
