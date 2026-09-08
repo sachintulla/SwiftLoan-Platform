@@ -116,6 +116,6 @@ export interface AgentLike {
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void;
   setMuted(muted: boolean): void;
   getStatus(): AgentStatus;
-  start(): Promise<void>;
+  start(phone?: string): Promise<void>;
   stop(): Promise<void>;
 }

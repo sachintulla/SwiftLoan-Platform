@@ -258,7 +258,7 @@ export class ElloAgent {
     return this.status;
   }
 
-  async start(): Promise<void> {
+  async start(phone?: string): Promise<void> {
     vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId);
     if (!this.options.apiKey || !this.options.assistantId) {
       vlog('ABORT: apiKey/assistantId not configured');
@@ -290,7 +290,7 @@ export class ElloAgent {
         throw new Error('offline: no internet connection');
       }
       vlog('POST call ->', this.options.apiBaseUrl);
-      const { conversationId } = await createVoiceSession(this.options);
+      const { conversationId } = await createVoiceSession(this.options, phone);
       if (cancelled()) {
         vlog('start aborted after REST — stop() was pressed');
         return;
