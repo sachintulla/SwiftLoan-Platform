@@ -45,6 +45,18 @@ import { websiteRouter } from './modules/website.routes.js';
 export function createApp() {
   const app = express();
 
+  // The deployed box sits behind one nginx reverse proxy (Via: ... in every
+  // response). Without this, Express won't trust X-Forwarded-For at all, so
+  // req.ip falls back to the proxy's own socket address for every request —
+  // meaning every rate limiter below pools ALL traffic (real Ello calls,
+  // manual testing, anyone) into one shared bucket regardless of real origin.
+  // Confirmed live: ERR_ERL_UNEXPECTED_X_FORWARDED_FOR spamming the log, and
+  // a real user's second call in the same minute as unrelated testing traffic
+  // got wrongly 429'd on get_user_context — trust exactly 1 hop (this one
+  // proxy), not `true` (unlimited hops — spoofable if this box is ever put
+  // behind more than one proxy without revisiting this).
+  app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cors());
   // Capture the raw body so webhook signature checks (e.g. Knight Fintech's
