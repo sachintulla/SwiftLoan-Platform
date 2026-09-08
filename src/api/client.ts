@@ -609,12 +609,29 @@ export interface UserContextInquiry {
 
 export interface UserContext {
   hasHistory: boolean;
-  name: string | null;
-  city: string | null;
-  email: string | null;
-  stage: string | null;
-  stageLabel: string | null;
-  nextAction: string | null;
+  /** The signed-in account's own details — null only when there is no userId. */
+  profile: {
+    name: string | null;
+    email: string | null;
+    phone: string;
+    dob: string | null;
+    gender: string | null;
+    city: string | null;
+    pincode: string | null;
+    employment: string | null;
+    monthlyIncome: number | null;
+    panOnFile: boolean;
+  } | null;
+  /** Internal sales/telecaller funnel — not for the customer's ears. See userContext.ts. */
+  marketingName: string | null;
+  marketingCity: string | null;
+  marketingEmail: string | null;
+  marketingStage: string | null;
+  marketingStageLabel: string | null;
+  marketingNextAction: string | null;
+  /** The one clear, customer-facing signal: where this user's loan application stands. */
+  applicationStatus: string | null;
+  applicationStatusLabel: string;
   inquiries: UserContextInquiry[];
   lastCall: {
     at: string;
@@ -626,11 +643,17 @@ export interface UserContext {
   } | null;
   application: {
     id: string; ref: string; status: string;
-    amount: number | null; loanType: string | null; offerCount: number;
+    amount: number | null; loanType: string | null; tenureMonths: number | null;
+    offers: Array<{
+      lenderName: string | null; apr: number | null; amount: number | null; emi: number | null;
+      applied: boolean; status: string | null; statusLabel: string | null;
+    }>;
   } | null;
-  loan: { id: string; principal: number | null; status: string | null } | null;
-  /** One-line brief the agent can open from. */
-  brief: string | null;
+  loan: {
+    id: string; ref: string; partnerName: string | null;
+    principal: number | null; apr: number | null; tenureMonths: number | null;
+    emiAmount: number | null; status: string | null; outstanding: number | null;
+  } | null;
 }
 
 /**
@@ -649,24 +672,23 @@ export async function fetchUserContext(): Promise<UserContext | null> {
     // section documents (matching the UserContext type below), rather than
     // trusting whatever /context/me happens to return. The endpoint's actual
     // response carries extra fields (conversationBrief, a full conversations[]
-    // transcript list) meant for other consumers — the prompt's own STRICT
-    // RULE is to open from the single `brief` line, never the raw history, so
-    // those extras were pure bloat riding along on every call, roughly
-    // doubling this payload for a field the agent was never told to read.
+    // transcript list) meant for other consumers, not this allowlist.
     const d = data as UserContext;
     return {
       hasHistory: d.hasHistory,
-      name: d.name,
-      city: d.city,
-      email: d.email,
-      stage: d.stage,
-      stageLabel: d.stageLabel,
-      nextAction: d.nextAction,
+      profile: d.profile,
+      marketingName: d.marketingName,
+      marketingCity: d.marketingCity,
+      marketingEmail: d.marketingEmail,
+      marketingStage: d.marketingStage,
+      marketingStageLabel: d.marketingStageLabel,
+      marketingNextAction: d.marketingNextAction,
+      applicationStatus: d.applicationStatus,
+      applicationStatusLabel: d.applicationStatusLabel,
       inquiries: d.inquiries,
       lastCall: d.lastCall,
       application: d.application,
       loan: d.loan,
-      brief: d.brief,
     };
   } catch {
     return null;
