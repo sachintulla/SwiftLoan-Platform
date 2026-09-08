@@ -208,7 +208,14 @@ contextRouter.post('/lookup', ah(async (req, res) => {
     return fail(res, 401, 'Invalid or missing API key');
   }
 
-  const phone = String(req.body?.phone ?? '').replace(/\D/g, '').slice(-10);
+  // Accept either key: Ello resolves a tool's request-body property by
+  // matching its NAME against its own context variables (confirmed live —
+  // renaming this tool's property from `phone` to `phone_number` was what
+  // actually got a real number resolved, where `phone` with `{phone_number}`
+  // in the description never did), so whichever property name a given tool
+  // config ends up using should still reach a real user here.
+  const raw = req.body?.phone ?? req.body?.phone_number ?? '';
+  const phone = String(raw).replace(/\D/g, '').slice(-10);
   if (phone.length !== 10) return fail(res, 400, 'phone is required');
 
   const user = await prisma.user.findFirst({ where: { phone } });

@@ -203,7 +203,27 @@ and so can never be called by Ello directly.
 
 | Property | Type | Required | Description |
 |---|---|---|---|
-| `phone` | string | yes | `The phone number being called, any format` |
+| `phone_number` | string | yes | `The phone number being called` |
+
+> **Placeholder resolution — resolved, verified live.** Ello's tool_manager
+> matches a request-body property by its own **name** against its available
+> context variables — the `{...}` text inside the Description field is purely
+> decorative for humans, never a live template ("Placeholder 'phone' not
+> found" names the *property*, not any text in its description). For the
+> mobile/webcall agent, the caller's number is only exposed as a variable
+> named **`phone_number`** (sourced from the call payload's `context_data.
+> phone_number`) — there is no flat `phone` variable and no `customer_number`
+> variable at all (that name is an outbound-campaign convention copied from
+> `get_customer_history` above, and does not exist here). The property in this
+> tool's Request Body schema must therefore be named `phone_number` — renaming
+> it from `phone` (with `{phone_number}` merely typed into the description)
+> was what actually got Ello to resolve and send the real number.
+>
+> Our own endpoint (`context.routes.ts`) accepts **either** `phone` or
+> `phone_number` as the body key, specifically so this Ello-side naming
+> requirement doesn't also require touching our backend every time. If you add
+> `get_customer_history` (1a) to this same mobile agent, its `phone` property
+> likely has the identical bug — rename it to `phone_number` there too.
 
 **Response Body → variables**
 
