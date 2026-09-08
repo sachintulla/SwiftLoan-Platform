@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
 import { notFound, errorHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
+import { debugHttpLog } from './lib/debugHttpLog.js';
 
 import { authRouter } from './modules/auth.routes.js';
 import { usersRouter } from './modules/users.routes.js';
@@ -56,6 +57,9 @@ export function createApp() {
   // colour codes, which read as garbage in a redirected log file); 'dev' is
   // fine locally where a terminal renders them.
   app.use(morgan(env.isProd ? 'combined' : 'dev'));
+  // Opt-in full request/response body logging — see debugHttpLog.ts for why
+  // this is off unless DEBUG_HTTP_LOGS=true is explicitly set.
+  if (env.debugHttpLogs) app.use(debugHttpLog());
 
   // ── Rate limiting ──
   // Previously only the two auth routes were throttled, which left every public

@@ -380,7 +380,7 @@ export default function VoiceWidget() {
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
     refreshSessionContext();
-    agent.start().then(() => {
+    agent.start(state.authUser?.phone).then(() => {
       // Runs after voice-session-start (and this call's own first
       // page_context, carrying whatever heard_intro_pitch was at the time)
       // has already gone out — marking it here can't affect THIS call's own

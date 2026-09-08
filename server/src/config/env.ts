@@ -37,4 +37,9 @@ export const env = {
   refreshTtlDays: parseInt(req('REFRESH_TTL_DAYS', '30'), 10),
   nodeEnv: req('NODE_ENV', 'development'),
   isProd: process.env.NODE_ENV === 'production',
+  // Off by default: prints every request/response BODY (not just morgan's
+  // method/path/status line) to stdout, sensitive fields redacted. Opt in
+  // with DEBUG_HTTP_LOGS=true only while actively debugging — these bodies
+  // include real PII (name, DOB, income, loan details, phone numbers).
+  debugHttpLogs: process.env.DEBUG_HTTP_LOGS === 'true',
 };
