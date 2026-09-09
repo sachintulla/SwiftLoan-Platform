@@ -44,6 +44,29 @@ const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   failed: 'Application failed',
 };
 
+// How far along the funnel each non-terminal status actually is. A user can
+// end up with more than one non-terminal LoanApplication row at once (e.g. an
+// abandoned draft started fresh after an earlier one already reached a real
+// lender) — confirmed live: a user with a `handoff` application (2 real
+// offers, one applied) started a new `draft` minutes later, and picking "most
+// recently created" surfaced the empty draft while the real, further-along
+// application silently disappeared. Progress outranks recency; recency only
+// tie-breaks between two applications at the same stage.
+const APPLICATION_STATUS_RANK: Record<ApplicationStatus, number> = {
+  draft: 0,
+  pan_pending: 1,
+  prequalifying: 2,
+  offers_ready: 3,
+  handoff: 4,
+  under_review: 5,
+  approved: 6,
+  disbursed: 7,
+  // Never actually queried (excluded below), ranked low only so this map is total.
+  rejected: -1,
+  closed: -1,
+  failed: -1,
+};
+
 export interface UserContext {
   /** True when we know anything at all — the app skips the handoff if false. */
   hasHistory: boolean;
@@ -181,7 +204,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
   const clean = String(phone ?? '').replace(/\D/g, '').slice(-10);
   if (clean.length !== 10) return EMPTY;
 
-  const [user, customer, leads, call, app, loan] = await Promise.all([
+  const [user, customer, leads, call, apps, loan] = await Promise.all([
     userId ? prisma.user.findUnique({ where: { id: userId } }) : Promise.resolve(null),
     prisma.customer.findFirst({ where: { phone: clean } }),
     prisma.lead.findMany({ where: { phone: clean }, orderBy: { createdAt: 'asc' }, take: 10 }),
@@ -192,7 +215,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
       orderBy: { queuedAt: 'desc' },
     }),
     userId
-      ? prisma.loanApplication.findFirst({
+      ? prisma.loanApplication.findMany({
           // `failed` belongs alongside closed/rejected here — it means
           // prequalify ran and returned zero eligible offers (see
           // applications.routes.ts), a dead end exactly like the other two.
@@ -210,15 +233,25 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           // The fix for BOTH is the same one: applicationStatusLabel gives
           // each real status its own accurate phrasing, so "offers_ready"
           // never gets spoken as "application in progress" OR "not started".
+          //
+          // findMany, not findFirst — see APPLICATION_STATUS_RANK's comment.
+          // The single most-advanced one is picked in JS just below.
           where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] } },
           orderBy: { createdAt: 'desc' },
           include: { offers: { include: { partner: true }, orderBy: { createdAt: 'asc' } } },
         })
-      : Promise.resolve(null),
+      : Promise.resolve([] as never[]),
     userId
       ? prisma.loan.findFirst({ where: { userId }, orderBy: { disbursedAt: 'desc' } })
       : Promise.resolve(null),
-  ]).catch(() => [null, null, [], null, null, null] as const);
+  ]).catch(() => [null, null, [], null, [], null] as const);
+
+  // Already ordered by createdAt desc, so among ties at the same rank the
+  // first (most recent) one wins — see APPLICATION_STATUS_RANK's comment.
+  const app = (apps ?? []).reduce<(typeof apps)[number] | null>((best, candidate) => {
+    if (!best) return candidate;
+    return APPLICATION_STATUS_RANK[candidate.status] > APPLICATION_STATUS_RANK[best.status] ? candidate : best;
+  }, null);
 
   const inquiries = (leads ?? []).map((l) => ({
     product: l.productInterest,
