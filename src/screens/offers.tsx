@@ -114,7 +114,7 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
 }
 
 export default function Offers() {
-  const { state, set, mergeApiContext, go } = useStore();
+  const { state, set, mergeApiContext, go, markUrgentContext } = useStore();
   const t = useT();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
@@ -176,6 +176,10 @@ export default function Offers() {
       const res: any = await api.prequalify(state.applicationId);
       set({ offersError: res?.friendlyError || '' });
       mergeApiContext({ prequalifyResult: { offers: res?.offers, friendlyError: res?.friendlyError } });
+      // Same call, same urgency rule as finding.tsx's own hasOffers check —
+      // real offers landing is worth interrupting Ruby's current sentence
+      // for; an empty/error retry isn't, same as the first attempt.
+      if ((res?.offers ?? []).length > 0) markUrgentContext();
       await load();
     } catch {
       set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });

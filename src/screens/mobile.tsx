@@ -19,7 +19,7 @@ function isValidMobile(v: string): boolean {
 }
 
 export default function Mobile() {
-  const { state, set, go } = useStore();
+  const { state, set, go, markUrgentContext } = useStore();
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -91,9 +91,17 @@ export default function Mobile() {
       // (fullName + pincode on file) — skip the permissions explainer and
       // About You form entirely and land straight on the dashboard.
       const alreadyOnboarded = !!(r.user?.fullName && r.user?.pincode);
+      // The first authentication result of the call, branching where the
+      // user lands next — at least as consequential as finding.tsx's
+      // offers-found case, and Ruby may still be mid-sentence about the OTP
+      // when it arrives. Same reasoning for a wrong code below: she needs to
+      // know it failed the instant it's known, not after finishing whatever
+      // she's already saying.
+      markUrgentContext();
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
+      markUrgentContext();
     } finally {
       setBusy(false);
     }
@@ -141,6 +149,19 @@ export default function Mobile() {
     otpSent ? 'OTP' : undefined,
     { kind: 'field', getValue: () => otpCode, setValue: v => onOtpChange(String(v)) },
     [otpCode, otpSent],
+  );
+
+  // The terms Pressable below is hand-rolled, not the shared ConsentRow (which
+  // registers its own voiceId) — the element-tree walk auto-discovers it from
+  // its own first text fragment (t.termsAgreePrefix), which is "I agree to the"
+  // in English but collapses to a bare "నేను" ("I") in Telugu, an unusable
+  // voice label. Confirmed live: available_actions showed "button:నేను" on this
+  // screen. Explicit registration gives it a stable label in every language,
+  // without touching the visual markup.
+  useVoiceTarget(
+    !otpSent ? 'Accept terms and privacy policy' : undefined,
+    { kind: 'consent', getValue: () => state.terms, setValue: v => set({ terms: !!v }) },
+    [state.terms],
   );
 
   return (
