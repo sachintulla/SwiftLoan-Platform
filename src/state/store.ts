@@ -349,6 +349,45 @@ function stripForVoiceContext<T>(value: T): T {
   return value;
 }
 
+// save_applicant_details (the voice tool) accepts free-form keys — "use
+// whatever field names fit what was actually said" — but PATCH /users/me's
+// profilePatch is .strict(), so a single unrecognised key rejects the WHOLE
+// patch, not just that one field. This allowlists exactly the keys that are
+// real User columns (translating the two that don't match 1:1: the tool's
+// own `employmentType` -> the column `employment`, and `loanAmount` -> the
+// dedicated `draftLoanAmount` column, since no LoanApplication exists yet to
+// hold a real amount). Everything else the model might send is dropped
+// silently rather than risking the sync failing outright.
+const APPLICANT_DRAFT_KEY_MAP: Record<string, string> = {
+  employmentType: 'employment',
+  loanAmount: 'draftLoanAmount',
+};
+const APPLICANT_DRAFT_ALLOWED_KEYS = new Set([
+  'fullName', 'email', 'dob', 'gender', 'pincode', 'residenceType', 'employment',
+  'monthlyIncome', 'company', 'qualification', 'maritalStatus', 'alternateMobile',
+  'alternateEmail', 'loanPurpose', 'salaryMode', 'professionalType', 'companyEmail',
+  'businessEmail', 'addressLine1', 'addressLine2', 'landmark', 'city', 'district',
+  'state', 'monthlyObligations', 'draftLoanAmount',
+]);
+
+function toServerProfilePatch(details: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  for (const [rawKey, rawValue] of Object.entries(details)) {
+    const key = APPLICANT_DRAFT_KEY_MAP[rawKey] ?? rawKey;
+    if (!APPLICANT_DRAFT_ALLOWED_KEYS.has(key)) continue;
+    // profilePatch's dob is z.string().datetime() — a full ISO datetime, not
+    // a bare date — so "2001-09-15" alone fails validation server-side.
+    if (key === 'dob' && typeof rawValue === 'string') {
+      const d = new Date(rawValue);
+      if (Number.isNaN(d.getTime())) continue;
+      out[key] = d.toISOString();
+      continue;
+    }
+    out[key] = rawValue;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'set':
@@ -630,6 +669,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const merged = { ...(stateRef.current.savedApplicantDraft ?? {}), ...details };
         dispatch({ type: 'set', patch: { savedApplicantDraft: merged } });
         savePrefillDraft(merged);
+        // Also sync to the server, fire-and-forget — this device-local draft
+        // alone never reached the backend at all before, meaning a different
+        // device (or the pre-call tool, which only ever sees server data)
+        // had no way to see any of it. Only THIS call's new details, not the
+        // whole merged draft — the endpoint is additive per-field already.
+        if (isAuthed()) {
+          const patch = toServerProfilePatch(details);
+          if (patch) api.updateProfile(patch).catch(() => undefined);
+        }
       },
       // Bug fix: open a specific loan/application by its reference number.
       openLoan: async (reference: string) => {

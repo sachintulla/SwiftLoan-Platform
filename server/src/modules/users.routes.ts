@@ -59,6 +59,10 @@ const profilePatch = z.object({
   district: z.string().optional(),
   state: z.string().optional(),
   monthlyObligations: z.number().int().nonnegative().optional(),
+  // The desired loan amount, gathered conversationally before a real
+  // LoanApplication exists to hold it — see the schema comment on the column
+  // itself. Plain rupees, matching LoanApplication.amount's own convention.
+  draftLoanAmount: z.number().int().nonnegative().optional(),
 }).strict();
 
 /** Update user information in the backend database. */

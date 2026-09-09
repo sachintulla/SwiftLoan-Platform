@@ -86,6 +86,36 @@ export interface UserContext {
     panOnFile: boolean;
   } | null;
 
+  /**
+   * The rest of what save_applicant_details collects conversationally, before
+   * an application exists — everything NOT already in `profile` above. Now
+   * synced server-side (User columns) instead of living only in the app's
+   * own device-local savedApplicantDraft, so it reaches the pre-call tool
+   * too, not just the app's own page_context push. Null only when there is
+   * no signed-in user at all — an individual field being null just means
+   * that one hasn't come up in conversation yet, same as `profile`.
+   */
+  applicantDraft: {
+    residenceType: string | null;
+    maritalStatus: string | null;
+    qualification: string | null;
+    company: string | null;
+    loanPurpose: string | null;
+    loanAmount: number | null; // rupees — the desired amount, before a real LoanApplication exists
+    salaryMode: string | null;
+    professionalType: string | null;
+    companyEmail: string | null;
+    businessEmail: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    landmark: string | null;
+    district: string | null;
+    state: string | null;
+    monthlyObligations: number | null; // rupees
+    alternateMobile: string | null;
+    alternateEmail: string | null;
+  } | null;
+
   /** Internal sales/telecaller funnel (see the file header) — not for the customer's ears. */
   marketingName: string | null;
   marketingCity: string | null;
@@ -177,7 +207,7 @@ export interface UserContext {
 const NO_APPLICATION_LABEL = 'No application started';
 
 const EMPTY: UserContext = {
-  hasHistory: false, profile: null,
+  hasHistory: false, profile: null, applicantDraft: null,
   marketingName: null, marketingCity: null, marketingEmail: null,
   marketingStage: null, marketingStageLabel: null, marketingNextAction: null,
   applicationStatus: null, applicationStatusLabel: NO_APPLICATION_LABEL,
@@ -291,6 +321,28 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           employment: user.employment,
           monthlyIncome: user.monthlyIncome ?? null,
           panOnFile: !!user.panNumber,
+        }
+      : null,
+    applicantDraft: user
+      ? {
+          residenceType: user.residenceType,
+          maritalStatus: user.maritalStatus,
+          qualification: user.qualification,
+          company: user.company,
+          loanPurpose: user.loanPurpose,
+          loanAmount: user.draftLoanAmount ?? null,
+          salaryMode: user.salaryMode,
+          professionalType: user.professionalType,
+          companyEmail: user.companyEmail,
+          businessEmail: user.businessEmail,
+          addressLine1: user.addressLine1,
+          addressLine2: user.addressLine2,
+          landmark: user.landmark,
+          district: user.district,
+          state: user.state,
+          monthlyObligations: user.monthlyObligations ?? null,
+          alternateMobile: user.alternateMobile,
+          alternateEmail: user.alternateEmail,
         }
       : null,
     marketingName: customer?.name ?? null,
