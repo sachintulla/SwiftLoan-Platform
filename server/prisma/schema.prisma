@@ -84,6 +84,12 @@ model User {
   professionalType    String?
   companyEmail        String?
   businessEmail       String?
+  // The only pre-application field with no other natural home (unlike
+  // loanPurpose etc. above) — a real LoanApplication.amount doesn't exist
+  // yet at the point the voice agent collects this conversationally, so it
+  // has nowhere else to persist until basic is actually reached. Plain
+  // rupees, same convention as LoanApplication.amount (NOT paise).
+  draftLoanAmount     Int?
 
   lang           Lang            @default(en)
   // The language the user has spoken to the voice agent, distinct from `lang`

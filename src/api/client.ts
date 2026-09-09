@@ -622,6 +622,15 @@ export interface UserContext {
     monthlyIncome: number | null;
     panOnFile: boolean;
   } | null;
+  /** The rest of what save_applicant_details collects, synced server-side. See userContext.ts. */
+  applicantDraft: {
+    residenceType: string | null; maritalStatus: string | null; qualification: string | null;
+    company: string | null; loanPurpose: string | null; loanAmount: number | null;
+    salaryMode: string | null; professionalType: string | null; companyEmail: string | null;
+    businessEmail: string | null; addressLine1: string | null; addressLine2: string | null;
+    landmark: string | null; district: string | null; state: string | null;
+    monthlyObligations: number | null; alternateMobile: string | null; alternateEmail: string | null;
+  } | null;
   /** Internal sales/telecaller funnel — not for the customer's ears. See userContext.ts. */
   marketingName: string | null;
   marketingCity: string | null;
@@ -677,6 +686,7 @@ export async function fetchUserContext(): Promise<UserContext | null> {
     return {
       hasHistory: d.hasHistory,
       profile: d.profile,
+      applicantDraft: d.applicantDraft,
       marketingName: d.marketingName,
       marketingCity: d.marketingCity,
       marketingEmail: d.marketingEmail,
