@@ -75,7 +75,7 @@ function SparkleButton({ label, onPress, accessibilityLabel }: { label: string; 
  * `onApplied` lets the caller optimistically flag the tile as applied.
  */
 export function useOfferSelect(onApplied?: (offerId: string) => void) {
-  const { state, set, mergeApiContext, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
     // A user can apply to the same lender more than once — but ONLY with a
     // different loan amount. Same lender + same amount is a duplicate: the
@@ -83,7 +83,11 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
     // tracker instead of creating (or reopening) another.
     if (state.applicationId) {
       const res: any = await api.applyOffer(state.applicationId, offer.id, emiOptionId).catch(() => null);
-      if (res) mergeApiContext({ offerApplyResult: res });
+      // A real apply result just landed — Ruby may still be mid-sentence
+      // from asking "shall we apply?"; same reasoning as finding.tsx's
+      // offers-found case, this is consequential enough to interrupt
+      // whatever she's saying rather than queue behind it.
+      if (res) { mergeApiContext({ offerApplyResult: res }); markUrgentContext(); }
       if (res?.duplicate) {
         set({
           applicationId: res.applicationId ?? state.applicationId,
@@ -106,7 +110,7 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
       return;
     }
     go('handoff');
-  }, [state.applicationId, set, mergeApiContext, go, onApplied, showToast]);
+  }, [state.applicationId, set, mergeApiContext, go, onApplied, showToast, markUrgentContext]);
 }
 
 export default function Offers() {
