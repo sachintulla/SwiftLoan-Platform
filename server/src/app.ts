@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
 import { notFound, errorHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
+import { debugHttpLog } from './lib/debugHttpLog.js';
 
 import { authRouter } from './modules/auth.routes.js';
 import { usersRouter } from './modules/users.routes.js';
@@ -18,7 +19,7 @@ import { supportRouter } from './modules/support.routes.js';
 import { trackingRouter } from './modules/tracking.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
 import { adminAuthRouter } from './modules/adminAuth.routes.js';
-import { contextRouter } from './modules/context.routes.js';
+import { contextRouter, contextLookupRouter } from './modules/context.routes.js';
 import { configRouter } from './modules/config.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
@@ -44,6 +45,18 @@ import { websiteRouter } from './modules/website.routes.js';
 export function createApp() {
   const app = express();
 
+  // The deployed box sits behind one nginx reverse proxy (Via: ... in every
+  // response). Without this, Express won't trust X-Forwarded-For at all, so
+  // req.ip falls back to the proxy's own socket address for every request —
+  // meaning every rate limiter below pools ALL traffic (real Ello calls,
+  // manual testing, anyone) into one shared bucket regardless of real origin.
+  // Confirmed live: ERR_ERL_UNEXPECTED_X_FORWARDED_FOR spamming the log, and
+  // a real user's second call in the same minute as unrelated testing traffic
+  // got wrongly 429'd on get_user_context — trust exactly 1 hop (this one
+  // proxy), not `true` (unlimited hops — spoofable if this box is ever put
+  // behind more than one proxy without revisiting this).
+  app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cors());
   // Capture the raw body so webhook signature checks (e.g. Knight Fintech's
@@ -56,6 +69,9 @@ export function createApp() {
   // colour codes, which read as garbage in a redirected log file); 'dev' is
   // fine locally where a terminal renders them.
   app.use(morgan(env.isProd ? 'combined' : 'dev'));
+  // Opt-in full request/response body logging — see debugHttpLog.ts for why
+  // this is off unless DEBUG_HTTP_LOGS=true is explicitly set.
+  if (env.debugHttpLogs) app.use(debugHttpLog());
 
   // ── Rate limiting ──
   // Previously only the two auth routes were throttled, which left every public
@@ -145,6 +161,12 @@ export function createApp() {
   app.use('/api/admin', adminRouter);
 
   // ── WS3: context handoff + app-download landing pages ──
+  // /lookup mounted separately, BEFORE the general /api/context line, so it
+  // gets its own agent-facing-tool-sized limit instead of falling through to
+  // leadLimiter's 5/min (correctly strict for /create, far too strict for a
+  // pre-call tool Ello calls on every call — see contextLookupRouter's own
+  // comment in context.routes.ts).
+  app.use('/api/context/lookup', limiter(60_000, 120, 'Too many context lookup requests'), contextLookupRouter);
   app.use('/api/context', leadLimiter, contextRouter);
   app.use('/api/config', configRouter); // PUBLIC — app fetches admin-tuned config
   // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for

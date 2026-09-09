@@ -43,7 +43,7 @@ const LINKS = [
 
 export default function Profile() {
   const t = useT();
-  const { state, set, go, showToast, reset, mergeApiContext } = useStore();
+  const { state, set, go, showToast, reset, mergeApiContext, markUrgentContext } = useStore();
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -136,11 +136,17 @@ export default function Profile() {
       // as offerApplyResult/prequalifyResult elsewhere, so the agent can speak
       // it — confirm success, or explain a real error, instead of silently
       // not knowing whether the save the user asked for actually went through.
+      // Marked urgent for the same reason as those: Ruby may still be
+      // mid-sentence when this lands, and a real save result (success or
+      // failure) needs to reach her the instant it's known, not queue behind
+      // whatever she's already saying.
       mergeApiContext({ profileSaveResult: { ok: true } });
+      markUrgentContext();
     } catch (e) {
       const message = e instanceof ApiError ? e.message : 'Could not save. Please try again.';
       showToast(message);
       mergeApiContext({ profileSaveResult: { ok: false, error: message } });
+      markUrgentContext();
     }
   };
   // Enter edit mode, seeding the local DOB picker from whatever's already on

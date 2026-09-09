@@ -8,6 +8,7 @@ import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/jour
 import { requireAuth } from '../middleware/auth.js';
 import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
+import { verifyApiKey } from '../lib/apiKeys.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('context');
@@ -171,6 +172,63 @@ contextRouter.get('/me', requireAuth, ah(async (req, res) => {
 
   // 200 with hasHistory:false rather than 404 — "we know nothing about you" is a
   // normal answer for a brand-new user, not an error the app should log.
+  return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+}));
+
+/**
+ * POST /api/context/lookup
+ *
+ * The Ello-callable twin of GET /api/context/me — same buildUserContext()
+ * payload, for a caller with no signed-in user session at all (Ello's
+ * tool-calling servers, same as get_customer_history in
+ * conversations.routes.ts). /me derives its phone from the caller's own
+ * access token; a third-party tool call has none, so this takes `phone` in
+ * the body instead and authenticates with the same shared x-api-key secret
+ * conversations.routes.ts uses, for the identical reason: no admin/user
+ * session to present.
+ *
+ * SECURITY: exactly like conversations.routes.ts's /context, this returns a
+ * person's full profile and loan status for any phone number given to it —
+ * the secret is the only thing standing between a caller and that lookup, so
+ * this is NEVER allowed to run unauthenticated, including in development.
+ *
+ * On its OWN router (not contextRouter) so app.ts can give it a rate limit
+ * sized for an agent-facing tool call (like /api/conversations's 120/min),
+ * not leadLimiter's 5/min — this was accidentally inheriting that 5/min from
+ * being mounted under /api/context alongside /create (real per-call
+ * telephony cost, correctly strict), and rejected a real Ello call within
+ * a minute of normal use. Confirmed live: 429 "Too many submissions" on the
+ * 6th call in under 60 seconds.
+ */
+export const contextLookupRouter = Router();
+contextLookupRouter.post('/', ah(async (req, res) => {
+  const provided =
+    String(req.headers['x-api-key'] ?? '') ||
+    String(req.headers['x-webhook-secret'] ?? '');
+  const legacySecret = process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET || '';
+  const authed = !!provided && (!!(await verifyApiKey(provided)) || (!!legacySecret && provided === legacySecret));
+  if (!authed) {
+    // Same "not configured" vs "wrong key" distinction as conversations.routes.ts.
+    if (!legacySecret && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
+      log.error('no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing', { path: req.path });
+      return fail(res, 503, 'Context API is not configured');
+    }
+    log.warn('rejected — invalid or missing API key', { path: req.path });
+    return fail(res, 401, 'Invalid or missing API key');
+  }
+
+  // Accept either key: Ello resolves a tool's request-body property by
+  // matching its NAME against its own context variables (confirmed live —
+  // renaming this tool's property from `phone` to `phone_number` was what
+  // actually got a real number resolved, where `phone` with `{phone_number}`
+  // in the description never did), so whichever property name a given tool
+  // config ends up using should still reach a real user here.
+  const raw = req.body?.phone ?? req.body?.phone_number ?? '';
+  const phone = String(raw).replace(/\D/g, '').slice(-10);
+  if (phone.length !== 10) return fail(res, 400, 'phone is required');
+
+  const user = await prisma.user.findFirst({ where: { phone } });
+  const ctx = await buildUserContext(phone, user?.id);
   return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
 }));
 

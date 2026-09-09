@@ -711,12 +711,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       offers_summary: s.offersSummary || undefined,
       offers_error: s.offersError || undefined,
       priorInquiries: stateRef.current.priorInquiries,
-      // WS8: the history behind this phone number. `brief` is a one-line summary
-      // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
-      // personal loan; spoke to us on the phone yesterday"), so it continues the
-      // conversation instead of restarting it. Read from stateRef so this closure
-      // never goes stale.
-      userContext: stateRef.current.userContext ?? undefined,
       // Details Ruby gathered conversationally on a previous call (or earlier
       // this one), before the user had reached the application form — see
       // save_applicant_details / the prompt's "Proactive Details Collection"
@@ -792,15 +786,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // screen (by its own, deliberate definition) correctly showed nothing for.
   // `userContext` is NOT null, though — VoiceWidget.tsx does its own fresh,
   // per-call-open fetch of the same endpoint (see the comment on
-  // refreshSessionContext there) and writes straight into this state, on
-  // purpose: the prompt's opening-line logic (see
-  // prompts/ello-inapp-copilot-prompt.md's "Case A/B/C") depends on
-  // userContext.application/nextAction/brief to greet a returning user with
-  // their real progress. The actual bug was the loose "in progress" query,
-  // fixed at the source in server/src/lib/userContext.ts (now requires
-  // offers.applied), so that field matches loans.tsx's stricter definition
-  // again. `user_name` was always unaffected — it comes from the logged-in
-  // account, not this fetch.
+  // refreshSessionContext there) and writes straight into this state.
+  //
+  // That state is no longer forwarded to the agent via page_context, though
+  // (see agent.ts's startPageContext comment) — the in-app agent's
+  // status-aware opening now comes from the get_user_context pre-call tool
+  // instead, which resolves before the agent speaks (this fetch, racing the
+  // WebSocket handshake, sometimes didn't) and shares the data with Ello once
+  // per call rather than continuously. `state.userContext` itself stays: the
+  // savedApplicantDraft gate a few lines up still reads
+  // userContext.application locally. `user_name` was always unaffected — it
+  // comes from the logged-in account, not this fetch.
 
   // ── Restore the returning user's last-pulled offers on login ──────────
   //

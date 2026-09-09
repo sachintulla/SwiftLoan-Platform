@@ -39,6 +39,15 @@ const CONFIRM_TIMEOUT_MS = 45_000;
 // (profile's api.me() fetch), so a shorter window still let the immediate
 // call's own timer fire first, on stale/incomplete data.
 const PAGE_CONTEXT_DEBOUNCE_MS = 900;
+// A short, SEPARATE debounce for the urgent path — not for politeness (the
+// point of urgent is still to interrupt fast), but to coalesce two urgent
+// calls that land within a few ms of each other (e.g. basicpan's PAN-save
+// urgent flush immediately followed by finding.tsx's offers-found urgent
+// flush, in a fast sequential flow) into a single interruption carrying the
+// truly latest state, instead of firing one barge-in after another off a
+// stale intermediate snapshot. Far shorter than PAGE_CONTEXT_DEBOUNCE_MS —
+// imperceptible to a listener, long enough to catch a same-tick pileup.
+const URGENT_COALESCE_MS = 120;
 
 export class ElloAgent {
   conversationId: string | null = null;
@@ -54,6 +63,7 @@ export class ElloAgent {
   private inflight = new Map<string, AbortController>();
   private pageContextFn: PageContextProvider | null = null;
   private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
   // Full page_context already sent this session, keyed by screen — lets a
   // revisit with nothing changed (Home -> Profile -> Home -> Profile) send a
   // cheap page-marker instead of the whole object again. Reset per call in
@@ -131,14 +141,27 @@ export class ElloAgent {
   // reserved for a genuinely time-sensitive announcement (e.g. finding.tsx's
   // real offers actually arriving while the user's still on the waiting
   // screen) where Ruby cutting in immediately is the point, not a bug. It
-  // skips both the debounce timer and the defer-while-speaking check, so use
-  // it sparingly: every other caller should keep using the plain (debounced,
-  // non-interrupting) form. See flushPageContext's own comment for why the
-  // defer exists in the first place.
+  // skips the defer-while-speaking check (see flushPageContext's own comment
+  // for why that defer exists at all) and the routine debounce, but is NOT
+  // fired instantly itself — see URGENT_COALESCE_MS: several urgent calls
+  // landing within a few ms of each other collapse into the single latest
+  // one, so two callers marking urgent back to back interrupt Ruby once with
+  // current truth, not twice with the first one already stale by the time it
+  // sends. Use urgent sparingly regardless: every other caller should keep
+  // using the plain (debounced, non-interrupting) form.
   updatePageContext(opts?: { urgent?: boolean }): void {
     if (opts?.urgent) {
+      // Cancel any pending routine flush — an urgent one supersedes it
+      // outright, not just delays it.
       if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
-      this.flushPageContext(true);
+      // See URGENT_COALESCE_MS's comment — resets on every urgent call within
+      // the window, so a burst of them collapses into one flush reading
+      // whatever is truly current when the last one in the burst fires.
+      if (this.urgentFlushTimer) clearTimeout(this.urgentFlushTimer);
+      this.urgentFlushTimer = setTimeout(() => {
+        this.urgentFlushTimer = null;
+        this.flushPageContext(true);
+      }, URGENT_COALESCE_MS);
       return;
     }
     if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
@@ -258,7 +281,7 @@ export class ElloAgent {
     return this.status;
   }
 
-  async start(): Promise<void> {
+  async start(phone?: string): Promise<void> {
     vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId);
     if (!this.options.apiKey || !this.options.assistantId) {
       vlog('ABORT: apiKey/assistantId not configured');
@@ -294,7 +317,7 @@ export class ElloAgent {
         throw new Error('offline: no internet connection');
       }
       vlog('POST call ->', this.options.apiBaseUrl);
-      const { conversationId } = await createVoiceSession(this.options);
+      const { conversationId } = await createVoiceSession(this.options, phone);
       if (cancelled()) {
         vlog('start aborted after REST — stop() was pressed');
         return;
@@ -351,21 +374,28 @@ export class ElloAgent {
       // next to the system prompt's greeting instructions and tends to lean on
       // reciting the former instead of following the latter.
       //
-      // Also withholds userContext/savedApplicantDraft/api_context — deliberate
-      // product decision: the very first turn of every call should be a generic
+      // Also withholds savedApplicantDraft/api_context — deliberate product
+      // decision: the very first turn of every call should be a generic
       // greeting, never tailored to which screen the user's on or what's known
       // about their account. `page` itself still goes through (has to, for the
       // speak-first gate above), so the greeting isn't literally blind, just
       // generic. Every send after this one is unaffected — a real navigation
       // still delivers full context exactly as before.
       //
+      // userContext itself is no longer part of page_context at all (removed
+      // from store.ts's builder — it's now only supplied via the get_user_context
+      // pre-call tool, which is both more reliable for shaping the opening line
+      // — guaranteed to resolve before the agent speaks, unlike this per-turn
+      // push racing the WebSocket handshake — and shares it with Ello once
+      // per call instead of continuously on every turn).
+      //
       // No automatic full-context follow-up after this either (there used to be
       // one, 500ms later) — by design by this same product decision: the whole
       // starting screen is meant to be "generic" for this call, not just its
       // opening line, so nothing here should quietly upgrade it moments later.
       // Known, accepted consequence (confirmed true before, still true now):
-      // available_actions/screen_overview/userContext stay empty for as long as
-      // the user remains on the starting screen — Ruby can still navigate blind
+      // available_actions/screen_overview stay empty for as long as the user
+      // remains on the starting screen — Ruby can still navigate blind
       // (navigate_screen doesn't need available_actions) but can't describe or
       // tap anything specific there until an actual screen change delivers a
       // real update. If that ever needs to change back, this is the exact spot.
@@ -373,7 +403,6 @@ export class ElloAgent {
         ...fullContext,
         screen_overview: '',
         available_actions: [],
-        userContext: undefined,
         savedApplicantDraft: undefined,
         api_context: undefined,
       };
@@ -466,6 +495,7 @@ export class ElloAgent {
   private teardown(): void {
     if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
     if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
+    if (this.urgentFlushTimer) { clearTimeout(this.urgentFlushTimer); this.urgentFlushTimer = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;

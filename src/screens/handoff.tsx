@@ -15,7 +15,7 @@ const DOCS = [
 ];
 
 export default function Handoff() {
-  const { state, set, mergeApiContext, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
   const [offer, setOffer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -51,6 +51,11 @@ export default function Handoff() {
       const { loan }: any = await api.handoff(state.applicationId);
       set({ loanId: loan.id });
       mergeApiContext({ handoffResult: loan });
+      // The loan just disbursed — Ruby may still be mid-sentence from this
+      // screen's own confirmation ask; this is at least as consequential as
+      // finding.tsx's "real offers found" case, so it gets the same
+      // interrupt-in-progress-speech treatment rather than queuing behind it.
+      markUrgentContext();
       go('disbursed');
     } catch (e: any) {
       showToast(e?.message || 'Could not complete the handoff. Please try again.');

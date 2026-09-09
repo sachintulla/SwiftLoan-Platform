@@ -25,7 +25,7 @@ function generateMemoryId(): string {
   });
 }
 
-export async function createVoiceSession(options: ElloAgentOptions): Promise<{ conversationId: string }> {
+export async function createVoiceSession(options: ElloAgentOptions, phone?: string): Promise<{ conversationId: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SESSION_START_TIMEOUT_MS);
   let res: Response;
@@ -43,6 +43,13 @@ export async function createVoiceSession(options: ElloAgentOptions): Promise<{ c
         name: '',
         message: 'Hi! I can help you navigate SwiftLoan by voice — what would you like to do?',
         memory_id: generateMemoryId(),
+        // Without this, a pre-call tool (e.g. get_user_context) has no phone
+        // number to look up at all — confirmed live: an app-started call's
+        // own stored record showed context_data: null, while a manually
+        // built payload with this field populated it correctly. Omitted
+        // entirely (not sent as "") when signed out/unknown, rather than
+        // sending a value that would fail our own 10-digit validation anyway.
+        ...(phone ? { context_data: { phone_number: phone } } : {}),
       }),
       signal: controller.signal,
     });
