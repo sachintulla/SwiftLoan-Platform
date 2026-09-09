@@ -30,7 +30,7 @@ function agoLabel(ts: number | null): string {
  * Aurix). With no offers, the screen becomes an engaging "apply for a loan" CTA.
  */
 export default function MyOffers() {
-  const { state, set, mergeApiContext, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -113,7 +113,11 @@ export default function MyOffers() {
       const list = (res?.offers || []) as Offer[];
       set({ offersError: res?.friendlyError || '' });
       mergeApiContext({ prequalifyResult: { offers: res.offers, friendlyError: res?.friendlyError } });
+      // Same call, same urgency rule as finding.tsx's own hasOffers check —
+      // real offers landing is worth interrupting Ruby's current sentence
+      // for; an empty/error retry isn't, same as the first attempt.
       if (list.length > 0) {
+        markUrgentContext();
         const now = Date.now();
         setOffers(list);
         setSavedAt(now);

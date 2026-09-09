@@ -20,7 +20,7 @@ function isValidPan(v: string): boolean {
 }
 
 export default function BasicPan() {
-  const { state, set, mergeApiContext, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
   const t = useT();
   const [busy, setBusy] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
@@ -116,7 +116,15 @@ export default function BasicPan() {
       }
       go('finding');
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.panSaveError);
+      const message = e instanceof ApiError ? e.message : t.panSaveError;
+      showToast(message);
+      // Previously toast-only, same gap profile.tsx's save used to have — a
+      // real async failure here (unlike the two synchronous format checks
+      // above, which have no meaningful wait for the agent to be mid-sentence
+      // through) needs to actually reach api_context, and urgently: Ruby may
+      // still be mid "let me submit that" when it lands.
+      mergeApiContext({ panValidationResult: { ok: false, error: message } });
+      markUrgentContext();
     } finally {
       setBusy(false);
     }

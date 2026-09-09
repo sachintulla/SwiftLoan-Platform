@@ -39,6 +39,15 @@ const CONFIRM_TIMEOUT_MS = 45_000;
 // (profile's api.me() fetch), so a shorter window still let the immediate
 // call's own timer fire first, on stale/incomplete data.
 const PAGE_CONTEXT_DEBOUNCE_MS = 900;
+// A short, SEPARATE debounce for the urgent path — not for politeness (the
+// point of urgent is still to interrupt fast), but to coalesce two urgent
+// calls that land within a few ms of each other (e.g. basicpan's PAN-save
+// urgent flush immediately followed by finding.tsx's offers-found urgent
+// flush, in a fast sequential flow) into a single interruption carrying the
+// truly latest state, instead of firing one barge-in after another off a
+// stale intermediate snapshot. Far shorter than PAGE_CONTEXT_DEBOUNCE_MS —
+// imperceptible to a listener, long enough to catch a same-tick pileup.
+const URGENT_COALESCE_MS = 120;
 
 export class ElloAgent {
   conversationId: string | null = null;
@@ -54,6 +63,7 @@ export class ElloAgent {
   private inflight = new Map<string, AbortController>();
   private pageContextFn: PageContextProvider | null = null;
   private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
   // Full page_context already sent this session, keyed by screen — lets a
   // revisit with nothing changed (Home -> Profile -> Home -> Profile) send a
   // cheap page-marker instead of the whole object again. Reset per call in
@@ -131,14 +141,27 @@ export class ElloAgent {
   // reserved for a genuinely time-sensitive announcement (e.g. finding.tsx's
   // real offers actually arriving while the user's still on the waiting
   // screen) where Ruby cutting in immediately is the point, not a bug. It
-  // skips both the debounce timer and the defer-while-speaking check, so use
-  // it sparingly: every other caller should keep using the plain (debounced,
-  // non-interrupting) form. See flushPageContext's own comment for why the
-  // defer exists in the first place.
+  // skips the defer-while-speaking check (see flushPageContext's own comment
+  // for why that defer exists at all) and the routine debounce, but is NOT
+  // fired instantly itself — see URGENT_COALESCE_MS: several urgent calls
+  // landing within a few ms of each other collapse into the single latest
+  // one, so two callers marking urgent back to back interrupt Ruby once with
+  // current truth, not twice with the first one already stale by the time it
+  // sends. Use urgent sparingly regardless: every other caller should keep
+  // using the plain (debounced, non-interrupting) form.
   updatePageContext(opts?: { urgent?: boolean }): void {
     if (opts?.urgent) {
+      // Cancel any pending routine flush — an urgent one supersedes it
+      // outright, not just delays it.
       if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
-      this.flushPageContext(true);
+      // See URGENT_COALESCE_MS's comment — resets on every urgent call within
+      // the window, so a burst of them collapses into one flush reading
+      // whatever is truly current when the last one in the burst fires.
+      if (this.urgentFlushTimer) clearTimeout(this.urgentFlushTimer);
+      this.urgentFlushTimer = setTimeout(() => {
+        this.urgentFlushTimer = null;
+        this.flushPageContext(true);
+      }, URGENT_COALESCE_MS);
       return;
     }
     if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
@@ -468,6 +491,7 @@ export class ElloAgent {
   private teardown(): void {
     if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
     if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
+    if (this.urgentFlushTimer) { clearTimeout(this.urgentFlushTimer); this.urgentFlushTimer = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;
