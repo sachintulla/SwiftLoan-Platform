@@ -749,6 +749,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // The one way Ello can learn a phone number for a call that started
+      // before login — get_user_context is a pre-call-only tool, called once
+      // at session start with whatever context_data.phone_number the app had
+      // THEN (nothing, for someone still on mobile/otp). Once OTP verification
+      // succeeds mid-call, this field appears in the very next page_context
+      // push (markUrgentContext() already fires one) — see the core prompt's
+      // opening section for the follow-up get_user_context call this enables.
+      authenticated_phone: s.authUser?.phone || undefined,
       // Whether this device has already heard the first-time product pitch on
       // an earlier call — see session.ts's markIntroPitchHeard for why this
       // exists. Always sent (never omitted), even `false` — the Opening Call
