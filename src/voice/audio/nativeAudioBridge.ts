@@ -22,8 +22,18 @@ export function onAudioLevel(cb: (level: number) => void): () => void {
 
 async function ensureMicPermission(): Promise<boolean> {
   if (Platform.OS === 'android') {
-    const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
+    // BLUETOOTH_CONNECT (Android 12+) gates whether a connected headset shows
+    // up in the native module's device list at all — without it granted,
+    // VoiceAudioModule's Bluetooth-preferred routing silently falls back to
+    // the speaker even with a real headset connected. Requested alongside
+    // the mic in one prompt rather than a separate ask; declining it is
+    // non-fatal, the call still works over the speaker either way, so only
+    // RECORD_AUDIO's result gates whether the call can start at all.
+    const results = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+    ]);
+    return results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
   }
   if (VoiceAudioModule?.requestMicPermission) {
     try {

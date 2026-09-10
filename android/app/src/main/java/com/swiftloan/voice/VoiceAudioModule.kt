@@ -141,6 +141,11 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
    *
    * MODE_IN_COMMUNICATION defaults routing to the earpiece, so speakerphone is
    * forced on explicitly — this app is held at arm's length, not to the ear.
+   * A connected Bluetooth headset/earbuds is preferred over that forced
+   * speaker when present — confirmed live: with a BT device connected, the
+   * unconditional speaker pick below used to win every time, so the agent
+   * kept talking out of the phone's own speaker/mic instead of the paired
+   * headset the user was actually wearing.
    *
    * Previously avoided: measured drop in mic peaks (~14500 -> ~600) in this
    * mode. That drop is compensated for by always running the software AGC
@@ -151,12 +156,25 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       val am = audioManager
       am.mode = AudioManager.MODE_IN_COMMUNICATION
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val speaker = am.availableCommunicationDevices.firstOrNull {
-          it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        }
-        val set = speaker?.let { am.setCommunicationDevice(it) } ?: false
-        dlog("enterCallAudioMode: setCommunicationDevice(speaker) ok=$set")
+        // setCommunicationDevice() is the unified API 31+ routing call — it
+        // supersedes the legacy isBluetoothScoOn/isSpeakerphoneOn pair and
+        // establishes the SCO link itself when a Bluetooth device is chosen,
+        // so no separate startBluetoothSco() call is needed here. Only
+        // devices actually connected right now appear in this list, so
+        // preferring TYPE_BLUETOOTH_SCO here is exactly "use the headset the
+        // user has on", falling back to the speaker when none is connected.
+        val devices = am.availableCommunicationDevices
+        val bluetooth = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+        val speaker = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        val device = bluetooth ?: speaker
+        val set = device?.let { am.setCommunicationDevice(it) } ?: false
+        dlog("enterCallAudioMode: setCommunicationDevice(${if (bluetooth != null) "bluetooth" else "speaker"}) ok=$set")
       } else {
+        // Legacy path (< API 31, minSdkVersion 24): no availableCommunicationDevices
+        // API to detect a connected Bluetooth device without the extra
+        // BluetoothHeadset profile-proxy plumbing, so this keeps the
+        // original speaker-only behavior — a real gap on these older OS
+        // versions, but a shrinking, low-priority slice of real devices.
         @Suppress("DEPRECATION")
         am.isSpeakerphoneOn = true
         dlog("enterCallAudioMode: isSpeakerphoneOn=true (legacy)")
