@@ -631,25 +631,10 @@ export interface UserContext {
     landmark: string | null; district: string | null; state: string | null;
     monthlyObligations: number | null; alternateMobile: string | null; alternateEmail: string | null;
   } | null;
-  /** Internal sales/telecaller funnel — not for the customer's ears. See userContext.ts. */
-  marketingName: string | null;
-  marketingCity: string | null;
-  marketingEmail: string | null;
-  marketingStage: string | null;
-  marketingStageLabel: string | null;
-  marketingNextAction: string | null;
   /** The one clear, customer-facing signal: where this user's loan application stands. */
   applicationStatus: string | null;
   applicationStatusLabel: string;
   inquiries: UserContextInquiry[];
-  lastCall: {
-    at: string;
-    outcome: string | null;
-    outcomeSource: string | null;
-    summary: string | null;
-    answered: boolean;
-    durationSec: number | null;
-  } | null;
   application: {
     id: string; ref: string; status: string;
     amount: number | null; loanType: string | null; tenureMonths: number | null;
@@ -675,28 +660,19 @@ export async function fetchUserContext(): Promise<UserContext | null> {
     const json = await request<{ data?: UserContext }>('GET', '/context/me');
     const data = (json as any)?.data ?? json;
     if (!data || typeof data !== 'object' || !('hasHistory' in data)) return null;
-    // This is forwarded to the voice agent verbatim as page_context.userContext
-    // on every turn (see store.ts's registerPageContext) — allowlisted to
-    // exactly the fields prompts/ello-inapp-copilot-prompt.md's `userContext`
-    // section documents (matching the UserContext type below), rather than
-    // trusting whatever /context/me happens to return. The endpoint's actual
-    // response carries extra fields (conversationBrief, a full conversations[]
-    // transcript list) meant for other consumers, not this allowlist.
+    // Only used locally as a gating flag (see store.ts) — never forwarded to
+    // the voice agent itself; the pre-call get_user_context/lookup tool is
+    // what actually reaches Ello. Allowlisted to exactly the fields the core
+    // prompt's userContext section documents, rather than trusting whatever
+    // /context/me happens to return.
     const d = data as UserContext;
     return {
       hasHistory: d.hasHistory,
       profile: d.profile,
       applicantDraft: d.applicantDraft,
-      marketingName: d.marketingName,
-      marketingCity: d.marketingCity,
-      marketingEmail: d.marketingEmail,
-      marketingStage: d.marketingStage,
-      marketingStageLabel: d.marketingStageLabel,
-      marketingNextAction: d.marketingNextAction,
       applicationStatus: d.applicationStatus,
       applicationStatusLabel: d.applicationStatusLabel,
       inquiries: d.inquiries,
-      lastCall: d.lastCall,
       application: d.application,
       loan: d.loan,
     };

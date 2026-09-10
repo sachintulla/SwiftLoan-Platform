@@ -285,21 +285,32 @@ const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 // voice/tools.ts).
 //
 // Deliberately one-directional: an earlier version of this also blocked the
-// reverse (post-login screens with no session), but home/basicpan/fare/...
-// are legitimately guest-accessible by design (the app's own anonymous-
-// session flow, and every existing navigation test, both rely on that) —
-// only pre-login-while-authed is an actual bug.
+// reverse too: post-login screens (home/basicpan/fare/profile/...) now
+// require a real session just as strictly — previously left open on the
+// theory that they were "guest-accessible by design," but nothing in the
+// actual app intentionally relies on a truly zero-token visitor reaching
+// them (the "Skip" flow already mints a real anonymous session/token before
+// home is ever shown — see ensureSession), so there was no real guest path
+// this was protecting, only an unguarded gap the voice agent's
+// navigate_screen could be sent through (confirmed live: asked to change the
+// app language while still pre-login, it navigated to `profile`, a screen
+// that requires a session it did not have).
 const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions']);
 
 /**
- * Redirects away from a pre-login screen if a session (guest or real)
- * already exists. Applied to every real screen change (go AND back, see the
- * reducer below), not only the voice agent's navigate_screen: a stale
- * back-stack entry from before login, or any other caller, can hit the same
- * case, and this is meant to be a hard rule, not a per-caller courtesy.
+ * Redirects across the login boundary in whichever direction is wrong:
+ * away from a pre-login screen if a session (guest or real) already exists,
+ * and away from every other screen if one does not. Applied to every real
+ * screen change (go AND back, see the reducer below), not only the voice
+ * agent's navigate_screen: a stale back-stack entry, or any other caller,
+ * can hit either case, and this is meant to be a hard rule, not a
+ * per-caller courtesy.
  */
 function guardScreen(screen: Screen): Screen {
-  return PRE_LOGIN_ONLY.has(screen) && isAuthed() ? 'home' : screen;
+  const authed = isAuthed();
+  if (PRE_LOGIN_ONLY.has(screen) && authed) return 'home';
+  if (!PRE_LOGIN_ONLY.has(screen) && !authed) return 'mobile';
+  return screen;
 }
 
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
@@ -659,6 +670,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // api.setVoiceLanguage) picks it up, and agent_language (page_context)
       // prefers it over `lang` on the very next turn — and on every future call.
       setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
+      // The app's own UI-copy language (`lang`), settable directly from any
+      // screen instead of requiring a navigate-to-language/profile-then-tap
+      // detour — the persistence effect below (AsyncStorage + api.setLanguage
+      // when signed in) picks this up exactly the same way a real tap on
+      // either screen's language card already does.
+      setAppLanguage: (lang: string) => dispatch({ type: 'set', patch: { lang } }),
       // Merges (never replaces) into whatever's already saved — the model
       // calls this incrementally as details come up across a conversation.
       // Persisted immediately so it survives the call ending, not just this
@@ -749,6 +766,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // The one way Ello can learn a phone number for a call that started
+      // before login — get_user_context is a pre-call-only tool, called once
+      // at session start with whatever context_data.phone_number the app had
+      // THEN (nothing, for someone still on mobile/otp). Once OTP verification
+      // succeeds mid-call, this field appears in the very next page_context
+      // push (markUrgentContext() already fires one) — see the core prompt's
+      // opening section for the follow-up get_user_context call this enables.
+      authenticated_phone: s.authUser?.phone || undefined,
       // Whether this device has already heard the first-time product pitch on
       // an earlier call — see session.ts's markIntroPitchHeard for why this
       // exists. Always sent (never omitted), even `false` — the Opening Call

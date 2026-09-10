@@ -474,7 +474,6 @@ export default function VoiceWidget() {
     if (!n || n.id === lastNudgeId.current) return;
     lastNudgeId.current = n.id;
     if (active) return; // never interrupt a live session
-    Vibration.vibrate(Platform.OS === 'android' ? [0, 45, 60, 45] : 30);
     playAttention();
     setNudgeLabel(n.label);
     if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
@@ -540,12 +539,13 @@ export default function VoiceWidget() {
       pointerEvents="box-none"
       style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
     >
-      {/* Proactive-help label — a tappable speech bubble above the FAB. */}
+      {/* Proactive-help label — an informational speech bubble above the FAB.
+          Not tappable: it's just a hint, starting a call is the FAB's job. */}
       {nudgeLabel && !active ? (
-        <Pressable onPress={onPress} style={styles.nudgeBubble} accessibilityLabel={nudgeLabel}>
+        <View style={styles.nudgeBubble} accessibilityLabel={nudgeLabel} pointerEvents="none">
           <Text style={styles.nudgeText}>{nudgeLabel}</Text>
           <View style={styles.nudgeTail} />
-        </Pressable>
+        </View>
       ) : null}
       {/* Status pill only while floating and collapsed — once the panel opens
           it carries the same status text itself, so showing both would be

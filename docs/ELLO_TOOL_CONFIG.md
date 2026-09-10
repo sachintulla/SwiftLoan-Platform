@@ -15,12 +15,12 @@ tool below, under either `x-api-key` or `x-webhook-secret`.
 
 ## Which agent needs what
 
-| Agent | Ello ID | get_customer_history | get_user_context | save_conversation | report_call_outcome |
-|---|---|---|---|---|---|
-| **Loan_campaign_agent** (all outbound calls) | `6a6c630e2f3448069caa1fe5` | **required** | optional | recommended | **required** |
-| **mobile companion app** | `6a7197be89c98da763e29b22` | optional | optional | **required** | — |
-| **Website companion app** | `6a7197ff89c98da763e29b23` | optional | — | **see note** | — |
-| **Admin companion app** | `6a71988489c98da763e29b24` | — | — | — | — |
+| Agent | Ello ID | get_customer_history | get_user_context | save_conversation | report_call_outcome | save_applicant_context |
+|---|---|---|---|---|---|---|
+| **Loan_campaign_agent** (all outbound calls) | `6a6c630e2f3448069caa1fe5` | **required** | optional | recommended | **required** | — |
+| **mobile companion app** | `6a7197be89c98da763e29b22` | optional | optional | **required** | — | optional |
+| **Website companion app** | `6a7197ff89c98da763e29b23` | optional | — | **see note** | — | — |
+| **Admin companion app** | `6a71988489c98da763e29b24` | — | — | — | — | — |
 
 **Admin needs nothing.** It is an internal ops co-pilot with its own browser-side
 tools; it never speaks to a customer, so there is no conversation worth
@@ -249,6 +249,36 @@ result.
 > SECURITY note carried over from `/api/conversations/context`: this returns a
 > person's full profile and application status for any phone number given to
 > it. The api-key is the only thing standing between a caller and that lookup.
+
+## 2d. `save_applicant_context` — OPTIONAL, direct DB write
+
+The Ello-callable twin of `PATCH /api/users/me`. The app's own in-app tool
+(`save_applicant_details`) already writes this data via a session-authenticated
+call when the user is logged into the app — this tool exists for the case Ello
+itself needs a direct write with no app/session in the loop at all (backed by
+API key + phone lookup, same auth pattern as `get_user_context` above).
+
+Backed by `POST /api/context/save` — same host/auth as `get_user_context`.
+
+| Field | Value |
+|---|---|
+| Tool Name | `save_applicant_context` |
+| Request URL | `https://HOST/api/context/save` |
+| Timeout | `20` |
+| HTTP Method | `POST` |
+| Headers | `Content-Type: application/json`<br>`x-api-key: SECRET` |
+
+**Request Body** — `phone_number` required, every other field optional (send
+only what was actually gathered this call): `fullName`, `email`, `dob`,
+`gender`, `pincode`, `city`, `district`, `state`, `residenceType`,
+`employment`, `monthlyIncome`, `company`, `qualification`, `maritalStatus`,
+`loanPurpose`, `loanAmount`, `salaryMode`, `professionalType`, `companyEmail`,
+`businessEmail`, `addressLine1`, `addressLine2`, `landmark`,
+`monthlyObligations`, `alternateMobile`, `alternateEmail`. Same
+`phone`/`phone_number` dual-key tolerance as `get_user_context` above.
+
+**Response Body:** `{ success, data: { userId, updatedFields }, message }` —
+`updatedFields` echoes back exactly which fields were written.
 
 ---
 

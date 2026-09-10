@@ -112,8 +112,8 @@ export default function Home() {
         <Pressable onPress={askRuby} style={styles.bubble} accessibilityLabel="Ask Ruby, your AI loan assistant — tap to talk">
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <View style={{ flex: 1 }}>
-              <Text style={[font(800), { fontSize: 13.5, color: colors.text }]}>Ask Ruby</Text>
-              <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 1, lineHeight: 14 }]}>Your AI loan assistant</Text>
+              <Text style={[font(800), { fontSize: 13.5, color: colors.text }]}>{t.askRuby}</Text>
+              <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 1, lineHeight: 14 }]}>{t.askRubySub}</Text>
             </View>
             <Icon name="chevron_right" size={16} color={colors.primary} />
           </View>
@@ -122,19 +122,19 @@ export default function Home() {
 
         <VoiceHidden>
           <Text style={[font(700), styles.welcomeText]}>
-            {firstName ? `Welcome back, ${firstName} 👋` : 'Welcome 👋'}
+            {firstName ? `${t.welcomeBack}, ${firstName} 👋` : `${t.welcomeGeneric} 👋`}
           </Text>
 
           <Text style={[font(800), styles.heroTitle]}>
-            Your {rupee(amount)}{'\n'}{hasOffers ? 'personal loan journey' : 'loan journey starts here'}
+            {t.heroYourPrefix} {rupee(amount)}{'\n'}{hasOffers ? t.personalLoanJourney : t.loanJourneyStart}
           </Text>
 
           <Text style={[font(400), styles.heroSub]}>
             {hasOffers
-              ? `${count} offer${count === 1 ? '' : 's'} matched to your profile` +
-                (minRate != null ? `  ·  Rates from ${minRate}% p.a.` : '') +
-                (minEmi != null ? `  ·  EMI from ${rupee(minEmi)}/mo` : '')
-              : 'Apply once and get personalised offers from our lending partners in minutes.'}
+              ? `${count} ${count === 1 ? t.offerWord : t.offersWord} ${t.matchedToProfile}` +
+                (minRate != null ? `  ·  ${t.ratesFrom} ${minRate}% p.a.` : '') +
+                (minEmi != null ? `  ·  ${t.emiFrom} ${rupee(minEmi)}${t.perMonth}` : '')
+              : t.applyOncePersonalised}
           </Text>
         </VoiceHidden>
 
@@ -142,17 +142,17 @@ export default function Home() {
           {hasOffers ? (
             <>
               <Pressable onPress={viewOffers} style={styles.primaryBtn}>
-                <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]} numberOfLines={1}>View Best Offers</Text>
+                <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]} numberOfLines={1}>{t.viewBestOffers}</Text>
                 <Icon name="chevron_right" size={14} color="#fff" />
               </Pressable>
               <Pressable onPress={changeAmount} style={styles.ghostBtn}>
                 <Icon name="edit" size={11} color={colors.primary} />
-                <Text style={[font(700), { fontSize: 10.5, color: colors.primary }]} numberOfLines={1}>Change amount</Text>
+                <Text style={[font(700), { fontSize: 10.5, color: colors.primary }]} numberOfLines={1}>{t.changeAmount}</Text>
               </Pressable>
             </>
           ) : (
             <Pressable onPress={startFresh} style={[styles.primaryBtn, { flex: 1 }]}>
-              <Text style={[font(700), { fontSize: 14.5, color: '#fff' }]} numberOfLines={1}>Apply for a loan</Text>
+              <Text style={[font(700), { fontSize: 14.5, color: '#fff' }]} numberOfLines={1}>{t.applyForLoan}</Text>
               <Icon name="arrow_forward" size={17} color="#fff" />
             </Pressable>
           )}
