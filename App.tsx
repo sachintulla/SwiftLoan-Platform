@@ -15,6 +15,7 @@ import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 import { nudgeFor, DEFAULT_TIMERS, NudgeTimers } from './src/voice/nudges';
 import { trackEvent, api, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
+import { agent } from './src/voice';
 
 const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
   enabled: d.nudgeEnabled,
@@ -94,6 +95,13 @@ function AppShell() {
     const cfg = nudgeFor(scr, timersRef.current);
     if (!cfg || nudgedScreenRef.current === scr) return;
     timerRef.current = setTimeout(() => {
+      // Never nudge (or track a nudge) while a voice call is actually in
+      // progress — same rule VoiceWidget already applies to showing the
+      // bubble ("never interrupt a live session"). Without this check here
+      // too, a nudge firing mid-call would still spam trackEvent even
+      // though the widget silently drops the visual bubble.
+      const status = agent.getStatus();
+      if (status !== 'idle' && status !== 'ended') return;
       nudgedScreenRef.current = scr;
       nudgeIdRef.current += 1;
       const label = cfg.labels[nudgeCountRef.current % cfg.labels.length];

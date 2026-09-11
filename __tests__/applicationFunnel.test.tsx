@@ -65,7 +65,13 @@ describe('UC-N10 funnel step order: personal details, then optional, then PAN la
 });
 
 describe('UC-N11 forward navigation follows the new order', () => {
+  // These screens are guest-accessible by design, but only once the "Skip"
+  // flow's own ensureSession() has minted a real anonymous token (see
+  // guardScreen in store.ts) — a truly zero-token render doesn't reflect any
+  // real path through the app, so a fake token stands in for that anonymous
+  // session here rather than an authenticated one.
   it('MoreDetails Skip goes to the PAN step, not straight to the loader', () => {
+    setTokens('fake-access-token');
     const { getByText, getByTestId, unmount } = renderWithProviders(
       <Harness><MoreDetails /></Harness>,
     );
@@ -74,7 +80,8 @@ describe('UC-N11 forward navigation follows the new order', () => {
     unmount();
   });
 
-  it('MoreDetails Continue (guest) goes to the PAN step', async () => {
+  it('MoreDetails Continue (anonymous session) goes to the PAN step', async () => {
+    setTokens('fake-access-token');
     const { getByText, getByTestId, unmount } = renderWithProviders(
       <Harness><MoreDetails /></Harness>,
     );
@@ -92,7 +99,8 @@ describe('UC-N11 forward navigation follows the new order', () => {
     unmount();
   });
 
-  it('BasicPan Continue with a valid PAN (guest) goes straight to the loader, with no duplicate-application lookup', async () => {
+  it('BasicPan Continue with a valid PAN (anonymous session) goes straight to the loader, with no duplicate-application lookup', async () => {
+    setTokens('fake-access-token');
     const listApplicationsSpy = jest.spyOn(api, 'listApplications');
     const updateApplicationSpy = jest.spyOn(api, 'updateApplication');
     const { getByText, getByTestId, unmount } = renderWithProviders(
@@ -124,6 +132,7 @@ describe('UC-N11 forward navigation follows the new order', () => {
 
 describe('UC-N12 entry points open on the details step, not PAN', () => {
   it('Home "Apply for a loan" opens on Basic', () => {
+    setTokens('fake-access-token');
     const { getByText, getByTestId, unmount } = renderWithProviders(
       <Harness><Home /></Harness>,
     );

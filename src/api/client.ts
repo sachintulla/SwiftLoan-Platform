@@ -95,10 +95,27 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
   } catch (e: any) {
     // The fetch itself failed to reach anything — as opposed to reaching the
     // server and getting back an error response, which is handled below and
-    // isn't a connectivity problem. Surface it to OfflineNotice so a feature
-    // that needed the internet visibly tells the user why it didn't work,
-    // even on the (real, observed) case where NetInfo still reports "online".
-    reportOfflineAttempt();
+    // isn't a connectivity problem. That said, a failed fetch is NOT proof the
+    // user has no internet: it just as often means this one server/host is
+    // slow, cold-starting, mid-restart, or (in local-dev builds pointed at a
+    // LAN IP) simply unreachable while the phone's real internet is fine.
+    // Re-check connectivity fresh, right now, rather than trusting the
+    // pre-flight check from a few seconds ago — only report "offline" to
+    // OfflineNotice if the device itself genuinely has none, so a slow/down
+    // backend doesn't get mislabeled as "no internet connection."
+    const looksOffline = async () =>
+      NetInfo.fetch()
+        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
+    if (await looksOffline()) {
+      // A single instantaneous reading isn't enough — a momentary signal drop
+      // (a step into a dead spot, a brief Wi-Fi hiccup) can look identical to
+      // this for under a second and shouldn't flag the whole app as offline.
+      // Wait briefly and confirm the device is STILL disconnected before
+      // actually reporting it, so only a real, sustained outage shows the banner.
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+      if (await looksOffline()) reportOfflineAttempt();
+    }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
