@@ -20,13 +20,29 @@
  */
 const DEV_API_BASE = '';
 
+/**
+ * Which deployed backend this build talks to. Flip to 'prod' before a
+ * TestFlight/production build; leave 'dev' otherwise. DEV_API_BASE above
+ * still wins over either when set (local dev on your own machine).
+ *
+ * 'prod' is the real production backend (api.swiftloan.ai) — loan
+ * applications submitted from a build pointed here trigger real Aurix/KFT
+ * bureau pulls against real production data, not mock offers.
+ */
+const API_ENV: 'dev' | 'prod' = 'prod';
+
+const DEPLOYED_API_BASE: Record<'dev' | 'prod', string> = {
+  dev: 'https://dev-api.swiftloan.ai/api',
+  prod: 'https://api.swiftloan.ai/api',
+};
+
 export const BUILD = {
   // Flipped between builds (generic -> false, context -> true).
   CONTEXT_ENABLED: true,
   VARIANT: 'context' as 'context' | 'generic',
   APP_LABEL: 'SwiftLoan',
   // Deployed API (all app API calls + context resolve go here).
-  API_BASE: DEV_API_BASE || 'https://dev-api.swiftloan.ai/api',
+  API_BASE: DEV_API_BASE || DEPLOYED_API_BASE[API_ENV],
 };
 
 // Point the api-client + tracking at the same backend.
