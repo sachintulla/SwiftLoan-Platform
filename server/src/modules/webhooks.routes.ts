@@ -14,11 +14,13 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { parseElloWebhook } from '../lib/integrations.js';
+import { normalisePhone } from '../lib/dialer.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import {
   inferOutcome, shouldReplaceOutcome, parseAgentOutcome, type OutcomeSource,
 } from '../lib/callOutcome.js';
-import { recordConversation } from '../lib/conversations.js';
+import { rebuildSummary } from '../lib/conversations.js';
+import { recordImmediateCallbackAttemptOutcome } from '../lib/immediateCallback.js';
 
 /** A call that reached a human — the only kind worth inferring an outcome from. */
 function isConnected(status: CallStatus): boolean {
@@ -43,6 +45,60 @@ function providedSecret(req: import('express').Request): string {
 }
 
 export const webhooksRouter = Router();
+
+/**
+ * `campaign.started` / `campaign.ended` for a campaign sent to Ello via
+ * send-to-ello (campaigns.routes.ts). Ello's `webhooks` field is set fresh on
+ * every campaign create call (see integrations.ts's campaignWebhookEvents) —
+ * not a one-time dashboard subscription — and routes ALL events, campaign.*
+ * included, to the same URL as the per-call trigger's `hook_url`. So this
+ * runs from inside /ello/call-outcome for that shared URL; kept as its own
+ * function (and /ello/campaign-events below still calls it too) in case
+ * campaign.* ever gets registered on a separate URL instead.
+ *
+ * Idempotent by construction: every field here is a `set`, not an
+ * `increment`, so a provider retry of the same event just writes the same
+ * values again rather than double-counting.
+ */
+async function handleCampaignLifecycleEvent(b: Record<string, any>): Promise<{ matched: boolean; campaignId?: string; message: string }> {
+  const event = String(b.event ?? '');
+  const providerCampaignId = b.campaign_id != null ? String(b.campaign_id) : null;
+
+  if (!providerCampaignId) {
+    console.warn('[webhook] campaign event with no campaign_id', { event });
+    return { matched: false, message: 'No campaign_id on event' };
+  }
+
+  const campaign = await prisma.campaign.findUnique({ where: { providerCampaignId } });
+  if (!campaign) {
+    console.warn('[webhook] unmatched ello campaign event', { event, providerCampaignId });
+    return { matched: false, message: 'No matching campaign' };
+  }
+
+  if (event === 'campaign.started') {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status: 'running', startedAt: campaign.startedAt ?? new Date() },
+    });
+  } else if (event === 'campaign.ended') {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+        // Ello's own tally — authoritative over whatever our per-call webhook
+        // handler accumulated, since that only sees calls it could match.
+        ...(Number.isFinite(Number(b.successful_calls)) ? { calledCount: Number(b.successful_calls) } : {}),
+        ...(Number.isFinite(Number(b.failed_calls)) ? { failedCount: Number(b.failed_calls) } : {}),
+      },
+    });
+  } else {
+    console.warn('[webhook] unrecognised campaign event', { event, providerCampaignId });
+    return { matched: false, message: `Unrecognised event "${event}"` };
+  }
+
+  return { matched: true, campaignId: campaign.id, message: 'Recorded' };
+}
 
 /* ───────────────────────── outcome/status mapping ───────────────────────── */
 
@@ -138,23 +194,67 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   }
 
   const raw = req.body ?? {};
+
+  // campaign.started/campaign.ended share this same URL (see
+  // handleCampaignLifecycleEvent's doc comment) — nothing below this branch
+  // applies to them, there's no CallAttempt to match against.
+  if (String(raw?.event ?? '').startsWith('campaign.')) {
+    const result = await handleCampaignLifecycleEvent(raw as Record<string, any>);
+    return ok(res, result, result.message);
+  }
+
   const parsed = await parseElloWebhook(raw);
 
   // Match on the provider's id first, then on the CallAttempt id we sent as
   // `callId` (present even when the provider never surfaced its own id).
-  const attempt =
+  let attempt =
     (parsed.providerCallId
-      ? await prisma.callAttempt.findUnique({ where: { providerCallId: parsed.providerCallId } })
+      ? await prisma.callAttempt.findUnique({ where: { providerConversationId: parsed.providerCallId } })
       : null) ??
     (parsed.clientCallId
       ? await prisma.callAttempt.findUnique({ where: { id: parsed.clientCallId } })
       : null);
+
+  // Neither id matched — this call never went through our own dialer.ts, so
+  // it has no CallAttempt at all yet. The only calls that happens for are
+  // ones Ello placed itself via send-to-ello's batch campaign dialler, which
+  // carries campaign_id + to_number instead. Find (or, on the first event for
+  // this conversation, create) the CallAttempt via that instead of dropping
+  // the webhook — campaigns.routes.ts's send-to-ello sets Campaign
+  // .providerCampaignId for exactly this lookup.
+  if (!attempt && parsed.providerCampaignId) {
+    const campaign = await prisma.campaign.findUnique({ where: { providerCampaignId: parsed.providerCampaignId } });
+    const phone = normalisePhone(parsed.toNumber);
+    if (campaign && phone) {
+      attempt =
+        // A prior event for this same call may already have created the row
+        // (events are not guaranteed to arrive in order) — reuse it rather
+        // than creating a second CallAttempt for one real call.
+        (await prisma.callAttempt.findFirst({
+          where: { campaignId: campaign.id, phone, providerConversationId: null },
+          orderBy: { queuedAt: 'desc' },
+        })) ??
+        (await prisma.callAttempt.create({
+          data: {
+            campaignId: campaign.id,
+            phone,
+            channel: 'phone_outbound',
+            agentRole: 'campaign',
+            providerConversationId: parsed.providerCallId,
+            customerId: (await prisma.customer.findFirst({ where: { phone } }))?.id ?? null,
+            status: 'queued',
+            queuedAt: new Date(),
+          },
+        }));
+    }
+  }
 
   if (!attempt) {
     // 200 on purpose: a 4xx makes the provider retry a body we can never match.
     console.warn('[webhook] unmatched ello call-outcome', {
       providerCallId: parsed.providerCallId,
       clientCallId: parsed.clientCallId,
+      providerCampaignId: parsed.providerCampaignId,
     });
     return ok(res, { matched: false }, 'No matching call attempt');
   }
@@ -165,7 +265,7 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   // some of them and there is no `outcome` field at all, so derive one.
   const event = (parsed.event ?? '').toLowerCase();
   let status: CallStatus =
-    mapStatus(parsed.status) ?? (parsed.outcome ? 'completed' : attempt.status);
+    mapStatus(parsed.status) ?? (parsed.outcome ? 'completed' : attempt.status ?? 'queued');
   if (event === 'call.started') {
     status = 'in_progress';
   } else if (event === 'call.completed' || event === 'call.processed') {
@@ -212,7 +312,7 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   const isTerminal =
     status === 'completed' || status === 'failed' || status === 'no_answer' ||
     status === 'busy' || status === 'cancelled';
-  const alreadyFinalised = attempt.completedAt != null;
+  const alreadyFinalised = attempt.endedAt != null;
 
   const updated = await prisma.callAttempt.update({
     where: { id: attempt.id },
@@ -224,41 +324,20 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
       ...(parsed.recordingUrl ? { recordingUrl: parsed.recordingUrl } : {}),
       ...(parsed.durationSec != null ? { durationSec: parsed.durationSec } : {}),
       answered: parsed.answered || attempt.answered,
-      ...(parsed.providerCallId && !attempt.providerCallId ? { providerCallId: parsed.providerCallId } : {}),
-      ...(isTerminal && !alreadyFinalised ? { completedAt: new Date() } : {}),
+      ...(parsed.providerCallId && !attempt.providerConversationId ? { providerConversationId: parsed.providerCallId } : {}),
+      ...(isTerminal && !alreadyFinalised ? { endedAt: new Date() } : {}),
       ...(parsed.errorReason ? { error: parsed.errorReason } : {}),
       rawPayload: raw as Prisma.InputJsonValue,
     },
   });
 
-  // Record the timeline entry exactly once per call, on the first event that
-  // ends it. Ello fires call.completed and then call.processed for the same
-  // call, so an unguarded write would append two entries and double the
-  // campaign counters. Later events still update the row above (recording url,
-  // transcript, insights) — they just don't re-emit.
-  // WS10 — mirror every phone call into the cross-channel conversation memory, so
-  // the website and in-app agents can see it later. Upserted on the provider id,
-  // so the several webhooks Ello fires per call update one conversation row.
-  // Fire-and-forget: this is a read model, and failing it must never break the
+  // The row IS the conversation now (this used to mirror into a separate
+  // Conversation table — no longer needed, just keep the rolling cross-channel
+  // brief in step). Fire-and-forget: a read-model rebuild must never break the
   // webhook the provider is retrying.
-  recordConversation({
-    phone: updated.phone,
-    channel: 'phone_outbound',
-    agentRole: updated.campaignId ? 'campaign' : 'leadCallback',
-    providerConversationId: updated.providerCallId ?? `call:${updated.id}`,
-    callAttemptId: updated.id,
-    customerId: updated.customerId,
-    summary: updated.summary,
-    transcript: updated.transcript,
-    outcome: updated.outcome,
-    outcomeSource: updated.outcomeSource,
-    recordingUrl: updated.recordingUrl,
-    startedAt: updated.dialedAt ?? updated.queuedAt,
-    endedAt: updated.completedAt,
-    durationSec: updated.durationSec,
-  }).catch((e) => console.error('[webhook] conversation mirror failed', e));
+  rebuildSummary(updated.phone).catch((e) => console.error('[webhook] summary rebuild failed', e));
 
-  if (isTerminal && !alreadyFinalised) {
+  if (isTerminal && !alreadyFinalised && updated.customerId) {
     // CALL_COMPLETED advances the customer to `contacted`; do_not_call ends the
     // journey outright and is passed as an explicit stage override.
     await recordJourneyEvent(updated.customerId, {
@@ -285,6 +364,15 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
         })
         .catch(() => undefined);
     }
+
+    // Advance the "Yes, call me" retry cycle. A no-op for any customer not
+    // actually in the middle of one — see recordImmediateCallbackAttemptOutcome.
+    const callReason = (attempt.callContext as { reason?: string } | null)?.reason;
+    if (callReason === 'immediate_callback_optin') {
+      await recordImmediateCallbackAttemptOutcome(updated.customerId, isCompleted).catch((e) =>
+        console.error('[webhook] immediate-callback outcome update failed', e),
+      );
+    }
   }
 
   if (updated.campaignId) {
@@ -299,6 +387,33 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
   }
 
   return ok(res, { matched: true, callId: updated.id, status: updated.status, outcome: updated.outcome }, 'Recorded');
+}));
+
+/* ─────────────── campaign lifecycle (Ello's own batch dialler) ─────────────── */
+
+/**
+ * POST /api/webhooks/ello/campaign-events
+ *
+ * Ello sends campaign.started/campaign.ended to the SAME url as call events
+ * (see handleCampaignLifecycleEvent's doc comment), so /ello/call-outcome
+ * above is what actually handles them in practice. This route is kept as a
+ * fallback for a differently-configured webhook subscription that does point
+ * campaign.* at its own URL.
+ */
+webhooksRouter.post('/ello/campaign-events', ah(async (req, res) => {
+  const expected = webhookSecret();
+  const provided = providedSecret(req);
+  if (expected) {
+    if (provided !== expected) return fail(res, 401, 'Invalid webhook secret');
+  } else if (process.env.NODE_ENV === 'production') {
+    console.error('[webhook] ELLO_WEBHOOK_SECRET is not set — rejecting campaign-events post');
+    return fail(res, 503, 'Webhook is not configured');
+  } else {
+    console.warn('[webhook] ELLO_WEBHOOK_SECRET is not set — accepting unverified post (dev only)');
+  }
+
+  const result = await handleCampaignLifecycleEvent((req.body ?? {}) as Record<string, any>);
+  return ok(res, result, result.message);
 }));
 
 /* ─────────────── agent-reported outcome (the authoritative path) ─────────────── */
@@ -338,7 +453,7 @@ webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
   const attempt =
     (ourId ? await prisma.callAttempt.findUnique({ where: { id: String(ourId) } }) : null) ??
     (providerId
-      ? await prisma.callAttempt.findUnique({ where: { providerCallId: String(providerId) } })
+      ? await prisma.callAttempt.findUnique({ where: { providerConversationId: String(providerId) } })
       : null);
 
   if (!attempt) {
@@ -376,50 +491,40 @@ webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
       ...(str(b.preferred_channel ?? b.preferredChannel) ? { preferredChannel: str(b.preferred_channel ?? b.preferredChannel) } : {}),
       ...(callbackAt ? { callbackAt } : {}),
       answered: true, // the agent could only report if it spoke to someone
+      // The agent reporting a disposition is itself proof the call happened —
+      // close it out here rather than leaving it for the reconcile timeout,
+      // the same fix as the save_conversation path in conversations.ts.
+      status: 'completed',
+      endedAt: attempt.endedAt ?? new Date(),
     },
   });
 
-  // WS10 — push the agent-reported disposition into the conversation memory too.
-  // This is the authoritative version (`outcomeSource: 'agent'`), so it upgrades
-  // whatever the lifecycle webhook inferred for the same conversation.
-  recordConversation({
-    phone: updated.phone,
-    channel: 'phone_outbound',
-    agentRole: updated.campaignId ? 'campaign' : 'leadCallback',
-    providerConversationId: updated.providerCallId ?? `call:${updated.id}`,
-    callAttemptId: updated.id,
-    customerId: updated.customerId,
-    summary: updated.summary,
-    outcome: outcome ?? undefined,
-    outcomeSource: outcome ? 'agent' : undefined,
-    details: {
-      incomeRange: updated.incomeRange ?? null,
-      employment: updated.employment ?? null,
-      preferredChannel: updated.preferredChannel ?? null,
-      callbackAt: callbackAt?.toISOString() ?? null,
-    },
-    durationSec: updated.durationSec,
-  }).catch((e) => console.error('[webhook] conversation mirror failed', e));
+  // The row IS the conversation now — just keep the rolling cross-channel
+  // brief in step (this is the authoritative disposition, so it upgrades
+  // whatever the lifecycle webhook inferred for the same call).
+  rebuildSummary(updated.phone).catch((e) => console.error('[webhook] summary rebuild failed', e));
 
   // The disposition is the part that changes what happens next, so it gets its
   // own timeline entry even though the call already recorded one.
-  await recordJourneyEvent(updated.customerId, {
-    channel: 'voice',
-    name: JOURNEY_EVENTS.CALL_COMPLETED,
-    // A refusal ends the journey; nothing else here overrides the stage, so an
-    // interested lead keeps whatever stage the funnel gave it.
-    ...(outcome === 'do_not_call' ? { stage: 'lost' as const } : {}),
-    metadata: {
-      callAttemptId: updated.id,
-      reportedBy: 'agent',
-      outcome: outcome ?? String(b.outcome ?? 'unrecognised'),
-      summary: updated.summary ?? null,
-      incomeRange: updated.incomeRange ?? null,
-      employment: updated.employment ?? null,
-      preferredChannel: updated.preferredChannel ?? null,
-      callbackAt: callbackAt?.toISOString() ?? null,
-    },
-  }).catch((e) => console.error('[webhook] journey write failed', e));
+  if (updated.customerId) {
+    await recordJourneyEvent(updated.customerId, {
+      channel: 'voice',
+      name: JOURNEY_EVENTS.CALL_COMPLETED,
+      // A refusal ends the journey; nothing else here overrides the stage, so an
+      // interested lead keeps whatever stage the funnel gave it.
+      ...(outcome === 'do_not_call' ? { stage: 'lost' as const } : {}),
+      metadata: {
+        callAttemptId: updated.id,
+        reportedBy: 'agent',
+        outcome: outcome ?? String(b.outcome ?? 'unrecognised'),
+        summary: updated.summary ?? null,
+        incomeRange: updated.incomeRange ?? null,
+        employment: updated.employment ?? null,
+        preferredChannel: updated.preferredChannel ?? null,
+        callbackAt: callbackAt?.toISOString() ?? null,
+      },
+    }).catch((e) => console.error('[webhook] journey write failed', e));
+  }
 
   return ok(
     res,

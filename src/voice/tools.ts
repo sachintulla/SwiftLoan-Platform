@@ -14,6 +14,56 @@ import { buildPageContext, findTarget, getCurrentScreen, listTargets, waitForNex
 import type { TargetKind } from './actionRegistry';
 import type { AgentLike, JSONSchema } from './types';
 
+/**
+ * App actions the voice tools invoke directly (bound to the store), rather than
+ * by tapping an on-screen control. These exist for actions that must work from
+ * ANY screen (logout) or that resolve data (open a loan by reference).
+ */
+export interface VoiceActions {
+  /** Resolve a screen name/alias and navigate; false if unknown. */
+  navigateToScreen: (screen: string) => boolean;
+  /** End the session and return to the welcome flow, from any screen. */
+  logout: () => void | Promise<void>;
+  /** Look up a loan/application by its reference number and open it. */
+  openLoan: (reference: string) => Promise<Record<string, unknown>>;
+  /**
+   * Persist the language the user has explicitly told the agent to speak, as
+   * its own preference (`voiceLang`) separate from the app's UI-copy
+   * language — so it becomes `agent_language` on this call's very next turn
+   * AND on every future call, without also flipping the app's screen text
+   * (`preferred_language`). Synced to AsyncStorage + the user's account.
+   */
+  setLanguage: (lang: 'en' | 'hi' | 'te') => void;
+  /**
+   * The app's own UI-copy language (`preferred_language` in page_context) —
+   * separate from `setLanguage` above (that's the agent's own voice). Works
+   * from any screen, unlike tapping the physical language card on
+   * `language`/`profile`, which only exists on those two screens.
+   */
+  setAppLanguage: (lang: 'en' | 'hi' | 'te') => void;
+  /**
+   * Merge-saves free-form applicant details Ruby has gathered conversationally
+   * from a first-time caller, before any application form exists to fill (see
+   * the prompt's "Proactive Details Collection" rule). Persisted on-device
+   * (session.ts's prefill draft) so a LATER call can read it back via
+   * page_context's `savedApplicantDraft` and prefill `basic` instead of
+   * asking everything again. Cleared on login/logout so it never leaks
+   * across accounts on a shared device.
+   */
+  saveApplicantDetails: (details: Record<string, unknown>) => void;
+}
+
+/** Accepts the language name, native script, or code the user/model used. */
+const LANGUAGE_CODES: Record<string, 'en' | 'hi' | 'te'> = {
+  en: 'en', english: 'en',
+  hi: 'hi', hindi: 'hi', 'हिन्दी': 'hi', 'हिंदी': 'hi',
+  te: 'te', telugu: 'te', 'తెలుగు': 'te',
+};
+
+function normalizeLanguage(input: string): 'en' | 'hi' | 'te' | null {
+  return LANGUAGE_CODES[String(input ?? '').trim().toLowerCase()] ?? null;
+}
+
 interface PerformUiActionArgs {
   action: 'tap' | 'set_input' | 'set_toggle' | 'set_value' | 'scroll';
   target: string;
@@ -38,7 +88,7 @@ function describeScreen(screen: string) {
   return listTargets(screen).map(t => t.label);
 }
 
-export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: string) => boolean): void {
+export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void {
   /**
    * Reports the state the app is ACTUALLY in after an action, rather than letting
    * the model assume. Tapping "English" only selects a language — it does not
@@ -116,6 +166,21 @@ export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: s
       for (const word of FORWARD_WORDS) {
         target = findTarget(screen, word);
         if (target?.onTap) break;
+      }
+      // FORWARD_WORDS is English-only, so it silently finds nothing once the
+      // user's selected language renders that same button as "OTP పంపండి" or
+      // "ప్రారంభించండి" — confirmed live (repeated continue_next -> not_found
+      // on Telugu screens whose primary CTA was clearly visible and tappable).
+      // Fall back to the PrimaryButton flagged `primary: true` at registration,
+      // which identifies the screen's main forward action by role, not by
+      // matching translated label text. No current screen renders more than one
+      // PrimaryButton at once (mobile.tsx's Send OTP / Verify pair is a ternary,
+      // never both), but if a future one did, prefer an enabled primary over a
+      // disabled one rather than grabbing whichever registered first — an
+      // enabled sibling is the one actually meant by "continue".
+      if (!target?.onTap) {
+        const primaries = listTargets(screen).filter(t => t.primary && t.onTap);
+        target = primaries.find(t => !t.disabled) ?? primaries[0] ?? target;
       }
     }
 
@@ -375,25 +440,32 @@ export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: s
     target: 'Back',
   }));
 
-  alias<Record<string, never>>(
-    'logout',
-    'Log the user out of SwiftLoan.',
-    {},
-    [],
-    () => ({ action: 'tap', target: 'Log out' }),
-    { requiresConfirmation: true, confirmationMessage: 'Log out of SwiftLoan?' },
-  );
+  // Logout runs the real store action (clears the session + returns to the
+  // welcome flow) from ANY screen — the old version tried to tap a "Log out"
+  // button that only exists on the Profile screen, so it silently did nothing
+  // everywhere else.
+  agent.registerTool<Record<string, never>>({
+    name: 'logout',
+    description: 'Log the user out of SwiftLoan. Ends the session from any screen.',
+    schema: { type: 'object', properties: {} },
+    handler: async () => {
+      await actions.logout();
+      return { ok: true, logged_out: true };
+    },
+    requiresConfirmation: true,
+    confirmationMessage: 'Log out of SwiftLoan?',
+  });
 
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
     'Navigate to a named app screen: home, loans, fare, help, profile, basic, basicpan, offers, ' +
-    'handoff, kyc, aadhaar, panv, bankv, selfie, status, disbursed, repay, creditscore, mobile, ' +
+    'handoff, status, repay, disbursed, mobile, ' +
     'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
 
   const navHandler = ({ screen }: { screen: string }) => {
-    const went = navigateToScreen(screen);
+    const went = actions.navigateToScreen(screen);
     return went
-      ? { ok: true, screen, controls_now: describeScreen(screen).slice(0, 20) }
+      ? { ok: true, screen, controls_now: describeScreen(getCurrentScreen()).slice(0, 20) }
       : { ok: false, reason: 'unknown_screen', available_screens: 'see description' };
   };
 
@@ -410,5 +482,92 @@ export function registerCoreTools(agent: AgentLike, navigateToScreen: (screen: s
     description: navDescription,
     schema: { type: 'object', properties: { screen: { type: 'string' } }, required: ['screen'] },
     handler: navHandler,
+  });
+
+  /* ── 5. Open a specific loan/application by its reference number ── */
+  agent.registerTool<{ reference: string }>({
+    name: 'open_loan',
+    description:
+      'Open a specific loan or application when the user gives its Loan Reference Number ' +
+      '(e.g. "open loan SL-2024-00042" or "show me reference 42"). Looks the reference up and ' +
+      'navigates to My Loans, where it now appears selected — read its live status back from the ' +
+      'tool result / api_context rather than a dedicated details screen (none exists right now). ' +
+      'Use this instead of navigate_screen whenever the user names a reference number.',
+    schema: {
+      type: 'object',
+      properties: { reference: { type: 'string', description: 'the loan/application reference number the user said' } },
+      required: ['reference'],
+    },
+    handler: ({ reference }) => actions.openLoan(reference),
+  });
+
+  /* ── 6. Language preference ─────────────────────────────────── */
+  agent.registerTool<{ language: string }>({
+    name: 'set_language',
+    description:
+      'Persist the language the user wants the AGENT to speak — English, Hindi, or Telugu — as ' +
+      'their agent_language, for the rest of THIS call and every future call (it is saved to their ' +
+      "account, not just remembered for this session). This is separate from preferred_language, " +
+      "which is the app's own screen-text language and is never changed by this tool. Call this " +
+      'when the user explicitly asks to switch language, or clearly states which language they ' +
+      'want, e.g. "speak to me in Telugu" or "मुझसे हिंदी में बात करो" — not just because they said ' +
+      'one sentence in another language.',
+    schema: {
+      type: 'object',
+      properties: { language: { type: 'string', description: '"English", "Hindi", or "Telugu" (or en/hi/te)' } },
+      required: ['language'],
+    },
+    handler: ({ language }) => {
+      const code = normalizeLanguage(language);
+      if (!code) return { ok: false, reason: 'unsupported_language', supported: ['English', 'Hindi', 'Telugu'] };
+      actions.setLanguage(code);
+      return { ok: true, lang: code };
+    },
+  });
+
+  agent.registerTool<{ language: string }>({
+    name: 'set_app_language',
+    description:
+      "Change the app's own screen-text language — English, Hindi, or Telugu (preferred_language). " +
+      'Works from any screen, without navigating anywhere first. This is separate from set_language, ' +
+      "which changes only the AGENT's own speaking voice (agent_language) and never the screens. Call " +
+      'this when the user asks to change the APP/SCREEN language specifically, e.g. "change the app ' +
+      'to Hindi" or "switch the screens to Telugu" — not for a request to speak a different language.',
+    schema: {
+      type: 'object',
+      properties: { language: { type: 'string', description: '"English", "Hindi", or "Telugu" (or en/hi/te)' } },
+      required: ['language'],
+    },
+    handler: ({ language }) => {
+      const code = normalizeLanguage(language);
+      if (!code) return { ok: false, reason: 'unsupported_language', supported: ['English', 'Hindi', 'Telugu'] };
+      actions.setAppLanguage(code);
+      return { ok: true, lang: code };
+    },
+  });
+
+  /* ── 6. Save applicant details gathered before an application exists ── */
+  agent.registerTool<{ details: Record<string, unknown> }>({
+    name: 'save_applicant_details',
+    description:
+      'Save applicant details the user told you conversationally BEFORE they reached the application ' +
+      'form — a first-time caller with no history yet, per the prompt\'s "Proactive Details Collection" ' +
+      'rule. Keys are free-form: use whatever field names fit what was actually said (e.g. fullName, ' +
+      'dob, gender, qualification, email, pincode, addressLine1, city, state, residenceType, ' +
+      'employmentType, monthlyIncome, salaryMode, company, loanPurpose, loanAmount). Safe to call more ' +
+      'than once as more comes up in conversation — each call merges into what is already saved, it ' +
+      'does not replace it. Persisted on-device, so even a call on a LATER day can read this back (via ' +
+      'page_context\'s savedApplicantDraft) and prefill the application instead of asking again. Never ' +
+      'save anything covered by the Sensitive Data Handling Protocol (PAN, Aadhaar, PINs, passwords, ' +
+      'card numbers) — those were never collected this way in the first place.',
+    schema: {
+      type: 'object',
+      properties: { details: { type: 'object', description: 'key→value applicant details collected so far' } },
+      required: ['details'],
+    },
+    handler: ({ details }) => {
+      actions.saveApplicantDetails(details || {});
+      return { ok: true, saved: Object.keys(details || {}) };
+    },
   });
 }

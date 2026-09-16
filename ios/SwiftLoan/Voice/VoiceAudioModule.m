@@ -11,5 +11,6 @@ RCT_EXTERN_METHOD(startCapture:(RCTPromiseResolveBlock)resolve rejecter:(RCTProm
 RCT_EXTERN_METHOD(stopCapture)
 RCT_EXTERN_METHOD(playChunk:(NSString *)base64)
 RCT_EXTERN_METHOD(purgePlayback)
+RCT_EXTERN_METHOD(nativeLog:(NSString *)msg)
 
 @end

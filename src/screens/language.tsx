@@ -1,12 +1,14 @@
 import React, { useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { useHandoffIn } from '../utils/handoff';
 import { trackEvent } from '../api/client';
+import { VoiceHidden } from '../voice/screenGraph';
 
 const GREETINGS = [
   'Welcome to SwiftLoan',
@@ -23,6 +25,8 @@ const LANGS = [
 export default function Language() {
   const { state, set, go } = useStore();
   const [gi, setGi] = React.useState(0);
+  // The "SwiftLoan" wordmark travels here from the splash screen.
+  const wordHandoff = useHandoffIn('wordmark');
 
   useEffect(() => {
     const id = setInterval(() => setGi(i => (i + 1) % 3), 2600);
@@ -38,18 +42,31 @@ export default function Language() {
         <Pressable onPress={() => go('splash')} style={styles.backCircle} hitSlop={8}>
           <Icon name="arrow_back" size={22} color={colors.text} />
         </Pressable>
-        <Wordmark size={20} />
+        <Animated.View ref={wordHandoff.ref} onLayout={wordHandoff.onLayout} style={wordHandoff.style}>
+          <Wordmark size={20} />
+        </Animated.View>
       </View>
 
       <View style={{ paddingHorizontal: 20 }}>
-        <View style={{ alignItems: 'center', marginBottom: 22, minHeight: 62 }}>
-          <Text style={[font(800), { fontSize: 25, letterSpacing: -0.5, textAlign: 'center', color: colors.text }]}>
-            {GREETINGS[gi]}
-          </Text>
-          <Text style={[font(400), { fontSize: 13.5, color: '#6E8080', marginTop: 6 }]}>
-            Choose your language / अपनी भाषा चुनें
-          </Text>
-        </View>
+        {/* This rotates every 2.6s (setInterval above) purely as a marketing
+            flourish — cycling the greeting through English/Hindi/Telugu.
+            VoiceHidden keeps it out of screen_overview: a genuinely-different
+            string landing every few seconds isn't caught by the "unchanged,
+            don't resend" dedup (it's real new content, not a duplicate), so
+            each rotation was triggering a fresh page_context send and, with
+            it, a real spoken response — confirmed live as Ruby re-nudging
+            "please pick a language" three times over ~18s with no user input
+            between them, just this banner quietly cycling underneath. */}
+        <VoiceHidden>
+          <View style={{ alignItems: 'center', marginBottom: 22, minHeight: 62 }}>
+            <Text style={[font(800), { fontSize: 25, letterSpacing: -0.5, textAlign: 'center', color: colors.text }]}>
+              {GREETINGS[gi]}
+            </Text>
+            <Text style={[font(400), { fontSize: 13.5, color: '#6E8080', marginTop: 6 }]}>
+              Choose your language / अपनी भाषा चुनें
+            </Text>
+          </View>
+        </VoiceHidden>
 
         <View style={{ gap: 12 }}>
           {LANGS.map(l => {

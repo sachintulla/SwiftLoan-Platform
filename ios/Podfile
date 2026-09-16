@@ -30,5 +30,41 @@ target 'SwiftLoan' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Upshot's vendored xcframework ships no arm64 simulator slice, so
+    # CocoaPods auto-excludes arm64 for iphonesimulator on every target that
+    # depends on it — which propagates up through the aggregate Pods target
+    # and blocks a native arm64 Simulator build entirely. Undo that
+    # propagation for everything except the Upshot pods themselves (which
+    # stay x86_64-only / effectively unavailable on Simulator; the app
+    # already degrades gracefully when this SDK isn't present).
+    upshot_pods = ['Upshot', 'UpshotPush', 'react-native-upshotsdk']
+    installer.pods_project.targets.each do |target|
+      is_bundle = target.respond_to?(:product_type) && target.product_type == 'com.apple.product-type.bundle'
+      if is_bundle
+        # Resource-bundle targets never link anything, but inherit the whole
+        # app's OTHER_LDFLAGS regardless — which creates a real dependency
+        # cycle back onto their own parent target (e.g. AsyncStorage's
+        # resource bundle ends up declaring "-lAsyncStorage") once arm64 is
+        # actually attempted for iphonesimulator. Safe to clear on every SDK.
+        target.build_configurations.each { |bc| bc.build_settings['OTHER_LDFLAGS'] = '' }
+        next
+      end
+      next if upshot_pods.include?(target.name)
+      target.build_configurations.each do |bc|
+        bc.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+      end
+    end
+
+    # The per-pod-target fix above lives inside Pods.xcodeproj and doesn't
+    # reach the separate aggregate xcconfig FILE that the app target itself
+    # includes (Target Support Files/Pods-SwiftLoan/*.xcconfig) — clear the
+    # same exclusion there too so the app target can build arm64.
+    installer.aggregate_targets.each do |aggregate_target|
+      aggregate_target.xcconfigs.each do |config_name, xcconfig|
+        xcconfig.attributes['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+        xcconfig.save_as(aggregate_target.xcconfig_path(config_name))
+      end
+    end
   end
 end

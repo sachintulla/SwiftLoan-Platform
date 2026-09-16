@@ -6,6 +6,9 @@ import { validate } from '../middleware/validate.js';
 import { ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import type { KycMethod } from '@prisma/client';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('kyc');
 
 /** Every method that must be verified before KYC counts as complete. */
 const KYC_METHODS: KycMethod[] = ['aadhaar', 'pan', 'bank', 'selfie'];
@@ -30,6 +33,7 @@ kycRouter.post('/:method',
       // fallback when applicationId is null (composite unique with null)
       return prisma.kycVerification.create({ data: { userId: req.user!.sub, method, applicationId: req.body.applicationId, reference: req.body.reference, status: 'pending' } });
     });
+    log.info('method submitted', { userId: req.user!.sub, method, applicationId: req.body.applicationId ?? null });
     // WS5: emit KYC_STARTED once (on the first submitted method) and
     // KYC_COMPLETED once (every method has been submitted). The client used to
     // fire "kyc_submitted" on arrival at each of the four sub-screens, which
@@ -43,6 +47,7 @@ kycRouter.post('/:method',
       const isFirst = done.size === 1;
       const isComplete = KYC_METHODS.every((m) => done.has(m));
       if (!isFirst && !isComplete) return;
+      log.info(isComplete ? 'kyc completed' : 'kyc started', { userId: req.user!.sub, method, completed: [...done] });
       await trackJourney(
         { userId: req.user!.sub },
         {

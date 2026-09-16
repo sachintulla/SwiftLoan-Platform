@@ -31,6 +31,19 @@ function displayName(type: any): string {
   return type?.displayName || type?.name || '';
 }
 
+/**
+ * Wraps decorative/marketing copy (hero banners, illustrations' captions) that
+ * should render normally but never reach the voice agent's screen_overview or
+ * available_actions — e.g. Home's "Welcome back" greeting and headline, which
+ * are pure marketing copy and add nothing the agent needs to act or speak from.
+ * Renders as a plain passthrough; only buildScreenGraph's walk() treats it
+ * specially, by name, so this has zero runtime cost.
+ */
+export function VoiceHidden({ children }: { children: React.ReactNode }): React.ReactElement {
+  return React.createElement(React.Fragment, null, children);
+}
+VoiceHidden.displayName = 'VoiceHidden';
+
 /** Collects the text content of an element subtree (for labelling controls). */
 function collectText(node: any, out: string[], depth = 0): void {
   if (node == null || node === false || depth > 12) return;
@@ -170,6 +183,7 @@ export function buildScreenGraph(children: React.ReactNode): ScreenGraph {
     const el = node as React.ReactElement;
     const props: any = el.props || {};
     const name = displayName(el.type);
+    if (name === 'VoiceHidden') return;
     const kind = classify(el);
 
     if (/^Text$/i.test(name)) {
@@ -181,6 +195,17 @@ export function buildScreenGraph(children: React.ReactNode): ScreenGraph {
       if (looksLikeLabel(candidate)) recentText = candidate;
       // Don't descend again — collectText already gathered nested strings.
       if (!kind) return;
+    } else if (!kind && typeof props.accessibilityLabel === 'string' && props.accessibilityLabel.trim()) {
+      // A custom, non-interactive component (e.g. profile.tsx's DetailRow) renders
+      // its own <Text> internally, which this walker can never see — it only
+      // reads the JSX element tree a screen builds directly (see the file
+      // docstring). An accessibilityLabel on the element itself is the escape
+      // hatch such a component uses to surface that content; collectText()
+      // already reads it for interactive controls below, but nothing previously
+      // read it for a plain presentational wrapper, so e.g. profile.tsx's own
+      // name/email/phone/DOB rows never reached screen_overview despite the
+      // label being set at every call site for exactly this purpose.
+      texts.push(props.accessibilityLabel.trim());
     }
 
     if (kind) {

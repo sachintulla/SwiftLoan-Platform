@@ -22,6 +22,9 @@ import {
   type ProviderName,
 } from '../lib/integrations.js';
 import { sendWhatsAppTemplate } from '../lib/whatsapp.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('integrations');
 
 export const integrationsRouter = Router();
 integrationsRouter.use(requireAdmin);
@@ -71,6 +74,14 @@ integrationsRouter.put('/:provider', requireRole(...CAN_ADMINISTER), validate(pu
   const body = req.body as z.infer<typeof putSchema>;
   const admin = (req as unknown as { admin?: { id?: string; email?: string } }).admin;
   await upsertProviderConfig(provider, body, admin?.email ?? admin?.id);
+  log.info('config saved', {
+    provider,
+    updatedBy: admin?.email ?? admin?.id ?? null,
+    enabled: body.enabled,
+    settingsChanged: body.settings ? Object.keys(body.settings) : [],
+    // Names only — never values.
+    secretsChanged: body.secrets ? Object.keys(body.secrets) : [],
+  });
   return ok(res, await publicView(provider), 'Integration saved');
 }));
 
@@ -113,6 +124,7 @@ integrationsRouter.post('/:provider/test', requireRole(...CAN_ADMINISTER), valid
       callId: `test-${Date.now()}`,
       metadata: { test: true, source: 'admin_integration_test' },
     });
+    log.info('test call placed', { phone: body.testPhone, ok: result.ok, status: result.status, error: result.error ?? null });
     return ok(res, {
       provider,
       performed: 'live_call',
@@ -145,6 +157,7 @@ integrationsRouter.post('/:provider/test', requireRole(...CAN_ADMINISTER), valid
     }
 
     const result = await sendWhatsAppTemplate({ phone: body.testPhone });
+    log.info('test whatsapp sent', { phone: body.testPhone, ok: result.ok, status: result.status, error: result.error ?? null });
     return ok(res, {
       provider,
       performed: 'live_message',

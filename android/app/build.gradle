@@ -82,11 +82,11 @@ android {
 
     namespace "com.swiftloan"
     defaultConfig {
-        applicationId "com.swiftloan"
+        applicationId "com.swiftloan.ai"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.1.6"
+        versionCode 19
+        versionName "0.1.14"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.
@@ -100,15 +100,27 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Release/upload signing for Play Store. Credentials are passed in via
+        // -P properties (or gradle.properties) so no secret lives in the repo:
+        //   -PUPLOAD_STORE_FILE=/abs/path.keystore -PUPLOAD_STORE_PASSWORD=...
+        //   -PUPLOAD_KEY_ALIAS=... -PUPLOAD_KEY_PASSWORD=...
+        release {
+            if (project.hasProperty("UPLOAD_STORE_FILE")) {
+                storeFile file(project.property("UPLOAD_STORE_FILE"))
+                storePassword project.property("UPLOAD_STORE_PASSWORD")
+                keyAlias project.property("UPLOAD_KEY_ALIAS")
+                keyPassword project.property("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Use the release/upload key when its credentials are supplied,
+            // otherwise fall back to the debug key (local dev builds).
+            signingConfig project.hasProperty("UPLOAD_STORE_FILE") ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
@@ -118,6 +130,10 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // ML Kit on-device Latin text recognition — powers the "Upload PAN photo"
+    // OCR (PanOcrModule). Bundled model, no network / Play Services download.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

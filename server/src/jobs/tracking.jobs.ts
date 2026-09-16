@@ -4,6 +4,7 @@ import { TERMINAL_STAGES, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/jour
 import { nudgeCustomer, runDispatchQueue } from '../lib/dispatch.js';
 import { campaignScheduler } from '../lib/campaignRunner.js';
 import { leadAutoCaller } from '../lib/leadCaller.js';
+import { immediateCallback } from '../lib/immediateCallback.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
 
@@ -150,6 +151,9 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'campaign-scheduler', fn: () => campaignScheduler(), everyMs: 60_000 },
   // WS5c — auto-call a website lead ~1 min after they submit the form.
   { name: 'lead-autocaller', fn: async () => { await leadAutoCaller(); }, everyMs: 60_000 },
+  // WS5e — a visitor who explicitly asked for a callback (after verifying
+  // their phone) gets one within ~5 min, separate from the passive flow above.
+  { name: 'immediate-callback', fn: async () => { await immediateCallback(); }, everyMs: 60_000 },
   // WS5d — step-level stall rules: "did the next step happen?" -> Upshot event.
   { name: 'step-stall', fn: async () => { await stepStallDetector(); }, everyMs: 2 * 60_000 },
   // ADM-016 — close calls whose terminal webhook never arrived, so a lost

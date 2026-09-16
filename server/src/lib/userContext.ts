@@ -13,22 +13,110 @@
  *
  * Everything here is READ-ONLY and best-effort: this feeds an agent's opening
  * line, so a failure must degrade to "no context" rather than break app boot.
+ *
+ * This deliberately excludes the internal sales/telecaller funnel
+ * (`Customer.currentStage`, `nextActionFor` — labels like "Call the lead",
+ * "Nudge to check eligibility") and cross-channel conversation history
+ * (`conversations` etc.) — both used to be in this payload, but this feeds a
+ * customer-facing agent's opening line directly, not a human telecaller's
+ * dashboard, and neither of those belongs in a customer-facing voice agent's
+ * hands at all. `applicationStatus`, sourced from the user's own real
+ * `LoanApplication.status`, is the one status signal the agent should ever
+ * speak from.
  */
+import { ApplicationStatus } from '@prisma/client';
 import { prisma } from './prisma.js';
-import { STAGE_LABELS } from './journey.js';
-import { nextActionFor } from './nextAction.js';
-import { getConversationContext } from './conversations.js';
+
+const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
+  draft: 'Application details in progress',
+  pan_pending: 'PAN verification pending',
+  prequalifying: 'Checking eligibility',
+  offers_ready: 'Offers ready to view',
+  handoff: 'Submitted to lender',
+  under_review: 'Under lender review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  disbursed: 'Disbursed',
+  closed: 'Closed',
+  failed: 'Application failed',
+};
+
+// How far along the funnel each non-terminal status actually is. A user can
+// end up with more than one non-terminal LoanApplication row at once (e.g. an
+// abandoned draft started fresh after an earlier one already reached a real
+// lender) — confirmed live: a user with a `handoff` application (2 real
+// offers, one applied) started a new `draft` minutes later, and picking "most
+// recently created" surfaced the empty draft while the real, further-along
+// application silently disappeared. Progress outranks recency; recency only
+// tie-breaks between two applications at the same stage.
+const APPLICATION_STATUS_RANK: Record<ApplicationStatus, number> = {
+  draft: 0,
+  pan_pending: 1,
+  prequalifying: 2,
+  offers_ready: 3,
+  handoff: 4,
+  under_review: 5,
+  approved: 6,
+  disbursed: 7,
+  // Never actually queried (excluded below), ranked low only so this map is total.
+  rejected: -1,
+  closed: -1,
+  failed: -1,
+};
 
 export interface UserContext {
   /** True when we know anything at all — the app skips the handoff if false. */
   hasHistory: boolean;
-  name: string | null;
-  city: string | null;
-  email: string | null;
-  /** Journey stage, machine value + label for the agent to speak. */
-  stage: string | null;
-  stageLabel: string | null;
-  nextAction: string | null;
+
+  /** The signed-in account's own details (User table) — null only when there is no userId. */
+  profile: {
+    name: string | null;
+    email: string | null;
+    phone: string;
+    dob: string | null; // ISO date
+    gender: string | null;
+    city: string | null;
+    pincode: string | null;
+    employment: string | null;
+    monthlyIncome: number | null; // rupees
+    /** Never expose the actual PAN digits to the agent — completion only. */
+    panOnFile: boolean;
+  } | null;
+
+  /**
+   * The rest of what save_applicant_details collects conversationally, before
+   * an application exists — everything NOT already in `profile` above. Now
+   * synced server-side (User columns) instead of living only in the app's
+   * own device-local savedApplicantDraft, so it reaches the pre-call tool
+   * too, not just the app's own page_context push. Null only when there is
+   * no signed-in user at all — an individual field being null just means
+   * that one hasn't come up in conversation yet, same as `profile`.
+   */
+  applicantDraft: {
+    residenceType: string | null;
+    maritalStatus: string | null;
+    qualification: string | null;
+    company: string | null;
+    loanPurpose: string | null;
+    loanAmount: number | null; // rupees — the desired amount, before a real LoanApplication exists
+    salaryMode: string | null;
+    professionalType: string | null;
+    companyEmail: string | null;
+    businessEmail: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    landmark: string | null;
+    district: string | null;
+    state: string | null;
+    monthlyObligations: number | null; // rupees
+    alternateMobile: string | null;
+    alternateEmail: string | null;
+  } | null;
+
+  /** The one clear, customer-facing signal: where this user's loan application stands. */
+  applicationStatus: string | null;
+  applicationStatusLabel: string;
+
   /** Website enquiries made under this phone, oldest first. */
   inquiries: Array<{
     product: string | null;
@@ -40,58 +128,46 @@ export interface UserContext {
     source: string | null;
     campaign: string | null;
   }>;
-  /** The most recent completed call, so the agent can reference it. */
-  lastCall: {
-    at: string;
-    outcome: string | null;
-    /** Whether `outcome` was reported by the agent or merely inferred. */
-    outcomeSource: string | null;
-    summary: string | null;
-    answered: boolean;
-    durationSec: number | null;
-  } | null;
   /** An application already in flight, so the agent resumes instead of restarting. */
   application: {
     id: string;
     ref: string;
     status: string;
-    amount: number | null;
+    amount: number | null; // paise — the user's own REQUESTED amount, not any lender's offered amount
     loanType: string | null;
-    offerCount: number;
+    tenureMonths: number | null;
+    /** Every offer, each trimmed to exactly: which lender, at what rate, for how much, what EMI, and its own status. */
+    offers: Array<{
+      lenderName: string | null;
+      apr: number | null;
+      amount: number | null; // paise — this lender's own offered amount, may differ from application.amount
+      emi: number | null; // paise
+      applied: boolean;
+      /** Only meaningful once applied — this lender's own progress (in_progress/reviewed/rejected/etc). */
+      status: string | null;
+      statusLabel: string | null;
+    }>;
   } | null;
   /** A live loan, which changes the conversation entirely (servicing, not sales). */
-  loan: { id: string; principal: number | null; status: string | null } | null;
-  /** One-line brief the agent can open from. Built server-side so every
-   *  channel phrases the history the same way. */
-  brief: string | null;
-  /**
-   * The cross-channel CONVERSATION brief — every exchange on this number across
-   * website, phone and app. Distinct from `brief` above, which summarises the
-   * funnel journey (enquiries, application, loan). An in-app agent wants both:
-   * one tells it where they are, the other what was already said.
-   */
-  conversationBrief: string | null;
-  conversationCount: number;
-  conversationChannels: string[];
-  /** Recent conversations, newest first, for an agent that wants specifics. */
-  conversations: Array<{
-    channel: string;
-    channelLabel: string;
-    agentRole: string | null;
-    at: string;
-    durationSec: number | null;
-    summary: string | null;
-    outcome: string | null;
-    /** False = we inferred it from the transcript. Do not state it as fact. */
-    outcomeConfirmed: boolean;
-  }>;
+  loan: {
+    id: string;
+    ref: string;
+    partnerName: string | null;
+    principal: number | null; // paise
+    apr: number | null;
+    tenureMonths: number | null;
+    emiAmount: number | null; // paise
+    status: string | null;
+    outstanding: number | null; // paise
+  } | null;
 }
 
+const NO_APPLICATION_LABEL = 'No application started';
+
 const EMPTY: UserContext = {
-  hasHistory: false, name: null, city: null, email: null,
-  stage: null, stageLabel: null, nextAction: null,
-  inquiries: [], lastCall: null, application: null, loan: null, brief: null,
-  conversationBrief: null, conversationCount: 0, conversationChannels: [], conversations: [],
+  hasHistory: false, profile: null, applicantDraft: null,
+  applicationStatus: null, applicationStatusLabel: NO_APPLICATION_LABEL,
+  inquiries: [], application: null, loan: null,
 };
 
 /** ₹3,00,000 → "3 lakh rupees". Spoken form, since an agent reads this aloud. */
@@ -101,17 +177,6 @@ function amountWords(paise: number | null | undefined): string | null {
   if (r >= 10_000_000) return `${+(r / 10_000_000).toFixed(2)} crore rupees`;
   if (r >= 100_000) return `${+(r / 100_000).toFixed(2)} lakh rupees`;
   return `${r.toLocaleString('en-IN')} rupees`;
-}
-
-function agoWords(iso: Date): string {
-  const mins = Math.round((Date.now() - iso.getTime()) / 60_000);
-  if (mins < 2) return 'just now';
-  if (mins < 60) return `${mins} minutes ago`;
-  const h = Math.round(mins / 60);
-  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
-  const d = Math.round(h / 24);
-  if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`;
-  return `${Math.round(d / 30)} month${Math.round(d / 30) === 1 ? '' : 's'} ago`;
 }
 
 /**
@@ -124,9 +189,10 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
   const clean = String(phone ?? '').replace(/\D/g, '').slice(-10);
   if (clean.length !== 10) return EMPTY;
 
-  const [customer, leads, call, app, loan] = await Promise.all([
+  const [user, customer, leads, call, apps, loan] = await Promise.all([
+    userId ? prisma.user.findUnique({ where: { id: userId } }) : Promise.resolve(null),
     prisma.customer.findFirst({ where: { phone: clean } }),
-    prisma.anonymousLead.findMany({ where: { phone: clean }, orderBy: { createdAt: 'asc' }, take: 10 }),
+    prisma.lead.findMany({ where: { phone: clean }, orderBy: { createdAt: 'asc' }, take: 10 }),
     // Only a call that actually connected is worth mentioning; referencing a
     // missed call would confuse rather than help.
     prisma.callAttempt.findFirst({
@@ -134,16 +200,43 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
       orderBy: { queuedAt: 'desc' },
     }),
     userId
-      ? prisma.loanApplication.findFirst({
-          where: { userId, status: { notIn: ['closed', 'rejected'] } },
+      ? prisma.loanApplication.findMany({
+          // `failed` belongs alongside closed/rejected here — it means
+          // prequalify ran and returned zero eligible offers (see
+          // applications.routes.ts), a dead end exactly like the other two.
+          // Leaving it out let a failed application still surface as "the
+          // current application" — contradicting its own status.
+          //
+          // No `offers: { some: { applied: true } }` filter (removed) — that
+          // used to hide an application until the user actually applied to a
+          // lender, matching loans.tsx's own "trackable application" cutoff.
+          // But this endpoint isn't loans.tsx: it now needs to tell "never
+          // started" (no row at all) apart from "got offers, never applied"
+          // (offers_ready, real offers sitting there) — collapsing the
+          // second into the first was itself misleading, just in the
+          // opposite direction from the bug this filter originally fixed.
+          // The fix for BOTH is the same one: applicationStatusLabel gives
+          // each real status its own accurate phrasing, so "offers_ready"
+          // never gets spoken as "application in progress" OR "not started".
+          //
+          // findMany, not findFirst — see APPLICATION_STATUS_RANK's comment.
+          // The single most-advanced one is picked in JS just below.
+          where: { userId, status: { notIn: ['closed', 'rejected', 'failed'] } },
           orderBy: { createdAt: 'desc' },
-          include: { _count: { select: { offers: true } } },
+          include: { offers: { include: { partner: true }, orderBy: { createdAt: 'asc' } } },
         })
-      : Promise.resolve(null),
+      : Promise.resolve([] as never[]),
     userId
       ? prisma.loan.findFirst({ where: { userId }, orderBy: { disbursedAt: 'desc' } })
       : Promise.resolve(null),
-  ]).catch(() => [null, [], null, null, null] as const);
+  ]).catch(() => [null, null, [], null, [], null] as const);
+
+  // Already ordered by createdAt desc, so among ties at the same rank the
+  // first (most recent) one wins — see APPLICATION_STATUS_RANK's comment.
+  const app = (apps ?? []).reduce<(typeof apps)[number] | null>((best, candidate) => {
+    if (!best) return candidate;
+    return APPLICATION_STATUS_RANK[candidate.status] > APPLICATION_STATUS_RANK[best.status] ? candidate : best;
+  }, null);
 
   const inquiries = (leads ?? []).map((l) => ({
     product: l.productInterest,
@@ -159,120 +252,83 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
   // A number can have conversations and nothing else — someone who talked to the
   // website widget before ever submitting a form. Counting that as "no history"
   // would throw away exactly the context this endpoint exists to provide.
-  const conversationCount = await prisma.conversation
+  const conversationCount = await prisma.callAttempt
     .count({ where: { phone: clean } })
     .catch(() => 0);
 
-  const hasHistory = !!(customer || inquiries.length || call || app || loan || conversationCount);
+  const hasHistory = !!(user || customer || inquiries.length || call || app || loan || conversationCount);
   if (!hasHistory) return EMPTY;
 
-  const latest = inquiries[inquiries.length - 1] ?? null;
-  const stage = customer?.currentStage ?? null;
+  const applicationStatus = app?.status ?? null;
 
   const ctx: UserContext = {
     hasHistory: true,
-    name: customer?.name ?? null,
-    city: customer?.city ?? latest?.city ?? null,
-    email: customer?.email ?? null,
-    stage,
-    stageLabel: stage ? STAGE_LABELS[stage] ?? stage : null,
-    nextAction: stage ? nextActionFor(stage) : null,
-    inquiries,
-    lastCall: call
+    profile: user
       ? {
-          at: call.queuedAt.toISOString(),
-          outcome: call.outcome,
-          outcomeSource: call.outcomeSource,
-          summary: call.summary,
-          answered: call.answered,
-          durationSec: call.durationSec,
+          name: user.fullName ?? ([user.firstName, user.lastName].filter(Boolean).join(' ') || null),
+          email: user.email,
+          phone: user.phone,
+          dob: user.dob ? user.dob.toISOString().slice(0, 10) : null,
+          gender: user.gender,
+          city: user.city,
+          pincode: user.pincode,
+          employment: user.employment,
+          monthlyIncome: user.monthlyIncome ?? null,
+          panOnFile: !!user.panNumber,
         }
       : null,
+    applicantDraft: user
+      ? {
+          residenceType: user.residenceType,
+          maritalStatus: user.maritalStatus,
+          qualification: user.qualification,
+          company: user.company,
+          loanPurpose: user.loanPurpose,
+          loanAmount: user.draftLoanAmount ?? null,
+          salaryMode: user.salaryMode,
+          professionalType: user.professionalType,
+          companyEmail: user.companyEmail,
+          businessEmail: user.businessEmail,
+          addressLine1: user.addressLine1,
+          addressLine2: user.addressLine2,
+          landmark: user.landmark,
+          district: user.district,
+          state: user.state,
+          monthlyObligations: user.monthlyObligations ?? null,
+          alternateMobile: user.alternateMobile,
+          alternateEmail: user.alternateEmail,
+        }
+      : null,
+    applicationStatus,
+    applicationStatusLabel: applicationStatus
+      ? APPLICATION_STATUS_LABELS[applicationStatus] ?? applicationStatus
+      : NO_APPLICATION_LABEL,
+    inquiries,
     application: app
       ? {
           id: app.id, ref: app.ref, status: app.status,
           amount: app.amount ?? null, loanType: app.loanType ?? null,
-          offerCount: (app as any)._count?.offers ?? 0,
+          tenureMonths: app.tenureMonths ?? null,
+          offers: (app.offers ?? []).map((o) => ({
+            lenderName: o.lenderName ?? o.partner?.name ?? null,
+            apr: o.apr ?? null,
+            amount: o.amount ?? null,
+            emi: o.emi ?? null,
+            applied: o.applied,
+            status: o.lenderStatus ?? null,
+            statusLabel: o.lenderStatus ? APPLICATION_STATUS_LABELS[o.lenderStatus] ?? o.lenderStatus : null,
+          })),
         }
       : null,
-    loan: loan ? { id: loan.id, principal: loan.principal ?? null, status: loan.status ?? null } : null,
-    brief: null,
-    conversationBrief: null,
-    conversationCount: 0,
-    conversationChannels: [],
-    conversations: [],
+    loan: loan
+      ? {
+          id: loan.id, ref: loan.ref, partnerName: loan.partnerName ?? null,
+          principal: loan.principal ?? null, apr: loan.apr ?? null,
+          tenureMonths: loan.tenureMonths ?? null, emiAmount: loan.emiAmount ?? null,
+          status: loan.status ?? null, outstanding: loan.outstanding ?? null,
+        }
+      : null,
   };
 
-  ctx.brief = buildBrief(ctx, leads?.[leads.length - 1]?.createdAt, call?.queuedAt);
-
-  // WS10 — the cross-channel conversation memory. Fetched separately (and
-  // tolerantly) because it is additive: if it fails, the agent still gets the
-  // funnel context it always had rather than nothing at all.
-  const conv = await getConversationContext(clean, 6).catch(() => null);
-  if (conv?.known) {
-    ctx.conversationBrief = conv.brief;
-    ctx.conversationCount = conv.conversationCount;
-    ctx.conversationChannels = conv.channels;
-    ctx.conversations = conv.conversations.map((c) => ({
-      channel: c.channel,
-      channelLabel: c.channelLabel,
-      agentRole: c.agentRole,
-      at: c.at.toISOString(),
-      durationSec: c.durationSec,
-      summary: c.summary,
-      outcome: c.outcome,
-      outcomeConfirmed: c.outcomeConfirmed,
-    }));
-  }
-
   return ctx;
-}
-
-/**
- * One sentence the agent can open from.
- *
- * Composed here rather than in the prompt so that the phrasing is consistent
- * across the app agent and the phone agent, and so the ordering is deliberate:
- * a live loan outranks an application, which outranks a website enquiry. Opening
- * with "you asked about a loan" to someone who already has one would be a bad
- * look for a lender.
- */
-function buildBrief(c: UserContext, lastInquiryAt?: Date, lastCallAt?: Date): string | null {
-  const bits: string[] = [];
-
-  if (c.loan) {
-    bits.push(`has an active loan of ${amountWords(c.loan.principal) ?? 'an unknown amount'}`);
-  } else if (c.application) {
-    const offers = c.application.offerCount;
-    bits.push(
-      `has an application in progress (${c.application.ref}, status ${c.application.status}` +
-        (offers ? `, ${offers} offer${offers === 1 ? '' : 's'} ready` : '') +
-        ')',
-    );
-  }
-
-  const latest = c.inquiries[c.inquiries.length - 1];
-  if (latest && lastInquiryAt) {
-    const extra = c.inquiries.length > 1 ? ` (and ${c.inquiries.length - 1} earlier enquiry/enquiries)` : '';
-    bits.push(
-      `enquired on the website ${agoWords(lastInquiryAt)} about ${latest.product ?? 'a loan'}` +
-        (latest.amountLabel ? ` of ${latest.amountLabel}` : '') +
-        extra,
-    );
-  }
-
-  if (c.lastCall && lastCallAt && c.lastCall.answered) {
-    // Only mention an outcome the agent itself reported. An inferred outcome is
-    // a keyword guess, and asserting it back to the customer ("you said you
-    // weren't interested") would be worse than saying nothing.
-    const reliable = c.lastCall.outcomeSource === 'agent' && c.lastCall.outcome;
-    bits.push(
-      `spoke to us on the phone ${agoWords(lastCallAt)}` +
-        (reliable ? ` and the outcome was ${String(c.lastCall.outcome).replace(/_/g, ' ')}` : ''),
-    );
-  }
-
-  if (!bits.length) return null;
-  const who = c.name ? c.name.split(/\s+/)[0] : 'This customer';
-  return `${who} ${bits.join('; ')}.`;
 }

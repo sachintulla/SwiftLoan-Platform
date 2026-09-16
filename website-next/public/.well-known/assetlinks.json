@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ai.swiftloan.app",
+      "sha256_cert_fingerprints": [
+        "63:59:33:16:FE:82:64:D7:CB:25:9E:9A:C2:A9:3F:B9:1C:2F:D2:8F:3F:5B:E0:84:55:95:90:77:D1:EE:C4:3D"
+      ]
+    }
+  }
+]

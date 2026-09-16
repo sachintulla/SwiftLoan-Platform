@@ -228,6 +228,10 @@ export interface Campaign {
   createdAt?: string;
   totalContacts?: number; calledContacts?: number; failedContacts?: number;
   nextRunAt?: string | null;
+  /** Set once "Start dialling" has handed this campaign's contacts to Ello's own batch dialler. */
+  providerCampaignId?: string | null;
+  /** Soft-delete marker — present once an admin deletes the campaign. */
+  deletedAt?: string | null;
 }
 
 export function campaignToForm(c: Campaign): CampaignForm {

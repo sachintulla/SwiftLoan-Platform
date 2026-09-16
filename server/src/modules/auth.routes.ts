@@ -8,10 +8,20 @@ import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from '../lib/journey.js';
+import { generateAurixTokenFromEnv } from '../lib/lenderOffers.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('auth');
 
 export const authRouter = Router();
 
-const phoneSchema = z.string().regex(/^\d{10}$/, 'phone must be 10 digits');
+// Real Indian mobile numbers start with 6-9; reject one digit repeated ten
+// times ("0000000000", "9999999999") too — the app's own client-side check
+// mirrors this, but that alone is bypassable, so this is the real boundary.
+const phoneSchema = z
+  .string()
+  .regex(/^[6-9]\d{9}$/, 'phone must be a valid 10-digit Indian mobile number')
+  .refine(p => !/^(\d)\1{9}$/.test(p), 'phone must be a valid 10-digit Indian mobile number');
 
 async function issueTokens(userId: string, phone: string) {
   const access = signAccess({ sub: userId, phone });
@@ -56,6 +66,7 @@ authRouter.post(
       },
     });
     const devOtp = await createOtp(phone, user.id);
+    log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp });
     res.status(201).json({ userId: user.id, otpSent: true, devOtp });
   }),
 );
@@ -77,6 +88,7 @@ authRouter.post(
       { channel: 'app', name: JOURNEY_EVENTS.OTP_REQUESTED, screen: 'mobile' },
     ).catch(() => {});
 
+    log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp });
     res.json({ otpSent: true, devOtp });
   }),
 );
@@ -111,20 +123,38 @@ authRouter.post(
       where: { phone, consumed: false, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
-    if (!isMaster && (!otp || otp.codeHash !== sha256(code))) throw new HttpError(400, 'Invalid or expired OTP');
+    if (!isMaster && (!otp || otp.codeHash !== sha256(code))) {
+      log.warn('otp verify rejected', { phone });
+      throw new HttpError(400, 'Invalid or expired OTP');
+    }
     if (otp) await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
     const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
     const tokens = await issueTokens(user.id, user.phone);
+    log.info('otp verified — logged in', { phone, userId: user.id, viaMasterOtp: isMaster });
+
+    // Pre-generate + cache the Aurix (Knight Fintech) X-Aurix-Token now, keyed by
+    // this user.id, so the eligible_offers call after PAN reuses it instead of
+    // paying a cold token round-trip (which was flirting with the offer timeout).
+    // Fire-and-forget: never blocks or fails login. TTL kept well under Aurix's
+    // ~1-month token validity; getOffers refreshes if it's missing/expired.
+    void generateAurixTokenFromEnv(user.id, user.phone)
+      .then((token) =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 20 * 864e5) },
+        }),
+      )
+      .catch(() => {});
 
     // Website inquiries made under this phone number before the app was
     // installed. All matches are surfaced (not just the newest) so the voice
     // agent can ask which one the caller meant instead of guessing.
-    const matchingLeads = await prisma.anonymousLead.findMany({
+    const matchingLeads = await prisma.lead.findMany({
       where: { phone },
       orderBy: { createdAt: 'asc' },
     });
     if (matchingLeads.length) {
-      await prisma.anonymousLead.updateMany({
+      await prisma.lead.updateMany({
         where: { id: { in: matchingLeads.map((l) => l.id) } },
         data: { status: 'converted', convertedUserId: user.id },
       });
@@ -178,9 +208,12 @@ authRouter.post(
     const user = await prisma.user.findFirst({
       where: { OR: [{ phone: identifier }, { email: identifier }] },
     });
-    if (!user || !user.passwordHash || !(await compare(password, user.passwordHash)))
+    if (!user || !user.passwordHash || !(await compare(password, user.passwordHash))) {
+      log.warn('password login rejected', { identifier });
       throw new HttpError(401, 'Invalid credentials');
+    }
     const tokens = await issueTokens(user.id, user.phone);
+    log.info('password login', { userId: user.id });
     res.json({ user: publicUser(user), ...tokens });
   }),
 );
@@ -210,6 +243,8 @@ authRouter.post(
 );
 
 export function publicUser(u: any) {
-  const { passwordHash, ...rest } = u;
+  // Never leak secrets to the client: the password hash, and the server-side
+  // Aurix token (kept out of the app bundle/network by design).
+  const { passwordHash, aurixToken, aurixTokenExpiresAt, ...rest } = u;
   return rest;
 }

@@ -51,7 +51,7 @@ async function run() {
   check('create application', app.status === 201 && !!app.data.application.ref, app.data);
   const appId = app.data.application.id;
 
-  const panPatch = await j('PATCH', `/api/applications/${appId}`, { panNumber: 'ABCDE1234F' }, token);
+  const panPatch = await j('PATCH', `/api/applications/${appId}`, { panNumber: 'AAAPL1234C' }, token);
   check('attach PAN', panPatch.status === 200 && panPatch.data.application.status === 'pan_pending');
 
   const preq = await j('POST', `/api/applications/${appId}/prequalify`, {}, token);

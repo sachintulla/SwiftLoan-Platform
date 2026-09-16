@@ -62,7 +62,42 @@ model User {
   panNumber      String?
   aadhaarLast4   String?
   avatarUrl      String?
+
+  // Aurix (Knight Fintech) integration: cached X-Aurix-Token (generated at OTP
+  // verify) + the extra applicant fields the eligible_offers request requires
+  // or accepts. Collected across the PAN/details/optional screens.
+  aurixToken          String?
+  aurixTokenExpiresAt DateTime?
+  maritalStatus       String?
+  qualification       String?
+  alternateMobile     String?
+  alternateEmail      String?
+  addressLine1        String?
+  addressLine2        String?
+  landmark            String?
+  city                String?
+  district            String?
+  state               String?
+  loanPurpose         String?
+  salaryMode          String?
+  monthlyObligations  Int?
+  professionalType    String?
+  companyEmail        String?
+  businessEmail       String?
+  // The only pre-application field with no other natural home (unlike
+  // loanPurpose etc. above) — a real LoanApplication.amount doesn't exist
+  // yet at the point the voice agent collects this conversationally, so it
+  // has nowhere else to persist until basic is actually reached. Plain
+  // rupees, same convention as LoanApplication.amount (NOT paise).
+  draftLoanAmount     Int?
+
   lang           Lang            @default(en)
+  // The language the user has spoken to the voice agent, distinct from `lang`
+  // (the app's UI-copy language set on the language-selection screen /
+  // Profile). Null until the user has explicitly stated a spoken-language
+  // preference during a call; `preferred_language` in page_context falls
+  // back to `lang` until then.
+  voiceLang      Lang?
   creditScore    Int             @default(750)
   phoneVerified  Boolean         @default(false)
   emailVerified  Boolean         @default(false)
@@ -133,6 +168,17 @@ model Consent {
 
 // ─────────────────────── Application funnel ───────────────────────
 
+// App-side view of a lender application's hand-off outcome, distinct from the
+// webhook-driven lender `status` (under_review/approved/…). This is what the app
+// itself observed happen when the user completed (or didn't) the lender's web
+// flow, shown as its own state in My Loans. It never depends on the KFT webhook.
+enum InternalStatus {
+  just_applied // handed off to the lender; no terminal web-flow signal yet
+  success // the lender web flow completed / reached a success page
+  failed // the flow dead-ended (user cancelled, declined, fail redirect)
+  error // a technical problem (page crash, HTTP error, load failure)
+}
+
 enum ApplicationStatus {
   draft // Step 1 details captured
   pan_pending // Step 2
@@ -144,6 +190,7 @@ enum ApplicationStatus {
   rejected
   disbursed
   closed
+  failed // could not complete (e.g. the lender web flow errored out)
 }
 
 enum LoanType {
@@ -165,6 +212,10 @@ model LoanApplication {
   purpose      String?
   status       ApplicationStatus @default(draft)
 
+  // Knight Fintech (Aurix) lead id, learned from the first status webhook that
+  // carries it, so subsequent journey webhooks match this application precisely.
+  leadId String?
+
   // snapshot of applicant details at submission
   employment    EmploymentType?
   monthlyIncome Int?
@@ -174,11 +225,13 @@ model LoanApplication {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  offers Offer[]
-  loan   Loan?
-  kyc    KycVerification[]
+  offers             Offer[]
+  loan               Loan?
+  kyc                KycVerification[]
+  lenderApplications LenderApplication[]
 
   @@index([userId, status])
+  @@index([leadId])
 }
 
 model LenderPartner {
@@ -211,7 +264,12 @@ model LenderPartner {
 // Admin-curated, pre-application eligibility catalog shown on the app's
 // "Explore your loan options" screen (skip-login path) — distinct from Offer,
 // which is computed per-application after a user actually applies.
-model PreApprovedPlan {
+/// The static catalog of market-available loan offers shown on the dashboard
+/// after login (no PAN, no credit pull). NOT the personalised/eligible offers —
+/// those are the Offer rows returned per application by the lender (Aurix).
+/// Physical table kept as "PreApprovedPlan" (@@map) so the rename needs no
+/// data migration.
+model MarketLoanOffer {
   id         String  @id @default(uuid())
   lenderName String
   logoUrl    String? // hosted brand logo image URL
@@ -239,6 +297,7 @@ model PreApprovedPlan {
   updatedAt DateTime @updatedAt
 
   @@index([active, displayOrder])
+  @@map("PreApprovedPlan")
 }
 
 model Offer {
@@ -265,9 +324,93 @@ model Offer {
   gstOnProcessingFee  Int     @default(0)
   netDisbursalAmount  Int     @default(0)
 
-  emiOptions OfferEmiOption[]
+  // Aurix (Knight Fintech) eligible_offers response fields. A single Aurix call
+  // returns many offers (one per real lender), so these are persisted per Offer
+  // row alongside the denormalized scalars above. Kept for a later step that
+  // surfaces them on the tiles; `rawOffer` preserves the untouched provider
+  // object so nothing is lost.
+  offerCode         String?
+  offerType         String?
+  roi               Float?
+  offerLikelihood   String?
+  redirectionUrl    String?
+  lenderName        String?
+  lenderLogoUrl     String?
+  externalPartnerId String?
+  rawOffer          Json?
+
+  // Per-lender application tracking. Applying to a specific lender's offer marks
+  // it applied and gives it its own tracked status (independent of the parent
+  // application's eligibility status). The Offer.id acts as the per-lender
+  // application id; KFT's later journey webhooks (which carry lender_name) update
+  // `lenderStatus` for the matching offer so My Loans shows per-lender progress.
+  applied          Boolean            @default(false)
+  appliedAt        DateTime? // when this lender application was submitted
+  lenderStatus     ApplicationStatus?
+  // Per-stage timestamps for this lender application — set once, the first time
+  // the lender's status reaches each stage (via the KFT webhook). Drive the
+  // "when submitted / under review / approved / failed / disbursed" timeline in
+  // the app and admin. Canonical order: appliedAt → underReviewAt →
+  // approvedAt|rejectedAt → disbursedAt.
+  underReviewAt    DateTime?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  disbursedAt      DateTime?
+  kftApplicationId String? // application_id from KFT's application_submitted event
+  applicationUrl   String? // ApplicationUrl from KFT, if provided
+  failureReason    String? // why the lender application failed (e.g. web flow error)
+
+  emiOptions         OfferEmiOption[]
+  lenderApplications LenderApplication[]
 
   @@index([applicationId])
+  @@index([applied])
+}
+
+// One tracked application to a lender. Each "Apply" creates a NEW row, so a user
+// can apply to the same lender more than once (each is its own My Loans card
+// with its own status). Distinct from Offer (the eligible offer the user picked
+// from): an Offer can spawn many LenderApplications over time. Snapshots the
+// offer economics at apply time, since the offer's figures can change later.
+model LenderApplication {
+  id            String          @id @default(uuid())
+  applicationId String // parent LoanApplication (the eligibility run)
+  application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  offerId       String // the eligible Offer this was applied from
+  offer         Offer           @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  // Snapshot of what was applied to (offer figures can change afterwards).
+  lenderName          String?
+  lenderLogoUrl       String?
+  amount              Int
+  apr                 Float?
+  emi                 Int?
+  tenureMonths        Int?
+  processingFeeAmount Int     @default(0)
+  redirectionUrl      String?
+
+  // This application's own status + canonical stage timestamps (independent of
+  // the parent application and of any sibling application to the same lender).
+  status        ApplicationStatus @default(handoff)
+  // App-side hand-off outcome (see InternalStatus). Set by the app as the user
+  // moves through the lender web flow; NOT driven by the KFT webhook — the
+  // webhook still drives `status` above.
+  internalStatus InternalStatus   @default(just_applied)
+  appliedAt     DateTime          @default(now())
+  underReviewAt DateTime?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  disbursedAt   DateTime?
+  // KFT/Aurix ids used to match inbound status webhooks to THIS application.
+  kftApplicationId String?
+  failureReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([offerId])
+  @@index([kftApplicationId])
 }
 
 // One row per tenure choice offered for a given Offer — lets a single lender
@@ -483,25 +626,44 @@ enum LeadStatus {
   lost
 }
 
-model AnonymousLead {
+// A single row per website/widget submission. Used to be split across two
+// tables created in lockstep on every POST /api/context/create
+// (ContextSession for the app deep-link handoff, AnonymousLead for the admin
+// funnel) — same phone/product/amount, two inserts, and no update path, so a
+// later correction (e.g. Hero's amount-correction step) had to insert a THIRD
+// row instead of patching. Merged into one: one insert on submit, one update
+// on correction, one table for the admin's "Website enquiries" list and the
+// app's token resolution to agree on.
+model Lead {
   id              String     @id @default(uuid())
+  /// Short opaque code carried in the app deep link (was ContextSession.token).
+  token           String     @unique
   name            String?
-  phone           String?
+  /// Every Lead is required to resolve to a real phone number — the join key
+  /// that lets a website/campaign touch later become one Customer, one User,
+  /// one 360 view. POST /api/context/create validates this before creation.
+  phone           String
   city            String?
   productInterest String?
   amount          Int? // paise
-  source          String     @default("app") // widget | app | campaign | organic
+  /// Auto-generated at creation ("Interested in a ₹X Y loan — ..."), and
+  /// admin-editable afterward via PATCH /api/admin/leads/:id — was
+  /// ContextSession.summary and AnonymousLead.note, which held the same text.
+  note            String?
+  source          String     @default("website") // website | call | widget | campaign
   campaignId      String?
   referrer        String?
   status          LeadStatus @default(new)
   convertedUserId String? // set when the lead becomes a real User
-  note            String?
+  transcript      Json? // optional richer context (turns, fields captured)
+  claimedAt       DateTime? // set when the app first resolves the token
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   @@index([status])
   @@index([source])
   @@index([createdAt])
+  @@index([phone, createdAt])
 }
 
 // ─────────────────────── App downloads / attribution ───────────────────────
@@ -639,23 +801,6 @@ model Notification {
 // short opaque token. The token (NOT the PII) travels in the app-download deep
 // link; the context APK resolves it server-side on first open and the in-app
 // agent continues the journey ("as we discussed, your ₹5L personal loan…").
-model ContextSession {
-  id         String    @id @default(uuid())
-  token      String    @unique // short opaque code carried in the deep link
-  name       String?
-  phone      String?
-  city       String?
-  product    String? // Personal Loan | Business Loan
-  amount     Int? // paise
-  summary    String? // one-line of what the user said / wants
-  source     String    @default("website") // website | call | widget
-  transcript Json? // optional richer context (turns, fields captured)
-  claimedAt  DateTime? // set when the app first resolves it
-  createdAt  DateTime  @default(now())
-
-  @@index([createdAt])
-}
-
 // ══════════════════════════════════════════════════════════════════════
 // WS5 — Unified customer journey (website / voice / app / campaigns)
 //
@@ -690,7 +835,12 @@ enum JourneyStage {
 /// the app OTP schema validates 10 digits, so string equality is safe.
 model Customer {
   id             String       @id @default(uuid())
-  phone          String?      @unique
+  /// Required, not just conventional: phone is the one identity every
+  /// Customer must resolve to, on both the app and website side. See
+  /// resolveCustomer() in lib/journey.ts, the single place Customer rows are
+  /// created — it now backfills phone from the linked User when a caller only
+  /// has a userId, and refuses to create a Customer if no phone can be found.
+  phone          String       @unique
   email          String?
   name           String?
   city           String?
@@ -709,18 +859,47 @@ model Customer {
   lastActivityAt DateTime     @default(now())
   /// Set when a re-engagement nudge fires, so a scan cannot spam the customer.
   lastNudgedAt   DateTime?
+  /// Proven via a website OTP challenge (see OtpToken, purpose "verify_phone").
+  /// Set once and checked by every calling job from then on — never re-verified
+  /// per call, so a lead's number is only ever validated a single time.
+  phoneVerified       Boolean   @default(false)
+  phoneVerifiedAt     DateTime?
+  /// Visitor explicitly opted into an immediate callback after verifying their
+  /// phone. lib/immediateCallback.ts owns the retry state machine below:
+  /// requested (waiting for callbackNextAttemptAt) -> in_progress (dialled,
+  /// awaiting the call's webhook outcome) -> connected | not_answered (done).
+  callbackRequestedAt   DateTime?
+  callbackStatus        CallbackStatus?
+  /// How many times we've dialled for the CURRENT request. Reset to 0 when a
+  /// new "yes" starts a fresh cycle (only once the previous one is terminal).
+  callbackAttempts      Int             @default(0)
+  /// When the job should try next. Null once the cycle is terminal.
+  callbackNextAttemptAt DateTime?
+  callbackLastAttemptAt DateTime?
+  /// Visitor was offered a callback and declined. Recorded so a future
+  /// re-engagement campaign can target this group; no automated action yet.
+  callbackDeclinedAt    DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   events        JourneyEvent[]
-  calls         CallAttempt[]
-  conversations Conversation[]
+  conversations CallAttempt[]
   campaigns     CampaignContact[]
 
   @@index([currentStage, stageEnteredAt])
   @@index([lastActivityAt])
   @@index([campaignId])
   @@index([firstSource])
+  @@index([phoneVerified, callbackStatus, callbackNextAttemptAt])
+}
+
+/// Lifecycle of one visitor's "call me back" opt-in — see Customer's
+/// callback* fields and lib/immediateCallback.ts.
+enum CallbackStatus {
+  requested   // waiting for callbackNextAttemptAt
+  in_progress // dialled, awaiting the call's webhook outcome
+  connected   // answered — done
+  not_answered // exhausted every retry without connecting — done
 }
 
 /// The narrative timeline a human reads on a customer record. Deliberately
@@ -768,7 +947,18 @@ enum CallStatus {
 /// Keyed on `phone` (bare 10 digits) as well as customerId, because that is the
 /// only identifier every channel shares, and because an agent asking "what do we
 /// know about this number?" has nothing else to ask with.
-model Conversation {
+/// The single record of every conversation on every channel — phone calls
+/// (outbound and inbound), the website voice widget, the in-app companion,
+/// and admin-triggered chats. Merged from what used to be two separate tables
+/// (this one + a `Conversation` table): for a phone call the two rows were
+/// always a 1:1 pair created within milliseconds of each other, describing the
+/// same event, with real duplicate columns (summary/outcome/transcript/
+/// recordingUrl/durationSec existed identically on both) — one row now
+/// instead of two that had to be kept in sync (and in practice, for calls
+/// placed before this merge, often weren't — see the dial-mechanics fields
+/// below, which stay firmly optional so a website-widget or in-app row is
+/// never forced to carry a fake "queued" moment it never had).
+model CallAttempt {
   id         String    @id @default(uuid())
   customerId String?
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -776,27 +966,59 @@ model Conversation {
   phone      String
 
   /// Which surface this happened on.
-  /// phone_outbound | phone_inbound | website_widget | mobile_app | admin
-  channel                String
+  /// phone_outbound | phone_inbound | website_widget | mobile_app | admin | whatsapp
+  channel   String
   /// Which agent role handled it (leadCallback, campaign, companion,
   /// websiteCompanion, adminNavigator) — null for non-agent conversations.
-  agentRole              String?
-  /// Ello's conversation_id, so a late webhook can find this row.
+  agentRole String?
+  /// Ello's conversation id. For a phone call this is the SAME identifier that
+  /// used to be CallAttempt.providerCallId — one provider-side id, one column.
   providerConversationId String? @unique
-  /// Set when this conversation was an outbound call we placed.
-  callAttemptId          String?
+
+  // ── Dial mechanics — set only for phone_outbound/phone_inbound; null for
+  // every other channel, which never went through a dialling step at all ──
+  campaignId  String?
+  campaign    Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  status      CallStatus?
+  /// Which attempt this is for a retry ladder (immediateCallback.ts) or a
+  /// campaign's retry strategy. Null outside those flows.
+  attempt     Int?
+  /// The context_data variables sent to the agent for this call. Kept so an
+  /// operator can see exactly what the agent knew when it dialled — the usual
+  /// first question when a call goes wrong.
+  callContext Json?
+  /// Raw webhook body, kept verbatim so provider-shape drift is debuggable.
+  rawPayload  Json?
+  error       String?
+  /// True once we have real evidence the call connected — either the (still
+  /// unreliable) provider webhook, or the agent itself reporting back after
+  /// speaking to someone (see conversations.routes.ts's save_conversation).
+  answered    Boolean     @default(false)
+  /// When we asked Ello to dial — earlier than `startedAt`, which is when it
+  /// actually began (dialling/ringing/connected). Null for non-call channels.
+  queuedAt    DateTime?
 
   /// Human-readable recap. This is what the next agent actually reads.
-  summary       String?
+  summary         String?
   /// Structured turns, whatever shape the provider gave us.
-  transcript    Json?
-  outcome       CallOutcome?
+  transcript      Json?
+  outcome         CallOutcome?
   /// "agent" (reported) | "inferred" (guessed from transcript) | "status" | null.
-  /// Same provenance rule as CallAttempt: a guess must never read as a fact.
-  outcomeSource String?
+  /// A guess must never read as a fact.
+  outcomeSource   String?
+  /// The phrase that triggered an inference, so the dashboard can show its work.
+  outcomeEvidence String?
   /// Anything the agent captured — income, employment, preferred channel…
-  details       Json?
-  recordingUrl  String?
+  /// (kept as its own JSON blob for arbitrary extras; the three fields below
+  /// are the ones an admin filter/column actually needs, so they stay typed).
+  details         Json?
+  recordingUrl    String?
+
+  incomeRange      String?
+  employment       String?
+  preferredChannel String?
+  /// When the customer asked to be called back.
+  callbackAt       DateTime?
 
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
@@ -807,6 +1029,9 @@ model Conversation {
   @@index([phone, startedAt])
   @@index([customerId, startedAt])
   @@index([channel, startedAt])
+  @@index([campaignId, status])
+  @@index([status])
+  @@index([queuedAt])
 }
 
 /// WS10 — the rolling cross-channel brief for one phone number.
@@ -850,63 +1075,6 @@ enum CallOutcome {
   other
 }
 
-/// One outbound call placed through Ello. Created when queued, then updated by
-/// the Ello outcome webhook.
-model CallAttempt {
-  id         String    @id @default(uuid())
-  customerId String
-  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  campaignId String?
-  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-
-  phone String
-
-  /// Ello's own identifier, so an inbound webhook can find this row.
-  providerCallId  String?      @unique
-  status          CallStatus   @default(queued)
-  outcome         CallOutcome?
-  /// How `outcome` was determined: "agent" (the agent reported it via the
-  /// report_call_outcome tool), "inferred" (matched from the transcript — a
-  /// guess), "status" (derived from a failure status), or null. Ello sends no
-  /// outcome field, so without this an operator cannot tell a real disposition
-  /// from a keyword match, and the two carry very different confidence.
-  outcomeSource   String?
-  /// The phrase that triggered an inference, so the dashboard can show its work.
-  outcomeEvidence String?
-  /// Free-text disposition or summary returned by the agent.
-  summary         String?
-
-  // ── Details the agent captured on the call (all optional; only ever set
-  // from an explicit agent report, never inferred) ──────────────────────
-  incomeRange      String?
-  employment       String?
-  preferredChannel String?
-  /// When the customer asked to be called back.
-  callbackAt       DateTime?
-  /// The context_data variables sent to the agent for this call. Kept so an
-  /// operator can see exactly what the agent knew when it dialled — the usual
-  /// first question when a call goes wrong.
-  callContext      Json?
-  transcript       Json?
-  recordingUrl     String?
-  durationSec      Int?
-  answered         Boolean   @default(false)
-  attempt          Int       @default(1)
-  error            String?
-
-  /// Raw webhook body, kept verbatim so provider-shape drift is debuggable.
-  rawPayload Json?
-
-  queuedAt    DateTime  @default(now())
-  dialedAt    DateTime?
-  completedAt DateTime?
-  updatedAt   DateTime  @updatedAt
-
-  @@index([customerId, queuedAt])
-  @@index([campaignId, status])
-  @@index([status])
-}
-
 // ─────────────────────── Campaigns ───────────────────────
 
 enum CampaignStatus {
@@ -915,6 +1083,9 @@ enum CampaignStatus {
   paused
   completed
   failed
+  /// Deliberately stopped by an admin, never to be resumed — distinct from
+  /// `paused` (resumable) and `failed` (an error, not a choice).
+  cancelled
 }
 
 /// A bulk outbound-calling campaign, seeded from an uploaded spreadsheet.
@@ -923,6 +1094,13 @@ model Campaign {
   name   String
   /// Short human code used for attribution; matches Customer.campaignId.
   code   String         @unique
+  /// Set when this campaign's contacts were handed to Ello's own batch
+  /// dialler (send-to-ello) instead of our own campaignRunner. Lets the
+  /// campaign.started/campaign.ended webhooks find their way back to this
+  /// row, and per-call webhooks for calls Ello placed itself (which never
+  /// went through our own dialer.ts, so have no CallAttempt yet) find the
+  /// right campaign to attach to.
+  providerCampaignId String? @unique
   status CampaignStatus @default(draft)
 
   /// How many calls may be in flight at once for this campaign.
@@ -974,6 +1152,10 @@ model Campaign {
   createdBy   String?
   startedAt   DateTime?
   completedAt DateTime?
+  /// Soft delete: set instead of removing the row, so a deleted campaign (and
+  /// its contacts/call history) is recoverable and never actually expires.
+  /// Excluded from the default list; still readable by id, and restorable.
+  deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -1053,6 +1235,31 @@ model IntegrationConfig {
   updatedBy String?
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+/// A shared secret that lets a third party (e.g. an Ello agent's tool config)
+/// call OUR API — the reverse direction from IntegrationConfig above, which
+/// holds credentials WE use to call THEM. Generated once from the admin
+/// dashboard; the plaintext is shown exactly once at creation and never
+/// stored — only its hash is, same principle as OtpToken.codeHash.
+model ApiKey {
+  id         String    @id @default(uuid())
+  /// Human label so an admin can tell keys apart, e.g. "Ello lead-callback agent".
+  name       String
+  /// First few characters of the plaintext, kept for display in the list UI
+  /// so an admin can recognise a key without ever seeing it again in full.
+  keyPrefix  String
+  /// sha256 of the full plaintext key — deterministic, so a lookup by
+  /// hash(provided value) doesn't need every row scanned.
+  keyHash    String    @unique
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  /// Soft-revoked rather than deleted — an audit trail of what a now-dead
+  /// key was and when it stopped working is worth keeping.
+  revokedAt  DateTime?
+
+  @@index([revokedAt])
 }
 
 enum DispatchChannel {
@@ -1162,4 +1369,54 @@ model StallRule {
   /// collided with the push one and could never be created.
   @@unique([triggerEvent, expectedEvent, channel])
   @@index([enabled])
+}
+
+// ─────────────────── Admin-tunable app configuration ───────────────────
+// Single-row settings the admin dashboard edits and the mobile app fetches.
+// Currently holds the proactive-help nudge thresholds (see App.tsx idle
+// detector + lib/appNudge.ts). `updatedAt` doubles as the app's change-detection
+// version so a client can tell when the config changed.
+model AppConfig {
+  id              String   @id @default("singleton")
+  nudgeEnabled    Boolean  @default(true)
+  nudgeIdleMs     Int      @default(30000) // main screens
+  nudgeDropoffMs  Int      @default(18000) // application funnel
+  nudgeEligibleMs Int      @default(20000) // offers / My Offers
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────── Pre-qualifying offers (admin-curated) ───────────────────
+// A firm, global "pre-approved for you" offer shown at the TOP of the home
+// screen the moment a user logs in — independent of whether they run the
+// application funnel. Distinct from MarketLoanOffer (the soft marketing
+// catalog under "Available offers", which uses rate/amount RANGES and always
+// starts the full PAN → eligibility funnel): a PrequalifyingOffer carries firm
+// economics and its "Accept" path skips the Aurix eligibility step, going PAN +
+// KYC → lender handoff (redirectionUrl). Global (no userId): the same
+// admin-managed list is shown to every logged-in user. Admin CRUD lives at
+// /api/admin/prequalifying-offers; the app reads /api/prequalifying-offers.
+model PrequalifyingOffer {
+  id                   String    @id @default(uuid())
+  lenderName           String
+  logoUrl              String?
+  icon                 String    @default("account_balance") // fallback glyph
+  badge                String? // e.g. "Pre-approved" · "Instant"
+  /// Firm pre-approved amount, in paise (server convention).
+  amount               Int
+  /// Firm annual interest rate, %.
+  rate                 Float
+  tenureMonths         Int
+  processingFeePercent Float?
+  /// Lender page opened at the end of the shortened accept flow (after PAN+KYC).
+  redirectionUrl       String?
+  /// Short eligibility / terms note shown on the card.
+  terms                String?
+  /// Optional offer expiry; a lapsed offer is filtered out of the app read.
+  validTill            DateTime?
+  displayOrder         Int       @default(0)
+  active               Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([active, displayOrder])
 }

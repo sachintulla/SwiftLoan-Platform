@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, Animated, Easing } from 'react-native';
 import { useStore, Screen as ScreenName } from './state/store';
 import { font } from './theme/tokens';
 import { SCREENS } from './screens';
@@ -19,6 +19,32 @@ function Placeholder({ name }: { name: string }) {
 export default function Router() {
   const { state } = useStore();
   const Comp = SCREENS[state.screen as ScreenName];
-  if (!Comp) return <Placeholder name={state.screen} />;
-  return <Comp />;
+
+  // Animate every screen change with a subtle zoom-settle. The incoming screen
+  // stays fully OPAQUE and scales from 1.03 → 1 (always ≥ viewport, so it fully
+  // covers the background) — no opacity fade, so there's no flash of the
+  // window's background colour between screens.
+  const anim = useRef(new Animated.Value(1)).current;
+  const prev = useRef(state.screen);
+  useEffect(() => {
+    if (prev.current === state.screen) return;
+    prev.current = state.screen;
+    anim.setValue(0);
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [state.screen, anim]);
+
+  const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [1.03, 1] });
+
+  const content = Comp ? <Comp /> : <Placeholder name={state.screen} />;
+
+  return (
+    <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
+      {content}
+    </Animated.View>
+  );
 }

@@ -1,4 +1,6 @@
-import { saveTokens, clearTokens } from '../state/session';
+import NetInfo from '@react-native-community/netinfo';
+import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
+import { reportOfflineAttempt } from '../state/offlineBridge';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
@@ -23,20 +25,64 @@ export function setTokens(access: string | null, refresh?: string | null) {
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
 
+// Auto-refresh: the access token is short-lived (~15 min). On a 401 we exchange
+// the stored refresh token for a fresh access token and retry the request once,
+// so a user who lingers on a screen (e.g. filling the details form) never sees
+// an "invalid/expired token" error. Concurrent 401s share one in-flight refresh.
+let refreshInFlight: Promise<boolean> | null = null;
+async function doRefresh(): Promise<boolean> {
+  if (!refreshToken) return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const res = await fetch(API_BASE + '/auth/refresh', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    if (data?.accessToken) {
+      setTokens(data.accessToken, refreshToken); // refresh token is not rotated server-side
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+function refreshOnce(): Promise<boolean> {
+  if (!refreshInFlight) refreshInFlight = doRefresh().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
 /**
  * Request timeout. Without one, an unreachable host doesn't fail fast — it waits
- * for the TCP connect timeout (30s+). That bites hardest on a physical device,
- * where the default 10.0.2.2 is the *emulator's* host alias and simply isn't
- * routable. It also stops each fire-and-forget tracking call from holding a
- * socket open for 30s.
+ * for the TCP connect timeout (30s+), and each fire-and-forget tracking call
+ * holds a socket open that whole time.
+ *
+ * Kept well under 30s so we still fail fast, but generous enough for real
+ * mobile networks + occasional backend cold-starts: at 4s, user-initiated GETs
+ * like /users/me intermittently aborted on cellular and surfaced a spurious
+ * "please try again" screen even though the server responded fine. Per-call
+ * overrides (e.g. prequalify's 45s) still apply via request()'s timeoutMs arg.
  */
-const REQUEST_TIMEOUT_MS = 4000;
+const REQUEST_TIMEOUT_MS = 12000;
 
-async function request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
+    // Checked before dialing out, not after: this is the one place every
+    // user-facing screen (OTP, application, offers, loans…) goes through, so
+    // catching "no signal" here means those screens fail fast with a clear
+    // reason instead of sitting on a spinner for the full request timeout.
+    const netState = await NetInfo.fetch();
+    if (netState.isConnected === false || netState.isInternetReachable === false) {
+      throw new TypeError('offline: no internet connection');
+    }
     res = await fetch(API_BASE + path, {
       method,
       headers: {
@@ -47,14 +93,46 @@ async function request<T = any>(method: string, path: string, body?: unknown): P
       signal: controller.signal,
     });
   } catch (e: any) {
+    // The fetch itself failed to reach anything — as opposed to reaching the
+    // server and getting back an error response, which is handled below and
+    // isn't a connectivity problem. That said, a failed fetch is NOT proof the
+    // user has no internet: it just as often means this one server/host is
+    // slow, cold-starting, mid-restart, or (in local-dev builds pointed at a
+    // LAN IP) simply unreachable while the phone's real internet is fine.
+    // Re-check connectivity fresh, right now, rather than trusting the
+    // pre-flight check from a few seconds ago — only report "offline" to
+    // OfflineNotice if the device itself genuinely has none, so a slow/down
+    // backend doesn't get mislabeled as "no internet connection."
+    const looksOffline = async () =>
+      NetInfo.fetch()
+        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
+    if (await looksOffline()) {
+      // A single instantaneous reading isn't enough — a momentary signal drop
+      // (a step into a dead spot, a brief Wi-Fi hiccup) can look identical to
+      // this for under a second and shouldn't flag the whole app as offline.
+      // Wait briefly and confirm the device is STILL disconnected before
+      // actually reporting it, so only a real, sustained outage shows the banner.
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+      if (await looksOffline()) reportOfflineAttempt();
+    }
     // Normalize an abort into the same TypeError shape a network failure throws.
-    if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
   } finally {
     clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as any).error || res.statusText, data);
+  if (!res.ok) {
+    // Access token expired → refresh once and retry transparently. Skip for the
+    // auth endpoints themselves (they mint/rotate tokens) to avoid loops.
+    if (res.status === 401 && !_retried && refreshToken && !path.startsWith('/auth/')) {
+      const refreshed = await refreshOnce();
+      if (refreshed) return request<T>(method, path, body, true, timeoutMs);
+      setTokens(null, null); // refresh failed — session is truly gone
+    }
+    throw new ApiError(res.status, (data as any).error || res.statusText, data);
+  }
   return data as T;
 }
 
@@ -79,9 +157,10 @@ export interface AuthResult {
   priorInquiries: PriorInquiry[];
 }
 
-// Admin-curated, pre-application eligibility catalog — see server's
-// PreApprovedPlan model. Amounts are in paise.
-export interface PreApprovedPlan {
+// Admin-curated catalog of market-available loan offers shown on the dashboard
+// (no PAN, no credit pull) — see server's MarketLoanOffer model. Distinct from
+// the personalised/eligible Offer results returned per application. Amounts in paise.
+export interface MarketLoanOffer {
   id: string;
   lenderName: string;
   logoUrl?: string | null;
@@ -100,7 +179,28 @@ export interface PreApprovedPlan {
   active: boolean;
 }
 
-// A real per-application lender offer (distinct from PreApprovedPlan above,
+// A firm, global "pre-approved for you" offer — shown at the top of Home the
+// moment the user logs in, independent of the application funnel. Distinct from
+// MarketLoanOffer (soft marketing catalog, ranges): firm economics, and its
+// Accept path skips eligibility and hands off to the lender. Amounts in paise.
+export interface PrequalifyingOffer {
+  id: string;
+  lenderName: string;
+  logoUrl?: string | null;
+  icon: string;
+  badge?: string | null;
+  amount: number; // paise
+  rate: number; // % p.a.
+  tenureMonths: number;
+  processingFeePercent?: number | null;
+  redirectionUrl?: string | null;
+  terms?: string | null;
+  validTill?: string | null;
+  displayOrder: number;
+  active: boolean;
+}
+
+// A real per-application lender offer (distinct from MarketLoanOffer above,
 // which is admin-curated marketing data). Amounts are plain rupees, matching
 // LoanApplication/Offer's existing convention (not paise). Server-side this is
 // produced by a LenderOfferProvider (mock today) — see server/src/lib/lenderOffers.ts.
@@ -125,6 +225,85 @@ export interface Offer {
   recommended: boolean;
   selected: boolean;
   emiOptions: EmiOption[];
+  // Aurix (Knight Fintech) passthrough — present on real partner-lender offers,
+  // null on the mock provider. The real lender's own name/logo, ROI and the
+  // deep link to complete the application on the lender's page.
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  roi?: number | null;
+  offerType?: string | null;
+  offerLikelihood?: string | null;
+  redirectionUrl?: string | null;
+  externalPartnerId?: string | null;
+  // Per-lender application tracking. `applied` once the user applies to this
+  // lender's offer; `lenderStatus` is that lender application's own status,
+  // advanced by KFT status webhooks (independent of the parent application).
+  applied?: boolean;
+  appliedAt?: string | null;
+  lenderStatus?: string | null;
+  kftApplicationId?: string | null;
+}
+
+// One tracked application to a lender. Each "Apply" creates a new one, so the
+// same lender can appear multiple times in My Loans, each with its own status.
+// Included on each application by GET /applications (newest first).
+export interface LenderApplication {
+  id: string;
+  applicationId: string;
+  offerId: string;
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  amount: number;
+  apr?: number | null;
+  emi?: number | null;
+  tenureMonths?: number | null;
+  processingFeeAmount: number;
+  redirectionUrl?: string | null;
+  status: string; // handoff | under_review | approved | rejected | disbursed | failed | …
+  // App-side hand-off outcome, distinct from the webhook-driven `status`.
+  internalStatus?: 'just_applied' | 'success' | 'failed' | 'error';
+  appliedAt: string;
+  underReviewAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  disbursedAt?: string | null;
+  failureReason?: string | null;
+}
+
+/**
+ * Surface the offer API's OWN message when a prequalify run returns no offers,
+ * shown to the user verbatim (no hardcoded rephrasing) so testers/users see
+ * exactly what the lender (Aurix) API responded with. Returns '' when offers
+ * exist, or when there's genuinely no message/error to show (the offers screen
+ * then falls back to its generic "no offers" empty state).
+ * `aurixResponse` shape: { httpStatus, response: { Meta, Data } | { Result: { Meta } } }.
+ */
+export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
+  if (offerCount > 0) return '';
+  const r = aurixResponse?.response ?? {};
+  const meta = r.Meta ?? r.Result?.Meta ?? {};
+  // The API's own message, verbatim.
+  const msg = String(meta.Message ?? meta.message ?? r.Message ?? r.message ?? r.error ?? '').trim();
+  if (msg) return msg;
+  // No message but the call failed — surface why. httpStatus 0 is a
+  // client-side timeout/network failure (confirmed live: a 30s Aurix
+  // timeout), not an HTTP response at all, so it needs its own check —
+  // 0 is not >= 400, and without this it silently fell through to the
+  // empty-string return below, indistinguishable from a genuine "no offers
+  // matched" decision and telling a timed-out user to change their loan
+  // amount instead of just retrying.
+  const http = aurixResponse?.httpStatus;
+  if (http === 0) return 'We’re having trouble reaching our lending partners right now. Please try again in a moment.';
+  if (typeof http === 'number' && http >= 400) return `Offers request failed (HTTP ${http}).`;
+  return '';
+}
+
+export interface NudgeConfigDTO {
+  nudgeEnabled: boolean;
+  nudgeIdleMs: number;
+  nudgeDropoffMs: number;
+  nudgeEligibleMs: number;
+  version: number;
 }
 
 export const api = {
@@ -145,6 +324,17 @@ export const api = {
       session_id: getTrackingSessionId(),
     });
     setTokens(r.accessToken, r.refreshToken);
+    // Drop any eligible-offers cache left by a previous session (e.g. one that
+    // ended without a clean logout), so a freshly-logged-in phone never inherits
+    // the last user's "My Offers". Same reasoning for the voice agent's saved
+    // applicant-details draft — a fresh login must never surface a previous
+    // account's name/DOB/address/income as if they belonged to this user. And
+    // for whether Ruby's already given this device's intro pitch — a
+    // different phone number logging in on this device is a genuinely new
+    // person, who should hear it.
+    await clearOffersCache().catch(() => {});
+    await clearPrefillDraft().catch(() => {});
+    await clearIntroPitchHeard().catch(() => {});
     return r;
   },
   login: async (identifier: string, password: string): Promise<AuthResult> => {
@@ -155,6 +345,14 @@ export const api = {
   logout: async () => {
     if (refreshToken) await request('POST', '/auth/logout', { refreshToken }).catch(() => {});
     setTokens(null, null);
+    // Per-user eligible-offers cache is persisted (fare.tsx "My Offers" reads it
+    // local-first). Clear it on logout, or the NEXT phone number to log in sees
+    // the previous user's offers until a slower backend re-fetch overwrites them.
+    // Same for the voice agent's saved applicant-details draft and its
+    // intro-pitch-heard flag.
+    await clearOffersCache().catch(() => {});
+    await clearPrefillDraft().catch(() => {});
+    await clearIntroPitchHeard().catch(() => {});
   },
 
   // Users
@@ -163,9 +361,10 @@ export const api = {
   deleteAccount: () => request('DELETE', '/users/me'),
   updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
+  /** The language the user has spoken to the voice agent — distinct from setLanguage's UI-copy language. */
+  setVoiceLanguage: (lang: string) => request('PATCH', '/users/me/voice-language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
     request('PATCH', '/users/me/notifications', prefs),
-  creditScore: () => request('GET', '/users/me/credit-score'),
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
@@ -176,9 +375,42 @@ export const api = {
   listApplications: () => request('GET', '/applications'),
   getApplication: (id: string) => request('GET', `/applications/${id}`),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
-  prequalify: (id: string) => request('POST', `/applications/${id}/prequalify`),
+  prequalify: async (id: string) => {
+    // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
+    // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.
+    const res = await request<{ offers: unknown[]; aurixResponse?: any }>(
+      'POST',
+      `/applications/${id}/prequalify`,
+      undefined,
+      false,
+      45000,
+    );
+    // Turn any lender-side rejection into a clear, actionable note for the user
+    // (surfaced on the offers screen), instead of a raw debug dump.
+    return { ...res, friendlyError: friendlyAurixError(res?.aurixResponse, (res?.offers ?? []).length) };
+  },
   selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),
+  // Apply to a specific lender's offer — creates a tracked per-lender
+  // application (returns { offer, lenderApplicationId, alreadyApplied }).
+  applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
+    request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined),
+  // Record the app-side outcome of a lender web flow: 'success' | 'failed' |
+  // 'error'. Sets the application's internalStatus (shown as its own state in My
+  // Loans); failed/error also mark the lender status failed. Pass
+  // lenderApplicationId to target the exact application (falls back to latest).
+  reportLenderOutcome: (id: string, offerId: string, outcome: 'success' | 'failed' | 'error', reason?: string, lenderApplicationId?: string | null) =>
+    request('POST', `/applications/${id}/offers/${offerId}/outcome`, {
+      outcome,
+      ...(reason ? { reason } : {}),
+      ...(lenderApplicationId ? { lenderApplicationId } : {}),
+    }),
+  // Back-compat: mark a per-lender application failed. Prefer reportLenderOutcome.
+  failApplication: (id: string, offerId: string, reason?: string, lenderApplicationId?: string | null) =>
+    request('POST', `/applications/${id}/offers/${offerId}/fail`, {
+      ...(reason ? { reason } : {}),
+      ...(lenderApplicationId ? { lenderApplicationId } : {}),
+    }),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
 
   // KYC / loans / misc
@@ -188,7 +420,12 @@ export const api = {
   getLoan: (id: string) => request('GET', `/loans/${id}`),
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
-  preApprovedPlans: (): Promise<{ data: PreApprovedPlan[] }> => request('GET', '/preapproved-plans'),
+  marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
+  // Firm "pre-approved for you" offers shown at the top of Home on login. Auth'd,
+  // active + unexpired, admin-ordered. Amounts in paise.
+  prequalifyingOffers: (): Promise<{ data: PrequalifyingOffer[] }> => request('GET', '/prequalifying-offers'),
+  // Admin-tunable nudge timers (public). The app fetches this on launch/foreground.
+  nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>
@@ -319,7 +556,9 @@ export async function uploadAvatar(
     headers: { 'content-type': contentType },
     body: blob as any,
   });
-  if (!putRes.ok) throw new Error(`Photo upload failed (${putRes.status})`);
+  // ApiError (not a plain Error) so the caller's `e instanceof ApiError` check
+  // in profile.tsx actually shows this reason instead of a generic fallback.
+  if (!putRes.ok) throw new ApiError(putRes.status, `Photo upload failed (${putRes.status})`);
   const { user }: any = await api.confirmAvatar(publicUrl);
   return user;
 }
@@ -387,28 +626,45 @@ export interface UserContextInquiry {
 
 export interface UserContext {
   hasHistory: boolean;
-  name: string | null;
-  city: string | null;
-  email: string | null;
-  stage: string | null;
-  stageLabel: string | null;
-  nextAction: string | null;
-  inquiries: UserContextInquiry[];
-  lastCall: {
-    at: string;
-    outcome: string | null;
-    outcomeSource: string | null;
-    summary: string | null;
-    answered: boolean;
-    durationSec: number | null;
+  /** The signed-in account's own details — null only when there is no userId. */
+  profile: {
+    name: string | null;
+    email: string | null;
+    phone: string;
+    dob: string | null;
+    gender: string | null;
+    city: string | null;
+    pincode: string | null;
+    employment: string | null;
+    monthlyIncome: number | null;
+    panOnFile: boolean;
   } | null;
+  /** The rest of what save_applicant_details collects, synced server-side. See userContext.ts. */
+  applicantDraft: {
+    residenceType: string | null; maritalStatus: string | null; qualification: string | null;
+    company: string | null; loanPurpose: string | null; loanAmount: number | null;
+    salaryMode: string | null; professionalType: string | null; companyEmail: string | null;
+    businessEmail: string | null; addressLine1: string | null; addressLine2: string | null;
+    landmark: string | null; district: string | null; state: string | null;
+    monthlyObligations: number | null; alternateMobile: string | null; alternateEmail: string | null;
+  } | null;
+  /** The one clear, customer-facing signal: where this user's loan application stands. */
+  applicationStatus: string | null;
+  applicationStatusLabel: string;
+  inquiries: UserContextInquiry[];
   application: {
     id: string; ref: string; status: string;
-    amount: number | null; loanType: string | null; offerCount: number;
+    amount: number | null; loanType: string | null; tenureMonths: number | null;
+    offers: Array<{
+      lenderName: string | null; apr: number | null; amount: number | null; emi: number | null;
+      applied: boolean; status: string | null; statusLabel: string | null;
+    }>;
   } | null;
-  loan: { id: string; principal: number | null; status: string | null } | null;
-  /** One-line brief the agent can open from. */
-  brief: string | null;
+  loan: {
+    id: string; ref: string; partnerName: string | null;
+    principal: number | null; apr: number | null; tenureMonths: number | null;
+    emiAmount: number | null; status: string | null; outstanding: number | null;
+  } | null;
 }
 
 /**
@@ -420,7 +676,23 @@ export async function fetchUserContext(): Promise<UserContext | null> {
   try {
     const json = await request<{ data?: UserContext }>('GET', '/context/me');
     const data = (json as any)?.data ?? json;
-    return data && typeof data === 'object' && 'hasHistory' in data ? (data as UserContext) : null;
+    if (!data || typeof data !== 'object' || !('hasHistory' in data)) return null;
+    // Only used locally as a gating flag (see store.ts) — never forwarded to
+    // the voice agent itself; the pre-call get_user_context/lookup tool is
+    // what actually reaches Ello. Allowlisted to exactly the fields the core
+    // prompt's userContext section documents, rather than trusting whatever
+    // /context/me happens to return.
+    const d = data as UserContext;
+    return {
+      hasHistory: d.hasHistory,
+      profile: d.profile,
+      applicantDraft: d.applicantDraft,
+      applicationStatus: d.applicationStatus,
+      applicationStatusLabel: d.applicationStatusLabel,
+      inquiries: d.inquiries,
+      application: d.application,
+      loan: d.loan,
+    };
   } catch {
     return null;
   }

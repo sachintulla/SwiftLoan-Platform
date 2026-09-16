@@ -1,15 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { Screen, AppHeader } from '../components/Frame';
+import { Screen } from '../components/Frame';
+import { LoginHero } from '../components/LoginHero';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent } from '../analytics/upshot';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { VoiceHidden } from '../voice/screenGraph';
+
+// Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
+// ("0000000000", "9999999999") — the server's own phoneSchema only checked
+// length (`^\d{10}$`), so those sailed straight through to a real OTP send.
+function isValidMobile(v: string): boolean {
+  return /^[6-9]\d{9}$/.test(v) && !/^(\d)\1{9}$/.test(v);
+}
 
 export default function Mobile() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, go, markUrgentContext } = useStore();
+  const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
   // Single hidden field is the source of truth (see hiddenOtpInput below) — the
@@ -22,17 +33,22 @@ export default function Mobile() {
   const hiddenOtpInput = useRef<TextInput>(null);
 
   const mobileLen = state.mobileVal.length;
-  const sendEnabled = mobileLen === 10 && state.terms && !busy;
+  const mobileInvalid = mobileLen === 10 && !isValidMobile(state.mobileVal);
+  const sendEnabled = mobileLen === 10 && isValidMobile(state.mobileVal) && state.terms && !busy;
 
   // Request an OTP from the backend, then reveal the code entry.
   const sendOtp = async () => {
     setErr(null);
+    if (!isValidMobile(state.mobileVal)) {
+      setErr(t.mobileErrInvalid);
+      return;
+    }
     setBusy(true);
     try {
       await api.requestOtp(state.mobileVal);
       set({ otpSent: true });
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not send OTP. Check the API server.');
+      setErr(e instanceof ApiError ? e.message : t.mobileErrSend);
     } finally {
       setBusy(false);
     }
@@ -44,7 +60,21 @@ export default function Mobile() {
     setBusy(true);
     try {
       const r = await api.verifyOtp(state.mobileVal, otpCode);
-      set({ authUser: r.user, otpSent: false, priorInquiries: r.priorInquiries });
+      // api.verifyOtp() already clears the intro-pitch-heard flag and the
+      // saved applicant-details draft from AsyncStorage (new phone number =
+      // genuinely new person), but that only touches storage — this app
+      // session's in-memory state.introPitchHeard/savedApplicantDraft is left
+      // over from before this login (e.g. an earlier call this session, or a
+      // previous account on a shared device) and must be reset here too, or
+      // the very next page_context still reports heard_intro_pitch: true and
+      // Ruby skips the first-time pitch for someone who's never heard it.
+      set({
+        authUser: r.user,
+        otpSent: false,
+        priorInquiries: r.priorInquiries,
+        introPitchHeard: false,
+        savedApplicantDraft: null,
+      });
 
       // Upshot: this is the first moment we know who this person is. Identify
       // with the same E.164 phone the website and server use, so all three
@@ -61,9 +91,17 @@ export default function Mobile() {
       // (fullName + pincode on file) — skip the permissions explainer and
       // About You form entirely and land straight on the dashboard.
       const alreadyOnboarded = !!(r.user?.fullName && r.user?.pincode);
+      // The first authentication result of the call, branching where the
+      // user lands next — at least as consequential as finding.tsx's
+      // offers-found case, and Ruby may still be mid-sentence about the OTP
+      // when it arrives. Same reasoning for a wrong code below: she needs to
+      // know it failed the instant it's known, not after finishing whatever
+      // she's already saying.
+      markUrgentContext();
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Verification failed.');
+      setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
+      markUrgentContext();
     } finally {
       setBusy(false);
     }
@@ -77,7 +115,6 @@ export default function Mobile() {
   // Browse without signing in. No session is created — screens that need auth
   // (starting an application, profile, loans) prompt for real verification
   // when the user actually reaches them.
-  const skip = () => { set({ exploreFromHome: false }); go('explore'); };
 
   useEffect(() => {
     if (!otpSent) return;
@@ -97,29 +134,47 @@ export default function Mobile() {
     state.mobileVal.length >= 4
       ? '+91 ' + state.mobileVal.slice(0, 2) + '•••• ••' + state.mobileVal.slice(-2)
       : '+91 ••••••••••';
-  const timerText = otpSeconds > 0 ? `(in 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : '(Ready now)';
+  const timerText = otpSeconds > 0 ? `(${t.otpTimerIn} 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : `(${t.otpReadyNow})`;
 
   const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
+  // The OTP entry is one hidden TextInput behind 6 decorative digit boxes (see
+  // hiddenOtpInput above) — the element-tree walk in screenGraph.ts can't
+  // describe it correctly: it classifies the wrapping Pressable as a `button`
+  // and mislabels it "OTP digit 1" (the first box's accessibilityLabel), while
+  // the real hidden field falls back to the nearest preceding label-like text
+  // ("Edit phone number"). Registering it explicitly here overrides that with
+  // a correctly-labelled, directly fillable `field:OTP` target.
+  useVoiceTarget(
+    otpSent ? 'OTP' : undefined,
+    { kind: 'field', getValue: () => otpCode, setValue: v => onOtpChange(String(v)) },
+    [otpCode, otpSent],
+  );
+
+  // The terms Pressable below is hand-rolled, not the shared ConsentRow (which
+  // registers its own voiceId) — the element-tree walk auto-discovers it from
+  // its own first text fragment (t.termsAgreePrefix), which is "I agree to the"
+  // in English but collapses to a bare "నేను" ("I") in Telugu, an unusable
+  // voice label. Confirmed live: available_actions showed "button:నేను" on this
+  // screen. Explicit registration gives it a stable label in every language,
+  // without touching the visual markup.
+  useVoiceTarget(
+    !otpSent ? 'Accept terms and privacy policy' : undefined,
+    { kind: 'consent', getValue: () => state.terms, setValue: v => set({ terms: !!v }) },
+    [state.terms],
+  );
+
   return (
-    <Screen scroll padded={false}>
-      <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('intro')} title={<View />} />
-      </View>
+    <Screen variant="plain" scroll padded={false} contentStyle={{ paddingTop: 0 }}>
+      <LoginHero onBack={() => go('intro')} />
 
-      <View style={{ paddingHorizontal: 24, alignItems: 'center', marginTop: 6, marginBottom: 18 }}>
-        <View style={styles.phoneCircle}>
-          <Icon name="stay_current_portrait" size={30} color={colors.primary} />
-        </View>
-      </View>
-
-      <View style={{ paddingHorizontal: 24 }}>
+      <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
           <>
-            <Text style={styles.h1}>Enter your mobile number</Text>
-            <Text style={styles.sub}>We'll send a 6-digit OTP to verify.</Text>
+            <Text style={styles.h1}>{t.mobileTitle}</Text>
+            <Text style={styles.sub}>{t.mobileSub}</Text>
 
-            <Text style={[font(600), styles.label]}>Mobile Number</Text>
+            <Text style={[font(600), styles.label]}>{t.mobileNumberLabel}</Text>
             <View style={styles.phoneRow}>
               <Text style={[font(700), { fontSize: 16, color: colors.text, marginRight: 8 }]}>+91</Text>
               <TextInput
@@ -132,34 +187,37 @@ export default function Mobile() {
                 onChangeText={v => set({ mobileVal: v.replace(/\D/g, '').slice(0, 10) })}
               />
             </View>
-            <Text style={styles.hint}>Used for secure login and loan updates.</Text>
+            <Text style={styles.hint}>{t.mobileHint}</Text>
+            {mobileInvalid ? (
+              <Text style={[font(500), { fontSize: 12, color: colors.redDeep, marginTop: 4 }]}>{t.mobileErrInvalid}</Text>
+            ) : null}
 
             <Pressable style={styles.terms} onPress={() => set({ terms: !state.terms })}>
               <View style={[styles.box, state.terms && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
                 {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
               </View>
               <Text style={[font(500), { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSoft }]}>
-                I agree to the <Text style={{ color: colors.primary }}>Terms of Service</Text> and{' '}
-                <Text style={{ color: colors.primary }}>Privacy Policy</Text>.
+                {t.termsAgreePrefix} <Text style={{ color: colors.primary }}>{t.linkTerms}</Text> {t.termsAgreeMid}{' '}
+                <Text style={{ color: colors.primary }}>{t.linkPrivacy}</Text>{t.termsAgreeSuffix}
               </Text>
             </Pressable>
 
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
               <Text style={styles.secureText}>
-                Your information is encrypted. By proceeding you authorize a soft credit check that will not affect your credit score.
+                {t.mobileSecureNote}
               </Text>
             </View>
           </>
         ) : (
           <>
-            <Text style={styles.h1}>Verify your number</Text>
+            <Text style={styles.h1}>{t.otpTitle}</Text>
             <Text style={styles.sub}>
-              Enter the 6-digit code sent to <Text style={font(700)}>{masked}</Text>
+              {t.otpSub} <Text style={font(700)}>{masked}</Text>
             </Text>
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
-              <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>Edit phone number</Text>
+              <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
             <Pressable style={styles.otpRow} onPress={() => hiddenOtpInput.current?.focus()}>
@@ -173,9 +231,10 @@ export default function Mobile() {
                 </View>
               ))}
               {/* The real input: one field, off-screen but focusable, catches the
-                  OS autofill suggestion as a single 6-char value. Marks itself
-                  sensitive to the voice layer so the agent will not fill it —
-                  the user types the OTP; the agent taps Verify. */}
+                  OS autofill suggestion as a single 6-char value. Voice-fillable
+                  as `field:OTP` via the explicit useVoiceTarget registration
+                  above — the element-tree walk can't see/label this correctly
+                  on its own (see the comment there). */}
               <TextInput
                 ref={hiddenOtpInput}
                 style={styles.otpHiddenInput}
@@ -188,15 +247,26 @@ export default function Mobile() {
               />
             </Pressable>
 
-            <Pressable style={{ alignSelf: 'center', marginTop: 14 }} onPress={resend}>
-              <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>
-                Resend code <Text style={{ color: colors.muted }}>{timerText}</Text>
-              </Text>
+            <Pressable style={{ alignSelf: 'center', marginTop: 14, flexDirection: 'row' }} onPress={resend}>
+              <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>{t.otpResend}</Text>
+              {/* The countdown ticks every second (setInterval above) — a
+                  string that changes that often was landing as new
+                  screen_overview content every second and prompting a fresh
+                  spoken response each time (same root cause as the language
+                  screen's rotating greeting). VoiceHidden only takes effect
+                  when the walker visits a node directly; nesting it inside
+                  the button's own label Text wouldn't work (label collection
+                  reads through VoiceHidden), so this has to be a sibling Text
+                  node, not a child of the one above. The button's own label
+                  still resolves to the stable "Resend OTP" text, unaffected. */}
+              <VoiceHidden>
+                <Text style={{ color: colors.muted, fontSize: 13 }}> {timerText}</Text>
+              </VoiceHidden>
             </Pressable>
 
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
-              <Text style={styles.secureText}>Your connection is secure and encrypted.</Text>
+              <Text style={styles.secureText}>{t.otpSecureNote}</Text>
             </View>
           </>
         )}
@@ -210,40 +280,16 @@ export default function Mobile() {
 
         <View style={{ height: 22 }} />
         {!otpSent ? (
-          <PrimaryButton label={busy ? 'Sending…' : 'Send OTP'} disabled={!sendEnabled} onPress={sendOtp} />
+          <PrimaryButton label={busy ? t.mobileSending : t.mobileSendOtp} disabled={!sendEnabled} onPress={sendOtp} />
         ) : (
-          <PrimaryButton label={busy ? 'Verifying…' : 'Verify & Continue'} disabled={busy || otpCode.length < 6} onPress={verify} />
+          <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
         )}
-
-        <View style={styles.orRow}>
-          <View style={styles.orLine} />
-          <Text style={[font(500), { color: colors.muted, fontSize: 12 }]}>or</Text>
-          <View style={styles.orLine} />
-        </View>
-
-        <Pressable style={styles.googleBtn} onPress={() => showToast('Continuing with Google…')}>
-          <Text style={[font(800), { color: '#4285F4', fontSize: 16 }]}>G</Text>
-          <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>Continue with Google</Text>
-        </Pressable>
-
-        <Pressable style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }} onPress={skip}>
-          <Text style={[font(600), { color: colors.textSoft, fontSize: 13.5 }]}>Skip for now — explore the app</Text>
-          <Icon name="arrow_forward" size={16} color={colors.textSoft} />
-        </Pressable>
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  phoneCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: '#E1F3F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   h1: { ...font(800), fontSize: 24, letterSpacing: -0.5, color: colors.text },
   sub: { ...font(400), fontSize: 14, color: '#6E8080', marginTop: 6, lineHeight: 20 },
   label: { fontSize: 13, color: colors.textMid, marginTop: 20, marginBottom: 8 },
@@ -293,18 +339,5 @@ const styles = StyleSheet.create({
   },
   otpDigit: { fontSize: 22, color: colors.text },
   otpHiddenInput: { position: 'absolute', width: 1, height: 1, opacity: 0.01 },
-  orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 },
-  orLine: { flex: 1, height: 1, backgroundColor: colors.line },
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.line,
-    backgroundColor: '#fff',
-  },
   errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(239,106,94,0.1)', borderRadius: 12, padding: 12, marginTop: 4 },
 });

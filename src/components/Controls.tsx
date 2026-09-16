@@ -69,6 +69,7 @@ export function PrimaryButton({
       label,
       disabled,
       onTap: onPress,
+      primary: true,
     });
   }, [state.screen, voiceId, label, onPress, disabled]);
 
@@ -126,6 +127,42 @@ export function GhostButton({
     >
       {icon ? <Icon name={icon} size={18} color={colors.text} /> : null}
       <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Compact header CTA — a small teal pill for the top-right action slot of a
+ * screen header (e.g. "Continue" / "Upload PAN & Verify" on the funnel steps).
+ * Registered as a voice target like the other buttons.
+ */
+export function HeaderCta({
+  label,
+  onPress,
+  disabled = false,
+  icon,
+  voiceId,
+}: {
+  label: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  icon?: string;
+  voiceId?: string;
+}) {
+  const { state } = useStore();
+  useEffect(() => {
+    return registerTarget(state.screen, voiceId || label, { kind: 'button', label, onTap: onPress });
+  }, [state.screen, voiceId, label, onPress]);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      style={({ pressed }) => [styles.headerCta, disabled && { opacity: 0.5 }, pressed && { opacity: 0.85 }]}
+    >
+      <Text style={[font(700), { color: '#fff', fontSize: 13.5 }]} numberOfLines={1}>{label}</Text>
+      {icon ? <Icon name={icon} size={16} color="#fff" /> : null}
     </Pressable>
   );
 }
@@ -259,25 +296,35 @@ export function Field({
   hint?: string;
   voiceId?: string;
 } & React.ComponentProps<typeof TextInput>) {
-  const { state } = useStore();
   const id = voiceId || label || hint;
-
-  useEffect(() => {
-    if (!id) return undefined;
-    const sensitive = isSensitiveField(id, {
-      secureTextEntry: props.secureTextEntry,
-      textContentType: props.textContentType as string | undefined,
-      autoComplete: props.autoComplete as string | undefined,
-    });
-    return registerTarget(state.screen, id, {
+  // Registered via useVoiceTarget (like Slider below), NOT a hand-rolled
+  // registerTarget call — Field is the one Controls.tsx primitive whose own
+  // call site passes onChangeText directly (`<Field ... onChangeText={...}/>`
+  // in every screen that uses it), which is exactly the prop name
+  // screenGraph.ts's auto-discovery walk checks for, so every Field is ALSO
+  // auto-discovered independently. A hand-rolled registerTarget(state.screen,
+  // id, ...) used to register under the bare id ("First name (as per PAN)")
+  // while the auto-discovered copy registers under "field:First name (as per
+  // PAN)" — different keys, so mergedTargets() never deduped them, and every
+  // text field on a screen was listed twice in available_actions. Confirmed
+  // live: a bloated, duplicated available_actions payload landing after a
+  // tool call is a plausible contributor to the agent repeating itself.
+  // useVoiceTarget already produces the matching `field:${id}` key.
+  const sensitive = isSensitiveField(id || '', {
+    secureTextEntry: props.secureTextEntry,
+    textContentType: props.textContentType as string | undefined,
+    autoComplete: props.autoComplete as string | undefined,
+  });
+  useVoiceTarget(
+    id,
+    {
       kind: 'field',
-      label: id,
       sensitive,
       getValue: () => value as string,
       setValue: v => onChangeText?.(String(v)),
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.screen, id, value, onChangeText, props.secureTextEntry, props.textContentType, props.autoComplete]);
+    },
+    [value, onChangeText, props.secureTextEntry, props.textContentType, props.autoComplete],
+  );
 
   return (
     <View style={{ gap: 6 }}>
@@ -435,6 +482,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     backgroundColor: 'rgba(255,255,255,0.6)',
+  },
+  headerCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 40,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
   },
   track: { width: 46, height: 27, borderRadius: 9999, padding: 3, justifyContent: 'center' },
   knob: {

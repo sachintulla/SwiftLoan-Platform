@@ -14,7 +14,7 @@ export const siteHeaderCopy = defineCopy({
     changeLanguage: "Change language",
     languageLabel: "Language",
     toggleMenu: "Toggle menu",
-    cta: "Check your rate",
+    cta: "Check eligibility",
   },
   hi: {
     disclaimer:
@@ -29,7 +29,7 @@ export const siteHeaderCopy = defineCopy({
     changeLanguage: "भाषा बदलें",
     languageLabel: "भाषा",
     toggleMenu: "मेन्यू खोलें/बंद करें",
-    cta: "अपनी दर देखें",
+    cta: "पात्रता जांचें",
   },
   te: {
     disclaimer:
@@ -44,6 +44,6 @@ export const siteHeaderCopy = defineCopy({
     changeLanguage: "భాషను మార్చండి",
     languageLabel: "భాష",
     toggleMenu: "మెనూ చూపించు/దాచు",
-    cta: "మీ రేటు చూడండి",
+    cta: "అర్హతను తనిఖీ చేయండి",
   },
 });

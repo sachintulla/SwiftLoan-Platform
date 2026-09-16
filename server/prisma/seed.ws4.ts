@@ -13,6 +13,9 @@ const rand = (n: number) => Math.floor(Math.random() * n);
 const pick = <T>(arr: T[]): T => arr[rand(arr.length)];
 const daysAgo = (d: number) => new Date(Date.now() - d * 864e5 - rand(864e5));
 const rupees = (n: number) => n * 100; // paise
+// Seeded leads have no real deep-link app handoff behind them, but Lead.token
+// is required + unique, so mint a throwaway one.
+const seedToken = () => Math.random().toString(36).slice(2, 12).toUpperCase();
 
 const FIRST = ['Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Sai', 'Reyansh', 'Ananya', 'Diya', 'Aadhya', 'Kiara', 'Ishaan', 'Kabir', 'Anaya', 'Priya', 'Rahul', 'Sneha', 'Karan', 'Meera', 'Rohan', 'Neha', 'Varun', 'Pooja', 'Amit'];
 const LAST = ['Sharma', 'Verma', 'Patel', 'Reddy', 'Nair', 'Iyer', 'Singh', 'Gupta', 'Rao', 'Kumar', 'Das', 'Bose', 'Mehta', 'Joshi'];
@@ -44,7 +47,7 @@ async function clearWs4() {
   await prisma.activityEvent.deleteMany({});
   await prisma.session.deleteMany({});
   await prisma.onboardingFunnel.deleteMany({});
-  await prisma.anonymousLead.deleteMany({});
+  await prisma.lead.deleteMany({});
   await prisma.appDownload.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.adminRefreshToken.deleteMany({});
@@ -231,8 +234,9 @@ async function main() {
   // ── 30 anonymous leads ──
   for (let i = 0; i < 30; i++) {
     const fn = pick(FIRST);
-    await prisma.anonymousLead.create({
+    await prisma.lead.create({
       data: {
+        token: seedToken(),
         name: Math.random() < 0.8 ? fn : null,
         phone: Math.random() < 0.7 ? `9${String(100000000 + rand(899999999))}` : null,
         city: pick(CITIES), productInterest: pick(LOAN_TYPES as unknown as string[]),

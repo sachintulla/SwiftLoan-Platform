@@ -6,6 +6,9 @@ import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { publicUser } from './auth.routes.js';
 import { presignAvatarUpload, s3Configured } from '../lib/s3.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('users');
 
 export const usersRouter = Router();
 usersRouter.use(requireAuth);
@@ -16,6 +19,15 @@ usersRouter.get('/me', ah(async (req, res) => {
   if (!user) throw new HttpError(404, 'User not found');
   res.json({ user: publicUser(user) });
 }));
+
+// Real PAN structure, not just "10 characters" — see applications.routes.ts's
+// panSchema comment for the holder-type-code reasoning; duplicated here rather
+// than shared, matching how phoneSchema is independently defined per module.
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+const panSchema = z
+  .string()
+  .regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'panNumber must be a valid PAN (e.g. AAAPL1234C)')
+  .refine(p => PAN_HOLDER_CODES.includes(p[3]), 'panNumber must be a valid PAN (e.g. AAAPL1234C)');
 
 const profilePatch = z.object({
   firstName: z.string().optional(),
@@ -29,15 +41,47 @@ const profilePatch = z.object({
   employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
   monthlyIncome: z.number().int().nonnegative().optional(),
   company: z.string().optional(),
-  panNumber: z.string().length(10).optional(),
+  panNumber: panSchema.optional(),
+  // Aurix applicant fields collected across the PAN / details / optional screens.
+  qualification: z.string().optional(),
+  maritalStatus: z.string().optional(),
+  alternateMobile: z.string().optional(),
+  alternateEmail: z.string().email().optional(),
+  loanPurpose: z.string().optional(),
+  salaryMode: z.string().optional(),
+  professionalType: z.string().optional(),
+  companyEmail: z.string().email().optional(),
+  businessEmail: z.string().email().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  landmark: z.string().optional(),
+  city: z.string().optional(),
+  district: z.string().optional(),
+  state: z.string().optional(),
+  monthlyObligations: z.number().int().nonnegative().optional(),
+  // The desired loan amount, gathered conversationally before a real
+  // LoanApplication exists to hold it — see the schema comment on the column
+  // itself. Plain rupees, matching LoanApplication.amount's own convention.
+  draftLoanAmount: z.number().int().nonnegative().optional(),
 }).strict();
 
 /** Update user information in the backend database. */
 usersRouter.patch('/me', validate(profilePatch), ah(async (req, res) => {
   const data: any = { ...req.body };
   if (data.dob) data.dob = new Date(data.dob);
-  const user = await prisma.user.update({ where: { id: req.user!.sub }, data });
-  res.json({ user: publicUser(user) });
+  try {
+    const user = await prisma.user.update({ where: { id: req.user!.sub }, data });
+    res.json({ user: publicUser(user) });
+  } catch (e: any) {
+    // email (and any other @unique applicant field) can collide with an existing
+    // account — surface a clean 409 instead of a raw 500, so the whole profile
+    // save (and the downstream Aurix payload) isn't silently lost.
+    if (e?.code === 'P2002') {
+      const field = Array.isArray(e?.meta?.target) ? e.meta.target[0] : (e?.meta?.target ?? 'value');
+      throw new HttpError(409, `This ${field} is already in use by another account.`);
+    }
+    throw e;
+  }
 }));
 
 /** Get a presigned S3 PUT URL for a profile photo upload. */
@@ -70,6 +114,17 @@ usersRouter.patch('/me/language', validate(z.object({ lang: z.enum(['en', 'hi', 
     res.json({ user: publicUser(user) });
   }));
 
+/**
+ * Set the language the user has spoken to the voice agent — distinct from
+ * `/me/language` (the app's UI-copy language). The agent's `set_language`
+ * voice tool calls this so the preference survives across calls/devices.
+ */
+usersRouter.patch('/me/voice-language', validate(z.object({ lang: z.enum(['en', 'hi', 'te', 'hinglish', 'tenglish']) })),
+  ah(async (req, res) => {
+    const user = await prisma.user.update({ where: { id: req.user!.sub }, data: { voiceLang: req.body.lang } });
+    res.json({ user: publicUser(user) });
+  }));
+
 /** Notification preferences. */
 usersRouter.patch('/me/notifications',
   validate(z.object({ loanUpdates: z.boolean().optional(), securityAlerts: z.boolean().optional(), promoOffers: z.boolean().optional() })),
@@ -91,6 +146,7 @@ usersRouter.post('/me/consents',
   validate(z.object({ type: z.enum(['terms', 'soft_pull', 'data_sharing', 'communications']), granted: z.boolean() })),
   ah(async (req, res) => {
     const consent = await prisma.consent.create({ data: { userId: req.user!.sub, type: req.body.type, granted: req.body.granted } });
+    log.info('consent recorded', { userId: req.user!.sub, type: consent.type, granted: consent.granted });
     res.status(201).json({ consent });
   }));
 
@@ -113,6 +169,8 @@ usersRouter.get('/me/credit-score', ah(async (req, res) => {
 
 /** Delete account (right to erasure). */
 usersRouter.delete('/me', ah(async (req, res) => {
-  await prisma.user.delete({ where: { id: req.user!.sub } });
+  const userId = req.user!.sub;
+  await prisma.user.delete({ where: { id: userId } });
+  log.warn('account deleted', { userId });
   res.json({ ok: true });
 }));

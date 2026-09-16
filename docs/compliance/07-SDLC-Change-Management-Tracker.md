@@ -106,7 +106,7 @@ The companion workbook contains:
 |---|---|---|
 | Ello voice-command layer | Jul 2026 | commit `86013f2`; merged via PR #6 |
 | Admin dashboard + tracking backend + website | Jul 2026 | commit `6845fc6`; PR #4 (MERGED) |
-| Real Twilio OTP + screen drop-off tracking | Jul 2026 | commits `c8ed123`,`c784b3a`,`81c45ee`; PR #5 |
+| Real Vox OTP + screen drop-off tracking | Jul 2026 | commits `c8ed123`,`c784b3a`,`81c45ee`; PR #5 |
 | WebRTC transport for voice | Jul 2026 | PR #9 (MERGED) |
 | Name copilot "Ruby" + prompt refinement | Jul 31 2026 | commits `8aa2ab5`,`e2955c1` |
 | Production deployment workflow | Aug 3 2026 | commit `df5d2ea` |
