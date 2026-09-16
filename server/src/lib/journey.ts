@@ -87,6 +87,11 @@ export const JOURNEY_EVENTS = {
   LANGUAGE_SELECTED: 'language_selected',
   OTP_REQUESTED: 'otp_requested',
   OTP_VERIFIED: 'otp_verified',
+  // website — phone verification & callback consent (not app login: no stage
+  // mapping, since verifying a phone on the marketing site is not "registered")
+  PHONE_VERIFIED: 'phone_verified',
+  CALLBACK_REQUESTED: 'callback_requested',
+  CALLBACK_DECLINED: 'callback_declined',
   // funnel
   ELIGIBILITY_STARTED: 'eligibility_started',
   ELIGIBILITY_COMPLETED: 'eligibility_completed',
@@ -218,20 +223,47 @@ function cleanPhone(phone?: string | null): string | null {
  * activity and post-login app activity land on a single record.
  */
 export async function resolveCustomer(input: ResolveCustomerInput) {
-  const phone = cleanPhone(input.phone);
+  let phone = cleanPhone(input.phone);
   const { userId } = input;
+
+  // A userId always belongs to an authenticated app User, who by definition has
+  // a verified phone — yet most of the post-login funnel (applications.routes.ts,
+  // kyc.routes.ts, the Aurix webhook) calls trackJourney with only { userId },
+  // never the phone. Without this, a userId lookup that misses (a stale link,
+  // a User row recreated after a dev reset) has nothing to fall back to and
+  // silently creates a second, permanently phone-less Customer for someone
+  // whose phone was one query away. Look it up whenever it's missing, before
+  // any matching or creation happens below.
+  if (!phone && userId) {
+    const linkedUser = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } }).catch(() => null);
+    if (linkedUser?.phone) phone = cleanPhone(linkedUser.phone);
+  }
 
   if (!phone && !userId) return null;
 
+  // Phone is the strong identity everywhere else in this codebase (see
+  // customers.routes.ts's 360 view) — a Customer.userId can go stale (the
+  // User it pointed at was replaced or deleted) while its phone never
+  // changes. Matching userId first let a stale link silently attribute real
+  // activity to a different, phone-less "ghost" Customer row that happened
+  // to hold the same (now-wrong) userId. Phone first avoids that class of
+  // mis-attribution; userId is only the fallback for phone-less identity
+  // (e.g. a website visitor who hasn't given a number yet).
   let customer =
-    (userId ? await prisma.customer.findUnique({ where: { userId } }) : null) ??
-    (phone ? await prisma.customer.findUnique({ where: { phone } }) : null);
+    (phone ? await prisma.customer.findUnique({ where: { phone } }) : null) ??
+    (userId ? await prisma.customer.findUnique({ where: { userId } }) : null);
+
+  // Customer.phone is required at the schema level — every identity in the
+  // system, app or website, must resolve to a real number. Every current
+  // caller already supplies one (directly, or backfilled from User above),
+  // so this is a hard guarantee for future call sites, not a live path today.
+  if (!customer && !phone) return null;
 
   if (!customer) {
     try {
       customer = await prisma.customer.create({
         data: {
-          phone,
+          phone: phone as string,
           userId: userId ?? null,
           name: input.name ?? null,
           email: input.email ?? null,
@@ -270,8 +302,23 @@ export async function resolveCustomer(input: ResolveCustomerInput) {
   if (input.utmCampaign && !customer.utmCampaign) patch.utmCampaign = input.utmCampaign;
   if (input.referrer && !customer.referrer) patch.referrer = input.referrer;
 
+  // Never backfill `phone` onto this record if another customer already owns it
+  // — `phone` is unique, and a prior website lead may hold the same number.
+  // Overwriting it here would throw P2002 and abort the whole journey promotion.
+  if (patch.phone && phone) {
+    const clash = await prisma.customer.findUnique({ where: { phone } });
+    if (clash && clash.id !== customer.id) delete (patch as { phone?: string }).phone;
+  }
+
   if (Object.keys(patch).length) {
-    customer = await prisma.customer.update({ where: { id: customer.id }, data: patch });
+    try {
+      customer = await prisma.customer.update({ where: { id: customer.id }, data: patch });
+    } catch (e) {
+      // Backstop for a unique field (phone/userId) held by another record or a
+      // race: skip the backfill rather than failing journey promotion outright.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return customer;
+      throw e;
+    }
   }
   return customer;
 }

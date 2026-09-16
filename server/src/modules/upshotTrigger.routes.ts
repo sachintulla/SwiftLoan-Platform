@@ -28,6 +28,9 @@ import { resolveCustomer } from '../lib/journey.js';
 import { withinCallingHours } from '../lib/leadCaller.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from '../lib/callContext.js';
 import { agentIdFor } from '../lib/agents.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('upshot-journey');
 
 export const upshotTriggerRouter = Router();
 
@@ -70,7 +73,10 @@ upshotTriggerRouter.post('/trigger-call', ah(async (req, res) => {
   const expectedStep = String(b.expected_step ?? b.expectedStep ?? '').trim();
   const journey = String(b.journey ?? b.journey_name ?? '').trim() || 'upshot_journey';
 
-  const deny = (reason: string) => ok(res, { called: false, phone, reason }, reason);
+  const deny = (reason: string) => {
+    log.warn('denied', { phone, journey, reason });
+    return ok(res, { called: false, phone, reason }, reason);
+  };
 
   // ── guards, in order of how bad it would be to get them wrong ──────────────
 
@@ -153,12 +159,13 @@ upshotTriggerRouter.post('/trigger-call', ah(async (req, res) => {
     await prisma.outboundRequest
       .updateMany({ where: { idempotencyKey: key }, data: { status: 'failed', lastError: result.error ?? null } })
       .catch(() => undefined);
+    log.warn('call could not be placed', { phone, journey, error: result.error ?? null });
     // 200 again: the provider failed, but the journey step itself was valid and
     // retrying it would only produce another failed call.
     return ok(res, { called: false, phone, reason: result.error ?? 'provider error' }, 'Call could not be placed');
   }
 
-  console.log(`[upshot-journey] called ${phone} — ${journey} (${lastStep || 'no step'} → ${expectedStep || '?'})`);
+  log.info('called', { phone, journey, lastStep: lastStep || null, expectedStep: expectedStep || null, callId: result.attempt.id });
 
   return ok(
     res,

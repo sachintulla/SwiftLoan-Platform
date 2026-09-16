@@ -51,9 +51,9 @@ const PLANS = [
 async function main() {
   // Idempotent: replace any previously-seeded rows for these lenders, rather
   // than accumulating duplicates on re-run.
-  await prisma.preApprovedPlan.deleteMany({ where: { lenderName: { in: PLANS.map(p => p.lenderName) } } });
-  await prisma.preApprovedPlan.createMany({ data: PLANS });
-  const count = await prisma.preApprovedPlan.count();
+  await prisma.marketLoanOffer.deleteMany({ where: { lenderName: { in: PLANS.map(p => p.lenderName) } } });
+  await prisma.marketLoanOffer.createMany({ data: PLANS });
+  const count = await prisma.marketLoanOffer.count();
   console.log(`[seed:preapproved] plans: ${count}`);
 }
 

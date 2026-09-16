@@ -18,15 +18,15 @@ try {
   // absent — see comment above.
 }
 
-// Matches ellomobilesdk's OPTIMIZED_ICE_SERVERS (src/config/index.ts) exactly —
+// Based on ellomobilesdk's OPTIMIZED_ICE_SERVERS (src/config/index.ts) —
 // its own comment names the reason: "Many mobile networks (Jio, Airtel, vivo
 // OEM ROMs)... use strict NAT that blocks inbound UDP... TURN relay on
 // TCP/443 bypasses this — it's the only reliable fix." Our test devices are
 // on Airtel — this is not a hypothetical for us. Plain STUN alone (what this
 // file used to configure) cannot establish media on networks like that.
+// (Dropped ellomobilesdk's Twilio STUN entry — no vendor dependency there.)
 export const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:global.stun.twilio.com:3478' },
   {
     urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
     username: 'openrelayproject',

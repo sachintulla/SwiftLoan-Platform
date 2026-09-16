@@ -1,0 +1,7 @@
+=== Release notes (en-IN) — paste into the release "Release notes" box ===
+(Play limit: 500 characters per language)
+
+First release of SwiftLoan — compare real loan offers from 15+ RBI-regulated partners in minutes. Check your eligibility with a soft check that doesn't affect your credit score, compare EMI and total cost side by side, and apply securely to the lender you choose. Available in English, हिन्दी and తెలుగు, with an optional voice assistant. SwiftLoan is a loan-comparison platform, not a lender.
+
+--- shorter variant (if you prefer, ~230 chars) ---
+Compare real loan offers from 15+ RBI-regulated partners. A soft eligibility check that won't affect your credit score, side-by-side EMI comparison, and secure apply. English, हिन्दी & తెలుగు. SwiftLoan is a comparison platform, not a lender.

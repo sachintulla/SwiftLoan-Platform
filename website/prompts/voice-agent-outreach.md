@@ -1,6 +1,6 @@
 # SwiftLoan.ai — AI Voice Agent Prompt (Outbound Lead Follow-up)
 
-Drop-in system prompt for an LLM voice agent (Vapi / Retell / Bland / Twilio+LLM /
+Drop-in system prompt for an LLM voice agent (Vapi / Retell / Bland / Vox+LLM /
 ElevenLabs, etc.) that **calls a person right after they submit the "Find my best
 offer" form**. Goal of the call: thank them, tell them offers are being emailed, get
 them to **download the app and register with the same mobile number**, and offer to

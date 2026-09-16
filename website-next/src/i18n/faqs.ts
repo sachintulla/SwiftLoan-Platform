@@ -42,7 +42,7 @@ export const faqsCopy = defineCopy({
         a: "You can still apply. Our AI ranks offers by your genuine likelihood of approval, and several of our partners assess cash-flow, GST and banking behaviour alongside your bureau score. Since it's a soft check, exploring your options costs you nothing.",
       },
     ],
-    cta: "Check your rate",
+    cta: "Check eligibility",
   },
   hi: {
     eyebrowIcon: "सवाल हैं?",
@@ -85,7 +85,7 @@ export const faqsCopy = defineCopy({
         a: "आप फिर भी आवेदन कर सकते हैं। हमारा AI आपकी वास्तविक अप्रूवल संभावना के आधार पर ऑफ़र्स को रैंक करता है, और हमारे कई पार्टनर आपके ब्यूरो स्कोर के साथ-साथ कैश-फ्लो, GST और बैंकिंग व्यवहार का भी आकलन करते हैं। चूंकि यह एक सॉफ्ट चेक है, अपने विकल्प तलाशने में आपको कुछ भी खर्च नहीं होता।",
       },
     ],
-    cta: "अपनी दर जांचें",
+    cta: "पात्रता जांचें",
   },
   te: {
     eyebrowIcon: "ప్రశ్నలు ఉన్నాయా?",
@@ -128,6 +128,6 @@ export const faqsCopy = defineCopy({
         a: "మీరు ఇప్పటికీ దరఖాస్తు చేసుకోవచ్చు. మా AI మీ నిజమైన ఆమోద అవకాశం ఆధారంగా ఆఫర్లను ర్యాంక్ చేస్తుంది, మరియు మా అనేక భాగస్వాములు మీ బ్యూరో స్కోర్‌తో పాటు నగదు ప్రవాహం, GST మరియు బ్యాంకింగ్ ప్రవర్తనను కూడా అంచనా వేస్తారు. ఇది సాఫ్ట్ చెక్ కాబట్టి, మీ ఎంపికలను అన్వేషించడం మీకు ఎలాంటి ఖర్చు కలిగించదు.",
       },
     ],
-    cta: "మీ రేటు తనిఖీ చేయండి",
+    cta: "అర్హతను తనిఖీ చేయండి",
   },
 });

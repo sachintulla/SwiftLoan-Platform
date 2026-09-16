@@ -10,10 +10,13 @@
  * Local-development override. Set back to '' to fall back to the deployed
  * dev API below.
  *
- * Set this to 'http://localhost:4000/api' + `adb reverse tcp:4000 tcp:4000`
- * (+ `adb reverse tcp:8081 tcp:8081` for Metro) when iterating against a
- * local server/ over the USB bridge. Left empty so a standalone build talks
- * to the real deployed dev API and needs no cable/tunnel at all.
+ * On Android: 'http://localhost:4000/api' + `adb reverse tcp:4000 tcp:4000`
+ * (+ `adb reverse tcp:8081 tcp:8081` for Metro) over the USB bridge.
+ * On iOS, a physical device has no USB-reverse equivalent — instead point it
+ * at the Mac's own LAN IP (`ipconfig getifaddr en0`) and make sure the phone
+ * is on the same Wi-Fi network as the Mac running `server/` (npm start).
+ * Left empty so a standalone build talks to the real deployed dev API and
+ * needs no cable/network match at all.
  */
 const DEV_API_BASE = '';
 

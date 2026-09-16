@@ -3,7 +3,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { StatCard, Card, TableSkeleton, FilterChips } from '@/components/ui';
-import { FunnelChart, PipelineBar, LiveFeed, FunnelStage, FeedEvent } from '@/components/viz';
+import { FunnelChart, PipelineBar, LiveFeed, ActiveUsers, FunnelStage, FeedEvent, ActiveUser } from '@/components/viz';
 import { TrendArea, CategoryBar, DonutChart } from '@/components/charts';
 import { inrCompact, num, pct } from '@/lib/format';
 
@@ -11,6 +11,7 @@ interface Overview {
   stats: { totalUsers: number; totalApplications: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursedPaise: number; outstandingPaise: number; approvedCount: number; applicationToDisbursalPct: number };
   funnel: FunnelStage[];
   applicationsByStatus: Record<string, number>;
+  lenderApplicationsByStatus?: Record<string, number>;
 }
 
 interface Charts {
@@ -22,7 +23,8 @@ interface Charts {
 export default function OverviewPage() {
   const [days, setDays] = useState('14');
   const { data, isLoading } = useSWR('/api/admin/dashboard/overview', swrFetcher, { refreshInterval: 15000 });
-  const { data: feed } = useSWR('/api/admin/live-feed?limit=12', swrFetcher, { refreshInterval: 8000 });
+  const { data: feed } = useSWR('/api/admin/live-feed?limit=40', swrFetcher, { refreshInterval: 8000 });
+  const { data: activeRes } = useSWR('/api/admin/active-users?limit=15', swrFetcher, { refreshInterval: 10000 });
   // Trends are a separate, slower query — it takes a day range and must not be
   // dragged into the 15s live-refresh above.
   const { data: chartsRes, isLoading: chartsLoading } =
@@ -31,6 +33,7 @@ export default function OverviewPage() {
   const o = data?.data as Overview | undefined;
   const c = chartsRes?.data as Charts | undefined;
   const events = (feed?.data ?? []) as FeedEvent[];
+  const activeUsers = (activeRes?.data ?? []) as ActiveUser[];
 
   return (
     <div className="page">
@@ -51,18 +54,30 @@ export default function OverviewPage() {
         )}
       </div>
 
+      <div style={{ marginTop: 16 }}>
+        <Card title="Recently active users" sub="Who's using the app right now — newest first, with phone & OS. Tap to open their profile." right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
+          <div style={{ maxHeight: 340, overflowY: 'auto' }}><ActiveUsers users={activeUsers} /></div>
+        </Card>
+      </div>
+
       <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr', marginTop: 16, alignItems: 'start' }}>
         <Card title="Conversion funnel" sub="8-stage journey from first session to disbursal">
           {!o ? <TableSkeleton rows={8} cols={3} /> : <FunnelChart stages={o.funnel} />}
         </Card>
-        <Card title="Live activity" sub="Most recent app + widget events" right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
-          <LiveFeed events={events} />
+        <Card title="Recent activity" sub="Newest first, grouped by day — tap any event for details" right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
+          <div style={{ maxHeight: 440, overflowY: 'auto' }}><LiveFeed events={events} /></div>
         </Card>
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <Card title="Application pipeline" sub="Distribution across every funnel stage">
+        <Card title="Application pipeline" sub="Parent applications by stage (one per customer application)">
           {o ? <PipelineBar byStatus={o.applicationsByStatus} /> : <TableSkeleton rows={1} cols={6} />}
+        </Card>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Card title="Lender application pipeline" sub="Per-lender applications after submission — one customer can appear under several lenders">
+          {o ? <PipelineBar byStatus={o.lenderApplicationsByStatus ?? {}} /> : <TableSkeleton rows={1} cols={6} />}
         </Card>
       </div>
 

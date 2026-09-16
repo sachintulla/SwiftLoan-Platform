@@ -43,8 +43,9 @@ services:
         value: "1260"
       - key: LEAD_CALL_TIMEZONE
         value: Asia/Kolkata
-      - key: LEAD_CALL_DELAY_MINUTES
-        value: "1"
+      # Not set here on purpose — leadCaller.ts's follow-up delay (whether the
+      # visitor declined the callback popup or never answered it) defaults to
+      # 60 minutes unless LEAD_CALL_DECLINE_DELAY_MINUTES is explicitly set.
       # Spend ceiling. /api/context/create is public, so without a cap a scripted
       # form-spam run turns straight into a telephony bill.
       - key: LEAD_CALL_MAX_PER_HOUR

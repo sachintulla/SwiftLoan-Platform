@@ -9,11 +9,13 @@ export default function NewCampaignPage() {
     <div className="page">
       <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/campaigns')}>← Back to campaigns</button>
       <h1 className="page-title">New campaign</h1>
-      <p className="page-sub">Set the schedule, cadence and agent. You upload the contact sheet on the campaign page once it exists.</p>
-      <CampaignBuilder
-        onSaved={(id) => router.push(id ? `/campaigns/${id}` : '/campaigns')}
-        onCancel={() => router.push('/campaigns')}
-      />
+      <p className="page-sub">Name it, pick who to call, and save — one step.</p>
+      <div style={{ marginTop: 20 }}>
+        <CampaignBuilder
+          onSaved={(id) => router.push(id ? `/campaigns/${id}` : '/campaigns')}
+          onCancel={() => router.push('/campaigns')}
+        />
+      </div>
     </div>
   );
 }

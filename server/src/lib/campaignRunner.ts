@@ -187,7 +187,10 @@ async function maybeComplete(campaignId: string, now: Date) {
 /** One scheduler pass over every running campaign. */
 export async function campaignScheduler(now: Date = new Date()) {
   const running = await prisma.campaign.findMany({
-    where: { status: 'running' },
+    // deletedAt is redundant with delete's own "must not be running" check,
+    // but cheap insurance against a future path that flips status back to
+    // running (e.g. a replayed webhook) on a campaign someone already deleted.
+    where: { status: 'running', deletedAt: null },
     select: { id: true, name: true },
     take: 50,
   });

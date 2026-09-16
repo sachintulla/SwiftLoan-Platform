@@ -26,14 +26,20 @@ export function TrendArea({ data }: { data: { date: string; applications: number
 }
 
 export function CategoryBar({ data, xKey, yKey }: { data: Record<string, unknown>[]; xKey: string; yKey: string }) {
+  // Recharts' auto "nice" domain rounds a max value of 1 up to 4 evenly-spaced
+  // ticks, so a brand-new campaign with a single call renders a tiny bar under
+  // a mostly-empty 0–4 axis. Give it a tight, exact domain for small datasets
+  // instead; larger ones keep Recharts' own auto-scaling, which behaves fine.
+  const maxVal = Math.max(0, ...data.map((d) => Number(d[yKey]) || 0));
+  const domain: [number, number] | undefined = maxVal > 0 && maxVal <= 5 ? [0, maxVal] : undefined;
   return (
     <ResponsiveContainer width="100%" height={230}>
       <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef1f4" vertical={false} />
         <XAxis dataKey={xKey} tick={AXIS} tickLine={false} axisLine={false} />
-        <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+        <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} domain={domain} />
         <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e6e9ee', fontSize: 12 }} cursor={{ fill: '#f2f4f7' }} />
-        <Bar dataKey={yKey} radius={[6, 6, 0, 0]} fill="#079fa0" />
+        <Bar dataKey={yKey} radius={[6, 6, 0, 0]} fill="#079fa0" maxBarSize={64} />
       </BarChart>
     </ResponsiveContainer>
   );

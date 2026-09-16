@@ -11,11 +11,12 @@ import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
-import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { JourneyTracker, ChannelBadge, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS } from '@/components/journey';
+import { Card, Stat, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout } from '@/components/ui';
+import { JourneyTracker, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
-import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime } from '@/components/conversation';
-import { inr, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
+import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
+import { ActivityFeed, buildActivityHighlights } from '@/components/activityFeed';
+import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
 
 interface Customer {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
@@ -28,7 +29,11 @@ interface TimelineEntry {
   id: string; channel: string; name: string; stage?: string | null; stageLabel?: string | null;
   screen?: string | null; metadata?: Record<string, unknown> | null; occurredAt: string;
 }
-interface CampaignRef { id: string; name: string; code?: string; state?: string | null }
+interface CampaignRef {
+  id: string; name: string; code?: string; state?: string | null;
+  campaign?: { name?: string | null } | null;
+  attempts?: number | null; answered?: boolean | null; lastAttemptAt?: string | null; nextEligibleAt?: string | null;
+}
 interface LeadRef {
   id: string; name?: string | null; phone?: string | null; city?: string | null;
   productInterest?: string | null; amount?: number | null; source: string;
@@ -37,10 +42,21 @@ interface LeadRef {
 }
 interface LinkedUser {
   id: string; fullName?: string | null; phone?: string | null; email?: string | null; createdAt?: string;
-  applications?: { id: string; ref: string; amount: number; status: string; createdAt?: string }[];
+  dob?: string | null; gender?: string | null; maritalStatus?: string | null; qualification?: string | null;
+  employment?: string | null; company?: string | null; monthlyIncome?: number | null; salaryMode?: string | null;
+  residenceType?: string | null; addressLine1?: string | null; addressLine2?: string | null; landmark?: string | null;
+  city?: string | null; state?: string | null; pincode?: string | null; loanPurpose?: string | null; panNumber?: string | null;
+  aadhaarLast4?: string | null; creditScore?: number | null; phoneVerified?: boolean | null; emailVerified?: boolean | null;
+  aurixTokenExpiresAt?: string | null;
+  applications?: { id: string; ref: string; amount: number; tenureMonths?: number | null; status: string; panNumber?: string | null; createdAt?: string; updatedAt?: string; offers?: LenderOffer[] }[];
   loans?: { id: string; principal: number; outstanding: number; status: string }[];
-  kyc?: { status?: string | null; panVerified?: boolean; aadhaarVerified?: boolean } | null;
+  // One row per verification method attempted — [] genuinely means "none", not "pending".
+  kyc?: { status?: string | null; panVerified?: boolean; aadhaarVerified?: boolean }[] | null;
 }
+interface NudgeSummary { total: number; delivered: number; failed: number; pending: number; lastError?: string | null }
+interface OtpSummary { total: number; consumed: number }
+interface NotificationRow { id: string; title: string; body?: string | null; read: boolean; createdAt: string }
+interface AppSession { id: string; startedAt: string; endedAt?: string | null; pagesVisited?: number | null; durationSec?: number | null }
 interface Detail {
   customer?: Customer;
   timeline?: TimelineEntry[];
@@ -49,8 +65,121 @@ interface Detail {
   calls?: CallAttemptDetail[];
   campaigns?: CampaignRef[];
   user?: LinkedUser | null;
+  applicationSummary?: { lenders: number; submitted: number; approved: number; rejected: number; disbursed: number; inProgress: number };
+  device?: { os?: string | null; model?: string | null; appVersion?: string | null; lastSeenAt?: string } | null;
+  sessions?: AppSession[];
+  otpSummary?: OtpSummary;
+  nudgeSummary?: NudgeSummary;
+  notifications?: NotificationRow[];
   leads?: LeadRef[];
   nextAction?: string | null;
+}
+
+function initials(name?: string | null, phone?: string | null): string {
+  const src = (name ?? '').trim();
+  if (src) {
+    const parts = src.split(/\s+/).filter(Boolean);
+    return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || src[0].toUpperCase();
+  }
+  return phone ? phone.slice(-2) : '?';
+}
+
+/**
+ * PAN renders as the last 3 characters and nothing else — enough for an agent
+ * to confirm they are on the right record while on a call, useless to anyone
+ * shoulder-surfing the dashboard. There is deliberately no "show" affordance:
+ * a value that can be revealed is a value that gets screenshotted.
+ */
+function maskPan(value: string): string {
+  const tail = value.slice(-3);
+  return '•'.repeat(Math.max(value.length - 3, 3)) + tail;
+}
+
+/** CIBIL band, so 750 reads as a verdict and not just a number. */
+function scoreBand(score: number): { label: string; tone: string } {
+  if (score >= 750) return { label: 'Excellent', tone: 'green' };
+  if (score >= 700) return { label: 'Good', tone: 'teal' };
+  if (score >= 650) return { label: 'Fair', tone: 'amber' };
+  return { label: 'Poor', tone: 'red' };
+}
+
+/**
+ * Monochrome 14px line icons. Emoji were doing this job and read as clip-art
+ * next to the type — these inherit colour and weight from the row they sit in.
+ */
+const ICON_PATHS: Record<string, React.ReactNode> = {
+  phone: <path d="M3.2 3.2h3l1.1 2.8L6 7.4a8.6 8.6 0 0 0 3.6 3.6l1.4-1.3 2.8 1.1v3a1 1 0 0 1-1.1 1A11.6 11.6 0 0 1 2.2 4.3a1 1 0 0 1 1-1.1Z" />,
+  mail: <><rect x="1.8" y="3.4" width="12.4" height="9.2" rx="1.6" /><path d="m2.4 4.6 5.6 4 5.6-4" /></>,
+  pin: <><path d="M13 6.8c0 3.6-5 8-5 8s-5-4.4-5-8a5 5 0 0 1 10 0Z" /><circle cx="8" cy="6.7" r="1.8" /></>,
+  device: <><rect x="4.4" y="1.6" width="7.2" height="12.8" rx="1.8" /><path d="M7 12.4h2" /></>,
+  clock: <><circle cx="8" cy="8" r="6.2" /><path d="M8 4.6V8l2.4 1.6" /></>,
+  copy: <><rect x="5.6" y="5.6" width="8" height="8" rx="1.6" /><path d="M10.6 3.4H3.9a1.5 1.5 0 0 0-1.5 1.5v6.7" /></>,
+};
+function Ico({ name }: { name: keyof typeof ICON_PATHS }) {
+  return (
+    <svg className="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden focusable="false">
+      {ICON_PATHS[name]}
+    </svg>
+  );
+}
+
+/** Verification mark that sits on the value it verifies (phone, email). */
+function Tick({ ok, what }: { ok: boolean; what: string }) {
+  return (
+    <span className={`tick${ok ? '' : ' no'}`} title={`${what} ${ok ? 'verified' : 'not verified'}`}>
+      {ok ? '✓' : '!'}
+    </span>
+  );
+}
+
+/** Copy-to-clipboard for the values an operator retypes into another system. */
+function CopyBtn({ value, label }: { value: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className="icon-btn"
+      title={`Copy ${label}`}
+      aria-label={`Copy ${label}`}
+      onClick={() => {
+        navigator.clipboard?.writeText(value).catch(() => {});
+        setDone(true);
+        setTimeout(() => setDone(false), 1200);
+      }}
+    >
+      {done ? <span className="copy-done">✓</span> : <Ico name="copy" />}
+    </button>
+  );
+}
+
+/**
+ * One profile field. An absent value renders as a faint em dash rather than
+ * "not set" / "none" / "—" in three different weights, so the eye skips the
+ * blanks and lands on the data that is actually there.
+ */
+function Fact({ label, children, mono }: { label: string; children?: React.ReactNode; mono?: boolean }) {
+  const empty = children == null || children === '' || children === '—';
+  return (
+    <div className="fact-row">
+      <dt className="fact-label">{label}</dt>
+      <dd className={`fact-value${mono ? ' mono' : ''}${empty ? ' is-empty' : ''}`}>{empty ? '\u2014' : children}</dd>
+    </div>
+  );
+}
+
+/** One titled panel. Each group is its own card so the four topics read as
+ *  four separate things rather than one wall split by hairlines. */
+function FactGroup({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="fact-section">
+      <div className="fact-section-head">
+        <h3 className="fact-section-title">{title}</h3>
+        {action}
+      </div>
+      <dl className="fact-list">{children}</dl>
+    </section>
+  );
 }
 
 const CHANNELS = ['push', 'whatsapp', 'sms', 'email', 'voice'] as const;
@@ -74,12 +203,9 @@ export default function CustomerDetail() {
   const d = (data?.data ?? {}) as Detail;
   const c = d.customer;
 
-  // paginated timeline (falls back to the inline timeline on page 1 if the
-  // paginated call has not resolved yet)
-  const [tPage, setTPage] = useState(1);
-  const { data: tRes } = useSWR(`/api/admin/customers/${id}/timeline?page=${tPage}&pageSize=50`, swrFetcher);
-  const timeline = asArray<TimelineEntry>(tRes?.data ?? d.timeline);
-  const tPg = tRes?.pagination;
+  // d.timeline is chronological (asc); the activity highlights below are
+  // derived from it. The full, filterable log lives on /customers/:id/activity.
+  const tl = asArray<TimelineEntry>(d.timeline);
 
   // Cross-channel conversation history is keyed on the phone number, not the
   // customer id — that is what stitches website, phone and app together. A 404
@@ -102,13 +228,10 @@ export default function CustomerDetail() {
   const [nudgeResult, setNudgeResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [call, setCall] = useState<CallState>({ busy: null, key: null, ok: false, text: '' });
-  const [wa, setWa] = useState<{ busy: boolean; ok: boolean; text: string }>({ busy: false, ok: false, text: '' });
-  // Only offer the button when WhatsApp is actually configured — an action that
-  // always fails is worse than no action at all.
-  const { data: waStatus } = useSWR('/api/admin/whatsapp/status', swrFetcher);
-  const waReady = Boolean((waStatus?.data as { configured?: boolean } | undefined)?.configured);
   const [leadBusy, setLeadBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState('journey');
+  const [showSystem, setShowSystem] = useState(false);
 
   /**
    * Place a real outbound call, right now.
@@ -150,43 +273,6 @@ export default function CustomerDetail() {
     }
   }
 
-  /**
-   * Send the configured WhatsApp template to this customer.
-   *
-   * Confirmed like a call: it reaches a real person on a channel they consider
-   * personal. Business-initiated messages must use a pre-approved template, so
-   * the operator picks the customer, not the wording — the server supplies the
-   * template from the Infobip config.
-   */
-  async function sendWhatsApp() {
-    const phone = c?.phone;
-    const who = c?.name || 'this customer';
-    if (!phone) return;
-    if (!window.confirm(`Send the WhatsApp template to ${who} on ${phone}?\n\nThis messages a real person.`)) return;
-
-    setWa({ busy: true, ok: false, text: '' });
-    try {
-      const res = await apiFetch<{ messageId?: string; providerStatus?: string }>(
-        '/api/admin/whatsapp/send',
-        { method: 'POST', body: JSON.stringify({ customerId: c?.id, phone }) },
-      );
-      const r = res.data ?? {};
-      setWa({
-        busy: false, ok: true,
-        text: `WhatsApp queued for ${phone}${r.providerStatus ? ` (${r.providerStatus})` : ''}. It appears in the conversation history once delivered.`,
-      });
-      await mutate();
-    } catch (e) {
-      const msg = (e as Error).message || 'Could not send the message';
-      setWa({
-        busy: false, ok: false,
-        text: /403/.test(msg) ? 'Only a super admin can send WhatsApp messages.'
-          : /409/.test(msg) ? 'This customer is marked do-not-contact.'
-          : msg,
-      });
-    }
-  }
-
   async function updateLead(leadId: string, patch: { status?: string; note?: string }) {
     setLeadBusy(leadId);
     try { await apiFetch(`/api/admin/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify(patch) }); await mutate(); }
@@ -218,10 +304,39 @@ export default function CustomerDetail() {
   const leads = d.leads ?? [];
   const campaigns = d.campaigns ?? [];
   const user = d.user;
+  const applications = user?.applications ?? [];
+  const loans = user?.loans ?? [];
+  const sessions = d.sessions ?? [];
+  const notifications = d.notifications ?? [];
+  const nudgeSummary = d.nudgeSummary;
   const stalled = c.stalledMinutes ?? d.dropOff?.stalledMinutes ?? null;
   // The most recent enquiry is what they actually asked us for.
   const lead = leads[0];
   const noPhone = !c.phone;
+
+  // The one application that actually reached "application_submitted" (if
+  // any) — everything else that only got to offers_ready was abandoned when
+  // the person restarted the funnel, not still in progress.
+  const submittedAppId = tl.find((e) => e.name === 'application_submitted')?.metadata?.applicationId as string | undefined;
+  const appliedLenderCount = applications.reduce((n, a) => n + (a.offers ?? []).filter((o) => o.applied).length, 0);
+
+  const activityHighlights = buildActivityHighlights({
+    timeline: tl, calls, notifications,
+    otpSummary: d.otpSummary ?? null, nudgeSummary: nudgeSummary ?? null,
+  });
+
+  // Everything below "where they are" used to be one long stack of cards —
+  // tabs let the operator jump straight to the section they need instead of
+  // scrolling past six others to find it.
+  const tabs: { key: string; label: string; count?: number }[] = [
+    { key: 'journey', label: 'Journey' },
+    ...(applications.length ? [{ key: 'applications', label: 'Applications', count: applications.length }] : []),
+    { key: 'conversations', label: 'Conversations', count: convMissing ? 0 : convCount },
+    { key: 'calls', label: 'Calls', count: calls.length },
+    { key: 'enquiries', label: 'Website enquiries', count: leads.length },
+    { key: 'attribution', label: 'Attribution & nudge' },
+    ...(loans.length ? [{ key: 'loans', label: 'Loans', count: loans.length }] : []),
+  ];
 
   const callResult = call.text ? (
     <span
@@ -232,113 +347,276 @@ export default function CustomerDetail() {
     </span>
   ) : null;
 
+  const pan = user?.panNumber || applications[0]?.panNumber || '';
+  const deviceLine = [d.device?.os, d.device?.model, d.device?.appVersion ? `v${d.device.appVersion}` : null].filter(Boolean).join(' · ');
+  const email = c.email || user?.email || '';
+  const city = c.city || user?.city || lead?.city || '';
+  const fullName = user?.fullName || c.name || '';
+  const address = [user?.addressLine1, user?.addressLine2, user?.landmark, user?.city, user?.state, user?.pincode]
+    .filter(Boolean).join(', ');
+  const aurixExpired = user?.aurixTokenExpiresAt ? new Date(user.aurixTokenExpiresAt).getTime() < Date.now() : false;
+
   return (
     <div className="page">
       <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/customers')}>← Back to customers</button>
 
-      {/* ── who they are ───────────────────────────────────────────────── */}
-      <div className="row between wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
-        <div>
-          <h1 className="page-title">
-            {c.name || c.phone || 'Unknown customer'}{' '}
-            <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
-          </h1>
-          <p className="page-sub">
-            <span className="mono">{c.phone || 'no phone'}</span>
-            {c.email ? ` · ${c.email}` : ''}{c.city ? ` · ${c.city}` : ''}
-            {` · from ${c.firstSource || 'unknown source'}`}
-            {c.createdAt ? ` · first seen ${dateStr(c.createdAt)}` : ''}
-          </p>
+      {/* ── who they are ───────────────────────────────────────────────────
+          Two jobs, kept visually apart: the person (who they are, how to reach
+          them, what to do next) and their profile fields. The fields used to be
+          one flat 22-cell grid — no reading order, and a long email in a 140px
+          column collided with its neighbour — so they are grouped now, with the
+          system/attribution plumbing folded away until it is asked for. */}
+      <Card>
+        <div className="identity">
+          <div className="identity-main">
+            <div className="avatar-lg" aria-hidden>{initials(c.name, c.phone)}</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
+                <h1 className="page-title" style={{ fontSize: 20 }}>{c.name || c.phone || 'Unknown customer'}</h1>
+                <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
+                {stalled != null && stalled >= 15 && (
+                  <span className={`badge ${stalled > 1440 ? 'tone-red' : 'tone-amber'}`}>Stalled {stalledLabel(stalled)}</span>
+                )}
+              </div>
+
+              {/* Contact line — verification sits on the value it verifies
+                  rather than in a separate "Verified: phone yes · email no" cell. */}
+              <div className="identity-meta">
+                <span className="identity-meta-item">
+                  <Ico name="phone" />
+                  <span className="mono">{c.phone || 'No phone number'}</span>
+                  {c.phone && <Tick ok={!!user?.phoneVerified} what="Phone" />}
+                  {c.phone && <CopyBtn value={c.phone} label="phone number" />}
+                </span>
+                {email && (
+                  <span className="identity-meta-item">
+                    <Ico name="mail" />
+                    <span style={{ overflowWrap: 'anywhere' }}>{email}</span>
+                    <Tick ok={!!user?.emailVerified} what="Email" />
+                    <CopyBtn value={email} label="email address" />
+                  </span>
+                )}
+                {city && <span className="identity-meta-item"><Ico name="pin" />{city}</span>}
+                {deviceLine && <span className="identity-meta-item"><Ico name="device" />{deviceLine}</span>}
+                {c.lastActivityAt && (
+                  <span className="identity-meta-item"><Ico name="clock" />Active {timeAgo(c.lastActivityAt)}</span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gap: 6, justifyItems: 'end', minWidth: 220 }}>
-          <button
-            className="btn btn-primary"
-            disabled={noPhone || call.busy === 'whole'}
-            title={c.phone ? `Call ${c.phone} now` : 'This customer has no phone number'}
-            onClick={() => placeCall('whole', 'where they have got to')}
+        {/* profile — four groups in the one card, split by whitespace */}
+        <div className="fact-sections">
+          <FactGroup title="Identity">
+            {fullName && fullName !== (c.name || '') && <Fact label="Full name">{fullName}</Fact>}
+            <Fact label="Date of birth">{user?.dob ? dateStr(user.dob) : null}</Fact>
+            <Fact label="Gender">{user?.gender ? humanStatus(user.gender) : null}</Fact>
+            <Fact label="Marital status">{user?.maritalStatus ? humanStatus(user.maritalStatus) : null}</Fact>
+            <Fact label="Qualification">{user?.qualification}</Fact>
+            <Fact label="Address">{address}</Fact>
+          </FactGroup>
+
+          <FactGroup title="Work & income">
+            <Fact label="Employment">{user?.employment ? humanStatus(user.employment) : null}</Fact>
+            <Fact label="Employer">{user?.company}</Fact>
+            <Fact label="Monthly income">{user?.monthlyIncome ? inrRupees(user.monthlyIncome) : null}</Fact>
+            <Fact label="Salary mode">{user?.salaryMode ? humanStatus(user.salaryMode) : null}</Fact>
+            <Fact label="Residence">{user?.residenceType ? humanStatus(user.residenceType) : null}</Fact>
+            <Fact label="Loan purpose">{user?.loanPurpose}</Fact>
+          </FactGroup>
+
+          <FactGroup title="Verification & risk">
+            <Fact label="Credit score">
+              {user?.creditScore ? (
+                <span className="score" style={{ color: `var(--${scoreBand(user.creditScore).tone})` }}>
+                  {user.creditScore}
+                  <span className="score-band">{scoreBand(user.creditScore).label}</span>
+                </span>
+              ) : null}
+            </Fact>
+            <Fact label="KYC records">{user?.kyc?.length ? humanStatus(user.kyc[0].status || 'pending') : null}</Fact>
+            <Fact label="PAN" mono>{pan ? maskPan(pan) : null}</Fact>
+            <Fact label="Aadhaar last 4" mono>{user?.aadhaarLast4}</Fact>
+            <Fact label="Aurix token">
+              {user?.aurixTokenExpiresAt ? (
+                <span className={aurixExpired ? 'is-stale' : undefined}>
+                  {aurixExpired ? 'Expired ' : 'Valid to '}{dateStr(user.aurixTokenExpiresAt)}
+                </span>
+              ) : null}
+            </Fact>
+          </FactGroup>
+
+          {/* Plumbing: needed when something has gone wrong, noise the rest of
+              the time — so it starts folded. */}
+          <FactGroup
+            title="App & attribution"
+            action={
+              <button type="button" className="icon-btn" onClick={() => setShowSystem((v) => !v)}>
+                {showSystem ? 'Hide ids' : 'Show ids'}
+              </button>
+            }
           >
-            {call.busy === 'whole' ? 'Dialling…' : '📞 Call now'}
-          </button>
-          {waReady && (
-            <button
-              className="btn"
-              disabled={noPhone || wa.busy}
-              title={c.phone ? `Send the WhatsApp template to ${c.phone}` : 'This customer has no phone number'}
-              onClick={sendWhatsApp}
-            >
-              {wa.busy ? 'Sending…' : '💬 WhatsApp'}
-            </button>
-          )}
-          <span className="muted" style={{ fontSize: 11.5, textAlign: 'right', lineHeight: 1.4 }}>
-            {noPhone
-              ? 'No phone number on this customer'
-              : <>Rings {c.phone} within seconds.<br />The agent gets the full history first.</>}
-          </span>
-          {wa.text && (
-            <span style={{ fontSize: 11.5, textAlign: 'right', color: wa.ok ? 'var(--ok, #128f5b)' : 'var(--bad, #c0392b)' }}>
-              {wa.text}
-            </span>
-          )}
-          {call.key === 'whole' && callResult}
+            <Fact label="Source">
+              <span style={{ textTransform: 'capitalize' }}>{c.firstSource || 'Unknown'}</span>
+            </Fact>
+            <Fact label="Campaign">{c.campaignId}</Fact>
+            <Fact label="Device">{deviceLine}</Fact>
+            <Fact label="First seen">{c.createdAt ? dateStr(c.createdAt) : null}</Fact>
+            {showSystem && (
+              <>
+                <Fact label="Customer id" mono>
+                  <span className="row" style={{ gap: 6 }}><span className="id-val">{c.id}</span><CopyBtn value={c.id} label="customer id" /></span>
+                </Fact>
+                <Fact label="App user id" mono>
+                  {user?.id ? (
+                    <span className="row" style={{ gap: 6 }}><span className="id-val">{user.id}</span><CopyBtn value={user.id} label="app user id" /></span>
+                  ) : null}
+                </Fact>
+              </>
+            )}
+        </FactGroup>
         </div>
+      </Card>
+
+      {/* ── funnel numbers at a glance — one strip, not four boxes ────── */}
+      <Card className="mt-16">
+        <div className="stat-strip">
+          {(() => {
+            const primaryApp = applications.find((a) => a.id === submittedAppId) ?? applications[0];
+            return (
+              <Stat
+                label="Requested"
+                value={primaryApp ? inrRupees(primaryApp.amount) : lead?.amount ? inr(lead.amount) : '—'}
+                foot={primaryApp ? `${primaryApp.tenureMonths ?? '—'} months · personal` : lead ? `from their ${lead.source} enquiry` : 'no application yet'}
+              />
+            );
+          })()}
+          <Stat label="Applications" value={applications.length}
+            foot={applications.length ? `${submittedAppId ? 1 : 0} submitted, ${applications.length - (submittedAppId ? 1 : 0)} abandoned` : 'none yet'} />
+          <Stat label="Lender offers" value={appliedLenderCount} tone={appliedLenderCount ? undefined : 'text-faint'}
+            foot={appliedLenderCount ? 'applied to' : 'no lender applied to'} />
+          <Stat label="Nudges delivered"
+            value={nudgeSummary ? `${nudgeSummary.delivered}/${nudgeSummary.total}` : '—'}
+            tone={!nudgeSummary || nudgeSummary.total === 0 ? 'text-faint' : nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : undefined}
+            foot={!nudgeSummary || nudgeSummary.total === 0 ? 'none sent' : nudgeSummary.failed === nudgeSummary.total ? 'all dispatches failed' : nudgeSummary.failed > 0 ? `${nudgeSummary.failed} failed` : 'all delivered'} />
+        </div>
+      </Card>
+
+      {/* ── section tabs — everything below is one section at a time ────── */}
+      <div className="tab-bar" style={{ marginTop: 22 }}>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            className={`tab-item ${activeTab === t.key ? 'active' : ''}`}
+            onClick={() => setActiveTab(t.key)}
+          >
+            {t.label}
+            {t.count != null && <span className="tab-count">{t.count}</span>}
+          </button>
+        ))}
       </div>
 
-      {/* ── what they asked for ────────────────────────────────────────── */}
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', marginTop: 16 }}>
-        <StatCard label="Loan interest" tone="blue" icon="₹"
-          value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{lead?.productInterest || '—'}</span>}
-          foot={lead ? `from their ${lead.source} enquiry` : 'no website enquiry'} />
-        <StatCard label="Amount" value={lead?.amount ? inr(lead.amount) : '—'} tone="teal" icon="◎" />
-        <StatCard label="Source" tone="amber" icon="⇢"
-          value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{c.firstSource || 'unknown'}</span>}
-          foot={campaigns[0]?.name || c.campaignId || undefined} />
-        <StatCard label="City" value={c.city || lead?.city || '—'} tone="grey" icon="⌖" />
-        <StatCard label="Stalled for" value={stalledLabel(stalled)} icon="⏱"
-          tone={(stalled ?? 0) > 1440 ? 'red' : (stalled ?? 0) > 60 ? 'amber' : 'green'}
-          foot={d.dropOff?.isTerminal ? 'terminal stage' : d.dropOff?.label ? `at ${d.dropOff.label}` : undefined} />
-      </div>
-
-      {/* ── where they are ─────────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <Card
-          title="Journey"
-          sub="Where they got to, and what to call them about. Each step dials with that exact drop-off."
-          right={d.nextAction ? <span className="badge tone-teal" title="Suggested next action">{d.nextAction}</span> : undefined}
-        >
-          {call.key && call.key !== 'whole' && callResult && (
-            <div style={{ marginBottom: 12 }}>{callResult}</div>
-          )}
-          <JourneyTracker
-            steps={d.stageProgress ?? []}
-            currentStage={c.currentStage}
-            stalledMinutes={stalled}
-            action={(step, isCurrent) => {
-              const steps = STAGE_CALL_STEPS[step.stage];
-              // No mapping means there is nothing to nudge them towards
-              // (disbursed / rejected / lost) — offering a call would be noise.
-              if (!steps) return null;
-              const label = step.label || stageLabel(step.stage);
-              return (
+      {activeTab === 'journey' && (() => {
+        const currentStep = (d.stageProgress ?? []).find((s) => s.stage === c.currentStage);
+        const currentCallSteps = currentStep ? STAGE_CALL_STEPS[currentStep.stage] : undefined;
+        const currentLabel = currentStep ? (currentStep.label || stageLabel(currentStep.stage)) : null;
+        const sessionMinutes = Math.round(sessions.reduce((sum, s) => sum + (s.durationSec ?? 0), 0) / 60);
+        return (
+          <div style={{ marginTop: 18, display: 'grid', gap: 16 }}>
+            <Card title="Milestones" sub="Where they got to. Colour + shape tell confirmed from inferred.">
+              {call.key && call.key !== 'whole' && callResult && (
+                <div style={{ marginBottom: 12 }}>{callResult}</div>
+              )}
+              <JourneyTracker steps={d.stageProgress ?? []} currentStage={c.currentStage} stalledMinutes={stalled} />
+              {currentCallSteps && (
                 <button
-                  className={`btn ${isCurrent ? 'btn-primary' : ''}`}
-                  style={isCurrent ? undefined : { padding: '4px 10px', fontSize: 11.5, opacity: .85 }}
-                  disabled={noPhone || call.busy === step.stage}
-                  title={noPhone ? 'This customer has no phone number' : `Call about "${label}"`}
-                  onClick={() => placeCall(step.stage, `“${label}”`, steps)}
+                  className="btn btn-primary"
+                  style={{ marginTop: 14 }}
+                  disabled={noPhone || call.busy === currentStep!.stage}
+                  title={noPhone ? 'This customer has no phone number' : `Call about "${currentLabel}"`}
+                  onClick={() => placeCall(currentStep!.stage, `“${currentLabel}”`, currentCallSteps)}
                 >
-                  {call.busy === step.stage ? 'Dialling…' : isCurrent ? '📞 Call about this' : '📞 Call'}
+                  {call.busy === currentStep!.stage ? 'Dialling…' : `📞 Call about “${currentLabel}”`}
                 </button>
-              );
-            }}
-          />
-        </Card>
-      </div>
+              )}
+            </Card>
+
+            <Card
+              title="Activity"
+              sub={`What actually happened, in order${sessions.length ? ` · ${sessions.length} app session${sessions.length === 1 ? '' : 's'}, ${sessionMinutes} min total` : ''}`}
+            >
+              <ActivityFeed highlights={activityHighlights} />
+              <button
+                className="btn"
+                style={{ marginTop: 14 }}
+                onClick={() => router.push(`/customers/${id}/activity`)}
+              >
+                View full activity log ({tl.length} events) →
+              </button>
+            </Card>
+          </div>
+        );
+      })()}
+
+      {/* ── applications (the single, consolidated list) ────────────────── */}
+      {activeTab === 'applications' && applications.length > 0 && (() => {
+        const withLender = applications.filter((a) => (a.offers ?? []).some((o) => o.applied));
+        const plain = applications.filter((a) => !(a.offers ?? []).some((o) => o.applied));
+        const submittedRef = applications.find((a) => a.id === submittedAppId)?.ref;
+        return (
+          <div style={{ marginTop: 18 }}>
+            <Card
+              title="Applications"
+              sub="Each lender application runs its own journey after submission. Tap any to open its full detail."
+            >
+              {d.applicationSummary && d.applicationSummary.submitted > 0 && (
+                <div style={{ marginBottom: 14 }}><LenderRollup s={d.applicationSummary} /></div>
+              )}
+              {withLender.map((a) => (a.offers ?? []).filter((o) => o.applied).map((o) => <LenderTrack key={o.id} offer={{ ...o, applicationId: a.id }} />))}
+              {plain.length > 0 && (
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead><tr><th>Reference</th><th>Amount</th><th>Tenure</th><th>Status</th><th>Note</th></tr></thead>
+                    <tbody>
+                      {plain.map((a) => {
+                        const isSubmitted = a.id === submittedAppId;
+                        const note = isSubmitted
+                          ? `Submitted, awaiting lender${a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}`
+                          : submittedAppId
+                            ? `Abandoned${a.updatedAt ? ` · ${dateStr(a.updatedAt)}` : ''}`
+                            : a.updatedAt ? `Last updated ${dateStr(a.updatedAt)}` : '—';
+                        return (
+                          <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
+                            <td className="mono">{a.ref}</td>
+                            <td className="mono">{inrRupees(a.amount)}</td>
+                            <td>{a.tenureMonths ? `${a.tenureMonths} mo` : '—'}</td>
+                            <td>{isSubmitted || !submittedAppId ? <LoanStatusBadge status={a.status} /> : <span className="badge tone-grey">Abandoned</span>}</td>
+                            <td className="muted" style={{ fontSize: 12 }}>{note}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {applications.length > 1 && appliedLenderCount === 0 && (
+                <Callout>
+                  {submittedRef
+                    ? `Only ${submittedRef} was submitted. All ${applications.length} sit at their current status with zero lenders applied to, and nothing has been disbursed.`
+                    : `All ${applications.length} applications sit at their current status with zero lenders applied to.`}
+                </Callout>
+              )}
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* ── what has been said ─────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
+      {activeTab === 'conversations' && (
+      <div style={{ marginTop: 18 }}>
         <Card
-          title={`Conversation history (${num(convMissing ? 0 : convCount)})`}
+          title="Conversation history"
           sub={!digits
             ? 'No phone number, so nothing can be stitched together.'
             : convCount > 0 && !convMissing
@@ -377,21 +655,50 @@ export default function CustomerDetail() {
               <div style={{ marginTop: 6 }}>
                 {conversations.map((cv) => <ConversationCard key={cv.id} c={cv} />)}
               </div>
+
+              {(() => {
+                const noSummaryCount = conversations.filter((cv) => !hasRealSummary(cv.summary)).length;
+                const chs = Array.isArray(convPayload.channels) ? (convPayload.channels as string[]) : [];
+                const voiceOnly = chs.length > 0 && chs.every((ch) => ch.startsWith('phone'));
+                if (!voiceOnly && noSummaryCount === 0) return null;
+                return (
+                  <Callout>
+                    {voiceOnly && 'No website or WhatsApp conversations recorded — this customer is voice-only.'}
+                    {voiceOnly && noSummaryCount > 0 && ' '}
+                    {noSummaryCount > 0 && `${noSummaryCount} of ${conversations.length} conversation${conversations.length === 1 ? '' : 's'} never produced a usable summary.`}
+                  </Callout>
+                );
+              })()}
             </>
           )}
         </Card>
       </div>
+      )}
 
       {/* ── voice calls ────────────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <Card title={`Voice calls (${calls.length})`} sub="Every outbound voice attempt, with what the agent knew and what it reported back">
+      {activeTab === 'calls' && (
+      <div style={{ marginTop: 18 }}>
+        <Card title="Voice calls" sub="Every outbound voice attempt, with what the agent knew and what it reported back">
           <CallList calls={calls} emptyLabel="No voice calls placed to this customer" />
+          {(() => {
+            if (calls.length < 2) return null;
+            const connected = calls.filter((cl) => cl.status === 'completed' && cl.answered).length;
+            const failed = calls.length - connected;
+            if (failed === 0) return null;
+            return (
+              <Callout tone={connected === 0 ? 'red' : 'amber'}>
+                {connected} of {calls.length} call{calls.length === 1 ? '' : 's'} connected; {failed} failed to connect.
+              </Callout>
+            );
+          })()}
         </Card>
       </div>
+      )}
 
       {/* ── website enquiries (the old leads page, inline) ─────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <Card title={`Website enquiries (${leads.length})`} sub="Everything they submitted through the site or widget, matched by phone">
+      {activeTab === 'enquiries' && (
+      <div style={{ marginTop: 18 }}>
+        <Card title="Website enquiries" sub="Everything they submitted through the site or widget, matched by phone">
           {leads.length === 0 ? <Empty label="No website enquiries from this number" /> : (
             <div style={{ display: 'grid', gap: 0 }}>
               {leads.map((l) => (
@@ -451,26 +758,42 @@ export default function CustomerDetail() {
           )}
         </Card>
       </div>
+      )}
 
       {/* ── attribution + nudge ────────────────────────────────────────── */}
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', marginTop: 16, alignItems: 'start' }}>
+      {activeTab === 'attribution' && (
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', marginTop: 18, alignItems: 'start' }}>
         <Card title="Origin & attribution">
           {[
             ['First source', c.firstSource || '—'],
-            ['Campaign', campaigns.map((x) => x.name).join(', ') || c.campaignId || '—'],
+            ['Campaign', campaigns.map((x) => x.campaign?.name ?? x.name).join(', ') || c.campaignId || '—'],
             ['UTM source', c.utmSource || '—'],
             ['UTM medium', c.utmMedium || '—'],
             ['UTM campaign', c.utmCampaign || '—'],
             ['Referrer', c.referrer || lead?.referrer || '—'],
           ].map(([k, v], i, arr) => (
-            <div key={k} className="row between" style={{ padding: '7px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>
+            <div key={k} className="row between" style={{ padding: '7px 0', borderBottom: i < arr.length - 1 || campaigns.length > 0 ? '1px solid var(--border)' : undefined }}>
               <span className="muted">{k}</span><b className="mono" style={{ fontSize: 12, textAlign: 'right', wordBreak: 'break-all' }}>{v}</b>
+            </div>
+          ))}
+          {campaigns.map((cc) => (
+            <div key={cc.id} className="row between" style={{ padding: '7px 0' }}>
+              <span className="muted">Campaign attempt</span>
+              <span style={{ fontSize: 12, textAlign: 'right' }}>
+                <StatusBadge status={cc.state ?? undefined} /> {cc.attempts != null ? `· ${cc.attempts} attempt${cc.attempts === 1 ? '' : 's'}` : ''} {cc.answered === false ? '· not answered' : cc.answered ? '· answered' : ''}
+              </span>
             </div>
           ))}
         </Card>
 
         <Card title="Send nudge" sub="Re-engage this customer through Upshot">
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Channel</label>
+          {nudgeSummary && nudgeSummary.total > 0 && (
+            <Callout tone={nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : 'blue'}>
+              {nudgeSummary.delivered} of {nudgeSummary.total} past nudge{nudgeSummary.total === 1 ? '' : 's'} delivered.
+              {nudgeSummary.failed > 0 && ` ${nudgeSummary.failed} failed${nudgeSummary.lastError ? ` — ${nudgeSummary.lastError}` : ''}.`}
+            </Callout>
+          )}
+          <label style={{ fontSize: 12.5, fontWeight: 600, display: 'block', marginTop: nudgeSummary && nudgeSummary.total > 0 ? 14 : 0 }}>Channel</label>
           <div className="row wrap" style={{ gap: 8, margin: '8px 0 14px' }}>
             {CHANNELS.map((ch) => (
               <button key={ch} className={`chip-filter ${nudgeChannel === ch ? 'active' : ''}`} onClick={() => { setNudgeChannel(ch); setNudgeResult(null); }}>
@@ -486,79 +809,21 @@ export default function CustomerDetail() {
           </div>
         </Card>
       </div>
+      )}
 
-      {/* ── linked app account ─────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <Card
-          title="App account"
-          sub={user ? 'Applications, loans and KYC for the linked user' : undefined}
-          right={user ? <button className="btn" onClick={() => router.push(`/users/${user.id}`)}>View profile →</button> : undefined}
-        >
-          {!user ? <Empty label="This customer has not signed up in the app yet" /> : (
-            <>
-              <div className="row wrap" style={{ gap: 16, marginBottom: 14 }}>
-                <b>{user.fullName || user.phone}</b>
-                <span className="muted mono" style={{ fontSize: 12 }}>{user.phone}</span>
-                {user.createdAt && <span className="muted" style={{ fontSize: 12 }}>joined {dateStr(user.createdAt)}</span>}
-                {user.kyc && (
-                  <span className="row" style={{ gap: 8 }}>
-                    <span className="muted" style={{ fontSize: 12 }}>KYC</span>
-                    <StatusBadge status={user.kyc.status || 'pending'} />
-                    {user.kyc.panVerified && <span className="badge tone-green">PAN</span>}
-                    {user.kyc.aadhaarVerified && <span className="badge tone-green">Aadhaar</span>}
-                  </span>
-                )}
-              </div>
-
-              <div className="muted" style={{ fontSize: 12, margin: '4px 0 6px' }}>Applications</div>
-              {(user.applications ?? []).length === 0 ? <Empty label="No applications" /> : (
-                <div className="table-wrap"><table className="data">
-                  <thead><tr><th>Ref</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead>
-                  <tbody>{user.applications!.map((a) => (
-                    <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
-                      <td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td>
-                      <td><StatusBadge status={a.status} /></td><td className="muted">{a.createdAt ? dateStr(a.createdAt) : '—'}</td>
-                    </tr>
-                  ))}</tbody>
-                </table></div>
-              )}
-
-              {(user.loans ?? []).length > 0 && (
-                <>
-                  <div className="muted" style={{ fontSize: 12, margin: '14px 0 6px' }}>Loans</div>
-                  <div className="table-wrap"><table className="data">
-                    <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
-                    <tbody>{user.loans!.map((l) => (
-                      <tr key={l.id}><td className="mono">{inr(l.principal)}</td><td className="mono">{inr(l.outstanding)}</td><td><StatusBadge status={l.status} /></td></tr>
-                    ))}</tbody>
-                  </table></div>
-                </>
-              )}
-            </>
-          )}
-        </Card>
-      </div>
-
-      {/* ── raw timeline ───────────────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <Card title="Timeline" sub="Every tracked touchpoint, newest first">
-          {timeline.length === 0 ? <Empty label="No activity recorded for this customer yet" /> : (
-            <div style={{ display: 'grid', gap: 2 }}>
-              {timeline.map((e) => (
-                <div key={e.id} className="row" style={{ gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <ChannelBadge channel={e.channel} />
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{humanStatus(e.name)}</span>
-                  {e.stage && <span className="badge tone-grey">{e.stageLabel || stageLabel(e.stage)}</span>}
-                  {e.screen && <span className="muted" style={{ fontSize: 12 }}>· {e.screen}</span>}
-                  <span className="spacer" />
-                  <span className="muted mono" style={{ fontSize: 11.5 }} title={e.occurredAt}>{timeAgo(e.occurredAt)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {tPg && <Pagination page={tPg.page} totalPages={tPg.totalPages} onPage={setTPage} />}
-        </Card>
-      </div>
+      {/* ── loans (disbursed) ──────────────────────────────────────────── */}
+      {activeTab === 'loans' && loans.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <Card title="Loans" sub="Disbursed loans for the linked user">
+            <div className="table-wrap"><table className="data">
+              <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
+              <tbody>{loans.map((l) => (
+                <tr key={l.id}><td className="mono">{inrRupees(l.principal)}</td><td className="mono">{inrRupees(l.outstanding)}</td><td><LoanStatusBadge status={l.status} /></td></tr>
+              ))}</tbody>
+            </table></div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

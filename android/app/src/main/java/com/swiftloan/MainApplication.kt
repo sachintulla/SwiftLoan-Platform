@@ -6,6 +6,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.swiftloan.voice.VoiceAudioPackage
+import com.swiftloan.panocr.PanOcrPackage
 import com.upshotreactlibrary.UpshotApplication
 
 /**
@@ -28,6 +29,7 @@ class MainApplication : UpshotApplication(), ReactApplication {
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
           add(VoiceAudioPackage())
+          add(PanOcrPackage())
         },
     )
   }

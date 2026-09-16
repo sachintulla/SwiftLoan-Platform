@@ -1,10 +1,15 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { journeyNameFor } from '../lib/appEventMap.js';
+import { handleAppNudge } from '../lib/appNudge.js';
 import { verifyAccess } from '../lib/jwt.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('tracking');
 
 // Public tracking endpoints. The mobile app calls these fire-and-forget, so they
 // must be cheap, tolerant of missing fields, and never throw back something the
@@ -70,16 +75,29 @@ trackingRouter.post('/event', ah(async (req, res) => {
   const eventName = b.event_name ?? b.eventName;
   if (!eventName) return fail(res, 400, 'event_name required');
   const userId = softUserId(req) ?? (b.user_id ?? null);
-  const event = await prisma.activityEvent.create({
-    data: {
-      sessionId: b.session_id ?? b.sessionId ?? null,
-      userId,
-      eventType: b.event_type ?? b.eventType ?? 'action',
-      eventName,
-      screen: b.screen ?? null,
-      metadata: b.metadata ?? undefined,
-    },
-  });
+  const data = {
+    sessionId: b.session_id ?? b.sessionId ?? null,
+    userId,
+    eventType: b.event_type ?? b.eventType ?? 'action',
+    eventName,
+    screen: b.screen ?? null,
+    metadata: b.metadata ?? undefined,
+  };
+  // Resilience: the client may send a session_id that no longer exists (e.g. the
+  // DB was reset while the app still holds an old id) — that FK violation must
+  // not 500 an analytics call. Retry once with a null session, and if the write
+  // still fails, degrade to a no-op rather than throwing.
+  let event: { id: string; sessionId: string | null; eventType: string } | null = null;
+  try {
+    event = await prisma.activityEvent.create({ data });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+      event = await prisma.activityEvent.create({ data: { ...data, sessionId: null } }).catch(() => null);
+    } else {
+      log.error('activity event write failed', { eventName, error: String(e) });
+    }
+  }
+  if (!event) return created(res, { event_id: null }, 'Event skipped');
   // Keep the session's page counter roughly current for navigation events.
   if (event.sessionId && (event.eventType === 'navigation')) {
     await prisma.session.update({ where: { id: event.sessionId }, data: { pagesVisited: { increment: 1 } } }).catch(() => {});
@@ -110,8 +128,17 @@ trackingRouter.post('/event', ah(async (req, res) => {
           // The ActivityEvent above already is the telemetry — do not write a second.
           mirrorTelemetry: false,
         },
-      ).catch((e) => console.error('[track] journey promotion failed', e));
+      ).catch((e) => log.error('journey promotion failed', { userId, eventName, error: String(e) }));
     }
+  }
+
+  // Proactive-help nudge from the app (user stalled): raise an admin alert and,
+  // for actionable stalls, expedite an outbound follow-up (callback/SMS).
+  // Fire-and-forget — analytics must never fail the request.
+  if (event.eventType === 'nudge' && userId) {
+    const label = typeof (b.metadata as any)?.label === 'string' ? (b.metadata as any).label : undefined;
+    handleAppNudge(userId, String(eventName), b.screen ?? null, label)
+      .catch((e) => log.error('app nudge follow-up threw', { userId, error: String(e) }));
   }
 
   return created(res, { event_id: event.id }, 'Event recorded');
@@ -123,16 +150,26 @@ trackingRouter.post('/onboarding/step', ah(async (req, res) => {
   const stepName = b.step_name ?? b.stepName;
   if (stepName == null) return fail(res, 400, 'step_name required');
   const userId = softUserId(req) ?? (b.user_id ?? null);
-  const row = await prisma.onboardingFunnel.create({
-    data: {
-      userId,
-      sessionId: b.session_id ?? b.sessionId ?? null,
-      stepNumber: Number(b.step_number ?? b.stepNumber ?? 0) || 0,
-      stepName,
-      status: b.status ?? 'started',
-      timeSpentSec: Number(b.time_spent_seconds ?? b.timeSpentSeconds ?? 0) || 0,
-    },
-  });
+  const ofData = {
+    userId,
+    sessionId: b.session_id ?? b.sessionId ?? null,
+    stepNumber: Number(b.step_number ?? b.stepNumber ?? 0) || 0,
+    stepName,
+    status: b.status ?? 'started',
+    timeSpentSec: Number(b.time_spent_seconds ?? b.timeSpentSeconds ?? 0) || 0,
+  };
+  // Same resilience as /event: a stale/unknown session_id must not 500.
+  let row: { id: string } | null = null;
+  try {
+    row = await prisma.onboardingFunnel.create({ data: ofData });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+      row = await prisma.onboardingFunnel.create({ data: { ...ofData, sessionId: null } }).catch(() => null);
+    } else {
+      log.error('onboarding step write failed', { stepName, error: String(e) });
+    }
+  }
+  if (!row) return created(res, { id: null }, 'Onboarding step skipped');
   return created(res, { id: row.id }, 'Onboarding step recorded');
 }));
 
@@ -164,7 +201,7 @@ trackingRouter.post('/loan/step', ah(async (req, res) => {
 // POST /api/track/install  { platform, source?, campaign_id?, referrer?, context_token?, session_id? }
 // WS5: nothing wrote AppDownload before this, so install attribution had no
 // data at all. When the install carries a WS3 context token we can resolve the
-// person's phone from the ContextSession and attach the install to their
+// person's phone from the Lead and attach the install to their
 // journey immediately; otherwise it is recorded anonymously and gets attributed
 // retroactively at OTP verify (auth.routes.ts), which links phone -> Customer.
 trackingRouter.post('/install', ah(async (req, res) => {
@@ -174,7 +211,7 @@ trackingRouter.post('/install', ah(async (req, res) => {
 
   const contextToken = b.context_token ?? b.contextToken ?? null;
   const ctx = contextToken
-    ? await prisma.contextSession.findUnique({ where: { token: String(contextToken).toUpperCase() } })
+    ? await prisma.lead.findUnique({ where: { token: String(contextToken).toUpperCase() } })
     : null;
 
   const userId = softUserId(req) ?? (b.user_id ?? null);
@@ -212,5 +249,6 @@ trackingRouter.post('/install', ah(async (req, res) => {
     ).catch(() => {});
   }
 
+  log.info('app install recorded', { platform, source: download.source, contextLoaded: !!ctx, phone: ctx?.phone ?? null });
   return created(res, { download_id: download.id, context_loaded: !!ctx }, 'Install recorded');
 }));

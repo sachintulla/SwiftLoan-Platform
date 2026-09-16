@@ -17,6 +17,15 @@ export interface ActionTarget {
    */
   disabled?: boolean;
   onTap?: () => void;
+  /**
+   * This screen's main forward action (Continue/Next/Get Started/Send OTP/...).
+   * Set by the shared PrimaryButton component so `continue_next` (tools.ts) can
+   * find it by role instead of by matching its label text against a hardcoded
+   * English keyword list — that keyword match silently fails on any non-English
+   * screen (Hindi/Telugu labels never contain "continue" or "send otp"),
+   * confirmed live via repeated `continue_next` -> "not_found" on Telugu screens.
+   */
+  primary?: boolean;
   // Numbers are included for sliders (loan amount / tenure / rate); dates travel
   // as YYYY-MM-DD strings.
   setValue?: (v: string | boolean | number) => void;
@@ -26,6 +35,47 @@ export interface ActionTarget {
 
 const targetsByScreen = new Map<string, Map<string, ActionTarget>>();
 let currentScreen = '';
+
+// Fires when the *set* of explicitly self-registered target ids changes
+// (anywhere — a control appearing or disappearing on any screen), never on a
+// value/handler refresh of one that's already there. This is what lets a
+// control that registers late — e.g. a screen's own async load() finishing
+// well after the auto-discovered scan already settled, confirmed live to run
+// 500ms-1.5s on profile's notification toggles — extend the agent's debounced
+// page_context send itself instead of the send guessing a fixed wait long
+// enough to always outlast an unpredictable network fetch.
+//
+// Deferred to a microtask rather than checked at each call: React runs a
+// component's effect cleanup (unregister) and its re-run (register) back to
+// back on every re-render whenever any dependency changes — for a Field that
+// includes `value`, that's every keystroke, re-registering the same id under
+// a fresh closure. Reacting to the individual add/remove would see the
+// delete as a removal and the immediate re-add as new, firing twice per
+// keystroke — exactly the spam this file's other dedup logic (the
+// `elementsSig` comment above) exists to prevent. Comparing a full signature
+// of every screen's id set once all of a commit's synchronous effects have
+// run absorbs that delete-then-immediately-re-add into a net no-op.
+const targetSetListeners = new Set<() => void>();
+export function onTargetSetChanged(cb: () => void): () => void {
+  targetSetListeners.add(cb);
+  return () => targetSetListeners.delete(cb);
+}
+let targetSetCheckScheduled = false;
+let lastTargetSetSignature = '';
+function scheduleTargetSetCheck(): void {
+  if (targetSetCheckScheduled) return;
+  targetSetCheckScheduled = true;
+  Promise.resolve().then(() => {
+    targetSetCheckScheduled = false;
+    const sig = Array.from(targetsByScreen.entries())
+      .map(([screen, m]) => `${screen}:${Array.from(m.keys()).sort().join(',')}`)
+      .sort()
+      .join('|');
+    if (sig === lastTargetSetSignature) return;
+    lastTargetSetSignature = sig;
+    targetSetListeners.forEach(cb => cb());
+  });
+}
 
 // Auto-discovered elements from the rendered element tree (see screenGraph.ts),
 // kept separate from explicit registrations so a re-render can replace the whole
@@ -38,6 +88,21 @@ const screenTexts = new Map<string, string[]>();
 // this the caller would fire a client-tools-update over the WebSocket on every
 // keypress. Handlers are always refreshed; only the *notification* is deduped.
 const lastSignature = new Map<string, string>();
+
+// Elements-only half of the signature above, tracked separately so a controls
+// change can always publish immediately while a *text-only* change (e.g. an
+// animated greeting carousel re-rendering every couple seconds, or a slow
+// count-up) can be throttled instead — see TEXT_CHANGE_THROTTLE_MS below.
+const lastElementsSignature = new Map<string, string>();
+const lastPublishAt = new Map<string, number>();
+
+// Caps how often text-only churn can re-notify the agent per screen. Real
+// control changes (a new button appearing, tapping something) always bypass
+// this and publish immediately; this only bounds screens whose *decorative*
+// text keeps changing on a timer, which would otherwise push a
+// client-tools-update over the live socket forever, competing with real
+// requests/responses on the same connection.
+const TEXT_CHANGE_THROTTLE_MS = 4000;
 
 // Waiters for the next graph publish. Used by tools.ts to report post-action
 // state as soon as React has actually re-rendered, instead of guessing a delay.
@@ -83,10 +148,41 @@ export function publishScreenGraph(
     waiters.forEach(w => w());
   }
 
-  const sig = elements.map(e => `${e.kind}|${e.label}`).join('~');
-  const changed = lastSignature.get(screen) !== sig;
-  if (changed) lastSignature.set(screen, sig);
-  return changed;
+  // Signature must include the visible texts, not just the interactive controls:
+  // on data screens (e.g. offers) the buttons are unchanged while async-loaded
+  // content arrives, so a controls-only signature would never re-notify the agent
+  // and it would keep describing stale/placeholder data.
+  //
+  // Checkbox/toggle values are folded in too, deliberately unlike fields:
+  // ticking consent is one discrete, rare flip — nothing like a keystroke
+  // stream — so including it can't reintroduce the per-keypress spam this
+  // signature exists to prevent. Without this, ticking "Accept terms" never
+  // notified the agent at all: kind and label stay identical before and
+  // after, so the agent only ever found out by coincidence, next time it
+  // happened to read the screen for an unrelated reason.
+  const elementsSig = elements
+    .map(e => (e.kind === 'toggle' || e.kind === 'consent') ? `${e.kind}|${e.label}|${e.getValue?.()}` : `${e.kind}|${e.label}`)
+    .join('~');
+  const sig = elementsSig + '§' + texts.join('¶');
+  if (lastSignature.get(screen) === sig) return false;
+
+  const controlsChanged = lastElementsSignature.get(screen) !== elementsSig;
+  const now = Date.now();
+  const sinceLastPublish = now - (lastPublishAt.get(screen) ?? 0);
+  if (!controlsChanged && sinceLastPublish < TEXT_CHANGE_THROTTLE_MS) {
+    // Text-only churn inside the throttle window (a carousel/count-up tick) —
+    // remember the signature so this exact frame isn't re-flagged as "changed"
+    // next time, but don't notify the agent yet. Screens like this keep
+    // re-rendering on their own timer, so the picture catches up on the very
+    // next tick once the window has passed; nothing is lost, just batched.
+    lastSignature.set(screen, sig);
+    return false;
+  }
+
+  lastSignature.set(screen, sig);
+  lastElementsSignature.set(screen, elementsSig);
+  lastPublishAt.set(screen, now);
+  return true;
 }
 
 export function getScreenTexts(screen: string): string[] {
@@ -115,8 +211,10 @@ export function getCurrentScreen(): string {
 
 export function registerTarget(screen: string, id: string, target: ActionTarget): () => void {
   screenMap(screen).set(id, target);
+  scheduleTargetSetCheck();
   return () => {
     targetsByScreen.get(screen)?.delete(id);
+    scheduleTargetSetCheck();
   };
 }
 
@@ -165,7 +263,10 @@ export function buildPageContext(screen: string): Record<string, unknown> {
   const targets = listTargets(screen);
   return {
     page: screen,
-    screen_overview: getScreenTexts(screen).slice(0, 12).join(' · '),
+    // Include enough of the visible text that data-heavy screens (offers, loans)
+    // convey their actual content — 12 lines cut off the offer list, leaving the
+    // agent to fall back on example figures from its prompt.
+    screen_overview: getScreenTexts(screen).slice(0, 40).join(' · '),
     // interactionGuide.opening is injected into the model's system prompt verbatim
     // as "Page-specific behavior: …". Without it the agent never opens the
     // conversation: sending a non-empty `page` puts the backend on its
@@ -173,29 +274,36 @@ export function buildPageContext(screen: string): Record<string, unknown> {
     // instruction that would make the agent speak first is gated on that greeting
     // being non-empty — so nothing tells it to start. This supplies that
     // instruction, which is what the integration guide's step 3 intends.
-    interactionGuide: {
-      goal: `Help the user do what the SwiftLoan "${screen}" screen is for, by calling tools rather than describing steps.`,
-      // Same reasoning as `opening` below: a rule sitting only in the (much
-      // larger, static) dashboard system prompt loses out to whatever's
-      // structurally closest to the model at generation time. Observed
-      // failure this fixes: model calls select_option, sees a result whose
-      // controls_now already lists the newly-enabled "Continue with X"
-      // button, then still stops and asks the user "what else can I help
-      // with" instead of pressing it. Repeating the instruction here, fresh
-      // every turn, gives it the same recency the opening instruction has.
-      autoAdvance:
-        'If the tool result you just received shows this screen\'s forward button now enabled ' +
-        '(e.g. "Continue with X" appearing in controls_now/available_actions) because of the ' +
-        'action you just took, call continue_next yourself immediately, in this same turn — ' +
-        'before saying anything else to the user. Do not stop to ask "shall I continue?" or ' +
-        '"what else can I help with?" and wait for them to say "continue."',
-      opening:
-        'Speak first, right away, before the user says anything. Open warmly, like ' +
-        '"Welcome to SwiftLoan!" — then in the same short sentence, name this screen in ' +
-        'plain everyday words (never speak an internal screen id like "basicpan" or ' +
-        '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
-        'Then stop and listen.',
-    },
+    //
+    // Commented out at request, NOT deleted — this is a deliberate, reversible
+    // disable, not a cleanup. Known risk if left off: the agent may go silent
+    // at call start (no `opening` instruction) and may stop mid-flow asking
+    // "what else can I help with?" instead of auto-advancing (no `autoAdvance`
+    // instruction) — both were real observed bugs this field was added to fix.
+    // Re-enable by uncommenting if either regresses.
+    // interactionGuide: {
+    //   goal: `Help the user do what the SwiftLoan "${screen}" screen is for, by calling tools rather than describing steps.`,
+    //   // Same reasoning as `opening` below: a rule sitting only in the (much
+    //   // larger, static) dashboard system prompt loses out to whatever's
+    //   // structurally closest to the model at generation time. Observed
+    //   // failure this fixes: model calls select_option, sees a result whose
+    //   // controls_now already lists the newly-enabled "Continue with X"
+    //   // button, then still stops and asks the user "what else can I help
+    //   // with" instead of pressing it. Repeating the instruction here, fresh
+    //   // every turn, gives it the same recency the opening instruction has.
+    //   autoAdvance:
+    //     'If the tool result you just received shows this screen\'s forward button now enabled ' +
+    //     '(e.g. "Continue with X" appearing in controls_now/available_actions) because of the ' +
+    //     'action you just took, call continue_next yourself immediately, in this same turn — ' +
+    //     'before saying anything else to the user. Do not stop to ask "shall I continue?" or ' +
+    //     '"what else can I help with?" and wait for them to say "continue."',
+    //   opening:
+    //     'Speak first, right away, before the user says anything. Open warmly, like ' +
+    //     '"Welcome to SwiftLoan!" — then in the same short sentence, name this screen in ' +
+    //     'plain everyday words (never speak an internal screen id like "basicpan" or ' +
+    //     '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
+    //     'Then stop and listen.',
+    // },
     available_actions: targets.map(t => ({
       kind: t.kind,
       label: t.label,

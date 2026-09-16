@@ -1,0 +1,52 @@
+name: Auto-retry Deploy Dev on wrong runner
+
+# Deploy Dev's `runs-on: self-hosted` matches both the dev box (ip-10-10-1-233)
+# and the prod box (ip-10-20-1-186) — they share the generic `self-hosted`
+# label because no one with repo-admin/runner permissions has added a
+# distinguishing label yet (see the TODO in deploy.yml). Until that happens,
+# roughly half of all deploy runs land on the wrong box and fail loudly at
+# the "Ensure this landed on the dev box" guard.
+#
+# This workflow runs on a GitHub-hosted runner (ubuntu-latest), so it isn't
+# subject to that same coin-flip. It watches every Deploy Dev completion and,
+# if the failure was specifically the wrong-runner guard (not a real build/
+# deploy error), automatically re-runs it — the same fix that previously had
+# to be applied by hand via `gh run rerun`. Retries are capped so a genuinely
+# broken deploy still surfaces instead of looping forever.
+on:
+  workflow_run:
+    workflows: ["Deploy Dev"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+env:
+  MAX_ATTEMPTS: 8
+
+jobs:
+  retry-on-wrong-runner:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect failure and re-run if it was the runner coin-flip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          attempt=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.run_attempt')
+          echo "Run $RUN_ID just finished (attempt $attempt) with conclusion failure."
+
+          if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
+            echo "::error::Deploy Dev run $RUN_ID has failed $attempt times in a row — stopping auto-retry. This may no longer be the runner coin-flip; check the logs manually."
+            exit 0
+          fi
+
+          if gh run view "$RUN_ID" --repo "$REPO" --log-failed | grep -q "not ip-10-10-1-233"; then
+            echo "Confirmed: failure was the known wrong-runner guard. Re-running..."
+            gh run rerun "$RUN_ID" --repo "$REPO"
+          else
+            echo "Failure was NOT the wrong-runner guard (looks like a real build/deploy error) — leaving it failed for manual investigation."
+          fi

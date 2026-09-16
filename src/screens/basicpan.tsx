@@ -1,73 +1,193 @@
 import React from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Animated, ActivityIndicator, Alert } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
-import { ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
+import { ConsentRow, HeaderCta, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
-import { api } from '../api/client';
+import { useStore, useT } from '../state/store';
+import { api, ApiError, isAuthed } from '../api/client';
+import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanResult } from '../utils/panOcr';
+
+// Real PAN structure, not just "5 letters + 4 digits + 1 letter" — that bare
+// shape alone lets through obvious placeholders like "AAAAA0000A". The 4th
+// character is a real holder-type code (P=Individual, C=Company, H=HUF,
+// A=AOP, B=BOI, G=Government, J=Artificial Judicial Person, L=Local
+// Authority, F=Firm, T=Trust) — every genuine PAN has one of these there.
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+function isValidPan(v: string): boolean {
+  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v) && PAN_HOLDER_CODES.includes(v[3]);
+}
 
 export default function BasicPan() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
+  const t = useT();
   const [busy, setBusy] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
+  // Field highlight that pulses while the scanned PAN types itself in.
+  const glow = React.useRef(new Animated.Value(0)).current;
+  const typeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => () => { if (typeTimer.current) clearTimeout(typeTimer.current); }, []);
+
+  // Type the recognized PAN in character-by-character, then pulse the field so
+  // the auto-fill is visible and feels deliberate.
+  const animatePanFill = (pan: string) => {
+    if (typeTimer.current) clearTimeout(typeTimer.current);
+    set({ panNumber: '' });
+    glow.setValue(0);
+    Animated.timing(glow, { toValue: 1, duration: 220, useNativeDriver: false }).start();
+    let i = 0;
+    const step = () => {
+      i += 1;
+      set({ panNumber: pan.slice(0, i) });
+      if (i < pan.length) {
+        typeTimer.current = setTimeout(step, 70);
+      } else {
+        Animated.sequence([
+          Animated.timing(glow, { toValue: 1, duration: 120, useNativeDriver: false }),
+          Animated.timing(glow, { toValue: 0, duration: 900, useNativeDriver: false }),
+        ]).start();
+      }
+    };
+    typeTimer.current = setTimeout(step, 120);
+  };
+
+  const handleResult = (res: PanScanResult) => {
+    if (res.pan !== null) {
+      animatePanFill(res.pan);
+      set({ panConsent: true });
+      showToast(t.panReadOk);
+    } else if (res.reason === 'cancelled' || res.reason === 'no_image') {
+      // user backed out — stay silent
+    } else if (res.reason === 'unavailable') {
+      showToast(t.panOcrUnavailable);
+    } else {
+      showToast(t.panReadFail);
+    }
+  };
+
+  const runScan = async (from: 'camera' | 'library') => {
+    setScanning(true);
+    try {
+      const res = await (from === 'camera' ? scanPanFromCamera() : scanPanFromLibrary());
+      handleResult(res);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const onUpload = () => {
+    if (scanning) return;
+    if (!panOcrAvailable()) {
+      showToast(t.panOcrUnavailable);
+      return;
+    }
+    Alert.alert(t.panPickSource, t.panPickSourceHint, [
+      { text: t.panFromCamera, onPress: () => runScan('camera') },
+      { text: t.panFromLibrary, onPress: () => runScan('library') },
+      { text: t.panCancel, style: 'cancel' },
+    ]);
+  };
 
   const onContinue = async () => {
+    const pan = state.panNumber.trim().toUpperCase();
+    if (!isValidPan(pan)) {
+      showToast(t.panValidate);
+      // A toast is UI-only — same reasoning as profile.tsx's
+      // profileSaveResult. Without this, a voice-driven continue just does
+      // nothing with no way for the agent to know why, and it either
+      // repeats the same failing tap or tells the user it worked.
+      mergeApiContext({ panValidationResult: { ok: false, error: t.panValidate } });
+      return;
+    }
     if (!state.panConsent) {
-      showToast('Please accept the soft-enquiry consent.');
+      showToast(t.panConsentValidate);
+      mergeApiContext({ panValidationResult: { ok: false, error: t.panConsentValidate } });
       return;
     }
     setBusy(true);
     try {
-      if (state.applicationId && state.panNumber) {
-        await api.updateApplication(state.applicationId, { panNumber: state.panNumber }).catch(() => {});
+      // PAN is the LAST step — basic.tsx already created/updated the
+      // application, so just attach the PAN to it before running eligibility.
+      if (isAuthed() && state.applicationId) {
+        const { application }: any = await api.updateApplication(state.applicationId, { panNumber: pan });
+        mergeApiContext({ applicationUpdated: application });
       }
       go('finding');
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : t.panSaveError;
+      showToast(message);
+      // Previously toast-only, same gap profile.tsx's save used to have — a
+      // real async failure here (unlike the two synchronous format checks
+      // above, which have no meaningful wait for the agent to be mid-sentence
+      // through) needs to actually reach api_context, and urgently: Ruby may
+      // still be mid "let me submit that" when it lands.
+      mergeApiContext({ panValidationResult: { ok: false, error: message } });
+      markUrgentContext();
     } finally {
       setBusy(false);
     }
   };
 
+  // Only gates the button once a full, confidently-wrong PAN is typed — matches
+  // this screen's existing convention of otherwise leaving Continue tappable
+  // (empty PAN, missing consent) and explaining what's missing via toast.
+  const panTyped = state.panNumber.trim().toUpperCase();
+  const panInvalid = panTyped.length === 10 && !isValidPan(panTyped);
+
+  const borderColor = glow.interpolate({ inputRange: [0, 1], outputRange: [colors.line, colors.primary] });
+  const bg = glow.interpolate({ inputRange: [0, 1], outputRange: ['rgba(255,255,255,0.7)', 'rgba(7,159,160,0.10)'] });
+
   return (
     <Screen scroll padded={false}>
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader title={<View />} />
+        <AppHeader
+          title={<View />}
+          right={<HeaderCta label={busy ? t.submitting : 'Upload PAN & Verify'} disabled={busy || panInvalid} onPress={onContinue} />}
+        />
       </View>
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={2} of={4} label="PAN" />
-        <StepDots total={4} active={2} />
-        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Verify your PAN</Text>
+        <StepBadge step={3} of={3} label="PAN" />
+        <StepDots total={3} active={3} />
+        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.panTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
-          Upload a clear photo of your PAN card — we'll read the number automatically.
+          {t.panSub}
         </Text>
 
         <Text style={[font(600), { color: colors.textMid, fontSize: 13, marginTop: 22, marginBottom: 8 }]}>
-          PAN card <Text style={{ color: colors.red }}>*</Text>
+          {t.panCardLabel} <Text style={{ color: colors.red }}>*</Text>
         </Text>
-        <Pressable style={styles.upload} onPress={() => showToast('Camera — demo environment.')}>
+        <Pressable style={[styles.upload, scanning && { opacity: 0.85 }]} onPress={onUpload} disabled={scanning}>
           <View style={styles.badgeIcon}>
-            <Icon name="badge" size={22} color={colors.primary} />
+            {scanning ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Icon name="badge" size={22} color={colors.primary} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>Upload PAN photo</Text>
-            <Text style={[font(400), { fontSize: 12, color: colors.textSoft }]}>JPG or PNG, front side</Text>
+            <Text style={[font(700), { fontSize: 14.5, color: colors.text }]}>
+              {scanning ? t.panScanning : t.panUploadTitle}
+            </Text>
+            <Text style={[font(400), { fontSize: 12, color: colors.textSoft }]}>{t.panUploadHint}</Text>
           </View>
-          <Icon name="photo_camera" size={22} color={colors.textSoft} />
+          {!scanning && <Icon name="photo_camera" size={22} color={colors.textSoft} />}
         </Pressable>
 
         <View style={styles.orRow}>
           <View style={styles.orLine} />
-          <Text style={[font(600), { fontSize: 10.5, letterSpacing: 0.5, color: colors.muted }]}>OR ENTER MANUALLY</Text>
+          <Text style={[font(600), { fontSize: 10.5, letterSpacing: 0.5, color: colors.muted }]}>{t.panOrManual}</Text>
           <View style={styles.orLine} />
         </View>
 
         <Text style={[font(600), { color: colors.textMid, fontSize: 13, marginBottom: 8 }]}>
-          PAN number <Text style={{ color: colors.red }}>*</Text>
+          {t.panNumberLabel} <Text style={{ color: colors.red }}>*</Text>
         </Text>
-        <View style={styles.panRow}>
+        <Animated.View style={[styles.panRow, { borderColor, backgroundColor: bg }]}>
           <TextInput
             style={[styles.panInput, font(700)]}
-            placeholder="ABCDE1234F"
+            placeholder="AAAPL1234C"
             placeholderTextColor={colors.muted}
             autoCapitalize="characters"
             maxLength={10}
@@ -75,18 +195,20 @@ export default function BasicPan() {
             onChangeText={v => set({ panNumber: v.toUpperCase().slice(0, 10) })}
           />
           <Icon name="edit" size={18} color={colors.muted} />
-        </View>
-        <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 6 }]}>Type your PAN, or upload the card above to auto-fill it.</Text>
+        </Animated.View>
+        <Text style={[font(400), { fontSize: 11.5, color: colors.muted, marginTop: 6 }]}>{t.panHint}</Text>
+        {panInvalid ? (
+          <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: 4 }]}>{t.panValidate}</Text>
+        ) : null}
 
         <View style={styles.consentBox}>
           <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>
-            <Text style={[font(700), { color: colors.text }]}>🔒 This will NOT affect your credit score{'\n'}</Text>
-            We run a soft enquiry only — it does not hit your CIBIL or impact your score in any way. I authorise SwiftLoan to share these details with its lending partners to find the best offers for me.
+            <Text style={[font(700), { color: colors.text }]}>🔒 {t.panConsentTitle}{'\n'}</Text>
+            {t.panConsentBody}
           </ConsentRow>
         </View>
 
-        <View style={{ height: 20 }} />
-        <PrimaryButton label={busy ? 'Submitting…' : 'Upload PAN & accept to continue'} icon={null} disabled={busy} onPress={onContinue} />
+        <View style={{ height: 12 }} />
       </View>
     </Screen>
   );

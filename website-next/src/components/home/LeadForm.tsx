@@ -1,38 +1,16 @@
 'use client';
-import { useEffect, useRef, useState, type FormEvent, useCallback } from "react";
-import {
-  ArrowRight,
-  ArrowRightLeft,
-  FileCheck,
-  Landmark,
-  LockKeyhole,
-  ShieldCheck,
-  Wifi,
-  BatteryFull,
-  SignalHigh,
-  QrCode,
-  ChevronDown,
-  MapPin,
-  Phone,
-  Mail,
-  User,
-  Check,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowRight, ArrowRightLeft, FileCheck, Landmark, LockKeyhole, ShieldCheck, QrCode } from "lucide-react";
 
-import { toast } from "sonner";
 import { Reveal } from "@/components/site/Reveal";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useCopy } from "@/lib/i18n";
+import { Slider } from "@/components/ui/slider";
+import { fmtINR } from "@/lib/core";
 import { leadFormCopy } from "@/i18n/lead-form";
-import { submitLead, attribution, makeRefId } from "@/lib/leads";
-import { upshotEvent, upshotIdentify } from "@/components/UpshotWeb";
+import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, appStoreUrl } from "@/hooks/useLeadCapture";
+import { Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 type LeadFormText = (typeof leadFormCopy)["en"];
 
 const assuranceIcons = [ShieldCheck, ArrowRightLeft, Landmark, FileCheck];
-
-const appStoreUrl = "https://apps.apple.com/app/id0000000000";
 
 /**
  * QR for the app link.
@@ -46,92 +24,30 @@ function qrFor(url: string): string {
 }
 
 export function LeadForm() {
-  const [consent, setConsent] = useState(false);
-  const [matched, setMatched] = useState(false);
-  const [seconds, setSeconds] = useState(10);
-  const [refId, setRefId] = useState("");
-  /** Deep link back into the app carrying this lead's context token. */
-  const [landing, setLanding] = useState<string | undefined>(undefined);
-  const isMobile = useIsMobile();
-  const formRef = useRef<HTMLFormElement>(null);
-  const [focusedField, setFocusedField] = useState<string | null>("loan-type");
-  const t = useCopy(leadFormCopy);
-
-  const handleFocus = useCallback((name: string) => setFocusedField(name), []);
-  const handleBlur = useCallback(() => setFocusedField(null), []);
-
-  useEffect(() => {
-    if (!matched) return;
-    if (seconds <= 0) {
-      if (isMobile) {
-        window.location.href = landing || appStoreUrl;
-      } else {
-        setMatched(false);
-        setConsent(false);
-        formRef.current?.reset();
-      }
-      return;
-    }
-    const t = window.setTimeout(() => setSeconds((s) => s - 1), 1000);
-    return () => window.clearTimeout(t);
-  }, [matched, seconds, isMobile]);
-
-  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!consent) {
-      toast.error(t.toastConsent);
-      return;
-    }
-    const data = new FormData(e.currentTarget);
-    const amount = Number(String(data.get("amount") ?? "").replace(/\D/g, ""));
-    if (!Number.isFinite(amount) || amount < 10000 || amount > 50000000) {
-      toast.error(t.toastAmount);
-      return;
-    }
-    const mobile = String(data.get("mobile") ?? "");
-    if (!/^[6-9]\d{9}$/.test(mobile)) {
-      toast.error(t.toastMobile);
-      return;
-    }
-
-    // ── the integration the redesign must preserve ────────────────────────
-    // Show the success state immediately: the visitor should never wait on a
-    // network round-trip, and the lead is durable server-side either way.
-    const ref = makeRefId();
-    setRefId(ref);
-    setSeconds(10);
-    setMatched(true);
-
-    const details = {
-      name: String(data.get("fullName") ?? ""),
-      phone: mobile,
-      email: String(data.get("email") ?? ""),
-      city: String(data.get("city") ?? ""),
-      product: String(data.get("loanType") ?? "") || "Personal Loan",
-      amountRupees: amount,
-    };
-
-    // Identify first, then record the conversion — so the visitor resolves to
-    // the same Upshot profile as their later app login (same E.164 key) and
-    // journeys can target them.
-    upshotIdentify({ name: details.name, phone: details.phone, email: details.email, city: details.city });
-    upshotEvent("website_lead_submitted", {
-      product: details.product,
-      amount: details.amountRupees,
-      ref,
-      ...attribution(),
-    });
-
-    // Fire-and-forget: this is what creates the Customer, raises `lead_captured`
-    // and puts the number in front of leadAutoCaller, which calls them ~1 min
-    // later. Failure is logged and simply leaves the app link hidden.
-    void submitLead(details, ref).then((r) => setLanding(r?.landingUrl));
-  };
-
+  const cap = useLeadCapture();
+  const {
+    t,
+    formRef,
+    panel,
+    seconds,
+    landing,
+    loanType,
+    handleLoanTypeChange,
+    amount,
+    amountTouched,
+    handleAmountChange,
+    isSubmitting,
+    formValid,
+    submitHintVisible,
+    setSubmitHintVisible,
+    getDisabledReason,
+    onSubmit,
+    handleFormChange,
+  } = cap;
 
   return (
     <section id="lead-form" className="shell scroll-mt-28 py-16 sm:py-24">
-      <div className="grid items-center gap-12 sm:gap-14 md:grid-cols-[1fr_18rem] lg:grid-cols-[1fr_20.7rem]">
+      <div className="grid items-center gap-12 sm:gap-14 md:grid-cols-[1fr_22rem] lg:grid-cols-[1fr_28rem]">
         {/* Left: copy + assurances */}
         <div className="flex flex-col gap-10">
           <Reveal className="text-left">
@@ -166,206 +82,108 @@ export function LeadForm() {
           </div>
         </div>
 
-        {/* Right: phone */}
+        {/* Right: the form — a plain card, not a phone mockup (a screenshot-
+            style device frame read as decoration, not something to click into).
+            A soft pulsing ring + glow draws the eye here without being a real
+            popup — that's QuickCheckModal, opened from the header/hero CTAs. */}
         <Reveal delay={140} className="min-w-0">
-          <PhoneShell>
-            <div className="relative h-full overflow-hidden">
-              <div
-                className="flex h-full w-[200%] transition-transform duration-[700ms] ease-[cubic-bezier(0.22,0.9,0.3,1)]"
-                style={{ transform: matched ? "translateX(-50%)" : "translateX(0%)" }}
-              >
-                {/* Panel 1: form */}
-                <div className="h-full w-1/2 shrink-0 px-0.5" aria-hidden={matched}>
-                  <form ref={formRef} onSubmit={onSubmit} className="flex h-full flex-col">
+          <div className="relative mx-auto w-full max-w-lg">
+            <div className="bg-brand-gradient absolute -inset-4 rounded-[2.5rem] opacity-20 blur-3xl" />
+            <span className="border-primary/40 absolute -inset-2 rounded-[2.75rem] border-2 animate-soft-ping" aria-hidden />
+            <div className="glass relative overflow-hidden rounded-3xl p-7 shadow-[var(--shadow-float)] ring-1 ring-primary/15 sm:p-10">
+              {panel === "form" ? (
+                <form ref={formRef} onSubmit={onSubmit} onChange={handleFormChange} className="flex flex-col gap-7">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xl font-extrabold leading-snug tracking-tight sm:text-2xl">{t.formTitle}</h3>
+                    <span className="bg-success-soft text-success shrink-0 rounded-full px-3 py-1.5 text-xs font-bold leading-tight tracking-wide uppercase">
+                      {t.softCheckBadge}
+                    </span>
+                  </div>
+
+                  {/* No visible loan-type picker — defaults to Personal Loan.
+                      Mirrors into a real form field (name="loanType") purely so
+                      the Ello voice widget's select_loan_type tool — which sets
+                      values via the native setter + dispatchEvent('input'), the
+                      same way it fills every other field — still has something
+                      to write to and still reaches React state. */}
+                  <input
+                    type="hidden"
+                    name="loanType"
+                    value={loanType}
+                    onChange={(e) => handleLoanTypeChange(e.target.value)}
+                  />
+
+                  <div className="block min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <h3 className="min-w-0 text-sm font-extrabold leading-snug tracking-tight">
-                        {t.formTitle}
-                      </h3>
-                      <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-1 text-[9px] font-bold leading-tight tracking-wide uppercase">
-                        {t.softCheckBadge}
+                      <Label text={t.amountLabel} required />
+                      <span className="text-primary text-xl font-extrabold">
+                        {amountTouched ? fmtINR(amount) : t.amountUnselected}
                       </span>
                     </div>
-
-                    <div className="mt-3 flex min-h-0 flex-1 flex-col justify-between gap-2.5">
-                      <label className="group/input block min-w-0">
-                        <Label text={t.loanTypeLabel} required />
-                        <div className="input-interactive relative mt-1.5 flex items-center rounded-xl">
-                          <select
-                            required
-                            name="loanType"
-                            defaultValue=""
-                            onFocus={() => handleFocus("loan-type")}
-                            onBlur={handleBlur}
-                            className="field-input h-9 w-full cursor-pointer appearance-none rounded-xl border-0 pl-3 pr-9 text-xs font-bold outline-none"
-                          >
-                            <option value="" disabled>
-                              {t.loanTypePlaceholder}
-                            </option>
-                            {/* Explicit, language-independent values.
-                                Without them an <option>'s value is its own
-                                TRANSLATED text, so the lead posted to the API
-                                carried product="वयक्तिगत" in Hindi, and the
-                                voice agent could never select an option either
-                                (it sends the canonical English name). */}
-                            <option value="Personal Loan">{t.loanTypePersonal}</option>
-                            <option value="Business Loan">{t.loanTypeBusiness}</option>
-                          </select>
-                          <ChevronDown
-                            className="text-foreground/80 pointer-events-none absolute right-3 h-4 w-4"
-                            strokeWidth={3}
-                          />
-                        </div>
-
-                      </label>
-
-                      <Input
-                        label={t.amountLabel}
-                        placeholder={t.amountPlaceholder}
-                        type="text"
-                        required
-                        name="amount"
-                        focusedField={focusedField}
-                        onFocus={handleFocus}
-                        onBlur={handleBlur}
-                        invite
-                        numeric
-                        maxLength={9}
-                        pattern="[0-9]{4,9}"
-                        title={t.amountTitle}
-                        prefix="₹"
-                        demoValue="250000"
-
-                      />
-
-                      <Input
-                        label={t.fullNameLabel}
-                        placeholder={t.fullNamePlaceholder}
-                        required
-                        name="fullName"
-                        focusedField={focusedField}
-                        onFocus={handleFocus}
-                        onBlur={handleBlur}
-                        maxLength={60}
-                        minLength={2}
-                        pattern="[A-Za-z][A-Za-z .'-]{1,59}"
-                        title={t.fullNameTitle}
-                        autoComplete="name"
-                        icon={User}
-
-                      />
-                      <Input
-                        label={t.cityLabel}
-                        placeholder={t.cityPlaceholder}
-                        required
-                        name="city"
-                        focusedField={focusedField}
-                        onFocus={handleFocus}
-                        onBlur={handleBlur}
-                        maxLength={40}
-                        minLength={2}
-                        pattern="[A-Za-z][A-Za-z .'-]{1,39}"
-                        title={t.cityTitle}
-                        autoComplete="address-level2"
-                        icon={MapPin}
-
-                      />
-
-                      <Input
-                        label={t.mobileLabel}
-                        placeholder={t.mobilePlaceholder}
-                        type="tel"
-                        required
-                        name="mobile"
-                        focusedField={focusedField}
-                        onFocus={handleFocus}
-                        onBlur={handleBlur}
-                        numeric
-                        maxLength={10}
-                        minLength={10}
-                        pattern="[6-9][0-9]{9}"
-                        title={t.mobileTitle}
-                        autoComplete="tel-national"
-                        icon={Phone}
-
-                      />
-                      <Input
-                        label={t.emailLabel}
-                        placeholder={t.emailPlaceholder}
-                        type="email"
-                        required
-                        name="email"
-                        focusedField={focusedField}
-                        onFocus={handleFocus}
-                        onBlur={handleBlur}
-                        maxLength={254}
-                        pattern="[^@\s]+@[^@\s]+\.[A-Za-z]{2,}"
-                        title={t.emailTitle}
-                        autoComplete="email"
-                        icon={Mail}
-                      />
-
-
-                      <label
-                        className={`mt-auto flex cursor-pointer items-start gap-2 rounded-xl border-[1.5px] p-2.5 transition-all duration-300 hover:shadow-[var(--shadow-soft)] active:scale-[0.98] ${
-                          consent
-                            ? "border-success/40 bg-success-soft"
-                            : "border-[#CBD5E1] bg-[#F8FAFC] hover:border-success/50"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={consent}
-                          onChange={(e) => setConsent(e.target.checked)}
-                          className="peer sr-only"
-                        />
-                        <span
-                          className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[5px] border-2 transition-all duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 ${
-                            consent
-                              ? "border-info bg-primary text-primary-foreground"
-                              : "border-[#94A3B8] bg-background"
-                          }`}
-                        >
-                          {consent && <Check className="h-3 w-3" strokeWidth={3.5} />}
-                        </span>
-
-                        <span className="text-foreground text-[10px] leading-snug font-semibold">
-                          {t.consentText}{" "}
-                          <span className="text-primary font-bold underline">{t.consentTerms}</span>{" "}
-                          {t.consentAnd}{" "}
-                          <span className="text-primary font-bold underline">
-                            {t.consentPrivacy}
-                          </span>
-                          .
-                        </span>
-                      </label>
-
-                      <div className="mb-1 flex shrink-0 items-center gap-2">
-                        <button
-                          type="submit"
-                          className="bg-brand-gradient text-primary-foreground cta-pulse inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-center text-xs font-bold sm:text-sm shadow-[var(--shadow-float)] transition-transform duration-200 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.96]"
-                        >
-                          <span className="min-w-0 leading-snug">{t.submitCta}</span>
-                          <ArrowRight className="h-4 w-4 shrink-0" />
-                        </button>
-                      </div>
-
+                    <Slider
+                      className="mt-5"
+                      min={AMOUNT_MIN}
+                      max={AMOUNT_MAX}
+                      step={AMOUNT_STEP}
+                      value={[amountTouched ? amount : AMOUNT_MIN]}
+                      onValueChange={([v]) => v != null && handleAmountChange(v)}
+                      aria-label={t.amountLabel}
+                    />
+                    <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
+                      <span>{fmtINR(AMOUNT_MIN)}</span>
+                      <span>{fmtINR(AMOUNT_MAX)}</span>
                     </div>
-                  </form>
-                </div>
+                    {/* Same mirroring purpose as loanType's hidden input above —
+                        lets the voice widget's set_loan_amount tool drive this
+                        slider by writing to a real form field. */}
+                    <input
+                      type="hidden"
+                      name="amount"
+                      value={amount}
+                      onChange={(e) => handleAmountChange(Number(e.target.value) || amount)}
+                    />
+                  </div>
 
-                {/* Panel 2: success */}
-                <div className="h-full w-1/2 shrink-0" aria-hidden={!matched}>
-                  <SuccessView seconds={seconds} active={matched} t={t} landing={landing} />
-                </div>
-              </div>
+                  <MobileInput capture={cap} />
 
-              {matched && <Confetti />}
+                  <div
+                    className="relative flex items-center gap-2"
+                    onMouseEnter={() => setSubmitHintVisible(true)}
+                    onMouseLeave={() => setSubmitHintVisible(false)}
+                  >
+                    {submitHintVisible && !formValid && (
+                      <span
+                        role="tooltip"
+                        className="bg-foreground text-background pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[10px] font-semibold shadow-[var(--shadow-float)]"
+                      >
+                        {getDisabledReason()}
+                      </span>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={!formValid || isSubmitting}
+                      className={`inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-6 py-4 text-center text-base font-bold transition-transform duration-200 ${
+                        formValid && !isSubmitting
+                          ? "bg-brand-gradient text-primary-foreground cta-pulse shadow-[var(--shadow-float)] hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.96]"
+                          : "bg-muted text-muted-foreground cursor-not-allowed"
+                      }`}
+                    >
+                      <span className="min-w-0 leading-snug">{isSubmitting ? t.submittingCta : t.submitCta}</span>
+                      <ArrowRight className="h-5 w-5 shrink-0" />
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <SuccessView seconds={seconds} active={panel === "success"} t={t} landing={landing} />
+              )}
+              {panel === "success" && <Confetti />}
             </div>
-          </PhoneShell>
-
-
+          </div>
         </Reveal>
       </div>
+
+      <OtpModal capture={cap} />
+      <CallbackModal capture={cap} />
     </section>
   );
 }
@@ -529,161 +347,3 @@ function Tile({ icon: Icon, title, body }: { icon: React.ComponentType<{ classNa
     </div>
   );
 }
-
-function PhoneShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="relative mx-auto w-[min(100%,18rem)] lg:w-[min(100%,19.8rem)]">
-      <div className="bg-brand-gradient absolute -inset-4 rounded-[3.5rem] opacity-15 blur-3xl" />
-
-      {/* side buttons */}
-      <div className="bg-foreground/25 absolute top-[19%] -left-[3px] h-[6%] w-[3px] rounded-l-full" />
-      <div className="bg-foreground/25 absolute top-[28%] -left-[3px] h-[9%] w-[3px] rounded-l-full" />
-      <div className="bg-foreground/25 absolute top-[40%] -left-[3px] h-[9%] w-[3px] rounded-l-full" />
-      <div className="bg-foreground/25 absolute top-[30%] -right-[3px] h-[13%] w-[3px] rounded-r-full" />
-
-      {/* iPhone 15 Pro ratio: 393 x 852 CSS px */}
-      <div className="bg-foreground relative aspect-[393/852] rounded-[2.9rem] p-[3px] shadow-[var(--shadow-float)]">
-        <div className="bg-card h-full rounded-[2.75rem] p-2">
-          <div className="bg-background relative flex h-full flex-col overflow-hidden rounded-[2.3rem]">
-            {/* status bar + dynamic island */}
-            <div className="relative flex shrink-0 items-center justify-between px-4 pt-3 pb-1">
-              <span className="text-[11px] font-bold">9:41</span>
-              <div className="bg-foreground absolute top-2 left-1/2 flex h-5 w-[4.5rem] -translate-x-1/2 items-center justify-end rounded-full pr-1.5">
-                <span className="bg-background/30 h-2 w-2 rounded-full" />
-              </div>
-              <div className="text-foreground flex items-center gap-1">
-                <SignalHigh className="h-3.5 w-3.5" />
-                <Wifi className="h-3.5 w-3.5" />
-                <BatteryFull className="h-3.5 w-3.5" />
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 px-3.5 pt-2 pb-2">{children}</div>
-
-            {/* home indicator */}
-            <div className="flex shrink-0 justify-center pb-2">
-              <span className="bg-foreground/25 h-1 w-24 rounded-full" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-function Label({ text, required }: { text: string; required?: boolean | undefined }) {
-  return (
-    <span className="text-muted-foreground text-[10px] font-bold tracking-[0.12em] uppercase">
-      {text} {required && <span className="text-danger">*</span>}
-    </span>
-  );
-}
-
-function Input({
-  label,
-  placeholder,
-  type = "text",
-  required,
-  name,
-  focusedField,
-  onFocus,
-  onBlur,
-  invite,
-  numeric,
-  maxLength,
-  minLength,
-  pattern,
-  title,
-  min,
-  max,
-  autoComplete,
-  icon: Icon,
-  prefix,
-  demoValue,
-}: {
-  label: string;
-  placeholder: string;
-  type?: string;
-  required?: boolean;
-  name: string;
-  focusedField: string | null;
-  onFocus: (name: string) => void;
-  onBlur: () => void;
-  invite?: boolean;
-  numeric?: boolean;
-  maxLength?: number;
-  minLength?: number;
-  pattern?: string;
-  title?: string;
-  min?: number;
-  max?: number;
-  autoComplete?: string;
-  icon?: LucideIcon;
-  prefix?: string;
-  demoValue?: string;
-}) {
-  const isActive = focusedField === name;
-  const [showDemoCaret, setShowDemoCaret] = useState(Boolean(demoValue));
-  const handleInput = (e: React.FormEvent<HTMLInputElement>) => {
-    setShowDemoCaret(false);
-    if (!numeric) return;
-    const el = e.currentTarget;
-    let v = el.value.replace(/\D/g, "");
-    if (maxLength) v = v.slice(0, maxLength);
-    if (el.value !== v) el.value = v;
-  };
-  const hasLead = Boolean(Icon || prefix);
-  return (
-    <label className="group/input block min-w-0 cursor-text">
-      <Label text={label} required={required} />
-      <div
-        className={`input-interactive relative mt-1.5 flex items-center rounded-xl ${
-          isActive ? "border-primary" : ""
-        } ${invite && !isActive ? "animate-input-invite" : ""}`}
-      >
-        {prefix ? (
-          <span className="text-foreground/70 pointer-events-none absolute left-3 text-xs font-extrabold">
-            {prefix}
-          </span>
-        ) : Icon ? (
-          <Icon className="text-primary/70 pointer-events-none absolute left-3 h-3.5 w-3.5" strokeWidth={2.4} />
-        ) : null}
-        <input
-          name={name}
-          required={required}
-          type={type}
-          placeholder={placeholder}
-          onFocus={() => onFocus(name)}
-          onBlur={onBlur}
-          onInput={handleInput}
-          {...(numeric ? { inputMode: "numeric" as const } : {})}
-          {...(maxLength ? { maxLength } : {})}
-          {...(minLength ? { minLength } : {})}
-          {...(pattern ? { pattern } : {})}
-          {...(title ? { title } : {})}
-          {...(min !== undefined ? { min } : {})}
-          {...(max !== undefined ? { max } : {})}
-          {...(autoComplete ? { autoComplete } : {})}
-          className={`field-input h-9 w-full cursor-text rounded-xl border-0 pr-3 text-xs font-bold outline-none ${
-            demoValue && showDemoCaret ? (hasLead ? "pl-10" : "pl-5") : hasLead ? "pl-8" : "pl-3"
-          }`}
-
-        />
-        {demoValue && showDemoCaret && (
-          <span
-            className={`pointer-events-none absolute inset-y-0 flex items-center ${
-              hasLead ? "left-8" : "left-3"
-            }`}
-            aria-hidden
-          >
-            <span className="bg-primary animate-typing-cursor inline-block h-4 w-[1.5px]" />
-          </span>
-        )}
-
-      </div>
-    </label>
-  );
-}
-
-

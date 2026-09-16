@@ -160,7 +160,7 @@ The brief wants an automated call ~1 minute after website form submit. Today:
   no phone-number field. Its `call_type: 'outbound'` is Ello's term for a
   *user-initiated web* call — **it is not PSTN**. This is easy to misread; it
   does not give us telephony.
-- **No telephony provider at all** — no Twilio/Exotel/Plivo/Vapi/Retell in any
+- **No telephony provider at all** — no Vox/Exotel/Plivo/Vapi/Retell in any
   `package.json`.
 - **No outbound HTTP egress from the backend whatsoever** — grep for `fetch(` in
   `server/src` returns nothing. There is no webhook infrastructure to build on.
@@ -331,7 +331,7 @@ directly. These are requirements, not nice-to-haves:
 
 | # | Decision | Blocks | Notes |
 |---|---|---|---|
-| 1 | **Telephony vendor** for outbound calls (Exotel/Twilio/Vapi/Retell/Ello-if-they-offer-PSTN) | Phase 5.5, §2.3 | Entirely greenfield. Ello today is web-mic only. Cost, India DLT registration, and call-recording rules all differ per vendor. |
+| 1 | **Telephony vendor** for outbound calls (Exotel/Vox/Vapi/Retell/Ello-if-they-offer-PSTN) | Phase 5.5, §2.3 | Entirely greenfield. Ello today is web-mic only. Cost, India DLT registration, and call-recording rules all differ per vendor. |
 | 2 | **External automation platform** the brief refers to | Phase 5.3-5.4 | The brief says the dashboard triggers it but never names it. Webhook-out, or a specific SaaS (n8n/Make/Zapier/internal)? Shape of the contract depends entirely on this. |
 | 3 | **`prisma generate` / `DATABASE_URL`** | **Phase 1 — everything** | `prisma generate` currently fails on corporate TLS interception; hosted Postgres URL still unset (`CLAUDE.md`). Nothing schema-related can proceed until both are fixed. |
 | 4 | Is changing existing funnel numbers acceptable? | Phase 3.4 | Making the funnel real will change the dashboard's published conversion rates. |

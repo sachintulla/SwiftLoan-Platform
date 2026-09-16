@@ -2,15 +2,35 @@
  * SwiftLoan — native React Native port of the SwiftLoan design bundle.
  * A faithful, screen-for-screen mirror with the original navigation flow.
  */
-import React, { useEffect } from 'react';
-import { BackHandler } from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { AppState, BackHandler, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
+import { BottomNav } from './src/components/Frame';
 import ContextBanner from './src/components/ContextBanner';
-// Voice UI temporarily disabled; re-enable later when needed.
+import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
+import { nudgeFor, DEFAULT_TIMERS, NudgeTimers } from './src/voice/nudges';
+import { trackEvent, api, NudgeConfigDTO } from './src/api/client';
+import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
+import { agent } from './src/voice';
+
+const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
+  enabled: d.nudgeEnabled,
+  idleMs: d.nudgeIdleMs,
+  dropoffMs: d.nudgeDropoffMs,
+  eligibleMs: d.nudgeEligibleMs,
+});
+
+// Voice FAB is always shown (Ruby is a first-class entry point). VoiceWidget
+// self-hides only when Ello isn't configured. The `voiceFabUnlocked` flag (and
+// the Profile 5-tap gesture / nudge that set it) are retained but no longer gate
+// visibility.
+function VoiceFabGate() {
+  return <VoiceWidget />;
+}
 
 /**
  * Without this, the hardware/gesture back button on Android has nothing to
@@ -32,15 +52,94 @@ function BackHandlerBridge() {
   return null;
 }
 
+/**
+ * Proactive-help idle detector. Any touch (capture phase) re-arms a per-screen
+ * timer; if the user stalls past the screen's threshold (see nudgeFor), we fire
+ * a nudge — the VoiceWidget then vibrates, wiggles the Ruby FAB and shows a
+ * contextual label — and emit a `nudge` tracking event for backend follow-up
+ * (callback/SMS/admin alert). One nudge per screen visit, so it never nags.
+ */
+function AppShell() {
+  const { state, set } = useStore();
+  const screen = state.screen;
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nudgeIdRef = useRef(0);
+  const nudgeCountRef = useRef(0);
+  const nudgedScreenRef = useRef<string | null>(null);
+  // Latest set/screen kept in refs so `armIdle` can be STABLE — otherwise it
+  // changes identity on every store re-render (animated screens re-render a
+  // lot), which would clear + restart the idle timer and it'd never elapse.
+  const setRef = useRef(set); setRef.current = set;
+  const screenRef = useRef(screen); screenRef.current = screen;
+  // Admin-tuned timers (from the backend); falls back to built-in defaults.
+  const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
+
+  // Load the last-known config instantly, then fetch fresh; re-fetch on every
+  // foreground so an admin change is picked up without an app restart.
+  const refreshConfig = useCallback(async () => {
+    try {
+      const r = await api.nudgeConfig();
+      if (r?.data) { timersRef.current = toTimers(r.data); saveNudgeTimers(timersRef.current); }
+    } catch { /* keep current timers on failure */ }
+  }, []);
+  useEffect(() => {
+    loadNudgeTimers<NudgeTimers>().then((t) => { if (t) timersRef.current = t; });
+    refreshConfig();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') refreshConfig(); });
+    return () => sub.remove();
+  }, [refreshConfig]);
+
+  const armIdle = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    const scr = screenRef.current;
+    const cfg = nudgeFor(scr, timersRef.current);
+    if (!cfg || nudgedScreenRef.current === scr) return;
+    timerRef.current = setTimeout(() => {
+      // Never nudge (or track a nudge) while a voice call is actually in
+      // progress — same rule VoiceWidget already applies to showing the
+      // bubble ("never interrupt a live session"). Without this check here
+      // too, a nudge firing mid-call would still spam trackEvent even
+      // though the widget silently drops the visual bubble.
+      const status = agent.getStatus();
+      if (status !== 'idle' && status !== 'ended') return;
+      nudgedScreenRef.current = scr;
+      nudgeIdRef.current += 1;
+      const label = cfg.labels[nudgeCountRef.current % cfg.labels.length];
+      nudgeCountRef.current += 1;
+      setRef.current({ voiceFabUnlocked: true, voiceNudge: { id: nudgeIdRef.current, label, reason: cfg.reason } });
+      trackEvent('nudge', cfg.reason, scr, { label });
+    }, cfg.timeoutMs);
+  }, []);
+
+  // Re-arm only when the screen actually changes (fresh visit → nudge allowed).
+  useEffect(() => {
+    nudgedScreenRef.current = null;
+    armIdle();
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [screen, armIdle]);
+
+  const onTouchCapture = useCallback(() => { armIdle(); return false; }, [armIdle]);
+
+  return (
+    <View style={{ flex: 1 }} onStartShouldSetResponderCapture={onTouchCapture}>
+      <Router />
+      <ContextBanner />
+      {/* Persistent tab bar + FAB (rendered above the screens): the bar slides
+          down/up and the FAB rolls between the notch and the corner. */}
+      <BottomNav />
+      <VoiceFabGate />
+      <ConfirmationSheet />
+      <OfflineNotice />
+      <BackHandlerBridge />
+    </View>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
       <StoreProvider>
-        <Router />
-        <ContextBanner />
-        <VoiceWidget />
-        <ConfirmationSheet />
-        <BackHandlerBridge />
+        <AppShell />
       </StoreProvider>
     </SafeAreaProvider>
   );

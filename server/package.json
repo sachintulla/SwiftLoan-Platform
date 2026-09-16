@@ -23,7 +23,9 @@
     "ello:sync": "tsx scripts/ello-sync-agent.ts",
     "ello:agents": "tsx scripts/ello-agents.ts",
     "conversations:backfill": "tsx scripts/backfill-conversations.ts",
-    "admin:create": "tsx scripts/create-admin.ts"
+    "admin:create": "tsx scripts/create-admin.ts",
+    "backfill:customer-links": "tsx scripts/backfill-customer-links.ts",
+    "seed:prequalifying": "tsx prisma/seed.prequalifying.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1105.0",

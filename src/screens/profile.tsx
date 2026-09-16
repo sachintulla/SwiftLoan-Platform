@@ -1,14 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert, Image, ActivityIndicator } from 'react-native';
 import { launchCamera, launchImageLibrary, Asset } from 'react-native-image-picker';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Toggle } from '../components/Controls';
+import { Calendar, formatDob as formatDobParts, useDobVoiceTarget } from '../components/Calendar';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
+import { requestConfirmation } from '../voice/ui/confirmationBridge';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { VoiceHidden } from '../voice/screenGraph';
 
 const AVATAR_MIME: Record<string, 'image/jpeg' | 'image/png' | 'image/webp'> = {
   jpg: 'image/jpeg',
@@ -39,10 +43,41 @@ const LINKS = [
 
 export default function Profile() {
   const t = useT();
-  const { state, set, go, showToast, reset } = useStore();
+  const { state, set, go, showToast, reset, mergeApiContext, markUrgentContext } = useStore();
   const [loading, setLoading] = useState(isAuthed());
   const [err, setErr] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  // Local {y,m,d} mirror of state.pdDob (a plain ISO string) — the shared
+  // Calendar picker + its voice target both work in this shape (see
+  // aboutyou.tsx, which wires DOB the same way). Synced from pdDob whenever
+  // edit mode opens, written back into pdDob on save.
+  const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
+  useDobVoiceTarget(dob, setDob);
+  // Seed the voice-visible `dob` from the persisted pdDob as soon as it loads,
+  // not just when edit mode opens — otherwise the voice agent's "Date" target
+  // reads empty even though a DOB is already on file and shown read-only above.
+  useEffect(() => {
+    if (dob || !state.pdDob) return;
+    const d = new Date(state.pdDob);
+    if (!Number.isNaN(d.getTime())) setDob({ y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate() });
+  }, [state.pdDob, dob]);
+
+  // Hidden gesture: tapping the "Personal details" header 5× in a row (each tap
+  // within 1.5s of the last) reveals the voice assistant FAB. See App.tsx.
+  const tapCount = useRef(0);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSecretTap = useCallback(() => {
+    if (state.voiceFabUnlocked) return;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapCount.current += 1;
+    if (tapCount.current >= 5) {
+      tapCount.current = 0;
+      set({ voiceFabUnlocked: true });
+      showToast('Voice assistant unlocked');
+      return;
+    }
+    tapTimer.current = setTimeout(() => { tapCount.current = 0; }, 1500);
+  }, [state.voiceFabUnlocked, set, showToast]);
 
   // Load the profile from the backend (when signed in) and hydrate the store.
   const load = useCallback(async () => {
@@ -56,10 +91,22 @@ export default function Profile() {
         pdEmail: user.email || state.pdEmail,
         pdPhone: user.phone ? `+91 ${user.phone}` : state.pdPhone,
         pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
-        lang: user.lang || state.lang,
+        // Keep the locally chosen language; don't let a stale backend `lang`
+        // overwrite a fresh selection when Profile loads (bug: Telugu reverted
+        // to English after visiting Profile).
+        lang: state.lang || user.lang,
         notif: { loan: user.notifyLoanUpdates, security: user.notifySecurityAlerts, promo: user.notifyPromoOffers },
       });
     } catch (e: any) {
+      // An expired/invalid session (401) must not strand the user on an error
+      // screen — the logout button lives in the profile body, which never
+      // renders while `err` is set, so a stale token made "log out" unreachable.
+      // Treat it as a logout: clear the dead session and return to the start.
+      if (e instanceof ApiError && e.status === 401) {
+        await api.logout().catch(() => {});
+        reset();
+        return;
+      }
       setErr(e?.message || 'Could not load your profile.');
     } finally {
       setLoading(false);
@@ -72,13 +119,62 @@ export default function Profile() {
   const saveProfile = async () => {
     if (!isAuthed()) { set({ pdEdit: false }); return; }
     try {
-      const { user }: any = await api.updateProfile({ fullName: state.pdName, email: state.pdEmail });
-      set({ pdEdit: false, authUser: user });
+      const { user }: any = await api.updateProfile({
+        fullName: state.pdName,
+        email: state.pdEmail,
+        ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
+      });
+      set({
+        pdEdit: false,
+        pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
+        authUser: user,
+      });
       showToast(t.tSaved);
+      // Tapping "Save Changes" (voice or touch) only confirms the tap itself —
+      // the actual outcome is this async call, which the voice agent has no
+      // other way to see (a toast is UI-only). Surfaced via apiContext, same
+      // as offerApplyResult/prequalifyResult elsewhere, so the agent can speak
+      // it — confirm success, or explain a real error, instead of silently
+      // not knowing whether the save the user asked for actually went through.
+      // Marked urgent for the same reason as those: Ruby may still be
+      // mid-sentence when this lands, and a real save result (success or
+      // failure) needs to reach her the instant it's known, not queue behind
+      // whatever she's already saying.
+      mergeApiContext({ profileSaveResult: { ok: true } });
+      markUrgentContext();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not save. Please try again.');
+      const message = e instanceof ApiError ? e.message : 'Could not save. Please try again.';
+      showToast(message);
+      mergeApiContext({ profileSaveResult: { ok: false, error: message } });
+      markUrgentContext();
     }
   };
+  // Enter edit mode, seeding the local DOB picker from whatever's already on
+  // file (pdDob is a plain ISO string; the picker/voice-target need {y,m,d}).
+  const startEditingProfile = () => {
+    if (state.pdDob) {
+      const d = new Date(state.pdDob);
+      if (!Number.isNaN(d.getTime())) setDob({ y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate() });
+    }
+    set({ pdEdit: true });
+  };
+
+  // The Save/Edit toggle is passed to SectionHead via its `right` prop, not as
+  // a direct child — screenGraph.ts's auto-discovery only walks `children`, so
+  // this button was entirely invisible to the voice agent. Confirmed live on
+  // device: "Save changes" never once appeared in the agent's available
+  // actions, in or out of edit mode, so it told the user their edits
+  // auto-save (they don't) rather than admit it couldn't find a save control.
+  // Explicit registration closes the gap, the same way useDobVoiceTarget does
+  // for the date picker below. Deps mirror exactly what saveProfile reads, so
+  // a voice "save" always commits what was just typed, not a stale snapshot
+  // from whenever edit mode started.
+  useVoiceTarget(
+    state.pdEdit ? t.saveChanges : t.edit,
+    { kind: 'button', onTap: () => { if (state.pdEdit) saveProfile(); else startEditingProfile(); } },
+    [state.pdEdit, state.pdName, state.pdEmail, dob],
+  );
+
   const changeLang = async (code: string) => {
     const prevLang = state.lang;
     set({ lang: code });
@@ -106,32 +202,36 @@ export default function Profile() {
       showToast('Could not save. Please try again.');
     }
   };
+  // Manual tap must ask before acting — the voice agent's `logout` tool
+  // already gates on the same on-screen confirmation (see the prompt's
+  // "sensitive actions" rule); the manual buttons here had no equivalent, so
+  // a stray tap signed people out immediately with no way to back out. Uses
+  // our own branded ConfirmationSheet (via requestConfirmation), not the
+  // native OS Alert, so this reads identically whether the agent or the
+  // user's own tap triggered it.
   const logout = async () => {
+    const allowed = await requestConfirmation(
+      "Log out? You'll need to verify your mobile number again to sign back in.",
+      { confirmLabel: 'Log out', cancelLabel: 'Cancel' },
+    );
+    if (!allowed) return;
     await api.logout().catch(() => {});
     reset();
   };
 
-  const deleteAccount = () => {
+  const deleteAccount = async () => {
     if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
-    Alert.alert(
-      'Delete your account?',
-      'This permanently removes your profile, applications, loans, and KYC records. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.deleteAccount();
-              reset();
-            } catch (e) {
-              showToast(e instanceof ApiError ? e.message : 'Could not delete your account. Please try again.');
-            }
-          },
-        },
-      ],
+    const allowed = await requestConfirmation(
+      'Delete your account? This permanently removes your profile, applications, loans, and KYC records. This cannot be undone.',
+      { confirmLabel: 'Delete', cancelLabel: 'Cancel' },
     );
+    if (!allowed) return;
+    try {
+      await api.deleteAccount();
+      reset();
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Could not delete your account. Please try again.');
+    }
   };
 
   const uploadPickedAsset = async (asset: Asset) => {
@@ -149,11 +249,25 @@ export default function Profile() {
     }
   };
 
+  const removeAvatar = async () => {
+    setAvatarBusy(true);
+    try {
+      const user = await api.updateProfile({ avatarUrl: null });
+      set({ authUser: user });
+      showToast('Photo removed.');
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : 'Could not remove photo. Please try again.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const pickAvatar = () => {
     if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
+    const hasPhoto = !!state.authUser?.avatarUrl;
     Alert.alert('Profile photo', undefined, [
       {
-        text: 'Take Photo',
+        text: hasPhoto ? 'Take New Photo' : 'Take Photo',
         onPress: () => launchCamera({ mediaType: 'photo', quality: 0.8 }, res => {
           if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
         }),
@@ -164,7 +278,9 @@ export default function Profile() {
           if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
         }),
       },
-      { text: 'Cancel', style: 'cancel' },
+      // Delete option — only when a photo is actually set.
+      ...(hasPhoto ? [{ text: 'Remove Photo', style: 'destructive' as const, onPress: removeAvatar }] : []),
+      { text: 'Cancel', style: 'cancel' as const },
     ]);
   };
 
@@ -210,16 +326,18 @@ export default function Profile() {
             </View>
             <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{t.memberBadge}</Text>
           </View>
-          <Pressable onPress={() => showToast(t.tSoon)} style={styles.editIcon}><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
+          {/* Same action as the Personal Details "Edit"/"Save Changes" toggle
+              below — this is just a second, header-level entry point into the
+              same edit mode. Its label used to be "Edit profile", one word
+              away from that toggle's "Edit" and confusingly close to the
+              *different* "Edit profile" wording a person might use to mean
+              "let me change my details" in general — the voice agent picked
+              this button as the target for filling in an email address (it's
+              a button, not a field) and failed. A distinct label removes the
+              ambiguity without changing what either button does. */}
+          <Pressable onPress={startEditingProfile} style={styles.editIcon} accessibilityLabel="Edit personal details"><Icon name="edit" size={18} color={colors.textSoft} /></Pressable>
         </View>
         <View style={styles.statsRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={[font(500), { fontSize: 11.5, color: colors.textSoft }]}>{t.statCreditScore}</Text>
-            <Text style={[font(800), { fontSize: 20, color: colors.text }]}>
-              {state.authUser?.creditScore ?? '—'}<Text style={[font(500), { fontSize: 12, color: colors.muted }]}> / 900</Text>
-            </Text>
-          </View>
-          <View style={styles.statDiv} />
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Icon name="event_available" size={18} color={colors.mint} />
             <Text style={[font(600), { fontSize: 12, color: colors.textMid }]}>
@@ -231,9 +349,9 @@ export default function Profile() {
 
       {/* Personal details */}
       <SectionCard>
-        <SectionHead icon="person" title={t.personalDetails}
+        <SectionHead icon="person" title={t.personalDetails} onTitlePress={onSecretTap}
           right={
-            <Pressable onPress={() => { if (state.pdEdit) saveProfile(); else set({ pdEdit: true }); }} style={styles.editBtn}>
+            <Pressable onPress={() => { if (state.pdEdit) saveProfile(); else startEditingProfile(); }} style={styles.editBtn}>
               <Icon name={state.pdEdit ? 'check' : 'edit'} size={15} color={colors.primary} />
               <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{state.pdEdit ? t.saveChanges : t.edit}</Text>
             </Pressable>
@@ -241,16 +359,36 @@ export default function Profile() {
         />
         {!state.pdEdit ? (
           <View style={{ marginTop: 12 }}>
-            <DetailRow label={t.fullName} value={state.pdName} />
-            <DetailRow label={t.email} value={state.pdEmail} />
-            <DetailRow label={t.phone} value={state.pdPhone} />
-            <DetailRow label={t.dob} value={formatDob(state.pdDob)} last />
+            <DetailRow label={t.fullName} value={state.pdName} accessibilityLabel={`${t.fullName}: ${state.pdName}`} />
+            <DetailRow label={t.email} value={state.pdEmail} accessibilityLabel={`${t.email}: ${state.pdEmail}`} />
+            <DetailRow label={t.phone} value={state.pdPhone} accessibilityLabel={`${t.phone}: ${state.pdPhone}`} />
+            <DetailRow label={t.dob} value={formatDob(state.pdDob)} accessibilityLabel={`${t.dob}: ${formatDob(state.pdDob)}`} last />
           </View>
         ) : (
           <View style={{ gap: 14, marginTop: 12 }}>
             <Field label={t.fullName} value={state.pdName} onChangeText={v => set({ pdName: v })} />
             <Field label={t.email} value={state.pdEmail} onChangeText={v => set({ pdEmail: v })} autoCapitalize="none" />
             <Field label={t.phone} value={state.pdPhone} onChangeText={v => set({ pdPhone: v })} />
+            <View style={{ gap: 6 }}>
+              <Text style={[font(600), { color: colors.textMid, fontSize: 13 }]}>{t.dobLabel}</Text>
+              <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
+                <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>
+                  {dob ? formatDobParts(dob.y, dob.m, dob.d) : t.selectDate}
+                </Text>
+                <Icon name="calendar_month" size={20} color={colors.textSoft} />
+              </Pressable>
+              {state.dobOpen ? (
+                <Calendar
+                  year={dob?.y ?? state.calY}
+                  month={dob?.m ?? state.calM}
+                  selectedDay={dob?.d}
+                  onSelect={(y, m, d) => {
+                    setDob({ y, m, d });
+                    set({ dobOpen: false });
+                  }}
+                />
+              ) : null}
+            </View>
           </View>
         )}
       </SectionCard>
@@ -259,7 +397,7 @@ export default function Profile() {
       <SectionCard>
         <SectionHead icon="language" title={t.displayLanguage} />
         <View style={{ marginTop: 10, gap: 8 }}>
-          {[{ label: 'English', code: 'en' }, { label: 'हिन्दी (Hindi)', code: 'hi' }].map(l => {
+          {[{ label: 'English', code: 'en' }, { label: 'हिन्दी (Hindi)', code: 'hi' }, { label: 'తెలుగు (Telugu)', code: 'te' }].map(l => {
             const on = (state.lang ?? 'en') === l.code;
             return (
               <Pressable key={l.code} onPress={() => changeLang(l.code)} style={[styles.langRow, on && { borderColor: colors.primary, backgroundColor: 'rgba(7,159,160,0.07)' }]}>
@@ -284,20 +422,24 @@ export default function Profile() {
       {/* Consent & privacy */}
       <SectionCard>
         <SectionHead icon="verified_user" title={t.consentPrivacy} />
-        <View style={styles.protected}>
-          <View style={styles.shieldIcon}><Icon name="shield" size={20} color={colors.primary} /></View>
-          <Text style={[font(700), { fontSize: 14, color: colors.text, marginTop: 8 }]}>{t.protectedTitle}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
-            <Icon name="check_circle" size={14} color={colors.mint} />
-            <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.consentStatus}</Text>
+        <VoiceHidden>
+          <View style={styles.protected}>
+            <View style={styles.shieldIcon}><Icon name="shield" size={20} color={colors.primary} /></View>
+            <Text style={[font(700), { fontSize: 14, color: colors.text, marginTop: 8 }]}>{t.protectedTitle}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+              <Icon name="check_circle" size={14} color={colors.mint} />
+              <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.consentStatus}</Text>
+            </View>
           </View>
-        </View>
-        <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 12 }]}>{t.dataSharingBody}</Text>
+          <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 12 }]}>{t.dataSharingBody}</Text>
+        </VoiceHidden>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
           <Pressable style={styles.partnerBtn} onPress={() => showToast(t.tSoon)}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.managePartners}</Text></Pressable>
           <Pressable style={styles.partnerBtn} onPress={() => showToast(t.tSoon)}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.requestExport}</Text></Pressable>
         </View>
-        <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, marginTop: 12 }]}>{t.privacyNote} <Text style={{ color: colors.primary }}>{t.privacyPolicy}</Text>.</Text>
+        <VoiceHidden>
+          <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, marginTop: 12 }]}>{t.privacyNote} <Text style={{ color: colors.primary }}>{t.privacyPolicy}</Text>.</Text>
+        </VoiceHidden>
       </SectionCard>
 
       {/* Links */}
@@ -316,11 +458,13 @@ export default function Profile() {
       </View>
 
       {/* About */}
-      <View style={{ marginTop: 20 }}>
-        <Text style={[font(700), { fontSize: 13, color: colors.textMid }]}>{t.aboutTitle}</Text>
-        <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 4 }]}>{t.aboutBody}</Text>
-        <Text style={[font(400), { fontSize: 11.5, lineHeight: 16, color: colors.muted, marginTop: 8 }]}>{t.aboutGrievance}</Text>
-      </View>
+      <VoiceHidden>
+        <View style={{ marginTop: 20 }}>
+          <Text style={[font(700), { fontSize: 13, color: colors.textMid }]}>{t.aboutTitle}</Text>
+          <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 4 }]}>{t.aboutBody}</Text>
+          <Text style={[font(400), { fontSize: 11.5, lineHeight: 16, color: colors.muted, marginTop: 8 }]}>{t.aboutGrievance}</Text>
+        </View>
+      </VoiceHidden>
 
       <Pressable style={styles.logoutBtn} onPress={logout}>
         <Text style={[font(700), { fontSize: 15, color: colors.redDeep }]}>{t.logout}</Text>
@@ -328,7 +472,9 @@ export default function Profile() {
       <Pressable style={{ paddingVertical: 12, alignItems: 'center' }} onPress={logout}>
         <Text style={[font(500), { fontSize: 13, color: colors.muted }]}>{t.startFresh}</Text>
       </Pressable>
-      <Text style={[font(400), { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 4 }]}>v0.1.0</Text>
+      <VoiceHidden>
+        <Text style={[font(400), { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 4 }]}>v0.1.0</Text>
+      </VoiceHidden>
     </Screen>
   );
 }
@@ -336,20 +482,31 @@ export default function Profile() {
 function SectionCard({ children }: { children: React.ReactNode }) {
   return <View style={[styles.card, { marginTop: 16 }]}>{children}</View>;
 }
-function SectionHead({ icon, title, right }: { icon: string; title: string; right?: React.ReactNode }) {
+function SectionHead({ icon, title, right, onTitlePress }: { icon: string; title: string; right?: React.ReactNode; onTitlePress?: () => void }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Pressable onPress={onTitlePress} disabled={!onTitlePress} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon name={icon} size={20} color={colors.primary} />
         <Text style={[font(800), { fontSize: 15.5, color: colors.text }]}>{title}</Text>
-      </View>
+      </Pressable>
       {right}
     </View>
   );
 }
-function DetailRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+// `accessibilityLabel` is declared here (unused internally — the View below
+// already computes its own from `label`/`value`) purely so callers can pass
+// one on the `<DetailRow .../>` element itself. The voice screen-scraper
+// (src/voice/screenGraph.ts:collectText) walks the *unrendered* element tree
+// via props.children — it never actually executes DetailRow, so it can only
+// see props declared at the call site, not anything this component renders
+// internally. Without a prop set there, DetailRow's content (name/email/DOB
+// on the profile screen) was invisible to screen_overview.
+function DetailRow({ label, value, last }: { label: string; value: string; last?: boolean; accessibilityLabel?: string }) {
   return (
-    <View style={[styles.detailRow, !last && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}>
+    <View
+      accessibilityLabel={`${label}: ${value}`}
+      style={[styles.detailRow, !last && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}
+    >
       <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>{label}</Text>
       <Text style={[font(600), { fontSize: 13.5, color: colors.text }]}>{value}</Text>
     </View>
@@ -379,6 +536,11 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   statDiv: { width: 1, height: 32, backgroundColor: colors.lineSoft, marginHorizontal: 12 },
   editBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(7,159,160,0.1)', borderRadius: 9999, paddingHorizontal: 12, paddingVertical: 6 },
+  dobBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1.5, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+  },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
   langRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: colors.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: '#fff' },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },

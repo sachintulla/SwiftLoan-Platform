@@ -2,6 +2,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Frame.tsx's voice-agent FAB calls Vibration.vibrate() on every tap for
+         haptic feedback. Without this, that call throws a SecurityException
+         that React Native's bridgeless host treats as fatal, tearing down and
+         never recreating the whole ReactContext — the app going blank on tap
+         wasn't a JS bug, it was this missing manifest permission. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- react-native-image-picker: profile photo "Take Photo" flow -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Permissions screen: profile enrichment / fraud checks -->
