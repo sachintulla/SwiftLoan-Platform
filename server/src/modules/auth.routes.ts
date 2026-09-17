@@ -31,7 +31,15 @@ async function issueTokens(userId: string, phone: string) {
   return { accessToken: access, refreshToken: refresh, expiresIn: env.accessTtl };
 }
 
-async function createOtp(phone: string, userId?: string) {
+/**
+ * `delivered: false` means the OTP row exists in the DB but the user has no
+ * way to ever learn the code — confirmed live: a Vox 405 (wrong endpoint/
+ * method, not a real per-message rejection) was swallowed here, and the
+ * route still answered `otpSent: true`, leaving the user stuck with no code,
+ * no error, and nothing to retry. Callers must check `delivered` and fail
+ * loudly instead of claiming success.
+ */
+async function createOtp(phone: string, userId?: string): Promise<{ devOtp: string | undefined; delivered: boolean }> {
   const code = genOtp();
   await prisma.otpToken.updateMany({ where: { phone, consumed: false }, data: { consumed: true } });
   await prisma.otpToken.create({
@@ -39,14 +47,17 @@ async function createOtp(phone: string, userId?: string) {
   });
 
   // Real OTP system: when an SMS provider is configured, deliver the code by SMS
-  // and NEVER return it to the client (a real one-time secret). Demo/dev keeps
-  // surfacing the fixed code so testing works without a live SMS account.
+  // and NEVER return it to the client (a real one-time secret) — including on
+  // failure; the fix for a failed send is a real resend, not leaking the code.
+  // Demo/dev keeps surfacing the fixed code so testing works without a live
+  // SMS account.
   if (smsConfigured()) {
-    await sendOtpSms(phone, code); // fire-and-forget; failure is logged in sms.ts
-    return undefined;
+    const delivered = await sendOtpSms(phone, code); // failure is also logged in sms.ts
+    return { devOtp: undefined, delivered };
   }
   // No SMS provider: dev, or explicit DEMO_LOGIN, surfaces the code (123456).
-  return env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
+  const devOtp = env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
+  return { devOtp, delivered: true };
 }
 
 /** Register a new user by phone (+ optional email/password) and send an OTP. */
@@ -65,8 +76,9 @@ authRouter.post(
         lang: (lang as any) || 'en',
       },
     });
-    const devOtp = await createOtp(phone, user.id);
-    log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp });
+    const { devOtp, delivered } = await createOtp(phone, user.id);
+    log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp, delivered });
+    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
     res.status(201).json({ userId: user.id, otpSent: true, devOtp });
   }),
 );
@@ -79,7 +91,7 @@ authRouter.post(
     const { phone } = req.body;
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) user = await prisma.user.create({ data: { phone } });
-    const devOtp = await createOtp(phone, user.id);
+    const { devOtp, delivered } = await createOtp(phone, user.id);
 
     // WS5: OTP_REQUESTED had no event at all before — without it there is no
     // way to see the "asked for an OTP but never entered it" drop-off.
@@ -88,7 +100,8 @@ authRouter.post(
       { channel: 'app', name: JOURNEY_EVENTS.OTP_REQUESTED, screen: 'mobile' },
     ).catch(() => {});
 
-    log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp });
+    log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp, delivered });
+    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
     res.json({ otpSent: true, devOtp });
   }),
 );
