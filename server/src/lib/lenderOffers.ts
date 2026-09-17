@@ -587,6 +587,64 @@ class AurixOfferProvider implements LenderOfferProvider {
   }
 }
 
+/**
+ * Aurix "Fetch Lead API" (KFT doc v1.1, 10 Sep 2026) — pulls the live
+ * status of a lead/application/offer on demand, for the app's "Refresh
+ * status" button. UAT ONLY: Aurix has only confirmed this endpoint on their
+ * UAT gateway so far, so the base URL is hardcoded/env-overridable here
+ * rather than reusing AURIX_OFFERS_BASE_URL (which some environments already
+ * point at Aurix's real gateway for eligible_offers) — this must never
+ * silently start hitting prod just because that var changes.
+ *
+ * Auth reuses the same X-Aurix-Token minted by generate_token (per-user,
+ * cached on User.aurixToken) — the doc's AUTHTOKEN header. K-Aurix-Version
+ * for this endpoint is v1 (not v3, unlike eligible_offers/generate_token).
+ *
+ * The success response's record shape (`data: [{...}]`) is undocumented
+ * beyond that it's an array — callers should log the raw record and treat
+ * status extraction as best-effort until a real UAT response is seen.
+ */
+const AURIX_FETCH_LEADS_BASE_URL = process.env.AURIX_FETCH_LEADS_BASE_URL || 'https://pt-api-uat.aurix-partner.com';
+
+export interface FetchLeadsIdentifiers {
+  partnerCustomerId?: string | null;
+  applicationId?: string | null; // Aurix "Lead ID"
+  offerCode?: string | null;
+}
+
+export interface FetchLeadsResult {
+  success: boolean;
+  message?: string;
+  totalRecords?: number;
+  records: Record<string, unknown>[];
+}
+
+export async function fetchAurixLeads(ids: FetchLeadsIdentifiers, token: string): Promise<FetchLeadsResult> {
+  const body = {
+    partnerCustomerId: ids.partnerCustomerId ?? '',
+    applicationId: ids.applicationId ?? '',
+    offerCode: ids.offerCode ?? '',
+    pageNumber: 1,
+    pageSize: 10,
+  };
+  console.log(`[aurix-req] POST ${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads ${JSON.stringify(body)}`);
+  const result = await httpJson(
+    `${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads`,
+    'POST',
+    { Accept: 'application/json', 'K-Aurix-Version': 'v1', AUTHTOKEN: token },
+    body,
+  );
+  console.log(`[aurix-res] fetch_leads HTTP ${result.status} body=${JSON.stringify(result.body)}`);
+  if (!result.ok) throw new Error(`Aurix fetch_leads failed: ${result.error} (HTTP ${result.status})`);
+  const b = (result.body ?? {}) as Record<string, unknown>;
+  return {
+    success: b.success !== false,
+    message: typeof b.message === 'string' ? b.message : undefined,
+    totalRecords: typeof b.totalRecords === 'number' ? b.totalRecords : undefined,
+    records: Array.isArray(b.data) ? (b.data as Record<string, unknown>[]) : [],
+  };
+}
+
 const PROVIDERS: Record<string, LenderOfferProvider> = {
   mock: new MockLenderOfferProvider(),
   aurix: new AurixOfferProvider(),

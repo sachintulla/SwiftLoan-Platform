@@ -66,11 +66,22 @@ function alreadyProcessed(id: string | undefined): boolean {
 }
 
 // Progression rank so a status update only moves forward (or to a terminal).
-const RANK: Record<string, number> = {
+// Exported so other Aurix-status consumers (e.g. the Fetch Leads refresh-status
+// route) apply the exact same forward-only guard instead of a second copy.
+export const RANK: Record<string, number> = {
   draft: 0, pan_pending: 1, prequalifying: 2, offers_ready: 3, handoff: 4,
   under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8, failed: 8,
 };
-const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed', 'failed']);
+export const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed', 'failed']);
+
+/** Forward-only guard: allow advancing to a further status, or the one legal terminal step (approved → disbursed); never regress. */
+export function advancesStatus(from: ApplicationStatus | null, to: ApplicationStatus): boolean {
+  const f = RANK[from ?? 'draft'] ?? 0;
+  const t = RANK[to] ?? 0;
+  const regress = !TERMINAL.has(to) && t <= f;
+  const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
+  return !(regress || backTerminal);
+}
 
 /** Map a KFT journey (state, status, reason) onto our ApplicationStatus. */
 function mapJourney(state: string, status: string, reason: string): ApplicationStatus | null {
@@ -121,7 +132,7 @@ function mapJourney(state: string, status: string, reason: string): ApplicationS
 }
 
 /** Legacy flat-payload status mapping (pre-journey contract). */
-function mapFlatStatus(raw: string): ApplicationStatus | null {
+export function mapFlatStatus(raw: string): ApplicationStatus | null {
   const s = raw.toLowerCase();
   if (!s) return null;
   if (/disburs/.test(s)) return 'disbursed';
@@ -216,15 +227,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'No status change for this event');
   }
 
-  // Forward-only helper: allow advancing to a further status, or the one legal
-  // terminal step (approved → disbursed); never regress.
-  const advances = (from: ApplicationStatus | null, to: ApplicationStatus): boolean => {
-    const f = RANK[from ?? 'draft'] ?? 0;
-    const t = RANK[to] ?? 0;
-    const regress = !TERMINAL.has(to) && t <= f;
-    const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
-    return !(regress || backTerminal);
-  };
+  const advances = advancesStatus;
 
   // ── Per-lender application create/update ──
   // The per-lender application (an applied Offer) is CREATED only once the lender

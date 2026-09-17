@@ -126,10 +126,26 @@ export default function Status() {
     });
     go('lenderweb');
   };
-  // Pull the latest status for this application. For now this re-fetches what we
-  // have (whatever the KFT webhook has pushed so far); once KFT ships their
-  // status-pull API this handler is where that call plugs in.
-  const refreshStatus = () => { showToast('Checking latest status…'); load(); };
+  // Pull the latest status straight from the lender (Aurix Fetch Lead API),
+  // instead of just re-reading whatever the KFT webhook has pushed so far.
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshStatus = async () => {
+    if (!state.applicationId || refreshing) return;
+    setRefreshing(true);
+    showToast('Checking latest status…');
+    try {
+      const { application }: any = await api.refreshApplicationStatus(state.applicationId, {
+        lenderApplicationId: la?.id,
+        offerId: la?.offerId ?? sel?.id,
+      });
+      setApp(application);
+      mergeApiContext({ applicationDetail: application });
+    } catch (e: any) {
+      showToast(e?.message || 'Could not refresh status right now.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <Screen scroll padded={false}>
@@ -240,9 +256,9 @@ export default function Status() {
                   <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>Re-Apply</Text>
                 </Pressable>
               ) : null}
-              <Pressable onPress={refreshStatus} style={[styles.refreshBtn, canReapply ? null : { flex: 1 }]}>
+              <Pressable onPress={refreshStatus} disabled={refreshing} style={[styles.refreshBtn, canReapply ? null : { flex: 1 }, refreshing ? { opacity: 0.6 } : null]}>
                 <Icon name="refresh" size={18} color={colors.primary} />
-                <Text style={[font(700), { fontSize: 15, color: colors.primary }]}>Refresh status</Text>
+                <Text style={[font(700), { fontSize: 15, color: colors.primary }]}>{refreshing ? 'Checking…' : 'Refresh status'}</Text>
               </Pressable>
             </View>
           </>

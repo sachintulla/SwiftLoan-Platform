@@ -375,6 +375,10 @@ export const api = {
   listApplications: () => request('GET', '/applications'),
   getApplication: (id: string) => request('GET', `/applications/${id}`),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
+  // "Refresh status" — pulls the lender's live status via Aurix's Fetch Lead
+  // API instead of just re-reading our own DB-backed state. UAT only for now.
+  refreshApplicationStatus: (id: string, opts?: { lenderApplicationId?: string; offerId?: string }) =>
+    request('POST', `/applications/${id}/refresh-status`, opts, false, 20000),
   prequalify: async (id: string) => {
     // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
     // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.

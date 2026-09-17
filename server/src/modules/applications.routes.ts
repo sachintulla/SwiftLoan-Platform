@@ -1,12 +1,13 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type ApplicationStatus } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { getLenderOfferProvider, takeAurixDebug, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
 
@@ -63,6 +64,77 @@ applicationsRouter.get('/:id', ah(async (req, res) => {
     include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
   });
   res.json({ application: full });
+}));
+
+/**
+ * Pull the lender's live status via Aurix's Fetch Lead API (v1.1). UAT only
+ * for now (see fetchAurixLeads) — the app's "Refresh status" button calls
+ * this instead of just re-reading our own DB-backed state.
+ *
+ * Sends every identifier we know (Lead ID = LoanApplication.leadId,
+ * PartnerCustomerId = userId, OfferCode = the matched Offer's offerCode) —
+ * the doc allows multiple identifiers for a single record. Status extraction
+ * from the response is best-effort: KFT's `data:[{...}]` record shape isn't
+ * documented, so this tries a handful of likely field names and otherwise
+ * leaves current status untouched (never regresses, mirrors the webhook's
+ * own forward-only guard).
+ */
+applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  const full = await prisma.loanApplication.findUnique({
+    where: { id: app.id },
+    include: { offers: true, lenderApplications: true },
+  });
+  if (!full) throw new HttpError(404, 'Application not found');
+  const user = await prisma.user.findUnique({ where: { id: full.userId } });
+  if (!user) throw new HttpError(404, 'User not found');
+
+  const la = full.lenderApplications.find(x => x.id === req.body?.lenderApplicationId) ?? null;
+  const offer = full.offers.find(o => o.id === (la?.offerId ?? req.body?.offerId)) ?? null;
+
+  let token = user.aurixToken ?? '';
+  const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
+  if (!token || expired) {
+    token = await generateAurixTokenFromEnv(full.userId, user.phone);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
+    }).catch(() => {});
+  }
+
+  const result = await fetchAurixLeads(
+    { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode },
+    token,
+  );
+
+  const record = result.records[0] ?? null;
+  let mappedStatus: ApplicationStatus | null = null;
+  if (record) {
+    for (const key of ['status', 'Status', 'applicationStatus', 'ApplicationStatus', 'loanStatus', 'LoanStatus', 'leadStatus', 'LeadStatus']) {
+      const v = (record as Record<string, unknown>)[key];
+      if (typeof v === 'string' && v.trim()) { mappedStatus = mapFlatStatus(v); if (mappedStatus) break; }
+    }
+  }
+  log.info('refresh-status', {
+    applicationId: full.id, userId: full.userId, leadId: full.leadId, offerCode: offer?.offerCode,
+    totalRecords: result.totalRecords, hasRecord: !!record, mappedStatus,
+  });
+
+  if (mappedStatus && advancesStatus(full.status, mappedStatus)) {
+    await prisma.loanApplication.update({ where: { id: full.id }, data: { status: mappedStatus } });
+    if (offer && advancesStatus(offer.lenderStatus, mappedStatus)) {
+      await prisma.offer.update({ where: { id: offer.id }, data: { lenderStatus: mappedStatus } });
+    }
+    if (la && advancesStatus(la.status, mappedStatus)) {
+      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus } });
+    }
+  }
+
+  const refreshed = await prisma.loanApplication.findUnique({
+    where: { id: full.id },
+    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
+  });
+  res.json({ application: refreshed, aurixRaw: record });
 }));
 
 /** Update details / attach PAN (Step 2). */
