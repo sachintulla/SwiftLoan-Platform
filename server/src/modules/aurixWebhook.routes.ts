@@ -207,6 +207,14 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     await prisma.loanApplication.update({ where: { id: application.id }, data: { leadId } }).catch(() => {});
   }
 
+  // When OfferCode is given, resolve the EXACT offer it names up front — this
+  // is strictly more precise than the lender_name fuzzy match below, and
+  // covers the simpler webhook shape ({OfferCode, Status}, no lender_name at
+  // all) that the richer v1.3 journey contract doesn't require.
+  const offerCodeMatch = offerCode
+    ? await prisma.offer.findFirst({ where: { offerCode: String(offerCode), applicationId: application.id } })
+    : null;
+
   // v1.3: the bureau soft-pull event now carries the customer's real bureau
   // score — persist it so the app shows the actual CIBIL/CRIF value instead of
   // the default. (Independent of the status mapping below.)
@@ -240,14 +248,17 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const createsApplication = CREATE_STATES.has(state.toLowerCase().replace(/[^a-z_]/g, '')) || TERMINAL.has(mapped);
   const lenderName = data.lender_name ?? data.lenderName ?? null;
   let offerUpdated: string | null = null;
-  if (lenderName) {
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const want = norm(String(lenderName));
-    const offers = await prisma.offer.findMany({ where: { applicationId: application.id } });
-    const match = offers.find(o => o.lenderName && (() => {
-      const have = norm(o.lenderName);
-      return have === want || have.includes(want) || want.includes(have);
-    })());
+  if (lenderName || offerCodeMatch) {
+    let match = offerCodeMatch;
+    if (!match && lenderName) {
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const want = norm(String(lenderName));
+      const offers = await prisma.offer.findMany({ where: { applicationId: application.id } });
+      match = offers.find(o => o.lenderName && (() => {
+        const have = norm(o.lenderName);
+        return have === want || have.includes(want) || want.includes(have);
+      })()) ?? null;
+    }
     // Update if the offer is already applied, or CREATE it now if this event is
     // the submission confirmation. Otherwise (pre-OTP event, not yet applied) skip.
     if (match && (match.applied || createsApplication) && advances(match.lenderStatus, mapped)) {

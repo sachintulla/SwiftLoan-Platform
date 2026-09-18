@@ -280,7 +280,7 @@ function aurixEmploymentType(e: User['employment']): string {
     default: return e ? 'Other' : '';
   }
 }
-function aurixProductType(loanType: LoanApplication['loanType']): string {
+export function aurixProductType(loanType: LoanApplication['loanType']): string {
   // v1.2 master values: PersonalLoan | UnSecBusinessLoan.
   return loanType === 'business' ? 'UnSecBusinessLoan' : 'PersonalLoan';
 }
@@ -596,15 +596,14 @@ class AurixOfferProvider implements LenderOfferProvider {
  * point at Aurix's real gateway for eligible_offers) — this must never
  * silently start hitting prod just because that var changes.
  *
- * Auth reuses the same X-Aurix-Token minted by generate_token (per-user,
- * cached on User.aurixToken) — the doc's AUTHTOKEN header. The doc says
- * K-Aurix-Version: v1 for this endpoint, but confirmed live against UAT that
- * a v3-minted token gets a clean 401 under v1 — identical to the already-
- * documented eligible_offers behavior (see AurixOfferProvider.getOffers
- * below: "v1 here caused eligible_offers to reject the (valid) token with
- * HTTP 401").
- * Tokens from generate_token appear to be version-scoped to v3 regardless of
- * which endpoint receives them, so this sends v3 too until Aurix says otherwise.
+ * Auth: the doc's own header set (K-Aurix-Version: v1, AUTHTOKEN: <token>)
+ * was tried first and got a clean 401 from UAT even with a token that had
+ * just minted fine; switching to v3 alone still 401'd. Both the base URL and
+ * K-Aurix-Version in this doc have already turned out to not match live
+ * behavior, so this instead sends the EXACT header set proven to work for
+ * eligible_offers on this same account (K-Aurix-Token + X-Aurix-Token +
+ * K-Aurix-PartnerCustomerId, K-Aurix-Version v3) — AUTHTOKEN is kept
+ * alongside it for doc-compliance, in case the gateway checks that too.
  *
  * The success response's record shape (`data: [{...}]`) is undocumented
  * beyond that it's an array — callers should log the raw record and treat
@@ -616,6 +615,11 @@ export interface FetchLeadsIdentifiers {
   partnerCustomerId?: string | null;
   applicationId?: string | null; // Aurix "Lead ID"
   offerCode?: string | null;
+  // Despite the doc's Business Rules saying "all filters are optional", a live
+  // UAT call without it gets HTTP 400 "ProductType is required." — the doc's
+  // own side-note ("Ensure the ProductType is correctly passed") was the real
+  // signal. Use aurixProductType() to derive this from LoanApplication.loanType.
+  productType?: string | null;
 }
 
 export interface FetchLeadsResult {
@@ -626,18 +630,30 @@ export interface FetchLeadsResult {
 }
 
 export async function fetchAurixLeads(ids: FetchLeadsIdentifiers, token: string): Promise<FetchLeadsResult> {
+  // The doc's own example payload uses camelCase, but a live camelCase
+  // "productType" still got "ProductType is required." — this ASP.NET-style
+  // API (note the ModelState error shape) apparently binds on PascalCase,
+  // matching how eligible_offers/generate_token already send their bodies.
   const body = {
-    partnerCustomerId: ids.partnerCustomerId ?? '',
-    applicationId: ids.applicationId ?? '',
-    offerCode: ids.offerCode ?? '',
-    pageNumber: 1,
-    pageSize: 10,
+    PartnerCustomerId: ids.partnerCustomerId ?? '',
+    ApplicationId: ids.applicationId ?? '',
+    OfferCode: ids.offerCode ?? '',
+    ProductType: ids.productType ?? '',
+    PageNumber: 1,
+    PageSize: 10,
   };
   console.log(`[aurix-req] POST ${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads ${JSON.stringify(body)}`);
   const result = await httpJson(
     `${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads`,
     'POST',
-    { Accept: 'application/json', 'K-Aurix-Version': 'v3', AUTHTOKEN: token },
+    {
+      Accept: 'application/json',
+      'K-Aurix-Version': 'v3',
+      AUTHTOKEN: token,
+      'K-Aurix-Token': token,
+      'X-Aurix-Token': token,
+      ...(ids.partnerCustomerId ? { 'K-Aurix-PartnerCustomerId': ids.partnerCustomerId } : {}),
+    },
     body,
   );
   console.log(`[aurix-res] fetch_leads HTTP ${result.status} body=${JSON.stringify(result.body)}`);

@@ -6,7 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
@@ -103,7 +103,7 @@ applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
   }
 
   const result = await fetchAurixLeads(
-    { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode },
+    { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
     token,
   );
 
