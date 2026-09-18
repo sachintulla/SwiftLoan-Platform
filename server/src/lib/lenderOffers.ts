@@ -597,8 +597,14 @@ class AurixOfferProvider implements LenderOfferProvider {
  * silently start hitting prod just because that var changes.
  *
  * Auth reuses the same X-Aurix-Token minted by generate_token (per-user,
- * cached on User.aurixToken) — the doc's AUTHTOKEN header. K-Aurix-Version
- * for this endpoint is v1 (not v3, unlike eligible_offers/generate_token).
+ * cached on User.aurixToken) — the doc's AUTHTOKEN header. The doc says
+ * K-Aurix-Version: v1 for this endpoint, but confirmed live against UAT that
+ * a v3-minted token gets a clean 401 under v1 — identical to the already-
+ * documented eligible_offers behavior (see AurixOfferProvider.getOffers
+ * below: "v1 here caused eligible_offers to reject the (valid) token with
+ * HTTP 401").
+ * Tokens from generate_token appear to be version-scoped to v3 regardless of
+ * which endpoint receives them, so this sends v3 too until Aurix says otherwise.
  *
  * The success response's record shape (`data: [{...}]`) is undocumented
  * beyond that it's an array — callers should log the raw record and treat
@@ -631,7 +637,7 @@ export async function fetchAurixLeads(ids: FetchLeadsIdentifiers, token: string)
   const result = await httpJson(
     `${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads`,
     'POST',
-    { Accept: 'application/json', 'K-Aurix-Version': 'v1', AUTHTOKEN: token },
+    { Accept: 'application/json', 'K-Aurix-Version': 'v3', AUTHTOKEN: token },
     body,
   );
   console.log(`[aurix-res] fetch_leads HTTP ${result.status} body=${JSON.stringify(result.body)}`);
