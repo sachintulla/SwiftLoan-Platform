@@ -1,0 +1,127 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
+import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
+import { Card, SectionLabel } from '@/components/apply/primitives';
+import { useApply } from '@/lib/applyContext';
+import { patchApplication } from '@/lib/applyApi';
+
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+function isValidPan(v: string) {
+  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v) && PAN_HOLDER_CODES.includes(v[3] ?? '');
+}
+
+export default function Step3Page() {
+  const router = useRouter();
+  const { applicationId } = useApply();
+  const [pan, setPan] = useState('');
+  const [consent, setConsent] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!applicationId) router.replace('/apply/step-1');
+  }, [applicationId, router]);
+
+  const valid = isValidPan(pan) && consent;
+
+  const submit = async () => {
+    if (!valid || !applicationId || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await patchApplication(applicationId, { panNumber: pan });
+      router.push('/apply/finding');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not verify PAN. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ApplyShell backHref="/apply/step-2" stepLabel="Step 3 of 3" progressPct={74}>
+      <Stepper step={3} />
+      <div className="mb-7 flex items-start gap-3.5">
+        <span className="bg-accent grid h-11 w-11 shrink-0 place-items-center rounded-2xl">
+          <CreditCard className="text-primary h-5 w-5" />
+        </span>
+        <div>
+          <h1 className="text-2xl font-extrabold">Verify your PAN</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Your PAN helps lenders verify your identity and check eligibility instantly.</p>
+        </div>
+      </div>
+
+      <Card className="flex flex-col gap-6 sm:p-7">
+        <div>
+          <SectionLabel>Upload PAN card</SectionLabel>
+          <label
+            htmlFor="pan-upload"
+            className="border-border hover:border-primary hover:bg-accent/40 group flex cursor-pointer flex-col items-center gap-2.5 rounded-2xl border-2 border-dashed p-8 text-center transition-colors"
+          >
+            <span className="bg-accent grid h-12 w-12 place-items-center rounded-2xl transition-transform group-hover:scale-105">
+              <UploadCloud className="text-primary h-6 w-6" />
+            </span>
+            <p className="text-sm font-bold">Drag &amp; drop your PAN card here, or click to upload</p>
+            <p className="text-muted-foreground text-xs">We&apos;ll auto-detect your PAN number — accurate &amp; instant</p>
+            <span className="border-border bg-card mt-1 rounded-full border px-4 py-2 text-xs font-bold">Choose file</span>
+            <input id="pan-upload" type="file" accept="image/*,.pdf" className="sr-only" />
+          </label>
+        </div>
+
+        <div className="text-muted-foreground flex items-center gap-3 text-xs font-bold">
+          <span className="bg-border h-px flex-1" />
+          OR ENTER MANUALLY
+          <span className="bg-border h-px flex-1" />
+        </div>
+
+        <label className="flex max-w-xs flex-col gap-1.5 text-sm">
+          <span className="text-foreground font-semibold">PAN number</span>
+          <input
+            value={pan}
+            maxLength={10}
+            onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            placeholder="ABCDE1234F"
+            className="input-interactive field-input h-12 rounded-xl px-3.5 text-base font-bold tracking-[0.15em]"
+          />
+          <span className="text-muted-foreground text-xs">10-character alphanumeric code printed on your PAN card</span>
+        </label>
+
+        <label className="bg-accent flex items-start gap-3 rounded-xl p-4">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="accent-primary mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex items-start gap-2 text-xs">
+            <Lock className="text-primary mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span className="text-muted-foreground">
+              I authorize SwiftLoan and its RBI-registered lending partners to verify my PAN and fetch my credit report — this is
+              a <strong className="text-foreground">soft check</strong> and won&apos;t affect my credit score. Read our{' '}
+              <a href="/privacypolicy" className="text-primary font-semibold underline">Privacy Policy</a>.
+            </span>
+          </span>
+        </label>
+      </Card>
+
+      <div className="text-muted-foreground mt-4 flex items-center gap-2 text-xs">
+        <ShieldCheck className="text-mint h-4 w-4 shrink-0" />
+        Bank-grade encryption — your PAN is never shared without your consent
+      </div>
+
+      {error && <p className="text-danger mt-3 text-sm font-semibold">{error}</p>}
+
+      <BottomBar meta="Step 3 of 3 · Final step">
+        <button
+          onClick={submit}
+          disabled={!valid || loading}
+          className={`rounded-full px-6 py-3 text-sm font-bold transition-all ${
+            !valid || loading
+              ? 'bg-muted text-muted-foreground'
+              : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5'
+          }`}
+        >
+          {loading ? 'Verifying…' : 'Verify PAN & see offers →'}
+        </button>
+      </BottomBar>
+    </ApplyShell>
+  );
+}

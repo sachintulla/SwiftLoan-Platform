@@ -1,0 +1,133 @@
+/**
+ * Typed wrappers around the SAME `/api/users` and `/api/applications`
+ * endpoints the mobile app uses (server/src/modules/{users,applications}.routes.ts)
+ * — nothing new was added server-side for the application funnel itself, only
+ * for login (see session.ts). Every call goes through authFetch, which
+ * attaches the website's access token and silently refreshes it on expiry.
+ */
+import { authFetch } from './session';
+
+export interface Offer {
+  id: string;
+  amount: number;
+  apr: number;
+  emi: number;
+  tenureMonths: number;
+  processingFeeAmount: number | null;
+  netDisbursalAmount: number | null;
+  redirectionUrl: string | null;
+  lenderName: string | null;
+  lenderLogoUrl: string | null;
+  recommended: boolean;
+  applied?: boolean;
+  selected?: boolean;
+  partner?: { name: string } | null;
+  emiOptions?: { id: string; tenureMonths: number; monthlyEmi: number }[];
+}
+
+export interface LoanApplication {
+  id: string;
+  ref: string;
+  status: string;
+  amount: number;
+  tenureMonths: number;
+  updatedAt: string;
+  offers?: Offer[];
+  loan?: { id: string } | null;
+  lenderApplications?: {
+    id: string;
+    status: string;
+    lenderName: string | null;
+    amount: number;
+    apr: number | null;
+    emi: number | null;
+    tenureMonths: number | null;
+    redirectionUrl: string | null;
+    appliedAt: string;
+  }[];
+}
+
+export async function fetchMe() {
+  return authFetch('/api/website/auth/me');
+}
+
+/** PATCH /api/users/me — the exact field set mobile's basic/moredetails/basicpan screens save. */
+export async function patchProfile(patch: Record<string, unknown>) {
+  const body = await authFetch('/api/users/me', { method: 'PATCH', body: JSON.stringify(patch) });
+  return body.user;
+}
+
+export async function createApplication(payload: {
+  amount: number;
+  tenureMonths?: number;
+  purpose?: string;
+  employment?: string;
+  monthlyIncome?: number;
+  residenceType?: string;
+}) {
+  const body = await authFetch('/api/applications', { method: 'POST', body: JSON.stringify(payload) });
+  return body.application as LoanApplication;
+}
+
+export async function patchApplication(id: string, patch: { amount?: number; tenureMonths?: number; panNumber?: string }) {
+  const body = await authFetch(`/api/applications/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  return body.application as LoanApplication;
+}
+
+export async function getApplication(id: string) {
+  const body = await authFetch(`/api/applications/${id}`);
+  return body.application as LoanApplication;
+}
+
+export async function listApplications() {
+  const body = await authFetch('/api/applications');
+  return body.applications as LoanApplication[];
+}
+
+export async function prequalify(id: string) {
+  const body = await authFetch(`/api/applications/${id}/prequalify`, { method: 'POST' });
+  return body.offers as Offer[];
+}
+
+/**
+ * Apply to a lender's offer — mirrors offers.tsx exactly: this single call
+ * both records the per-lender application AND marks the offer `selected`, so
+ * it covers the mock/fallback path's `/handoff` precondition too. The caller
+ * branches on `offer.redirectionUrl` afterward to decide the next screen.
+ */
+export async function applyOffer(applicationId: string, offerId: string) {
+  const body = await authFetch(`/api/applications/${applicationId}/offers/${offerId}/apply`, { method: 'POST' });
+  return body as { lenderApplicationId?: string; duplicate?: boolean };
+}
+
+export async function reportLenderOutcome(
+  applicationId: string,
+  offerId: string,
+  outcome: 'success' | 'failed' | 'error',
+  reason?: string,
+  lenderApplicationId?: string | null,
+) {
+  const path = outcome === 'success'
+    ? `/api/applications/${applicationId}/offers/${offerId}/outcome`
+    : `/api/applications/${applicationId}/offers/${offerId}/fail`;
+  return authFetch(path, { method: 'POST', body: JSON.stringify({ outcome, reason, lenderApplicationId }) });
+}
+
+/** Mock/fallback path only (no redirectionUrl on the offer) — creates the loan instantly. */
+export async function handoff(applicationId: string) {
+  const body = await authFetch(`/api/applications/${applicationId}/handoff`, { method: 'POST' });
+  return body.loan;
+}
+
+export async function patchNotifications(patch: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) {
+  const body = await authFetch('/api/users/me/notifications', { method: 'PATCH', body: JSON.stringify(patch) });
+  return body.user;
+}
+
+export async function refreshApplicationStatus(applicationId: string) {
+  const body = await authFetch(`/api/applications/${applicationId}/refresh-status`, { method: 'POST' });
+  // A failed lender call degrades server-side to "return what we already
+  // knew" (see applications.routes.ts) rather than a thrown error — surface
+  // that as a soft warning, not a broken page.
+  return { application: body.application as LoanApplication, refreshError: body.refreshError as string | undefined };
+}
