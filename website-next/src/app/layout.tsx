@@ -8,6 +8,7 @@ import { SiteHeader } from '@/components/site/SiteHeader';
 import { SiteFooter } from '@/components/site/SiteFooter';
 import { Toaster } from '@/components/ui/sonner';
 import { QuickCheckModal } from '@/components/home/QuickCheckModal';
+import { HideOnAppRoutes } from '@/components/site/HideOnAppRoutes';
 import './globals.css';
 import './design.css';
 
@@ -67,17 +68,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Chrome from the new design package. LanguageProvider must wrap the
             page because every section reads its copy through useCopy(). */}
         <LanguageProvider>
-          <Backdrop />
-          <SiteHeader />
+          <HideOnAppRoutes>
+            <Backdrop />
+          </HideOnAppRoutes>
+          <HideOnAppRoutes>
+            <SiteHeader />
+          </HideOnAppRoutes>
           {children}
-          <SiteFooter />
+          <HideOnAppRoutes>
+            <SiteFooter />
+          </HideOnAppRoutes>
           <Toaster />
-          <QuickCheckModal />
+          <HideOnAppRoutes>
+            <QuickCheckModal />
+          </HideOnAppRoutes>
         </LanguageProvider>
         {/* Platform integrations — deliberately outside the redesign: the voice
-            widget and Upshot SDK are unchanged by it. */}
+            widget and Upshot SDK are unchanged by it. UpshotWeb has no visible
+            UI, so it stays mounted everywhere; VoiceWidget's floating button
+            sits bottom-right and was overlapping/eating clicks on the apply
+            funnel's own sticky bottom-bar CTA in that same corner. */}
         <UpshotWeb />
-        <VoiceWidget />
+        <HideOnAppRoutes>
+          <VoiceWidget />
+        </HideOnAppRoutes>
       </body>
     </html>
   );

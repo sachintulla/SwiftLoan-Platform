@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type FormEvent, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCopy } from "@/lib/i18n";
@@ -9,10 +10,14 @@ import {
   updateLeadAmount,
   attribution,
   makeRefId,
-  requestWebsiteOtp,
-  verifyWebsiteOtp,
   submitCallbackChoice,
 } from "@/lib/leads";
+// The real login (session cookie + access token), not the lead-only
+// verification lib/leads.ts used to call here — a successful verify now signs
+// the visitor in for real, so the OTP popup can hand off straight into
+// /apply/step-1 (or /account, if this phone already has an application)
+// instead of a "here's a QR code for the app" dead end.
+import { requestOtp as requestAuthOtp, verifyOtp as verifyAuthOtp } from "@/lib/session";
 import { upshotEvent, upshotIdentify } from "@/components/UpshotWeb";
 
 export const AMOUNT_MIN = 10_000;
@@ -39,6 +44,7 @@ export const appStoreUrl = "https://apps.apple.com/app/id0000000000";
  */
 export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
   const requireAmountTouched = opts.requireAmountTouched ?? true;
+  const router = useRouter();
   /** Which of the two "panels" is showing. OTP + callback consent are
    *  full-screen popups layered on top, not a panel of their own. */
   const [panel, setPanel] = useState<"form" | "success">("form");
@@ -183,20 +189,17 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     async (phone: string) => {
       setOtpSending(true);
       setOtpError(null);
-      const result = await requestWebsiteOtp(phone);
-      setOtpSending(false);
-      if (!result.ok) {
-        const message = result.error || t.otpToastSendFailed;
+      try {
+        const result = await requestAuthOtp(phone);
+        setDevOtpHint(result.devOtp);
+        setOtpResendSeconds(30);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : t.otpToastSendFailed;
         toast.error(message);
         setOtpError(message);
-        return;
+      } finally {
+        setOtpSending(false);
       }
-      // Always require a fresh, real OTP entry here — even if this phone was
-      // verified on an earlier visit — so the callback popup can never appear
-      // without the visitor actually seeing and completing the OTP screen in
-      // THIS session.
-      setDevOtpHint(result.data?.devOtp);
-      setOtpResendSeconds(30);
     },
     [t],
   );
@@ -212,33 +215,30 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
       // rather than on every slider drag. Firing a request per drag used to
       // eat into the 5-req/minute limit /api/context and /api/website share,
       // so a visitor who paused the slider twice while choosing an amount
-      // could burn the whole budget before ever reaching OTP verify or the
-      // callback step, which then 429'd. updateLeadAmount() patches the
-      // existing lead rather than submitLead()'s create-a-new-row behaviour —
-      // see its doc comment for why re-using submitLead() here used to leave
-      // two enquiries (default + corrected) for one visit.
+      // could burn the whole budget before ever reaching OTP verify. This is
+      // the Lead record's amount (attribution/admin-dashboard data) — separate
+      // from the real LoanApplication's amount, which Step 1 collects fresh.
       if (amountNeedsCorrection.current) {
         amountNeedsCorrection.current = false;
         await updateLeadAmount(mobileNumber, amount).catch(() => undefined);
       }
 
-      const result = await verifyWebsiteOtp(mobileNumber, otp);
-      setOtpVerifying(false);
-      if (!result) {
-        toast.error(t.otpToastSendFailed);
-        return;
-      }
-      if (!result.verified) {
-        setOtpError(t.otpToastInvalid);
+      try {
+        // A real login now, not just a lead-phone check — this is what lets
+        // the very next page (/apply/step-1 or /account) make authenticated
+        // calls with no second OTP. Also converts this visit's just-created
+        // Lead onto the resulting User (see authSession.ts's verifyOtpAndLogin).
+        const result = await verifyAuthOtp(mobileNumber, otp);
+        setShowOtpModal(false);
+        router.push(result.hasApplication ? "/account" : "/apply/step-1");
+      } catch (err) {
+        setOtpError(err instanceof Error ? err.message : t.otpToastInvalid);
         setOtp("");
-        return;
+      } finally {
+        setOtpVerifying(false);
       }
-      setShowOtpModal(false);
-      setShowCallbackModal(true);
-      setPanel("success");
-      setSeconds(10);
     },
-    [otp, otpVerifying, mobileNumber, amount, t],
+    [otp, otpVerifying, mobileNumber, amount, t, router],
   );
 
   /** The lead is already saved by this point (submitLead ran before this modal

@@ -113,21 +113,15 @@ export function SiteHeader() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            {/* The header's only CTA now — straight into the full web
+                application at /apply. The old "Check eligibility" button
+                (which opened the lead-capture popup) is gone from the header;
+                this keeps its exact filled/gradient styling. */}
             <Link
-              href="/#lead-form"
-              onClick={(e) => {
-                if (
-                  typeof window !== "undefined" &&
-                  window.__swiftloanQuickCheck &&
-                  window.innerWidth >= 768
-                ) {
-                  e.preventDefault();
-                  window.__swiftloanQuickCheck.open();
-                }
-              }}
+              href="/apply"
               className="bg-brand-gradient ml-2 inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
             >
-              {t.cta} <ArrowRight className="h-4 w-4" />
+              {t.applyNow} <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
 
@@ -173,11 +167,11 @@ export function SiteHeader() {
               </div>
 
               <Link
-                href="/#lead-form"
+                href="/apply"
                 onClick={() => setOpen(false)}
                 className="bg-brand-gradient mt-2 inline-flex items-center justify-center gap-1.5 rounded-2xl px-5 py-3 text-sm font-semibold text-primary-foreground"
               >
-                {t.cta} <ArrowRight className="h-4 w-4" />
+                {t.applyNow} <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
           </div>

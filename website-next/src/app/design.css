@@ -430,6 +430,24 @@
   }
 }
 
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @keyframes typing-cursor {
   0%, 100% {
     opacity: 1;
@@ -468,6 +486,14 @@
 
 @utility animate-typing-cursor {
   animation: typing-cursor 1s step-end infinite;
+}
+
+@utility animate-spin-slow {
+  animation: spin-slow 9s linear infinite;
+}
+
+@utility animate-twinkle {
+  animation: twinkle 1.6s ease-in-out infinite;
 }
 
 @utility input-interactive {
@@ -534,6 +560,8 @@
   .animate-blink,
   .animate-input-invite,
   .animate-typing-cursor,
+  .animate-spin-slow,
+  .animate-twinkle,
   .cta-pulse {
     animation: none;
   }

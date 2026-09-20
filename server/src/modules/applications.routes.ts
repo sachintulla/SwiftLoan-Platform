@@ -92,32 +92,44 @@ applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
   const la = full.lenderApplications.find(x => x.id === req.body?.lenderApplicationId) ?? null;
   const offer = full.offers.find(o => o.id === (la?.offerId ?? req.body?.offerId)) ?? null;
 
-  let token = user.aurixToken ?? '';
-  const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
-  if (!token || expired) {
-    token = await generateAurixTokenFromEnv(full.userId, user.phone);
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
-    }).catch(() => {});
-  }
-
-  const result = await fetchAurixLeads(
-    { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
-    token,
-  );
-
-  const record = result.records[0] ?? null;
+  // Everything from here down is a live third-party call — a validation
+  // quirk on Aurix's end, an expired-token round-trip failing, or a
+  // transient outage must not turn "check for an update" into a hard 500 for
+  // the applicant. Degrade to "still shows whatever we already knew", the
+  // same forward-only philosophy the webhook and prequalify's per-partner
+  // loop already use elsewhere in this file.
+  let record: Record<string, unknown> | null = null;
   let mappedStatus: ApplicationStatus | null = null;
-  if (record) {
-    for (const key of ['status', 'Status', 'applicationStatus', 'ApplicationStatus', 'loanStatus', 'LoanStatus', 'leadStatus', 'LeadStatus']) {
-      const v = (record as Record<string, unknown>)[key];
-      if (typeof v === 'string' && v.trim()) { mappedStatus = mapFlatStatus(v); if (mappedStatus) break; }
+  let refreshError: string | undefined;
+  try {
+    let token = user.aurixToken ?? '';
+    const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
+    if (!token || expired) {
+      token = await generateAurixTokenFromEnv(full.userId, user.phone);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
+      }).catch(() => {});
     }
+
+    const result = await fetchAurixLeads(
+      { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
+      token,
+    );
+    record = result.records[0] ?? null;
+    if (record) {
+      for (const key of ['status', 'Status', 'applicationStatus', 'ApplicationStatus', 'loanStatus', 'LoanStatus', 'leadStatus', 'LeadStatus']) {
+        const v = (record as Record<string, unknown>)[key];
+        if (typeof v === 'string' && v.trim()) { mappedStatus = mapFlatStatus(v); if (mappedStatus) break; }
+      }
+    }
+  } catch (e) {
+    refreshError = (e as Error)?.message || 'Could not reach the lender right now.';
+    log.warn('refresh-status: lender call failed, returning last known status', { applicationId: full.id, error: refreshError });
   }
   log.info('refresh-status', {
     applicationId: full.id, userId: full.userId, leadId: full.leadId, offerCode: offer?.offerCode,
-    totalRecords: result.totalRecords, hasRecord: !!record, mappedStatus,
+    hasRecord: !!record, mappedStatus, refreshError,
   });
 
   if (mappedStatus && advancesStatus(full.status, mappedStatus)) {
@@ -134,7 +146,7 @@ applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
     where: { id: full.id },
     include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
   });
-  res.json({ application: refreshed, aurixRaw: record });
+  res.json({ application: refreshed, aurixRaw: record, refreshError });
 }));
 
 /** Update details / attach PAN (Step 2). */
