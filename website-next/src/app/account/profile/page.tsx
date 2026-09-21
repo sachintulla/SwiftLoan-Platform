@@ -157,10 +157,19 @@ function ToggleRow({ label, sub, on, onToggle, last }: { label: string; sub: str
         <div className="text-muted-foreground text-xs">{sub}</div>
       </div>
       <button
+        type="button"
         onClick={onToggle}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}
+        role="switch"
+        aria-checked={on}
+        className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full p-0 transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}
       >
-        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+        {/* `left-0.5` is explicit (not left implicit/auto) so the knob's rest
+            position doesn't depend on the button's own box model — relying on
+            that made it drift a px or two and look slightly off-center /
+            clipped against the track's rounded ends. */}
+        <span
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform ${on ? 'translate-x-5' : 'translate-x-0'}`}
+        />
       </button>
     </div>
   );

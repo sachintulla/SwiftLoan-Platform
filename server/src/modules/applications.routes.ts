@@ -168,7 +168,6 @@ applicationsRouter.patch('/:id',
 /** Pre-qualify: soft-pull + generate ranked partner offers (finding → offers). */
 applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  await prisma.offer.deleteMany({ where: { applicationId: app.id } });
   const partners = await prisma.lenderPartner.findMany({ where: { active: true }, take: 3, orderBy: { baseApr: 'asc' } });
   if (partners.length === 0) throw new HttpError(503, 'No lending partners configured — run the seed script');
 
@@ -196,41 +195,64 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   pending.forEach((x, i) => { if (x.raw.apr > 0 && x.raw.apr < bestApr) { bestApr = x.raw.apr; bestIdx = i; } });
   if (bestIdx === -1 && pending.length) bestIdx = 0;
 
-  const created = await Promise.all(pending.map(async ({ partner: p, raw }, i) => {
-    // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of the
-    // recommended tenure option so /handoff keeps reading those scalars.
-    const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
-    return prisma.offer.create({
-      data: {
-        applicationId: app.id,
-        partnerId: p.id,
-        amount: raw.amount,
-        apr: raw.apr,
-        emi: recommendedOption?.monthlyEmi ?? 0,
-        tenureMonths: recommendedOption?.tenureMonths ?? app.tenureMonths,
-        processingFee: raw.processingFeeAmount,
-        processingFeeAmount: raw.processingFeeAmount,
-        gstOnProcessingFee: raw.gstOnProcessingFee,
-        netDisbursalAmount: raw.netDisbursalAmount,
-        badgeText: raw.badgeText ?? p.tagline,
-        tag: p.tagline,
-        recommended: i === bestIdx,
-        // Aurix passthrough — persisted for the later tile step; harmless nulls
-        // for the mock provider.
-        offerCode: raw.offerCode ?? null,
-        offerType: raw.offerType ?? null,
-        roi: raw.roi ?? null,
-        offerLikelihood: raw.offerLikelihood ?? null,
-        redirectionUrl: raw.redirectionUrl ?? null,
-        lenderName: raw.lenderName ?? null,
-        lenderLogoUrl: raw.lenderLogoUrl ?? null,
-        externalPartnerId: raw.externalPartnerId ?? null,
-        ...(raw.rawOffer !== undefined ? { rawOffer: raw.rawOffer as Prisma.InputJsonValue } : {}),
-        emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
-      },
-      include: { emiOptions: true, partner: true },
-    });
-  }));
+  // Delete-old + insert-new run as ONE transaction, immediately before the
+  // response — not a bare deleteMany() up front (the old position, before the
+  // slow Aurix/partner network calls above). Two prequalify calls close
+  // together (a double-click, a retry, or — as actually happened once in dev
+  // — React Strict Mode double-invoking this screen's effect) used to each
+  // independently delete-then-insert, and a plain transaction around
+  // delete+create does NOT fix this on its own: Postgres's DELETE only locks
+  // rows that already exist at the time it runs, so a concurrent
+  // transaction's INSERT of brand-new rows is never blocked by it — both
+  // sides' 5 offers still landed (confirmed: still 10 after switching to a
+  // bare $transaction([...]) array). The actual fix is a real serialization
+  // point: SELECT ... FOR UPDATE on the parent LoanApplication row forces a
+  // second concurrent prequalify for the SAME application to block until the
+  // first one's delete+insert has fully committed, so its own delete
+  // correctly sees and removes the first one's offers instead of racing past
+  // them. Confirmed with two concurrent requests fired at the same
+  // application: exactly 5 offers survive now, not 10.
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "LoanApplication" WHERE id = ${app.id} FOR UPDATE`;
+    await tx.offer.deleteMany({ where: { applicationId: app.id } });
+    const rows = [];
+    for (const [i, { partner: p, raw }] of pending.entries()) {
+      // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of
+      // the recommended tenure option so /handoff keeps reading those scalars.
+      const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
+      rows.push(await tx.offer.create({
+        data: {
+          applicationId: app.id,
+          partnerId: p.id,
+          amount: raw.amount,
+          apr: raw.apr,
+          emi: recommendedOption?.monthlyEmi ?? 0,
+          tenureMonths: recommendedOption?.tenureMonths ?? app.tenureMonths,
+          processingFee: raw.processingFeeAmount,
+          processingFeeAmount: raw.processingFeeAmount,
+          gstOnProcessingFee: raw.gstOnProcessingFee,
+          netDisbursalAmount: raw.netDisbursalAmount,
+          badgeText: raw.badgeText ?? p.tagline,
+          tag: p.tagline,
+          recommended: i === bestIdx,
+          // Aurix passthrough — persisted for the later tile step; harmless
+          // nulls for the mock provider.
+          offerCode: raw.offerCode ?? null,
+          offerType: raw.offerType ?? null,
+          roi: raw.roi ?? null,
+          offerLikelihood: raw.offerLikelihood ?? null,
+          redirectionUrl: raw.redirectionUrl ?? null,
+          lenderName: raw.lenderName ?? null,
+          lenderLogoUrl: raw.lenderLogoUrl ?? null,
+          externalPartnerId: raw.externalPartnerId ?? null,
+          ...(raw.rawOffer !== undefined ? { rawOffer: raw.rawOffer as Prisma.InputJsonValue } : {}),
+          emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
+        },
+        include: { emiOptions: true, partner: true },
+      }));
+    }
+    return rows;
+  });
   // "offers_ready" must mean real offers exist — it used to be set
   // unconditionally the moment this call finished, whether `created` held 3
   // offers or 0. Every downstream reader (the admin dashboard's stage

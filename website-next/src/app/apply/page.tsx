@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Lock } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
@@ -13,7 +14,9 @@ export default function ApplyPhonePage() {
   const router = useRouter();
   const { setPhone } = useApply();
   const [value, setValue] = useState('');
-  const [terms, setTerms] = useState(true);
+  // Must be an explicit opt-in, never pre-checked — same reasoning as the
+  // Step 3 PAN-consent checkbox.
+  const [terms, setTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -64,7 +67,7 @@ export default function ApplyPhonePage() {
           </label>
 
           <label className="bg-muted mt-4 flex items-start gap-3 rounded-xl p-3.5 text-xs">
-            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="accent-primary mt-0.5" />
+            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required className="accent-primary mt-0.5" />
             <span className="text-muted-foreground">
               I agree to SwiftLoan&apos;s <a className="text-primary font-semibold underline">Terms of Service</a> and{' '}
               <a href="/privacypolicy" className="text-primary font-semibold underline">Privacy Policy</a>, and consent to being
@@ -79,7 +82,9 @@ export default function ApplyPhonePage() {
               Send OTP
             </PrimaryButton>
           </div>
-          <p className="text-muted-foreground mt-3 text-center text-[11px]">🔒 We never share your number or make spam calls.</p>
+          <p className="text-muted-foreground mt-3 flex items-center justify-center gap-1 text-center text-[11px]">
+            <Lock className="h-3 w-3" /> We never share your number or make spam calls.
+          </p>
         </div>
       </div>
     </ApplyShell>

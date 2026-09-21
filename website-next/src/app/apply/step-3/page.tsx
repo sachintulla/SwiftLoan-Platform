@@ -15,17 +15,26 @@ function isValidPan(v: string) {
 
 export default function Step3Page() {
   const router = useRouter();
-  const { applicationId } = useApply();
+  const { applicationId, sessionReady } = useApply();
   const [pan, setPan] = useState('');
-  const [consent, setConsent] = useState(true);
+  // Consent must be an explicit, unforced opt-in — it authorizes a credit-report
+  // pull, so it must never start pre-checked.
+  const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for ApplyProvider to sync applicationId in from sessionStorage —
+    // see applyContext.tsx.
+    if (!sessionReady) return;
     if (!applicationId) router.replace('/apply/step-1');
-  }, [applicationId, router]);
+  }, [sessionReady, applicationId, router]);
 
-  const valid = isValidPan(pan) && consent;
+  const panValid = isValidPan(pan);
+  const valid = panValid && consent;
+  const missing: string[] = [];
+  if (!panValid) missing.push(pan ? 'a valid 10-character PAN number' : 'your PAN number');
+  if (!consent) missing.push('consent to the authorization below');
 
   const submit = async () => {
     if (!valid || !applicationId || loading) return;
@@ -78,7 +87,9 @@ export default function Step3Page() {
         </div>
 
         <label className="flex max-w-xs flex-col gap-1.5 text-sm">
-          <span className="text-foreground font-semibold">PAN number</span>
+          <span className="text-foreground font-semibold">
+            PAN number<span className="text-danger ml-0.5">*</span>
+          </span>
           <input
             value={pan}
             maxLength={10}
@@ -90,7 +101,7 @@ export default function Step3Page() {
         </label>
 
         <label className="bg-accent flex items-start gap-3 rounded-xl p-4">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="accent-primary mt-0.5 h-4 w-4 shrink-0" />
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required className="accent-primary mt-0.5 h-4 w-4 shrink-0" />
           <span className="flex items-start gap-2 text-xs">
             <Lock className="text-primary mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span className="text-muted-foreground">
@@ -108,6 +119,11 @@ export default function Step3Page() {
       </div>
 
       {error && <p className="text-danger mt-3 text-sm font-semibold">{error}</p>}
+      {!valid && !error && (
+        <p className="text-muted-foreground mt-3 text-xs">
+          <span className="text-danger font-semibold">Required to continue:</span> {missing.join(' and ')}.
+        </p>
+      )}
 
       <BottomBar meta="Step 3 of 3 · Final step">
         <button

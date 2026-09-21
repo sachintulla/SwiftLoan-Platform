@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ShieldCheck, FileCheck, Clock3, ChevronLeft } from 'lucide-react';
+import { ShieldCheck, FileCheck, Clock3, ChevronLeft, Lock, Check } from 'lucide-react';
 import { AccountRail, type AccountRailUser } from './AccountRail';
 
 const BRAND_POINTS = [
@@ -65,7 +65,7 @@ export function ApplyShell({
             ))}
           </ul>
           <span className="relative z-10 mt-auto inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-2 text-xs text-white/90">
-            🔒 Trusted by 50,000+ borrowers across India
+            <Lock className="h-3.5 w-3.5" /> Trusted by 50,000+ borrowers across India
           </span>
         </aside>
       )}
@@ -127,7 +127,7 @@ export function Stepper({ step }: { step: 1 | 2 | 3 }) {
                     : 'border-border bg-card text-muted-foreground'
               }`}
             >
-              {done ? '✓' : it.n}
+              {done ? <Check className="h-4 w-4" /> : it.n}
             </div>
             <span className={`text-xs font-semibold ${active ? 'text-foreground' : 'text-muted-foreground'}`}>{it.label}</span>
           </div>

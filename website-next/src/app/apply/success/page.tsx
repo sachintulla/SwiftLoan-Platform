@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { Check } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
@@ -13,8 +14,8 @@ export default function SuccessPage() {
   return (
     <ApplyShell center accountUser={accountUser}>
       <div className="flex flex-col items-center gap-5 text-center">
-        <div className="bg-brand-gradient grid h-20 w-20 place-items-center rounded-full text-3xl text-white shadow-[var(--shadow-float)]">
-          ✓
+        <div className="bg-brand-gradient grid h-20 w-20 place-items-center rounded-full text-white shadow-[var(--shadow-float)]">
+          <Check className="h-9 w-9" strokeWidth={3} />
         </div>
         <div>
           <h1 className="text-2xl font-extrabold">You&apos;re all set! 🎉</h1>

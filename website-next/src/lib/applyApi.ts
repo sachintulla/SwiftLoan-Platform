@@ -19,6 +19,16 @@ export interface Offer {
   lenderName: string | null;
   lenderLogoUrl: string | null;
   recommended: boolean;
+  // Real, backend-driven signals — mirrors offers.tsx's OfferCard exactly
+  // (badgeText/recommended → the pill shown, offerLikelihood !== '0' → the
+  // "High match" pill, lenderStatus → the applied-offer status label). These
+  // were already returned by GET /:id/offers; this type just didn't expose
+  // them, which is how the website ended up inventing a fake
+  // `i === 0 ? 'High match' : 'Pending eligibility'` badge instead of using
+  // the real thing.
+  badgeText?: string | null;
+  offerLikelihood?: string | null;
+  lenderStatus?: string | null;
   applied?: boolean;
   selected?: boolean;
   partner?: { name: string } | null;
