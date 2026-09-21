@@ -39,8 +39,9 @@ authRouter.post(
         lang: (lang as any) || 'en',
       },
     });
-    const devOtp = await createOtp(phone, user.id);
-    log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp });
+    const { devOtp, delivered } = await createOtp(phone, user.id);
+    log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp, delivered });
+    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
     res.status(201).json({ userId: user.id, otpSent: true, devOtp });
   }),
 );
@@ -53,7 +54,7 @@ authRouter.post(
     const { phone } = req.body;
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) user = await prisma.user.create({ data: { phone } });
-    const devOtp = await createOtp(phone, user.id);
+    const { devOtp, delivered } = await createOtp(phone, user.id);
 
     // WS5: OTP_REQUESTED had no event at all before — without it there is no
     // way to see the "asked for an OTP but never entered it" drop-off.
@@ -62,7 +63,8 @@ authRouter.post(
       { channel: 'app', name: JOURNEY_EVENTS.OTP_REQUESTED, screen: 'mobile' },
     ).catch(() => {});
 
-    log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp });
+    log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp, delivered });
+    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
     res.json({ otpSent: true, devOtp });
   }),
 );

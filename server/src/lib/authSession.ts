@@ -17,7 +17,15 @@ const log = scoped('authSession');
  * rows instead of duplicating the OTP + login bookkeeping below.
  */
 
-export async function createOtp(phone: string, userId?: string) {
+/**
+ * `delivered: false` means the OTP row exists in the DB but the user has no
+ * way to ever learn the code — confirmed live: a Vox 405 (wrong endpoint/
+ * method, not a real per-message rejection) was swallowed here, and the
+ * route still answered `otpSent: true`, leaving the user stuck with no code,
+ * no error, and nothing to retry. Callers must check `delivered` and fail
+ * loudly instead of claiming success.
+ */
+export async function createOtp(phone: string, userId?: string): Promise<{ devOtp: string | undefined; delivered: boolean }> {
   const code = genOtp();
   await prisma.otpToken.updateMany({ where: { phone, consumed: false }, data: { consumed: true } });
   await prisma.otpToken.create({
@@ -25,10 +33,11 @@ export async function createOtp(phone: string, userId?: string) {
   });
 
   if (smsConfigured()) {
-    await sendOtpSms(phone, code); // fire-and-forget; failure is logged in sms.ts
-    return undefined;
+    const delivered = await sendOtpSms(phone, code); // failure is also logged in sms.ts
+    return { devOtp: undefined, delivered };
   }
-  return env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
+  const devOtp = env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
+  return { devOtp, delivered: true };
 }
 
 export async function issueTokens(userId: string, phone: string, refreshTtlMs: number) {

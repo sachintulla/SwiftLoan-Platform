@@ -58,14 +58,15 @@ websiteAuthRouter.post(
     const { phone } = req.body;
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) user = await prisma.user.create({ data: { phone } });
-    const devOtp = await createOtp(phone, user.id);
+    const { devOtp, delivered } = await createOtp(phone, user.id);
 
     trackJourney(
       { phone, userId: user.id, source: 'website' },
       { channel: 'website', name: JOURNEY_EVENTS.OTP_REQUESTED, screen: 'website' },
     ).catch(() => {});
 
-    log.info('website otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp });
+    log.info('website otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp, delivered });
+    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
     res.json({ success: true, data: { otpSent: true, devOtp }, message: 'OTP sent' });
   }),
 );
