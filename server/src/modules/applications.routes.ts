@@ -1,12 +1,13 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type ApplicationStatus } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { getLenderOfferProvider, takeAurixDebug, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
 
@@ -65,6 +66,89 @@ applicationsRouter.get('/:id', ah(async (req, res) => {
   res.json({ application: full });
 }));
 
+/**
+ * Pull the lender's live status via Aurix's Fetch Lead API (v1.1). UAT only
+ * for now (see fetchAurixLeads) — the app's "Refresh status" button calls
+ * this instead of just re-reading our own DB-backed state.
+ *
+ * Sends every identifier we know (Lead ID = LoanApplication.leadId,
+ * PartnerCustomerId = userId, OfferCode = the matched Offer's offerCode) —
+ * the doc allows multiple identifiers for a single record. Status extraction
+ * from the response is best-effort: KFT's `data:[{...}]` record shape isn't
+ * documented, so this tries a handful of likely field names and otherwise
+ * leaves current status untouched (never regresses, mirrors the webhook's
+ * own forward-only guard).
+ */
+applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  const full = await prisma.loanApplication.findUnique({
+    where: { id: app.id },
+    include: { offers: true, lenderApplications: true },
+  });
+  if (!full) throw new HttpError(404, 'Application not found');
+  const user = await prisma.user.findUnique({ where: { id: full.userId } });
+  if (!user) throw new HttpError(404, 'User not found');
+
+  const la = full.lenderApplications.find(x => x.id === req.body?.lenderApplicationId) ?? null;
+  const offer = full.offers.find(o => o.id === (la?.offerId ?? req.body?.offerId)) ?? null;
+
+  // Everything from here down is a live third-party call — a validation
+  // quirk on Aurix's end, an expired-token round-trip failing, or a
+  // transient outage must not turn "check for an update" into a hard 500 for
+  // the applicant. Degrade to "still shows whatever we already knew", the
+  // same forward-only philosophy the webhook and prequalify's per-partner
+  // loop already use elsewhere in this file.
+  let record: Record<string, unknown> | null = null;
+  let mappedStatus: ApplicationStatus | null = null;
+  let refreshError: string | undefined;
+  try {
+    let token = user.aurixToken ?? '';
+    const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
+    if (!token || expired) {
+      token = await generateAurixTokenFromEnv(full.userId, user.phone);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
+      }).catch(() => {});
+    }
+
+    const result = await fetchAurixLeads(
+      { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
+      token,
+    );
+    record = result.records[0] ?? null;
+    if (record) {
+      for (const key of ['status', 'Status', 'applicationStatus', 'ApplicationStatus', 'loanStatus', 'LoanStatus', 'leadStatus', 'LeadStatus']) {
+        const v = (record as Record<string, unknown>)[key];
+        if (typeof v === 'string' && v.trim()) { mappedStatus = mapFlatStatus(v); if (mappedStatus) break; }
+      }
+    }
+  } catch (e) {
+    refreshError = (e as Error)?.message || 'Could not reach the lender right now.';
+    log.warn('refresh-status: lender call failed, returning last known status', { applicationId: full.id, error: refreshError });
+  }
+  log.info('refresh-status', {
+    applicationId: full.id, userId: full.userId, leadId: full.leadId, offerCode: offer?.offerCode,
+    hasRecord: !!record, mappedStatus, refreshError,
+  });
+
+  if (mappedStatus && advancesStatus(full.status, mappedStatus)) {
+    await prisma.loanApplication.update({ where: { id: full.id }, data: { status: mappedStatus } });
+    if (offer && advancesStatus(offer.lenderStatus, mappedStatus)) {
+      await prisma.offer.update({ where: { id: offer.id }, data: { lenderStatus: mappedStatus } });
+    }
+    if (la && advancesStatus(la.status, mappedStatus)) {
+      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus } });
+    }
+  }
+
+  const refreshed = await prisma.loanApplication.findUnique({
+    where: { id: full.id },
+    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
+  });
+  res.json({ application: refreshed, aurixRaw: record, refreshError });
+}));
+
 /** Update details / attach PAN (Step 2). */
 applicationsRouter.patch('/:id',
   validate(z.object({
@@ -84,7 +168,6 @@ applicationsRouter.patch('/:id',
 /** Pre-qualify: soft-pull + generate ranked partner offers (finding → offers). */
 applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  await prisma.offer.deleteMany({ where: { applicationId: app.id } });
   const partners = await prisma.lenderPartner.findMany({ where: { active: true }, take: 3, orderBy: { baseApr: 'asc' } });
   if (partners.length === 0) throw new HttpError(503, 'No lending partners configured — run the seed script');
 
@@ -112,41 +195,64 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   pending.forEach((x, i) => { if (x.raw.apr > 0 && x.raw.apr < bestApr) { bestApr = x.raw.apr; bestIdx = i; } });
   if (bestIdx === -1 && pending.length) bestIdx = 0;
 
-  const created = await Promise.all(pending.map(async ({ partner: p, raw }, i) => {
-    // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of the
-    // recommended tenure option so /handoff keeps reading those scalars.
-    const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
-    return prisma.offer.create({
-      data: {
-        applicationId: app.id,
-        partnerId: p.id,
-        amount: raw.amount,
-        apr: raw.apr,
-        emi: recommendedOption?.monthlyEmi ?? 0,
-        tenureMonths: recommendedOption?.tenureMonths ?? app.tenureMonths,
-        processingFee: raw.processingFeeAmount,
-        processingFeeAmount: raw.processingFeeAmount,
-        gstOnProcessingFee: raw.gstOnProcessingFee,
-        netDisbursalAmount: raw.netDisbursalAmount,
-        badgeText: raw.badgeText ?? p.tagline,
-        tag: p.tagline,
-        recommended: i === bestIdx,
-        // Aurix passthrough — persisted for the later tile step; harmless nulls
-        // for the mock provider.
-        offerCode: raw.offerCode ?? null,
-        offerType: raw.offerType ?? null,
-        roi: raw.roi ?? null,
-        offerLikelihood: raw.offerLikelihood ?? null,
-        redirectionUrl: raw.redirectionUrl ?? null,
-        lenderName: raw.lenderName ?? null,
-        lenderLogoUrl: raw.lenderLogoUrl ?? null,
-        externalPartnerId: raw.externalPartnerId ?? null,
-        ...(raw.rawOffer !== undefined ? { rawOffer: raw.rawOffer as Prisma.InputJsonValue } : {}),
-        emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
-      },
-      include: { emiOptions: true, partner: true },
-    });
-  }));
+  // Delete-old + insert-new run as ONE transaction, immediately before the
+  // response — not a bare deleteMany() up front (the old position, before the
+  // slow Aurix/partner network calls above). Two prequalify calls close
+  // together (a double-click, a retry, or — as actually happened once in dev
+  // — React Strict Mode double-invoking this screen's effect) used to each
+  // independently delete-then-insert, and a plain transaction around
+  // delete+create does NOT fix this on its own: Postgres's DELETE only locks
+  // rows that already exist at the time it runs, so a concurrent
+  // transaction's INSERT of brand-new rows is never blocked by it — both
+  // sides' 5 offers still landed (confirmed: still 10 after switching to a
+  // bare $transaction([...]) array). The actual fix is a real serialization
+  // point: SELECT ... FOR UPDATE on the parent LoanApplication row forces a
+  // second concurrent prequalify for the SAME application to block until the
+  // first one's delete+insert has fully committed, so its own delete
+  // correctly sees and removes the first one's offers instead of racing past
+  // them. Confirmed with two concurrent requests fired at the same
+  // application: exactly 5 offers survive now, not 10.
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "LoanApplication" WHERE id = ${app.id} FOR UPDATE`;
+    await tx.offer.deleteMany({ where: { applicationId: app.id } });
+    const rows = [];
+    for (const [i, { partner: p, raw }] of pending.entries()) {
+      // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of
+      // the recommended tenure option so /handoff keeps reading those scalars.
+      const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
+      rows.push(await tx.offer.create({
+        data: {
+          applicationId: app.id,
+          partnerId: p.id,
+          amount: raw.amount,
+          apr: raw.apr,
+          emi: recommendedOption?.monthlyEmi ?? 0,
+          tenureMonths: recommendedOption?.tenureMonths ?? app.tenureMonths,
+          processingFee: raw.processingFeeAmount,
+          processingFeeAmount: raw.processingFeeAmount,
+          gstOnProcessingFee: raw.gstOnProcessingFee,
+          netDisbursalAmount: raw.netDisbursalAmount,
+          badgeText: raw.badgeText ?? p.tagline,
+          tag: p.tagline,
+          recommended: i === bestIdx,
+          // Aurix passthrough — persisted for the later tile step; harmless
+          // nulls for the mock provider.
+          offerCode: raw.offerCode ?? null,
+          offerType: raw.offerType ?? null,
+          roi: raw.roi ?? null,
+          offerLikelihood: raw.offerLikelihood ?? null,
+          redirectionUrl: raw.redirectionUrl ?? null,
+          lenderName: raw.lenderName ?? null,
+          lenderLogoUrl: raw.lenderLogoUrl ?? null,
+          externalPartnerId: raw.externalPartnerId ?? null,
+          ...(raw.rawOffer !== undefined ? { rawOffer: raw.rawOffer as Prisma.InputJsonValue } : {}),
+          emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
+        },
+        include: { emiOptions: true, partner: true },
+      }));
+    }
+    return rows;
+  });
   // "offers_ready" must mean real offers exist — it used to be set
   // unconditionally the moment this call finished, whether `created` held 3
   // offers or 0. Every downstream reader (the admin dashboard's stage

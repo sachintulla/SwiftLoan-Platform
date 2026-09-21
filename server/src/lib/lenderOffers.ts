@@ -280,7 +280,7 @@ function aurixEmploymentType(e: User['employment']): string {
     default: return e ? 'Other' : '';
   }
 }
-function aurixProductType(loanType: LoanApplication['loanType']): string {
+export function aurixProductType(loanType: LoanApplication['loanType']): string {
   // v1.2 master values: PersonalLoan | UnSecBusinessLoan.
   return loanType === 'business' ? 'UnSecBusinessLoan' : 'PersonalLoan';
 }
@@ -585,6 +585,86 @@ class AurixOfferProvider implements LenderOfferProvider {
     if (list.length === 0) throw new Error('Aurix returned no eligible offers');
     return list[0];
   }
+}
+
+/**
+ * Aurix "Fetch Lead API" (KFT doc v1.1, 10 Sep 2026) — pulls the live
+ * status of a lead/application/offer on demand, for the app's "Refresh
+ * status" button. UAT ONLY: Aurix has only confirmed this endpoint on their
+ * UAT gateway so far, so the base URL is hardcoded/env-overridable here
+ * rather than reusing AURIX_OFFERS_BASE_URL (which some environments already
+ * point at Aurix's real gateway for eligible_offers) — this must never
+ * silently start hitting prod just because that var changes.
+ *
+ * Auth: the doc's own header set (K-Aurix-Version: v1, AUTHTOKEN: <token>)
+ * was tried first and got a clean 401 from UAT even with a token that had
+ * just minted fine; switching to v3 alone still 401'd. Both the base URL and
+ * K-Aurix-Version in this doc have already turned out to not match live
+ * behavior, so this instead sends the EXACT header set proven to work for
+ * eligible_offers on this same account (K-Aurix-Token + X-Aurix-Token +
+ * K-Aurix-PartnerCustomerId, K-Aurix-Version v3) — AUTHTOKEN is kept
+ * alongside it for doc-compliance, in case the gateway checks that too.
+ *
+ * The success response's record shape (`data: [{...}]`) is undocumented
+ * beyond that it's an array — callers should log the raw record and treat
+ * status extraction as best-effort until a real UAT response is seen.
+ */
+const AURIX_FETCH_LEADS_BASE_URL = process.env.AURIX_FETCH_LEADS_BASE_URL || 'https://pt-api-uat.aurix-partner.com';
+
+export interface FetchLeadsIdentifiers {
+  partnerCustomerId?: string | null;
+  applicationId?: string | null; // Aurix "Lead ID"
+  offerCode?: string | null;
+  // Despite the doc's Business Rules saying "all filters are optional", a live
+  // UAT call without it gets HTTP 400 "ProductType is required." — the doc's
+  // own side-note ("Ensure the ProductType is correctly passed") was the real
+  // signal. Use aurixProductType() to derive this from LoanApplication.loanType.
+  productType?: string | null;
+}
+
+export interface FetchLeadsResult {
+  success: boolean;
+  message?: string;
+  totalRecords?: number;
+  records: Record<string, unknown>[];
+}
+
+export async function fetchAurixLeads(ids: FetchLeadsIdentifiers, token: string): Promise<FetchLeadsResult> {
+  // The doc's own example payload uses camelCase, but a live camelCase
+  // "productType" still got "ProductType is required." — this ASP.NET-style
+  // API (note the ModelState error shape) apparently binds on PascalCase,
+  // matching how eligible_offers/generate_token already send their bodies.
+  const body = {
+    PartnerCustomerId: ids.partnerCustomerId ?? '',
+    ApplicationId: ids.applicationId ?? '',
+    OfferCode: ids.offerCode ?? '',
+    ProductType: ids.productType ?? '',
+    PageNumber: 1,
+    PageSize: 10,
+  };
+  console.log(`[aurix-req] POST ${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads ${JSON.stringify(body)}`);
+  const result = await httpJson(
+    `${AURIX_FETCH_LEADS_BASE_URL}/api/fetch_leads`,
+    'POST',
+    {
+      Accept: 'application/json',
+      'K-Aurix-Version': 'v3',
+      AUTHTOKEN: token,
+      'K-Aurix-Token': token,
+      'X-Aurix-Token': token,
+      ...(ids.partnerCustomerId ? { 'K-Aurix-PartnerCustomerId': ids.partnerCustomerId } : {}),
+    },
+    body,
+  );
+  console.log(`[aurix-res] fetch_leads HTTP ${result.status} body=${JSON.stringify(result.body)}`);
+  if (!result.ok) throw new Error(`Aurix fetch_leads failed: ${result.error} (HTTP ${result.status})`);
+  const b = (result.body ?? {}) as Record<string, unknown>;
+  return {
+    success: b.success !== false,
+    message: typeof b.message === 'string' ? b.message : undefined,
+    totalRecords: typeof b.totalRecords === 'number' ? b.totalRecords : undefined,
+    records: Array.isArray(b.data) ? (b.data as Record<string, unknown>[]) : [],
+  };
 }
 
 const PROVIDERS: Record<string, LenderOfferProvider> = {

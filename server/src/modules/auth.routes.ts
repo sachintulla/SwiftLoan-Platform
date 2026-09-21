@@ -1,19 +1,19 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { hash, compare, sha256, genOtp, randomToken } from '../lib/crypto.js';
-import { sendOtpSms, smsConfigured } from '../lib/sms.js';
+import { hash, compare, sha256 } from '../lib/crypto.js';
 import { signAccess } from '../lib/jwt.js';
 import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
-import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from '../lib/journey.js';
-import { generateAurixTokenFromEnv } from '../lib/lenderOffers.js';
+import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('auth');
 
 export const authRouter = Router();
+export { publicUser };
 
 // Real Indian mobile numbers start with 6-9; reject one digit repeated ten
 // times ("0000000000", "9999999999") too — the app's own client-side check
@@ -22,43 +22,6 @@ const phoneSchema = z
   .string()
   .regex(/^[6-9]\d{9}$/, 'phone must be a valid 10-digit Indian mobile number')
   .refine(p => !/^(\d)\1{9}$/.test(p), 'phone must be a valid 10-digit Indian mobile number');
-
-async function issueTokens(userId: string, phone: string) {
-  const access = signAccess({ sub: userId, phone });
-  const refresh = randomToken();
-  const expiresAt = new Date(Date.now() + env.refreshTtlDays * 864e5);
-  await prisma.refreshToken.create({ data: { userId, tokenHash: sha256(refresh), expiresAt } });
-  return { accessToken: access, refreshToken: refresh, expiresIn: env.accessTtl };
-}
-
-/**
- * `delivered: false` means the OTP row exists in the DB but the user has no
- * way to ever learn the code — confirmed live: a Vox 405 (wrong endpoint/
- * method, not a real per-message rejection) was swallowed here, and the
- * route still answered `otpSent: true`, leaving the user stuck with no code,
- * no error, and nothing to retry. Callers must check `delivered` and fail
- * loudly instead of claiming success.
- */
-async function createOtp(phone: string, userId?: string): Promise<{ devOtp: string | undefined; delivered: boolean }> {
-  const code = genOtp();
-  await prisma.otpToken.updateMany({ where: { phone, consumed: false }, data: { consumed: true } });
-  await prisma.otpToken.create({
-    data: { phone, userId, codeHash: sha256(code), expiresAt: new Date(Date.now() + 5 * 60_000) },
-  });
-
-  // Real OTP system: when an SMS provider is configured, deliver the code by SMS
-  // and NEVER return it to the client (a real one-time secret) — including on
-  // failure; the fix for a failed send is a real resend, not leaking the code.
-  // Demo/dev keeps surfacing the fixed code so testing works without a live
-  // SMS account.
-  if (smsConfigured()) {
-    const delivered = await sendOtpSms(phone, code); // failure is also logged in sms.ts
-    return { devOtp: undefined, delivered };
-  }
-  // No SMS provider: dev, or explicit DEMO_LOGIN, surfaces the code (123456).
-  const devOtp = env.isProd && process.env.DEMO_LOGIN !== 'true' ? undefined : code;
-  return { devOtp, delivered: true };
-}
 
 /** Register a new user by phone (+ optional email/password) and send an OTP. */
 authRouter.post(
@@ -128,86 +91,14 @@ authRouter.post(
   ),
   ah(async (req, res) => {
     const { phone, code } = req.body;
-    // Test-only master OTP: when DEV_MASTER_OTP is set (never in real prod),
-    // this fixed code verifies ANY number so QA can log in without SMS/devOtp.
-    const masterOtp = process.env.DEV_MASTER_OTP;
-    const isMaster = !!masterOtp && code === masterOtp;
-    const otp = await prisma.otpToken.findFirst({
-      where: { phone, consumed: false, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!isMaster && (!otp || otp.codeHash !== sha256(code))) {
-      log.warn('otp verify rejected', { phone });
-      throw new HttpError(400, 'Invalid or expired OTP');
-    }
-    if (otp) await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
-    const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
-    const tokens = await issueTokens(user.id, user.phone);
-    log.info('otp verified — logged in', { phone, userId: user.id, viaMasterOtp: isMaster });
-
-    // Pre-generate + cache the Aurix (Knight Fintech) X-Aurix-Token now, keyed by
-    // this user.id, so the eligible_offers call after PAN reuses it instead of
-    // paying a cold token round-trip (which was flirting with the offer timeout).
-    // Fire-and-forget: never blocks or fails login. TTL kept well under Aurix's
-    // ~1-month token validity; getOffers refreshes if it's missing/expired.
-    void generateAurixTokenFromEnv(user.id, user.phone)
-      .then((token) =>
-        prisma.user.update({
-          where: { id: user.id },
-          data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 20 * 864e5) },
-        }),
-      )
-      .catch(() => {});
-
-    // Website inquiries made under this phone number before the app was
-    // installed. All matches are surfaced (not just the newest) so the voice
-    // agent can ask which one the caller meant instead of guessing.
-    const matchingLeads = await prisma.lead.findMany({
-      where: { phone },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (matchingLeads.length) {
-      await prisma.lead.updateMany({
-        where: { id: { in: matchingLeads.map((l) => l.id) } },
-        data: { status: 'converted', convertedUserId: user.id },
-      });
-    }
-    const priorInquiries = matchingLeads.map((l) => ({
-      productInterest: l.productInterest,
-      amount: l.amount,
-      createdAt: l.createdAt,
-    }));
-
-    // WS5: bind this phone's Customer row to the now-known userId. This is the
-    // join that makes pre-login website/campaign activity and post-login app
-    // activity resolve to one person — everything the 360 view shows depends on
-    // it. Fire-and-forget: journey bookkeeping must never fail a login.
     const sessionId: string | null = req.body.session_id ?? req.body.sessionId ?? null;
-
-    void (async () => {
-      const customer = await resolveCustomer({
-        phone,
-        userId: user.id,
-        name: user.fullName ?? matchingLeads[0]?.name ?? null,
-        email: user.email,
-        source: matchingLeads.length ? 'website' : 'app',
-        campaignId: matchingLeads.find((l) => l.campaignId)?.campaignId ?? null,
-      });
-      if (!customer) return;
-
-      // Claim the pre-login app activity FIRST, so install / app-open /
-      // language land on the timeline before OTP_VERIFIED and the journey reads
-      // in the order it actually happened.
-      if (sessionId) await claimAnonymousSession(customer.id, sessionId, user.id);
-
-      await recordJourneyEvent(customer.id, {
-        channel: 'app',
-        name: JOURNEY_EVENTS.OTP_VERIFIED,
-        screen: 'otp',
-        metadata: { priorInquiryCount: priorInquiries.length },
-      });
-    })().catch(() => {});
-
+    const { user, tokens, priorInquiries } = await verifyOtpAndLogin({
+      phone,
+      code,
+      sessionId,
+      refreshTtlMs: env.refreshTtlDays * 864e5,
+      source: 'app',
+    });
     res.json({ user: publicUser(user), ...tokens, priorInquiries });
   }),
 );
@@ -225,7 +116,7 @@ authRouter.post(
       log.warn('password login rejected', { identifier });
       throw new HttpError(401, 'Invalid credentials');
     }
-    const tokens = await issueTokens(user.id, user.phone);
+    const tokens = await issueTokens(user.id, user.phone, env.refreshTtlDays * 864e5);
     log.info('password login', { userId: user.id });
     res.json({ user: publicUser(user), ...tokens });
   }),
@@ -254,10 +145,3 @@ authRouter.post(
     res.json({ ok: true });
   }),
 );
-
-export function publicUser(u: any) {
-  // Never leak secrets to the client: the password hash, and the server-side
-  // Aurix token (kept out of the app bundle/network by design).
-  const { passwordHash, aurixToken, aurixTokenExpiresAt, ...rest } = u;
-  return rest;
-}

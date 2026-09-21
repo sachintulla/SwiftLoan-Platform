@@ -1,12 +1,16 @@
 'use client';
 import Link from "next/link";
-import { AtSign, Hash, Users } from "lucide-react";
+import { ArrowRight, AtSign, Hash, Users } from "lucide-react";
 import { useCopy } from "@/lib/i18n";
 import { siteFooterCopy } from "@/i18n/site-footer";
 
 /** Routes per column item, matched by index (null = non-navigating label). */
-type FooterRoute = "/" | "/faqs" | null;
+type FooterRoute = "/" | "/faqs" | "/account" | null;
 const companyRoutes: readonly FooterRoute[] = [null, null, null, "/faqs"];
+// "Track application" is the last item in the Products column — it used to
+// render as inert text like its siblings; it's the one item there that
+// actually has somewhere real to go.
+const productsRoutes: readonly FooterRoute[] = [null, null, null, "/account"];
 
 export function SiteFooter() {
   const t = useCopy(siteFooterCopy);
@@ -41,12 +45,25 @@ export function SiteFooter() {
             </div>
           </div>
 
-          <FooterCol title={t.columns.products} items={t.products} />
+          <FooterCol title={t.columns.products} items={t.products} routes={productsRoutes} />
           <FooterCol title={t.columns.company} items={t.company} routes={companyRoutes} />
           <FooterCol title={t.columns.legal} items={t.legal} />
         </div>
 
-        <div className="bg-muted mt-12 rounded-3xl border border-border p-5 sm:mt-14 sm:p-6">
+        <div className="bg-accent mt-12 flex flex-col items-center justify-between gap-4 rounded-3xl border border-border p-6 text-center sm:mt-14 sm:flex-row sm:text-left">
+          <div>
+            <h4 className="text-base font-extrabold">{t.trackCta.title}</h4>
+            <p className="text-muted-foreground mt-1 text-sm">{t.trackCta.body}</p>
+          </div>
+          <Link
+            href="/account"
+            className="bg-brand-gradient inline-flex shrink-0 items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
+          >
+            {t.trackCta.button} <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="bg-muted mt-6 rounded-3xl border border-border p-5 sm:p-6">
           <h4 className="text-sm font-bold tracking-wide uppercase">{t.disclosureTitle}</h4>
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t.disclosure}</p>
           <h4 className="mt-6 text-sm font-bold tracking-wide uppercase">{t.disclaimerTitle}</h4>
