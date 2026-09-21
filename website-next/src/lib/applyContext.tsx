@@ -53,18 +53,34 @@ function writeStored(patch: Partial<ApplyState>) {
 }
 
 export function ApplyProvider({ children }: { children: React.ReactNode }) {
-  // Lazy initializers, not a mount effect: a child page's own guard effect
-  // (e.g. "redirect to /apply if no phone") runs BEFORE a parent's effect on
-  // mount (React fires effects bottom-up), so hydrating from sessionStorage in
-  // an effect here raced every such guard and bounced the user straight back —
-  // reading it synchronously during the initial render closes that gap.
-  const [phone, setPhoneState] = useState(() => readStored().phone ?? '');
-  const [applicationId, setApplicationIdState] = useState<string | null>(() => readStored().applicationId ?? null);
-  const [selectedOffer, setSelectedOfferState] = useState<SelectedOffer | null>(() => readStored().selectedOffer ?? null);
+  // SSR-safe defaults (never read sessionStorage during render — a lazy
+  // useState(() => readStored()...) initializer used to do that, and it ran
+  // again during the client's hydration pass with `window` now defined,
+  // producing a DIFFERENT first-render tree than the server's and crashing
+  // hydration on any page a returning visitor's sessionStorage wasn't empty
+  // (e.g. /apply/offers with an applicationId already stored) — React then
+  // discards the mismatched server HTML and re-renders from scratch, which
+  // can flash a dev error overlay over the page. The real sync now happens
+  // below, in an effect (safe: effects only ever run on the client, after
+  // hydration has already committed the matching, SSR-safe tree).
+  const [phone, setPhoneState] = useState('');
+  const [applicationId, setApplicationIdState] = useState<string | null>(null);
+  const [selectedOffer, setSelectedOfferState] = useState<SelectedOffer | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [loggedIn, setLoggedInState] = useState(false);
 
   useEffect(() => {
+    // Synchronous: runs before the `sessionReady` flip below, so every
+    // consumer that gates its own guard effect on `sessionReady` (see the
+    // apply/* pages) is guaranteed phone/applicationId/selectedOffer are
+    // already the REAL stored values by the time it re-checks them — closing
+    // the same race the old lazy-initializer trick was working around,
+    // without reading sessionStorage during render.
+    const stored = readStored();
+    if (stored.phone) setPhoneState(stored.phone);
+    if (stored.applicationId) setApplicationIdState(stored.applicationId);
+    if (stored.selectedOffer) setSelectedOfferState(stored.selectedOffer);
+
     bootstrapSession().then((ok) => {
       setLoggedInState(ok);
       setSessionReady(true);

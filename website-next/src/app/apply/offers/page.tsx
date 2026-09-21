@@ -7,11 +7,15 @@ import { Badge, Card, PrimaryButton, SecondaryButton } from '@/components/apply/
 import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
-import { applyOffer, getApplication, type LoanApplication, type Offer } from '@/lib/applyApi';
+import { applyOffer, getApplication, listApplications, type LoanApplication, type Offer } from '@/lib/applyApi';
+
+// Same statuses the app's My Offers tab (fare.tsx) treats as "still carries
+// showable offers".
+const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
 export default function OffersPage() {
   const router = useRouter();
-  const { applicationId, setSelectedOffer } = useApply();
+  const { applicationId, sessionReady, setApplicationId, setSelectedOffer } = useApply();
   const accountUser = useAccountUser();
   const [app, setApp] = useState<LoanApplication | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,21 +23,45 @@ export default function OffersPage() {
   const [applyingId, setApplyingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!applicationId) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
-    getApplication(applicationId)
-      .then(setApp)
+    if (applicationId) {
+      getApplication(applicationId)
+        .then(setApp)
+        .catch((e) => setError(e instanceof Error ? e.message : 'Could not load your offers.'))
+        .finally(() => setLoading(false));
+      return;
+    }
+    // No application in this session yet — reached here directly (e.g. the
+    // account sidebar's "My Offers" link) rather than mid-funnel. Mirrors the
+    // app's own My Offers tab (fare.tsx): a persistent destination for your
+    // current eligible offers, not something that only exists while mid-way
+    // through applying. Adopt the most recent application that actually
+    // carries offers — not just the most recent application overall, which
+    // may be a newer, still-in-progress one with none yet.
+    listApplications()
+      .then((apps) => {
+        const withOffers =
+          apps.find((a) => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ??
+          apps.find((a) => (a.offers?.length ?? 0) > 0) ??
+          apps[0] ??
+          null;
+        if (withOffers) {
+          setApplicationId(withOffers.id);
+          setApp(withOffers);
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load your offers.'))
       .finally(() => setLoading(false));
-  }, [applicationId]);
+  }, [applicationId, setApplicationId]);
 
   useEffect(() => {
+    // Wait for ApplyProvider to sync applicationId in from sessionStorage —
+    // otherwise a returning visitor briefly flashes "No application yet"
+    // before the real id loads a tick later. See applyContext.tsx.
+    if (!sessionReady) return;
     load();
-  }, [load]);
+  }, [sessionReady, load]);
 
   // Re-runs the SAME eligibility check the initial application went through
   // — via the Finding screen itself (rotating ring, progress bar, "checking
@@ -62,20 +90,24 @@ export default function OffersPage() {
     }
   };
 
+  if (!sessionReady || loading) {
+    return (
+      <ApplyShell stepLabel="Your offers" center accountUser={accountUser}>
+        <p className="text-muted-foreground text-sm">Loading your offers…</p>
+      </ApplyShell>
+    );
+  }
+
+  // Checked only once sessionReady (and thus applicationId, if any, synced in
+  // from sessionStorage) — checking this before sessionReady flashed "No
+  // application yet" for a returning visitor for one paint before the real
+  // id loaded a tick later.
   if (!applicationId) {
     return (
       <ApplyShell stepLabel="Your offers" center accountUser={accountUser}>
         <h1 className="text-xl font-extrabold">No application yet</h1>
         <p className="text-muted-foreground mt-2 mb-6 text-sm">Apply for a loan to see personalised offers here.</p>
         <PrimaryButton onClick={() => router.push('/apply/step-1')}>Apply for a loan</PrimaryButton>
-      </ApplyShell>
-    );
-  }
-
-  if (loading) {
-    return (
-      <ApplyShell stepLabel="Your offers" center accountUser={accountUser}>
-        <p className="text-muted-foreground text-sm">Loading your offers…</p>
       </ApplyShell>
     );
   }
@@ -89,12 +121,18 @@ export default function OffersPage() {
     );
   }
 
-  const offers = app?.offers ?? [];
+  // Once you've applied to an offer, it's committed — it moves to My
+  // Applications and drops out of this list so it can't be applied to again
+  // from here. Offers you haven't applied to yet stay, so you can still
+  // compare and apply to a different lender.
+  const allOffers = app?.offers ?? [];
+  const offers = allOffers.filter((o) => !o.applied);
+  const appliedElsewhere = allOffers.length > 0 && offers.length === 0;
 
   return (
     <ApplyShell backHref="/apply/step-1" backLabel="Update details" stepLabel="Your offers" progressPct={100} accountUser={accountUser}>
       <div className="flex flex-col gap-5">
-        {offers.length === 0 ? (
+        {allOffers.length === 0 ? (
           <div className="py-10 text-center">
             <h1 className="text-xl font-extrabold">No offers yet</h1>
             <p className="text-muted-foreground mt-2 mb-6 text-sm">
@@ -111,6 +149,14 @@ export default function OffersPage() {
               </button>
             </div>
           </div>
+        ) : appliedElsewhere ? (
+          <div className="py-10 text-center">
+            <h1 className="text-xl font-extrabold">You&apos;ve already applied</h1>
+            <p className="text-muted-foreground mt-2 mb-6 text-sm">
+              Track its status, offer details and next steps anytime in My Applications.
+            </p>
+            <PrimaryButton onClick={() => router.push(`/account/${applicationId}`)}>Go to My Applications</PrimaryButton>
+          </div>
         ) : (
           <>
             <div>
@@ -118,14 +164,31 @@ export default function OffersPage() {
                 {offers.length === 1 ? 'You have 1 offer!' : `Great news — you have ${offers.length} offers!`}
               </h1>
               <p className="text-muted-foreground mt-2 text-sm">Compare and choose the offer that works best for you.</p>
+              {allOffers.length > offers.length && (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Already applied to {allOffers.length - offers.length} offer{allOffers.length - offers.length > 1 ? 's' : ''} —{' '}
+                  <button onClick={() => router.push(`/account/${applicationId}`)} className="text-primary font-semibold underline">
+                    view in My Applications
+                  </button>
+                  .
+                </p>
+              )}
             </div>
 
-            {offers.map((offer, i) => {
+            {offers.map((offer) => {
               const lenderName = offer.lenderName ?? offer.partner?.name ?? 'Lender';
               const hasEmi = !!offer.emiOptions?.length || offer.emi > 0;
               const applying = applyingId === offer.id;
+              // Real signals from the lender/partner feed — mirrors
+              // offers.tsx's OfferCard exactly. Previously this was
+              // `i === 0 ? 'High match' : 'Pending eligibility'`, a purely
+              // positional badge with no connection to any actual lender or
+              // webhook status — "Pending eligibility" isn't a real state at
+              // all, which is how it could show something at odds with what
+              // the lender (via KFT) was actually reporting.
+              const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
               return (
-                <Card key={offer.id} className={i === 0 ? 'border-primary' : ''}>
+                <Card key={offer.id} className={offer.recommended ? 'border-primary' : ''}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="bg-accent text-primary grid h-11 w-11 place-items-center rounded-xl text-sm font-extrabold">
@@ -136,7 +199,7 @@ export default function OffersPage() {
                         <div className="text-muted-foreground text-xs">NBFC · RBI Registered</div>
                       </div>
                     </div>
-                    {i === 0 ? <Badge tone="success">★ High match</Badge> : <Badge tone="warning">Pending eligibility</Badge>}
+                    {highMatch && <Badge tone="success">★ High match</Badge>}
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-2.5">
@@ -171,7 +234,7 @@ export default function OffersPage() {
                     disabled={!!applyingId}
                     className={`bg-brand-gradient text-primary-foreground mt-4 w-full rounded-full py-3 text-sm font-bold ${applyingId && !applying ? 'opacity-50' : ''}`}
                   >
-                    {applying ? 'Applying…' : offer.applied ? 'Apply Again' : offer.redirectionUrl ? 'Apply →' : 'Select this offer'}
+                    {applying ? 'Applying…' : offer.redirectionUrl ? 'Apply →' : 'Select this offer'}
                   </button>
                   {offer.redirectionUrl && (
                     <p className="text-muted-foreground mt-1.5 text-center text-[10px]">Opens {lenderName}&apos;s own secure application page</p>

@@ -3,11 +3,16 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutList, User, MessageCircle, LogOut } from 'lucide-react';
+import { LayoutList, Tag, User, MessageCircle, LogOut } from 'lucide-react';
 import { logout as logoutSession } from '@/lib/session';
 
 const NAV = [
   { href: '/account', label: 'My Applications', icon: LayoutList },
+  // Mirrors the app's own "My Offers" bottom-nav tab (fare.tsx) — a
+  // persistent destination for your current eligible offers, not just a
+  // mid-funnel step. /apply/offers already renders correctly with this same
+  // account sidebar; it just needed a way in from outside the apply funnel.
+  { href: '/apply/offers', label: 'My Offers', icon: Tag },
   { href: '/account/profile', label: 'Profile', icon: User },
   { href: '/account/support', label: 'Support', icon: MessageCircle },
 ];
@@ -102,7 +107,9 @@ function LogoutModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
         className="flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl bg-card p-6 text-center shadow-[var(--shadow-float)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="bg-danger-soft grid h-12 w-12 place-items-center rounded-full text-xl">🚪</div>
+        <div className="bg-danger-soft text-danger grid h-12 w-12 place-items-center rounded-full">
+          <LogOut className="h-5 w-5" />
+        </div>
         <div>
           <h2 className="text-lg font-extrabold">Log out?</h2>
           <p className="text-muted-foreground mt-1.5 text-sm">You&apos;ll need to verify your mobile number again to sign back in.</p>

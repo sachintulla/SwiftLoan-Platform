@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { Check, MoreHorizontal, CircleCheckBig, Wallet, AlertCircle, XCircle, ShieldCheck, RefreshCw, type LucideIcon } from 'lucide-react';
 import { AccountShell } from '@/components/apply/AccountShell';
 import { Badge } from '@/components/apply/primitives';
 import { getApplication, refreshApplicationStatus, type LoanApplication } from '@/lib/applyApi';
@@ -9,6 +10,17 @@ import { fmtINR } from '@/lib/core';
 import { statusMeta } from '@/lib/statusMeta';
 
 const STAGE_ORDER = ['applied', 'under_review', 'approved', 'disbursed'];
+
+// Same glyph per stage as the app's status.tsx (check / more_horiz / task_alt
+// / payments / error / cancel), mapped to their lucide equivalents.
+const STAGE_ICON: Record<string, LucideIcon> = {
+  applied: Check,
+  under_review: MoreHorizontal,
+  approved: CircleCheckBig,
+  disbursed: Wallet,
+  failed: AlertCircle,
+  rejected: XCircle,
+};
 
 type Step = { key: string; title: string; desc: string; state: 'done' | 'active' | 'pending'; danger?: boolean };
 
@@ -124,11 +136,17 @@ export default function ApplicationStatusPage() {
             const last = i === steps.length - 1;
             const color = s.danger ? 'bg-danger' : s.state === 'done' ? 'bg-mint' : s.state === 'active' ? 'bg-warning' : 'bg-muted';
             const textColor = s.state === 'pending' ? 'text-muted-foreground' : 'text-foreground';
+            // A step's icon names its stage (applied/under_review/…) — always
+            // shown, not just for done/active, same as the app's status.tsx
+            // (an empty pending circle there is just a muted-colour icon, never
+            // literally blank).
+            const StepIcon = STAGE_ICON[s.key] ?? Check;
+            const iconColor = s.state === 'pending' ? 'text-muted-foreground' : 'text-white';
             return (
               <div key={s.key} className="flex gap-3.5">
                 <div className="flex flex-col items-center">
-                  <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white ${color}`}>
-                    {s.state === 'done' ? '✓' : s.state === 'active' ? '…' : ''}
+                  <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${color}`}>
+                    <StepIcon className={`h-4.5 w-4.5 ${iconColor}`} />
                   </div>
                   {!last && <div className={`w-0.5 flex-1 ${s.state === 'done' ? 'bg-mint' : 'bg-border'}`} />}
                 </div>
@@ -142,7 +160,7 @@ export default function ApplicationStatusPage() {
         </div>
 
         <div className="bg-muted flex items-start gap-2 rounded-xl p-3 text-xs">
-          <span>🛡</span>
+          <ShieldCheck className="text-mint mt-0.5 h-4 w-4 shrink-0" />
           <span className="text-muted-foreground">
             Status updates come directly from the lender. We&apos;ll notify you here of any required documents or next steps.
           </span>
@@ -153,9 +171,15 @@ export default function ApplicationStatusPage() {
         <button
           onClick={refresh}
           disabled={refreshing}
-          className="border-border w-full rounded-full border py-3 text-sm font-bold"
+          className="border-border inline-flex w-full items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-bold"
         >
-          {refreshing ? 'Checking…' : '↻ Refresh status'}
+          {refreshing ? (
+            'Checking…'
+          ) : (
+            <>
+              <RefreshCw className="h-4 w-4" /> Refresh status
+            </>
+          )}
         </button>
       </div>
     </AccountShell>

@@ -26,6 +26,11 @@ export function SiteHeader() {
   const { lang, setLang } = useLang();
   const t = useCopy(siteHeaderCopy);
   const links = navItems.map((item) => ({ ...item, label: t.nav[item.key] }));
+  // "Track Application" always points at /account rather than only showing
+  // for a known session — AccountProvider already bounces a logged-out
+  // visitor to /apply to identify themselves first, so this doubles as the
+  // way back for a returning applicant AND a second, more specific entry
+  // point than "Apply Now" for someone who already has an application.
 
 
   useEffect(() => {
@@ -69,8 +74,13 @@ export function SiteHeader() {
             </span>
           </Link>
 
-          <div className="pointer-events-none absolute inset-x-0 hidden justify-center md:flex">
-            <div className="pointer-events-auto flex items-center gap-1">
+          {/* A normal flex sibling (not an absolute overlay centered on the
+              whole bar) so it shares space with the logo and CTA group
+              instead of potentially overlapping them — the CTA group grew
+              from one button to two ("Track Application" + "Apply Now"),
+              which an absolutely-centered overlay had no awareness of. */}
+          <div className="hidden flex-1 items-center justify-center lg:flex">
+            <div className="flex items-center gap-1">
               {links.map((l) => (
                 <Link
                   key={l.key}
@@ -83,7 +93,7 @@ export function SiteHeader() {
             </div>
           </div>
 
-          <div className="ml-auto hidden items-center gap-1 md:flex">
+          <div className="ml-auto hidden items-center gap-1 lg:flex">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -113,13 +123,20 @@ export function SiteHeader() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            {/* The header's only CTA now — straight into the full web
-                application at /apply. The old "Check eligibility" button
-                (which opened the lead-capture popup) is gone from the header;
-                this keeps its exact filled/gradient styling. */}
+            {/* Two CTAs side by side: "Track Application" (secondary,
+                outlined) for a returning applicant, and "Apply Now"
+                (primary, filled) — the old "Check eligibility" button
+                (which opened the lead-capture popup) is gone from the
+                header, replaced by this pair. */}
+            <Link
+              href="/account"
+              className="border-border text-foreground hover:bg-accent ml-2 inline-flex items-center gap-1.5 rounded-full border bg-card px-4 py-2.5 text-sm font-semibold transition-colors"
+            >
+              {t.trackApplication}
+            </Link>
             <Link
               href="/apply"
-              className="bg-brand-gradient ml-2 inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
+              className="bg-brand-gradient inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
             >
               {t.applyNow} <ArrowRight className="h-4 w-4" />
             </Link>
@@ -129,7 +146,7 @@ export function SiteHeader() {
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-label={t.toggleMenu}
-            className="ml-auto grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl border border-border md:hidden"
+            className="ml-auto grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl border border-border lg:hidden"
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -137,7 +154,7 @@ export function SiteHeader() {
         </nav>
 
         {open && (
-          <div className="bg-card border border-border animate-in fade-in slide-in-from-top-2 mx-auto mt-2 max-w-6xl rounded-3xl p-3 shadow-[var(--shadow-glass)] md:hidden">
+          <div className="bg-card border border-border animate-in fade-in slide-in-from-top-2 mx-auto mt-2 max-w-6xl rounded-3xl p-3 shadow-[var(--shadow-glass)] lg:hidden">
             <div className="flex flex-col">
               {links.map((l) => (
                 <Link
@@ -166,13 +183,22 @@ export function SiteHeader() {
                 ))}
               </div>
 
-              <Link
-                href="/apply"
-                onClick={() => setOpen(false)}
-                className="bg-brand-gradient mt-2 inline-flex items-center justify-center gap-1.5 rounded-2xl px-5 py-3 text-sm font-semibold text-primary-foreground"
-              >
-                {t.applyNow} <ArrowRight className="h-4 w-4" />
-              </Link>
+              <div className="mt-2 flex gap-2">
+                <Link
+                  href="/account"
+                  onClick={() => setOpen(false)}
+                  className="border-border text-foreground flex-1 inline-flex items-center justify-center gap-1.5 rounded-2xl border px-5 py-3 text-sm font-semibold"
+                >
+                  {t.trackApplication}
+                </Link>
+                <Link
+                  href="/apply"
+                  onClick={() => setOpen(false)}
+                  className="bg-brand-gradient flex-1 inline-flex items-center justify-center gap-1.5 rounded-2xl px-5 py-3 text-sm font-semibold text-primary-foreground"
+                >
+                  {t.applyNow} <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
             </div>
           </div>
         )}

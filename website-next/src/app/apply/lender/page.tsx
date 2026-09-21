@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ShieldCheck } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
@@ -10,13 +11,16 @@ const LOAD_TIMEOUT_MS = 6000;
 
 export default function LenderFramePage() {
   const router = useRouter();
-  const { applicationId, selectedOffer } = useApply();
+  const { applicationId, selectedOffer, sessionReady } = useApply();
   const accountUser = useAccountUser();
   const [loaded, setLoaded] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // Wait for ApplyProvider to sync selectedOffer in from sessionStorage —
+    // see applyContext.tsx.
+    if (!sessionReady) return;
     if (!selectedOffer?.redirectionUrl) {
       router.replace('/apply/offers');
       return;
@@ -25,7 +29,7 @@ export default function LenderFramePage() {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [selectedOffer, router]);
+  }, [sessionReady, selectedOffer, router]);
 
   if (!selectedOffer?.redirectionUrl) return null;
 
@@ -89,7 +93,7 @@ export default function LenderFramePage() {
         </div>
 
         <div className="bg-muted text-muted-foreground flex items-start gap-2 rounded-xl p-3 text-xs">
-          <span>🛡</span>
+          <ShieldCheck className="text-mint mt-0.5 h-4 w-4 shrink-0" />
           <span>
             SwiftLoan can&apos;t see anything you enter above — it&apos;s handled directly and securely by {lenderName}. Trouble
             loading?{' '}

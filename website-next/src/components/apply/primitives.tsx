@@ -5,15 +5,20 @@ import { ArrowRight } from 'lucide-react';
 export function Field({
   label,
   hint,
+  required,
   children,
 }: {
   label: string;
   hint?: string;
+  required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1.5 text-sm">
-      <span className="text-foreground font-semibold">{label}</span>
+      <span className="text-foreground font-semibold">
+        {label}
+        {required && <span className="text-danger ml-0.5">*</span>}
+      </span>
       {children}
       {hint && <span className="text-muted-foreground text-xs">{hint}</span>}
     </label>

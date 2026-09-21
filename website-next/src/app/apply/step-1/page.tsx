@@ -54,13 +54,14 @@ export default function Step1Page() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Revisiting this step (e.g. "Update details" from the empty-offers screen):
-  // apply the local draft first (instant, but possibly stale), then overlay
-  // the server's copy once it loads — the server is authoritative, but only
-  // overwrite fields it actually has a value for, so an in-progress edit is
-  // never clobbered with null.
+  // `phone` and `applicationId` start empty/null (SSR-safe) and are synced in
+  // from sessionStorage by ApplyProvider's own mount effect a tick after this
+  // one — so their loaders are separate effects keyed on the value itself,
+  // not folded into the one-time effect below, or they'd silently run once
+  // with the not-yet-synced default and never get a second chance.
   useEffect(() => {
-    const draft = phone ? loadDraft(phone) : {};
+    if (!phone) return;
+    const draft = loadDraft(phone);
     if (draft.amount != null) setAmount(draft.amount);
     if (draft.purpose) setPurpose(draft.purpose);
     if (draft.firstName) setFirstName(draft.firstName);
@@ -78,7 +79,21 @@ export default function Step1Page() {
     if (draft.income) setIncome(draft.income);
     if (draft.company) setCompany(draft.company);
     if (draft.salaryMode) setSalaryMode(draft.salaryMode);
+  }, [phone]);
 
+  useEffect(() => {
+    if (!applicationId) return;
+    getApplication(applicationId)
+      .then((app) => setAmount(app.amount))
+      .catch(() => {});
+  }, [applicationId]);
+
+  // Revisiting this step (e.g. "Update details" from the empty-offers
+  // screen): the server profile is authoritative, but only overwrite fields
+  // it actually has a value for, so an in-progress edit (or the draft applied
+  // above) is never clobbered with null. Independent of phone/applicationId —
+  // runs once, keyed off the access token already held in memory.
+  useEffect(() => {
     fetchMe()
       .then((res) => {
         const user = res?.data?.user;
@@ -106,17 +121,19 @@ export default function Step1Page() {
       .catch(() => {
         /* not logged in yet, or offline — the draft/defaults above still render */
       });
-    if (applicationId) {
-      getApplication(applicationId)
-        .then((app) => setAmount(app.amount))
-        .catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const valid =
-    firstName.trim() && lastName.trim() && dob && /^\S+@\S+\.\S+$/.test(email) && /^\d{6}$/.test(pincode) &&
-    addr1.trim() && city.trim() && state.trim() && /^\d+$/.test(income);
+  const missing: string[] = [];
+  if (!firstName.trim()) missing.push('First name');
+  if (!lastName.trim()) missing.push('Last name');
+  if (!dob) missing.push('Date of birth');
+  if (!/^\S+@\S+\.\S+$/.test(email)) missing.push('a valid email');
+  if (!/^\d{6}$/.test(pincode)) missing.push('a 6-digit pincode');
+  if (!addr1.trim()) missing.push('Address line 1');
+  if (!city.trim()) missing.push('City');
+  if (!state.trim()) missing.push('State');
+  if (!/^\d+$/.test(income)) missing.push('Monthly income');
+  const valid = missing.length === 0;
 
   const submit = async () => {
     if (!valid || loading) return;
@@ -165,7 +182,7 @@ export default function Step1Page() {
   };
 
   return (
-    <ApplyShell backHref="/apply/verify" stepLabel="Step 1 of 3" progressPct={28}>
+    <ApplyShell backHref="/" backLabel="Back to home" stepLabel="Step 1 of 3" progressPct={28}>
       <Stepper step={1} />
       <h1 className="text-2xl font-extrabold">Tell us about your loan</h1>
       <p className="text-muted-foreground mt-2 mb-6 text-sm">
@@ -190,9 +207,9 @@ export default function Step1Page() {
         <Card className="sm:p-7">
           <SectionHead icon={User} label="About you" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="First name"><TextInput value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" /></Field>
-            <Field label="Last name"><TextInput value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" /></Field>
-            <Field label="Date of birth"><TextInput type="date" value={dob} onChange={(e) => setDob(e.target.value)} autoComplete="bday" /></Field>
+            <Field label="First name" required><TextInput value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" /></Field>
+            <Field label="Last name" required><TextInput value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" /></Field>
+            <Field label="Date of birth" required><TextInput type="date" value={dob} onChange={(e) => setDob(e.target.value)} autoComplete="bday" /></Field>
             <Field label="Gender"><ChipGroup options={GENDERS} value={gender} onChange={setGender} /></Field>
           </div>
           <div className="mt-4">
@@ -203,15 +220,15 @@ export default function Step1Page() {
         <Card className="sm:p-7">
           <SectionHead icon={MapPin} label="Contact & address" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Email"><TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></Field>
-            <Field label="Pincode"><TextInput inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} autoComplete="postal-code" /></Field>
+            <Field label="Email" required><TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></Field>
+            <Field label="Pincode" required><TextInput inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} autoComplete="postal-code" /></Field>
           </div>
           <div className="mt-4">
-            <Field label="Address line 1"><TextInput value={addr1} onChange={(e) => setAddr1(e.target.value)} autoComplete="address-line1" /></Field>
+            <Field label="Address line 1" required><TextInput value={addr1} onChange={(e) => setAddr1(e.target.value)} autoComplete="address-line1" /></Field>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="City"><TextInput value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" /></Field>
-            <Field label="State"><TextInput value={state} onChange={(e) => setState(e.target.value)} autoComplete="address-level1" /></Field>
+            <Field label="City" required><TextInput value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" /></Field>
+            <Field label="State" required><TextInput value={state} onChange={(e) => setState(e.target.value)} autoComplete="address-level1" /></Field>
           </div>
           <div className="mt-4">
             <Field label="Residence type"><ChipGroup options={RESIDENCE} value={residence} onChange={setResidence} /></Field>
@@ -222,7 +239,7 @@ export default function Step1Page() {
           <SectionHead icon={Briefcase} label="Employment & income" />
           <Field label="Employment type"><ChipGroup options={EMPLOYMENT} value={employment} onChange={setEmployment} /></Field>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Monthly income (₹)"><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
+            <Field label="Monthly income (₹)" required><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
             <Field label="Company name"><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
           </div>
           <div className="mt-4">
@@ -231,6 +248,11 @@ export default function Step1Page() {
         </Card>
 
         {error && <p className="text-danger text-sm font-semibold">{error}</p>}
+        {!valid && !error && (
+          <p className="text-muted-foreground text-xs">
+            <span className="text-danger font-semibold">Required to continue:</span> {missing.join(', ')}.
+          </p>
+        )}
       </div>
 
       <BottomBar meta="Step 1 of 3 · ~2 min left">

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Check } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { Badge, Card, SectionLabel } from '@/components/apply/primitives';
 import { fmtINR } from '@/lib/core';
@@ -13,14 +14,17 @@ const DOCS = ['Verified identity profile', 'Bank statement summary (last 3 month
 
 export default function ConfirmPage() {
   const router = useRouter();
-  const { applicationId, selectedOffer } = useApply();
+  const { applicationId, selectedOffer, sessionReady } = useApply();
   const accountUser = useAccountUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for ApplyProvider to sync in from sessionStorage before judging
+    // these missing — see applyContext.tsx.
+    if (!sessionReady) return;
     if (!applicationId || !selectedOffer) router.replace('/apply/offers');
-  }, [applicationId, selectedOffer, router]);
+  }, [sessionReady, applicationId, selectedOffer, router]);
 
   if (!applicationId || !selectedOffer) return null;
   const lenderName = selectedOffer.lenderName || 'the lender';
@@ -70,7 +74,7 @@ export default function ConfirmPage() {
           <div className="flex flex-col gap-2">
             {DOCS.map((d) => (
               <div key={d} className="flex items-center gap-2.5 text-sm">
-                <span className="text-mint font-extrabold">✓</span>
+                <Check className="text-mint h-4 w-4 shrink-0" />
                 {d}
               </div>
             ))}
