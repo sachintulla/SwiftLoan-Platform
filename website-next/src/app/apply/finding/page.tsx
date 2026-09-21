@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LockKeyhole, ShieldCheck } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
@@ -17,15 +17,30 @@ const MIN_DISPLAY_MS = 2600;
  */
 export default function FindingPage() {
   const router = useRouter();
-  const { applicationId } = useApply();
+  const { applicationId, sessionReady } = useApply();
   const [error, setError] = useState<string | null>(null);
   const [fillWidth, setFillWidth] = useState('6%');
+  const startedRef = useRef(false);
 
   useEffect(() => {
+    // Wait for ApplyProvider to sync applicationId in from sessionStorage —
+    // otherwise this runs once on mount with the SSR-safe default (null) and
+    // both redirects away AND fires prequalify(null) before the real id loads.
+    if (!sessionReady) return;
     if (!applicationId) {
       router.replace('/apply/step-1');
       return;
     }
+    // Guards the real prequalify() call against firing twice for one visit —
+    // React Strict Mode (dev only) deliberately double-invokes this effect to
+    // surface non-idempotent effects, and this one used to fire a second,
+    // real, concurrent request to Aurix each time: confirmed as the cause of
+    // one application ending up with 10 duplicate offers instead of 5 (two
+    // genuine Aurix responses, 4ms apart). The backend now also makes its
+    // delete-then-recreate atomic against exactly this race, but skipping the
+    // redundant call here avoids wasting a real request to Aurix at all.
+    if (startedRef.current) return;
+    startedRef.current = true;
     // Start at 6% on mount, then kick to 100% next frame so the CSS
     // transition actually animates instead of snapping straight to full.
     const raf = requestAnimationFrame(() => setFillWidth('100%'));
@@ -40,14 +55,19 @@ export default function FindingPage() {
       .finally(() => {
         const elapsed = Date.now() - start;
         setTimeout(() => {
-          if (!cancelled) router.push('/apply/offers');
+          // replace, not push: this loading screen is a transient gate (like
+          // OTP verify), not a real page — with push, the browser's Back
+          // button from Offers landed here, re-fired a real prequalify()
+          // call on remount, and auto-forwarded straight back to Offers, a
+          // dead loop instead of a real "back".
+          if (!cancelled) router.replace('/apply/offers');
         }, Math.max(0, MIN_DISPLAY_MS - elapsed));
       });
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [applicationId, router]);
+  }, [sessionReady, applicationId, router]);
 
   return (
     <ApplyShell stepLabel="Finding your offers…" center>

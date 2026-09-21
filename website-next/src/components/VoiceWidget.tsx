@@ -185,6 +185,17 @@ function readCalculator() {
 // readTracker() removed alongside the tracker tools: the redesign has no
 // tracker UI, so it only ever returned nulls.
 
+// The apply funnel's Steps 1-3 render a sticky, full-width bottom bar
+// (ApplyShell's BottomBar) with its Continue/Submit button right-aligned —
+// the same corner Ruby's launcher normally sits in. Every other page (home,
+// offers, lender, confirm, success, /account/*) either has no sticky bottom
+// bar or its own CTA is inline in the content flow, so the right corner is
+// free there.
+const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3'];
+function launcherSide(path: string): 'left' | 'right' {
+  return LEFT_LAUNCHER_ROUTES.includes(path) ? 'left' : 'right';
+}
+
 export default function VoiceWidget() {
   const pathname = usePathname();
   const router = useRouter();
@@ -195,6 +206,14 @@ export default function VoiceWidget() {
   // act on the current page, and nudge the assistant's context on navigation.
   useEffect(() => {
     pathRef.current = pathname;
+    const side = launcherSide(pathname);
+    const btn = document.querySelector('.sl-voice-launcher') as HTMLElement | null;
+    const err = document.getElementById('sl-voice-error');
+    for (const node of [btn, err]) {
+      if (!node) continue;
+      node.style.left = side === 'left' ? '22px' : '';
+      node.style.right = side === 'left' ? '' : '22px';
+    }
     const agent = agentRef.current;
     if (agent && agent.conversationId) {
       // Give the new page a tick to mount its DOM before re-describing it.
@@ -558,16 +577,22 @@ export default function VoiceWidget() {
     `;
     document.head.appendChild(launcherStyle);
 
+    const initialSide = launcherSide(pathRef.current);
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'sl-voice-launcher';
     btn.setAttribute('aria-label', 'Talk to SwiftLoan — voice guide');
     // Ruby sits flush at the left of the pill, full-bleed, so she reads as a
     // person you are about to talk to rather than an icon in a button.
+    // right/left are set per-route below (and kept in sync on navigation by
+    // the pathname effect above) rather than hardcoded here.
     btn.style.cssText =
-      'position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;gap:10px;overflow:visible;' +
+      'position:fixed;bottom:22px;z-index:9999;display:flex;align-items:center;gap:10px;overflow:visible;' +
       'padding:8px 10px 8px 8px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
       'box-shadow:0 12px 30px rgba(7,159,160,.42);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
+    btn.style.left = initialSide === 'left' ? '22px' : '';
+    btn.style.right = initialSide === 'left' ? '' : '22px';
     // Ruby is a background-free cutout that rises above the pill on the left,
     // with a soft drop shadow so she stands off the page — matching the design.
     btn.innerHTML =
@@ -584,9 +609,12 @@ export default function VoiceWidget() {
       '<path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24 11.4 11.4 0 0 0 3.6.58 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.46.58 3.6a1 1 0 0 1-.24 1z" fill="#079FA0"/></svg>' +
       '</span>';
     const errBox = document.createElement('div');
+    errBox.id = 'sl-voice-error';
     errBox.style.cssText =
-      'position:fixed;right:22px;bottom:78px;z-index:9999;max-width:280px;display:none;' +
+      'position:fixed;bottom:78px;z-index:9999;max-width:280px;display:none;' +
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
+    errBox.style.left = initialSide === 'left' ? '22px' : '';
+    errBox.style.right = initialSide === 'left' ? '' : '22px';
 
     const LABELS: Record<string, string> = {
       idle: 'SwiftLoan assistant',

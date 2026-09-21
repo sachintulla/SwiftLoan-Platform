@@ -41,16 +41,17 @@ export default function MyOffers() {
   // the funnel). See back() in store.ts.
   const startApply = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
 
-  // Tapping a tile applies inline via the shared handler; optimistically flag it.
-  const select = useOfferSelect(id =>
-    setOffers(prev => prev.map(o => (o.id === id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o))),
-  );
+  // Tapping a tile applies inline via the shared handler. Removed from the
+  // list, not just re-labelled — once applied, an offer is tracked in My
+  // Loans, not shown here (same reasoning, same behaviour as the website).
+  const select = useOfferSelect(id => setOffers(prev => prev.filter(o => o.id !== id)));
 
   // Local-first: show cached offers immediately, then reconcile with the backend.
   const hydrate = useCallback(async () => {
     const cache = await loadOffersCache();
     if (cache) {
-      setOffers(cache.offers as Offer[]);
+      const cached = (cache.offers as Offer[]).filter(o => !o.applied);
+      setOffers(cached);
       setAppId(cache.applicationId);
       setSavedAt(cache.savedAt);
       if (cache.applicationId) set({ applicationId: cache.applicationId, offersReturn: 'fare' });
@@ -61,11 +62,16 @@ export default function MyOffers() {
       const r: any = await api.listApplications();
       const apps: any[] = r?.applications || [];
       mergeApiContext({ applications: apps });
+      // "Has offers" means has offers still worth showing — an application
+      // whose only offers are ones already applied to shouldn't outrank one
+      // with real, pending offers, and shouldn't count as "has offers" at all
+      // if every offer on it is already applied.
+      const unappliedCount = (a: any) => (a.offers ?? []).filter((o: Offer) => !o.applied).length;
       const withOffers =
-        apps.find(a => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ||
-        apps.find(a => (a.offers?.length ?? 0) > 0);
+        apps.find(a => unappliedCount(a) > 0 && OFFER_STATUSES.includes(a.status)) ||
+        apps.find(a => unappliedCount(a) > 0);
       if (withOffers) {
-        const list = (withOffers.offers || []) as Offer[];
+        const list = ((withOffers.offers || []) as Offer[]).filter(o => !o.applied);
         const now = Date.now();
         setOffers(list);
         setAppId(withOffers.id);
@@ -110,7 +116,7 @@ export default function MyOffers() {
     setRetrying(true);
     try {
       const res: any = await api.prequalify(state.applicationId);
-      const list = (res?.offers || []) as Offer[];
+      const list = ((res?.offers || []) as Offer[]).filter(o => !o.applied);
       set({ offersError: res?.friendlyError || '' });
       mergeApiContext({ prequalifyResult: { offers: res.offers, friendlyError: res?.friendlyError } });
       // Same call, same urgency rule as finding.tsx's own hasOffers check —

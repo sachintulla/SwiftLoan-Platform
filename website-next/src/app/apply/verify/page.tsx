@@ -11,7 +11,7 @@ const RESEND_SECONDS = 29;
 
 export default function VerifyOtpPage() {
   const router = useRouter();
-  const { phone, setApplicationId } = useApply();
+  const { phone, sessionReady, setApplicationId } = useApply();
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,8 +19,13 @@ export default function VerifyOtpPage() {
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
+    // Wait for ApplyProvider's own mount effect to sync `phone` in from
+    // sessionStorage before judging it missing — otherwise this fires on the
+    // very first render (still the SSR-safe default) and bounces a visitor
+    // who actually has a phone stored, before it's had a chance to load.
+    if (!sessionReady) return;
     if (!phone) router.replace('/apply');
-  }, [phone, router]);
+  }, [sessionReady, phone, router]);
 
   useEffect(() => {
     if (seconds <= 0) return;
@@ -66,7 +71,12 @@ export default function VerifyOtpPage() {
     try {
       const result = await verifyOtp(phone, code);
       setApplicationId(result.applicationId);
-      router.push(result.hasApplication ? '/account' : '/apply/step-1');
+      // replace, not push: once verified, this OTP screen is a spent
+      // one-time gate — it can't be meaningfully "gone back to" (there's
+      // nothing to re-verify), so it shouldn't stay in browser history.
+      // With push, the browser's own Back button (not just the in-app one)
+      // landed a just-verified visitor straight back on the OTP entry form.
+      router.replace(result.hasApplication ? '/account' : '/apply/step-1');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid or expired code.');
       setDigits(['', '', '', '', '', '']);

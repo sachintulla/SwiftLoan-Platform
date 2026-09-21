@@ -90,7 +90,12 @@ async function sendViaMsg91(phone: string, code: string): Promise<boolean> {
  * first failed OTP.
  */
 async function sendViaVox(phone: string, code: string): Promise<boolean> {
-  const base = process.env.VOX_BASE_URL ?? 'https://cpaas.voxdigitals.com/sms-customer-apis/sms/v1/send';
+  // No fallback on purpose: a stale default silently pointed at a dead host
+  // for weeks (nginx 405s on every send, indistinguishable from a real
+  // outage in the logs) because VOX_BASE_URL wasn't actually reaching the
+  // process. Failing loudly here surfaces that immediately instead.
+  const base = process.env.VOX_BASE_URL;
+  if (!base) throw new Error('VOX_BASE_URL is not set');
 
   // The body MUST reproduce the DLT-registered template character-for-character,
   // with only the {#var#} placeholders substituted. Indian operators match the

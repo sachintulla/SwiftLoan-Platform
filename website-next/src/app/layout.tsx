@@ -84,14 +84,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </HideOnAppRoutes>
         </LanguageProvider>
         {/* Platform integrations — deliberately outside the redesign: the voice
-            widget and Upshot SDK are unchanged by it. UpshotWeb has no visible
-            UI, so it stays mounted everywhere; VoiceWidget's floating button
-            sits bottom-right and was overlapping/eating clicks on the apply
-            funnel's own sticky bottom-bar CTA in that same corner. */}
+            widget and Upshot SDK are unchanged by it. Both stay mounted
+            everywhere, including /apply and /account — VoiceWidget shifts its
+            own floating button to the bottom-LEFT on the few pages that have
+            a right-aligned sticky bottom CTA bar (Steps 1-3), so Ruby never
+            sits on top of / eats clicks on that button. See its own
+            `launcherSide()` for which routes those are. */}
         <UpshotWeb />
-        <HideOnAppRoutes>
-          <VoiceWidget />
-        </HideOnAppRoutes>
+        <VoiceWidget />
       </body>
     </html>
   );
