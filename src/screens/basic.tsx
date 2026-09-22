@@ -29,6 +29,38 @@ export default function Basic() {
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
+  // Avoids re-querying the same pincode on every re-render/keystroke elsewhere
+  // on the screen, and avoids racing an in-flight lookup with a newer one if
+  // the user keeps editing.
+  const lastLookedUpPinRef = useRef<string | null>(null);
+
+  // Auto-fill city/state from the pincode once it's a complete 6-digit code,
+  // via India Post's public Pincode API (free, no key). Best-effort only —
+  // an unmatched/invalid pincode or a network hiccup must never block typing
+  // or show an error; the user can still fill city/state by hand either way.
+  useEffect(() => {
+    const pin = state.basicPin;
+    if (pin.length !== 6 || pin === lastLookedUpPinRef.current) return;
+    lastLookedUpPinRef.current = pin;
+    let cancelled = false;
+    (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { signal: controller.signal });
+        clearTimeout(timer);
+        const json = await res.json();
+        const po = json?.[0]?.PostOffice?.[0];
+        if (cancelled || !po) return;
+        if (po.District) set({ optCity: po.District });
+        if (po.State) set({ optState: po.State });
+      } catch {
+        // Silently ignore — city/state stay editable by hand.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.basicPin]);
   // Snapshot of what the server already held when this screen loaded (from
   // save_applicant_context during the warm-up conversation, or an earlier
   // profile edit) — onContinue diffs against this so it only PATCHes fields
