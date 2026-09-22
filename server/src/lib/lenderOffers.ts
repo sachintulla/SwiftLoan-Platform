@@ -616,9 +616,12 @@ export interface FetchLeadsIdentifiers {
   applicationId?: string | null; // Aurix "Lead ID"
   offerCode?: string | null;
   // Despite the doc's Business Rules saying "all filters are optional", a live
-  // UAT call without it gets HTTP 400 "ProductType is required." — the doc's
-  // own side-note ("Ensure the ProductType is correctly passed") was the real
-  // signal. Use aurixProductType() to derive this from LoanApplication.loanType.
+  // UAT call without it gets HTTP 400 "ProductType is required." — but the
+  // doc's own field name ("productType") never actually bound: Aurix
+  // confirmed the real wire key is "loanType" (the validation error names the
+  // C#-side property, ProductType, which apparently carries a
+  // [JsonPropertyName("loanType")] the doc never mentioned). Confirmed live:
+  // sending "loanType" gets a real 200 instead of the validation error.
   productType?: string | null;
 }
 
@@ -630,15 +633,15 @@ export interface FetchLeadsResult {
 }
 
 export async function fetchAurixLeads(ids: FetchLeadsIdentifiers, token: string): Promise<FetchLeadsResult> {
-  // The doc's own example payload uses camelCase, but a live camelCase
-  // "productType" still got "ProductType is required." — this ASP.NET-style
-  // API (note the ModelState error shape) apparently binds on PascalCase,
-  // matching how eligible_offers/generate_token already send their bodies.
+  // Confirmed live (2026-09-22): camelCase identifiers + "loanType" (not
+  // "productType"/"ProductType") + PascalCase pagination is the shape that
+  // actually gets a 200 instead of "ProductType is required." Mixed casing
+  // looks odd but matches the real, working request exactly.
   const body = {
-    PartnerCustomerId: ids.partnerCustomerId ?? '',
-    ApplicationId: ids.applicationId ?? '',
-    OfferCode: ids.offerCode ?? '',
-    ProductType: ids.productType ?? '',
+    partnerCustomerId: ids.partnerCustomerId ?? '',
+    applicationId: ids.applicationId ?? '',
+    offerCode: ids.offerCode ?? '',
+    loanType: ids.productType ?? '',
     PageNumber: 1,
     PageSize: 10,
   };
