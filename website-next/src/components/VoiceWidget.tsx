@@ -638,9 +638,13 @@ export default function VoiceWidget() {
     agent.on('error', (e: { message: string }) => {
       errBox.textContent = e.message;
       errBox.style.display = 'block';
+      // Permission/device errors tell the user to go DO something (open the
+      // browser's site-permission control) — 6s was tuned for a short status
+      // blip, not enough time to read an instruction and act on it.
+      const isActionable = /address bar|browser.?s site permissions/i.test(e.message);
       setTimeout(() => {
         errBox.style.display = 'none';
-      }, 6000);
+      }, isActionable ? 12000 : 6000);
     });
 
     btn.addEventListener('click', () => {

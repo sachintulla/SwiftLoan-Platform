@@ -89,6 +89,14 @@ export default function LenderFramePage() {
             title={`${lenderName} application`}
             onLoad={onFrameLoad}
             className={`h-full w-full ${loaded ? '' : 'invisible'}`}
+            // Without this, the browser's Permissions Policy blocks the
+            // lender's page from ever showing its own permission prompt for
+            // these — geolocation (address/fraud checks), camera + microphone
+            // (video KYC, advertised on the homepage), regardless of what the
+            // lender's own page does. This only grants the ABILITY to ask;
+            // the user still sees and clicks the browser's real Allow/Block
+            // prompt themselves.
+            allow="geolocation; camera; microphone"
           />
         </div>
 
