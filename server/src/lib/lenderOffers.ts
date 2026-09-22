@@ -429,8 +429,8 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
       },
     ],
     BureauInformation: {
-      BureauVendor: 'CIBIL',
-      BureauPulled: true,
+      BureauVendor: 'Experian',
+      BureauPulled: false,
       BureauDate: nowIso,
       // v1.2 documents Payload as a JSON object, but the live UAT DTO still
       // binds it as a string — sending an object triggers "Request body cannot
