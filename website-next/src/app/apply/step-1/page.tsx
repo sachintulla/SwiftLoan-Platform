@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Wallet, User, MapPin, Briefcase } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
@@ -53,6 +53,9 @@ export default function Step1Page() {
   const [salaryMode, setSalaryMode] = useState(SALARY_MODE[0]!);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Avoids re-querying the same pincode on every re-render/keystroke
+  // elsewhere on the page.
+  const lastLookedUpPinRef = useRef<string | null>(null);
 
   // `phone` and `applicationId` start empty/null (SSR-safe) and are synced in
   // from sessionStorage by ApplyProvider's own mount effect a tick after this
@@ -122,6 +125,32 @@ export default function Step1Page() {
         /* not logged in yet, or offline — the draft/defaults above still render */
       });
   }, []);
+
+  // Auto-fill city/state from the pincode once it's a complete 6-digit code,
+  // via India Post's public Pincode API (free, no key). Best-effort only —
+  // an unmatched/invalid pincode or a network hiccup must never block typing
+  // or show an error; the user can still fill city/state by hand either way.
+  useEffect(() => {
+    if (pincode.length !== 6 || pincode === lastLookedUpPinRef.current) return;
+    lastLookedUpPinRef.current = pincode;
+    let cancelled = false;
+    (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`, { signal: controller.signal });
+        clearTimeout(timer);
+        const json = await res.json();
+        const po = json?.[0]?.PostOffice?.[0];
+        if (cancelled || !po) return;
+        if (po.District) setCity(po.District);
+        if (po.State) setState(po.State);
+      } catch {
+        // Silently ignore — city/state stay editable by hand.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pincode]);
 
   const missing: string[] = [];
   if (!firstName.trim()) missing.push('First name');
