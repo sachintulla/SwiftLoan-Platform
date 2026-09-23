@@ -261,9 +261,22 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // just look odd in the UI — it actively tells the agent offers exist when
   // none do, and it never proactively suggests applying because the data
   // says there's nothing to suggest.
+  //
+  // Zero offers is NOT always a technical failure. AurixOfferProvider.getOffers
+  // returns [] (no throw) when Aurix's own eligible_offers call succeeds
+  // (HTTP 200, Meta.Success: true) but its business decision is "not
+  // eligible" — confirmed live, e.g. Meta.Message "...does not meet the
+  // eligibility criteria of our available lending partners." That's a real,
+  // informative lender decline, not an outage, and showing it as 'failed'
+  // told the applicant something broke when nothing did. Only an actual
+  // thrown error (network/HTTP failure, missing config) should read as
+  // 'failed'; a clean success with zero offers reads as 'rejected'.
+  const aurixDebug = takeAurixDebug(app.id) as { httpStatus?: number; response?: any } | null;
+  const aurixSucceededWithNoOffers =
+    created.length === 0 && (aurixDebug?.response?.Result?.Meta?.Success ?? aurixDebug?.response?.Meta?.Success) === true;
   await prisma.loanApplication.update({
     where: { id: app.id },
-    data: { status: created.length > 0 ? 'offers_ready' : 'failed' },
+    data: { status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed' },
   });
 
   // WS5: eligibility genuinely finished here (server-side truth). The client
@@ -278,10 +291,10 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     },
   ).catch(() => {});
 
-  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length });
+  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers });
   // Raw Aurix eligible_offers response (request/success/no-offers/validation),
   // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
-  res.json({ offers: created, aurixResponse: takeAurixDebug(app.id) });
+  res.json({ offers: created, aurixResponse: aurixDebug });
 }));
 
 /** List offers for an application. */
