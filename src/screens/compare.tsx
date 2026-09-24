@@ -38,6 +38,8 @@ const COL_W = 124;
 const H_HEAD = 92;
 const H_EMI = 70;
 const H_ROW = 58;
+// total column height = header + every metric row; used to size the pulse overlay.
+const TOTAL_H = H_HEAD + H_EMI + H_ROW * 6;
 
 type Winners = { emi: string | null; rate: string | null; interest: string | null; cost: string | null };
 type MetricRow = {
@@ -89,6 +91,10 @@ export default function Compare() {
   const [viewW, setViewW] = useState(0);
   const [swiped, setSwiped] = useState(false);
   const [scrolledX, setScrolledX] = useState(0);
+  // Reveal + pulse the recommended column when the ranking / tenure changes.
+  const matrixRef = useRef<ScrollView>(null);
+  const pulse = useRef(new Animated.Value(0)).current;
+  const [pulseIndex, setPulseIndex] = useState<number | null>(null);
   const onMatrixScroll = (x: number) => {
     if (x > 12 && !swiped) setSwiped(true);
     if ((x > 4) !== (scrolledX > 4)) setScrolledX(x);
@@ -150,6 +156,25 @@ export default function Compare() {
   const headlineAmount = Math.max(0, ...inputs.map(o => o.amount));
   const pricedCount = result.rows.filter(r => !r.onApproval).length;
 
+  // On a Rank/tenure change, scroll the recommended column into view and pulse it.
+  useEffect(() => {
+    if (!best) return;
+    const idx = result.rows.findIndex(r => r.id === best.id);
+    if (idx < 0) return;
+    const t = setTimeout(() => {
+      matrixRef.current?.scrollTo({ x: Math.max(0, idx * COL_W - 8), animated: true });
+    }, 60);
+    setPulseIndex(idx);
+    pulse.setValue(0);
+    Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 160, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start();
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankBy, tenure, best?.id]);
+  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, 0.26] });
+
   const onApply = async () => {
     if (!selectedOffer || applying) return;
     setApplying(true);
@@ -190,36 +215,32 @@ export default function Compare() {
           <Text style={[font(600), styles.empty]}>No offers to compare yet.</Text>
         ) : (
           <>
-            {/* Tenure */}
-            <Text style={[font(700), styles.label]}>REPAYMENT TENURE</Text>
-            <View style={styles.seg}>
-              {TENURES.map(t => {
-                const on = tenure === t;
-                return (
-                  <Pressable key={t} onPress={() => setTenure(t)} style={[styles.segBtn, on && styles.segOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                    <Text style={[font(700), styles.segText, on && { color: '#fff' }]}>{t} mo</Text>
+            {/* Tenure + Rank as two dropdowns (tenure narrow, rank takes the rest) */}
+            <View style={styles.controls2}>
+              <View style={styles.ctrlNarrow}>
+                <Text style={[font(700), styles.label]}>TENURE</Text>
+                <Dropdown
+                  ariaLabel="Repayment tenure"
+                  value={tenure}
+                  options={TENURES.map(t => ({ value: t as number, label: `${t} months` }))}
+                  onChange={v => { setTenure(v); setPicked(null); }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={styles.labelRow}>
+                  <Text style={[font(700), styles.label, { marginBottom: 0 }]}>RANK “BEST OFFER” BY</Text>
+                  <Pressable onPress={() => setSheet(true)} hitSlop={10} style={styles.filtersLink} accessibilityRole="button" accessibilityLabel="More filters">
+                    <Icon name="tune" size={15} color={colors.primary} />
+                    <Text style={[font(700), styles.filtersText]}>Filters{activeFilters ? ` · ${activeFilters}` : ''}</Text>
                   </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Rank by */}
-            <View style={styles.labelRow}>
-              <Text style={[font(700), styles.label, { marginBottom: 0 }]}>RANK “BEST OFFER” BY</Text>
-              <Pressable onPress={() => setSheet(true)} hitSlop={10} style={styles.filtersLink} accessibilityRole="button" accessibilityLabel="More filters">
-                <Icon name="tune" size={15} color={colors.primary} />
-                <Text style={[font(700), styles.filtersText]}>Filters{activeFilters ? ` · ${activeFilters}` : ''}</Text>
-              </Pressable>
-            </View>
-            <View style={styles.rankWrap}>
-              {RANKS.map(r => {
-                const on = rankBy === r.key;
-                return (
-                  <Pressable key={r.key} onPress={() => setRankBy(r.key)} style={[styles.rankBtn, on && styles.rankOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                    <Text style={[font(700), styles.rankText, on && { color: '#fff' }]}>{r.label}</Text>
-                  </Pressable>
-                );
-              })}
+                </View>
+                <Dropdown
+                  ariaLabel="Rank best offer by"
+                  value={rankBy}
+                  options={RANKS.map(r => ({ value: r.key, label: r.label }))}
+                  onChange={v => { setRankBy(v); setPicked(null); }}
+                />
+              </View>
             </View>
 
             {/* Matrix */}
@@ -245,6 +266,7 @@ export default function Compare() {
                 {/* Lender columns */}
                 <View style={{ flex: 1 }}>
                 <ScrollView
+                  ref={matrixRef}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={{ flex: 1 }}
@@ -252,6 +274,9 @@ export default function Compare() {
                   onLayout={e => setViewW(e.nativeEvent.layout.width)}
                   onScroll={e => onMatrixScroll(e.nativeEvent.contentOffset.x)}
                 >
+                  {pulseIndex != null ? (
+                    <Animated.View pointerEvents="none" style={[styles.pulseCol, { left: pulseIndex * COL_W, height: TOTAL_H, opacity: pulseOpacity }]} />
+                  ) : null}
                   {result.rows.map(r => {
                     const isSel = r.id === selected?.id;
                     return (
@@ -422,6 +447,38 @@ function Badge({ label, tone }: { label: string; tone: 'amber' | 'sel' }) {
   );
 }
 
+/** Compact dropdown: a pill showing the current option that opens a bottom-sheet list. */
+function Dropdown<T extends string | number>({ value, options, onChange, ariaLabel }: {
+  value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; ariaLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+  const cur = options.find(o => o.value === value);
+  return (
+    <>
+      <Pressable style={styles.dd} onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={ariaLabel} accessibilityValue={{ text: cur?.label }}>
+        <Text style={[font(700), styles.ddText]} numberOfLines={1}>{cur?.label ?? ''}</Text>
+        <Icon name="expand_more" size={18} color={colors.muted} />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.scrim} onPress={() => setOpen(false)} accessibilityLabel="Close" />
+        <View style={[styles.ddSheet, { paddingBottom: 12 + insets.bottom }]}>
+          <Text style={[font(700), styles.label, { marginLeft: 6 }]}>{ariaLabel.toUpperCase()}</Text>
+          {options.map(o => {
+            const on = o.value === value;
+            return (
+              <Pressable key={String(o.value)} style={[styles.ddItem, on && { backgroundColor: C.selBg }]} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="button" accessibilityState={{ selected: on }}>
+                <Text style={[font(on ? 800 : 600), styles.ddItemText, on && { color: colors.primary }]}>{o.label}</Text>
+                {on ? <Icon name="check" size={16} color={colors.primary} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      </Modal>
+    </>
+  );
+}
+
 function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.rankBtn, on && styles.rankOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
@@ -506,6 +563,15 @@ const styles = StyleSheet.create({
   segBtn: { flex: 1, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.35, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
   segText: { fontSize: 13, color: colors.textMid },
+
+  controls2: { flexDirection: 'row', gap: 10, alignItems: 'flex-end' },
+  ctrlNarrow: { width: 118 },
+  dd: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 11, paddingVertical: 11, backgroundColor: C.segBg },
+  ddText: { flex: 1, fontSize: 12.5, color: colors.text },
+  ddSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: 14, paddingHorizontal: 10 },
+  ddItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderRadius: 10 },
+  ddItemText: { fontSize: 14.5, color: colors.text },
+  pulseCol: { position: 'absolute', top: 0, width: COL_W, backgroundColor: colors.primary, borderRadius: 12 },
 
   rankWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   rankBtn: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.line, backgroundColor: C.segBg },
