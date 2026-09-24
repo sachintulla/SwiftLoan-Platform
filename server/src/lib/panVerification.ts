@@ -276,7 +276,13 @@ async function attachPanToUser(user: User, pan: string) {
 /** eligible_offers' PanVerificationDTO source — DB only, never calls Aurix. */
 export async function getPanVerificationForOffers(pan: string): Promise<PanVerificationForOffers | null> {
   if (!isValidPanFormat(pan)) return null;
-  const rec = await prisma.panRecord.findUnique({ where: { panHash: panHash(pan) } });
-  if (!rec || rec.status !== 'verified') return null;
-  return { verified: rec.verified, category: rec.category, aadhaarLinked: rec.aadhaarLinked, verifiedAt: rec.verifiedAt };
+  try {
+    const rec = await prisma.panRecord.findUnique({ where: { panHash: panHash(pan) } });
+    if (!rec || rec.status !== 'verified') return null;
+    return { verified: rec.verified, category: rec.category, aadhaarLinked: rec.aadhaarLinked, verifiedAt: rec.verifiedAt };
+  } catch (e: any) {
+    // Never let the PAN cache break offers — fall back to the assumed DTO.
+    log.warn('pan record lookup failed; eligible_offers uses assumed PAN DTO', { error: String(e?.message ?? e) });
+    return null;
+  }
 }
