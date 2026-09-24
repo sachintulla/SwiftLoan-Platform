@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
 import { colors, font } from '../../theme/tokens';
@@ -147,96 +147,119 @@ function RobotHead() {
 }
 
 /**
- * In-call glow, Siri-style: two gradient light-trail rings orbiting the
- * avatar in opposite directions over a soft breathing glow. Fully hidden when
- * no call is live (the idle avatar is still), fading in on connect.
- *   connecting  → one quick arc, like a spinner
- *   listening   → slow, calm orbit and gentle breathing
- *   speaking    → faster orbit, bigger/brighter breathing (Ruby is talking)
- *   executing   → warm gold tint while a tool runs
- * State-driven, not level-driven: this client has no PCM level access.
+ * In-call "liquid ring" — translucent blue ribbons that wave around the avatar,
+ * each a closed loop whose radius ripples with its own wave count, speed and
+ * phase, so they cross and weave like a living ring, over a thin dark core
+ * line and a soft glow. Only rendered while a call is live; the idle avatar is
+ * still and the animation loop is fully stopped.
+ *
+ * State-driven (this client has no PCM level access):
+ *   connecting → nearly round, slowly rotating (dialling)
+ *   listening  → gentle, slow undulation
+ *   speaking   → deep, fast waves — the ring "talks" with Ruby
+ *   executing  → calm waves with a warm gold ribbon (working on it)
  */
+const RIBBONS: { k: number; speed: number; phase: number; width: number; color: string; opacity: number }[] = [
+  { k: 5, speed: 1.0, phase: 0, width: 7, color: '#5B8CFF', opacity: 0.28 },
+  { k: 6, speed: -1.35, phase: 1.3, width: 4.5, color: '#3B82F6', opacity: 0.42 },
+  { k: 4, speed: 0.8, phase: 2.6, width: 3.5, color: '#2FB183', opacity: 0.35 },
+  { k: 7, speed: -1.1, phase: 4.1, width: 2.5, color: '#8FB4FF', opacity: 0.5 },
+];
+
+const MOTION: Record<'connecting' | 'listening' | 'speaking' | 'executingTool', { amp: number; tempo: number; spin: number }> = {
+  connecting: { amp: 1.2, tempo: 0.6, spin: 1.2 },
+  listening: { amp: 3.2, tempo: 0.9, spin: 0.25 },
+  speaking: { amp: 6.5, tempo: 2.4, spin: 0.5 },
+  executingTool: { amp: 2.6, tempo: 1.1, spin: 0.35 },
+};
+
+/** Closed wavy loop: r(θ) = R + A·sin(kθ + φ), sampled finely enough to read as a smooth curve. */
+function wavyPath(cx: number, cy: number, R: number, A: number, k: number, phase: number, rot: number): string {
+  const N = 96;
+  let d = '';
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const r = R + A * Math.sin(k * t + phase);
+    const x = cx + r * Math.cos(t + rot);
+    const y = cy + r * Math.sin(t + rot);
+    d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2);
+  }
+  return d + 'Z';
+}
+
 function SiriGlow({ status }: { status: AgentStatus }) {
   const live = status !== 'idle' && status !== 'ended';
   const show = useRef(new Animated.Value(0)).current;
-  const spinA = useRef(new Animated.Value(0)).current;
-  const spinB = useRef(new Animated.Value(0)).current;
-  const breathe = useRef(new Animated.Value(0)).current;
+  const [t, setT] = useState(0);
+  // Eased amplitude/tempo so switching listening ⇄ speaking morphs, not snaps.
+  const motion = useRef({ amp: 0, tempo: 0, spin: 0 });
 
   useEffect(() => {
-    Animated.timing(show, { toValue: live ? 1 : 0, duration: live ? 380 : 260, useNativeDriver: true }).start();
+    Animated.timing(show, { toValue: live ? 1 : 0, duration: live ? 380 : 280, useNativeDriver: true }).start();
   }, [live, show]);
 
   useEffect(() => {
     if (!live) return undefined;
-    const speaking = status === 'speaking';
-    const connecting = status === 'connecting';
-    const spin = (v: Animated.Value, ms: number) => {
-      v.setValue(0);
-      return Animated.loop(Animated.timing(v, { toValue: 1, duration: ms, easing: Easing.linear, useNativeDriver: true }));
+    let raf = 0;
+    let last = Date.now();
+    let clock = 0;
+    let lastPaint = 0;
+    const tick = () => {
+      const now = Date.now();
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const target = MOTION[status as keyof typeof MOTION] ?? MOTION.listening;
+      const m = motion.current;
+      const ease = 1 - Math.pow(0.02, dt); // ~0.2s settle
+      m.amp += (target.amp - m.amp) * ease;
+      m.tempo += (target.tempo - m.tempo) * ease;
+      m.spin += (target.spin - m.spin) * ease;
+      clock += dt;
+      if (now - lastPaint >= 33) { lastPaint = now; setT(clock); } // ~30fps repaint
+      raf = requestAnimationFrame(tick);
     };
-    const a = spin(spinA, connecting ? 900 : speaking ? 1700 : 3400);
-    const b = spin(spinB, speaking ? 2300 : 4600);
-    const beat = speaking ? 460 : connecting ? 700 : 1500;
-    const br = Animated.loop(Animated.sequence([
-      Animated.timing(breathe, { toValue: 1, duration: beat, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      Animated.timing(breathe, { toValue: 0, duration: beat, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-    ]));
-    a.start(); b.start(); br.start();
-    return () => { a.stop(); b.stop(); br.stop(); };
-  }, [live, status, spinA, spinB, breathe]);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [live, status]);
 
-  const speaking = status === 'speaking';
+  if (!live && t === 0) return null;
+  const m = motion.current;
   const tool = status === 'executingTool';
-  const connecting = status === 'connecting';
-  const rotA = spinA.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  const rotB = spinB.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
-  const glowScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, speaking ? 1.2 : 1.08] });
-  const glowOpacity = breathe.interpolate({ inputRange: [0, 1], outputRange: speaking ? [0.35, 0.6] : [0.22, 0.36] });
-  const ringScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, speaking ? 1.05 : 1.02] });
-
   const S = GLOW_SIZE;
   const c = S / 2;
-  const rA = FAB_SIZE / 2 + 5;
-  const rB = FAB_SIZE / 2 + 9;
-  const circA = 2 * Math.PI * rA;
-  const circB = 2 * Math.PI * rB;
-  const primary = tool ? '#F4B45C' : '#2FB183';
-  const secondary = tool ? '#E8890C' : '#079FA0';
+  const R = FAB_SIZE / 2 + 13;
+  const beat = 1 + (status === 'speaking' ? 0.08 : 0.03) * Math.sin(t * (status === 'speaking' ? 7 : 2.4));
 
   return (
     <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show }]}>
-      <Animated.View
-        style={[styles.glowBlob, { backgroundColor: primary, shadowColor: primary, opacity: glowOpacity, transform: [{ scale: glowScale }] }]}
-      />
-      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: ringScale }, { rotate: rotA }] }]}>
-        <Svg width={S} height={S}>
-          <Defs>
-            <SvgGradient id="sgA" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor={primary} stopOpacity="1" />
-              <Stop offset="0.55" stopColor={secondary} stopOpacity="0.85" />
-              <Stop offset="1" stopColor={secondary} stopOpacity="0" />
-            </SvgGradient>
-          </Defs>
-          <Circle cx={c} cy={c} r={rA} stroke="url(#sgA)" strokeWidth={4} strokeLinecap="round" fill="none"
-            strokeDasharray={`${circA * (connecting ? 0.28 : 0.62)} ${circA}`} />
-        </Svg>
-      </Animated.View>
-      {!connecting ? (
-        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: ringScale }, { rotate: rotB }] }]}>
-          <Svg width={S} height={S}>
-            <Defs>
-              <SvgGradient id="sgB" x1="1" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={tool ? '#F4B45C' : '#5B8CFF'} stopOpacity="0.95" />
-                <Stop offset="0.6" stopColor={tool ? '#E8890C' : '#8B5CF6'} stopOpacity="0.7" />
-                <Stop offset="1" stopColor={tool ? '#E8890C' : '#8B5CF6'} stopOpacity="0" />
-              </SvgGradient>
-            </Defs>
-            <Circle cx={c} cy={c} r={rB} stroke="url(#sgB)" strokeWidth={2.5} strokeLinecap="round" fill="none"
-              strokeDasharray={`${circB * 0.45} ${circB}`} />
-          </Svg>
-        </Animated.View>
-      ) : null}
+      <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : '#5B8CFF', transform: [{ scale: beat }] }]} />
+      <Svg width={S} height={S}>
+        <Defs>
+          <SvgGradient id="core" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor="#1E3A8A" stopOpacity="0.95" />
+            <Stop offset="0.5" stopColor="#0B2B55" stopOpacity="0.9" />
+            <Stop offset="1" stopColor="#2F5FD0" stopOpacity="0.95" />
+          </SvgGradient>
+        </Defs>
+        {RIBBONS.map((rb, idx) => (
+          <Path
+            key={idx}
+            d={wavyPath(c, c, R * beat, m.amp * (0.7 + 0.3 * ((idx % 2) + 1) / 2), rb.k, rb.phase + t * m.tempo * rb.speed, t * m.spin * (idx % 2 ? -1 : 1))}
+            stroke={tool && idx === 2 ? '#F4B45C' : rb.color}
+            strokeOpacity={rb.opacity}
+            strokeWidth={rb.width}
+            strokeLinejoin="round"
+            fill="none"
+          />
+        ))}
+        <Path
+          d={wavyPath(c, c, R * beat, m.amp * 0.55, 5, t * m.tempo * 0.9 + 0.7, t * m.spin * 0.5)}
+          stroke="url(#core)"
+          strokeWidth={1.6}
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </Svg>
     </Animated.View>
   );
 }
@@ -658,8 +681,8 @@ const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
 const NOTCH_SCALE = 70 / FAB_SIZE;
 const MIC_ICON_SIZE = Platform.OS === 'ios' ? 21 : 25;
 const HALO_SIZE = FAB_SIZE + 20;
-// Canvas for the in-call Siri-style glow (rings reach FAB radius + ~10).
-const GLOW_SIZE = FAB_SIZE + 26;
+// Canvas for the in-call liquid ring (ribbons reach ~FAB radius + 22).
+const GLOW_SIZE = FAB_SIZE + 52;
 const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
 const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
 // The panel's "cross-axis" size: its height when horizontal, its width when
@@ -670,8 +693,9 @@ const CALL_BTN_SIZE = 38;
 const styles = StyleSheet.create({
   glowWrap: { position: 'absolute', width: GLOW_SIZE, height: GLOW_SIZE, alignItems: 'center', justifyContent: 'center' },
   glowBlob: {
-    position: 'absolute', width: FAB_SIZE + 6, height: FAB_SIZE + 6, borderRadius: (FAB_SIZE + 6) / 2,
-    shadowOpacity: 0.9, shadowRadius: 16, shadowOffset: { width: 0, height: 0 }, elevation: 0,
+    position: 'absolute', width: FAB_SIZE + 18, height: FAB_SIZE + 18, borderRadius: (FAB_SIZE + 18) / 2,
+    backgroundColor: 'rgba(91,140,255,0.16)',
+    shadowOpacity: 0.85, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 0,
   },
   wrap: { position: 'absolute', alignItems: 'flex-end' },
   statusPill: {
