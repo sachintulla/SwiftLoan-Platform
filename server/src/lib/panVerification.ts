@@ -141,9 +141,14 @@ export function mapPanResponse(body: any): {
   const data = root?.Data ?? {};
   const success = meta?.Success === true;
 
-  const status = str(find(data, ['PanStatus', 'Status', 'PanStatusDescription']))?.toLowerCase();
-  const explicit = toBool(find(data, ['Verified', 'IsValid', 'IsVerified', 'Valid']));
-  const verified = success && (explicit ?? (status ? /valid|active|existing|^e$/.test(status) && !/invalid/.test(status) : true));
+  // Meta.Success means Aurix found and returned the PAN's details (live UAT:
+  // "PAN details fetched successfully."). Only an explicit negative in the
+  // data overrides that — an unrecognised status word must NOT (a positive
+  // status matcher here marked a real, successful lookup as invalid).
+  const status = str(find(data, ['PanStatus', 'PanStatusDescription']))?.toLowerCase();
+  const explicit = find(data, ['Verified', 'IsValid', 'IsVerified']);
+  const negativeStatus = !!status && /invalid|deactivat|not ?found|fake|deleted|inoperative|no record/.test(status);
+  const verified = success && explicit !== false && !negativeStatus;
 
   const first = str(find(data, ['FirstName', 'FName']));
   const middle = str(find(data, ['MiddleName', 'MName']));
@@ -179,6 +184,37 @@ export function mapPanResponse(body: any): {
 
 const inflight = new Map<string, Promise<PanVerifyResult>>();
 
+type PanRecordRow = { id: string; status: string; verified: boolean; category: string | null; aadhaarLinked: boolean | null; verifiedAt: Date | null; dataEnc: string | null; createdAt: Date };
+
+/**
+ * Re-derive a cached record from its stored raw Aurix response with the
+ * CURRENT mapping, and persist any change. Mapping fixes therefore apply to
+ * PANs already paid for — no second Aurix call.
+ */
+async function remapFromRaw<T extends PanRecordRow>(rec: T): Promise<T> {
+  if (!rec.dataEnc) return rec;
+  const data = decryptJson<PanRecordData>(rec.dataEnc);
+  if (!data.raw) return rec;
+  const m = mapPanResponse(data.raw);
+  const verified = m.success && m.verified;
+  const prefill = verified ? m.prefill : {};
+  const changed =
+    verified !== rec.verified || m.category !== rec.category || m.aadhaarLinked !== rec.aadhaarLinked ||
+    JSON.stringify(prefill) !== JSON.stringify(data.prefill ?? {});
+  if (!changed) return rec;
+  const fields = {
+    status: verified ? 'verified' : 'invalid',
+    verified,
+    category: m.category,
+    aadhaarLinked: m.aadhaarLinked,
+    verifiedAt: verified ? rec.verifiedAt ?? rec.createdAt : null,
+    dataEnc: encryptJson({ ...data, prefill }),
+    ...(verified ? { expiresAt: null } : {}),
+  };
+  log.info('pan record remapped from stored response', { panRecordId: rec.id, verified });
+  return (await prisma.panRecord.update({ where: { id: rec.id }, data: fields })) as unknown as T;
+}
+
 function fromRecord(rec: { status: string; verified: boolean; category: string | null; aadhaarLinked: boolean | null; verifiedAt: Date | null; dataEnc: string | null }, source: PanVerifyResult['source']): PanVerifyResult {
   const data = rec.dataEnc ? decryptJson<PanRecordData>(rec.dataEnc) : null;
   return {
@@ -202,7 +238,8 @@ export async function verifyPan(user: User, rawPan: string): Promise<PanVerifyRe
   if (!isValidPanFormat(pan)) throw new HttpError(400, 'Please enter a valid PAN (e.g. ABCPE1234F).');
   const hash = panHash(pan);
 
-  const cached = await prisma.panRecord.findUnique({ where: { panHash: hash } });
+  const found = await prisma.panRecord.findUnique({ where: { panHash: hash } });
+  const cached = found ? await remapFromRaw(found) : null;
   const fresh = cached && (cached.status === 'verified' || (cached.expiresAt && cached.expiresAt.getTime() > Date.now()));
   if (cached && fresh) {
     if (cached.ownerUserId && cached.ownerUserId !== user.id) {
@@ -277,7 +314,8 @@ async function attachPanToUser(user: User, pan: string) {
 export async function getPanVerificationForOffers(pan: string): Promise<PanVerificationForOffers | null> {
   if (!isValidPanFormat(pan)) return null;
   try {
-    const rec = await prisma.panRecord.findUnique({ where: { panHash: panHash(pan) } });
+    const found = await prisma.panRecord.findUnique({ where: { panHash: panHash(pan) } });
+    const rec = found ? await remapFromRaw(found) : null;
     if (!rec || rec.status !== 'verified') return null;
     return { verified: rec.verified, category: rec.category, aadhaarLinked: rec.aadhaarLinked, verifiedAt: rec.verifiedAt };
   } catch (e: any) {

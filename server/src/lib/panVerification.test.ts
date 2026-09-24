@@ -84,6 +84,34 @@ describe('mapPanResponse', () => {
   });
 });
 
+describe('live UAT shape regression', () => {
+  // Real dev response: Meta.Success true, "PAN details fetched successfully.",
+  // category "person" — was wrongly stored as invalid by a positive-status matcher.
+  const liveLike = {
+    Meta: { Success: true, Message: 'PAN details fetched successfully.' },
+    Data: { Status: 'SUCCESS', Category: 'person', AadhaarLinked: true, FullName: 'RAVI KUMAR' },
+  };
+  it('Success with an unrecognised status word is verified', () => {
+    expect(mapPanResponse(liveLike).verified).toBe(true);
+  });
+  it('explicit negatives still fail', () => {
+    expect(mapPanResponse({ Meta: { Success: true }, Data: { PanStatus: 'Invalid PAN' } }).verified).toBe(false);
+    expect(mapPanResponse({ Meta: { Success: true }, Data: { IsValid: false } }).verified).toBe(false);
+  });
+  it('a record stored as invalid by the old mapping is fixed from its raw response, no new Aurix call', async () => {
+    records.set(panHash(PAN), {
+      id: 'old', panHash: panHash(PAN), status: 'invalid', verified: false, category: 'person', aadhaarLinked: true,
+      verifiedAt: null, createdAt: new Date(), expiresAt: new Date(Date.now() + 3600_000), cacheHits: 0,
+      ownerUserId: userA.id, dataEnc: encryptJson({ pan: PAN, prefill: {}, raw: liveLike }),
+    });
+    const r = await verifyPan(userA, PAN);
+    expect(aurix).not.toHaveBeenCalled();
+    expect(r.verified).toBe(true);
+    expect(r.prefill).toMatchObject({ firstName: 'RAVI', lastName: 'KUMAR' });
+    expect(records.get(panHash(PAN)).status).toBe('verified');
+  });
+});
+
 describe('verifyPan — paid call happens at most once', () => {
   it('rejects a malformed PAN without calling Aurix', async () => {
     await expect(verifyPan(userA, 'ABC123')).rejects.toMatchObject({ status: 400 });
