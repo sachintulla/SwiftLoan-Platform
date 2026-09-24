@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Modal, ActivityIndicator, Animated, Easing } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, Modal, ActivityIndicator, Animated, Easing, Image } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../components/Frame';
@@ -20,6 +20,8 @@ const C = {
   amberBg: '#FCEFD9',
   selBg: '#E1F3F3',
   segBg: '#EEF3F3',
+  fixcol: '#EAF5F4',   // slight brand tint for the pinned label column
+  stripe: '#F5F9F9',   // alternating row shade
 };
 
 const RANKS: { key: RankBy; label: string; phrase: string }[] = [
@@ -220,24 +222,6 @@ export default function Compare() {
               })}
             </View>
 
-            {/* Best overall */}
-            {best ? (
-              <View style={styles.best}>
-                <View style={styles.bestIc}><Icon name="check" size={18} color="#fff" /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[font(800), styles.bestT]}>BEST OVERALL</Text>
-                  <Text style={[font(400), styles.bestM]}>
-                    <Text style={font(800)}>{best.lenderName}</Text> wins on{' '}
-                    <Text style={font(800)}>{RANKS.find(r => r.key === rankBy)!.phrase}</Text> over {tenure} months — EMI{' '}
-                    <Text style={font(800)}>{rupee(best.emi!)}</Text> at <Text style={font(800)}>{best.rate}%</Text>, total repayment{' '}
-                    <Text style={font(800)}>{rupee(best.totalRepay!)}</Text>.
-                  </Text>
-                </View>
-              </View>
-            ) : result.rows.length ? (
-              <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>These lenders confirm their rate only after approval, so we can’t rank them yet.</Text></View>
-            ) : null}
-
             {/* Matrix */}
             {result.rows.length === 0 ? (
               <View style={styles.noMatch}>
@@ -246,11 +230,14 @@ export default function Compare() {
               </View>
             ) : (
               <View style={styles.matrix}>
-                {/* Pinned labels */}
+                {/* Pinned labels — branded corner + tinted column */}
                 <View style={{ width: LABEL_W }}>
-                  <View style={{ height: H_HEAD }} />
-                  {METRICS.map(m => (
-                    <View key={m.key} style={[styles.labelCell, { height: m.height }]}>
+                  <LinearGradient colors={['#1FA890', '#3AC2A4']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.cornerCell, { height: H_HEAD }]}>
+                    <Image source={require('../../assets/brand/icon_fullbleed.png')} style={styles.cornerIcon} resizeMode="contain" />
+                    <Text style={[font(800), styles.cornerText]}>SwiftLoan</Text>
+                  </LinearGradient>
+                  {METRICS.map((m, i) => (
+                    <View key={m.key} style={[styles.labelCell, { height: m.height }, i % 2 === 1 && { backgroundColor: C.stripe }]}>
                       <Text style={[font(700), styles.metricLabel]}>{m.label}</Text>
                     </View>
                   ))}
@@ -282,11 +269,12 @@ export default function Compare() {
                           {r.id === best?.id ? <Badge tone="amber" label="Recommended" /> : null}
                           {isSel ? <Badge tone="sel" label="✓ Selected" /> : null}
                         </View>
-                        {METRICS.map(m => {
+                        {METRICS.map((m, i) => {
                           const show = !m.priced || !r.onApproval;
                           const win = show && m.win && pricedCount > 1 && result.winners[m.win] === r.id;
+                          const stripe = i % 2 === 1 && !isSel && !win;
                           return (
-                            <View key={m.key} style={[styles.cellWrap, { height: m.height }]}>
+                            <View key={m.key} style={[styles.cellWrap, { height: m.height }, stripe && { backgroundColor: C.stripe }]}>
                               {show ? (
                                 <View style={[styles.cell, win && styles.win]}>
                                   <Text style={[font(m.big ? 800 : 700), m.big ? styles.valBig : styles.val, win && { color: C.best }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
@@ -326,8 +314,23 @@ export default function Compare() {
               EMIs are indicative; some lenders confirm the rate only after approval.
             </Text>
 
+            {/* Best overall — sits just above Apply */}
+            {best ? (
+              <View style={styles.best}>
+                <View style={styles.bestIc}><Icon name="check" size={14} color="#fff" /></View>
+                <Text style={[font(400), styles.bestM]}>
+                  <Text style={[font(800), { color: C.best }]}>{best.lenderName}</Text> wins on{' '}
+                  <Text style={[font(800), { color: C.best }]}>{RANKS.find(r => r.key === rankBy)!.phrase}</Text> over {tenure} months — EMI{' '}
+                  <Text style={font(800)}>{rupee(best.emi!)}</Text> at <Text style={font(800)}>{best.rate}%</Text>, total repayment{' '}
+                  <Text style={font(800)}>{rupee(best.totalRepay!)}</Text>.
+                </Text>
+              </View>
+            ) : result.rows.length ? (
+              <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>These lenders confirm their rate only after approval, so we can’t rank them yet.</Text></View>
+            ) : null}
+
             {selected && selectedOffer ? (
-              <View style={{ marginTop: 16 }}>
+              <View style={{ marginTop: 4 }}>
                 <PrimaryButton
                   label={applying ? 'Applying…' : `Apply with ${selected.lenderName}${selected.onApproval ? ' (rate on approval)' : ''}`}
                   voiceId="Apply with selected offer"
@@ -509,16 +512,18 @@ const styles = StyleSheet.create({
   rankOn: { backgroundColor: colors.inkDeep, borderColor: colors.inkDeep },
   rankText: { fontSize: 12, color: colors.textMid },
 
-  best: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', marginTop: 16, backgroundColor: C.bestBg, borderWidth: 1, borderColor: C.best, borderRadius: 14, padding: 13 },
-  bestIc: { width: 30, height: 30, borderRadius: 9, backgroundColor: C.best, alignItems: 'center', justifyContent: 'center' },
-  bestT: { fontSize: 11, color: C.best, letterSpacing: 0.5 },
-  bestM: { fontSize: 13, color: colors.text, marginTop: 2, lineHeight: 19 },
+  best: { flexDirection: 'row', gap: 9, alignItems: 'center', marginTop: 16, marginBottom: 6, backgroundColor: C.bestBg, borderWidth: 1, borderColor: C.best, borderRadius: 11, paddingVertical: 9, paddingHorizontal: 11 },
+  bestIc: { width: 22, height: 22, borderRadius: 7, backgroundColor: C.best, alignItems: 'center', justifyContent: 'center' },
+  bestM: { flex: 1, fontSize: 12, color: colors.text, lineHeight: 17 },
   infoBox: { marginTop: 16, backgroundColor: colors.chip, borderRadius: 14, padding: 13 },
   infoText: { fontSize: 13, color: colors.textMid },
 
   matrix: { flexDirection: 'row', marginTop: 14, borderTopWidth: 1, borderColor: colors.line },
-  labelCell: { justifyContent: 'center', borderTopWidth: 1, borderColor: colors.line, paddingRight: 6 },
-  metricLabel: { fontSize: 11.5, color: colors.muted },
+  labelCell: { justifyContent: 'center', borderTopWidth: 1, borderColor: colors.line, paddingLeft: 8, paddingRight: 6, backgroundColor: C.fixcol },
+  metricLabel: { fontSize: 11.5, color: colors.text, fontWeight: '700' },
+  cornerCell: { alignItems: 'center', justifyContent: 'center', gap: 5, borderTopLeftRadius: 12 },
+  cornerIcon: { width: 34, height: 34, borderRadius: 9 },
+  cornerText: { fontSize: 12, color: '#fff', letterSpacing: -0.2 },
   col: { width: COL_W, borderRadius: 12 },
   head: { alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 6, paddingBottom: 10 },
   nm: { fontSize: 14, color: colors.text, textAlign: 'center' },
