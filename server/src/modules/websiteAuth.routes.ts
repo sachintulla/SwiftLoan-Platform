@@ -8,7 +8,7 @@ import { validate } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/auth.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
-import { createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
+import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('websiteAuth');
@@ -66,7 +66,7 @@ websiteAuthRouter.post(
     ).catch(() => {});
 
     log.info('website otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp, delivered });
-    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
+    assertOtpDelivered(delivered, phone);
     res.json({ success: true, data: { otpSent: true, devOtp }, message: 'OTP sent' });
   }),
 );

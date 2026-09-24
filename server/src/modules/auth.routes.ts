@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
-import { createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
+import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('auth');
@@ -41,7 +41,7 @@ authRouter.post(
     });
     const { devOtp, delivered } = await createOtp(phone, user.id);
     log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp, delivered });
-    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
+    assertOtpDelivered(delivered, phone);
     res.status(201).json({ userId: user.id, otpSent: true, devOtp });
   }),
 );
@@ -64,7 +64,7 @@ authRouter.post(
     ).catch(() => {});
 
     log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp, delivered });
-    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
+    assertOtpDelivered(delivered, phone);
     res.json({ otpSent: true, devOtp });
   }),
 );
