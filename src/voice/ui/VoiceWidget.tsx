@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
 import { colors, font } from '../../theme/tokens';
@@ -51,52 +52,6 @@ const STATE_ACCENT: Record<AgentStatus, string> = {
   executingTool: colors.amber,
   ended: '#fff',
 };
-
-/**
- * A slow, continuous "breathing" halo — plays even at rest, before the user
- * has ever tapped the button, so the button reads as an interactive,
- * always-listening assistant rather than a static icon.
- */
-function IdleHalo() {
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(v, { toValue: 1, duration: 1900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(v, { toValue: 0, duration: 1900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [v]);
-  const scale = v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] });
-  const opacity = v.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.06] });
-  return <Animated.View style={[styles.halo, { transform: [{ scale }], opacity }]} pointerEvents="none" />;
-}
-
-/** One expanding-and-fading ring, looped with a start delay for a staggered ripple — only while active. */
-function Ripple({ active, delay, color }: { active: boolean; delay: number; color: string }) {
-  const v = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (!active) {
-      v.setValue(0);
-      return undefined;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.delay(delay),
-        Animated.timing(v, { toValue: 1, duration: 1400, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => { loop.stop(); v.setValue(0); };
-  }, [active, delay, v]);
-
-  const scale = v.interpolate({ inputRange: [0, 1], outputRange: [1, 2.3] });
-  const opacity = v.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.45, 0] });
-  return <Animated.View style={[styles.ripple, { backgroundColor: color, transform: [{ scale }], opacity }]} pointerEvents="none" />;
-}
 
 /**
  * Stylized voice-activity bars — not literally driven by mic/speaker audio
@@ -192,29 +147,97 @@ function RobotHead() {
 }
 
 /**
- * The avatar's open/close glyph, drawn with plain shapes rather than the
- * Material Symbols ligature font — inside a tightly clipped, absolutely-
- * filled circular overlay, an unresolved ligature falls back to rendering
- * its raw letter sequence (e.g. "more_vert" character-by-character), which
- * showed up as stray blob artifacts smeared across the avatar photo. Three
- * dots / an X are simple enough that hand-drawing them is both safer and
- * cheaper than debugging font fallback behavior.
+ * In-call glow, Siri-style: two gradient light-trail rings orbiting the
+ * avatar in opposite directions over a soft breathing glow. Fully hidden when
+ * no call is live (the idle avatar is still), fading in on connect.
+ *   connecting  → one quick arc, like a spinner
+ *   listening   → slow, calm orbit and gentle breathing
+ *   speaking    → faster orbit, bigger/brighter breathing (Ruby is talking)
+ *   executing   → warm gold tint while a tool runs
+ * State-driven, not level-driven: this client has no PCM level access.
  */
-function MoreOrCloseGlyph({ expanded }: { expanded: boolean }) {
-  if (expanded) {
-    return (
-      <View style={styles.glyphCloseBox}>
-        <View style={[styles.glyphBar, { transform: [{ rotate: '45deg' }] }]} />
-        <View style={[styles.glyphBar, { transform: [{ rotate: '-45deg' }] }]} />
-      </View>
-    );
-  }
+function SiriGlow({ status }: { status: AgentStatus }) {
+  const live = status !== 'idle' && status !== 'ended';
+  const show = useRef(new Animated.Value(0)).current;
+  const spinA = useRef(new Animated.Value(0)).current;
+  const spinB = useRef(new Animated.Value(0)).current;
+  const breathe = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(show, { toValue: live ? 1 : 0, duration: live ? 380 : 260, useNativeDriver: true }).start();
+  }, [live, show]);
+
+  useEffect(() => {
+    if (!live) return undefined;
+    const speaking = status === 'speaking';
+    const connecting = status === 'connecting';
+    const spin = (v: Animated.Value, ms: number) => {
+      v.setValue(0);
+      return Animated.loop(Animated.timing(v, { toValue: 1, duration: ms, easing: Easing.linear, useNativeDriver: true }));
+    };
+    const a = spin(spinA, connecting ? 900 : speaking ? 1700 : 3400);
+    const b = spin(spinB, speaking ? 2300 : 4600);
+    const beat = speaking ? 460 : connecting ? 700 : 1500;
+    const br = Animated.loop(Animated.sequence([
+      Animated.timing(breathe, { toValue: 1, duration: beat, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(breathe, { toValue: 0, duration: beat, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    a.start(); b.start(); br.start();
+    return () => { a.stop(); b.stop(); br.stop(); };
+  }, [live, status, spinA, spinB, breathe]);
+
+  const speaking = status === 'speaking';
+  const tool = status === 'executingTool';
+  const connecting = status === 'connecting';
+  const rotA = spinA.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const rotB = spinB.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
+  const glowScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, speaking ? 1.2 : 1.08] });
+  const glowOpacity = breathe.interpolate({ inputRange: [0, 1], outputRange: speaking ? [0.35, 0.6] : [0.22, 0.36] });
+  const ringScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, speaking ? 1.05 : 1.02] });
+
+  const S = GLOW_SIZE;
+  const c = S / 2;
+  const rA = FAB_SIZE / 2 + 5;
+  const rB = FAB_SIZE / 2 + 9;
+  const circA = 2 * Math.PI * rA;
+  const circB = 2 * Math.PI * rB;
+  const primary = tool ? '#F4B45C' : '#2FB183';
+  const secondary = tool ? '#E8890C' : '#079FA0';
+
   return (
-    <View style={styles.glyphDotsCol}>
-      <View style={styles.glyphDot} />
-      <View style={styles.glyphDot} />
-      <View style={styles.glyphDot} />
-    </View>
+    <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show }]}>
+      <Animated.View
+        style={[styles.glowBlob, { backgroundColor: primary, shadowColor: primary, opacity: glowOpacity, transform: [{ scale: glowScale }] }]}
+      />
+      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: ringScale }, { rotate: rotA }] }]}>
+        <Svg width={S} height={S}>
+          <Defs>
+            <SvgGradient id="sgA" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor={primary} stopOpacity="1" />
+              <Stop offset="0.55" stopColor={secondary} stopOpacity="0.85" />
+              <Stop offset="1" stopColor={secondary} stopOpacity="0" />
+            </SvgGradient>
+          </Defs>
+          <Circle cx={c} cy={c} r={rA} stroke="url(#sgA)" strokeWidth={4} strokeLinecap="round" fill="none"
+            strokeDasharray={`${circA * (connecting ? 0.28 : 0.62)} ${circA}`} />
+        </Svg>
+      </Animated.View>
+      {!connecting ? (
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: ringScale }, { rotate: rotB }] }]}>
+          <Svg width={S} height={S}>
+            <Defs>
+              <SvgGradient id="sgB" x1="1" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={tool ? '#F4B45C' : '#5B8CFF'} stopOpacity="0.95" />
+                <Stop offset="0.6" stopColor={tool ? '#E8890C' : '#8B5CF6'} stopOpacity="0.7" />
+                <Stop offset="1" stopColor={tool ? '#E8890C' : '#8B5CF6'} stopOpacity="0" />
+              </SvgGradient>
+            </Defs>
+            <Circle cx={c} cy={c} r={rB} stroke="url(#sgB)" strokeWidth={2.5} strokeLinecap="round" fill="none"
+              strokeDasharray={`${circB * 0.45} ${circB}`} />
+          </Svg>
+        </Animated.View>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -348,7 +371,6 @@ export default function VoiceWidget() {
   // 'connecting' counts as active so a second tap hangs up mid-dial rather than
   // being ignored (agent.start() unwinds via its start-token check).
   const active = status !== 'idle' && status !== 'ended';
-  const showBars = status === 'listening' || status === 'speaking' || status === 'executingTool';
   const accent = STATE_ACCENT[status];
 
   // Not rendered as visible text anymore, but kept for screen readers.
@@ -562,9 +584,7 @@ export default function VoiceWidget() {
           pointerEvents="none"
           style={[styles.entranceBurst, { opacity: burstOpacity, transform: [{ scale: burstScale }] }]}
         />
-        <IdleHalo />
-        <Ripple active={showBars} delay={0} color={accent} />
-        <Ripple active={showBars} delay={550} color={accent} />
+        <SiriGlow status={status} />
         {/* Call panel — status/timer + mic/end-call. Only exists during a live
             call; grows directly out of the FAB circle it's anchored to
             (transformOrigin), horizontally when the FAB floats at a screen
@@ -615,20 +635,6 @@ export default function VoiceWidget() {
               ) : (
                 <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
               )}
-              {/* Open/close affordance for the call panel — lives inside `.fab`
-                  itself (which already clips to a circle) so it exactly fills
-                  the avatar with no separate badge shape to align. Before any
-                  call starts this never renders, so the avatar stays plain. */}
-              {active ? (
-                <Pressable
-                  onPress={() => { Vibration.vibrate(15); setExpanded(e => !e); }}
-                  accessibilityLabel={expanded ? 'Close call controls' : 'Open call controls'}
-                  accessibilityRole="button"
-                  style={styles.avatarToggleOverlay}
-                >
-                  <MoreOrCloseGlyph expanded={expanded} />
-                </Pressable>
-              ) : null}
             </LinearGradient>
           </Animated.View>
         </Pressable>
@@ -651,8 +657,9 @@ const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
 // floating in the corner.
 const NOTCH_SCALE = 70 / FAB_SIZE;
 const MIC_ICON_SIZE = Platform.OS === 'ios' ? 21 : 25;
-const RIPPLE_SIZE = FAB_SIZE + 8;
 const HALO_SIZE = FAB_SIZE + 20;
+// Canvas for the in-call Siri-style glow (rings reach FAB radius + ~10).
+const GLOW_SIZE = FAB_SIZE + 26;
 const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
 const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
 // The panel's "cross-axis" size: its height when horizontal, its width when
@@ -661,6 +668,11 @@ const CALL_PANEL_CROSS = 52;
 const CALL_BTN_SIZE = 38;
 
 const styles = StyleSheet.create({
+  glowWrap: { position: 'absolute', width: GLOW_SIZE, height: GLOW_SIZE, alignItems: 'center', justifyContent: 'center' },
+  glowBlob: {
+    position: 'absolute', width: FAB_SIZE + 6, height: FAB_SIZE + 6, borderRadius: (FAB_SIZE + 6) / 2,
+    shadowOpacity: 0.9, shadowRadius: 16, shadowOffset: { width: 0, height: 0 }, elevation: 0,
+  },
   wrap: { position: 'absolute', alignItems: 'flex-end' },
   statusPill: {
     flexDirection: 'row',
@@ -741,24 +753,6 @@ const styles = StyleSheet.create({
   endCallBtn: { backgroundColor: colors.redDeep },
   // Fills `.fab` exactly (which already clips to a circle via overflow:hidden)
   // — a translucent dark scrim plus a gray icon, not a separate badge shape.
-  avatarToggleOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(10,63,65,0.34)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glyphDotsCol: { alignItems: 'center', gap: 3 },
-  glyphDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.muted },
-  glyphCloseBox: { width: 16, height: 16 },
-  glyphBar: {
-    position: 'absolute',
-    top: 7,
-    left: 1,
-    width: 14,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: colors.muted,
-  },
   entranceBurst: {
     position: 'absolute',
     width: FAB_SIZE,
@@ -766,19 +760,6 @@ const styles = StyleSheet.create({
     borderRadius: FAB_SIZE / 2,
     borderWidth: 3,
     borderColor: colors.primary,
-  },
-  halo: {
-    position: 'absolute',
-    width: HALO_SIZE,
-    height: HALO_SIZE,
-    borderRadius: HALO_SIZE / 2,
-    backgroundColor: colors.primary,
-  },
-  ripple: {
-    position: 'absolute',
-    width: RIPPLE_SIZE,
-    height: RIPPLE_SIZE,
-    borderRadius: RIPPLE_SIZE / 2,
   },
   fabRing: {
     width: FAB_SIZE,
