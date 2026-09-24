@@ -15,7 +15,7 @@ export default function ApplyPhonePage() {
   const { setPhone } = useApply();
   const [value, setValue] = useState('');
   // Must be an explicit opt-in, never pre-checked — same reasoning as the
-  // Step 3 PAN-consent checkbox.
+  // Step 1 PAN-consent checkbox.
   const [terms, setTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

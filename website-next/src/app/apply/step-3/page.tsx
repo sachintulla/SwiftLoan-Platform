@@ -1,143 +1,113 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
+import { Heart, MapPin } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
-import { Card, SectionLabel } from '@/components/apply/primitives';
-import { useApply } from '@/lib/applyContext';
-import { patchApplication } from '@/lib/applyApi';
+import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives';
+import { patchProfile } from '@/lib/applyApi';
 
-const PAN_HOLDER_CODES = 'ABCFGHJLPT';
-function isValidPan(v: string) {
-  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v) && PAN_HOLDER_CODES.includes(v[3] ?? '');
-}
+const MARITAL = ['Single', 'Married', 'Other'];
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
 
-export default function Step3Page() {
+export default function Step3MoreDetailsPage() {
   const router = useRouter();
-  const { applicationId, sessionReady } = useApply();
-  const [pan, setPan] = useState('');
-  // Consent must be an explicit, unforced opt-in — it authorizes a credit-report
-  // pull, so it must never start pre-checked.
-  const [consent, setConsent] = useState(false);
+  const [marital, setMarital] = useState(MARITAL[0]!);
+  const [altMobile, setAltMobile] = useState('');
+  const [altEmail, setAltEmail] = useState('');
+  const [addr2, setAddr2] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [district, setDistrict] = useState('');
+  const [obligations, setObligations] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Wait for ApplyProvider to sync applicationId in from sessionStorage —
-    // see applyContext.tsx.
-    if (!sessionReady) return;
-    if (!applicationId) router.replace('/apply/step-1');
-  }, [sessionReady, applicationId, router]);
+  const save = async () => {
+    const patch: Record<string, unknown> = { maritalStatus: slug(marital) };
+    if (altMobile) patch.alternateMobile = altMobile;
+    if (altEmail) patch.alternateEmail = altEmail;
+    if (addr2) patch.addressLine2 = addr2;
+    if (landmark) patch.landmark = landmark;
+    if (district) patch.district = district;
+    if (obligations) patch.monthlyObligations = Number(obligations);
+    await patchProfile(patch);
+  };
 
-  const panValid = isValidPan(pan);
-  const valid = panValid && consent;
-  const missing: string[] = [];
-  if (!panValid) missing.push(pan ? 'a valid 10-character PAN number' : 'your PAN number');
-  if (!consent) missing.push('consent to the authorization below');
-
-  const submit = async () => {
-    if (!valid || !applicationId || loading) return;
+  const continueNext = async () => {
     setLoading(true);
     setError(null);
     try {
-      await patchApplication(applicationId, { panNumber: pan });
+      await save();
       router.push('/apply/finding');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not verify PAN. Please try again.');
+      setError(e instanceof Error ? e.message : 'Could not save — you can still continue.');
+      router.push('/apply/finding');
     } finally {
       setLoading(false);
     }
   };
 
+  const skip = () => router.push('/apply/finding');
+
   return (
     <ApplyShell backHref="/apply/step-2" stepLabel="Step 3 of 3" progressPct={74}>
       <Stepper step={3} />
-      <div className="mb-7 flex items-start gap-3.5">
-        <span className="bg-accent grid h-11 w-11 shrink-0 place-items-center rounded-2xl">
-          <CreditCard className="text-primary h-5 w-5" />
-        </span>
-        <div>
-          <h1 className="text-2xl font-extrabold">Verify your PAN</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Your PAN helps lenders verify your identity and check eligibility instantly.</p>
-        </div>
+      <div className="flex items-center gap-2">
+        <h1 className="text-2xl font-extrabold">A few more details</h1>
+        <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px] font-bold">Optional</span>
       </div>
+      <p className="text-muted-foreground mt-2 mb-6 text-sm">
+        Sharing these can improve your offers — but feel free to skip this step entirely.
+      </p>
 
-      <Card className="flex flex-col gap-6 sm:p-7">
-        <div>
-          <SectionLabel>Upload PAN card</SectionLabel>
-          <label
-            htmlFor="pan-upload"
-            className="border-border hover:border-primary hover:bg-accent/40 group flex cursor-pointer flex-col items-center gap-2.5 rounded-2xl border-2 border-dashed p-8 text-center transition-colors"
-          >
-            <span className="bg-accent grid h-12 w-12 place-items-center rounded-2xl transition-transform group-hover:scale-105">
-              <UploadCloud className="text-primary h-6 w-6" />
-            </span>
-            <p className="text-sm font-bold">Drag &amp; drop your PAN card here, or click to upload</p>
-            <p className="text-muted-foreground text-xs">We&apos;ll auto-detect your PAN number — accurate &amp; instant</p>
-            <span className="border-border bg-card mt-1 rounded-full border px-4 py-2 text-xs font-bold">Choose file</span>
-            <input id="pan-upload" type="file" accept="image/*,.pdf" className="sr-only" />
-          </label>
-        </div>
+      <div className="flex flex-col gap-5">
+        <Card className="sm:p-7">
+          <SectionHead icon={Heart} label="Personal" />
+          <Field label="Marital status"><ChipGroup options={MARITAL} value={marital} onChange={setMarital} /></Field>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Alternate mobile"><TextInput inputMode="numeric" maxLength={10} value={altMobile} onChange={(e) => setAltMobile(e.target.value.replace(/\D/g, ''))} placeholder="Optional" /></Field>
+            <Field label="Alternate email"><TextInput type="email" value={altEmail} onChange={(e) => setAltEmail(e.target.value)} placeholder="Optional" /></Field>
+          </div>
+        </Card>
 
-        <div className="text-muted-foreground flex items-center gap-3 text-xs font-bold">
-          <span className="bg-border h-px flex-1" />
-          OR ENTER MANUALLY
-          <span className="bg-border h-px flex-1" />
-        </div>
+        <Card className="sm:p-7">
+          <SectionHead icon={MapPin} label="Address" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Address line 2"><TextInput value={addr2} onChange={(e) => setAddr2(e.target.value)} placeholder="Optional" /></Field>
+            <Field label="Landmark"><TextInput value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Optional" /></Field>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="District"><TextInput value={district} onChange={(e) => setDistrict(e.target.value)} placeholder="Optional" /></Field>
+            <Field label="Monthly obligations / EMIs (₹)"><TextInput inputMode="numeric" value={obligations} onChange={(e) => setObligations(e.target.value.replace(/\D/g, ''))} placeholder="Optional" /></Field>
+          </div>
+        </Card>
 
-        <label className="flex max-w-xs flex-col gap-1.5 text-sm">
-          <span className="text-foreground font-semibold">
-            PAN number<span className="text-danger ml-0.5">*</span>
-          </span>
-          <input
-            value={pan}
-            maxLength={10}
-            onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-            placeholder="ABCDE1234F"
-            className="input-interactive field-input h-12 rounded-xl px-3.5 text-base font-bold tracking-[0.15em]"
-          />
-          <span className="text-muted-foreground text-xs">10-character alphanumeric code printed on your PAN card</span>
-        </label>
-
-        <label className="bg-accent flex items-start gap-3 rounded-xl p-4">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required className="accent-primary mt-0.5 h-4 w-4 shrink-0" />
-          <span className="flex items-start gap-2 text-xs">
-            <Lock className="text-primary mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span className="text-muted-foreground">
-              I authorize SwiftLoan and its RBI-registered lending partners to verify my PAN and fetch my credit report — this is
-              a <strong className="text-foreground">soft check</strong> and won&apos;t affect my credit score. Read our{' '}
-              <a href="/privacypolicy" className="text-primary font-semibold underline">Privacy Policy</a>.
-            </span>
-          </span>
-        </label>
-      </Card>
-
-      <div className="text-muted-foreground mt-4 flex items-center gap-2 text-xs">
-        <ShieldCheck className="text-mint h-4 w-4 shrink-0" />
-        Bank-grade encryption — your PAN is never shared without your consent
+        {error && <p className="text-danger text-sm font-semibold">{error}</p>}
       </div>
-
-      {error && <p className="text-danger mt-3 text-sm font-semibold">{error}</p>}
-      {!valid && !error && (
-        <p className="text-muted-foreground mt-3 text-xs">
-          <span className="text-danger font-semibold">Required to continue:</span> {missing.join(' and ')}.
-        </p>
-      )}
 
       <BottomBar meta="Step 3 of 3 · Final step">
+        <button onClick={skip} className="border-border bg-card text-foreground rounded-full border px-6 py-3 text-sm font-bold">
+          Skip for now
+        </button>
         <button
-          onClick={submit}
-          disabled={!valid || loading}
-          className={`rounded-full px-6 py-3 text-sm font-bold transition-all ${
-            !valid || loading
-              ? 'bg-muted text-muted-foreground'
-              : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5'
-          }`}
+          onClick={continueNext}
+          disabled={loading}
+          className="bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] rounded-full px-6 py-3 text-sm font-bold transition-all hover:-translate-y-0.5"
         >
-          {loading ? 'Verifying…' : 'Verify PAN & see offers →'}
+          {loading ? 'Saving…' : 'See my offers →'}
         </button>
       </BottomBar>
     </ApplyShell>
+  );
+}
+
+function SectionHead({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
+  return (
+    <div className="mb-5 flex items-center gap-2.5">
+      <span className="bg-accent grid h-9 w-9 shrink-0 place-items-center rounded-xl">
+        <Icon className="text-primary h-4 w-4" />
+      </span>
+      <p className="text-primary text-xs font-bold tracking-wide uppercase">{label}</p>
+    </div>
   );
 }

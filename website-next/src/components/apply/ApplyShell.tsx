@@ -104,9 +104,9 @@ export function ApplyShell({
 
 export function Stepper({ step }: { step: 1 | 2 | 3 }) {
   const items = [
-    { n: 1, label: 'Basics' },
-    { n: 2, label: 'More details' },
-    { n: 3, label: 'PAN & consent' },
+    { n: 1, label: 'PAN & consent' },
+    { n: 2, label: 'Basics' },
+    { n: 3, label: 'More details' },
   ];
   return (
     <div className="mb-6 flex items-center">

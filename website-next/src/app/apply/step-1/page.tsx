@@ -1,210 +1,60 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Wallet, User, MapPin, Briefcase } from 'lucide-react';
+import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
-import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives';
-import { Slider } from '@/components/ui/slider';
-import { fmtINR } from '@/lib/core';
-import { useApply } from '@/lib/applyContext';
-import { patchProfile, createApplication, fetchMe, getApplication } from '@/lib/applyApi';
-import { loadDraft, saveDraft } from '@/lib/applyDraft';
+import { Card, SectionLabel } from '@/components/apply/primitives';
+import { fetchMe, verifyPan } from '@/lib/applyApi';
+import { savePanHandoff } from '@/lib/panPrefill';
 
-const PURPOSES = ['Personal use', 'Working capital', 'Medical', 'Education', 'Home renovation', 'Travel', 'Other'];
-const GENDERS = ['Male', 'Female', 'Other'];
-const QUALIFICATIONS = ['Graduate', 'Post-Graduate', 'Diploma', '12th Pass', 'Other'];
-const RESIDENCE = ['Own', 'Rented', 'Family', 'Company'];
-const EMPLOYMENT = ['Salaried', 'Self-employed', 'Business owner', 'Gig worker', 'Student', 'Retired', 'Other'];
-const SALARY_MODE = ['Bank transfer', 'Cheque', 'Cash'];
-
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
-/** Reverse of slug() for the fixed chip sets above — turns the server's enum
- *  value (e.g. "self_employed") back into the exact label the chip renders. */
-function unslug(options: string[], value: string | null | undefined): string | null {
-  if (!value) return null;
-  return options.find((o) => slug(o) === value) ?? null;
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+function isValidPan(v: string) {
+  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v) && PAN_HOLDER_CODES.includes(v[3] ?? '');
 }
 
-export default function Step1Page() {
+export default function Step1PanPage() {
   const router = useRouter();
-  const { phone, applicationId, setApplicationId } = useApply();
-  // Plain SSR-safe defaults — matches what the server renders. localStorage
-  // only exists on the client, so reading it here (or at module scope) would
-  // make the client's first render disagree with the server-rendered HTML and
-  // React would throw a hydration-mismatch error. The draft is applied below,
-  // inside the effect, which only ever runs on the client after hydration.
-  const [amount, setAmount] = useState(325000);
-  const [purpose, setPurpose] = useState(PURPOSES[0]!);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [dob, setDob] = useState('');
-  const [gender, setGender] = useState(GENDERS[0]!);
-  const [qualification, setQualification] = useState(QUALIFICATIONS[0]!);
-  const [email, setEmail] = useState('');
-  const [pincode, setPincode] = useState('');
-  const [addr1, setAddr1] = useState('');
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('');
-  const [residence, setResidence] = useState(RESIDENCE[0]!);
-  const [employment, setEmployment] = useState(EMPLOYMENT[0]!);
-  const [income, setIncome] = useState('');
-  const [company, setCompany] = useState('');
-  const [salaryMode, setSalaryMode] = useState(SALARY_MODE[0]!);
-  const [error, setError] = useState<string | null>(null);
+  const [pan, setPan] = useState('');
+  // Consent must be an explicit, unforced opt-in — it authorizes a credit-report
+  // pull, so it must never start pre-checked.
+  const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
-  // Avoids re-querying the same pincode on every re-render/keystroke
-  // elsewhere on the page.
-  const lastLookedUpPinRef = useRef<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // `phone` and `applicationId` start empty/null (SSR-safe) and are synced in
-  // from sessionStorage by ApplyProvider's own mount effect a tick after this
-  // one — so their loaders are separate effects keyed on the value itself,
-  // not folded into the one-time effect below, or they'd silently run once
-  // with the not-yet-synced default and never get a second chance.
-  useEffect(() => {
-    if (!phone) return;
-    const draft = loadDraft(phone);
-    if (draft.amount != null) setAmount(draft.amount);
-    if (draft.purpose) setPurpose(draft.purpose);
-    if (draft.firstName) setFirstName(draft.firstName);
-    if (draft.lastName) setLastName(draft.lastName);
-    if (draft.dob) setDob(draft.dob);
-    if (draft.gender) setGender(draft.gender);
-    if (draft.qualification) setQualification(draft.qualification);
-    if (draft.email) setEmail(draft.email);
-    if (draft.pincode) setPincode(draft.pincode);
-    if (draft.addr1) setAddr1(draft.addr1);
-    if (draft.city) setCity(draft.city);
-    if (draft.state) setState(draft.state);
-    if (draft.residence) setResidence(draft.residence);
-    if (draft.employment) setEmployment(draft.employment);
-    if (draft.income) setIncome(draft.income);
-    if (draft.company) setCompany(draft.company);
-    if (draft.salaryMode) setSalaryMode(draft.salaryMode);
-  }, [phone]);
-
-  useEffect(() => {
-    if (!applicationId) return;
-    getApplication(applicationId)
-      .then((app) => setAmount(app.amount))
-      .catch(() => {});
-  }, [applicationId]);
-
-  // Revisiting this step (e.g. "Update details" from the empty-offers
-  // screen): the server profile is authoritative, but only overwrite fields
-  // it actually has a value for, so an in-progress edit (or the draft applied
-  // above) is never clobbered with null. Independent of phone/applicationId —
-  // runs once, keyed off the access token already held in memory.
+  // Returning applicant ("Update details", a second loan): start from the PAN
+  // already on their profile. Re-verifying it is served from the server's PAN
+  // cache, so it never costs a second paid Aurix call.
   useEffect(() => {
     fetchMe()
       .then((res) => {
-        const user = res?.data?.user;
-        if (!user) return;
-        if (user.firstName) setFirstName(user.firstName);
-        if (user.lastName) setLastName(user.lastName);
-        if (user.dob) setDob(String(user.dob).slice(0, 10));
-        const g = unslug(GENDERS, user.gender);
-        if (g) setGender(g);
-        if (user.qualification) setQualification(user.qualification);
-        if (user.email) setEmail(user.email);
-        if (user.pincode) setPincode(user.pincode);
-        if (user.addressLine1) setAddr1(user.addressLine1);
-        if (user.city) setCity(user.city);
-        if (user.state) setState(user.state);
-        const r = unslug(RESIDENCE, user.residenceType);
-        if (r) setResidence(r);
-        const e = unslug(EMPLOYMENT, user.employment);
-        if (e) setEmployment(e);
-        if (user.monthlyIncome != null) setIncome(String(user.monthlyIncome));
-        if (user.company) setCompany(user.company);
-        if (user.loanPurpose) setPurpose(user.loanPurpose);
-        if (user.salaryMode) setSalaryMode(user.salaryMode);
+        const saved = res?.data?.user?.panNumber;
+        if (saved) setPan((cur) => cur || String(saved));
       })
-      .catch(() => {
-        /* not logged in yet, or offline — the draft/defaults above still render */
-      });
+      .catch(() => { /* not logged in yet / offline — empty field is fine */ });
   }, []);
 
-  // Auto-fill city/state from the pincode once it's a complete 6-digit code,
-  // via India Post's public Pincode API (free, no key). Best-effort only —
-  // an unmatched/invalid pincode or a network hiccup must never block typing
-  // or show an error; the user can still fill city/state by hand either way.
-  useEffect(() => {
-    if (pincode.length !== 6 || pincode === lastLookedUpPinRef.current) return;
-    lastLookedUpPinRef.current = pincode;
-    let cancelled = false;
-    (async () => {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
-        const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`, { signal: controller.signal });
-        clearTimeout(timer);
-        const json = await res.json();
-        const po = json?.[0]?.PostOffice?.[0];
-        if (cancelled || !po) return;
-        if (po.District) setCity(po.District);
-        if (po.State) setState(po.State);
-      } catch {
-        // Silently ignore — city/state stay editable by hand.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [pincode]);
-
+  const panValid = isValidPan(pan);
+  const valid = panValid && consent;
   const missing: string[] = [];
-  if (!firstName.trim()) missing.push('First name');
-  if (!lastName.trim()) missing.push('Last name');
-  if (!dob) missing.push('Date of birth');
-  if (!/^\S+@\S+\.\S+$/.test(email)) missing.push('a valid email');
-  if (!/^\d{6}$/.test(pincode)) missing.push('a 6-digit pincode');
-  if (!addr1.trim()) missing.push('Address line 1');
-  if (!city.trim()) missing.push('City');
-  if (!state.trim()) missing.push('State');
-  if (!/^\d+$/.test(income)) missing.push('Monthly income');
-  const valid = missing.length === 0;
+  if (!panValid) missing.push(pan ? 'a valid 10-character PAN number' : 'your PAN number');
+  if (!consent) missing.push('consent to the authorization below');
 
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
     setError(null);
     try {
-      await patchProfile({
-        firstName,
-        lastName,
-        fullName: `${firstName} ${lastName}`.trim(),
-        email,
-        dob: new Date(dob).toISOString(),
-        gender: slug(gender),
-        pincode,
-        addressLine1: addr1,
-        city,
-        state,
-        residenceType: slug(residence),
-        employment: slug(employment),
-        monthlyIncome: Number(income),
-        company,
-        qualification,
-        loanPurpose: purpose,
-        salaryMode,
-      });
-      const application = await createApplication({
-        amount,
-        purpose,
-        employment: slug(employment),
-        monthlyIncome: Number(income),
-        residenceType: slug(residence),
-      });
-      setApplicationId(application.id);
-      if (phone) {
-        saveDraft(phone, {
-          amount, purpose, firstName, lastName, dob, gender, qualification, email, pincode,
-          addr1, city, state, residence, employment, income, company, salaryMode,
-        });
+      // PAN Comprehensive (server-cached) → pre-fill for Step 2.
+      const result = await verifyPan(pan);
+      if (!result.verified) {
+        setError(result.message || 'We couldn’t verify this PAN. Please check the number and try again.');
+        return;
       }
+      savePanHandoff({ pan, prefill: result.prefill ?? {} });
       router.push('/apply/step-2');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save your details. Please try again.');
+      setError(e instanceof Error ? e.message : 'Could not verify PAN. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -213,78 +63,79 @@ export default function Step1Page() {
   return (
     <ApplyShell backHref="/" backLabel="Back to home" stepLabel="Step 1 of 3" progressPct={28}>
       <Stepper step={1} />
-      <h1 className="text-2xl font-extrabold">Tell us about your loan</h1>
-      <p className="text-muted-foreground mt-2 mb-6 text-sm">
-        This helps us match you with lenders offering the best rate. Takes about 3 minutes.
-      </p>
-
-      <div className="flex flex-col gap-5">
-        <Card className="sm:p-7">
-          <SectionHead icon={Wallet} label="Loan amount" />
-          <div className="bg-accent rounded-2xl p-5">
-            <div className="text-primary text-3xl font-extrabold">{fmtINR(amount)}</div>
-            <Slider className="mt-4" min={25000} max={1500000} step={25000} value={[amount]} onValueChange={([v]) => v != null && setAmount(v)} />
-            <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
-              <span>{fmtINR(25000)}</span>
-              <span>{fmtINR(1500000)}</span>
-            </div>
-          </div>
-          <p className="text-foreground mt-5 mb-3 text-sm font-semibold">What&apos;s this loan for?</p>
-          <ChipGroup options={PURPOSES} value={purpose} onChange={setPurpose} />
-        </Card>
-
-        <Card className="sm:p-7">
-          <SectionHead icon={User} label="About you" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="First name" required><TextInput value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" /></Field>
-            <Field label="Last name" required><TextInput value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" /></Field>
-            <Field label="Date of birth" required><TextInput type="date" value={dob} onChange={(e) => setDob(e.target.value)} autoComplete="bday" /></Field>
-            <Field label="Gender"><ChipGroup options={GENDERS} value={gender} onChange={setGender} /></Field>
-          </div>
-          <div className="mt-4">
-            <Field label="Qualification"><ChipGroup options={QUALIFICATIONS} value={qualification} onChange={setQualification} /></Field>
-          </div>
-        </Card>
-
-        <Card className="sm:p-7">
-          <SectionHead icon={MapPin} label="Contact & address" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Email" required><TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></Field>
-            <Field label="Pincode" required><TextInput inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} autoComplete="postal-code" /></Field>
-          </div>
-          <div className="mt-4">
-            <Field label="Address line 1" required><TextInput value={addr1} onChange={(e) => setAddr1(e.target.value)} autoComplete="address-line1" /></Field>
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="City" required><TextInput value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" /></Field>
-            <Field label="State" required><TextInput value={state} onChange={(e) => setState(e.target.value)} autoComplete="address-level1" /></Field>
-          </div>
-          <div className="mt-4">
-            <Field label="Residence type"><ChipGroup options={RESIDENCE} value={residence} onChange={setResidence} /></Field>
-          </div>
-        </Card>
-
-        <Card className="sm:p-7">
-          <SectionHead icon={Briefcase} label="Employment & income" />
-          <Field label="Employment type"><ChipGroup options={EMPLOYMENT} value={employment} onChange={setEmployment} /></Field>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Monthly income (₹)" required><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
-            <Field label="Company name"><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
-          </div>
-          <div className="mt-4">
-            <Field label="Salary mode"><ChipGroup options={SALARY_MODE} value={salaryMode} onChange={setSalaryMode} /></Field>
-          </div>
-        </Card>
-
-        {error && <p className="text-danger text-sm font-semibold">{error}</p>}
-        {!valid && !error && (
-          <p className="text-muted-foreground text-xs">
-            <span className="text-danger font-semibold">Required to continue:</span> {missing.join(', ')}.
-          </p>
-        )}
+      <div className="mb-7 flex items-start gap-3.5">
+        <span className="bg-accent grid h-11 w-11 shrink-0 place-items-center rounded-2xl">
+          <CreditCard className="text-primary h-5 w-5" />
+        </span>
+        <div>
+          <h1 className="text-2xl font-extrabold">Verify your PAN</h1>
+          <p className="text-muted-foreground mt-1 text-sm">We&apos;ll use your PAN to verify your identity and fill in your details for you.</p>
+        </div>
       </div>
 
-      <BottomBar meta="Step 1 of 3 · ~2 min left">
+      <Card className="flex flex-col gap-6 sm:p-7">
+        <div>
+          <SectionLabel>Upload PAN card</SectionLabel>
+          <label
+            htmlFor="pan-upload"
+            className="border-border hover:border-primary hover:bg-accent/40 group flex cursor-pointer flex-col items-center gap-2.5 rounded-2xl border-2 border-dashed p-8 text-center transition-colors"
+          >
+            <span className="bg-accent grid h-12 w-12 place-items-center rounded-2xl transition-transform group-hover:scale-105">
+              <UploadCloud className="text-primary h-6 w-6" />
+            </span>
+            <p className="text-sm font-bold">Drag &amp; drop your PAN card here, or click to upload</p>
+            <p className="text-muted-foreground text-xs">We&apos;ll auto-detect your PAN number — accurate &amp; instant</p>
+            <span className="border-border bg-card mt-1 rounded-full border px-4 py-2 text-xs font-bold">Choose file</span>
+            <input id="pan-upload" type="file" accept="image/*,.pdf" className="sr-only" />
+          </label>
+        </div>
+
+        <div className="text-muted-foreground flex items-center gap-3 text-xs font-bold">
+          <span className="bg-border h-px flex-1" />
+          OR ENTER MANUALLY
+          <span className="bg-border h-px flex-1" />
+        </div>
+
+        <label className="flex max-w-xs flex-col gap-1.5 text-sm">
+          <span className="text-foreground font-semibold">
+            PAN number<span className="text-danger ml-0.5">*</span>
+          </span>
+          <input
+            value={pan}
+            maxLength={10}
+            onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            placeholder="ABCDE1234F"
+            className="input-interactive field-input h-12 rounded-xl px-3.5 text-base font-bold tracking-[0.15em]"
+          />
+          <span className="text-muted-foreground text-xs">10-character alphanumeric code printed on your PAN card</span>
+        </label>
+
+        <label className="bg-accent flex items-start gap-3 rounded-xl p-4">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required className="accent-primary mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex items-start gap-2 text-xs">
+            <Lock className="text-primary mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span className="text-muted-foreground">
+              I authorize SwiftLoan and its RBI-registered lending partners to verify my PAN and fetch my credit report — this is
+              a <strong className="text-foreground">soft check</strong> and won&apos;t affect my credit score. Read our{' '}
+              <a href="/privacypolicy" className="text-primary font-semibold underline">Privacy Policy</a>.
+            </span>
+          </span>
+        </label>
+      </Card>
+
+      <div className="text-muted-foreground mt-4 flex items-center gap-2 text-xs">
+        <ShieldCheck className="text-mint h-4 w-4 shrink-0" />
+        Bank-grade encryption — your PAN is never shared without your consent
+      </div>
+
+      {error && <p className="text-danger mt-3 text-sm font-semibold">{error}</p>}
+      {!valid && !error && (
+        <p className="text-muted-foreground mt-3 text-xs">
+          <span className="text-danger font-semibold">Required to continue:</span> {missing.join(' and ')}.
+        </p>
+      )}
+
+      <BottomBar meta="Step 1 of 3 · ~3 min left">
         <button
           onClick={submit}
           disabled={!valid || loading}
@@ -294,20 +145,9 @@ export default function Step1Page() {
               : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5'
           }`}
         >
-          {loading ? 'Saving…' : 'Continue →'}
+          {loading ? 'Verifying…' : 'Verify PAN & continue →'}
         </button>
       </BottomBar>
     </ApplyShell>
-  );
-}
-
-function SectionHead({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
-  return (
-    <div className="mb-5 flex items-center gap-2.5">
-      <span className="bg-accent grid h-9 w-9 shrink-0 place-items-center rounded-xl">
-        <Icon className="text-primary h-4 w-4" />
-      </span>
-      <p className="text-primary text-xs font-bold tracking-wide uppercase">{label}</p>
-    </div>
   );
 }
