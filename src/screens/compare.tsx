@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Modal, ActivityIndicator } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet, Modal, ActivityIndicator, Animated, Easing } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../components/Frame';
@@ -82,6 +82,15 @@ export default function Compare() {
   const [sheet, setSheet] = useState(false);
   const [applying, setApplying] = useState(false);
   const select = useOfferSelect();
+  // Horizontal-scroll affordance: a nudging arrow until the user
+  // scrolls the lender columns once; then it's gone for good on this visit.
+  const [viewW, setViewW] = useState(0);
+  const [swiped, setSwiped] = useState(false);
+  const [scrolledX, setScrolledX] = useState(0);
+  const onMatrixScroll = (x: number) => {
+    if (x > 12 && !swiped) setSwiped(true);
+    if ((x > 4) !== (scrolledX > 4)) setScrolledX(x);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -247,7 +256,15 @@ export default function Compare() {
                   ))}
                 </View>
                 {/* Lender columns */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                <View style={{ flex: 1 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ flex: 1 }}
+                  scrollEventThrottle={32}
+                  onLayout={e => setViewW(e.nativeEvent.layout.width)}
+                  onScroll={e => onMatrixScroll(e.nativeEvent.contentOffset.x)}
+                >
                   {result.rows.map(r => {
                     const isSel = r.id === selected?.id;
                     return (
@@ -287,6 +304,12 @@ export default function Compare() {
                     );
                   })}
                 </ScrollView>
+                <SwipeHint
+                  visible={!swiped && result.rows.length * COL_W > viewW + 4 && viewW > 0}
+                  count={result.rows.length}
+                  scrolled={scrolledX > 4}
+                />
+                </View>
               </View>
             )}
 
@@ -331,6 +354,60 @@ export default function Compare() {
         resultCount={result.rows.length}
       />
     </Screen>
+  );
+}
+
+/**
+ * Right-edge fade + a theme-coloured arrow that nudges right
+ * — shown while more lender columns sit off-screen, faded out the moment the
+ * user scrolls them. A soft left-edge fade appears once scrolled so columns
+ * don't look sliced where they pass under the pinned labels.
+ */
+function SwipeHint({ visible, count, scrolled }: { visible: boolean; count: number; scrolled: boolean }) {
+  const show = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const nudge = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(show, { toValue: visible ? 1 : 0, duration: visible ? 300 : 220, useNativeDriver: true }).start();
+  }, [visible, show]);
+  useEffect(() => {
+    if (!visible) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(nudge, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(nudge, { toValue: 0, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.delay(500),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [visible, nudge]);
+  const arrowX = nudge.interpolate({ inputRange: [0, 1], outputRange: [0, 5] });
+  return (
+    <>
+      {scrolled ? (
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(248,250,249,0.95)', 'rgba(248,250,249,0)']}
+          start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+          style={[styles.edgeFade, { left: 0 }]}
+        />
+      ) : null}
+      <Animated.View pointerEvents="none" style={[styles.edgeFadeRight, { opacity: show }]}>
+        <LinearGradient
+          colors={['rgba(248,250,249,0)', 'rgba(248,250,249,0.95)']}
+          start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        accessible
+        accessibilityLabel={`Scroll right to see all ${count} offers`}
+        style={[styles.swipeArrow, { opacity: show, transform: [{ translateX: arrowX }] }]}
+      >
+        <Icon name="arrow_forward_ios" size={20} color={colors.primary} />
+      </Animated.View>
+    </>
   );
 }
 
@@ -453,6 +530,10 @@ const styles = StyleSheet.create({
   valBig: { fontSize: 18, color: colors.text },
   tag: { fontSize: 9, color: C.best, letterSpacing: 0.4, marginTop: 2 },
   approval: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
+  edgeFade: { position: 'absolute', top: 0, bottom: 0, width: 18 },
+  edgeFadeRight: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 44 },
+  // Just the theme-coloured arrow, vertically centred on the right edge.
+  swipeArrow: { position: 'absolute', right: 4, top: '50%', marginTop: -10 },
 
   noMatch: { alignItems: 'center', gap: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 16, padding: 24, marginTop: 14 },
   link: { fontSize: 13, color: colors.primary, textDecorationLine: 'underline' },
