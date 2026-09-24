@@ -6,7 +6,7 @@ import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
-import { PanVerifyingOverlay } from '@/components/apply/PanVerifyingOverlay';
+import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
 import { fetchMe, verifyPan } from '@/lib/applyApi';
 import { savePanHandoff } from '@/lib/panPrefill';
 
@@ -61,6 +61,7 @@ export default function Step1PanPage() {
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
+    window.scrollTo({ top: 0 });
     let navigating = false;
     try {
       // PAN Comprehensive (server-cached) → pre-fill for Step 2.
@@ -80,6 +81,17 @@ export default function Step1PanPage() {
       if (!navigating) setLoading(false);
     }
   };
+
+  // While verifying, the loader replaces the form inside the same shell —
+  // brand rail stays, and it reads as its own page within the funnel.
+  if (loading) {
+    return (
+      <ApplyShell stepLabel="Step 1 of 3" progressPct={40}>
+        <Stepper step={1} />
+        <PanVerifyingLoader />
+      </ApplyShell>
+    );
+  }
 
   return (
     <ApplyShell backHref="/" backLabel="Back to home" stepLabel="Step 1 of 3" progressPct={28}>
@@ -168,7 +180,6 @@ export default function Step1PanPage() {
           {loading ? 'Verifying…' : 'Verify PAN & continue →'}
         </button>
       </BottomBar>
-      <PanVerifyingOverlay open={loading} />
       <AlertDialog open={!!alert} content={alert} onClose={() => setAlert(null)} />
     </ApplyShell>
   );
