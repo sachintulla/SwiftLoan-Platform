@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
@@ -21,8 +21,6 @@ function isValidPan(v: string) {
  * amber when the service couldn't be reached / retry is the answer.
  */
 const FALLBACK = 'Something went wrong. Please try again.';
-// Keep the verifying animation up long enough to read, even on a cache hit.
-const MIN_VERIFY_MS = 1800;
 function alertFromError(e: unknown): AlertContent {
   const status = (e as { status?: number })?.status;
   return {
@@ -39,6 +37,10 @@ export default function Step1PanPage() {
   const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState<AlertContent | null>(null);
+  // Set once the API has verified the PAN: the loader finishes its ticks,
+  // then goToDetails() moves on.
+  const [verified, setVerified] = useState(false);
+  const goToDetails = useCallback(() => router.push('/apply/step-2'), [router]);
 
   // Returning applicant ("Update details", a second loan): start from the PAN
   // already on their profile. Re-verifying it is served from the server's PAN
@@ -61,24 +63,25 @@ export default function Step1PanPage() {
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
+    setVerified(false);
     window.scrollTo({ top: 0 });
-    let navigating = false;
+    let succeeded = false;
     try {
-      // PAN Comprehensive (server-cached) → pre-fill for Step 2.
-      const started = Date.now();
-      const settle = () => new Promise((r) => setTimeout(r, Math.max(0, MIN_VERIFY_MS - (Date.now() - started))));
-      const result = await verifyPan(pan).finally(settle);
+      // PAN Comprehensive (server-cached) → pre-fill for Step 2. The loader
+      // runs for exactly as long as this takes, then finishes its ticks.
+      const result = await verifyPan(pan);
       if (!result.verified) {
         setAlert({ tone: 'error', message: result.message || FALLBACK });
         return;
       }
       savePanHandoff({ pan, prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked });
-      navigating = true; // keep the loader up until Step 2 replaces this page
-      router.push('/apply/step-2');
+      succeeded = true;
+      setVerified(true); // loader completes → goToDetails
     } catch (e) {
       setAlert(alertFromError(e));
     } finally {
-      if (!navigating) setLoading(false);
+      // On success the loader stays up until it hands off to Step 2.
+      if (!succeeded) setLoading(false);
     }
   };
 
@@ -88,7 +91,7 @@ export default function Step1PanPage() {
     return (
       <ApplyShell stepLabel="Step 1 of 3" progressPct={40}>
         <Stepper step={1} />
-        <PanVerifyingLoader />
+        <PanVerifyingLoader done={verified} onFinished={goToDetails} />
       </ApplyShell>
     );
   }
