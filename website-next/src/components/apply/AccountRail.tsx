@@ -44,7 +44,7 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
 
   return (
     <>
-      <aside className="bg-deep-gradient relative hidden w-[320px] shrink-0 flex-col gap-6 p-8 text-white lg:flex">
+      <aside className="bg-deep-gradient relative hidden h-screen w-[320px] shrink-0 flex-col gap-6 self-start overflow-y-auto p-8 text-white lg:sticky lg:top-0 lg:flex">
         <Link href="/" className="flex items-center gap-2.5 text-lg font-extrabold">
           <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
           SwiftLoan
