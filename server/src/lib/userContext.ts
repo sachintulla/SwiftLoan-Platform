@@ -14,21 +14,18 @@
  * Everything here is READ-ONLY and best-effort: this feeds an agent's opening
  * line, so a failure must degrade to "no context" rather than break app boot.
  *
- * `profile`/`applicationStatus` vs the `marketing*` fields: `Customer.currentStage`
- * and `nextActionFor` are the internal sales/telecaller funnel (labels like "Call
- * the lead", "Nudge to check eligibility") — never meant to be said to the
- * customer. They used to be the top-level `stage`/`stageLabel`/`nextAction`,
- * which a customer-facing agent read as if it described their own application.
- * Renamed to `marketingStage`/`marketingStageLabel`/`marketingNextAction` so
- * that's unambiguous, and replaced with a real `applicationStatus` sourced from
- * the user's own `LoanApplication.status` for anything the agent should
- * actually speak from.
+ * This deliberately excludes the internal sales/telecaller funnel
+ * (`Customer.currentStage`, `nextActionFor` — labels like "Call the lead",
+ * "Nudge to check eligibility") and cross-channel conversation history
+ * (`conversations` etc.) — both used to be in this payload, but this feeds a
+ * customer-facing agent's opening line directly, not a human telecaller's
+ * dashboard, and neither of those belongs in a customer-facing voice agent's
+ * hands at all. `applicationStatus`, sourced from the user's own real
+ * `LoanApplication.status`, is the one status signal the agent should ever
+ * speak from.
  */
 import { ApplicationStatus } from '@prisma/client';
 import { prisma } from './prisma.js';
-import { STAGE_LABELS } from './journey.js';
-import { nextActionFor } from './nextAction.js';
-import { getConversationContext } from './conversations.js';
 
 const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   draft: 'Application details in progress',
@@ -86,13 +83,35 @@ export interface UserContext {
     panOnFile: boolean;
   } | null;
 
-  /** Internal sales/telecaller funnel (see the file header) — not for the customer's ears. */
-  marketingName: string | null;
-  marketingCity: string | null;
-  marketingEmail: string | null;
-  marketingStage: string | null;
-  marketingStageLabel: string | null;
-  marketingNextAction: string | null;
+  /**
+   * The rest of what save_applicant_details collects conversationally, before
+   * an application exists — everything NOT already in `profile` above. Now
+   * synced server-side (User columns) instead of living only in the app's
+   * own device-local savedApplicantDraft, so it reaches the pre-call tool
+   * too, not just the app's own page_context push. Null only when there is
+   * no signed-in user at all — an individual field being null just means
+   * that one hasn't come up in conversation yet, same as `profile`.
+   */
+  applicantDraft: {
+    residenceType: string | null;
+    maritalStatus: string | null;
+    qualification: string | null;
+    company: string | null;
+    loanPurpose: string | null;
+    loanAmount: number | null; // rupees — the desired amount, before a real LoanApplication exists
+    salaryMode: string | null;
+    professionalType: string | null;
+    companyEmail: string | null;
+    businessEmail: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    landmark: string | null;
+    district: string | null;
+    state: string | null;
+    monthlyObligations: number | null; // rupees
+    alternateMobile: string | null;
+    alternateEmail: string | null;
+  } | null;
 
   /** The one clear, customer-facing signal: where this user's loan application stands. */
   applicationStatus: string | null;
@@ -109,16 +128,6 @@ export interface UserContext {
     source: string | null;
     campaign: string | null;
   }>;
-  /** The most recent completed call, so the agent can reference it. */
-  lastCall: {
-    at: string;
-    outcome: string | null;
-    /** Whether `outcome` was reported by the agent or merely inferred. */
-    outcomeSource: string | null;
-    summary: string | null;
-    answered: boolean;
-    durationSec: number | null;
-  } | null;
   /** An application already in flight, so the agent resumes instead of restarting. */
   application: {
     id: string;
@@ -151,38 +160,14 @@ export interface UserContext {
     status: string | null;
     outstanding: number | null; // paise
   } | null;
-  /**
-   * The cross-channel CONVERSATION brief — every exchange on this number across
-   * website, phone and app (what was already said), distinct from the
-   * structured `applicationStatus`/`application`/`loan` fields above (where
-   * they are).
-   */
-  conversationBrief: string | null;
-  conversationCount: number;
-  conversationChannels: string[];
-  /** Recent conversations, newest first, for an agent that wants specifics. */
-  conversations: Array<{
-    channel: string;
-    channelLabel: string;
-    agentRole: string | null;
-    at: string;
-    durationSec: number | null;
-    summary: string | null;
-    outcome: string | null;
-    /** False = we inferred it from the transcript. Do not state it as fact. */
-    outcomeConfirmed: boolean;
-  }>;
 }
 
 const NO_APPLICATION_LABEL = 'No application started';
 
 const EMPTY: UserContext = {
-  hasHistory: false, profile: null,
-  marketingName: null, marketingCity: null, marketingEmail: null,
-  marketingStage: null, marketingStageLabel: null, marketingNextAction: null,
+  hasHistory: false, profile: null, applicantDraft: null,
   applicationStatus: null, applicationStatusLabel: NO_APPLICATION_LABEL,
-  inquiries: [], lastCall: null, application: null, loan: null,
-  conversationBrief: null, conversationCount: 0, conversationChannels: [], conversations: [],
+  inquiries: [], application: null, loan: null,
 };
 
 /** ₹3,00,000 → "3 lakh rupees". Spoken form, since an agent reads this aloud. */
@@ -274,7 +259,6 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
   const hasHistory = !!(user || customer || inquiries.length || call || app || loan || conversationCount);
   if (!hasHistory) return EMPTY;
 
-  const marketingStage = customer?.currentStage ?? null;
   const applicationStatus = app?.status ?? null;
 
   const ctx: UserContext = {
@@ -293,27 +277,33 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           panOnFile: !!user.panNumber,
         }
       : null,
-    marketingName: customer?.name ?? null,
-    marketingCity: customer?.city ?? inquiries[inquiries.length - 1]?.city ?? null,
-    marketingEmail: customer?.email ?? null,
-    marketingStage,
-    marketingStageLabel: marketingStage ? STAGE_LABELS[marketingStage] ?? marketingStage : null,
-    marketingNextAction: marketingStage ? nextActionFor(marketingStage) : null,
+    applicantDraft: user
+      ? {
+          residenceType: user.residenceType,
+          maritalStatus: user.maritalStatus,
+          qualification: user.qualification,
+          company: user.company,
+          loanPurpose: user.loanPurpose,
+          loanAmount: user.draftLoanAmount ?? null,
+          salaryMode: user.salaryMode,
+          professionalType: user.professionalType,
+          companyEmail: user.companyEmail,
+          businessEmail: user.businessEmail,
+          addressLine1: user.addressLine1,
+          addressLine2: user.addressLine2,
+          landmark: user.landmark,
+          district: user.district,
+          state: user.state,
+          monthlyObligations: user.monthlyObligations ?? null,
+          alternateMobile: user.alternateMobile,
+          alternateEmail: user.alternateEmail,
+        }
+      : null,
     applicationStatus,
     applicationStatusLabel: applicationStatus
       ? APPLICATION_STATUS_LABELS[applicationStatus] ?? applicationStatus
       : NO_APPLICATION_LABEL,
     inquiries,
-    lastCall: call
-      ? {
-          at: (call.queuedAt ?? call.startedAt).toISOString(),
-          outcome: call.outcome,
-          outcomeSource: call.outcomeSource,
-          summary: call.summary,
-          answered: call.answered,
-          durationSec: call.durationSec,
-        }
-      : null,
     application: app
       ? {
           id: app.id, ref: app.ref, status: app.status,
@@ -338,31 +328,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           status: loan.status ?? null, outstanding: loan.outstanding ?? null,
         }
       : null,
-    conversationBrief: null,
-    conversationCount: 0,
-    conversationChannels: [],
-    conversations: [],
   };
-
-  // WS10 — the cross-channel conversation memory. Fetched separately (and
-  // tolerantly) because it is additive: if it fails, the agent still gets the
-  // funnel context it always had rather than nothing at all.
-  const conv = await getConversationContext(clean, 6).catch(() => null);
-  if (conv?.known) {
-    ctx.conversationBrief = conv.brief;
-    ctx.conversationCount = conv.conversationCount;
-    ctx.conversationChannels = conv.channels;
-    ctx.conversations = conv.conversations.map((c) => ({
-      channel: c.channel,
-      channelLabel: c.channelLabel,
-      agentRole: c.agentRole,
-      at: c.at.toISOString(),
-      durationSec: c.durationSec,
-      summary: c.summary,
-      outcome: c.outcome,
-      outcomeConfirmed: c.outcomeConfirmed,
-    }));
-  }
 
   return ctx;
 }

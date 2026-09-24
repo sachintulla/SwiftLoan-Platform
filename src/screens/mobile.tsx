@@ -138,6 +138,20 @@ export default function Mobile() {
 
   const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
+  // Auto-continue: the moment all 6 digits are in — the iOS keyboard's
+  // one-time-code suggestion, Android's SMS autofill, a paste, or typing —
+  // verify straight away instead of waiting for the Verify tap. Each code is
+  // auto-submitted at most once, so a wrong code shows its error and waits
+  // for an edit rather than looping; the button still works for a retry.
+  const autoSubmitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!otpSent || busy || otpCode.length !== 6 || autoSubmitted.current === otpCode) return;
+    autoSubmitted.current = otpCode;
+    verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpCode, otpSent, busy]);
+  useEffect(() => { if (!otpSent) autoSubmitted.current = null; }, [otpSent]);
+
   // The OTP entry is one hidden TextInput behind 6 decorative digit boxes (see
   // hiddenOtpInput above) — the element-tree walk in screenGraph.ts can't
   // describe it correctly: it classifies the wrapping Pressable as a `button`

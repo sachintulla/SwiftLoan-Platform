@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
@@ -19,7 +20,7 @@ import { supportRouter } from './modules/support.routes.js';
 import { trackingRouter } from './modules/tracking.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
 import { adminAuthRouter } from './modules/adminAuth.routes.js';
-import { contextRouter, contextLookupRouter } from './modules/context.routes.js';
+import { contextRouter, contextLookupRouter, contextSaveRouter } from './modules/context.routes.js';
 import { configRouter } from './modules/config.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
 import { preapprovedRouter } from './modules/preapproved.routes.js';
@@ -41,6 +42,7 @@ import { adminConversationsRouter } from './modules/adminConversations.routes.js
 import { webhooksRouter } from './modules/webhooks.routes.js';
 import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
 import { websiteRouter } from './modules/website.routes.js';
+import { websiteAuthRouter } from './modules/websiteAuth.routes.js';
 
 export function createApp() {
   const app = express();
@@ -58,10 +60,15 @@ export function createApp() {
   app.set('trust proxy', 1);
 
   app.use(helmet());
-  app.use(cors());
+  // `credentials: true` + reflecting the request's own origin (rather than '*')
+  // is required for the website's httpOnly session cookie (websiteAuth.routes.ts)
+  // to flow on a cross-port/cross-subdomain fetch with `credentials: 'include'`.
+  // Every existing caller that doesn't send credentials is unaffected.
+  app.use(cors({ origin: true, credentials: true }));
   // Capture the raw body so webhook signature checks (e.g. Knight Fintech's
   // X-KF-Signature = base64(sha256(shared_secret + raw_body))) can recompute it.
   app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+  app.use(cookieParser());
   // Access logging (method, path, status, timing) for EVERY request, in every
   // environment. This used to be gated to non-prod only — meaning the
   // deployed dev/prod boxes had no request-level log at all, only whatever a
@@ -161,14 +168,19 @@ export function createApp() {
   app.use('/api/admin', adminRouter);
 
   // ── WS3: context handoff + app-download landing pages ──
-  // /lookup mounted separately, BEFORE the general /api/context line, so it
-  // gets its own agent-facing-tool-sized limit instead of falling through to
-  // leadLimiter's 5/min (correctly strict for /create, far too strict for a
-  // pre-call tool Ello calls on every call — see contextLookupRouter's own
-  // comment in context.routes.ts).
+  // /lookup and /save mounted separately, BEFORE the general /api/context
+  // line, so they get their own agent-facing-tool-sized limit instead of
+  // falling through to leadLimiter's 5/min (correctly strict for /create, far
+  // too strict for a tool Ello calls on every call — see contextLookupRouter's
+  // own comment in context.routes.ts).
   app.use('/api/context/lookup', limiter(60_000, 120, 'Too many context lookup requests'), contextLookupRouter);
+  app.use('/api/context/save', limiter(60_000, 120, 'Too many context save requests'), contextSaveRouter);
   app.use('/api/context', leadLimiter, contextRouter);
   app.use('/api/config', configRouter); // PUBLIC — app fetches admin-tuned config
+  // The website's OWN login (real User + a short, sliding session cookie) —
+  // mounted before the lead-only /api/website line below so it isn't shadowed.
+  // Distinct from /api/auth/otp/*: same login, shorter cookie-based session.
+  app.use('/api/website/auth', authLimiter, websiteAuthRouter);
   // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for
   // the marketing site. Separate from /api/auth/otp/*: that flow creates a
   // User row and issues real app tokens, the wrong side effect here. Each

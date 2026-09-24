@@ -30,27 +30,27 @@ function agoLabel(ts: number | null): string {
  * Aurix). With no offers, the screen becomes an engaging "apply for a loan" CTA.
  */
 export default function MyOffers() {
-  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [retrying, setRetrying] = useState(false);
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
   const startApply = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
 
-  // Tapping a tile applies inline via the shared handler; optimistically flag it.
-  const select = useOfferSelect(id =>
-    setOffers(prev => prev.map(o => (o.id === id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o))),
-  );
+  // Tapping a tile applies inline via the shared handler. Removed from the
+  // list, not just re-labelled — once applied, an offer is tracked in My
+  // Loans, not shown here (same reasoning, same behaviour as the website).
+  const select = useOfferSelect(id => setOffers(prev => prev.filter(o => o.id !== id)));
 
   // Local-first: show cached offers immediately, then reconcile with the backend.
   const hydrate = useCallback(async () => {
     const cache = await loadOffersCache();
     if (cache) {
-      setOffers(cache.offers as Offer[]);
+      const cached = (cache.offers as Offer[]).filter(o => !o.applied);
+      setOffers(cached);
       setAppId(cache.applicationId);
       setSavedAt(cache.savedAt);
       if (cache.applicationId) set({ applicationId: cache.applicationId, offersReturn: 'fare' });
@@ -61,11 +61,16 @@ export default function MyOffers() {
       const r: any = await api.listApplications();
       const apps: any[] = r?.applications || [];
       mergeApiContext({ applications: apps });
+      // "Has offers" means has offers still worth showing — an application
+      // whose only offers are ones already applied to shouldn't outrank one
+      // with real, pending offers, and shouldn't count as "has offers" at all
+      // if every offer on it is already applied.
+      const unappliedCount = (a: any) => (a.offers ?? []).filter((o: Offer) => !o.applied).length;
       const withOffers =
-        apps.find(a => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ||
-        apps.find(a => (a.offers?.length ?? 0) > 0);
+        apps.find(a => unappliedCount(a) > 0 && OFFER_STATUSES.includes(a.status)) ||
+        apps.find(a => unappliedCount(a) > 0);
       if (withOffers) {
-        const list = (withOffers.offers || []) as Offer[];
+        const list = ((withOffers.offers || []) as Offer[]).filter(o => !o.applied);
         const now = Date.now();
         setOffers(list);
         setAppId(withOffers.id);
@@ -104,32 +109,12 @@ export default function MyOffers() {
   // startApply — the funnel now begins at the details step.
   const refresh = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
 
-  // Retry: re-run eligibility (→ Aurix) for this application without leaving
-  // My Offers — the failure/empty state (e.g. from finding.tsx after a zero-
-  // offer or errored attempt) is shown right here now, not on a separate screen.
-  const retryEligibility = async () => {
-    if (!state.applicationId || retrying) return;
-    setRetrying(true);
-    try {
-      const res: any = await api.prequalify(state.applicationId);
-      const list = (res?.offers || []) as Offer[];
-      set({ offersError: res?.friendlyError || '' });
-      mergeApiContext({ prequalifyResult: { offers: res.offers, friendlyError: res?.friendlyError } });
-      // Same call, same urgency rule as finding.tsx's own hasOffers check —
-      // real offers landing is worth interrupting Ruby's current sentence
-      // for; an empty/error retry isn't, same as the first attempt.
-      if (list.length > 0) {
-        markUrgentContext();
-        const now = Date.now();
-        setOffers(list);
-        setSavedAt(now);
-        saveOffersCache({ applicationId: state.applicationId, savedAt: now, offers: list });
-      }
-    } catch {
-      set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });
-    } finally {
-      setRetrying(false);
-    }
+  // Retry: re-run eligibility (→ Aurix) through the same animated "finding
+  // offers" loader as the first attempt. finding.tsx makes the prequalify call
+  // and lands back here with the offers or the failure state.
+  const retryEligibility = () => {
+    if (!state.applicationId) return;
+    go('finding');
   };
 
   const hasOffers = offers.length > 0;
@@ -168,6 +153,23 @@ export default function MyOffers() {
         </View>
       ) : hasOffers ? (
         <>
+          {offers.length >= 2 ? (
+            <Pressable
+              onPress={() => go('compare')}
+              accessibilityRole="button"
+              accessibilityLabel={`Compare all ${offers.length} offers`}
+              style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
+            >
+              <View style={styles.compareIcon}>
+                <Icon name="balance" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[font(700), styles.compareLabel]}>Compare all {offers.length} offers</Text>
+                <Text style={[font(500), styles.compareSub]}>EMI, interest & total cost side by side</Text>
+              </View>
+              <Icon name="chevron_right" size={22} color={colors.primary} />
+            </Pressable>
+          ) : null}
           <View style={{ gap: 14 }}>
             {offers.map(o => (
               <MyOfferCard key={o.id} offer={o} onSelect={select} />
@@ -182,7 +184,6 @@ export default function MyOffers() {
         <EmptyOffers
           onApply={startApply}
           onRetry={retryEligibility}
-          retrying={retrying}
           offersError={state.offersError}
         />
       )}
@@ -293,12 +294,10 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
 function EmptyOffers({
   onApply,
   onRetry,
-  retrying,
   offersError,
 }: {
   onApply: () => void;
   onRetry: () => void;
-  retrying: boolean;
   offersError: string;
 }) {
   const failed = !!offersError;
@@ -316,7 +315,7 @@ function EmptyOffers({
 
       {failed ? (
         <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
-          <PrimaryButton label={retrying ? 'Retrying…' : 'Retry'} icon="refresh" disabled={retrying} onPress={onRetry} />
+          <PrimaryButton label="Retry" icon="refresh" onPress={onRetry} />
           <Pressable style={styles.updateBtn} onPress={onApply}>
             <Icon name="tune" size={18} color={colors.text} />
             <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
@@ -358,6 +357,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, height: 38, marginTop: 2, minWidth: 104, justifyContent: 'center',
   },
   refreshLabel: { fontSize: 13, color: colors.primary },
+  compareBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderColor: '#BFE3E3', borderRadius: 18, paddingVertical: 12, paddingLeft: 12, paddingRight: 10, marginBottom: 16,
+    backgroundColor: '#F2FAFA',
+  },
+  compareIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#DDF1F1', alignItems: 'center', justifyContent: 'center' },
+  compareLabel: { fontSize: 15, color: colors.text },
+  compareSub: { fontSize: 12, color: colors.textSoft, marginTop: 1 },
   updateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 54, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line },
 
   // ── Offer card ─────────────────────────────────────────────────────────

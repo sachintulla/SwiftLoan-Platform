@@ -30,6 +30,32 @@ export function readProviderError(json: unknown, status: number): string {
   if (msg) return code && !msg.includes(String(code)) ? `${msg} (${code})` : msg;
   return `request failed with HTTP ${status}`;
 }
+
+/**
+ * getUserMedia() failures were all being shown as "Microphone access denied:
+ * NotAllowedError: Permission denied" (or worse, "...: NotFoundError: ..." for
+ * a missing mic, mislabeled as "denied" too) — a raw exception string with no
+ * indication of what to actually do about it. Browsers only show their native
+ * allow/block prompt ONCE per site; after a block, the only way back in is the
+ * site-permission control in the address bar, which this message now points
+ * the user at directly instead of leaving them stuck on a dead-end error.
+ */
+function micErrorMessage(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : '';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Microphone access is blocked. Click the lock/info icon in your browser’s address bar, allow the microphone, then tap the mic button again.';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No microphone was found on this device.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'Your microphone is being used by another app. Close it and try again.';
+  }
+  if (err instanceof Error && /needs https|supported browser/i.test(err.message)) {
+    return err.message;
+  }
+  return 'Could not access your microphone. Check your browser’s site permissions and try again.';
+}
 /* =========================================================
    SwiftLoan.ai — Ello voice-agent client (ported from
    website/js/ello-agent.js / admin/src/lib/ello-agent.ts).
@@ -82,6 +108,7 @@ export class ElloAgent {
   private listeners: Record<string, Listener[]> = {};
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
+  private muted = false;
   private micProcessor: ScriptProcessorNode | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
   private playbackQueueTime = 0;
@@ -186,20 +213,25 @@ export class ElloAgent {
     this.setStatus('connecting');
     this.playbackQueueTime = 0;
     this.playCount = 0;
-    try {
-      await this.ensureAudioContext();
-    } catch {
-      /* ignore */
-    }
+    // getUserMedia MUST be the first async call after the click, not the
+    // second — the "user activation" a browser uses to decide whether to
+    // even show its permission prompt (as opposed to silently refusing with
+    // no popup at all) can expire across an intervening await in stricter
+    // engines. ensureAudioContext()'s own `await audioCtx.resume()` was
+    // sitting in front of acquireMic() here, unlike startMic() below (its
+    // sibling call site), which already does this in the safe order.
     try {
       await this.acquireMic();
     } catch (err) {
       this.dbg('error', 'mic acquire failed', String(err));
-      this.emit('error', {
-        message: 'Microphone access is needed to talk. Please allow it in your browser and click again.',
-      });
+      this.emit('error', { message: micErrorMessage(err) });
       this.setStatus('idle');
       return;
+    }
+    try {
+      await this.ensureAudioContext();
+    } catch {
+      /* ignore */
     }
     try {
       // Session is started through OUR server, not Ello directly.
@@ -640,6 +672,7 @@ export class ElloAgent {
         autoGainControl: true,
       },
     });
+    this.micStream.getAudioTracks().forEach((t) => { t.enabled = !this.muted; });
     const tr = this.micStream.getAudioTracks()[0];
     this.dbg('info', 'getUserMedia ok', tr ? `${tr.label || 'mic'} enabled=${tr.enabled} muted=${tr.muted} state=${tr.readyState}` : 'no track');
   }
@@ -649,7 +682,7 @@ export class ElloAgent {
       await this.acquireMic();
     } catch (err) {
       this.dbg('error', 'getUserMedia failed', String(err));
-      this.emit('error', { message: `Microphone access denied: ${String(err)}` });
+      this.emit('error', { message: micErrorMessage(err) });
       return;
     }
     if (!this.micStream) return;
@@ -719,7 +752,23 @@ export class ElloAgent {
     this.audioCtx = null;
   }
 
+  /**
+   * Mute/unmute the mic for the live call without ending it. Disabling the
+   * track makes the browser feed silence into the existing pipeline, so the
+   * session and its playback continue; re-applied if the mic is re-acquired.
+   */
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    this.micStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+    this.emit('muteChange', muted);
+  }
+
+  isMuted() {
+    return this.muted;
+  }
+
   stop() {
+    this.muted = false;
     if (this.speakingQuietTimer) {
       clearTimeout(this.speakingQuietTimer);
       this.speakingQuietTimer = null;

@@ -13,12 +13,24 @@ import {
   setCurrentScreen,
 } from '../src/voice/actionRegistry';
 import { isSensitiveField } from '../src/voice/sensitive';
+import { setTokens } from '../src/api/client';
 
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => {
   jest.clearAllTimers();
   jest.useRealTimers();
+  setTokens(null);
 });
+
+// renderAt() below calls the real go(), which now requires a session for
+// every screen except the pre-login ones (see guardScreen in store.ts).
+// Pre-login screens (language/mobile/otp) need no token, exactly as before;
+// post-login screens (profile/fare/basic/calculator) need one, added per
+// describe block below rather than globally, since a single setting can't
+// satisfy both. None of this is about guest-vs-authenticated behavior
+// itself, just keeping the login-boundary guard out of the way of tests
+// that are really about discovery/interaction mechanics.
+const AUTHED = () => setTokens('fake-access-token');
 
 /**
  * Navigates the store to `name` before rendering the screen body. Needed because
@@ -99,11 +111,13 @@ describe('UC-V2 screen reading', () => {
 
 describe('UC-V3 varied control types across screens', () => {
   it('discovers controls on a toggle-heavy screen (profile)', () => {
+    AUTHED();
     renderAt('profile', <Profile />);
     expect(listTargets('profile').length).toBeGreaterThan(0);
   });
 
   it('exposes a tappable Save control once personal-details editing starts', () => {
+    AUTHED();
     // Regression: the Save/Edit toggle is passed to SectionHead via its
     // `right` prop, not as a direct child, so screenGraph.ts's auto-discovery
     // (which only walks `children`) can never see it — confirmed live: the
@@ -125,6 +139,7 @@ describe('UC-V3 varied control types across screens', () => {
   });
 
   it('discovers controls on a slider screen (fare)', () => {
+    AUTHED();
     renderAt('fare', <Fare />);
     expect(listTargets('fare').length).toBeGreaterThan(0);
   });
@@ -174,6 +189,7 @@ describe('UC-V5 input labels are speakable, not placeholders', () => {
 
 describe('UC-V6 controls inside child components are reachable', () => {
   it('exposes the EmiCalculator sliders on the calculator screen', () => {
+    AUTHED();
     const Calculator = require('../src/screens/calculator').default;
     renderAt('calculator', <Calculator />);
 
@@ -190,6 +206,7 @@ describe('UC-V6 controls inside child components are reachable', () => {
   });
 
   it('clamps a slider value to its range instead of writing it raw', () => {
+    AUTHED();
     const Calculator = require('../src/screens/calculator').default;
     renderAt('calculator', <Calculator />);
 
@@ -236,6 +253,7 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
   });
 
   it('exposes the name, email, pincode fields and gender chips', () => {
+    AUTHED();
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
     const labels = listTargets('aboutyou').map(t => t.label);
@@ -263,6 +281,7 @@ describe('UC-V9 OTP is agent-fillable, Verify is agent-tappable', () => {
 
 describe('UC-V10 date of birth is settable in one step', () => {
   it('labels wrapped Fields from their label prop, not the section heading', () => {
+    AUTHED();
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
     const labels = listTargets('aboutyou').map(t => t.label);
@@ -274,6 +293,7 @@ describe('UC-V10 date of birth is settable in one step', () => {
   });
 
   it('the date target is settable immediately, without opening the picker first', () => {
+    AUTHED();
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
     // Setting a DOB by voice should apply instantly — it shouldn't require
@@ -291,6 +311,7 @@ describe('UC-V10 date of birth is settable in one step', () => {
 
 describe('UC-V11 loan amount slider on the application screen', () => {
   it('exposes "Desired loan amount" and clamps to its range', () => {
+    AUTHED();
     const Basic = require('../src/screens/basic').default;
     renderAt('basic', <Basic />);
 
@@ -316,6 +337,7 @@ describe('UC-V11 loan amount slider on the application screen', () => {
   });
 
   it('the pincode field is fillable by voice, not refused as a secret', () => {
+    AUTHED();
     const Basic = require('../src/screens/basic').default;
     renderAt('basic', <Basic />);
     const pin = listTargets('basic').find(t => /pin code/i.test(t.label));

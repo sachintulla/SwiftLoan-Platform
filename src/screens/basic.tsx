@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
@@ -29,6 +29,45 @@ export default function Basic() {
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
+  // Avoids re-querying the same pincode on every re-render/keystroke elsewhere
+  // on the screen, and avoids racing an in-flight lookup with a newer one if
+  // the user keeps editing.
+  const lastLookedUpPinRef = useRef<string | null>(null);
+
+  // Auto-fill city/state from the pincode once it's a complete 6-digit code,
+  // via India Post's public Pincode API (free, no key). Best-effort only —
+  // an unmatched/invalid pincode or a network hiccup must never block typing
+  // or show an error; the user can still fill city/state by hand either way.
+  useEffect(() => {
+    const pin = state.basicPin;
+    if (pin.length !== 6 || pin === lastLookedUpPinRef.current) return;
+    lastLookedUpPinRef.current = pin;
+    let cancelled = false;
+    (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { signal: controller.signal });
+        clearTimeout(timer);
+        const json = await res.json();
+        const po = json?.[0]?.PostOffice?.[0];
+        if (cancelled || !po) return;
+        if (po.District) set({ optCity: po.District });
+        if (po.State) set({ optState: po.State });
+      } catch {
+        // Silently ignore — city/state stay editable by hand.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.basicPin]);
+  // Snapshot of what the server already held when this screen loaded (from
+  // save_applicant_context during the warm-up conversation, or an earlier
+  // profile edit) — onContinue diffs against this so it only PATCHes fields
+  // that actually changed on screen, instead of re-sending everything every
+  // time, which was a pure duplicate write of data already saved seconds
+  // earlier by the voice agent.
+  const initialUserRef = useRef<any>(null);
 
   // Auto-fill from whatever's already saved server-side.
   useEffect(() => {
@@ -36,6 +75,7 @@ export default function Basic() {
     api.me().then((r: any) => {
       const user = r.user;
       if (!user) return;
+      initialUserRef.current = user;
       // Name: prefer explicit first/last, but fall back to splitting the fullName
       // saved by the "Tell us about yourself" screen, so the user never re-types it.
       const nameParts = (user.fullName || '').trim().split(/\s+/).filter(Boolean);
@@ -52,6 +92,10 @@ export default function Basic() {
       if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });
       if (!state.basicIncome && user.monthlyIncome) set({ basicIncome: String(user.monthlyIncome) });
       if (!state.basicCompany && user.company) set({ basicCompany: user.company });
+      // The amount slider defaults to a placeholder (150000), not empty, so
+      // "is it still the placeholder" is what stands in for "hasn't been set
+      // yet" here — everything else above checks for an empty string instead.
+      if (state.appAmount === 150000 && user.draftLoanAmount) set({ appAmount: user.draftLoanAmount });
       // Returning-user prefill for the Aurix-required fields so they don't
       // re-enter what they already gave us last time.
       if (!state.basicQualification && user.qualification) set({ basicQualification: user.qualification });
@@ -90,27 +134,46 @@ export default function Basic() {
     setBusy(true);
     try {
       const fullName = [state.basicFirst, state.basicLast].filter(Boolean).join(' ').trim();
-      const { user }: any = await api.updateProfile({
-        ...(state.basicFirst ? { firstName: state.basicFirst } : {}),
-        ...(state.basicLast ? { lastName: state.basicLast } : {}),
-        ...(fullName ? { fullName } : {}),
-        ...(state.basicEmail ? { email: state.basicEmail } : {}),
-        ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
-        ...(state.aboutGender ? { gender: state.aboutGender } : {}),
-        ...(state.basicPin ? { pincode: state.basicPin } : {}),
-        ...(state.basicRes && RES_TYPE_SLUG[state.basicRes] ? { residenceType: RES_TYPE_SLUG[state.basicRes] } : {}),
-        ...(state.basicEmp && EMP_SLUG[state.basicEmp] ? { employment: EMP_SLUG[state.basicEmp] } : {}),
-        ...(state.basicIncome ? { monthlyIncome: parseInt(state.basicIncome, 10) || 0 } : {}),
-        ...(state.basicCompany ? { company: state.basicCompany } : {}),
-        // Aurix-required: qualification + loan purpose.
-        ...(state.basicQualification ? { qualification: state.basicQualification } : {}),
-        ...(state.basicLoanPurpose ? { loanPurpose: state.basicLoanPurpose } : {}),
-        // Lender-required income mode + current address.
-        ...(state.optSalaryMode ? { salaryMode: state.optSalaryMode } : {}),
-        ...(state.optAddr1.trim() ? { addressLine1: state.optAddr1.trim() } : {}),
-        ...(state.optCity.trim() ? { city: state.optCity.trim() } : {}),
-        ...(state.optState.trim() ? { state: state.optState.trim() } : {}),
-      });
+      const dobIso = dob ? new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() : null;
+      const resSlug = state.basicRes ? RES_TYPE_SLUG[state.basicRes] : null;
+      const empSlug = state.basicEmp ? EMP_SLUG[state.basicEmp] : null;
+      const incomeNum = state.basicIncome ? parseInt(state.basicIncome, 10) || 0 : null;
+      const addr1 = state.optAddr1.trim();
+      const city = state.optCity.trim();
+      const st = state.optState.trim();
+
+      // Diff against what was already on the server when this screen loaded
+      // (typically written moments earlier by save_applicant_context during
+      // the warm-up conversation) — only PATCH what actually changed here,
+      // instead of re-sending every field every time regardless of whether
+      // the voice agent already saved it.
+      const initial = initialUserRef.current || {};
+      const patch: Record<string, unknown> = {};
+      if (state.basicFirst && state.basicFirst !== initial.firstName) patch.firstName = state.basicFirst;
+      if (state.basicLast && state.basicLast !== initial.lastName) patch.lastName = state.basicLast;
+      if (fullName && fullName !== initial.fullName) patch.fullName = fullName;
+      if (state.basicEmail && state.basicEmail !== initial.email) patch.email = state.basicEmail;
+      if (dobIso && dobIso !== (initial.dob ? new Date(initial.dob).toISOString() : null)) patch.dob = dobIso;
+      if (state.aboutGender && state.aboutGender !== initial.gender) patch.gender = state.aboutGender;
+      if (state.basicPin && state.basicPin !== initial.pincode) patch.pincode = state.basicPin;
+      if (resSlug && resSlug !== initial.residenceType) patch.residenceType = resSlug;
+      if (empSlug && empSlug !== initial.employment) patch.employment = empSlug;
+      if (incomeNum != null && incomeNum !== initial.monthlyIncome) patch.monthlyIncome = incomeNum;
+      if (state.basicCompany && state.basicCompany !== initial.company) patch.company = state.basicCompany;
+      // Aurix-required: qualification + loan purpose.
+      if (state.basicQualification && state.basicQualification !== initial.qualification) patch.qualification = state.basicQualification;
+      if (state.basicLoanPurpose && state.basicLoanPurpose !== initial.loanPurpose) patch.loanPurpose = state.basicLoanPurpose;
+      // Lender-required income mode + current address.
+      if (state.optSalaryMode && state.optSalaryMode !== initial.salaryMode) patch.salaryMode = state.optSalaryMode;
+      if (addr1 && addr1 !== initial.addressLine1) patch.addressLine1 = addr1;
+      if (city && city !== initial.city) patch.city = city;
+      if (st && st !== initial.state) patch.state = st;
+
+      let user = state.authUser ?? initial;
+      if (Object.keys(patch).length > 0) {
+        const res: any = await api.updateProfile(patch);
+        user = res.user;
+      }
       set({
         authUser: user,
         pdName: user.fullName || state.pdName,

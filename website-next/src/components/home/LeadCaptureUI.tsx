@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useRef } from "react";
 import { Check, Phone, X, type LucideIcon } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
@@ -159,6 +160,18 @@ export function OtpModal({
     handleCloseOtpModal,
     sendOtp,
   } = capture;
+
+  // Auto-continue: once all 6 digits are in (the browser/OS one-time-code
+  // autofill, a paste, or typing), submit without waiting for Verify. Once per
+  // code, so a wrong one shows its error instead of resubmitting in a loop.
+  const otpFormRef = useRef<HTMLFormElement>(null);
+  const autoSubmitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showOtpModal) { autoSubmitted.current = null; return; }
+    if (otp.length !== 6 || otpVerifying || autoSubmitted.current === otp) return;
+    autoSubmitted.current = otp;
+    otpFormRef.current?.requestSubmit();
+  }, [otp, otpVerifying, showOtpModal]);
   if (!showOtpModal) return null;
 
   return (
@@ -190,7 +203,7 @@ export function OtpModal({
           </p>
         </div>
 
-        <form onSubmit={handleVerifyOtp} className="flex flex-col gap-4 px-6 py-6">
+        <form ref={otpFormRef} onSubmit={handleVerifyOtp} className="flex flex-col gap-4 px-6 py-6">
           <p className="text-warning text-center text-xs font-bold">{t.otpStayOpenNotice}</p>
           {devOtpHint && (
             <p className="text-warning text-center text-xs font-bold">

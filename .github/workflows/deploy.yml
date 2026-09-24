@@ -27,17 +27,18 @@ jobs:
       - name: Ensure this landed on the dev box
         run: |
           if [ "$(hostname)" != "ip-10-10-1-233" ]; then
-            echo "::error::This job landed on $(hostname), not ip-10-10-1-233. Re-run the workflow so it lands on the correct self-hosted runner."
+            echo "::error::This job landed on $(hostname), not ip-10-10-1-233 (dev). Re-run the workflow so it lands on the correct self-hosted runner."
             exit 1
           fi
 
       # All config now comes from ~/secrets/server.env, a hand-maintained file
-      # on this box (both develop and main deploy here, so one file covers
-      # both) — deliberately reverting the earlier GitHub Secrets/Variables
-      # approach. That approach existed because an older version of this same
-      # file-on-the-box pattern had drifted out of sync; this file is the one
-      # and only source of truth again, so keep it that way — update it here
-      # via SSH, don't let GitHub Secrets/Variables silently diverge from it.
+      # on THIS (dev) box specifically — separate from prod's own
+      # ~/secrets/server.env on 13.232.60.204, deliberately reverting the
+      # earlier GitHub Secrets/Variables approach. That approach existed
+      # because an older version of this same file-on-the-box pattern had
+      # drifted out of sync; this file is the one and only source of truth
+      # again, so keep it that way — update it here via SSH, don't let GitHub
+      # Secrets/Variables silently diverge from it.
       - name: Build & deploy server
         run: |
           set -a

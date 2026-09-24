@@ -28,7 +28,10 @@ describe('UC-N1 initial screen', () => {
 });
 
 describe('UC-N2 go() sets screen', () => {
+  afterEach(() => setTokens(null));
+
   it('changes the active screen', () => {
+    setTokens('fake-access-token');
     const s = _reducer(initialState, { type: 'go', screen: 'home' });
     expect(s.screen).toBe('home');
   });
@@ -58,7 +61,15 @@ describe('UC-N3 back-stack fallback (prevMap)', () => {
 });
 
 describe('UC-N3b real back stack returns to actual origin', () => {
+  // All of these exercise post-login screens (fare/basic/basicpan/...), so a
+  // real session is needed now that guardScreen() also redirects an
+  // unauthenticated go()/back() away from them (see the comment on
+  // PRE_LOGIN_ONLY in store.ts) — these tests are about back-stack mechanics,
+  // not auth, so a fake token just clears that gate out of the way.
+  afterEach(() => setTokens(null));
+
   it('back() returns to where you came from, not a fixed parent', () => {
+    setTokens('fake-access-token');
     // My Offers (fare) → Apply (basicpan): Back must return to fare, not home.
     let s = _reducer(initialState, { type: 'go', screen: 'fare' });
     s = _reducer(s, { type: 'go', screen: 'basicpan' });
@@ -68,6 +79,7 @@ describe('UC-N3b real back stack returns to actual origin', () => {
   });
 
   it('reaching the same screen from a different origin backs to that origin', () => {
+    setTokens('fake-access-token');
     // Home → basicpan: Back returns to home (the real origin this time).
     let s = _reducer(initialState, { type: 'go', screen: 'home' });
     s = _reducer(s, { type: 'go', screen: 'basicpan' });
@@ -76,6 +88,7 @@ describe('UC-N3b real back stack returns to actual origin', () => {
   });
 
   it('a top-level tab resets the stack (acts as a root)', () => {
+    setTokens('fake-access-token');
     let s = _reducer(initialState, { type: 'go', screen: 'fare' });
     s = _reducer(s, { type: 'go', screen: 'basicpan' });
     s = _reducer(s, { type: 'go', screen: 'home' }); // tab tap
@@ -83,6 +96,7 @@ describe('UC-N3b real back stack returns to actual origin', () => {
   });
 
   it('Back from the offers result returns to the funnel origin, not the funnel', () => {
+    setTokens('fake-access-token');
     // My Offers (fare) → apply funnel → offers: Back returns to fare, skipping
     // the whole funnel (details → optional → Verify PAN → finding), per offersReturn.
     let s: typeof initialState = { ...initialState, offersReturn: 'fare' };
@@ -96,6 +110,7 @@ describe('UC-N3b real back stack returns to actual origin', () => {
   });
 
   it('back() on an empty stack falls back to the PREV map', () => {
+    setTokens('fake-access-token');
     const s = _reducer({ ...initialState, screen: 'basic', history: [] }, { type: 'back' });
     expect(s.screen).toBe(PREV_MAP.basic || 'home');
   });
@@ -138,13 +153,16 @@ describe('UC-N6 reset (logout) clears state, keeps consent/language, lands on lo
   });
 });
 
-describe('UC-N14 onboarding screens are unreachable once logged in', () => {
+describe('UC-N14 the login boundary is guarded in both directions', () => {
   // Bug: the voice agent's navigate_screen('language') — meant to change the
   // app's UI-copy language for a *guest* — dumped an already-authenticated
   // user back onto the onboarding language picker, because nothing stopped
-  // go()/back() from crossing the login boundary the wrong way. Only this
-  // direction is guarded (see the comment on PRE_LOGIN_ONLY in store.ts) —
-  // home/basicpan/fare etc. stay reachable without a session by design.
+  // go()/back() from crossing the login boundary the wrong way. Fixed both
+  // directions (see the comment on PRE_LOGIN_ONLY/guardScreen in store.ts):
+  // an authed user can't land back on onboarding, and an unauthenticated one
+  // can't reach a post-login screen (profile/home/basicpan/fare/...) either
+  // — confirmed live as a real gap when a pre-login "change the app language"
+  // request sent the voice agent straight to `profile` with no session.
   afterEach(() => setTokens(null));
 
   it('go() redirects a pre-login screen to home once a session exists', () => {
@@ -156,6 +174,17 @@ describe('UC-N14 onboarding screens are unreachable once logged in', () => {
   it('go() still allows the pre-login screen with no session', () => {
     const s = _reducer(initialState, { type: 'go', screen: 'language' });
     expect(s.screen).toBe('language');
+  });
+
+  it('go() redirects a post-login screen to mobile with no session', () => {
+    const s = _reducer(initialState, { type: 'go', screen: 'profile' });
+    expect(s.screen).toBe('mobile');
+  });
+
+  it('go() still allows the post-login screen once a session exists', () => {
+    setTokens('fake-access-token');
+    const s = _reducer(initialState, { type: 'go', screen: 'profile' });
+    expect(s.screen).toBe('profile');
   });
 
   it('back() redirects too — a stale pre-login entry on the stack cannot resurface after login', () => {

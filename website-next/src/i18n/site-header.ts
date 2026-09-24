@@ -15,6 +15,8 @@ export const siteHeaderCopy = defineCopy({
     languageLabel: "Language",
     toggleMenu: "Toggle menu",
     cta: "Check eligibility",
+    applyNow: "Apply Now",
+    trackApplication: "Track Application",
   },
   hi: {
     disclaimer:
@@ -30,6 +32,8 @@ export const siteHeaderCopy = defineCopy({
     languageLabel: "भाषा",
     toggleMenu: "मेन्यू खोलें/बंद करें",
     cta: "पात्रता जांचें",
+    applyNow: "अभी आवेदन करें",
+    trackApplication: "आवेदन ट्रैक करें",
   },
   te: {
     disclaimer:
@@ -45,5 +49,7 @@ export const siteHeaderCopy = defineCopy({
     languageLabel: "భాష",
     toggleMenu: "మెనూ చూపించు/దాచు",
     cta: "అర్హతను తనిఖీ చేయండి",
+    applyNow: "ఇప్పుడే దరఖాస్తు చేయండి",
+    trackApplication: "దరఖాస్తును ట్రాక్ చేయండి",
   },
 });

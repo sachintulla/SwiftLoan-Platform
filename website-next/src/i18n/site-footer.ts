@@ -11,6 +11,11 @@ export const siteFooterCopy = defineCopy({
     },
     products: ["Personal Loans", "Business Loans", "EMI Calculator", "Track application"],
     company: ["Partners", "Security", "Reviews", "FAQs"],
+    trackCta: {
+      title: "Already applied?",
+      body: "Track your application status, offers and next steps anytime.",
+      button: "Track Application",
+    },
     legal: [
       "Compliance & Regulatory",
       "Key Fact Statement",
@@ -37,6 +42,11 @@ export const siteFooterCopy = defineCopy({
     },
     products: ["पर्सनल लोन", "बिज़नेस लोन", "EMI कैलकुलेटर", "आवेदन ट्रैक करें"],
     company: ["पार्टनर्स", "सुरक्षा", "समीक्षाएं", "सामान्य प्रश्न"],
+    trackCta: {
+      title: "पहले से आवेदन कर चुके हैं?",
+      body: "अपने आवेदन की स्थिति, ऑफ़र और अगले कदम कभी भी ट्रैक करें।",
+      button: "आवेदन ट्रैक करें",
+    },
     legal: [
       "अनुपालन और विनियम",
       "मुख्य तथ्य विवरण (KFS)",
@@ -64,6 +74,11 @@ export const siteFooterCopy = defineCopy({
     },
     products: ["పర్సనల్ లోన్లు", "బిజినెస్ లోన్లు", "EMI కాలిక్యులేటర్", "దరఖాస్తు ట్రాక్ చేయండి"],
     company: ["భాగస్వాములు", "భద్రత", "రివ్యూలు", "ప్రశ్నలు"],
+    trackCta: {
+      title: "ఇప్పటికే దరఖాస్తు చేశారా?",
+      body: "మీ దరఖాస్తు స్థితి, ఆఫర్‌లు మరియు తదుపరి దశలను ఎప్పుడైనా ట్రాక్ చేయండి.",
+      button: "దరఖాస్తును ట్రాక్ చేయండి",
+    },
     legal: [
       "కంప్లయన్స్ & నియంత్రణ",
       "కీ ఫ్యాక్ట్ స్టేట్‌మెంట్ (KFS)",

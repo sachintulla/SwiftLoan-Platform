@@ -18,6 +18,8 @@ const SENSITIVE_KEYS = new Set([
   'password', 'passwordhash', 'otp', 'otpcode', 'code', 'codehash',
   'token', 'accesstoken', 'refreshtoken', 'idtoken', 'secret', 'apikey',
   'api_key', 'cvv', 'pin', 'authorization',
+  // PAN Comprehensive identity data (name, DOB, address) — logged as a whole.
+  'prefill', 'maskedaadhaar',
 ]);
 
 function redact(value: unknown): unknown {

@@ -35,6 +35,13 @@ export interface VoiceActions {
    */
   setLanguage: (lang: 'en' | 'hi' | 'te') => void;
   /**
+   * The app's own UI-copy language (`preferred_language` in page_context) —
+   * separate from `setLanguage` above (that's the agent's own voice). Works
+   * from any screen, unlike tapping the physical language card on
+   * `language`/`profile`, which only exists on those two screens.
+   */
+  setAppLanguage: (lang: 'en' | 'hi' | 'te') => void;
+  /**
    * Merge-saves free-form applicant details Ruby has gathered conversationally
    * from a first-time caller, before any application form exists to fill (see
    * the prompt's "Proactive Details Collection" rule). Persisted on-device
@@ -514,6 +521,27 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       const code = normalizeLanguage(language);
       if (!code) return { ok: false, reason: 'unsupported_language', supported: ['English', 'Hindi', 'Telugu'] };
       actions.setLanguage(code);
+      return { ok: true, lang: code };
+    },
+  });
+
+  agent.registerTool<{ language: string }>({
+    name: 'set_app_language',
+    description:
+      "Change the app's own screen-text language — English, Hindi, or Telugu (preferred_language). " +
+      'Works from any screen, without navigating anywhere first. This is separate from set_language, ' +
+      "which changes only the AGENT's own speaking voice (agent_language) and never the screens. Call " +
+      'this when the user asks to change the APP/SCREEN language specifically, e.g. "change the app ' +
+      'to Hindi" or "switch the screens to Telugu" — not for a request to speak a different language.',
+    schema: {
+      type: 'object',
+      properties: { language: { type: 'string', description: '"English", "Hindi", or "Telugu" (or en/hi/te)' } },
+      required: ['language'],
+    },
+    handler: ({ language }) => {
+      const code = normalizeLanguage(language);
+      if (!code) return { ok: false, reason: 'unsupported_language', supported: ['English', 'Hindi', 'Telugu'] };
+      actions.setAppLanguage(code);
       return { ok: true, lang: code };
     },
   });

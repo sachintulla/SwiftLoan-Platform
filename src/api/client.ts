@@ -11,6 +11,18 @@ import { reportOfflineAttempt } from '../state/offlineBridge';
  */
 export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'https://dev-api.swiftloan.ai/api';
 
+// "Is the internet reachable?" is really "is OUR backend reachable?". NetInfo's
+// default probe is a Google URL, which some networks block or intercept (e.g.
+// an office TLS-inspecting proxy) — it then reports offline and every request
+// below is refused before it's even sent, though the backend is fine. Probe
+// our own health endpoint instead.
+NetInfo.configure({
+  reachabilityUrl: `${API_BASE}/health`,
+  reachabilityTest: async (response) => response.status === 200,
+  reachabilityShortTimeout: 5 * 1000,
+  reachabilityLongTimeout: 60 * 1000,
+});
+
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
@@ -100,10 +112,27 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
   } catch (e: any) {
     // The fetch itself failed to reach anything — as opposed to reaching the
     // server and getting back an error response, which is handled below and
-    // isn't a connectivity problem. Surface it to OfflineNotice so a feature
-    // that needed the internet visibly tells the user why it didn't work,
-    // even on the (real, observed) case where NetInfo still reports "online".
-    reportOfflineAttempt();
+    // isn't a connectivity problem. That said, a failed fetch is NOT proof the
+    // user has no internet: it just as often means this one server/host is
+    // slow, cold-starting, mid-restart, or (in local-dev builds pointed at a
+    // LAN IP) simply unreachable while the phone's real internet is fine.
+    // Re-check connectivity fresh, right now, rather than trusting the
+    // pre-flight check from a few seconds ago — only report "offline" to
+    // OfflineNotice if the device itself genuinely has none, so a slow/down
+    // backend doesn't get mislabeled as "no internet connection."
+    const looksOffline = async () =>
+      NetInfo.fetch()
+        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
+    if (await looksOffline()) {
+      // A single instantaneous reading isn't enough — a momentary signal drop
+      // (a step into a dead spot, a brief Wi-Fi hiccup) can look identical to
+      // this for under a second and shouldn't flag the whole app as offline.
+      // Wait briefly and confirm the device is STILL disconnected before
+      // actually reporting it, so only a real, sustained outage shows the banner.
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+      if (await looksOffline()) reportOfflineAttempt();
+    }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
@@ -363,6 +392,10 @@ export const api = {
   listApplications: () => request('GET', '/applications'),
   getApplication: (id: string) => request('GET', `/applications/${id}`),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
+  // "Refresh status" — pulls the lender's live status via Aurix's Fetch Lead
+  // API instead of just re-reading our own DB-backed state. UAT only for now.
+  refreshApplicationStatus: (id: string, opts?: { lenderApplicationId?: string; offerId?: string }) =>
+    request('POST', `/applications/${id}/refresh-status`, opts, false, 20000),
   prequalify: async (id: string) => {
     // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
     // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.
@@ -627,25 +660,19 @@ export interface UserContext {
     monthlyIncome: number | null;
     panOnFile: boolean;
   } | null;
-  /** Internal sales/telecaller funnel — not for the customer's ears. See userContext.ts. */
-  marketingName: string | null;
-  marketingCity: string | null;
-  marketingEmail: string | null;
-  marketingStage: string | null;
-  marketingStageLabel: string | null;
-  marketingNextAction: string | null;
+  /** The rest of what save_applicant_details collects, synced server-side. See userContext.ts. */
+  applicantDraft: {
+    residenceType: string | null; maritalStatus: string | null; qualification: string | null;
+    company: string | null; loanPurpose: string | null; loanAmount: number | null;
+    salaryMode: string | null; professionalType: string | null; companyEmail: string | null;
+    businessEmail: string | null; addressLine1: string | null; addressLine2: string | null;
+    landmark: string | null; district: string | null; state: string | null;
+    monthlyObligations: number | null; alternateMobile: string | null; alternateEmail: string | null;
+  } | null;
   /** The one clear, customer-facing signal: where this user's loan application stands. */
   applicationStatus: string | null;
   applicationStatusLabel: string;
   inquiries: UserContextInquiry[];
-  lastCall: {
-    at: string;
-    outcome: string | null;
-    outcomeSource: string | null;
-    summary: string | null;
-    answered: boolean;
-    durationSec: number | null;
-  } | null;
   application: {
     id: string; ref: string; status: string;
     amount: number | null; loanType: string | null; tenureMonths: number | null;
@@ -671,27 +698,19 @@ export async function fetchUserContext(): Promise<UserContext | null> {
     const json = await request<{ data?: UserContext }>('GET', '/context/me');
     const data = (json as any)?.data ?? json;
     if (!data || typeof data !== 'object' || !('hasHistory' in data)) return null;
-    // This is forwarded to the voice agent verbatim as page_context.userContext
-    // on every turn (see store.ts's registerPageContext) — allowlisted to
-    // exactly the fields prompts/ello-inapp-copilot-prompt.md's `userContext`
-    // section documents (matching the UserContext type below), rather than
-    // trusting whatever /context/me happens to return. The endpoint's actual
-    // response carries extra fields (conversationBrief, a full conversations[]
-    // transcript list) meant for other consumers, not this allowlist.
+    // Only used locally as a gating flag (see store.ts) — never forwarded to
+    // the voice agent itself; the pre-call get_user_context/lookup tool is
+    // what actually reaches Ello. Allowlisted to exactly the fields the core
+    // prompt's userContext section documents, rather than trusting whatever
+    // /context/me happens to return.
     const d = data as UserContext;
     return {
       hasHistory: d.hasHistory,
       profile: d.profile,
-      marketingName: d.marketingName,
-      marketingCity: d.marketingCity,
-      marketingEmail: d.marketingEmail,
-      marketingStage: d.marketingStage,
-      marketingStageLabel: d.marketingStageLabel,
-      marketingNextAction: d.marketingNextAction,
+      applicantDraft: d.applicantDraft,
       applicationStatus: d.applicationStatus,
       applicationStatusLabel: d.applicationStatusLabel,
       inquiries: d.inquiries,
-      lastCall: d.lastCall,
       application: d.application,
       loan: d.loan,
     };

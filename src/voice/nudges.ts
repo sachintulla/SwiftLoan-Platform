@@ -30,6 +30,10 @@ const OFFERS = new Set<Screen>(['offers', 'fare']);
 // 'repay'/'status' are drill-down detail screens reached from 'loans', not
 // tabs, so they're deliberately not in this set either.
 const MAIN = new Set<Screen>(['home', 'loans', 'profile', 'help', 'calculator']);
+// Pre-login onboarding screens — same "need help?" nudge, before a session
+// exists. 'splash' is excluded: it auto-transitions in 2.6s, too short to
+// ever hit an idle timer. 'privacy' is excluded: a one-tap consent screen.
+const PRE_LOGIN = new Set<Screen>(['language', 'intro', 'mobile', 'otp', 'permissions']);
 
 /** Nudge config for a screen, or null when nudging is off / on a non-nudge screen. */
 export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS): NudgeConfig | null {
@@ -64,6 +68,17 @@ export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS): 
         'Any questions? Tap to ask me.',
         "Need any help? I'm right here.",
         'Let me help you — tap to ask.',
+      ],
+    };
+  }
+  if (PRE_LOGIN.has(screen)) {
+    return {
+      timeoutMs: timers.idleMs,
+      reason: 'idle_prelogin',
+      labels: [
+        'New here? I can help you get started.',
+        "Need any help? I'm right here.",
+        'Have a question? Tap to ask me.',
       ],
     };
   }

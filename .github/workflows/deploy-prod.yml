@@ -4,28 +4,36 @@ on:
     branches: [main]
 jobs:
   deploy:
-    # Pinned to the prod box via a custom `prod` label added to runner
-    # ip-10-20-1-186 (Settings > Actions > Runners). Only the prod runner carries
-    # the `prod` label, so jobs can no longer land on the dev box. The hostname
-    # guard below is kept as a belt-and-braces safety check.
-    runs-on: [self-hosted, prod]
+    # TODO: pin this to a runner-specific label (e.g. a custom label
+    # `ip-10-20-1-186` added to that runner in Settings > Actions > Runners)
+    # instead of the shared `self-hosted` label both boxes carry, once someone
+    # with repo admin/runner permissions adds it — that removes the coin-flip
+    # below entirely. Reverted to `self-hosted` for now because `runs-on`
+    # can't target a runner by its bare registered name, only by label, and
+    # no such label exists yet.
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-      # Two self-hosted runners share the generic `self-hosted` label, so
-      # GitHub picks whichever is free. Only ip-10-20-1-186 is this workflow's
-      # target — landing on the other one deploys somewhere no one is looking
-      # at. Fail loudly instead: re-run the workflow to get reassigned to the
-      # right runner.
+      # Two self-hosted runners share the generic `self-hosted` label, so GitHub
+      # picks whichever is free — dev (35.154.46.155, hostname ip-10-10-1-233)
+      # or prod (13.232.60.204, hostname ip-10-20-1-186). This workflow is
+      # PROD ONLY (triggers on `main`) and must land on the prod box, never
+      # dev — landing on the wrong one silently deploys to a box no one is
+      # looking at, or worse, redeploys prod's code onto the dev box. Fail
+      # loudly instead: re-run the workflow to get reassigned to the right runner.
       - name: Ensure this landed on the prod box
         run: |
           if [ "$(hostname)" != "ip-10-20-1-186" ]; then
             echo "::error::This job landed on $(hostname), not ip-10-20-1-186 (prod). Re-run the workflow so it lands on the correct self-hosted runner."
             exit 1
           fi
-      # All config comes from ~/secrets/server.env on THIS (prod) box — its
-      # own file, separate from dev's ~/secrets/server.env on ip-10-10-1-233.
-      # Deliberately not GitHub Secrets/Variables (that approach drifted out
-      # of sync before); update it here via SSH, don't let GitHub
+      # All config now comes from ~/secrets/server.env, a hand-maintained file
+      # on THIS (prod) box specifically — separate from dev's own
+      # ~/secrets/server.env on 35.154.46.155, deliberately reverting the
+      # earlier GitHub Secrets/Variables approach. That approach existed
+      # because an older version of this same file-on-the-box pattern had
+      # drifted out of sync; this file is the one and only source of truth
+      # again, so keep it that way — update it here via SSH, don't let GitHub
       # Secrets/Variables silently diverge from it.
       - name: Build & deploy server
         run: |
@@ -81,7 +89,9 @@ jobs:
 
       # Prune superseded (dangling) images + build cache after each deploy so the
       # --no-cache rebuilds (~3.6 GB each) don't fill the disk. Runs even on
-      # failure; never touches the running tagged images.
+      # failure; never touches the running tagged images. Already proven on
+      # Deploy Dev — brought over here unconditionally (safe regardless of the
+      # runs-on question above).
       - name: Reclaim disk (prune superseded images + build cache)
         if: always()
         run: |

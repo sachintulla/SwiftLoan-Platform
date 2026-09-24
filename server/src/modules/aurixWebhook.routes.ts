@@ -66,11 +66,22 @@ function alreadyProcessed(id: string | undefined): boolean {
 }
 
 // Progression rank so a status update only moves forward (or to a terminal).
-const RANK: Record<string, number> = {
+// Exported so other Aurix-status consumers (e.g. the Fetch Leads refresh-status
+// route) apply the exact same forward-only guard instead of a second copy.
+export const RANK: Record<string, number> = {
   draft: 0, pan_pending: 1, prequalifying: 2, offers_ready: 3, handoff: 4,
   under_review: 5, approved: 6, disbursed: 7, closed: 8, rejected: 8, failed: 8,
 };
-const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed', 'failed']);
+export const TERMINAL = new Set<ApplicationStatus>(['approved', 'disbursed', 'rejected', 'closed', 'failed']);
+
+/** Forward-only guard: allow advancing to a further status, or the one legal terminal step (approved → disbursed); never regress. */
+export function advancesStatus(from: ApplicationStatus | null, to: ApplicationStatus): boolean {
+  const f = RANK[from ?? 'draft'] ?? 0;
+  const t = RANK[to] ?? 0;
+  const regress = !TERMINAL.has(to) && t <= f;
+  const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
+  return !(regress || backTerminal);
+}
 
 /** Map a KFT journey (state, status, reason) onto our ApplicationStatus. */
 function mapJourney(state: string, status: string, reason: string): ApplicationStatus | null {
@@ -121,7 +132,7 @@ function mapJourney(state: string, status: string, reason: string): ApplicationS
 }
 
 /** Legacy flat-payload status mapping (pre-journey contract). */
-function mapFlatStatus(raw: string): ApplicationStatus | null {
+export function mapFlatStatus(raw: string): ApplicationStatus | null {
   const s = raw.toLowerCase();
   if (!s) return null;
   if (/disburs/.test(s)) return 'disbursed';
@@ -196,6 +207,14 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     await prisma.loanApplication.update({ where: { id: application.id }, data: { leadId } }).catch(() => {});
   }
 
+  // When OfferCode is given, resolve the EXACT offer it names up front — this
+  // is strictly more precise than the lender_name fuzzy match below, and
+  // covers the simpler webhook shape ({OfferCode, Status}, no lender_name at
+  // all) that the richer v1.3 journey contract doesn't require.
+  const offerCodeMatch = offerCode
+    ? await prisma.offer.findFirst({ where: { offerCode: String(offerCode), applicationId: application.id } })
+    : null;
+
   // v1.3: the bureau soft-pull event now carries the customer's real bureau
   // score — persist it so the app shows the actual CIBIL/CRIF value instead of
   // the default. (Independent of the status mapping below.)
@@ -216,15 +235,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'No status change for this event');
   }
 
-  // Forward-only helper: allow advancing to a further status, or the one legal
-  // terminal step (approved → disbursed); never regress.
-  const advances = (from: ApplicationStatus | null, to: ApplicationStatus): boolean => {
-    const f = RANK[from ?? 'draft'] ?? 0;
-    const t = RANK[to] ?? 0;
-    const regress = !TERMINAL.has(to) && t <= f;
-    const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
-    return !(regress || backTerminal);
-  };
+  const advances = advancesStatus;
 
   // ── Per-lender application create/update ──
   // The per-lender application (an applied Offer) is CREATED only once the lender
@@ -237,14 +248,17 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const createsApplication = CREATE_STATES.has(state.toLowerCase().replace(/[^a-z_]/g, '')) || TERMINAL.has(mapped);
   const lenderName = data.lender_name ?? data.lenderName ?? null;
   let offerUpdated: string | null = null;
-  if (lenderName) {
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const want = norm(String(lenderName));
-    const offers = await prisma.offer.findMany({ where: { applicationId: application.id } });
-    const match = offers.find(o => o.lenderName && (() => {
-      const have = norm(o.lenderName);
-      return have === want || have.includes(want) || want.includes(have);
-    })());
+  if (lenderName || offerCodeMatch) {
+    let match = offerCodeMatch;
+    if (!match && lenderName) {
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const want = norm(String(lenderName));
+      const offers = await prisma.offer.findMany({ where: { applicationId: application.id } });
+      match = offers.find(o => o.lenderName && (() => {
+        const have = norm(o.lenderName);
+        return have === want || have.includes(want) || want.includes(have);
+      })()) ?? null;
+    }
     // Update if the offer is already applied, or CREATE it now if this event is
     // the submission confirmation. Otherwise (pre-OTP event, not yet applied) skip.
     if (match && (match.applied || createsApplication) && advances(match.lenderStatus, mapped)) {

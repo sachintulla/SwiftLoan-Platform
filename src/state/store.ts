@@ -31,7 +31,7 @@ export const SCREEN_NAMES = [
   'home', 'loans', 'fare', 'help', 'profile',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'status', 'disbursed', 'repay', 'calculator',
+  'status', 'disbursed', 'repay', 'calculator', 'compare',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -44,6 +44,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   repayment: 'repay', repayments: 'repay', repaymentoverview: 'repay',
   repay: 'repay', emi: 'repay', myrepayments: 'repay',
   myoffers: 'fare', offers: 'fare', fare: 'fare',
+  compare: 'compare', compareoffers: 'compare', compareloans: 'compare', bestoffer: 'compare',
   calculator: 'calculator', emicalculator: 'calculator', loancalculator: 'calculator',
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
@@ -90,6 +91,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
   disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home',
+  compare: 'fare',
 };
 
 export interface AppState {
@@ -285,21 +287,32 @@ const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 // voice/tools.ts).
 //
 // Deliberately one-directional: an earlier version of this also blocked the
-// reverse (post-login screens with no session), but home/basicpan/fare/...
-// are legitimately guest-accessible by design (the app's own anonymous-
-// session flow, and every existing navigation test, both rely on that) —
-// only pre-login-while-authed is an actual bug.
+// reverse too: post-login screens (home/basicpan/fare/profile/...) now
+// require a real session just as strictly — previously left open on the
+// theory that they were "guest-accessible by design," but nothing in the
+// actual app intentionally relies on a truly zero-token visitor reaching
+// them (the "Skip" flow already mints a real anonymous session/token before
+// home is ever shown — see ensureSession), so there was no real guest path
+// this was protecting, only an unguarded gap the voice agent's
+// navigate_screen could be sent through (confirmed live: asked to change the
+// app language while still pre-login, it navigated to `profile`, a screen
+// that requires a session it did not have).
 const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions']);
 
 /**
- * Redirects away from a pre-login screen if a session (guest or real)
- * already exists. Applied to every real screen change (go AND back, see the
- * reducer below), not only the voice agent's navigate_screen: a stale
- * back-stack entry from before login, or any other caller, can hit the same
- * case, and this is meant to be a hard rule, not a per-caller courtesy.
+ * Redirects across the login boundary in whichever direction is wrong:
+ * away from a pre-login screen if a session (guest or real) already exists,
+ * and away from every other screen if one does not. Applied to every real
+ * screen change (go AND back, see the reducer below), not only the voice
+ * agent's navigate_screen: a stale back-stack entry, or any other caller,
+ * can hit either case, and this is meant to be a hard rule, not a
+ * per-caller courtesy.
  */
 function guardScreen(screen: Screen): Screen {
-  return PRE_LOGIN_ONLY.has(screen) && isAuthed() ? 'home' : screen;
+  const authed = isAuthed();
+  if (PRE_LOGIN_ONLY.has(screen) && authed) return 'home';
+  if (!PRE_LOGIN_ONLY.has(screen) && !authed) return 'mobile';
+  return screen;
 }
 
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
@@ -347,6 +360,45 @@ function stripForVoiceContext<T>(value: T): T {
     return out as T;
   }
   return value;
+}
+
+// save_applicant_details (the voice tool) accepts free-form keys — "use
+// whatever field names fit what was actually said" — but PATCH /users/me's
+// profilePatch is .strict(), so a single unrecognised key rejects the WHOLE
+// patch, not just that one field. This allowlists exactly the keys that are
+// real User columns (translating the two that don't match 1:1: the tool's
+// own `employmentType` -> the column `employment`, and `loanAmount` -> the
+// dedicated `draftLoanAmount` column, since no LoanApplication exists yet to
+// hold a real amount). Everything else the model might send is dropped
+// silently rather than risking the sync failing outright.
+const APPLICANT_DRAFT_KEY_MAP: Record<string, string> = {
+  employmentType: 'employment',
+  loanAmount: 'draftLoanAmount',
+};
+const APPLICANT_DRAFT_ALLOWED_KEYS = new Set([
+  'fullName', 'email', 'dob', 'gender', 'pincode', 'residenceType', 'employment',
+  'monthlyIncome', 'company', 'qualification', 'maritalStatus', 'alternateMobile',
+  'alternateEmail', 'loanPurpose', 'salaryMode', 'professionalType', 'companyEmail',
+  'businessEmail', 'addressLine1', 'addressLine2', 'landmark', 'city', 'district',
+  'state', 'monthlyObligations', 'draftLoanAmount',
+]);
+
+function toServerProfilePatch(details: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  for (const [rawKey, rawValue] of Object.entries(details)) {
+    const key = APPLICANT_DRAFT_KEY_MAP[rawKey] ?? rawKey;
+    if (!APPLICANT_DRAFT_ALLOWED_KEYS.has(key)) continue;
+    // profilePatch's dob is z.string().datetime() — a full ISO datetime, not
+    // a bare date — so "2001-09-15" alone fails validation server-side.
+    if (key === 'dob' && typeof rawValue === 'string') {
+      const d = new Date(rawValue);
+      if (Number.isNaN(d.getTime())) continue;
+      out[key] = d.toISOString();
+      continue;
+    }
+    out[key] = rawValue;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 function reducer(state: AppState, action: Action): AppState {
@@ -620,6 +672,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // api.setVoiceLanguage) picks it up, and agent_language (page_context)
       // prefers it over `lang` on the very next turn — and on every future call.
       setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
+      // The app's own UI-copy language (`lang`), settable directly from any
+      // screen instead of requiring a navigate-to-language/profile-then-tap
+      // detour — the persistence effect below (AsyncStorage + api.setLanguage
+      // when signed in) picks this up exactly the same way a real tap on
+      // either screen's language card already does.
+      setAppLanguage: (lang: string) => dispatch({ type: 'set', patch: { lang } }),
       // Merges (never replaces) into whatever's already saved — the model
       // calls this incrementally as details come up across a conversation.
       // Persisted immediately so it survives the call ending, not just this
@@ -630,6 +688,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const merged = { ...(stateRef.current.savedApplicantDraft ?? {}), ...details };
         dispatch({ type: 'set', patch: { savedApplicantDraft: merged } });
         savePrefillDraft(merged);
+        // Also sync to the server, fire-and-forget — this device-local draft
+        // alone never reached the backend at all before, meaning a different
+        // device (or the pre-call tool, which only ever sees server data)
+        // had no way to see any of it. Only THIS call's new details, not the
+        // whole merged draft — the endpoint is additive per-field already.
+        if (isAuthed()) {
+          const patch = toServerProfilePatch(details);
+          if (patch) api.updateProfile(patch).catch(() => undefined);
+        }
       },
       // Bug fix: open a specific loan/application by its reference number.
       openLoan: async (reference: string) => {
@@ -701,6 +768,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // The one way Ello can learn a phone number for a call that started
+      // before login — get_user_context is a pre-call-only tool, called once
+      // at session start with whatever context_data.phone_number the app had
+      // THEN (nothing, for someone still on mobile/otp). Once OTP verification
+      // succeeds mid-call, this field appears in the very next page_context
+      // push (markUrgentContext() already fires one) — see the core prompt's
+      // opening section for the follow-up get_user_context call this enables.
+      authenticated_phone: s.authUser?.phone || undefined,
       // Whether this device has already heard the first-time product pitch on
       // an earlier call — see session.ts's markIntroPitchHeard for why this
       // exists. Always sent (never omitted), even `false` — the Opening Call

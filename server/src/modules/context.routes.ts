@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
@@ -200,22 +201,31 @@ contextRouter.get('/me', requireAuth, ah(async (req, res) => {
  * a minute of normal use. Confirmed live: 429 "Too many submissions" on the
  * 6th call in under 60 seconds.
  */
-export const contextLookupRouter = Router();
-contextLookupRouter.post('/', ah(async (req, res) => {
+// Shared by every Ello-callable route in this file (no user session to
+// present, so a shared secret stands in for one — same secret/headers
+// conversations.routes.ts and webhooks.routes.ts each check independently;
+// kept local to this file rather than a project-wide middleware since the
+// "not configured" vs "wrong key" messaging is specific to this pair of routes).
+async function checkEloApiKey(req: { headers: Record<string, unknown>; path: string }):
+  Promise<{ ok: true } | { ok: false; status: number; message: string }> {
   const provided =
     String(req.headers['x-api-key'] ?? '') ||
     String(req.headers['x-webhook-secret'] ?? '');
   const legacySecret = process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET || '';
   const authed = !!provided && (!!(await verifyApiKey(provided)) || (!!legacySecret && provided === legacySecret));
-  if (!authed) {
-    // Same "not configured" vs "wrong key" distinction as conversations.routes.ts.
-    if (!legacySecret && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
-      log.error('no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing', { path: req.path });
-      return fail(res, 503, 'Context API is not configured');
-    }
-    log.warn('rejected — invalid or missing API key', { path: req.path });
-    return fail(res, 401, 'Invalid or missing API key');
+  if (authed) return { ok: true };
+  if (!legacySecret && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
+    log.error('no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing', { path: req.path });
+    return { ok: false, status: 503, message: 'Context API is not configured' };
   }
+  log.warn('rejected — invalid or missing API key', { path: req.path });
+  return { ok: false, status: 401, message: 'Invalid or missing API key' };
+}
+
+export const contextLookupRouter = Router();
+contextLookupRouter.post('/', ah(async (req, res) => {
+  const auth = await checkEloApiKey(req);
+  if (!auth.ok) return fail(res, auth.status, auth.message);
 
   // Accept either key: Ello resolves a tool's request-body property by
   // matching its NAME against its own context variables (confirmed live —
@@ -230,6 +240,103 @@ contextLookupRouter.post('/', ah(async (req, res) => {
   const user = await prisma.user.findFirst({ where: { phone } });
   const ctx = await buildUserContext(phone, user?.id);
   return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+}));
+
+// Everything a warm-up conversation can gather before a real LoanApplication
+// exists — the same set users.routes.ts's `profilePatch` writes to (name/dob
+// plus every applicantDraft field), minus panNumber (never collected by
+// voice — see the core prompt's Sensitive Data rule) and the notification/
+// language settings (unrelated to this). `loanAmount` is the voice-friendly
+// name for the `draftLoanAmount` column, same alias the app's own
+// toServerProfilePatch (store.ts) uses on its side of this same write path.
+const CONTEXT_SAVE_KEY_MAP: Record<string, string> = { loanAmount: 'draftLoanAmount' };
+const contextSaveFields = z.object({
+  fullName: z.string().optional(),
+  email: z.string().email().optional(),
+  // Deliberately looser than profilePatch's `z.string().datetime()` — a voice
+  // tool is far more likely to produce a bare "1995-05-20" than a full
+  // ISO-8601 timestamp; normalized with `new Date()` below instead.
+  dob: z.string().optional(),
+  gender: z.enum(['male', 'female', 'other']).optional(),
+  pincode: z.string().regex(/^\d{6}$/).optional(),
+  residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
+  employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
+  monthlyIncome: z.number().int().nonnegative().optional(),
+  company: z.string().optional(),
+  qualification: z.string().optional(),
+  maritalStatus: z.string().optional(),
+  alternateMobile: z.string().optional(),
+  alternateEmail: z.string().email().optional(),
+  loanPurpose: z.string().optional(),
+  loanAmount: z.number().int().nonnegative().optional(),
+  salaryMode: z.string().optional(),
+  professionalType: z.string().optional(),
+  companyEmail: z.string().email().optional(),
+  businessEmail: z.string().email().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  landmark: z.string().optional(),
+  city: z.string().optional(),
+  district: z.string().optional(),
+  state: z.string().optional(),
+  monthlyObligations: z.number().int().nonnegative().optional(),
+}).strict();
+
+/**
+ * POST /api/context/save
+ *
+ * The Ello-callable twin of PATCH /api/users/me — same underlying columns,
+ * for a caller with no signed-in user session at all. /api/users/me derives
+ * the user from the caller's own access token; Ello has none, so this takes
+ * `phone`/`phone_number` in the body instead (same tolerant lookup as
+ * /api/context/lookup) and authenticates with the same shared API key.
+ *
+ * Intentionally one endpoint for both "identity" (name/email/dob) and
+ * "application draft" (loan purpose, income, company, ...) fields, all
+ * optional except the phone — a call in progress may have gathered either
+ * subset, or both, by the time it's ready to save.
+ */
+export const contextSaveRouter = Router();
+contextSaveRouter.post('/', ah(async (req, res) => {
+  const auth = await checkEloApiKey(req);
+  if (!auth.ok) return fail(res, auth.status, auth.message);
+
+  const rawPhone = req.body?.phone ?? req.body?.phone_number ?? '';
+  const phone = String(rawPhone).replace(/\D/g, '').slice(-10);
+  if (phone.length !== 10) return fail(res, 400, 'phone_number is required');
+
+  // phone/phone_number are the lookup key, not a field this schema owns —
+  // strip them before validating so their presence doesn't trip `.strict()`.
+  const { phone: _p, phone_number: _pn, ...fields } = req.body ?? {};
+  const parsed = contextSaveFields.safeParse(fields);
+  if (!parsed.success) return fail(res, 400, parsed.error.issues[0]?.message ?? 'Invalid field value');
+
+  const data: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value === undefined) continue;
+    data[CONTEXT_SAVE_KEY_MAP[key] ?? key] = value;
+  }
+  if (typeof data.dob === 'string') {
+    const d = new Date(data.dob);
+    if (Number.isNaN(d.getTime())) return fail(res, 400, 'dob is not a valid date');
+    data.dob = d;
+  }
+  if (Object.keys(data).length === 0) return fail(res, 400, 'No fields to update');
+
+  const user = await prisma.user.findFirst({ where: { phone } });
+  if (!user) return fail(res, 404, 'No user found for this phone number');
+
+  try {
+    const updated = await prisma.user.update({ where: { id: user.id }, data });
+    log.info('applicant details saved via Ello', { phone, userId: user.id, fields: Object.keys(data) });
+    return ok(res, { userId: updated.id, updatedFields: Object.keys(data) }, 'Details saved');
+  } catch (e: any) {
+    if (e?.code === 'P2002') {
+      const field = Array.isArray(e?.meta?.target) ? e.meta.target[0] : (e?.meta?.target ?? 'value');
+      return fail(res, 409, `This ${field} is already in use by another account.`);
+    }
+    throw e;
+  }
 }));
 
 /**
