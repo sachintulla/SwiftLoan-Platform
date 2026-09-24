@@ -16,9 +16,8 @@
  * governed by PAN_SHARED_POLICY: 'allow' (default — answer from the DB, no
  * Aurix call, logged) or 'block' (409).
  *
- * NOTE: the pan_comprehensive response shape is mapped defensively
- * (`mapPanResponse`) pending Aurix's sample response. The full raw response is
- * kept (encrypted), so the mapping can be corrected later WITHOUT re-paying.
+ * The full raw response is kept (encrypted) and every cached read is re-mapped
+ * from it, so a mapping change applies to PANs already paid for — no re-call.
  */
 import type { User } from '@prisma/client';
 import { prisma } from './prisma.js';
@@ -48,6 +47,7 @@ export interface PanPrefill {
   lastName?: string;
   dob?: string; // YYYY-MM-DD
   gender?: 'male' | 'female' | 'other';
+  email?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
@@ -81,24 +81,7 @@ export interface PanVerificationForOffers {
   verifiedAt: Date | null;
 }
 
-// ── Response mapping (defensive until Aurix's sample response is confirmed) ──
-
-/** Case-insensitive first match of any key, searched one level of nesting deep. */
-function find(obj: any, keys: string[]): any {
-  if (!obj || typeof obj !== 'object') return undefined;
-  const lower = new Map(Object.keys(obj).map(k => [k.toLowerCase(), k]));
-  for (const k of keys) {
-    const hit = lower.get(k.toLowerCase());
-    if (hit !== undefined && obj[hit] !== null && obj[hit] !== '') return obj[hit];
-  }
-  for (const v of Object.values(obj)) {
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      const nested = find(v, keys);
-      if (nested !== undefined) return nested;
-    }
-  }
-  return undefined;
-}
+// ── Response mapping ──
 
 const str = (v: any) => (v === undefined || v === null ? undefined : String(v).trim() || undefined);
 
@@ -128,6 +111,18 @@ function toGender(v: any): PanPrefill['gender'] {
   return 'other';
 }
 
+/**
+ * Map a pan_comprehensive response. Confirmed live shape (UAT, Sep 2026):
+ *
+ *   { Meta: { Success, Message },
+ *     Data: { PanNumber, Success, Error, Status, Message, ErrorResponse,
+ *             Data: { FullName, FullNameSplit[], DateOfBirth "DD-MM-YYYY",
+ *                     Gender "M"|"F", Category, AadhaarLinked, EmailId,
+ *                     AddressLine1, AddressLine2, City, State, PinCode, … } } }
+ *
+ * Lookups are case-insensitive with a few aliases so a minor Aurix rename
+ * degrades to a missing pre-fill field, not a crash.
+ */
 export function mapPanResponse(body: any): {
   success: boolean;
   message?: string;
@@ -138,44 +133,53 @@ export function mapPanResponse(body: any): {
 } {
   const root = body?.Result ?? body;
   const meta = root?.Meta ?? {};
-  const data = root?.Data ?? {};
-  const success = meta?.Success === true;
+  const outer = root?.Data ?? {};
+  // Person details sit one level down (Data.Data); fall back to Data itself.
+  const d = outer?.Data && typeof outer.Data === 'object' && !Array.isArray(outer.Data) ? outer.Data : outer;
+  const pick = (...keys: string[]) => {
+    const lower = new Map(Object.keys(d ?? {}).map((k) => [k.toLowerCase(), k]));
+    for (const k of keys) {
+      const hit = lower.get(k.toLowerCase());
+      if (hit !== undefined && d[hit] !== null && d[hit] !== '') return d[hit];
+    }
+    return undefined;
+  };
 
-  // Meta.Success means Aurix found and returned the PAN's details (live UAT:
-  // "PAN details fetched successfully."). Only an explicit negative in the
-  // data overrides that — an unrecognised status word must NOT (a positive
-  // status matcher here marked a real, successful lookup as invalid).
-  const status = str(find(data, ['PanStatus', 'PanStatusDescription']))?.toLowerCase();
-  const explicit = find(data, ['Verified', 'IsValid', 'IsVerified']);
+  // Both envelopes must agree: Meta.Success and the inner Data.Success/Error.
+  const success = meta?.Success === true && outer?.Success !== false && outer?.Error !== true;
+  const failureText = str(outer?.ErrorResponse?.Message ?? outer?.ErrorResponse) ?? (outer?.Success === false ? str(outer?.Message) : undefined);
+
+  // Only an explicit negative overrides success — never an unrecognised word.
+  const status = str(pick('PanStatus', 'PanStatusDescription'))?.toLowerCase();
+  const explicit = pick('Verified', 'IsValid', 'IsVerified');
   const negativeStatus = !!status && /invalid|deactivat|not ?found|fake|deleted|inoperative|no record/.test(status);
   const verified = success && explicit !== false && !negativeStatus;
 
-  const first = str(find(data, ['FirstName', 'FName']));
-  const middle = str(find(data, ['MiddleName', 'MName']));
-  const last = str(find(data, ['LastName', 'LName', 'Surname']));
-  const full = str(find(data, ['FullName', 'Name', 'NameOnCard', 'RegisteredName'])) ||
-    [first, middle, last].filter(Boolean).join(' ') || undefined;
-  const addr = find(data, ['Address', 'AddressDetails']) ?? data;
+  const split: string[] = Array.isArray(d?.FullNameSplit) ? d.FullNameSplit.map((x: any) => String(x).trim()).filter(Boolean) : [];
+  const full = str(pick('FullName', 'Name', 'NameOnCard')) || (split.length ? split.join(' ') : undefined);
+  const words = split.length ? split : full ? full.split(/\s+/) : [];
+  const email = str(pick('EmailId', 'Email'));
 
   return {
     success,
-    message: str(meta?.Message),
+    message: success ? str(meta?.Message) : failureText ?? str(meta?.Message),
     verified,
-    category: str(find(data, ['Category', 'PanType', 'TypeOfHolder', 'HolderType'])) ?? null,
-    aadhaarLinked: toBool(find(data, ['AadhaarLinked', 'AadhaarSeedingStatus', 'IsAadhaarLinked', 'AadhaarSeeded'])),
+    category: str(pick('Category', 'PanType', 'TypeOfHolder')) ?? null,
+    aadhaarLinked: toBool(pick('AadhaarLinked', 'AadhaarSeedingStatus', 'IsAadhaarLinked')),
     prefill: {
       fullName: full,
-      firstName: first ?? (full ? full.split(/\s+/)[0] : undefined),
-      middleName: middle,
-      lastName: last ?? (full && full.split(/\s+/).length > 1 ? full.split(/\s+/).slice(-1)[0] : undefined),
-      dob: toIsoDate(find(data, ['Dob', 'DOB', 'DateOfBirth', 'BirthDate'])),
-      gender: toGender(find(data, ['Gender', 'Sex'])),
-      addressLine1: str(find(addr, ['AddressLine1', 'Line1', 'BuildingName', 'Address1'])),
-      addressLine2: str(find(addr, ['AddressLine2', 'Line2', 'Locality', 'Address2'])),
-      city: str(find(addr, ['City', 'Town'])),
-      district: str(find(addr, ['District'])),
-      state: str(find(addr, ['State'])),
-      pincode: str(find(addr, ['Pincode', 'PinCode', 'Zip', 'PostalCode'])),
+      firstName: str(pick('FirstName')) ?? words[0],
+      middleName: str(pick('MiddleName')) ?? (words.length > 2 ? words.slice(1, -1).join(' ') : undefined),
+      lastName: str(pick('LastName')) ?? (words.length > 1 ? words[words.length - 1] : undefined),
+      dob: toIsoDate(pick('DateOfBirth', 'Dob', 'DOB')),
+      gender: toGender(pick('Gender', 'Sex')),
+      email: email && /^\S+@\S+\.\S+$/.test(email) ? email : undefined,
+      addressLine1: str(pick('AddressLine1', 'Line1')),
+      addressLine2: str(pick('AddressLine2', 'Line2')),
+      city: str(pick('City', 'Town')),
+      district: str(pick('District')),
+      state: str(pick('State')),
+      pincode: str(pick('PinCode', 'Pincode', 'PostalCode')),
     },
   };
 }
@@ -215,6 +219,21 @@ async function remapFromRaw<T extends PanRecordRow>(rec: T): Promise<T> {
   return (await prisma.panRecord.update({ where: { id: rec.id }, data: fields })) as unknown as T;
 }
 
+/**
+ * Why a PAN wasn't verified, in Aurix's own words when it gave any — its
+ * Meta.Message on a failed lookup, or the PAN status text on a "successful"
+ * lookup of an invalid PAN. Generic text only when Aurix said nothing usable.
+ */
+function failureMessage(raw: unknown): string {
+  const m = raw ? mapPanResponse(raw) : null;
+  const root = (raw as any)?.Result ?? raw;
+  const inner = root?.Data?.Data ?? root?.Data ?? {};
+  const statusText = str(inner?.PanStatusDescription ?? inner?.PanStatus);
+  if (m && !m.success && m.message) return m.message;
+  if (statusText) return `PAN status: ${statusText}`;
+  return 'We couldn’t verify this PAN. Please check the number and try again.';
+}
+
 function fromRecord(rec: { status: string; verified: boolean; category: string | null; aadhaarLinked: boolean | null; verifiedAt: Date | null; dataEnc: string | null }, source: PanVerifyResult['source']): PanVerifyResult {
   const data = rec.dataEnc ? decryptJson<PanRecordData>(rec.dataEnc) : null;
   return {
@@ -224,7 +243,7 @@ function fromRecord(rec: { status: string; verified: boolean; category: string |
     aadhaarLinked: rec.aadhaarLinked,
     verifiedAt: rec.verifiedAt?.toISOString() ?? null,
     prefill: rec.status === 'verified' ? data?.prefill ?? {} : {},
-    message: rec.status === 'verified' ? undefined : 'We couldn’t verify this PAN. Please check the number and try again.',
+    message: rec.status === 'verified' ? undefined : failureMessage(data?.raw),
     source,
   };
 }
@@ -268,7 +287,15 @@ async function callAndStore(user: User, pan: string, hash: string, existingId: s
     throw new HttpError(429, 'Too many PAN checks today. Please try again tomorrow.');
   }
 
-  const res = await callAurixPanComprehensive(user, pan);
+  let res: Awaited<ReturnType<typeof callAurixPanComprehensive>>;
+  try {
+    res = await callAurixPanComprehensive(user, pan);
+  } catch (e: any) {
+    // Token generation / config failure — same user-facing outcome as a
+    // transport error, and likewise not cached.
+    log.error('pan_comprehensive not attempted', { userId: user.id, error: String(e?.message ?? e) });
+    throw new HttpError(502, 'We couldn’t verify your PAN right now. Please try again in a moment.');
+  }
   if (!res.ok || !res.body) {
     // Transport/auth/5xx — NOT cached (not the PAN's fault), caller may retry.
     log.error('pan_comprehensive failed', { userId: user.id, httpStatus: res.status, error: res.error });
@@ -298,7 +325,6 @@ async function callAndStore(user: User, pan: string, hash: string, existingId: s
   log.info('pan verified via aurix', { userId: user.id, panRecordId: rec.id, verified, aurixMessage: mapped.message });
   if (verified) await attachPanToUser(user, pan);
   const out = fromRecord(rec, 'aurix');
-  if (!verified && mapped.message) out.message = mapped.message;
   return out;
 }
 
