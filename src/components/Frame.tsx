@@ -431,14 +431,28 @@ export function BottomNav() {
   const W = width - 24; // navWrap has 12px padding each side
   const H = 66;
   const cornerR = 26;
-  const notchR = 46;
   const cx = W / 2;
+  // The notch is a true circle cut CONCENTRIC with the Ruby ball that nests in
+  // it (VoiceWidget: 70pt ball, centre TAB_NOTCH_CENTER=65 above the bar's
+  // bottom → 1pt below its top edge), so the gap is even all the way round.
+  // The old two-Bézier scoop was wider and shallower than the ball — a thin
+  // gap at the bottom but a wide one at the sides.
+  const BALL_R = 35;
+  const NOTCH_GAP = 1.5; // flush fit — just clear of the ball's edge
+  const notchR = BALL_R + NOTCH_GAP;
+  const notchCY = H - 65; // ball centre, measured down from the bar's top
+  const filletY = 7; // where the arc hands over to the rounded shoulder
+  const filletW = 9; // shoulder width along the top edge
+  const arcHalf = Math.sqrt(notchR * notchR - (filletY - notchCY) ** 2);
+  const xL = cx - arcHalf;
+  const xR = cx + arcHalf;
   const barPath =
     `M0 ${cornerR}` +
     ` Q0 0 ${cornerR} 0` +
-    ` L ${cx - notchR - 8} 0` +
-    ` C ${cx - notchR + 6} 0 ${cx - notchR + 4} ${notchR * 0.86} ${cx} ${notchR * 0.86}` +
-    ` C ${cx + notchR - 4} ${notchR * 0.86} ${cx + notchR - 6} 0 ${cx + notchR + 8} 0` +
+    ` L ${xL - filletW} 0` +
+    ` Q ${xL} 0 ${xL} ${filletY}` +
+    ` A ${notchR} ${notchR} 0 0 0 ${xR} ${filletY}` +
+    ` Q ${xR} 0 ${xR + filletW} 0` +
     ` L ${W - cornerR} 0` +
     ` Q ${W} 0 ${W} ${cornerR}` +
     ` L ${W} ${H - cornerR}` +
