@@ -48,6 +48,8 @@ export interface PanPrefill {
   dob?: string; // YYYY-MM-DD
   gender?: 'male' | 'female' | 'other';
   email?: string;
+  /** Aurix's already-masked Aadhaar (e.g. 12XXXXXXXX34) — only ever the masked form. */
+  maskedAadhaar?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
@@ -159,6 +161,10 @@ export function mapPanResponse(body: any): {
   const full = str(pick('FullName', 'Name', 'NameOnCard')) || (split.length ? split.join(' ') : undefined);
   const words = split.length ? split : full ? full.split(/\s+/) : [];
   const email = str(pick('EmailId', 'Email'));
+  // Pass the masked Aadhaar on only if it really is masked (≤ 4 visible
+  // digits) — never forward a full Aadhaar number, whatever Aurix sends.
+  const masked = str(pick('MaskedAadhaar'))?.replace(/\s+/g, '');
+  const maskedAadhaar = masked && /^[0-9X*]{12}$/i.test(masked) && (masked.match(/\d/g) ?? []).length <= 4 ? masked.toUpperCase() : undefined;
 
   return {
     success,
@@ -174,6 +180,7 @@ export function mapPanResponse(body: any): {
       dob: toIsoDate(pick('DateOfBirth', 'Dob', 'DOB')),
       gender: toGender(pick('Gender', 'Sex')),
       email: email && /^\S+@\S+\.\S+$/.test(email) ? email : undefined,
+      maskedAadhaar,
       addressLine1: str(pick('AddressLine1', 'Line1')),
       addressLine2: str(pick('AddressLine2', 'Line2')),
       city: str(pick('City', 'Town')),

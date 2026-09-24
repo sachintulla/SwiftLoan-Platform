@@ -92,13 +92,16 @@ describe('mapPanResponse — live UAT structure', () => {
     expect(m.aadhaarLinked).toBe(true);
     expect(m.prefill).toEqual({
       fullName: 'RAVI KUMAR SHARMA', firstName: 'RAVI', middleName: 'KUMAR', lastName: 'SHARMA',
-      dob: '1990-08-15', gender: 'male', email: undefined,
+      dob: '1990-08-15', gender: 'male', email: undefined, maskedAadhaar: '12XXXXXXXX34',
       addressLine1: '12-3-45 BANJARA HILLS', addressLine2: 'ROAD NO 2',
       city: 'Hyderabad', district: undefined, state: 'Telangana', pincode: '500034',
     });
   });
-  it('never exposes the masked Aadhaar in the pre-fill', () => {
-    expect(JSON.stringify(mapPanResponse(okBody).prefill)).not.toContain('XXXX');
+  it('passes the masked Aadhaar through, but never an unmasked one', () => {
+    expect(mapPanResponse(okBody).prefill.maskedAadhaar).toBe('12XXXXXXXX34');
+    expect(mapPanResponse(live({ ...PERSON, MaskedAadhaar: '123456789012' })).prefill.maskedAadhaar).toBeUndefined();
+    expect(mapPanResponse(live({ ...PERSON, MaskedAadhaar: '1234XXXX9012' })).prefill.maskedAadhaar).toBeUndefined();
+    expect(mapPanResponse(live({ ...PERSON, MaskedAadhaar: '' })).prefill.maskedAadhaar).toBeUndefined();
   });
   it('two-word name → first + last, no middle', () => {
     const m = mapPanResponse(live({ ...PERSON, FullName: 'PRIYA REDDY', FullNameSplit: ['PRIYA', 'REDDY'] }));
@@ -179,6 +182,7 @@ describe('verifyPan — paid call happens at most once', () => {
     await verifyPan(userA, PAN);
     const rec = [...records.values()][0];
     for (const secret of [PAN, 'RAVI', 'BANJARA', '500034', '12XXXXXXXX34']) expect(rec.dataEnc).not.toContain(secret);
+    expect(JSON.stringify({ ...rec, dataEnc: '' })).not.toContain('12XXXXXXXX34');
     expect(rec.panHash).toBe(panHash(PAN));
     expect(JSON.stringify({ ...rec, dataEnc: '' })).not.toContain('RAVI');
   });
