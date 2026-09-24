@@ -11,6 +11,18 @@ import { reportOfflineAttempt } from '../state/offlineBridge';
  */
 export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'https://dev-api.swiftloan.ai/api';
 
+// "Is the internet reachable?" is really "is OUR backend reachable?". NetInfo's
+// default probe is a Google URL, which some networks block or intercept (e.g.
+// an office TLS-inspecting proxy) — it then reports offline and every request
+// below is refused before it's even sent, though the backend is fine. Probe
+// our own health endpoint instead.
+NetInfo.configure({
+  reachabilityUrl: `${API_BASE}/health`,
+  reachabilityTest: async (response) => response.status === 200,
+  reachabilityShortTimeout: 5 * 1000,
+  reachabilityLongTimeout: 60 * 1000,
+});
+
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
