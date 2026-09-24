@@ -108,6 +108,7 @@ export class ElloAgent {
   private listeners: Record<string, Listener[]> = {};
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
+  private muted = false;
   private micProcessor: ScriptProcessorNode | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
   private playbackQueueTime = 0;
@@ -671,6 +672,7 @@ export class ElloAgent {
         autoGainControl: true,
       },
     });
+    this.micStream.getAudioTracks().forEach((t) => { t.enabled = !this.muted; });
     const tr = this.micStream.getAudioTracks()[0];
     this.dbg('info', 'getUserMedia ok', tr ? `${tr.label || 'mic'} enabled=${tr.enabled} muted=${tr.muted} state=${tr.readyState}` : 'no track');
   }
@@ -750,7 +752,23 @@ export class ElloAgent {
     this.audioCtx = null;
   }
 
+  /**
+   * Mute/unmute the mic for the live call without ending it. Disabling the
+   * track makes the browser feed silence into the existing pipeline, so the
+   * session and its playback continue; re-applied if the mic is re-acquired.
+   */
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    this.micStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+    this.emit('muteChange', muted);
+  }
+
+  isMuted() {
+    return this.muted;
+  }
+
   stop() {
+    this.muted = false;
     if (this.speakingQuietTimer) {
       clearTimeout(this.speakingQuietTimer);
       this.speakingQuietTimer = null;

@@ -220,6 +220,11 @@ export default function VoiceWidget() {
       node.style.right = side === 'left' ? '' : '22px';
       node.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathname));
     }
+    const fab = document.querySelector('.sl-fab') as HTMLElement | null;
+    if (fab) {
+      fab.classList.toggle('sl-left', side === 'left');
+      fab.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathname));
+    }
     const agent = agentRef.current;
     if (agent && agent.conversationId) {
       // Give the new page a tick to mount its DOM before re-describing it.
@@ -577,13 +582,61 @@ export default function VoiceWidget() {
     const launcherStyle = document.createElement('style');
     launcherStyle.textContent = `
       @media (max-width: 1023px) {
-        .sl-voice-launcher.sl-voice-above-bar { bottom: 92px !important; }
+        .sl-voice-launcher { display: none !important; }
         #sl-voice-error.sl-voice-above-bar { bottom: 148px !important; }
       }
-      @media (max-width: 640px) {
-        .sl-voice-launcher { padding: 0 !important; width: 52px; justify-content: center; }
-        .sl-voice-text { display: none !important; }
+      /* ── Phones/tablets: the app's agent FAB (src/voice/ui/VoiceWidget.tsx) ──
+         A round Ruby avatar with a halo; during a call a frosted panel grows
+         out of it with level bars, timer, mute and end-call. Everything sits
+         inside the viewport — the old pill's overhanging cut-out image and
+         shadow made phones pan sideways. */
+      .sl-fab { position: fixed; z-index: 9999; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+        display: none; flex-direction: column; align-items: flex-end; pointer-events: none;
+        font-family: system-ui, -apple-system, sans-serif; }
+      .sl-fab.sl-left { right: auto; left: 16px; align-items: flex-start; }
+      .sl-fab.sl-left .sl-fab-status { right: auto; left: 2px; }
+      @media (max-width: 1023px) {
+        .sl-fab { display: flex; }
+        .sl-fab.sl-voice-above-bar { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
       }
+      /* Anchored to the FAB's outer edge (not flex-aligned) so a label wider
+         than the 64px column never spills past the viewport edge. */
+      .sl-fab-status { position: absolute; bottom: 70px; right: 2px; display: none; align-items: center; gap: 6px; padding: 5px 10px;
+        border-radius: 14px; background: rgba(15,42,43,.92); color: #fff; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+      .sl-fab-status i { width: 7px; height: 7px; border-radius: 50%; background: #2FB183; }
+      .sl-fab[data-active="1"]:not([data-expanded="1"]) .sl-fab-status { display: flex; }
+      .sl-fab-zone { position: relative; width: 64px; height: 64px; display: grid; place-items: center; pointer-events: auto; }
+      .sl-fab-halo { position: absolute; inset: 4px; border-radius: 50%; background: #079FA0; animation: slFabHalo 2.6s ease-out infinite; }
+      .sl-fab[data-active="1"] .sl-fab-halo { background: #2FB183; animation-duration: 1.3s; }
+      @keyframes slFabHalo { 0% { transform: scale(.85); opacity: .38; } 100% { transform: scale(1.3); opacity: 0; } }
+      .sl-fab-btn { position: relative; width: 56px; height: 56px; padding: 2px; border-radius: 50%; cursor: pointer;
+        border: 1.5px solid rgba(255,255,255,.6); background: linear-gradient(135deg,#079FA0,#2FB183);
+        box-shadow: 0 10px 22px rgba(10,63,65,.32); transition: transform .15s; -webkit-tap-highlight-color: transparent; }
+      .sl-fab-btn:active { transform: scale(.94); }
+      .sl-fab-btn img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+      .sl-fab-overlay { position: absolute; inset: 2px; display: none; place-items: center; border-radius: 50%; background: rgba(10,63,65,.38); color: #fff; }
+      .sl-fab[data-active="1"] .sl-fab-overlay { display: grid; }
+      .sl-fab-overlay .sl-x { display: none; }
+      .sl-fab[data-expanded="1"] .sl-fab-overlay .sl-x { display: block; }
+      .sl-fab[data-expanded="1"] .sl-fab-overlay .sl-dots { display: none; }
+      .sl-fab-panel { position: absolute; top: 6px; right: 64px; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 8px;
+        border-radius: 26px; background: rgba(244,247,246,.97); border: 1px solid #DCE7E6; box-shadow: 0 8px 20px rgba(10,63,65,.22);
+        transform-origin: right center; transform: translateX(18px) scale(.35); opacity: 0; pointer-events: none;
+        transition: transform .22s cubic-bezier(.2,.9,.3,1.2), opacity .16s; }
+      .sl-fab.sl-left .sl-fab-panel { right: auto; left: 64px; transform-origin: left center; transform: translateX(-18px) scale(.35); }
+      .sl-fab[data-active="1"][data-expanded="1"] .sl-fab-panel { transform: none; opacity: 1; pointer-events: auto; }
+      .sl-fab-meta { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 34px; }
+      .sl-fab-eq { display: flex; align-items: center; gap: 3px; height: 18px; }
+      .sl-fab-eq span { width: 3.5px; height: 18px; border-radius: 2px; background: #2FB183; transform: scaleY(.3); animation: slFabEq .9s ease-in-out infinite alternate; }
+      .sl-fab-eq span:nth-child(2) { animation-delay: .15s; } .sl-fab-eq span:nth-child(3) { animation-delay: .3s; } .sl-fab-eq span:nth-child(4) { animation-delay: .45s; }
+      .sl-fab[data-muted="1"] .sl-fab-eq span { animation-play-state: paused; opacity: .4; }
+      @keyframes slFabEq { to { transform: scaleY(1); } }
+      .sl-fab-timer { font-size: 10.5px; font-weight: 600; color: #64748B; font-variant-numeric: tabular-nums; }
+      .sl-fab-ctl { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; cursor: pointer; border: 1px solid #DCE7E6; background: #EEF3F2; color: #0A3F41; }
+      .sl-fab[data-muted="1"] .sl-fab-mute { background: #DD8A0B; border-color: #DD8A0B; color: #fff; }
+      .sl-fab-mute .sl-off { display: none; } .sl-fab[data-muted="1"] .sl-fab-mute .sl-on { display: none; } .sl-fab[data-muted="1"] .sl-fab-mute .sl-off { display: block; }
+      .sl-fab-end { background: #C0392B; border-color: #C0392B; color: #fff; }
+      @media (prefers-reduced-motion: reduce) { .sl-fab-halo, .sl-fab-eq span { animation: none; } }
     `;
     document.head.appendChild(launcherStyle);
 
@@ -691,6 +744,79 @@ export default function VoiceWidget() {
     document.body.appendChild(btn);
     document.body.appendChild(errBox);
 
+    // ── Phones/tablets: app-style FAB (see CSS above) ───────────────────
+    const fab = document.createElement('div');
+    fab.className = 'sl-fab';
+    fab.classList.toggle('sl-left', initialSide === 'left');
+    fab.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
+    fab.dataset.active = '0';
+    fab.dataset.expanded = '0';
+    fab.dataset.muted = '0';
+    const icon = (d: string, cls = '') =>
+      `<svg class="${cls}" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    fab.innerHTML =
+      '<div class="sl-fab-status" aria-hidden="true"><i></i><span class="sl-fab-status-text">Connecting…</span></div>' +
+      '<div class="sl-fab-zone">' +
+      '<span class="sl-fab-halo" aria-hidden="true"></span>' +
+      '<div class="sl-fab-panel" role="group" aria-label="Call controls">' +
+      '<div class="sl-fab-meta"><div class="sl-fab-eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div><span class="sl-fab-timer">0:00</span></div>' +
+      '<button type="button" class="sl-fab-ctl sl-fab-mute" aria-label="Mute microphone">' +
+      icon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>', 'sl-on') +
+      icon('<path d="M3 3l18 18M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.6 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3"/>', 'sl-off') +
+      '</button>' +
+      '<button type="button" class="sl-fab-ctl sl-fab-end" aria-label="End call">' +
+      icon('<path d="M3.3 13.4c5-4.5 12.4-4.5 17.4 0 .5.5.5 1.2.1 1.7l-1.7 1.9a1.2 1.2 0 0 1-1.6.2l-2.3-1.6a1.2 1.2 0 0 1-.5-1v-1.8a11 11 0 0 0-5.4 0v1.8c0 .4-.2.8-.5 1L6.5 17.2a1.2 1.2 0 0 1-1.6-.2l-1.7-1.9a1.2 1.2 0 0 1 .1-1.7z" fill="currentColor" stroke="none"/>') +
+      '</button>' +
+      '</div>' +
+      '<button type="button" class="sl-fab-btn" aria-label="Talk to Ruby, the SwiftLoan assistant">' +
+      '<img src="/ruby-avatar.png" alt="" width="52" height="52" />' +
+      '<span class="sl-fab-overlay" aria-hidden="true">' +
+      '<svg class="sl-dots" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="1.8"/><circle cx="8" cy="8" r="1.8"/><circle cx="13" cy="8" r="1.8"/></svg>' +
+      '<svg class="sl-x" width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>' +
+      '</span>' +
+      '</button>' +
+      '</div>';
+    document.body.appendChild(fab);
+
+    const fabBtn = fab.querySelector('.sl-fab-btn') as HTMLButtonElement;
+    const fabStatus = fab.querySelector('.sl-fab-status-text') as HTMLElement;
+    const fabTimer = fab.querySelector('.sl-fab-timer') as HTMLElement;
+    const fabMute = fab.querySelector('.sl-fab-mute') as HTMLButtonElement;
+    let callTimer: ReturnType<typeof setInterval> | null = null;
+    const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    const setExpanded = (v: boolean) => {
+      fab.dataset.expanded = v ? '1' : '0';
+      fabBtn.setAttribute('aria-label', fab.dataset.active === '1' ? (v ? 'Hide call controls' : 'Show call controls') : 'Talk to Ruby, the SwiftLoan assistant');
+    };
+    fabBtn.addEventListener('click', () => {
+      if (fab.dataset.active === '1') setExpanded(fab.dataset.expanded !== '1');
+      else agent.start();
+    });
+    fab.querySelector('.sl-fab-end')!.addEventListener('click', () => agent.stop());
+    fabMute.addEventListener('click', () => agent.setMuted(!agent.isMuted()));
+    agent.on('muteChange', (m: boolean) => {
+      fab.dataset.muted = m ? '1' : '0';
+      fabMute.setAttribute('aria-label', m ? 'Unmute microphone' : 'Mute microphone');
+    });
+    agent.on('statusChange', (s: string) => {
+      const active = s !== 'idle' && s !== 'ended';
+      const wasActive = fab.dataset.active === '1';
+      fab.dataset.active = active ? '1' : '0';
+      fabStatus.textContent = LABELS[s] || 'Connecting…';
+      if (active && !wasActive) {
+        // Call just started: open the controls and start the clock.
+        const started = Date.now();
+        fabTimer.textContent = '0:00';
+        callTimer = setInterval(() => { fabTimer.textContent = fmt(Math.floor((Date.now() - started) / 1000)); }, 1000);
+        setExpanded(true);
+      } else if (!active && wasActive) {
+        if (callTimer) clearInterval(callTimer);
+        callTimer = null;
+        fab.dataset.muted = '0';
+        setExpanded(false);
+      }
+    });
+
     return () => {
       window.removeEventListener('scroll', onScroll);
       if (scrollTimer) clearTimeout(scrollTimer);
@@ -698,6 +824,8 @@ export default function VoiceWidget() {
       agentRef.current = null;
       btn.remove();
       errBox.remove();
+      fab.remove();
+      if (callTimer) clearInterval(callTimer);
       style.remove();
       launcherStyle.remove();
     };
