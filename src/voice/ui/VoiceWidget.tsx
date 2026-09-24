@@ -147,7 +147,7 @@ function RobotHead() {
 }
 
 /**
- * In-call "liquid ring" — translucent blue ribbons that wave around the avatar,
+ * In-call "liquid ring" — translucent teal/mint ribbons (app theme) that wave around the avatar,
  * each a closed loop whose radius ripples with its own wave count, speed and
  * phase, so they cross and weave like a living ring, over a thin dark core
  * line and a soft glow. Only rendered while a call is live; the idle avatar is
@@ -160,10 +160,11 @@ function RobotHead() {
  *   executing  → calm waves with a warm gold ribbon (working on it)
  */
 const RIBBONS: { k: number; speed: number; phase: number; width: number; color: string; opacity: number }[] = [
-  { k: 5, speed: 1.0, phase: 0, width: 7, color: '#5B8CFF', opacity: 0.28 },
-  { k: 6, speed: -1.35, phase: 1.3, width: 4.5, color: '#3B82F6', opacity: 0.42 },
-  { k: 4, speed: 0.8, phase: 2.6, width: 3.5, color: '#2FB183', opacity: 0.35 },
-  { k: 7, speed: -1.1, phase: 4.1, width: 2.5, color: '#8FB4FF', opacity: 0.5 },
+  // App theme: primary teal, mint, and a light aqua tint of the primary.
+  { k: 5, speed: 1.0, phase: 0, width: 7, color: colors.primary, opacity: 0.26 },
+  { k: 6, speed: -1.35, phase: 1.3, width: 4.5, color: colors.mint, opacity: 0.42 },
+  { k: 4, speed: 0.8, phase: 2.6, width: 3.5, color: colors.primary, opacity: 0.4 },
+  { k: 7, speed: -1.1, phase: 4.1, width: 2.5, color: '#7FD6D0', opacity: 0.55 },
 ];
 
 const MOTION: Record<'connecting' | 'listening' | 'speaking' | 'executingTool', { amp: number; tempo: number; spin: number }> = {
@@ -232,13 +233,13 @@ function SiriGlow({ status }: { status: AgentStatus }) {
 
   return (
     <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show }]}>
-      <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : '#5B8CFF', transform: [{ scale: beat }] }]} />
+      <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: beat }] }]} />
       <Svg width={S} height={S}>
         <Defs>
           <SvgGradient id="core" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor="#1E3A8A" stopOpacity="0.95" />
-            <Stop offset="0.5" stopColor="#0B2B55" stopOpacity="0.9" />
-            <Stop offset="1" stopColor="#2F5FD0" stopOpacity="0.95" />
+            <Stop offset="0" stopColor={colors.inkDeep} stopOpacity="0.95" />
+            <Stop offset="0.5" stopColor={colors.ink} stopOpacity="0.9" />
+            <Stop offset="1" stopColor={colors.primary} stopOpacity="0.95" />
           </SvgGradient>
         </Defs>
         {RIBBONS.map((rb, idx) => (
@@ -694,7 +695,7 @@ const styles = StyleSheet.create({
   glowWrap: { position: 'absolute', width: GLOW_SIZE, height: GLOW_SIZE, alignItems: 'center', justifyContent: 'center' },
   glowBlob: {
     position: 'absolute', width: FAB_SIZE + 18, height: FAB_SIZE + 18, borderRadius: (FAB_SIZE + 18) / 2,
-    backgroundColor: 'rgba(91,140,255,0.16)',
+    backgroundColor: 'rgba(7,159,160,0.14)', // primary, soft
     shadowOpacity: 0.85, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 0,
   },
   wrap: { position: 'absolute', alignItems: 'flex-end' },
