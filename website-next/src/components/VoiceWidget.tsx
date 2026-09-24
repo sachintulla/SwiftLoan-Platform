@@ -187,11 +187,12 @@ function readCalculator() {
 
 // The apply funnel's Steps 1-3 render a sticky, full-width bottom bar
 // (ApplyShell's BottomBar) with its Continue/Submit button right-aligned —
-// the same corner Ruby's launcher normally sits in. Every other page (home,
-// offers, lender, confirm, success, /account/*) either has no sticky bottom
-// bar or its own CTA is inline in the content flow, so the right corner is
-// free there.
-const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3'];
+// the same corner Ruby's launcher normally sits in. The lender page's
+// screen-height iframe puts its "I've finished" button in that corner too.
+// Every other page (home, offers, confirm, success, /account/*) either has no
+// sticky bottom bar or its own CTA is inline in the content flow, so the
+// right corner is free there.
+const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/lender'];
 function launcherSide(path: string): 'left' | 'right' {
   return LEFT_LAUNCHER_ROUTES.includes(path) ? 'left' : 'right';
 }

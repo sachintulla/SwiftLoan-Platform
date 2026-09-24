@@ -27,6 +27,7 @@ export function ApplyShell({
   stepLabel,
   progressPct,
   center = false,
+  wide = false,
   accountUser,
 }: {
   children: React.ReactNode;
@@ -35,6 +36,8 @@ export function ApplyShell({
   stepLabel?: string;
   progressPct?: number;
   center?: boolean;
+  /** Use the whole content panel width (e.g. the embedded lender form) instead of the reading-width column. */
+  wide?: boolean;
   accountUser?: AccountRailUser | null;
 }) {
   return (
@@ -94,8 +97,8 @@ export function ApplyShell({
             )}
           </div>
         )}
-        <div className={`flex-1 px-6 pt-6 pb-10 sm:px-10 ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
-          <div className={center ? 'w-full max-w-md' : 'mx-auto w-full max-w-2xl'}>{children}</div>
+        <div className={`flex-1 px-6 sm:px-10 ${wide ? 'pt-4 pb-6' : 'pt-6 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
+          <div className={center ? 'w-full max-w-md' : wide ? 'w-full' : 'mx-auto w-full max-w-2xl'}>{children}</div>
         </div>
       </div>
     </div>
