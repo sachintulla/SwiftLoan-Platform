@@ -150,6 +150,7 @@ export interface PanPrefill {
   lastName?: string;
   dob?: string; // YYYY-MM-DD
   gender?: 'male' | 'female' | 'other';
+  email?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;

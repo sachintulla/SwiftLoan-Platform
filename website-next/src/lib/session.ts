@@ -131,6 +131,7 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<a
     if (token) res = await run();
   }
   const body = await parseJson(res);
-  if (!res.ok) throw new Error(body?.error || 'Request failed');
+  // status travels with the error so callers can tell e.g. a 429 from a 502.
+  if (!res.ok) throw Object.assign(new Error(body?.error || 'Request failed'), { status: res.status });
   return body;
 }

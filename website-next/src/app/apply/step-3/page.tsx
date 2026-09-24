@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Heart, MapPin } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives';
 import { patchProfile } from '@/lib/applyApi';
+import { loadPanHandoff } from '@/lib/panPrefill';
 
 const MARITAL = ['Single', 'Married', 'Other'];
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
@@ -21,6 +22,13 @@ export default function Step3MoreDetailsPage() {
   const [obligations, setObligations] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Address line 2 / district from the Step 1 PAN lookup, when it had them.
+  useEffect(() => {
+    const p = loadPanHandoff()?.prefill;
+    if (p?.addressLine2) setAddr2((cur) => cur || p.addressLine2!);
+    if (p?.district) setDistrict((cur) => cur || p.district!);
+  }, []);
 
   const save = async () => {
     const patch: Record<string, unknown> = { maritalStatus: slug(marital) };

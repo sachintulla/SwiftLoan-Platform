@@ -5,12 +5,27 @@ import { useRouter } from 'next/navigation';
 import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
+import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
 import { fetchMe, verifyPan } from '@/lib/applyApi';
 import { savePanHandoff } from '@/lib/panPrefill';
 
 const PAN_HOLDER_CODES = 'ABCFGHJLPT';
 function isValidPan(v: string) {
   return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v) && PAN_HOLDER_CODES.includes(v[3] ?? '');
+}
+
+/**
+ * Popup content comes straight from the API response — no copy is written
+ * here. Only the icon tone is chosen locally: red when the PAN itself failed,
+ * amber when the service couldn't be reached / retry is the answer.
+ */
+const FALLBACK = 'Something went wrong. Please try again.';
+function alertFromError(e: unknown): AlertContent {
+  const status = (e as { status?: number })?.status;
+  return {
+    tone: status === 400 || status === 409 ? 'error' : 'warning',
+    message: e instanceof Error && e.message ? e.message : FALLBACK,
+  };
 }
 
 export default function Step1PanPage() {
@@ -20,7 +35,7 @@ export default function Step1PanPage() {
   // pull, so it must never start pre-checked.
   const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [alert, setAlert] = useState<AlertContent | null>(null);
 
   // Returning applicant ("Update details", a second loan): start from the PAN
   // already on their profile. Re-verifying it is served from the server's PAN
@@ -43,18 +58,17 @@ export default function Step1PanPage() {
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
-    setError(null);
     try {
       // PAN Comprehensive (server-cached) → pre-fill for Step 2.
       const result = await verifyPan(pan);
       if (!result.verified) {
-        setError(result.message || 'We couldn’t verify this PAN. Please check the number and try again.');
+        setAlert({ tone: 'error', message: result.message || FALLBACK });
         return;
       }
       savePanHandoff({ pan, prefill: result.prefill ?? {} });
       router.push('/apply/step-2');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not verify PAN. Please try again.');
+      setAlert(alertFromError(e));
     } finally {
       setLoading(false);
     }
@@ -128,8 +142,7 @@ export default function Step1PanPage() {
         Bank-grade encryption — your PAN is never shared without your consent
       </div>
 
-      {error && <p className="text-danger mt-3 text-sm font-semibold">{error}</p>}
-      {!valid && !error && (
+      {!valid && (
         <p className="text-muted-foreground mt-3 text-xs">
           <span className="text-danger font-semibold">Required to continue:</span> {missing.join(' and ')}.
         </p>
@@ -148,6 +161,7 @@ export default function Step1PanPage() {
           {loading ? 'Verifying…' : 'Verify PAN & continue →'}
         </button>
       </BottomBar>
+      <AlertDialog open={!!alert} content={alert} onClose={() => setAlert(null)} />
     </ApplyShell>
   );
 }

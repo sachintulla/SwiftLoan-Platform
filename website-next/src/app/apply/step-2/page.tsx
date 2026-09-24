@@ -113,6 +113,7 @@ export default function Step2BasicsPage() {
       put(p.lastName, setLastName);
       put(p.dob, setDob);
       put(p.gender ? unslug(GENDERS, p.gender) ?? undefined : undefined, setGender);
+      put(p.email, setEmail);
       put(p.pincode, setPincode);
       put(p.addressLine1, setAddr1);
       put(p.city, setCity);
