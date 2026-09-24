@@ -1420,3 +1420,42 @@ model PrequalifyingOffer {
 
   @@index([active, displayOrder])
 }
+
+// Aurix PAN Comprehensive results, cached so a PAN is paid for at most once.
+// pan_comprehensive is a paid call: POST /api/kyc/pan/verify answers from here
+// whenever the PAN has been seen before (any account), and only calls Aurix for
+// a PAN it has never seen (or an expired negative result).
+//
+// Nothing personal is stored in the clear: the PAN is looked up by a keyed
+// HMAC (panHash), and every personal field Aurix returned — name, DOB, gender,
+// address, the PAN itself and the raw response — lives in `dataEnc`
+// (AES-256-GCM, see lib/pii.ts). Only the non-identifying verification flags
+// eligible_offers needs are plain columns.
+model PanRecord {
+  id                String    @id @default(uuid())
+  /// HMAC-SHA256 of the normalised PAN — the lookup key.
+  panHash           String    @unique
+  /// verified | invalid (PAN not found / rejected; negative-cached until expiresAt)
+  status            String
+  verified          Boolean   @default(false)
+  /// Aurix Category, e.g. "Individual".
+  category          String?
+  aadhaarLinked     Boolean?
+  /// When Aurix verified the PAN (sent as PanVerificationDTO.VerificationDate).
+  verifiedAt        DateTime?
+  /// AES-256-GCM JSON: { pan, prefill: {...}, raw } — see lib/pii.ts.
+  dataEnc           String?
+  keyVersion        Int       @default(1)
+  /// The account whose PartnerCustomerId was used for the paid Aurix call.
+  ownerUserId       String?
+  /// Negative results only: re-check with Aurix after this.
+  expiresAt         DateTime?
+  /// Times this PAN was answered from here instead of calling Aurix.
+  cacheHits         Int       @default(0)
+  /// Last PAID pan_comprehensive call for this PAN (drives PAN_DAILY_LIMIT).
+  lastAurixCallAt   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([ownerUserId, lastAurixCallAt])
+}

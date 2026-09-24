@@ -1,9 +1,13 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
+import { assertPiiKeyConfigured } from './lib/pii.js';
 import { startJobs, stopJobs } from './jobs/tracking.jobs.js';
 
 const app = createApp();
+// Refuse to boot in production without a real PII key (PAN records are encrypted with it).
+assertPiiKeyConfigured();
+
 const server = app.listen(env.port, () => {
   console.log(`[swiftloan-api] listening on http://localhost:${env.port}  (${env.nodeEnv})`);
   // WS4 maintenance jobs (idle sessions, stale loans/onboarding, notifications).

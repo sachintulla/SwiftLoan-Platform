@@ -14,6 +14,7 @@ import type { LenderPartner, LoanApplication, User } from '@prisma/client';
 import { emi } from '../utils/emi.js';
 import { pick } from './integrations.js';
 import { prisma } from './prisma.js';
+import { getPanVerificationForOffers, type PanVerificationForOffers } from './panVerification.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -243,6 +244,61 @@ export async function generateAurixTokenFromEnv(partnerCustomerId: string, mobil
 }
 
 /**
+ * The user's cached X-Aurix-Token (minted at OTP verify), refreshed when
+ * missing/expired. PartnerCustomerId is always the User.id, so a token is
+ * per-user and shared by every Aurix call made for them.
+ */
+export async function ensureAurixToken(cfg: AurixApiConfig, user: Pick<User, 'id' | 'phone' | 'aurixToken' | 'aurixTokenExpiresAt'>): Promise<string> {
+  const token = user.aurixToken ?? '';
+  const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
+  if (token && !expired) return token;
+  const fresh = await generateAurixToken(cfg, user.id, user.phone);
+  await prisma.user.update({
+    where: { id: user.id },
+    // Aurix hasn't documented token TTL; assume ~30 min and refresh eagerly.
+    data: { aurixToken: fresh, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
+  }).catch(() => {});
+  return fresh;
+}
+
+/**
+ * Aurix PAN Comprehensive (`POST /api/pan_comprehensive`). PAID per call — the
+ * only caller is lib/panVerification.ts, which answers from the PanRecord
+ * cache first and calls this solely for a PAN it has never seen.
+ *
+ * PartnerCustomerId must be the same one later sent to eligible_offers (the
+ * User.id), and the token must be v3 from generate_token. Returns the raw
+ * HTTP result; the caller decides verified / invalid / transient failure.
+ */
+export async function callAurixPanComprehensive(
+  user: Pick<User, 'id' | 'phone' | 'aurixToken' | 'aurixTokenExpiresAt'>,
+  pan: string,
+): Promise<{ ok: boolean; status: number; body: any; error?: string }> {
+  const cfg = resolveAurixConfig({ apiConfig: null } as LenderPartner);
+  if (!cfg.audienceSecretCode) throw new Error('Aurix is not configured (AURIX_AUDIENCE_SECRET_CODE missing)');
+  const token = await ensureAurixToken(cfg, user);
+  const baseUrl = process.env.AURIX_PAN_BASE_URL || cfg.offersBaseUrl;
+  console.log(`[aurix-req] POST ${baseUrl}/api/pan_comprehensive user=${user.id} pan=******${pan.slice(-4)}`);
+  const result = await httpJson(
+    `${baseUrl}/api/pan_comprehensive`,
+    'POST',
+    {
+      Accept: 'application/json',
+      'K-Aurix-Version': 'v3',
+      'X-Aurix-Token': token,
+      // Same header set eligible_offers needs on this gateway; harmless extras if unused.
+      'K-Aurix-Token': token,
+      'K-Aurix-PartnerCustomerId': user.id,
+    },
+    { PanNumber: pan, PartnerCustomerId: user.id },
+    20_000,
+  );
+  // Status + shape only — the body is the person's identity data, never logged.
+  console.log(`[aurix-res] pan_comprehensive HTTP ${result.status} ok=${result.ok} success=${(result.body?.Result ?? result.body)?.Meta?.Success ?? '?'}`);
+  return result;
+}
+
+/**
  * Marketing-attribution / UTM registration (Aurix `/api/utm_generation`). This
  * mints the utm_code that appears in each offer's OfferRedirectionUrl. Strictly
  * best-effort — a failure never blocks offer generation. Logged like the others.
@@ -332,7 +388,11 @@ function ageFromDob(dob: Date | null): number {
 }
 
 /** Build the eligible_offers request body from the applicant + application. */
-function buildEligibleOffersPayload(user: User, application: LoanApplication): Record<string, unknown> {
+function buildEligibleOffersPayload(
+  user: User,
+  application: LoanApplication,
+  panVerification: PanVerificationForOffers | null = null,
+): Record<string, unknown> {
   const pan = application.panNumber || user.panNumber || '';
   const first = user.firstName || (user.fullName ? user.fullName.trim().split(/\s+/)[0] : '') || '';
   const last = user.lastName || (user.fullName ? user.fullName.trim().split(/\s+/).slice(-1)[0] : '') || '';
@@ -381,14 +441,25 @@ function buildEligibleOffersPayload(user: User, application: LoanApplication): R
       SalaryMode: user.salaryMode ?? '',
       MonthlyObligations: user.monthlyObligations ?? 0,
     },
-    PanVerificationDTO: {
-      VerificationDone: !!pan,
-      Verified: !!pan,
-      VerificationDate: nowIso,
-      PanNumber: pan,
-      Category: 'Individual',
-      AadhaarLinked: false,
-    },
+    // From PAN Comprehensive when this PAN has been verified; otherwise the
+    // previous assumed values (PAN not yet run through pan_comprehensive).
+    PanVerificationDTO: panVerification
+      ? {
+          VerificationDone: true,
+          Verified: panVerification.verified,
+          VerificationDate: (panVerification.verifiedAt ?? new Date()).toISOString(),
+          PanNumber: pan,
+          Category: panVerification.category ?? 'Individual',
+          AadhaarLinked: panVerification.aadhaarLinked ?? false,
+        }
+      : {
+          VerificationDone: !!pan,
+          Verified: !!pan,
+          VerificationDate: nowIso,
+          PanNumber: pan,
+          Category: 'Individual',
+          AadhaarLinked: false,
+        },
     BusinessDetailsDTO: {},
     ProductDetails: {
       ProductType: aurixProductType(application.loanType),
@@ -517,23 +588,18 @@ class AurixOfferProvider implements LenderOfferProvider {
     if (!user) throw new Error(`Aurix offers: user ${application.userId} not found`);
 
     // Prefer the token cached at OTP verify; refresh if missing/expired.
-    let token = user.aurixToken ?? '';
-    const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
-    if (!token || expired) {
-      token = await generateAurixToken(cfg, application.userId, user.phone);
-      await prisma.user.update({
-        where: { id: user.id },
-        // Aurix hasn't documented token TTL; assume ~30 min and refresh eagerly.
-        data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
-      }).catch(() => {});
-    }
+    const token = await ensureAurixToken(cfg, user);
 
     // Best-effort UTM registration — only when a valid UTMSource is configured
     // (Aurix rejects unknown sources with "Invalid UTMSource"; offers work
     // without it). Set AURIX_UTM_SOURCE once Aurix confirms accepted values.
     if (cfg.utmSource) await registerAurixUtm(cfg, application.userId, user.phone);
 
-    const payload = buildEligibleOffersPayload(user, application);
+    // Real PanVerificationDTO from the PAN Comprehensive result (DB only —
+    // never re-calls the paid PAN API here).
+    const pan = application.panNumber || user.panNumber || '';
+    const panVerification = pan ? await getPanVerificationForOffers(pan) : null;
+    const payload = buildEligibleOffersPayload(user, application, panVerification);
     // Full request/response logging for integration analysis (PAN masked).
     const maskedPayload = JSON.stringify(payload).replace(/("Pan(?:Number)?":")[A-Z0-9]{6}/g, '$1******');
     console.log(`[aurix-req] POST ${cfg.offersBaseUrl}/api/eligible_offers user=${application.userId} app=${application.id} payload=${maskedPayload}`);
