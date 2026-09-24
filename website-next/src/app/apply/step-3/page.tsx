@@ -16,17 +16,15 @@ export default function Step3MoreDetailsPage() {
   const [marital, setMarital] = useState(MARITAL[0]!);
   const [altMobile, setAltMobile] = useState('');
   const [altEmail, setAltEmail] = useState('');
-  const [addr2, setAddr2] = useState('');
   const [landmark, setLandmark] = useState('');
   const [district, setDistrict] = useState('');
   const [obligations, setObligations] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Address line 2 / district from the Step 1 PAN lookup, when it had them.
+  // District from the Step 1 PAN lookup, when it had one.
   useEffect(() => {
     const p = loadPanHandoff()?.prefill;
-    if (p?.addressLine2) setAddr2((cur) => cur || p.addressLine2!);
     if (p?.district) setDistrict((cur) => cur || p.district!);
   }, []);
 
@@ -34,7 +32,6 @@ export default function Step3MoreDetailsPage() {
     const patch: Record<string, unknown> = { maritalStatus: slug(marital) };
     if (altMobile) patch.alternateMobile = altMobile;
     if (altEmail) patch.alternateEmail = altEmail;
-    if (addr2) patch.addressLine2 = addr2;
     if (landmark) patch.landmark = landmark;
     if (district) patch.district = district;
     if (obligations) patch.monthlyObligations = Number(obligations);
@@ -81,7 +78,6 @@ export default function Step3MoreDetailsPage() {
         <Card className="sm:p-7">
           <SectionHead icon={MapPin} label="Address" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Address line 2"><TextInput value={addr2} onChange={(e) => setAddr2(e.target.value)} placeholder="Optional" /></Field>
             <Field label="Landmark"><TextInput value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Optional" /></Field>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">

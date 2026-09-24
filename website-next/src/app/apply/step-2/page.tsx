@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Wallet, User, MapPin, Briefcase } from 'lucide-react';
+import { Wallet, User, MapPin, Briefcase, BadgeCheck, ShieldCheck } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives';
 import { Slider } from '@/components/ui/slider';
@@ -10,7 +10,7 @@ import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { patchProfile, createApplication, fetchMe, getApplication, patchApplication, type PanPrefill } from '@/lib/applyApi';
 import { loadDraft, saveDraft } from '@/lib/applyDraft';
-import { loadPanHandoff } from '@/lib/panPrefill';
+import { loadPanHandoff, type PanHandoff } from '@/lib/panPrefill';
 
 const PURPOSES = ['Personal use', 'Working capital', 'Medical', 'Education', 'Home renovation', 'Travel', 'Other'];
 const GENDERS = ['Male', 'Female', 'Other'];
@@ -45,6 +45,7 @@ export default function Step2BasicsPage() {
   const [email, setEmail] = useState('');
   const [pincode, setPincode] = useState('');
   const [addr1, setAddr1] = useState('');
+  const [addr2, setAddr2] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [residence, setResidence] = useState(RESIDENCE[0]!);
@@ -60,6 +61,8 @@ export default function Step2BasicsPage() {
   // The PAN verified on Step 1 — attached to the application created here.
   const panRef = useRef<string | null>(null);
   const [fromPan, setFromPan] = useState(false);
+  // Shown as the "PAN verified" confirmation card at the top.
+  const [panInfo, setPanInfo] = useState<PanHandoff | null>(null);
 
   // `phone` and `applicationId` start empty/null (SSR-safe) and are synced in
   // from sessionStorage by ApplyProvider's own mount effect a tick after this
@@ -79,6 +82,7 @@ export default function Step2BasicsPage() {
     if (draft.email) setEmail(draft.email);
     if (draft.pincode) setPincode(draft.pincode);
     if (draft.addr1) setAddr1(draft.addr1);
+    if (draft.addr2) setAddr2(draft.addr2);
     if (draft.city) setCity(draft.city);
     if (draft.state) setState(draft.state);
     if (draft.residence) setResidence(draft.residence);
@@ -116,9 +120,11 @@ export default function Step2BasicsPage() {
       put(p.email, setEmail);
       put(p.pincode, setPincode);
       put(p.addressLine1, setAddr1);
+      put(p.addressLine2, setAddr2);
       put(p.city, setCity);
       put(p.state, setState);
       if (any) setFromPan(true);
+      if (handoff) setPanInfo(handoff);
     };
     // PAN comes first now — without a verified one, start from Step 1.
     const requirePan = (profilePan?: string | null) => {
@@ -139,6 +145,7 @@ export default function Step2BasicsPage() {
         if (user.email) setEmail(user.email);
         if (user.pincode) setPincode(user.pincode);
         if (user.addressLine1) setAddr1(user.addressLine1);
+        if (user.addressLine2) setAddr2(user.addressLine2);
         if (user.city) setCity(user.city);
         if (user.state) setState(user.state);
         const r = unslug(RESIDENCE, user.residenceType);
@@ -211,6 +218,7 @@ export default function Step2BasicsPage() {
         gender: slug(gender),
         pincode,
         addressLine1: addr1,
+        ...(addr2.trim() ? { addressLine2: addr2.trim() } : {}),
         city,
         state,
         residenceType: slug(residence),
@@ -234,7 +242,7 @@ export default function Step2BasicsPage() {
       if (phone) {
         saveDraft(phone, {
           amount, purpose, firstName, lastName, dob, gender, qualification, email, pincode,
-          addr1, city, state, residence, employment, income, company, salaryMode,
+          addr1, addr2, city, state, residence, employment, income, company, salaryMode,
         });
       }
       router.push('/apply/step-3');
@@ -252,11 +260,7 @@ export default function Step2BasicsPage() {
       <p className="text-muted-foreground mt-2 mb-6 text-sm">
         This helps us match you with lenders offering the best rate. Takes about 2 minutes.
       </p>
-      {fromPan && (
-        <p className="bg-accent text-primary -mt-3 mb-6 rounded-xl px-4 py-2.5 text-xs font-semibold">
-          We&apos;ve filled in some details from your PAN — please check them and edit anything that&apos;s changed.
-        </p>
-      )}
+      {panInfo && <PanConfirmation info={panInfo} prefilled={fromPan} />}
 
       <div className="flex flex-col gap-5">
         <Card className="sm:p-7">
@@ -292,8 +296,9 @@ export default function Step2BasicsPage() {
             <Field label="Email" required><TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></Field>
             <Field label="Pincode" required><TextInput inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} autoComplete="postal-code" /></Field>
           </div>
-          <div className="mt-4">
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Address line 1" required><TextInput value={addr1} onChange={(e) => setAddr1(e.target.value)} autoComplete="address-line1" /></Field>
+            <Field label="Address line 2"><TextInput value={addr2} onChange={(e) => setAddr2(e.target.value)} autoComplete="address-line2" placeholder="Optional" /></Field>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="City" required><TextInput value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" /></Field>
@@ -338,6 +343,56 @@ export default function Step2BasicsPage() {
         </button>
       </BottomBar>
     </ApplyShell>
+  );
+}
+
+/** "30XXXXXXXX00" → "30XX XXXX XX00" (display only — it arrives already masked). */
+function formatMaskedAadhaar(m: string) {
+  return m.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '$1 ');
+}
+
+/** Confirmation of what the PAN lookup returned, shown at the top of Step 2. */
+function PanConfirmation({ info, prefilled }: { info: PanHandoff; prefilled: boolean }) {
+  const name = info.prefill.fullName;
+  const masked = info.prefill.maskedAadhaar;
+  const panMasked = `${info.pan.slice(0, 2)}XXXX${info.pan.slice(-4)}`;
+  return (
+    <div className="border-mint/40 bg-accent/60 mb-6 rounded-2xl border p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="bg-mint grid h-10 w-10 shrink-0 place-items-center rounded-full text-white">
+          <BadgeCheck className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-foreground text-sm font-extrabold">PAN verified</p>
+          {name && <p className="text-foreground mt-0.5 truncate text-sm font-semibold">{name}</p>}
+          <p className="text-muted-foreground mt-0.5 font-mono text-xs tracking-wider">{panMasked}</p>
+        </div>
+      </div>
+      {(info.aadhaarLinked != null || masked) && (
+        <div className="border-border mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+          {info.aadhaarLinked != null && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+                info.aadhaarLinked ? 'bg-mint/15 text-primary' : 'bg-warning-soft text-warning'
+              }`}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {info.aadhaarLinked ? 'Aadhaar linked' : 'Aadhaar not linked'}
+            </span>
+          )}
+          {masked && (
+            <span className="bg-card border-border text-foreground inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-xs font-semibold tracking-wider">
+              Aadhaar {formatMaskedAadhaar(masked)}
+            </span>
+          )}
+        </div>
+      )}
+      {prefilled && (
+        <p className="text-muted-foreground mt-3 text-xs">
+          We&apos;ve filled in your details from your PAN — please check them and edit anything that&apos;s changed.
+        </p>
+      )}
+    </div>
   );
 }
 

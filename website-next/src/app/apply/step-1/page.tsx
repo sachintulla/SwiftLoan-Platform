@@ -6,6 +6,7 @@ import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
+import { PanVerifyingOverlay } from '@/components/apply/PanVerifyingOverlay';
 import { fetchMe, verifyPan } from '@/lib/applyApi';
 import { savePanHandoff } from '@/lib/panPrefill';
 
@@ -20,6 +21,8 @@ function isValidPan(v: string) {
  * amber when the service couldn't be reached / retry is the answer.
  */
 const FALLBACK = 'Something went wrong. Please try again.';
+// Keep the verifying animation up long enough to read, even on a cache hit.
+const MIN_VERIFY_MS = 1800;
 function alertFromError(e: unknown): AlertContent {
   const status = (e as { status?: number })?.status;
   return {
@@ -58,19 +61,23 @@ export default function Step1PanPage() {
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
+    let navigating = false;
     try {
       // PAN Comprehensive (server-cached) → pre-fill for Step 2.
-      const result = await verifyPan(pan);
+      const started = Date.now();
+      const settle = () => new Promise((r) => setTimeout(r, Math.max(0, MIN_VERIFY_MS - (Date.now() - started))));
+      const result = await verifyPan(pan).finally(settle);
       if (!result.verified) {
         setAlert({ tone: 'error', message: result.message || FALLBACK });
         return;
       }
-      savePanHandoff({ pan, prefill: result.prefill ?? {} });
+      savePanHandoff({ pan, prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked });
+      navigating = true; // keep the loader up until Step 2 replaces this page
       router.push('/apply/step-2');
     } catch (e) {
       setAlert(alertFromError(e));
     } finally {
-      setLoading(false);
+      if (!navigating) setLoading(false);
     }
   };
 
@@ -161,6 +168,7 @@ export default function Step1PanPage() {
           {loading ? 'Verifying…' : 'Verify PAN & continue →'}
         </button>
       </BottomBar>
+      <PanVerifyingOverlay open={loading} />
       <AlertDialog open={!!alert} content={alert} onClose={() => setAlert(null)} />
     </ApplyShell>
   );

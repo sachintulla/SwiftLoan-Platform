@@ -1,5 +1,6 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { useEffect, useRef } from 'react';
 import { AlertCircle, AlertTriangle, Clock } from 'lucide-react';
 
@@ -46,8 +47,10 @@ export function AlertDialog({ open, content, onClose }: { open: boolean; content
   if (!open || !content) return null;
   const { Icon, ring, icon } = TONE[content.tone];
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center">
+  // Portal to <body>: a transformed/filtered ancestor would otherwise trap
+  // `position: fixed` inside the page layout instead of the viewport.
+  return createPortal(
+    <div className="fixed inset-0 z-[10001] flex items-end justify-center p-4 sm:items-center">
       <div className="animate-in fade-in absolute inset-0 bg-black/45 backdrop-blur-[2px] duration-200" onClick={onClose} aria-hidden />
       <div
         role="alertdialog"
@@ -88,6 +91,7 @@ export function AlertDialog({ open, content, onClose }: { open: boolean; content
           {content.okLabel ?? 'OK'}
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

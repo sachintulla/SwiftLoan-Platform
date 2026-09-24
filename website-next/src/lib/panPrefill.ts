@@ -14,6 +14,7 @@ const KEY = 'swiftloan.panPrefill';
 export interface PanHandoff {
   pan: string;
   prefill: PanPrefill;
+  aadhaarLinked?: boolean | null;
 }
 
 export function savePanHandoff(v: PanHandoff) {

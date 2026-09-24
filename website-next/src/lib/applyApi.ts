@@ -151,6 +151,8 @@ export interface PanPrefill {
   dob?: string; // YYYY-MM-DD
   gender?: 'male' | 'female' | 'other';
   email?: string;
+  /** Already masked by Aurix, e.g. 30XXXXXXXX00. */
+  maskedAadhaar?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
@@ -162,6 +164,7 @@ export interface PanPrefill {
 export interface PanVerifyResult {
   status: 'verified' | 'invalid';
   verified: boolean;
+  aadhaarLinked: boolean | null;
   prefill: PanPrefill;
   message?: string;
   source: 'cache' | 'aurix';
