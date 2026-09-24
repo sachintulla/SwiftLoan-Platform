@@ -14,6 +14,7 @@ export interface Offer {
   emi: number;
   tenureMonths: number;
   processingFeeAmount: number | null;
+  gstOnProcessingFee?: number | null;
   netDisbursalAmount: number | null;
   redirectionUrl: string | null;
   lenderName: string | null;

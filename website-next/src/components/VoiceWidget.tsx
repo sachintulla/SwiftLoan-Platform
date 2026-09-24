@@ -188,18 +188,20 @@ function readCalculator() {
 // The apply funnel's Steps 1-3 render a sticky, full-width bottom bar
 // (ApplyShell's BottomBar) with its Continue/Submit button right-aligned —
 // the same corner Ruby's launcher normally sits in. The lender page's
-// screen-height iframe puts its "I've finished" button in that corner too.
+// screen-height iframe and the compare view's table/apply bar fill that corner too.
 // Every other page (home, offers, confirm, success, /account/*) either has no
 // sticky bottom bar or its own CTA is inline in the content flow, so the
 // right corner is free there.
-const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/lender'];
+const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/lender', '/apply/compare'];
 function launcherSide(path: string): 'left' | 'right' {
   return LEFT_LAUNCHER_ROUTES.includes(path) ? 'left' : 'right';
 }
 // Below lg there's no left rail to sit over, and on phones BottomBar's
 // actions span the full width — so on these routes the launcher floats just
 // above the bar instead of covering it (CSS: .sl-voice-above-bar).
-const BOTTOM_BAR_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3'];
+const BOTTOM_BAR_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/compare'];
+// Routes whose bottom bar is two rows (summary + full-width button) on phones.
+const TALL_BOTTOM_BAR_ROUTES = ['/apply/compare'];
 
 export default function VoiceWidget() {
   const pathname = usePathname();
@@ -224,6 +226,7 @@ export default function VoiceWidget() {
     if (fab) {
       fab.classList.toggle('sl-left', side === 'left');
       fab.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathname));
+      fab.classList.toggle('sl-voice-above-tall-bar', TALL_BOTTOM_BAR_ROUTES.includes(pathname));
     }
     const agent = agentRef.current;
     if (agent && agent.conversationId) {
@@ -597,6 +600,7 @@ export default function VoiceWidget() {
       @media (max-width: 1023px) {
         .sl-fab { display: flex; }
         .sl-fab.sl-voice-above-bar { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+        .sl-fab.sl-voice-above-tall-bar { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
       }
       /* Status is for screen readers only — sighted users read it off Ruby
          herself (see the state styles below), not a text label. */
@@ -766,6 +770,7 @@ export default function VoiceWidget() {
     fab.className = 'sl-fab';
     fab.classList.toggle('sl-left', initialSide === 'left');
     fab.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
+    fab.classList.toggle('sl-voice-above-tall-bar', TALL_BOTTOM_BAR_ROUTES.includes(pathRef.current));
     fab.dataset.active = '0';
     fab.dataset.expanded = '0';
     fab.dataset.muted = '0';

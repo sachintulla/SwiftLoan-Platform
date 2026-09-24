@@ -71,7 +71,15 @@ function offers(amount: number) {
     OfferLikelihood: '1', OfferRedirectionUrl: `https://example.com/mock-lender/${code}`,
     Lender: { Id: code, DisplayName: lender, LenderLogo: null },
   });
-  return [mk('MOCK-A', 'Mock Lender Alpha', 14.5, 24), mk('MOCK-B', 'Mock Lender Beta', 16, 36)];
+  // Varied on purpose for the compare view: different rates, fees, an
+  // amount below the request, and one lender with no rate (confirmed on
+  // approval → ROI 0).
+  return [
+    mk('MOCK-A', 'Mock Lender Alpha', 14.5, 24),
+    { ...mk('MOCK-B', 'Mock Lender Beta', 16.75, 36), ProcessingFee: 1 },
+    { ...mk('MOCK-C', 'Mock Lender Gamma', 18, 24), ProcessingFee: 2.5 },
+    { ...mk('MOCK-D', 'Mock Lender Delta', 0, 24), LoanAmount: Math.round(amount * 0.8), ProcessingFee: 0 },
+  ];
 }
 
 function route(path: string, body: any): Reply {
