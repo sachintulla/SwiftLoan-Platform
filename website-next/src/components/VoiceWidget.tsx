@@ -607,28 +607,21 @@ export default function VoiceWidget() {
       .sl-fab[data-active="1"]:not([data-expanded="1"]) .sl-fab-status { display: flex; }
       .sl-fab-zone { position: relative; width: 64px; height: 64px; display: grid; place-items: center; pointer-events: auto; }
       /* Motion ONLY while a call is live, so movement itself means "you're
-         in a call": a spinning gradient ring, ripples pulsing outward (faster
-         while Ruby is speaking) and a blinking live dot. Idle = still. */
-      .sl-fab-ring, .sl-fab-ripple, .sl-fab-live { display: none; }
-      .sl-fab[data-active="1"] .sl-fab-ring, .sl-fab[data-active="1"] .sl-fab-ripple, .sl-fab[data-active="1"] .sl-fab-live { display: block; }
+         in a call": a slowly spinning gradient ring and one soft ripple
+         (a little quicker while Ruby is speaking). Idle = still. */
+      .sl-fab-ring, .sl-fab-ripple { display: none; }
+      .sl-fab[data-active="1"] .sl-fab-ring, .sl-fab[data-active="1"] .sl-fab-ripple { display: block; }
       .sl-fab-ring { position: absolute; width: 66px; height: 66px; border-radius: 50%;
         background: conic-gradient(from 0deg, #2FB183, #079FA0 35%, rgba(47,177,131,0) 60%, #2FB183);
         -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
                 mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
-        animation: slFabSpin 1.4s linear infinite; }
+        animation: slFabSpin 3s linear infinite; }
       .sl-fab-ripple { position: absolute; width: 58px; height: 58px; border-radius: 50%; border: 2px solid #2FB183;
-        animation: slFabRipple 1.8s ease-out infinite; }
-      .sl-fab-ripple.r2 { animation-delay: .9s; }
-      .sl-fab[data-status="speaking"] .sl-fab-ripple { animation-duration: 1.1s; }
-      .sl-fab[data-status="speaking"] .sl-fab-ripple.r2 { animation-delay: .55s; }
+        animation: slFabRipple 3s ease-out infinite; }
+      .sl-fab[data-status="speaking"] .sl-fab-ripple { animation-duration: 2.2s; }
       .sl-fab[data-status="connecting"] .sl-fab-ripple { border-color: #079FA0; }
-      .sl-fab-live { position: absolute; top: 4px; right: 4px; z-index: 2; width: 13px; height: 13px; border-radius: 50%;
-        background: #22C55E; border: 2px solid #fff; pointer-events: none; animation: slFabBlink 1.2s ease-in-out infinite; }
-      .sl-fab.sl-left .sl-fab-live { right: auto; left: 4px; }
-      .sl-fab[data-muted="1"] .sl-fab-live { background: #DD8A0B; animation: none; }
       @keyframes slFabSpin { to { transform: rotate(360deg); } }
-      @keyframes slFabRipple { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(1.6); opacity: 0; } /* 58px → 93px: stays inside the 16px screen margin */ }
-      @keyframes slFabBlink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+      @keyframes slFabRipple { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.6); opacity: 0; } /* 58px → 93px: stays inside the 16px screen margin */ }
       .sl-fab-btn { position: relative; width: 56px; height: 56px; padding: 2px; border-radius: 50%; cursor: pointer;
         border: 1.5px solid rgba(255,255,255,.6); background: linear-gradient(135deg,#079FA0,#2FB183);
         box-shadow: 0 10px 22px rgba(10,63,65,.32); transition: transform .15s; -webkit-tap-highlight-color: transparent; }
@@ -652,7 +645,7 @@ export default function VoiceWidget() {
       .sl-fab[data-muted="1"] .sl-fab-mute { background: #DD8A0B; border-color: #DD8A0B; color: #fff; }
       .sl-fab-mute .sl-off { display: none; } .sl-fab[data-muted="1"] .sl-fab-mute .sl-on { display: none; } .sl-fab[data-muted="1"] .sl-fab-mute .sl-off { display: block; }
       .sl-fab-end { background: #C0392B; border-color: #C0392B; color: #fff; }
-      @media (prefers-reduced-motion: reduce) { .sl-fab-ring, .sl-fab-ripple, .sl-fab-live, .sl-fab-eq span { animation: none; } .sl-fab-ripple { opacity: .5; transform: scale(1.2); } }
+      @media (prefers-reduced-motion: reduce) { .sl-fab-ring, .sl-fab-ripple, .sl-fab-eq span { animation: none; } .sl-fab-ripple { opacity: .5; transform: scale(1.2); } }
     `;
     document.head.appendChild(launcherStyle);
 
@@ -773,7 +766,7 @@ export default function VoiceWidget() {
     fab.innerHTML =
       '<div class="sl-fab-status" aria-hidden="true"><i></i><span class="sl-fab-status-text">Connecting…</span></div>' +
       '<div class="sl-fab-zone">' +
-      '<span class="sl-fab-ripple" aria-hidden="true"></span><span class="sl-fab-ripple r2" aria-hidden="true"></span>' +
+      '<span class="sl-fab-ripple" aria-hidden="true"></span>' +
       '<span class="sl-fab-ring" aria-hidden="true"></span>' +
       '<div class="sl-fab-panel" role="group" aria-label="Call controls">' +
       '<div class="sl-fab-meta"><div class="sl-fab-eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div><span class="sl-fab-timer">0:00</span></div>' +
@@ -788,7 +781,6 @@ export default function VoiceWidget() {
       '<button type="button" class="sl-fab-btn" aria-label="Talk to Ruby, the SwiftLoan assistant">' +
       '<img src="/ruby-avatar.png" alt="" width="52" height="52" />' +
       '</button>' +
-      '<span class="sl-fab-live" aria-hidden="true"></span>' +
       '</div>';
     document.body.appendChild(fab);
 
