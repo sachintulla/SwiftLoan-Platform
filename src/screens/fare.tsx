@@ -158,9 +158,14 @@ export default function MyOffers() {
               accessibilityLabel={`Compare all ${offers.length} offers`}
               style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
             >
-              <Icon name="balance" size={19} color={colors.primary} />
-              <Text style={[font(700), styles.compareLabel]}>Compare all {offers.length} offers side by side</Text>
-              <Icon name="chevron_right" size={19} color={colors.primary} />
+              <View style={styles.compareIcon}>
+                <Icon name="balance" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[font(700), styles.compareLabel]}>Compare all {offers.length} offers</Text>
+                <Text style={[font(500), styles.compareSub]}>EMI, interest & total cost side by side</Text>
+              </View>
+              <Icon name="chevron_right" size={22} color={colors.primary} />
             </Pressable>
           ) : null}
           <View style={{ gap: 14 }}>
@@ -351,11 +356,13 @@ const styles = StyleSheet.create({
   },
   refreshLabel: { fontSize: 13, color: colors.primary },
   compareBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    borderWidth: 1.5, borderColor: colors.primary, borderRadius: 16, height: 50, marginBottom: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderColor: '#BFE3E3', borderRadius: 18, paddingVertical: 12, paddingLeft: 12, paddingRight: 10, marginBottom: 16,
     backgroundColor: '#F2FAFA',
   },
-  compareLabel: { flex: 1, fontSize: 14, color: colors.primary },
+  compareIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#DDF1F1', alignItems: 'center', justifyContent: 'center' },
+  compareLabel: { fontSize: 15, color: colors.text },
+  compareSub: { fontSize: 12, color: colors.textSoft, marginTop: 1 },
   updateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 54, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line },
 
   // ── Offer card ─────────────────────────────────────────────────────────

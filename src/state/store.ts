@@ -71,7 +71,7 @@ export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
 // Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
 // floating FAB lifts above this bar on these screens so the two never overlap.
 export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
-  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy', 'compare',
+  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy',
 ]);
 
 // Spelled out in full for the voice agent's page context — more reliable for
