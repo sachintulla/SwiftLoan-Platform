@@ -594,37 +594,45 @@ export default function VoiceWidget() {
         display: none; flex-direction: column; align-items: flex-end; pointer-events: none;
         font-family: system-ui, -apple-system, sans-serif; }
       .sl-fab.sl-left { right: auto; left: 16px; align-items: flex-start; }
-      .sl-fab.sl-left .sl-fab-status { right: auto; left: 2px; }
       @media (max-width: 1023px) {
         .sl-fab { display: flex; }
         .sl-fab.sl-voice-above-bar { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
       }
-      /* Anchored to the FAB's outer edge (not flex-aligned) so a label wider
-         than the 64px column never spills past the viewport edge. */
-      .sl-fab-status { position: absolute; bottom: 70px; right: 2px; display: none; align-items: center; gap: 6px; padding: 5px 10px;
-        border-radius: 14px; background: rgba(15,42,43,.92); color: #fff; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-      .sl-fab-status i { width: 7px; height: 7px; border-radius: 50%; background: #2FB183; }
-      .sl-fab[data-active="1"]:not([data-expanded="1"]) .sl-fab-status { display: flex; }
+      /* Status is for screen readers only — sighted users read it off Ruby
+         herself (see the state styles below), not a text label. */
+      .sl-fab-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       .sl-fab-zone { position: relative; width: 64px; height: 64px; display: grid; place-items: center; pointer-events: auto; }
       /* Motion ONLY while a call is live, so movement itself means "you're
-         in a call": a slowly spinning gradient ring and one soft ripple
-         (a little quicker while Ruby is speaking). Idle = still. */
+         in a call" — and its kind says who's talking:
+           listening  → calm: just the slowly spinning ring, Ruby still
+           speaking   → Ruby pulses with her real voice level (--sl-lvl,
+                        driven from agent.getOutputLevel()) + soft ripples
+           connecting → ring + a faint ripple
+         Idle = completely still. */
+      /* Ring + ripples live in a 96px circle that CLIPS them: a ripple or
+         ring can never reach past the 16px screen margin, so mid-animation
+         they can't make a phone widen/zoom the page (they did). */
+      .sl-fab-fx { position: absolute; width: 96px; height: 96px; left: -16px; top: -16px; border-radius: 50%;
+        overflow: hidden; pointer-events: none; display: grid; place-items: center; }
       .sl-fab-ring, .sl-fab-ripple { display: none; }
-      .sl-fab[data-active="1"] .sl-fab-ring, .sl-fab[data-active="1"] .sl-fab-ripple { display: block; }
-      .sl-fab-ring { position: absolute; width: 66px; height: 66px; border-radius: 50%;
+      .sl-fab[data-active="1"] .sl-fab-ring { display: block; }
+      .sl-fab[data-status="speaking"] .sl-fab-ripple, .sl-fab[data-status="connecting"] .sl-fab-ripple { display: block; }
+      .sl-fab-ring { position: absolute; width: 66px; height: 66px; border-radius: 50%; margin: auto; inset: 0;
         background: conic-gradient(from 0deg, #2FB183, #079FA0 35%, rgba(47,177,131,0) 60%, #2FB183);
         -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
                 mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
         animation: slFabSpin 3s linear infinite; }
-      .sl-fab-ripple { position: absolute; width: 58px; height: 58px; border-radius: 50%; border: 2px solid #2FB183;
-        animation: slFabRipple 3s ease-out infinite; }
-      .sl-fab[data-status="speaking"] .sl-fab-ripple { animation-duration: 2.2s; }
-      .sl-fab[data-status="connecting"] .sl-fab-ripple { border-color: #079FA0; }
+      .sl-fab-ripple { position: absolute; width: 58px; height: 58px; border-radius: 50%; border: 2px solid #2FB183; margin: auto; inset: 0;
+        animation: slFabRipple 2s ease-out infinite; }
+      .sl-fab[data-status="connecting"] .sl-fab-ripple { border-color: #079FA0; animation-duration: 3s; opacity: .6; }
       @keyframes slFabSpin { to { transform: rotate(360deg); } }
-      @keyframes slFabRipple { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.6); opacity: 0; } /* 58px → 93px: stays inside the 16px screen margin */ }
+      @keyframes slFabRipple { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.6); opacity: 0; } /* 58px → 93px, inside the 96px clip */ }
       .sl-fab-btn { position: relative; width: 56px; height: 56px; padding: 2px; border-radius: 50%; cursor: pointer;
         border: 1.5px solid rgba(255,255,255,.6); background: linear-gradient(135deg,#079FA0,#2FB183);
-        box-shadow: 0 10px 22px rgba(10,63,65,.32); transition: transform .15s; -webkit-tap-highlight-color: transparent; }
+        box-shadow: 0 10px 22px rgba(10,63,65,.32); transition: transform .09s linear, box-shadow .09s linear; -webkit-tap-highlight-color: transparent;
+        transform: scale(calc(1 + var(--sl-lvl, 0) * .07)); } /* ≤ 60px, inside the 64px zone */
+      .sl-fab[data-status="speaking"] .sl-fab-btn {
+        box-shadow: 0 10px 22px rgba(10,63,65,.32), 0 0 0 calc(var(--sl-lvl, 0) * 6px) rgba(47,177,131,.35); }
       .sl-fab-btn:active { transform: scale(.94); }
       .sl-fab-btn img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
       .sl-fab-panel { position: absolute; top: 6px; right: 64px; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 8px;
@@ -764,10 +772,9 @@ export default function VoiceWidget() {
     const icon = (d: string, cls = '') =>
       `<svg class="${cls}" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
     fab.innerHTML =
-      '<div class="sl-fab-status" aria-hidden="true"><i></i><span class="sl-fab-status-text">Connecting…</span></div>' +
+      '<div class="sl-fab-status" role="status" aria-live="polite"><span class="sl-fab-status-text"></span></div>' +
       '<div class="sl-fab-zone">' +
-      '<span class="sl-fab-ripple" aria-hidden="true"></span>' +
-      '<span class="sl-fab-ring" aria-hidden="true"></span>' +
+      '<span class="sl-fab-fx" aria-hidden="true"><span class="sl-fab-ripple"></span><span class="sl-fab-ring"></span></span>' +
       '<div class="sl-fab-panel" role="group" aria-label="Call controls">' +
       '<div class="sl-fab-meta"><div class="sl-fab-eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div><span class="sl-fab-timer">0:00</span></div>' +
       '<button type="button" class="sl-fab-ctl sl-fab-mute" aria-label="Mute microphone">' +
@@ -789,6 +796,15 @@ export default function VoiceWidget() {
     const fabTimer = fab.querySelector('.sl-fab-timer') as HTMLElement;
     const fabMute = fab.querySelector('.sl-fab-mute') as HTMLButtonElement;
     let callTimer: ReturnType<typeof setInterval> | null = null;
+    // While Ruby speaks, her avatar follows her actual voice level.
+    let levelRaf: number | null = null;
+    let lvl = 0;
+    const trackLevel = () => {
+      const target = fab.dataset.status === 'speaking' ? agent.getOutputLevel() : 0;
+      lvl += (target - lvl) * 0.35; // smooth so it breathes rather than jitters
+      fab.style.setProperty('--sl-lvl', lvl < 0.01 ? '0' : lvl.toFixed(3));
+      levelRaf = fab.dataset.active === '1' ? requestAnimationFrame(trackLevel) : null;
+    };
     const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     const setExpanded = (v: boolean) => {
       fab.dataset.expanded = v ? '1' : '0';
@@ -815,11 +831,17 @@ export default function VoiceWidget() {
         const started = Date.now();
         fabTimer.textContent = '0:00';
         callTimer = setInterval(() => { fabTimer.textContent = fmt(Math.floor((Date.now() - started) / 1000)); }, 1000);
+        if (levelRaf == null) levelRaf = requestAnimationFrame(trackLevel);
         setExpanded(true);
       } else if (!active && wasActive) {
         if (callTimer) clearInterval(callTimer);
+      if (levelRaf != null) cancelAnimationFrame(levelRaf);
         callTimer = null;
         fab.dataset.muted = '0';
+        if (levelRaf != null) cancelAnimationFrame(levelRaf);
+        levelRaf = null;
+        lvl = 0;
+        fab.style.setProperty('--sl-lvl', '0');
         setExpanded(false);
       }
     });
