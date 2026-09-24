@@ -89,7 +89,7 @@ export default function ProfilePage() {
           <div className="mb-3 flex items-center justify-between">
             <SectionLabel>Personal details</SectionLabel>
             {!editing && (
-              <button onClick={() => setEditing(true)} className="text-primary text-xs font-bold">
+              <button onClick={() => setEditing(true)} className="text-primary -my-2 -mr-3 rounded-full px-3 py-2 text-xs font-bold">
                 Edit
               </button>
             )}

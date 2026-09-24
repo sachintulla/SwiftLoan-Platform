@@ -196,6 +196,10 @@ const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3',
 function launcherSide(path: string): 'left' | 'right' {
   return LEFT_LAUNCHER_ROUTES.includes(path) ? 'left' : 'right';
 }
+// Below lg there's no left rail to sit over, and on phones BottomBar's
+// actions span the full width — so on these routes the launcher floats just
+// above the bar instead of covering it (CSS: .sl-voice-above-bar).
+const BOTTOM_BAR_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3'];
 
 export default function VoiceWidget() {
   const pathname = usePathname();
@@ -214,6 +218,7 @@ export default function VoiceWidget() {
       if (!node) continue;
       node.style.left = side === 'left' ? '22px' : '';
       node.style.right = side === 'left' ? '' : '22px';
+      node.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathname));
     }
     const agent = agentRef.current;
     if (agent && agent.conversationId) {
@@ -571,6 +576,10 @@ export default function VoiceWidget() {
     // (not a JS resize listener) so it's correct on first paint, no flash.
     const launcherStyle = document.createElement('style');
     launcherStyle.textContent = `
+      @media (max-width: 1023px) {
+        .sl-voice-launcher.sl-voice-above-bar { bottom: 92px !important; }
+        #sl-voice-error.sl-voice-above-bar { bottom: 148px !important; }
+      }
       @media (max-width: 640px) {
         .sl-voice-launcher { padding: 0 !important; width: 52px; justify-content: center; }
         .sl-voice-text { display: none !important; }
@@ -594,6 +603,7 @@ export default function VoiceWidget() {
       'box-shadow:0 12px 30px rgba(7,159,160,.42);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
     btn.style.left = initialSide === 'left' ? '22px' : '';
     btn.style.right = initialSide === 'left' ? '' : '22px';
+    btn.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
     // Ruby is a background-free cutout that rises above the pill on the left,
     // with a soft drop shadow so she stands off the page — matching the design.
     btn.innerHTML =
@@ -616,6 +626,7 @@ export default function VoiceWidget() {
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
     errBox.style.left = initialSide === 'left' ? '22px' : '';
     errBox.style.right = initialSide === 'left' ? '' : '22px';
+    errBox.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
 
     const LABELS: Record<string, string> = {
       idle: 'SwiftLoan assistant',

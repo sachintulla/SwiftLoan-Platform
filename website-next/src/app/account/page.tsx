@@ -26,12 +26,13 @@ export default function ApplicationsPage() {
 
   return (
     <AccountShell>
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      {/* Phones: stacked, so the greeting isn't squeezed beside the button. */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-extrabold">Welcome back, {name} 👋</h1>
           <p className="text-muted-foreground mt-1 text-sm">Here&apos;s where your loan applications stand.</p>
         </div>
-        <Link href="/apply/step-1" className="border-border rounded-full border px-4 py-2 text-sm font-bold whitespace-nowrap">
+        <Link href="/apply/step-1" className="border-border self-start rounded-full border px-4 py-2 text-sm font-bold whitespace-nowrap">
           + Apply for a new loan
         </Link>
       </div>

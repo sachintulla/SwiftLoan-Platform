@@ -20,7 +20,8 @@ export default function FindingPage() {
   const { applicationId, sessionReady } = useApply();
   const [error, setError] = useState<string | null>(null);
   const [fillWidth, setFillWidth] = useState('6%');
-  const startedRef = useRef(false);
+  // The prequalify() call for this visit, shared across effect re-runs.
+  const requestRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     // Wait for ApplyProvider to sync applicationId in from sessionStorage —
@@ -31,38 +32,36 @@ export default function FindingPage() {
       router.replace('/apply/step-1');
       return;
     }
-    // Guards the real prequalify() call against firing twice for one visit —
-    // React Strict Mode (dev only) deliberately double-invokes this effect to
-    // surface non-idempotent effects, and this one used to fire a second,
-    // real, concurrent request to Aurix each time: confirmed as the cause of
-    // one application ending up with 10 duplicate offers instead of 5 (two
-    // genuine Aurix responses, 4ms apart). The backend now also makes its
-    // delete-then-recreate atomic against exactly this race, but skipping the
-    // redundant call here avoids wasting a real request to Aurix at all.
-    if (startedRef.current) return;
-    startedRef.current = true;
     // Start at 6% on mount, then kick to 100% next frame so the CSS
     // transition actually animates instead of snapping straight to full.
     const raf = requestAnimationFrame(() => setFillWidth('100%'));
-    const start = Date.now();
+    // Exactly ONE real prequalify() per visit, even though React Strict Mode
+    // (dev) runs this effect twice — a second concurrent call once produced
+    // 10 duplicate offers instead of 5 (the backend is now atomic against it
+    // too). The request lives in a ref; every run of the effect re-attaches
+    // its own navigation to it. (A plain "already started → return" guard
+    // broke this: the first run's cleanup cancelled the only redirect, so the
+    // page sat on this loader forever in dev.)
+    if (!requestRef.current) {
+      const start = Date.now();
+      requestRef.current = prequalify(applicationId)
+        .then(() => undefined)
+        .catch((e) => {
+          // Mirrors finding.tsx: failure/empty results are rendered by the
+          // offers screen itself (Empty state), never a separate error screen.
+          setError(e instanceof Error ? e.message : null);
+        })
+        .then(() => new Promise<void>((r) => setTimeout(r, Math.max(0, MIN_DISPLAY_MS - (Date.now() - start)))));
+    }
     let cancelled = false;
-    prequalify(applicationId)
-      .catch((e) => {
-        // Mirrors finding.tsx: failure/empty results are rendered by the
-        // offers screen itself (Empty state), never a separate error screen.
-        setError(e instanceof Error ? e.message : null);
-      })
-      .finally(() => {
-        const elapsed = Date.now() - start;
-        setTimeout(() => {
-          // replace, not push: this loading screen is a transient gate (like
-          // OTP verify), not a real page — with push, the browser's Back
-          // button from Offers landed here, re-fired a real prequalify()
-          // call on remount, and auto-forwarded straight back to Offers, a
-          // dead loop instead of a real "back".
-          if (!cancelled) router.replace('/apply/offers');
-        }, Math.max(0, MIN_DISPLAY_MS - elapsed));
-      });
+    requestRef.current.then(() => {
+      // replace, not push: this loading screen is a transient gate (like
+      // OTP verify), not a real page — with push, the browser's Back
+      // button from Offers landed here, re-fired a real prequalify()
+      // call on remount, and auto-forwarded straight back to Offers, a
+      // dead loop instead of a real "back".
+      if (!cancelled) router.replace('/apply/offers');
+    });
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);

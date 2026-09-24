@@ -147,7 +147,7 @@ export default function Step1PanPage() {
         </label>
 
         <label className="bg-accent flex items-start gap-3 rounded-xl p-4">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required className="accent-primary mt-0.5 h-4 w-4 shrink-0" />
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required className="accent-primary mt-0.5 h-5 w-5 shrink-0" />
           <span className="flex items-start gap-2 text-xs">
             <Lock className="text-primary mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span className="text-muted-foreground">

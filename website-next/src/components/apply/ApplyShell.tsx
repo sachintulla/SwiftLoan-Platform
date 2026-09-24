@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { ShieldCheck, FileCheck, Clock3, ChevronLeft, Lock, Check } from 'lucide-react';
-import { AccountRail, type AccountRailUser } from './AccountRail';
+import { AccountRail, MobileTopBar, type AccountRailUser } from './AccountRail';
 
 const BRAND_POINTS = [
   { icon: ShieldCheck, text: 'Bank-grade 256-bit encryption on every step' },
@@ -73,18 +73,19 @@ export function ApplyShell({
         </aside>
       )}
 
-      <div className="relative flex min-h-screen flex-1 flex-col">
+      <div className="relative flex min-h-screen min-w-0 flex-1 flex-col">
+        <MobileTopBar user={accountUser} />
         {typeof progressPct === 'number' && (
-          <div className="bg-border absolute top-0 left-0 h-[3px] w-full">
+          <div className="bg-border absolute top-14 left-0 z-10 h-[3px] w-full lg:top-0">
             <div className="bg-brand-gradient h-full transition-[width] duration-500" style={{ width: `${progressPct}%` }} />
           </div>
         )}
         {(backHref || stepLabel) && (
-          <div className="flex items-center justify-between px-6 pt-5 sm:px-10">
+          <div className={`flex items-center justify-between gap-3 pt-5 sm:px-10 ${wide ? 'px-4' : 'px-6'}`}>
             {backHref ? (
               <Link
                 href={backHref}
-                className="border-border inline-flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-2 text-sm font-semibold text-muted-foreground"
+                className="border-border inline-flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-2 text-sm font-semibold whitespace-nowrap text-muted-foreground"
               >
                 <ChevronLeft className="h-4 w-4" />
                 {backLabel}
@@ -93,11 +94,15 @@ export function ApplyShell({
               <span />
             )}
             {stepLabel && (
-              <span className="bg-accent text-accent-foreground rounded-full px-3 py-1.5 text-xs font-bold">{stepLabel}</span>
+              // Phones: with a back link beside it there's no room for both,
+              // and the stepper / page title already say where you are.
+              <span className={`bg-accent text-accent-foreground rounded-full px-3 py-1.5 text-xs font-bold whitespace-nowrap ${backHref ? 'hidden sm:inline-block' : ''}`}>
+                {stepLabel}
+              </span>
             )}
           </div>
         )}
-        <div className={`flex-1 px-6 sm:px-10 ${wide ? 'pt-4 pb-6' : 'pt-6 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
+        <div className={`flex-1 sm:px-10 ${wide ? 'px-4 pt-4 pb-6' : 'px-6 pt-6 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
           <div className={center ? 'w-full max-w-md' : wide ? 'w-full' : 'mx-auto w-full max-w-2xl'}>{children}</div>
         </div>
       </div>
@@ -142,9 +147,10 @@ export function Stepper({ step }: { step: 1 | 2 | 3 }) {
 
 export function BottomBar({ children, meta }: { children: React.ReactNode; meta?: string }) {
   return (
-    <div className="border-border bg-background/95 sticky bottom-0 mt-8 flex items-center justify-between gap-4 border-t px-6 py-4 backdrop-blur sm:px-10">
-      {meta ? <span className="text-muted-foreground text-xs font-semibold">{meta}</span> : <span />}
-      <div className="flex gap-3">{children}</div>
+    <div className="border-border bg-background/95 sticky bottom-0 z-30 -mx-6 mt-8 flex items-center justify-between gap-4 border-t px-4 py-3 backdrop-blur sm:mx-0 sm:px-10 sm:py-4">
+      {/* Phones: no room for the meta line — actions take the full row. */}
+      {meta ? <span className="text-muted-foreground hidden text-xs font-semibold sm:inline">{meta}</span> : <span className="hidden sm:inline" />}
+      <div className="flex w-full gap-3 sm:w-auto [&>*]:flex-1 [&>*]:whitespace-nowrap sm:[&>*]:flex-none">{children}</div>
     </div>
   );
 }
