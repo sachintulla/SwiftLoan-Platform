@@ -1,5 +1,6 @@
 'use client';
-import { ArrowRight, Clock, Lock, Sparkles, TrendingUp, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Clock, FileText, Lock, Sparkles, TrendingUp, type LucideIcon } from "lucide-react";
 /**
  * Served from public/, not the package's asset manifest.
  *
@@ -76,6 +77,17 @@ export function Hero() {
                 <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
               </button>
             </form>
+            {/* Straight into the full application (login → PAN → details),
+                for visitors who'd rather apply than get a callback. Secondary
+                style so "Check eligibility" stays the primary action. */}
+            <Link
+              href="/apply"
+              className="group border-border bg-card/70 text-foreground mt-3 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl border px-6 text-sm font-bold backdrop-blur transition-transform hover:-translate-y-0.5 active:scale-[0.97] sm:w-auto"
+            >
+              <FileText className="text-primary h-4 w-4 shrink-0" />
+              {t.ctaApply}
+              <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
+            </Link>
           </Reveal>
 
           <Reveal delay={320}>
