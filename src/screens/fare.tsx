@@ -151,6 +151,18 @@ export default function MyOffers() {
         </View>
       ) : hasOffers ? (
         <>
+          {offers.length >= 2 ? (
+            <Pressable
+              onPress={() => go('compare')}
+              accessibilityRole="button"
+              accessibilityLabel={`Compare all ${offers.length} offers`}
+              style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
+            >
+              <Icon name="balance" size={19} color={colors.primary} />
+              <Text style={[font(700), styles.compareLabel]}>Compare all {offers.length} offers side by side</Text>
+              <Icon name="chevron_right" size={19} color={colors.primary} />
+            </Pressable>
+          ) : null}
           <View style={{ gap: 14 }}>
             {offers.map(o => (
               <MyOfferCard key={o.id} offer={o} onSelect={select} />
@@ -338,6 +350,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, height: 38, marginTop: 2, minWidth: 104, justifyContent: 'center',
   },
   refreshLabel: { fontSize: 13, color: colors.primary },
+  compareBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderWidth: 1.5, borderColor: colors.primary, borderRadius: 16, height: 50, marginBottom: 16,
+    backgroundColor: '#F2FAFA',
+  },
+  compareLabel: { flex: 1, fontSize: 14, color: colors.primary },
   updateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 54, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line },
 
   // ── Offer card ─────────────────────────────────────────────────────────

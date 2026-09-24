@@ -31,7 +31,7 @@ export const SCREEN_NAMES = [
   'home', 'loans', 'fare', 'help', 'profile',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'status', 'disbursed', 'repay', 'calculator',
+  'status', 'disbursed', 'repay', 'calculator', 'compare',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -44,6 +44,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   repayment: 'repay', repayments: 'repay', repaymentoverview: 'repay',
   repay: 'repay', emi: 'repay', myrepayments: 'repay',
   myoffers: 'fare', offers: 'fare', fare: 'fare',
+  compare: 'compare', compareoffers: 'compare', compareloans: 'compare', bestoffer: 'compare',
   calculator: 'calculator', emicalculator: 'calculator', loancalculator: 'calculator',
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
@@ -70,7 +71,7 @@ export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
 // Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
 // floating FAB lifts above this bar on these screens so the two never overlap.
 export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
-  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy',
+  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy', 'compare',
 ]);
 
 // Spelled out in full for the voice agent's page context — more reliable for
@@ -90,6 +91,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
   disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home',
+  compare: 'fare',
 };
 
 export interface AppState {
