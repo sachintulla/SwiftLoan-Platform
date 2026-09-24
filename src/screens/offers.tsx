@@ -114,12 +114,11 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
 }
 
 export default function Offers() {
-  const { state, set, mergeApiContext, go, markUrgentContext } = useStore();
+  const { state, set, mergeApiContext, go } = useStore();
   const t = useT();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(!!state.applicationId);
   const [err, setErr] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
 
   const load = useCallback(async () => {
     if (!state.applicationId) { setOffers([]); setLoading(false); return; }
@@ -167,25 +166,11 @@ export default function Offers() {
     setOffers(prev => prev.map(o => (o.id === id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o))),
   );
 
-  // Retry: re-run eligibility (→ Aurix) for this application, then reload. Used
-  // by the failure state so the user can re-attempt without leaving the screen.
-  const retry = async () => {
-    if (!state.applicationId || retrying) return;
-    setRetrying(true);
-    try {
-      const res: any = await api.prequalify(state.applicationId);
-      set({ offersError: res?.friendlyError || '' });
-      mergeApiContext({ prequalifyResult: { offers: res?.offers, friendlyError: res?.friendlyError } });
-      // Same call, same urgency rule as finding.tsx's own hasOffers check —
-      // real offers landing is worth interrupting Ruby's current sentence
-      // for; an empty/error retry isn't, same as the first attempt.
-      if ((res?.offers ?? []).length > 0) markUrgentContext();
-      await load();
-    } catch {
-      set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });
-    } finally {
-      setRetrying(false);
-    }
+  // Retry: re-run eligibility (→ Aurix) through the same animated "finding
+  // offers" loader as the first attempt, which then lands on My Offers.
+  const retry = () => {
+    if (!state.applicationId) return;
+    go('finding');
   };
 
   return (
@@ -227,12 +212,7 @@ export default function Offers() {
                 message={state.offersError || "We couldn't match a partner to this profile. Try adjusting your amount."}
               />
               <View style={{ gap: 10, marginTop: 8 }}>
-                <PrimaryButton
-                  label={retrying ? 'Retrying…' : 'Retry'}
-                  icon="refresh"
-                  disabled={retrying}
-                  onPress={retry}
-                />
+                <PrimaryButton label="Retry" icon="refresh" onPress={retry} />
                 <Pressable style={styles.updateBtn} onPress={() => go('basic')}>
                   <Icon name="tune" size={18} color={colors.text} />
                   <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>

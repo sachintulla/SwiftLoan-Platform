@@ -30,12 +30,11 @@ function agoLabel(ts: number | null): string {
  * Aurix). With no offers, the screen becomes an engaging "apply for a loan" CTA.
  */
 export default function MyOffers() {
-  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [retrying, setRetrying] = useState(false);
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
@@ -108,32 +107,12 @@ export default function MyOffers() {
   // replace the saved ones on return (hydrate), otherwise the previous persist.
   const refresh = () => startApply();
 
-  // Retry: re-run eligibility (→ Aurix) for this application without leaving
-  // My Offers — the failure/empty state (e.g. from finding.tsx after a zero-
-  // offer or errored attempt) is shown right here now, not on a separate screen.
-  const retryEligibility = async () => {
-    if (!state.applicationId || retrying) return;
-    setRetrying(true);
-    try {
-      const res: any = await api.prequalify(state.applicationId);
-      const list = ((res?.offers || []) as Offer[]).filter(o => !o.applied);
-      set({ offersError: res?.friendlyError || '' });
-      mergeApiContext({ prequalifyResult: { offers: res.offers, friendlyError: res?.friendlyError } });
-      // Same call, same urgency rule as finding.tsx's own hasOffers check —
-      // real offers landing is worth interrupting Ruby's current sentence
-      // for; an empty/error retry isn't, same as the first attempt.
-      if (list.length > 0) {
-        markUrgentContext();
-        const now = Date.now();
-        setOffers(list);
-        setSavedAt(now);
-        saveOffersCache({ applicationId: state.applicationId, savedAt: now, offers: list });
-      }
-    } catch {
-      set({ offersError: 'We couldn’t reach our lending partners just now. Please try again.' });
-    } finally {
-      setRetrying(false);
-    }
+  // Retry: re-run eligibility (→ Aurix) through the same animated "finding
+  // offers" loader as the first attempt. finding.tsx makes the prequalify call
+  // and lands back here with the offers or the failure state.
+  const retryEligibility = () => {
+    if (!state.applicationId) return;
+    go('finding');
   };
 
   const hasOffers = offers.length > 0;
@@ -186,7 +165,6 @@ export default function MyOffers() {
         <EmptyOffers
           onApply={startApply}
           onRetry={retryEligibility}
-          retrying={retrying}
           offersError={state.offersError}
         />
       )}
@@ -297,12 +275,10 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
 function EmptyOffers({
   onApply,
   onRetry,
-  retrying,
   offersError,
 }: {
   onApply: () => void;
   onRetry: () => void;
-  retrying: boolean;
   offersError: string;
 }) {
   const failed = !!offersError;
@@ -320,7 +296,7 @@ function EmptyOffers({
 
       {failed ? (
         <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
-          <PrimaryButton label={retrying ? 'Retrying…' : 'Retry'} icon="refresh" disabled={retrying} onPress={onRetry} />
+          <PrimaryButton label="Retry" icon="refresh" onPress={onRetry} />
           <Pressable style={styles.updateBtn} onPress={onApply}>
             <Icon name="tune" size={18} color={colors.text} />
             <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
