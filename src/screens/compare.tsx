@@ -4,13 +4,14 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
-import { PrimaryButton, Toggle } from '../components/Controls';
+import { LogoMark } from '../components/Logo';
+import { PrimaryButton } from '../components/Controls';
 import { colors, font, rupee, heroGradient } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { api, Offer } from '../api/client';
 import { loadOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
-import { compareOffers, computeRow, defaultTenure, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
+import { compareOffers, defaultTenure, formatApproval, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
 
 // Same visual language as the compare-offers design reference.
 const C = {
@@ -22,22 +23,24 @@ const C = {
   segBg: '#EEF3F3',
 };
 
+// "Rank best offer by" — the four options of the reference, with the phrase
+// the Best-overall banner uses.
 const RANKS: { key: RankBy; label: string; phrase: string }[] = [
   { key: 'cost', label: 'Lowest total cost', phrase: 'lowest total cost' },
-  { key: 'emi', label: 'Lowest EMI', phrase: 'lowest EMI' },
-  { key: 'rate', label: 'Lowest rate', phrase: 'lowest interest rate' },
-  { key: 'interest', label: 'Least interest', phrase: 'least total interest' },
+  { key: 'emi', label: 'Lowest monthly EMI', phrase: 'lowest monthly EMI' },
+  { key: 'fee', label: 'Lowest processing fee', phrase: 'lowest processing fee' },
+  { key: 'approval', label: '⚡ Quick approval', phrase: 'quickest approval' },
 ];
 
 // Comparison-matrix geometry: a pinned label column + one column per lender,
 // every row a fixed height so the pinned labels line up with the scrolled cells.
 const LABEL_W = 112;
 const COL_W = 124;
-const H_HEAD = 92;
-const H_EMI = 70;
+const H_HEAD = 86;
+const H_EMI = 88;
 const H_ROW = 58;
 
-type Winners = { emi: string | null; rate: string | null; interest: string | null; cost: string | null };
+type Winners = { emi: string | null; rate: string | null; interest: string | null; cost: string | null; fee: string | null; approval: string | null };
 type MetricRow = {
   key: string;
   label: string;
@@ -51,42 +54,44 @@ type MetricRow = {
 const METRICS: MetricRow[] = [
   { key: 'emi', label: 'Monthly EMI', height: H_EMI, big: true, win: 'emi', tag: 'Lowest EMI', priced: true, value: r => rupee(r.emi!) },
   { key: 'rate', label: 'Interest rate', height: H_ROW, win: 'rate', tag: 'Lowest rate', priced: true, value: r => `${r.rate}%` },
+  { key: 'fee', label: 'Processing fee', height: H_ROW, win: 'fee', tag: 'Lowest', priced: false, value: r => rupee(r.fees) },
   { key: 'amount', label: 'Eligible amount', height: H_ROW, priced: false, value: r => rupee(r.amount) },
   { key: 'tenure', label: 'Tenure', height: H_ROW, priced: false, value: r => `${r.tenure} mo` },
   { key: 'interest', label: 'Total interest', height: H_ROW, win: 'interest', tag: 'Least interest', priced: true, value: r => rupee(r.totalInterest!) },
-  { key: 'fee', label: 'Processing fee', height: H_ROW, priced: true, value: r => rupee(r.fees) },
   { key: 'repay', label: 'Total you repay', height: H_ROW, win: 'cost', tag: 'Cheapest overall', priced: true, value: r => rupee(r.totalRepay!) },
 ];
 
 /**
- * Compare offers — laid out after the compare-offers design reference: a
- * gradient header with the loan amount, a tenure segmented control, "rank
- * best offer by" chips, a "Best overall" banner, and a comparison matrix
- * (pinned metric labels + a column per lender, best value per row in green).
- * Tap a lender to choose it over the recommendation; Apply follows the pick.
+ * Compare offers — laid out after the compare-offers design reference:
+ * gradient header (loan amount | offers matched), Tenure + "Rank best offer
+ * by" dropdowns, a comparison matrix (pinned labels with the SwiftLoan mark,
+ * a column per lender, best value per row in green, approval time under each
+ * EMI), then the legend, a "Best overall" banner and Apply.
  *
- * EMI, interest and totals are computed on-device from each offer's amount,
- * rate and fee (+GST) — see utils/compareOffers.ts (same logic as the
- * website). Extra filters (EMI budget, amount, rate-on-approval) sit behind
- * a small "Filters" link so the main view stays as simple as the design.
+ * Changing tenure or ranking drops any manual pick, scrolls the recommended
+ * lender's column into view and pulses it. Tap a lender to choose it instead.
+ *
+ * EMI, interest and totals are computed on-device (utils/compareOffers.ts,
+ * same logic as the website). Approval time comes from the partner catalog's
+ * disbursalTimeHrs when present — "—" otherwise.
  */
 export default function Compare() {
   const { state, back } = useStore();
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [tenure, setTenure] = useState(24);
   const [rankBy, setRankBy] = useState<RankBy>('cost');
-  const [maxEmi, setMaxEmi] = useState<number | null>(null);
-  const [minAmount, setMinAmount] = useState<number | null>(null);
-  const [includeOnApproval, setIncludeOnApproval] = useState(true);
   const [picked, setPicked] = useState<string | null>(null);
-  const [sheet, setSheet] = useState(false);
+  const [picker, setPicker] = useState<'tenure' | 'rank' | null>(null);
   const [applying, setApplying] = useState(false);
   const select = useOfferSelect();
-  // Horizontal-scroll affordance: a nudging arrow until the user
-  // scrolls the lender columns once; then it's gone for good on this visit.
+
+  // Horizontal-scroll affordance + "focus the recommendation" on changes.
+  const matrixRef = useRef<ScrollView>(null);
   const [viewW, setViewW] = useState(0);
   const [swiped, setSwiped] = useState(false);
   const [scrolledX, setScrolledX] = useState(0);
+  const focusNext = useRef(false);
+  const flash = useRef(new Animated.Value(0)).current;
   const onMatrixScroll = (x: number) => {
     if (x > 12 && !swiped) setSwiped(true);
     if ((x > 4) !== (scrolledX > 4)) setScrolledX(x);
@@ -125,28 +130,34 @@ export default function Compare() {
       processingFeeAmount: o.processingFeeAmount,
       gstOnProcessingFee: o.gstOnProcessingFee,
       logoUrl: o.lenderLogoUrl || o.partner?.logoUrl || null,
+      approvalHrs: o.partner?.disbursalTimeHrs ?? null,
     })),
     [offers],
   );
-  const result = useMemo(
-    () => compareOffers(inputs, { tenure, rankBy, maxEmi, minAmount, includeOnApproval }),
-    [inputs, tenure, rankBy, maxEmi, minAmount, includeOnApproval],
-  );
-
-  const emiSteps = useMemo(() => {
-    const emis = inputs.map(o => computeRow(o, tenure).emi).filter((v): v is number => v != null).sort((a, b) => a - b);
-    return [...new Set(emis.map(v => Math.ceil(v / 500) * 500))];
-  }, [inputs, tenure]);
-  const amountSteps = useMemo(() => [...new Set(inputs.map(o => o.amount))].sort((a, b) => a - b).slice(1), [inputs]);
-  useEffect(() => { if (maxEmi != null && !emiSteps.includes(maxEmi)) setMaxEmi(null); }, [emiSteps, maxEmi]);
+  const result = useMemo(() => compareOffers(inputs, { tenure, rankBy }), [inputs, tenure, rankBy]);
 
   const best = result.best;
   const selected = result.rows.find(r => r.id === picked) ?? best ?? result.rows[0] ?? null;
   const selectedOffer = offers?.find(o => o.id === selected?.id) ?? null;
-  const activeFilters = (maxEmi != null ? 1 : 0) + (minAmount != null ? 1 : 0) + (includeOnApproval ? 0 : 1);
-  const resetFilters = () => { setMaxEmi(null); setMinAmount(null); setIncludeOnApproval(true); };
   const headlineAmount = Math.max(0, ...inputs.map(o => o.amount));
   const pricedCount = result.rows.filter(r => !r.onApproval).length;
+
+  // Tenure / rank change: drop the manual pick, then (after render) scroll
+  // the recommended column into view and pulse it.
+  const changeTenure = (t: number) => { setTenure(t); setPicked(null); focusNext.current = true; };
+  const changeRank = (k: RankBy) => { setRankBy(k); setPicked(null); focusNext.current = true; };
+  useEffect(() => {
+    if (!focusNext.current || !best) return;
+    focusNext.current = false;
+    const idx = result.rows.findIndex(r => r.id === best.id);
+    const maxX = Math.max(0, result.rows.length * COL_W - viewW);
+    matrixRef.current?.scrollTo({ x: Math.min(maxX, Math.max(0, idx * COL_W - 12)), animated: true });
+    flash.setValue(0);
+    Animated.sequence([
+      Animated.timing(flash, { toValue: 1, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(flash, { toValue: 0, duration: 700, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+    ]).start();
+  }, [result, best, viewW, flash]);
 
   const onApply = async () => {
     if (!selectedOffer || applying) return;
@@ -154,12 +165,11 @@ export default function Compare() {
     try { await select(selectedOffer); } finally { setApplying(false); }
   };
 
+  const rankLabel = RANKS.find(r => r.key === rankBy)!;
+
   return (
     <Screen padded={false} contentStyle={{ paddingBottom: 110 }}>
-      {/* Header */}
-      {/* A plain View sizes + rounds the header; the gradient only fills it
-          as a background layer (sizing a LinearGradient by its own padding
-          rendered it narrower-offset and shorter than its content). */}
+      {/* Header — a plain View sizes + rounds it; the gradient only fills it. */}
       <View style={styles.hd}>
         <LinearGradient colors={[heroGradient[0], heroGradient[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         <View style={styles.hdRow}>
@@ -168,15 +178,20 @@ export default function Compare() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={[font(800), styles.hdTitle]}>Compare your offers</Text>
-            <Text style={[font(400), styles.hdSub]}>
-              {offers ? `${offers.length} matched offer${offers.length === 1 ? '' : 's'} · pick what fits you` : 'Loading your offers…'}
-            </Text>
+            <Text style={[font(400), styles.hdSub]}>Pick the offer that fits you best</Text>
           </View>
         </View>
-        {headlineAmount > 0 ? (
+        {offers && offers.length ? (
           <View style={styles.amt}>
-            <Text style={[font(600), styles.amtK]}>LOAN AMOUNT</Text>
-            <Text style={[font(800), styles.amtV]}>{rupee(headlineAmount)}</Text>
+            <View style={styles.stat}>
+              <Text style={[font(600), styles.amtK]}>LOAN AMOUNT</Text>
+              <Text style={[font(800), styles.amtV]}>{rupee(headlineAmount)}</Text>
+            </View>
+            <View style={styles.vline} />
+            <View style={styles.stat}>
+              <Text style={[font(600), styles.amtK]}>OFFERS MATCHED</Text>
+              <Text style={[font(800), styles.amtV]}>{offers.length} offer{offers.length === 1 ? '' : 's'}</Text>
+            </View>
           </View>
         ) : null}
       </View>
@@ -188,76 +203,36 @@ export default function Compare() {
           <Text style={[font(600), styles.empty]}>No offers to compare yet.</Text>
         ) : (
           <>
-            {/* Tenure */}
-            <Text style={[font(700), styles.label]}>REPAYMENT TENURE</Text>
-            <View style={styles.seg}>
-              {TENURES.map(t => {
-                const on = tenure === t;
-                return (
-                  <Pressable key={t} onPress={() => setTenure(t)} style={[styles.segBtn, on && styles.segOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                    <Text style={[font(700), styles.segText, on && { color: '#fff' }]}>{t} mo</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Rank by */}
-            <View style={styles.labelRow}>
-              <Text style={[font(700), styles.label, { marginBottom: 0 }]}>RANK “BEST OFFER” BY</Text>
-              <Pressable onPress={() => setSheet(true)} hitSlop={10} style={styles.filtersLink} accessibilityRole="button" accessibilityLabel="More filters">
-                <Icon name="tune" size={15} color={colors.primary} />
-                <Text style={[font(700), styles.filtersText]}>Filters{activeFilters ? ` · ${activeFilters}` : ''}</Text>
-              </Pressable>
-            </View>
-            <View style={styles.rankWrap}>
-              {RANKS.map(r => {
-                const on = rankBy === r.key;
-                return (
-                  <Pressable key={r.key} onPress={() => setRankBy(r.key)} style={[styles.rankBtn, on && styles.rankOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                    <Text style={[font(700), styles.rankText, on && { color: '#fff' }]}>{r.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Best overall */}
-            {best ? (
-              <View style={styles.best}>
-                <View style={styles.bestIc}><Icon name="check" size={18} color="#fff" /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[font(800), styles.bestT]}>BEST OVERALL</Text>
-                  <Text style={[font(400), styles.bestM]}>
-                    <Text style={font(800)}>{best.lenderName}</Text> wins on{' '}
-                    <Text style={font(800)}>{RANKS.find(r => r.key === rankBy)!.phrase}</Text> over {tenure} months — EMI{' '}
-                    <Text style={font(800)}>{rupee(best.emi!)}</Text> at <Text style={font(800)}>{best.rate}%</Text>, total repayment{' '}
-                    <Text style={font(800)}>{rupee(best.totalRepay!)}</Text>.
-                  </Text>
-                </View>
+            {/* Controls: two dropdowns */}
+            <View style={styles.controls}>
+              <View style={{ flex: 0.8 }}>
+                <Text style={[font(700), styles.label]}>TENURE</Text>
+                <Dropdown value={`${tenure} months`} onPress={() => setPicker('tenure')} />
               </View>
-            ) : result.rows.length ? (
-              <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>These lenders confirm their rate only after approval, so we can’t rank them yet.</Text></View>
-            ) : null}
+              <View style={{ flex: 1.2 }}>
+                <Text style={[font(700), styles.label]} numberOfLines={1}>RANK “BEST OFFER” BY</Text>
+                <Dropdown value={rankLabel.label} onPress={() => setPicker('rank')} />
+              </View>
+            </View>
 
             {/* Matrix */}
-            {result.rows.length === 0 ? (
-              <View style={styles.noMatch}>
-                <Text style={[font(700), { fontSize: 14, color: colors.text }]}>No offers match these filters</Text>
-                <Pressable onPress={resetFilters}><Text style={[font(700), styles.link]}>Clear filters</Text></Pressable>
-              </View>
-            ) : (
-              <View style={styles.matrix}>
-                {/* Pinned labels */}
-                <View style={{ width: LABEL_W }}>
-                  <View style={{ height: H_HEAD }} />
-                  {METRICS.map(m => (
-                    <View key={m.key} style={[styles.labelCell, { height: m.height }]}>
-                      <Text style={[font(700), styles.metricLabel]}>{m.label}</Text>
-                    </View>
-                  ))}
+            <View style={styles.matrix}>
+              {/* Pinned labels */}
+              <View style={{ width: LABEL_W }}>
+                <View style={[styles.brandCell, { height: H_HEAD }]}>
+                  <LogoMark size={30} style={{ borderRadius: 9 }} />
+                  <Text style={[font(800), styles.brandText]}>SwiftLoan</Text>
                 </View>
-                {/* Lender columns */}
-                <View style={{ flex: 1 }}>
+                {METRICS.map(m => (
+                  <View key={m.key} style={[styles.labelCell, { height: m.height }]}>
+                    <Text style={[font(700), styles.metricLabel]}>{m.label}</Text>
+                  </View>
+                ))}
+              </View>
+              {/* Lender columns */}
+              <View style={{ flex: 1 }}>
                 <ScrollView
+                  ref={matrixRef}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={{ flex: 1 }}
@@ -267,6 +242,8 @@ export default function Compare() {
                 >
                   {result.rows.map(r => {
                     const isSel = r.id === selected?.id;
+                    const isBest = r.id === best?.id;
+                    const fastest = result.winners.approval === r.id;
                     return (
                       <Pressable
                         key={r.id}
@@ -274,12 +251,15 @@ export default function Compare() {
                         style={[styles.col, isSel && { backgroundColor: C.selBg }]}
                         accessibilityRole="button"
                         accessibilityState={{ selected: isSel }}
-                        accessibilityLabel={`${r.lenderName}${r.id === best?.id ? ', recommended' : ''}`}
+                        accessibilityLabel={`${r.lenderName}${isBest ? ', recommended' : ''}`}
                       >
+                        {isBest ? (
+                          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, { opacity: flash }]} />
+                        ) : null}
                         <View style={[styles.head, { height: H_HEAD }]}>
                           <Text style={[font(800), styles.nm, isSel && { color: colors.primary }]} numberOfLines={2}>{r.lenderName}</Text>
                           {r.onApproval ? <Badge tone="amber" label="Rate on approval" /> : null}
-                          {r.id === best?.id ? <Badge tone="amber" label="Recommended" /> : null}
+                          {isBest ? <Badge tone="amber" label="Recommended" /> : null}
                           {isSel ? <Badge tone="sel" label="✓ Selected" /> : null}
                         </View>
                         {METRICS.map(m => {
@@ -297,6 +277,11 @@ export default function Compare() {
                               ) : (
                                 <Text style={[font(700), styles.approval]}>On approval</Text>
                               )}
+                              {m.key === 'emi' ? (
+                                <Text style={[font(700), styles.apprLine, fastest && styles.apprFast]} numberOfLines={1}>
+                                  ⚡ {formatApproval(r.approvalHrs)} approval
+                                </Text>
+                              ) : null}
                             </View>
                           );
                         })}
@@ -304,32 +289,37 @@ export default function Compare() {
                     );
                   })}
                 </ScrollView>
-                <SwipeHint
-                  visible={!swiped && result.rows.length * COL_W > viewW + 4 && viewW > 0}
-                  count={result.rows.length}
-                  scrolled={scrolledX > 4}
-                />
-                </View>
+                <SwipeHint visible={!swiped && result.rows.length * COL_W > viewW + 4 && viewW > 0} count={result.rows.length} scrolled={scrolledX > 4} />
               </View>
-            )}
-
-            {result.hiddenCount > 0 ? (
-              <Pressable onPress={resetFilters} style={{ marginTop: 10 }}>
-                <Text style={[font(500), styles.legend]}>
-                  {result.hiddenCount} offer{result.hiddenCount > 1 ? 's' : ''} hidden by your filters · <Text style={[font(700), styles.link]}>show all</Text>
-                </Text>
-              </Pressable>
-            ) : null}
+            </View>
 
             <Text style={[font(400), styles.legend]}>
               Green = best value in that row at the selected tenure. <Text style={font(700)}>Tap any lender</Text> to choose it over the recommendation.{'\n'}
-              EMIs are indicative; some lenders confirm the rate only after approval.
+              EMIs are indicative; final terms are set by the lender.
             </Text>
+
+            {/* Best overall */}
+            {best ? (
+              <View style={styles.best}>
+                <View style={styles.bestIc}><Icon name="check" size={18} color="#fff" /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[font(800), styles.bestT]}>BEST OVERALL</Text>
+                  <Text style={[font(400), styles.bestM]}>
+                    <Text style={font(800)}>{best.lenderName}</Text> wins on <Text style={font(800)}>{rankLabel.phrase}</Text> over {tenure} months — EMI{' '}
+                    <Text style={font(800)}>{rupee(best.emi!)}</Text> at <Text style={font(800)}>{best.rate}%</Text>, total repayment{' '}
+                    <Text style={font(800)}>{rupee(best.totalRepay!)}</Text>
+                    {best.approvalHrs != null ? <>, approval <Text style={font(800)}>{formatApproval(best.approvalHrs).toLowerCase()}</Text></> : null}.
+                  </Text>
+                </View>
+              </View>
+            ) : result.rows.length ? (
+              <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>These lenders confirm their rate only after approval, so we can’t rank them yet.</Text></View>
+            ) : null}
 
             {selected && selectedOffer ? (
               <View style={{ marginTop: 16 }}>
                 <PrimaryButton
-                  label={applying ? 'Applying…' : `Apply with ${selected.lenderName}${selected.onApproval ? ' (rate on approval)' : ''}`}
+                  label={applying ? 'Applying…' : `Apply with ${selected.lenderName}`}
                   voiceId="Apply with selected offer"
                   disabled={applying}
                   onPress={onApply}
@@ -344,24 +334,73 @@ export default function Compare() {
         )}
       </View>
 
-      <FilterSheet
-        visible={sheet}
-        onClose={() => setSheet(false)}
-        emiSteps={emiSteps} maxEmi={maxEmi} setMaxEmi={setMaxEmi}
-        amountSteps={amountSteps} minAmount={minAmount} setMinAmount={setMinAmount}
-        includeOnApproval={includeOnApproval} setIncludeOnApproval={setIncludeOnApproval}
-        activeFilters={activeFilters} onReset={resetFilters}
-        resultCount={result.rows.length}
+      <PickerSheet
+        visible={picker === 'tenure'}
+        title="Tenure"
+        options={TENURES.map(t => ({ key: String(t), label: `${t} months` }))}
+        value={String(tenure)}
+        onPick={k => changeTenure(Number(k))}
+        onClose={() => setPicker(null)}
+      />
+      <PickerSheet
+        visible={picker === 'rank'}
+        title="Rank “best offer” by"
+        options={RANKS.map(r => ({ key: r.key, label: r.label }))}
+        value={rankBy}
+        onPick={k => changeRank(k as RankBy)}
+        onClose={() => setPicker(null)}
       />
     </Screen>
   );
 }
 
+/** A select-style field: current value + chevron; opens a PickerSheet. */
+function Dropdown({ value, onPress }: { value: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.dd, pressed && { opacity: 0.8 }]} accessibilityRole="button" accessibilityLabel={value}>
+      <Text style={[font(700), styles.ddText]} numberOfLines={1}>{value}</Text>
+      <Icon name="expand_more" size={20} color={colors.textSoft} />
+    </Pressable>
+  );
+}
+
+/** Bottom-sheet option list for a Dropdown (native select look on both platforms). */
+function PickerSheet({ visible, title, options, value, onPick, onClose }: {
+  visible: boolean; title: string; options: { key: string; label: string }[]; value: string;
+  onPick: (key: string) => void; onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Close" />
+      <View style={[styles.sheet, { paddingBottom: 14 + insets.bottom }]}>
+        <View style={styles.sheetGrab} />
+        <Text style={[font(800), styles.sheetTitle]}>{title}</Text>
+        {options.map(o => {
+          const on = o.key === value;
+          return (
+            <Pressable
+              key={o.key}
+              onPress={() => { onPick(o.key); onClose(); }}
+              style={({ pressed }) => [styles.option, on && styles.optionOn, pressed && { opacity: 0.8 }]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+            >
+              <Text style={[font(on ? 800 : 600), styles.optionText, on && { color: colors.primary }]}>{o.label}</Text>
+              {on ? <Icon name="check" size={20} color={colors.primary} /> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </Modal>
+  );
+}
+
 /**
- * Right-edge fade + a theme-coloured arrow that nudges right
- * — shown while more lender columns sit off-screen, faded out the moment the
- * user scrolls them. A soft left-edge fade appears once scrolled so columns
- * don't look sliced where they pass under the pinned labels.
+ * Right-edge fade + a theme-coloured arrow that nudges right — shown while
+ * more lender columns sit off-screen, faded out the moment the user scrolls
+ * them. A soft left-edge fade appears once scrolled so columns don't look
+ * sliced where they pass under the pinned labels.
  */
 function SwipeHint({ visible, count, scrolled }: { visible: boolean; count: number; scrolled: boolean }) {
   const show = useRef(new Animated.Value(visible ? 1 : 0)).current;
@@ -419,107 +458,40 @@ function Badge({ label, tone }: { label: string; tone: 'amber' | 'sel' }) {
   );
 }
 
-function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={[styles.rankBtn, on && styles.rankOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-      <Text style={[font(700), styles.rankText, on && { color: '#fff' }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function FilterSheet(p: {
-  visible: boolean; onClose: () => void;
-  emiSteps: number[]; maxEmi: number | null; setMaxEmi: (v: number | null) => void;
-  amountSteps: number[]; minAmount: number | null; setMinAmount: (v: number | null) => void;
-  includeOnApproval: boolean; setIncludeOnApproval: (v: boolean) => void;
-  activeFilters: number; onReset: () => void; resultCount: number;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible={p.visible} transparent animationType="slide" onRequestClose={p.onClose}>
-      <Pressable style={styles.scrim} onPress={p.onClose} accessibilityLabel="Close filters" />
-      <View style={[styles.sheet, { paddingBottom: 18 + insets.bottom }]}>
-        <View style={styles.sheetHead}>
-          <Text style={[font(800), { fontSize: 17, color: colors.text }]}>Filters</Text>
-          <Pressable onPress={p.onClose} style={styles.sheetClose} accessibilityLabel="Close filters"><Icon name="close" size={18} color={colors.text} /></Pressable>
-        </View>
-        <View style={{ gap: 20 }}>
-          {p.emiSteps.length > 1 ? (
-            <View>
-              <Text style={[font(700), styles.label]}>MONTHLY EMI BUDGET</Text>
-              <View style={styles.rankWrap}>
-                <Chip on={p.maxEmi == null} onPress={() => p.setMaxEmi(null)} label="Any" />
-                {p.emiSteps.slice(0, -1).map(v => <Chip key={v} on={p.maxEmi === v} onPress={() => p.setMaxEmi(v)} label={`Up to ${rupee(v)}`} />)}
-              </View>
-            </View>
-          ) : null}
-          {p.amountSteps.length ? (
-            <View>
-              <Text style={[font(700), styles.label]}>LOAN AMOUNT</Text>
-              <View style={styles.rankWrap}>
-                <Chip on={p.minAmount == null} onPress={() => p.setMinAmount(null)} label="Any" />
-                {p.amountSteps.map(a => <Chip key={a} on={p.minAmount === a} onPress={() => p.setMinAmount(a)} label={`${rupee(a)}+`} />)}
-              </View>
-            </View>
-          ) : null}
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[font(700), { fontSize: 14, color: colors.text }]}>Include “rate on approval”</Text>
-              <Text style={[font(400), { fontSize: 11.5, color: colors.textSoft }]}>Lenders who confirm the rate later</Text>
-            </View>
-            <Toggle value={p.includeOnApproval} onChange={p.setIncludeOnApproval} />
-          </View>
-          {p.activeFilters > 0 ? (
-            <Pressable onPress={p.onReset}><Text style={[font(700), styles.link]}>Reset filters</Text></Pressable>
-          ) : null}
-        </View>
-        <PrimaryButton label={`Show ${p.resultCount} offer${p.resultCount === 1 ? '' : 's'}`} icon={null} onPress={p.onClose} style={{ marginTop: 18 }} />
-      </View>
-    </Modal>
-  );
-}
-
 const styles = StyleSheet.create({
   hd: { marginHorizontal: 12, marginTop: 4, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, borderRadius: 22, overflow: 'hidden' },
   hdRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hdTitle: { fontSize: 19, color: '#fff', letterSpacing: -0.3 },
   hdSub: { fontSize: 12.5, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
   amt: {
-    marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 14, flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 12, paddingVertical: 9, paddingHorizontal: 13,
+    borderRadius: 12, paddingVertical: 10, paddingHorizontal: 14,
   },
-  amtK: { fontSize: 11, color: 'rgba(255,255,255,0.8)', letterSpacing: 0.3 },
-  amtV: { fontSize: 16, color: '#fff' },
+  stat: { flex: 1 },
+  vline: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.25)', marginHorizontal: 14 },
+  amtK: { fontSize: 10.5, color: 'rgba(255,255,255,0.8)', letterSpacing: 0.4 },
+  amtV: { fontSize: 16, color: '#fff', marginTop: 2 },
 
   body: { paddingHorizontal: 16, paddingTop: 16 },
   empty: { fontSize: 14, color: colors.textSoft, textAlign: 'center', marginTop: 40 },
-  label: { fontSize: 11.5, color: colors.muted, letterSpacing: 0.6, marginBottom: 8, marginLeft: 2 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 },
-  filtersLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  filtersText: { fontSize: 12, color: colors.primary },
+  label: { fontSize: 11, color: colors.muted, letterSpacing: 0.6, marginBottom: 7, marginLeft: 2 },
 
-  seg: { flexDirection: 'row', gap: 4, padding: 4, backgroundColor: C.segBg, borderRadius: 12, borderWidth: 1, borderColor: colors.line },
-  segBtn: { flex: 1, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  segOn: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.35, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  segText: { fontSize: 13, color: colors.textMid },
+  controls: { flexDirection: 'row', gap: 10 },
+  dd: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4,
+    height: 46, paddingLeft: 13, paddingRight: 8, borderRadius: 12,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
+  },
+  ddText: { flex: 1, fontSize: 13.5, color: colors.text },
 
-  rankWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  rankBtn: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.line, backgroundColor: C.segBg },
-  rankOn: { backgroundColor: colors.inkDeep, borderColor: colors.inkDeep },
-  rankText: { fontSize: 12, color: colors.textMid },
-
-  best: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', marginTop: 16, backgroundColor: C.bestBg, borderWidth: 1, borderColor: C.best, borderRadius: 14, padding: 13 },
-  bestIc: { width: 30, height: 30, borderRadius: 9, backgroundColor: C.best, alignItems: 'center', justifyContent: 'center' },
-  bestT: { fontSize: 11, color: C.best, letterSpacing: 0.5 },
-  bestM: { fontSize: 13, color: colors.text, marginTop: 2, lineHeight: 19 },
-  infoBox: { marginTop: 16, backgroundColor: colors.chip, borderRadius: 14, padding: 13 },
-  infoText: { fontSize: 13, color: colors.textMid },
-
-  matrix: { flexDirection: 'row', marginTop: 14, borderTopWidth: 1, borderColor: colors.line },
+  matrix: { flexDirection: 'row', marginTop: 16, borderTopWidth: 1, borderColor: colors.line },
+  brandCell: { alignItems: 'flex-start', justifyContent: 'flex-end', gap: 5, paddingBottom: 10 },
+  brandText: { fontSize: 12.5, color: colors.primary, letterSpacing: -0.2 },
   labelCell: { justifyContent: 'center', borderTopWidth: 1, borderColor: colors.line, paddingRight: 6 },
   metricLabel: { fontSize: 11.5, color: colors.muted },
-  col: { width: COL_W, borderRadius: 12 },
+  col: { width: COL_W, borderRadius: 12, overflow: 'hidden' },
+  flash: { backgroundColor: 'rgba(47,177,131,0.22)', borderRadius: 12 },
   head: { alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 6, paddingBottom: 10 },
   nm: { fontSize: 14, color: colors.text, textAlign: 'center' },
   badge: { borderRadius: 20, paddingHorizontal: 7, paddingVertical: 2 },
@@ -529,21 +501,29 @@ const styles = StyleSheet.create({
   val: { fontSize: 13, color: colors.text },
   valBig: { fontSize: 18, color: colors.text },
   tag: { fontSize: 9, color: C.best, letterSpacing: 0.4, marginTop: 2 },
+  apprLine: { fontSize: 10.5, color: colors.textSoft, marginTop: 5 },
+  apprFast: { color: C.best },
   approval: { fontSize: 12, color: colors.muted, fontStyle: 'italic' },
   edgeFade: { position: 'absolute', top: 0, bottom: 0, width: 18 },
   edgeFadeRight: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 44 },
   // Just the theme-coloured arrow, vertically centred on the right edge.
   swipeArrow: { position: 'absolute', right: 4, top: '50%', marginTop: -10 },
 
-  noMatch: { alignItems: 'center', gap: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 16, padding: 24, marginTop: 14 },
-  link: { fontSize: 13, color: colors.primary, textDecorationLine: 'underline' },
   legend: { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 12, lineHeight: 16 },
+  best: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', marginTop: 14, backgroundColor: C.bestBg, borderWidth: 1, borderColor: C.best, borderRadius: 14, padding: 13 },
+  bestIc: { width: 30, height: 30, borderRadius: 9, backgroundColor: C.best, alignItems: 'center', justifyContent: 'center' },
+  bestT: { fontSize: 11, color: C.best, letterSpacing: 0.5 },
+  bestM: { fontSize: 13, color: colors.text, marginTop: 2, lineHeight: 19 },
+  infoBox: { marginTop: 14, backgroundColor: colors.chip, borderRadius: 14, padding: 13 },
+  infoText: { fontSize: 13, color: colors.textMid },
   pickNote: { fontSize: 11.5, color: C.amber, textAlign: 'center', marginTop: 8 },
   note: { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 8 },
 
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 16 },
-  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  sheetClose: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 10 },
+  sheetGrab: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.line, marginBottom: 12 },
+  sheetTitle: { fontSize: 16, color: colors.text, marginBottom: 8, marginLeft: 4 },
+  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 12, borderRadius: 12 },
+  optionOn: { backgroundColor: C.selBg },
+  optionText: { fontSize: 15, color: colors.text },
 });
