@@ -15,8 +15,12 @@ export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'https://dev-a
 // default probe is a Google URL, which some networks block or intercept (e.g.
 // an office TLS-inspecting proxy) — it then reports offline and every request
 // below is refused before it's even sent, though the backend is fine. Probe
-// our own health endpoint instead.
+// our own health endpoint instead. useNativeReachability: false makes Android
+// use it too — otherwise Android reports the OS's own "validated" flag, which
+// is false on networks where Google's connectivity check is blocked
+// ("partial connectivity"), and the app refused every request as offline.
 NetInfo.configure({
+  useNativeReachability: false,
   reachabilityUrl: `${API_BASE}/health`,
   reachabilityTest: async (response) => response.status === 200,
   reachabilityShortTimeout: 5 * 1000,
