@@ -41,10 +41,10 @@ describe('UC-N3 back-stack fallback (prevMap)', () => {
   // PREV is now only the fallback for back() when the real history stack is empty
   // (e.g. deep-linked entry). These assert the fallback parents match the map.
   const cases: [string, string][] = [
-    ['basic', 'home'],
+    ['basicpan', 'home'],
+    ['basic', 'basicpan'],
     ['moredetails', 'basic'],
-    ['basicpan', 'moredetails'],
-    ['finding', 'basicpan'],
+    ['finding', 'moredetails'],
     ['offers', 'home'],
     ['handoff', 'offers'],
     ['language', 'splash'],

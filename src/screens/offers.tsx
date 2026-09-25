@@ -200,7 +200,7 @@ export default function Offers() {
             <View>
               <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
               <View style={{ marginTop: 8 }}>
-                <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basic')} />
+                <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basicpan')} />
               </View>
             </View>
           ) : (
@@ -213,7 +213,7 @@ export default function Offers() {
               />
               <View style={{ gap: 10, marginTop: 8 }}>
                 <PrimaryButton label="Retry" icon="refresh" onPress={retry} />
-                <Pressable style={styles.updateBtn} onPress={() => go('basic')}>
+                <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
                   <Icon name="tune" size={18} color={colors.text} />
                   <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
                 </Pressable>
@@ -252,7 +252,7 @@ export default function Offers() {
               <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
                 Need a different amount or time frame? Adjust and refresh offers.
               </Text>
-              <Pressable style={styles.updateBtn} onPress={() => go('basic')}>
+              <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
                 <Icon name="tune" size={18} color={colors.text} />
                 <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update Details</Text>
               </Pressable>

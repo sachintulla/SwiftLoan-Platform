@@ -6,7 +6,7 @@ import { Field, Chips, Slider, HeaderCta, StepBadge } from '../components/Contro
 import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
-import { useStore, useT } from '../state/store';
+import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
@@ -71,7 +71,7 @@ export default function Basic() {
 
   // Auto-fill from whatever's already saved server-side.
   useEffect(() => {
-    if (!isAuthed()) return;
+    if (!isAuthed()) { applyPan(); return; }
     api.me().then((r: any) => {
       const user = r.user;
       if (!user) return;
@@ -112,15 +112,44 @@ export default function Basic() {
         const label = EMPS.find(e => EMP_SLUG[e] === user.employment);
         if (label) set({ basicEmp: label });
       }
+      if (!state.optAddr2 && user.addressLine2) set({ optAddr2: user.addressLine2 });
       if (!dob && user.dob) {
         const d = new Date(user.dob);
         setDob({ y: d.getFullYear(), m: d.getMonth(), d: d.getDate() });
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(applyPan);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Then the PAN Comprehensive details from Step 1 go on top: they're the
+  // verified identity, so name/DOB/gender/address from the PAN win over older
+  // profile values. Only fields the PAN actually returned are touched, and
+  // only once per verification — coming back to this step keeps any edits.
+  const [fromPan, setFromPan] = useState(!!state.panPrefill?.applied);
+  function applyPan() {
+    const hand = state.panPrefill;
+    if (!hand || hand.applied) return;
+    const p = hand.prefill;
+    const patch: Record<string, unknown> = {};
+    if (p.firstName) patch.basicFirst = p.firstName;
+    if (p.lastName) patch.basicLast = p.lastName;
+    if (p.gender) patch.aboutGender = p.gender;
+    if (p.email) patch.basicEmail = p.email;
+    if (p.pincode) patch.basicPin = p.pincode;
+    if (p.addressLine1) patch.optAddr1 = p.addressLine1;
+    if (p.addressLine2) patch.optAddr2 = p.addressLine2;
+    if (p.city) patch.optCity = p.city;
+    if (p.state) patch.optState = p.state;
+    if (p.district) patch.optDistrict = p.district;
+    const m = p.dob ? /^(\d{4})-(\d{2})-(\d{2})/.exec(p.dob) : null;
+    if (m) setDob({ y: +m[1], m: +m[2] - 1, d: +m[3] });
+    if (Object.keys(patch).length || m) setFromPan(true);
+    set({ ...patch, panPrefill: { ...hand, applied: true } });
+  }
+
   const onContinue = async () => {
+    // PAN comes first now — without a verified one, start from Step 1.
+    if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
     if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
     if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }
     if (!state.basicQualification) { showToast(t.basicValQual); return; }
@@ -139,6 +168,7 @@ export default function Basic() {
       const empSlug = state.basicEmp ? EMP_SLUG[state.basicEmp] : null;
       const incomeNum = state.basicIncome ? parseInt(state.basicIncome, 10) || 0 : null;
       const addr1 = state.optAddr1.trim();
+      const addr2 = state.optAddr2.trim();
       const city = state.optCity.trim();
       const st = state.optState.trim();
 
@@ -166,6 +196,7 @@ export default function Basic() {
       // Lender-required income mode + current address.
       if (state.optSalaryMode && state.optSalaryMode !== initial.salaryMode) patch.salaryMode = state.optSalaryMode;
       if (addr1 && addr1 !== initial.addressLine1) patch.addressLine1 = addr1;
+      if (addr2 && addr2 !== initial.addressLine2) patch.addressLine2 = addr2;
       if (city && city !== initial.city) patch.city = city;
       if (st && st !== initial.state) patch.state = st;
 
@@ -183,12 +214,13 @@ export default function Basic() {
 
       // Reuse the in-progress application already held in state (e.g. the user
       // went back and is re-submitting this screen) instead of inserting
-      // another row. PAN is attached later, on basicpan.tsx (the last step).
+      // another row. The Step 1 PAN is attached to it here (status pan_pending).
       let application: any;
       if (state.applicationId) {
         const { application: updated }: any = await api.updateApplication(state.applicationId, {
           amount: state.appAmount,
           tenureMonths: state.appTenure || 12,
+          panNumber: state.panNumber,
         });
         application = updated;
         mergeApiContext({ applicationUpdated: application });
@@ -200,6 +232,8 @@ export default function Basic() {
         });
         application = created;
         mergeApiContext({ applicationCreated: application });
+        const { application: withPan }: any = await api.updateApplication(created.id, { panNumber: state.panNumber });
+        application = withPan ?? created;
       }
       set({ applicationId: application.id });
       go('moredetails');
@@ -241,12 +275,14 @@ export default function Basic() {
       headerRight={<HeaderCta label={busy ? t.basicStarting : t.continueBtn} disabled={busy} onPress={onContinue} />}
     >
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={1} of={3} label={t.basicStepLabel} />
-        <StepDots total={3} active={1} />
+        <StepBadge step={2} of={3} label={t.basicStepLabel} />
+        <StepDots total={3} active={2} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.basicTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {t.basicSub}
         </Text>
+
+        {state.panPrefill ? <PanConfirmation info={state.panPrefill} prefilled={fromPan} /> : null}
 
         {/* Amount */}
         <View style={{ marginTop: 22 }}>
@@ -315,6 +351,7 @@ export default function Basic() {
           <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
           <Field label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
           <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
             <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
@@ -344,6 +381,49 @@ export default function Basic() {
   );
 }
 
+/** "30XXXXXXXX00" → "30XX XXXX XX00" (display only — it arrives already masked). */
+function formatMaskedAadhaar(m: string) {
+  return m.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '$1 ');
+}
+
+/** Confirmation of what the PAN lookup returned, shown at the top of this step. */
+function PanConfirmation({ info, prefilled }: { info: NonNullable<AppStateT['panPrefill']>; prefilled: boolean }) {
+  const t = useT();
+  const name = info.prefill.fullName;
+  const masked = info.prefill.maskedAadhaar;
+  const panMasked = `${info.pan.slice(0, 2)}XXXX${info.pan.slice(-4)}`;
+  return (
+    <View style={styles.panCard}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+        <View style={styles.panTick}><Icon name="verified" size={22} color="#fff" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 14, color: colors.text }]}>{t.panVerifiedCard}</Text>
+          {name ? <Text style={[font(600), { fontSize: 14, color: colors.text, marginTop: 1 }]} numberOfLines={1}>{name}</Text> : null}
+          <Text style={[font(500), { fontSize: 12, color: colors.textSoft, marginTop: 2, letterSpacing: 1.5 }]}>{panMasked}</Text>
+        </View>
+      </View>
+      {info.aadhaarLinked != null || masked ? (
+        <View style={styles.panChips}>
+          {info.aadhaarLinked != null ? (
+            <View style={[styles.panChip, info.aadhaarLinked ? { backgroundColor: 'rgba(47,177,131,0.15)' } : { backgroundColor: '#FCEFD9' }]}>
+              <Icon name="verified_user" size={14} color={info.aadhaarLinked ? colors.primary : '#B4740A'} />
+              <Text style={[font(700), { fontSize: 12, color: info.aadhaarLinked ? colors.primary : '#B4740A' }]}>
+                {info.aadhaarLinked ? t.aadhaarLinked : t.aadhaarNotLinked}
+              </Text>
+            </View>
+          ) : null}
+          {masked ? (
+            <View style={[styles.panChip, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line }]}>
+              <Text style={[font(600), { fontSize: 12, color: colors.text, letterSpacing: 1 }]}>{t.aadhaarLabel} {formatMaskedAadhaar(masked)}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+      {prefilled ? <Text style={[font(400), { fontSize: 12, color: colors.textSoft, marginTop: 10, lineHeight: 17 }]}>{t.panPrefilledNote}</Text> : null}
+    </View>
+  );
+}
+
 function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   return (
     <Text style={[font(600), { color: colors.textMid, fontSize: 13 }]}>
@@ -365,6 +445,10 @@ function RangeLabels({ min, max }: { min: string; max: string }) {
 }
 
 const styles = StyleSheet.create({
+  panCard: { marginTop: 18, borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)', backgroundColor: 'rgba(225,243,243,0.6)', borderRadius: 16, padding: 14 },
+  panTick: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
+  panChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.line },
+  panChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   dobBtn: {
     flexDirection: 'row',
     alignItems: 'center',

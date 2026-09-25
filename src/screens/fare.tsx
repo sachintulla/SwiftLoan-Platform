@@ -38,7 +38,7 @@ export default function MyOffers() {
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
-  const startApply = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
+  const startApply = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basicpan'); };
 
   // Tapping a tile applies inline via the shared handler. Removed from the
   // list, not just re-labelled — once applied, an offer is tracked in My

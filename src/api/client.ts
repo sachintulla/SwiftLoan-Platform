@@ -148,6 +148,34 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
   return data as T;
 }
 
+/** What PAN Comprehensive returned for Step 2's pre-fill (all optional). */
+export interface PanPrefill {
+  fullName?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  dob?: string; // YYYY-MM-DD
+  gender?: 'male' | 'female' | 'other';
+  email?: string;
+  /** Already masked by Aurix, e.g. 30XXXXXXXX00. */
+  maskedAadhaar?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface PanVerifyResult {
+  status: 'verified' | 'invalid';
+  verified: boolean;
+  aadhaarLinked: boolean | null;
+  prefill: PanPrefill;
+  message?: string;
+  source: 'cache' | 'aurix';
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public payload?: unknown) {
     super(message);
@@ -380,6 +408,14 @@ export const api = {
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
+
+  // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
+  // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.
+  // The server answers from its own PAN cache when it has seen this PAN
+  // before — calling this again for the same PAN never costs a second paid
+  // Aurix call. The server can wait up to 20s on Aurix, hence the timeout.
+  verifyPan: async (pan: string) =>
+    (await request<{ data: PanVerifyResult }>('POST', '/kyc/pan/verify', { pan }, false, 30000)).data,
 
   // Application funnel
   createApplication: (payload: { amount: number; tenureMonths?: number; loanType?: string }) =>

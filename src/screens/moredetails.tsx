@@ -8,7 +8,8 @@ import { useStore } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
 
 /**
- * "A few more details" — OPTIONAL enrichment screen shown after PAN. Everything
+ * "A few more details" — OPTIONAL enrichment screen, the last step (after
+ * PAN → details). Everything
  * here is skippable: better data can unlock more/better lender offers, but none
  * of it blocks the application. The Continue/Skip bar is pinned (Screen.footer)
  * so it's always reachable while the fields scroll.
@@ -66,7 +67,7 @@ export default function MoreDetails() {
     setBusy(true);
     const ok = await save();
     setBusy(false);
-    if (ok) go('basicpan');
+    if (ok) go('finding');
   };
 
   return (
@@ -75,15 +76,15 @@ export default function MoreDetails() {
         title={<View />}
         right={
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Pressable onPress={() => go('basicpan')} hitSlop={8} accessibilityRole="button">
+            <Pressable onPress={() => go('finding')} hitSlop={8} accessibilityRole="button">
               <Text style={[font(700), { fontSize: 14, color: colors.textSoft }]}>Skip</Text>
             </Pressable>
             <HeaderCta label={busy ? 'Saving…' : 'Continue'} disabled={busy} onPress={onContinue} />
           </View>
         }
       />
-      <StepBadge step={2} of={3} label="Optional" />
-      <StepDots total={3} active={2} />
+      <StepBadge step={3} of={3} label="Optional" />
+      <StepDots total={3} active={3} />
       <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>A few more details</Text>
       <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
         Optional — sharing a bit more can unlock better offers. You can skip and continue.
@@ -103,10 +104,9 @@ export default function MoreDetails() {
         <Field label="Alternate email (optional)" placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={state.optAltEmail} onChangeText={v => set({ optAltEmail: v })} />
       </View>
 
-      {/* Address (extra lines — line 1 / city / state captured on the previous step) */}
+      {/* Address (extra lines — line 1/2, city and state are on the details step) */}
       <SectionLabel text="Address (extra)" />
       <View style={{ gap: 14 }}>
-        <Field label="Address line 2" placeholder="Street, area" value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
         <Field label="Landmark" placeholder="Nearby landmark" value={state.optLandmark} onChangeText={v => set({ optLandmark: v })} />
         <Field label="District" placeholder="District" value={state.optDistrict} onChangeText={v => set({ optDistrict: v })} />
       </View>

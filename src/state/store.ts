@@ -11,7 +11,7 @@ import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
   trackLoanStep, trackInstall, fetchContext, setTokens, api,
   isAuthed,
-  type ContextPayload, type PriorInquiry, type UserContext,
+  type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill,
 } from '../api/client';
 import {
   loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
@@ -49,7 +49,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
-  applyforaloan: 'basic', apply: 'basic', applyloan: 'basic', newloan: 'basic',
+  applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
 
 /** Resolve a spoken/typed screen name to a canonical screen id, or null. */
@@ -83,7 +83,9 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 const PREV: Partial<Record<Screen, Screen>> = {
   privacy: 'splash', language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
   permissions: 'mobile', aboutyou: 'permissions',
-  basic: 'home', moredetails: 'basic', basicpan: 'moredetails', finding: 'basicpan',
+  // PAN first (it verifies identity + pre-fills the details step), then
+  // details, then the optional extras.
+  basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
   prequalify: 'consent',
   // Fallback only — back() dynamically returns offers to its actual origin
@@ -121,6 +123,10 @@ export interface AppState {
   optAddr1: string; optAddr2: string; optLandmark: string; optCity: string; optDistrict: string; optState: string;
   optSalaryMode: string; optObligations: string; optProfType: string; optCompanyEmail: string; optBusinessEmail: string;
   panConsent: boolean; panNumber: string;
+  // Step 1 → Step 2 hand-off: the verified PAN and what PAN Comprehensive
+  // returned for it. In memory only (personal data) — revisiting Step 1
+  // re-verifies from the server's PAN cache, which is free.
+  panPrefill: { pan: string; prefill: PanPrefill; aadhaarLinked: boolean | null; applied?: boolean } | null;
   // detailed application
   appAmount: number; appTenure: number; appEmp: string; appResidence: string;
   appConsent: boolean; autoDebit: boolean;
@@ -222,7 +228,7 @@ export const initialState: AppState = {
   optMarital: '', optAltMobile: '', optAltEmail: '',
   optAddr1: '', optAddr2: '', optLandmark: '', optCity: '', optDistrict: '', optState: '',
   optSalaryMode: '', optObligations: '', optProfType: '', optCompanyEmail: '', optBusinessEmail: '',
-  panConsent: false, panNumber: '',
+  panConsent: false, panNumber: '', panPrefill: null,
   appAmount: 150000, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
   appConsent: false, autoDebit: true,
   fareAmount: 150000, fareTenure: 24, fareRate: 16,
@@ -969,8 +975,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         },
       });
       trackEvent('funnel', 'agent_context_loaded', 'basic', { token, source: ctx.source });
-      // Continue the journey: land on the loan-application start, pre-filled.
-      dispatch({ type: 'go', screen: 'basic' });
+      // Continue the journey: land on the loan-application start (PAN
+      // first); the name carries through to the details step.
+      dispatch({ type: 'go', screen: 'basicpan' });
       showToast(ctx.greeting);
     };
 
