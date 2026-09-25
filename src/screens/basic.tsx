@@ -150,9 +150,14 @@ export default function Basic() {
   const onContinue = async () => {
     // PAN comes first now — without a verified one, start from Step 1.
     if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
+    if (!state.basicFirst.trim() || !state.basicLast.trim()) { showToast(t.basicValName); return; }
+    if (!dob) { showToast(t.basicValDob); return; }
+    if (!state.aboutGender) { showToast(t.basicValGender); return; }
     if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
     if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }
     if (!state.basicQualification) { showToast(t.basicValQual); return; }
+    if (!state.basicRes) { showToast(t.basicValRes); return; }
+    if (!state.basicEmp) { showToast(t.basicValEmp); return; }
     if (!state.optSalaryMode) { showToast(t.basicValSalary); return; }
     if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast(t.basicValAddr); return; }
     if (!isAuthed()) {
@@ -313,10 +318,10 @@ export default function Basic() {
         <SectionLabel text={t.basicPersonalSection} />
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Field label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
+            <Field required label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
           </View>
           <View style={{ flex: 1 }}>
-            <Field label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
+            <Field required label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
           </View>
         </View>
 

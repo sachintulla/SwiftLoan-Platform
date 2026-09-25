@@ -286,6 +286,7 @@ export function ConsentRow({
 export function Field({
   label,
   hint,
+  required,
   style,
   voiceId,
   value,
@@ -294,6 +295,8 @@ export function Field({
 }: {
   label?: string;
   hint?: string;
+  /** Renders a red asterisk after the label — visual only, doesn't gate anything itself. */
+  required?: boolean;
   voiceId?: string;
 } & React.ComponentProps<typeof TextInput>) {
   const id = voiceId || label || hint;
@@ -328,7 +331,12 @@ export function Field({
 
   return (
     <View style={{ gap: 6 }}>
-      {label ? <Text style={[font(600), styles.fieldLabel]}>{label}</Text> : null}
+      {label ? (
+        <Text style={[font(600), styles.fieldLabel]}>
+          {label}
+          {required ? <Text style={{ color: colors.red }}> *</Text> : null}
+        </Text>
+      ) : null}
       <TextInput
         placeholderTextColor={colors.muted}
         style={[styles.input, font(500), style as StyleProp<TextStyle>]}
