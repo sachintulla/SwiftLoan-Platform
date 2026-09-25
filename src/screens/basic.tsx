@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Chips, Slider, HeaderCta, StepBadge } from '../components/Controls';
-import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
+import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
@@ -153,6 +153,10 @@ export default function Basic() {
     if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
     if (!state.basicFirst.trim() || !state.basicLast.trim()) { showToast(t.basicValName); return; }
     if (!dob) { showToast(t.basicValDob); return; }
+    // Belt-and-suspenders: the calendar/voice paths already refuse to set an
+    // under-18 date, but this re-checks the final value rather than trusting
+    // it could only ever have arrived here through one of those.
+    if (!isAtLeastAge(dob)) { showToast(t.basicValAge); return; }
     if (!state.aboutGender) { showToast(t.basicValGender); return; }
     if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
     if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }

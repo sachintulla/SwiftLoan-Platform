@@ -7,6 +7,7 @@ import { ah, HttpError } from '../middleware/error.js';
 import { publicUser } from './auth.routes.js';
 import { presignAvatarUpload, s3Configured } from '../lib/s3.js';
 import { scoped } from '../lib/log.js';
+import { isAdult } from '../lib/age.js';
 
 const log = scoped('users');
 
@@ -51,7 +52,7 @@ const profilePatch = z.object({
   lastName: z.string().max(NAME_MAX).optional(),
   fullName: z.string().max(NAME_MAX * 2).optional(),
   email: z.string().email().max(EMAIL_MAX).optional(),
-  dob: z.string().datetime().optional(),
+  dob: z.string().datetime().refine(v => isAdult(new Date(v)), 'You must be at least 18 years old.').optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),
   pincode: z.string().regex(/^\d{6}$/).optional(),
   residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),

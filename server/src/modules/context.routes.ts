@@ -11,6 +11,7 @@ import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
 import { scoped } from '../lib/log.js';
+import { isAdult } from '../lib/age.js';
 
 const log = scoped('context');
 
@@ -326,6 +327,7 @@ contextSaveRouter.post('/', ah(async (req, res) => {
   if (typeof data.dob === 'string') {
     const d = new Date(data.dob);
     if (Number.isNaN(d.getTime())) return fail(res, 400, 'dob is not a valid date');
+    if (!isAdult(d)) return fail(res, 400, 'dob must belong to someone at least 18 years old');
     data.dob = d;
   }
   if (Object.keys(data).length === 0) return fail(res, 400, 'No fields to update');
