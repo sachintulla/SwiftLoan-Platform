@@ -4,7 +4,7 @@ import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font, rupee } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, isAuthed, Offer } from '../api/client';
 import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
@@ -13,13 +13,14 @@ import { useVoiceTarget } from '../voice/useVoiceTarget';
 // Statuses whose applications still carry showable offers.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
-/** "Updated just now / 5m ago / 2h ago / on 24 Aug" for the saved-offers timestamp. */
-function agoLabel(ts: number | null): string {
+/** "just now / 5m ago / 2h ago / on 24 Aug" for the saved-offers timestamp,
+ *  in the current language ('t' from useT()). */
+function agoLabel(ts: number | null, t: Record<string, string>): string {
   if (!ts) return '';
   const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 60_000) return t.agoJustNow;
+  if (diff < 3_600_000) return t.agoMinutesTemplate.replace('{n}', String(Math.floor(diff / 60_000)));
+  if (diff < 86_400_000) return t.agoHoursTemplate.replace('{n}', String(Math.floor(diff / 3_600_000)));
   return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
@@ -31,6 +32,7 @@ function agoLabel(ts: number | null): string {
  */
 export default function MyOffers() {
   const { state, set, mergeApiContext, go, showToast } = useStore();
+  const t = useT();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -122,9 +124,9 @@ export default function MyOffers() {
       {/* Header with top-right refresh */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={[font(800), styles.title]}>My Offers</Text>
+          <Text style={[font(800), styles.title]}>{t.myOffersTitle}</Text>
           <Text style={[font(400), styles.sub]}>
-            {hasOffers ? `${offers.length} saved · updated ${agoLabel(savedAt)}` : 'Your personalised loan offers'}
+            {hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
           </Text>
         </View>
         {/* "Recheck" only makes sense once there's an existing offer set to
@@ -136,11 +138,11 @@ export default function MyOffers() {
         {hasOffers && (
           <Pressable
             onPress={refresh}
-            accessibilityLabel="Recheck offers"
+            accessibilityLabel={t.recheckOffers}
             style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}
           >
             <Icon name="autorenew" size={19} color={colors.primary} />
-            <Text style={[font(700), styles.refreshLabel]}>Recheck offers</Text>
+            <Text style={[font(700), styles.refreshLabel]}>{t.recheckOffers}</Text>
           </Pressable>
         )}
       </View>
@@ -155,15 +157,15 @@ export default function MyOffers() {
             <Pressable
               onPress={() => go('compare')}
               accessibilityRole="button"
-              accessibilityLabel={`Compare all ${offers.length} offers`}
+              accessibilityLabel={t.compareAllOffersTemplate.replace('{n}', String(offers.length))}
               style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
             >
               <View style={styles.compareIcon}>
                 <Icon name="balance" size={20} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[font(700), styles.compareLabel]}>Compare all {offers.length} offers</Text>
-                <Text style={[font(500), styles.compareSub]}>EMI, interest & total cost side by side</Text>
+                <Text style={[font(700), styles.compareLabel]}>{t.compareAllOffersTemplate.replace('{n}', String(offers.length))}</Text>
+                <Text style={[font(500), styles.compareSub]}>{t.compareOffersSub}</Text>
               </View>
               <Icon name="chevron_right" size={22} color={colors.primary} />
             </Pressable>
@@ -175,7 +177,7 @@ export default function MyOffers() {
           </View>
           <View style={styles.moreRow}>
             <Icon name="auto_awesome" size={15} color={colors.primary} />
-            <Text style={[font(500), { fontSize: 12.5, color: colors.textMid }]}>More offers available. Keep checking for better matches.</Text>
+            <Text style={[font(500), { fontSize: 12.5, color: colors.textMid }]}>{t.moreOffersAvailable}</Text>
           </View>
         </>
       ) : (
@@ -191,10 +193,11 @@ export default function MyOffers() {
 
 /** My Offers card — the eligible/partner-lender offer tile (per design). */
 function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer) => void }) {
+  const t = useT();
   const name = displayLenderName(offer.lenderName || offer.partner?.name);
   const logoUri = offer.lenderLogoUrl || offer.partner?.logoUrl;
   const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
-  const disbursal = offer.partner?.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} hr` : 'Instant';
+  const disbursal = offer.partner?.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} ${t.hrSuffix}` : t.instantWord;
   const applied = offer.applied;
 
   // Same reasoning as offers.tsx's OfferCard (see its own comment): a bare
@@ -214,7 +217,7 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
     <View style={styles.card}>
       {/* Partner-lender pill floats over the divider on the right. */}
       <View style={[styles.partnerPill, applied && { backgroundColor: colors.greenDeep }]}>
-        <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]}>{applied ? 'Applied' : 'Partner lender'}</Text>
+        <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]}>{applied ? t.lenderStatusApplied : t.partnerLenderLabel}</Text>
       </View>
 
       {/* Header (inside the box): logo · name / high-match */}
@@ -231,7 +234,7 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
           {highMatch ? (
             <View style={styles.matchChip}>
               <Icon name="bolt" size={12} color={colors.greenDeep} />
-              <Text style={[font(700), { fontSize: 11, color: colors.greenDeep }]}>High match</Text>
+              <Text style={[font(700), { fontSize: 11, color: colors.greenDeep }]}>{t.highMatchLabel}</Text>
             </View>
           ) : null}
         </View>
@@ -243,13 +246,13 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
       <View>
         <View style={styles.amountRow}>
           <View style={{ flex: 1 }}>
-            <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>Eligible amount</Text>
+            <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>{t.eligibleAmount}</Text>
             <Text style={[font(800), styles.amount]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{rupee(offer.amount)}</Text>
           </View>
           <View style={styles.rateCol}>
             <View style={styles.rateIcon}><Icon name="percent" size={13} color={colors.primary} /></View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[font(500), { fontSize: 11, color: colors.textSoft }]}>Interest rate</Text>
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft }]}>{t.fareRateLabel}</Text>
               <Text style={[font(800), { fontSize: 15, color: colors.text, marginTop: 1 }]}>{offer.apr}% p.a.</Text>
             </View>
           </View>
@@ -257,24 +260,24 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
 
         <View style={styles.disbursalChip}>
           <Icon name="schedule" size={13} color={colors.greenDeep} />
-          <Text style={[font(700), { fontSize: 11.5, color: colors.greenDeep }]}>{disbursal} disbursal</Text>
+          <Text style={[font(700), { fontSize: 11.5, color: colors.greenDeep }]}>{disbursal} {t.disbursalSuffix}</Text>
         </View>
 
         <View style={styles.receipt}>
           <View style={{ flex: 1 }}>
-            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>Processing fee</Text>
+            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>{t.processingFeeLabel}</Text>
             <Text style={[font(700), { fontSize: 12.5, color: colors.text, marginTop: 1 }]} numberOfLines={1}>
               {rupee(offer.processingFeeAmount)} <Text style={{ color: colors.textSoft, fontSize: 11 }}>+ {rupee(offer.gstOnProcessingFee)} GST</Text>
             </Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>You receive</Text>
+            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>{t.youReceiveLabel}</Text>
             <Text style={[font(800), { fontSize: 14, color: colors.greenDeep, marginTop: 1 }]}>{rupee(offer.netDisbursalAmount)}</Text>
           </View>
         </View>
 
         <Pressable onPress={() => onSelect(offer)} style={styles.applyBtn}>
-          <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>{applied ? 'Apply Again' : (offer.redirectionUrl ? 'Apply Loan' : 'Select Offer')}</Text>
+          <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>{applied ? t.applyAgainLabel : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}</Text>
           <Icon name="arrow_forward" size={18} color="#fff" />
         </Pressable>
       </View>
@@ -298,6 +301,7 @@ function EmptyOffers({
   onRetry: () => void;
   offersError: string;
 }) {
+  const t = useT();
   const failed = !!offersError;
   return (
     <View style={styles.empty}>
@@ -305,30 +309,30 @@ function EmptyOffers({
         <Icon name={failed ? 'error' : 'local_offer'} size={40} color={colors.primary} />
       </View>
       <Text style={[font(800), { fontSize: 20, color: colors.text, marginTop: 18, textAlign: 'center' }]}>
-        {failed ? 'Couldn’t fetch offers' : 'No offers yet'}
+        {failed ? t.couldntFetchOffers : t.noOffersYet}
       </Text>
       <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
-        {offersError || 'Apply once and we’ll match you with personalised offers from our lending partners — they’ll be saved right here.'}
+        {offersError || t.fareEmptyMsgGeneric}
       </Text>
 
       {failed ? (
         <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
-          <PrimaryButton label="Retry" icon="refresh" onPress={onRetry} />
+          <PrimaryButton label={t.retryLabel} icon="refresh" onPress={onRetry} />
           <Pressable style={styles.updateBtn} onPress={onApply}>
             <Icon name="tune" size={18} color={colors.text} />
-            <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
+            <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>{t.updateDetailsRetry}</Text>
           </Pressable>
         </View>
       ) : (
         <>
           <View style={styles.benefits}>
-            <Benefit icon="bolt" text="Real offers in ~2 minutes" />
-            <Benefit icon="shield" text="Soft check — no impact on your credit score" />
-            <Benefit icon="storefront" text="Compare multiple partners in one place" />
+            <Benefit icon="bolt" text={t.benefitFast} />
+            <Benefit icon="shield" text={t.benefitSoftCheck} />
+            <Benefit icon="storefront" text={t.benefitCompare} />
           </View>
 
           <View style={{ width: '100%', marginTop: 22 }}>
-            <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={onApply} />
+            <PrimaryButton label={t.applyForLoan} icon="arrow_forward" onPress={onApply} />
           </View>
         </>
       )}

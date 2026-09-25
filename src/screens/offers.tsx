@@ -76,6 +76,7 @@ function SparkleButton({ label, onPress, accessibilityLabel }: { label: string; 
  */
 export function useOfferSelect(onApplied?: (offerId: string) => void) {
   const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
+  const t = useT();
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
     // A user can apply to the same lender more than once — but ONLY with a
     // different loan amount. Same lender + same amount is a duplicate: the
@@ -94,7 +95,7 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
           selectedOfferId: offer.id,
           selectedLenderApplicationId: res.lenderApplicationId ?? null,
         });
-        showToast(res.message || 'You’ve already applied to this lender for this amount.');
+        showToast(res.message || t.alreadyAppliedSameAmount);
         go('status');
         return;
       }
@@ -105,12 +106,12 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
     // link, else the handoff screen. If the user abandons/fails on the lender
     // page, lenderweb marks THIS application failed (via selectedLenderApplicationId).
     if (offer.redirectionUrl) {
-      set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || 'Complete your application' });
+      set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || t.completeApplicationTitle });
       go('lenderweb');
       return;
     }
     go('handoff');
-  }, [state.applicationId, set, mergeApiContext, go, onApplied, showToast, markUrgentContext]);
+  }, [state.applicationId, set, mergeApiContext, go, onApplied, showToast, markUrgentContext, t]);
 }
 
 export default function Offers() {
@@ -140,15 +141,15 @@ export default function Offers() {
           `${top.lenderName || top.partner?.name || 'a lending partner'}` +
           `${top.apr ? ` at ${top.apr}% p.a.` : ''}` +
           `${topEmi ? `, monthly EMI ${rupee(topEmi)}` : ''}.`
-        : (state.offersError || 'No offers were returned for this profile right now.');
+        : (state.offersError || t.noOffersReturned);
       set({ offersSummary: summary });
     } catch (e: any) {
-      setErr(e?.message || 'Could not load your offers.');
-      set({ offersSummary: 'There was a problem loading the offers.' });
+      setErr(e?.message || t.couldNotLoadOffers);
+      set({ offersSummary: t.offersLoadProblem });
     } finally {
       setLoading(false);
     }
-  }, [state.applicationId, state.offersError, set, mergeApiContext]);
+  }, [state.applicationId, state.offersError, set, mergeApiContext, t]);
 
   // Push the page-context update from an effect on the committed value, not
   // synchronously after set() above — set() dispatches to the store
@@ -182,14 +183,14 @@ export default function Offers() {
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.reviewOffers}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {offers.length > 0
-            ? `We found ${offers.length} partner${offers.length === 1 ? '' : 's'} matching your profile. Choose the best fit.`
-            : 'Start an application to see your personalised offers.'}
+            ? t.foundOffersTemplate.replace('{n}', String(offers.length))
+            : t.startApplicationPrompt}
         </Text>
 
         {/* CIBIL score is shown only on My Loans, not here (see bug #8). */}
 
         {loading ? (
-          <Loading label="Fetching your offers…" />
+          <Loading label={t.fetchingOffers} />
         ) : err ? (
           <ErrorState message={err} onRetry={load} />
         ) : offers.length === 0 ? (
@@ -198,24 +199,24 @@ export default function Offers() {
           // sense once real offers exist); instead the recovery actions lead.
           !state.applicationId ? (
             <View>
-              <Empty icon="description" title="No application yet" message="Apply for a loan first — we'll match you with partner offers once your details are in." />
+              <Empty icon="description" title={t.noApplicationTitle} message={t.noApplicationMsg} />
               <View style={{ marginTop: 8 }}>
-                <PrimaryButton label="Apply for a loan" icon="arrow_forward" onPress={() => go('basicpan')} />
+                <PrimaryButton label={t.applyForLoan} icon="arrow_forward" onPress={() => go('basicpan')} />
               </View>
             </View>
           ) : (
             <View>
               <Empty
                 icon={state.offersError ? 'error' : 'search_off'}
-                title={state.offersError ? 'Couldn’t fetch offers' : 'No offers yet'}
+                title={state.offersError ? t.couldntFetchOffers : t.noOffersYet}
                 // Show the offer API's own message verbatim (no hardcoded rephrasing).
-                message={state.offersError || "We couldn't match a partner to this profile. Try adjusting your amount."}
+                message={state.offersError || t.noOffersMsgGeneric}
               />
               <View style={{ gap: 10, marginTop: 8 }}>
-                <PrimaryButton label="Retry" icon="refresh" onPress={retry} />
+                <PrimaryButton label={t.retryLabel} icon="refresh" onPress={retry} />
                 <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
                   <Icon name="tune" size={18} color={colors.text} />
-                  <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update details & try again</Text>
+                  <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>{t.updateDetailsRetry}</Text>
                 </Pressable>
               </View>
             </View>
@@ -232,14 +233,14 @@ export default function Offers() {
             <View style={styles.info}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Icon name="info" size={18} color={colors.blue} />
-                <Text style={[font(700), { fontSize: 14, color: colors.text }]}>Offer Validity</Text>
+                <Text style={[font(700), { fontSize: 14, color: colors.text }]}>{t.offerValidityTitle}</Text>
               </View>
               <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 6 }]}>
-                These offers are based on your preliminary credit assessment. Final approval and terms are subject to verification by the respective lenders.
+                {t.offerValidityBody}
               </Text>
               <View style={{ gap: 6, marginTop: 10 }}>
-                <ValidRow text="Rates locked for 48 hours" />
-                <ValidRow text="No impact on credit score for comparison" />
+                <ValidRow text={t.ratesLocked48h} />
+                <ValidRow text={t.noImpactComparison} />
               </View>
             </View>
 
@@ -248,13 +249,13 @@ export default function Offers() {
               <View style={styles.flexIcon}>
                 <Icon name="payments" size={20} color={colors.primary} />
               </View>
-              <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 10 }]}>Flexible Adjustments</Text>
+              <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 10 }]}>{t.flexibleAdjustmentsTitle}</Text>
               <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 2 }]}>
-                Need a different amount or time frame? Adjust and refresh offers.
+                {t.flexibleAdjustmentsBody}
               </Text>
               <Pressable style={styles.updateBtn} onPress={() => go('basicpan')}>
                 <Icon name="tune" size={18} color={colors.text} />
-                <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>Update Details</Text>
+                <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>{t.updateDetailsBtn}</Text>
               </Pressable>
             </View>
           </>
@@ -264,15 +265,16 @@ export default function Offers() {
   );
 }
 
-// Friendly label for an applied lender's tracked status (shown on the tile).
-const LENDER_STATUS_LABEL: Record<string, string> = {
-  handoff: 'Applied',
-  under_review: 'Under review',
-  approved: 'Approved',
-  disbursed: 'Disbursed',
-  rejected: 'Rejected',
-  failed: 'Failed',
-  closed: 'Closed',
+// Friendly label key for an applied lender's tracked status (shown on the
+// tile) — resolved against the current language at render time.
+const LENDER_STATUS_KEY: Record<string, string> = {
+  handoff: 'lenderStatusApplied',
+  under_review: 'lenderStatusUnderReview',
+  approved: 'statusApproved',
+  disbursed: 'lenderStatusDisbursed',
+  rejected: 'statusRejected',
+  failed: 'statusFailed',
+  closed: 'statusClosed',
 };
 
 /**
@@ -326,8 +328,9 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
     [offer, selected],
   );
 
-  const badgeText = offer.badgeText || (offer.recommended ? 'Recommended' : null);
-  const appliedLabel = offer.applied ? (LENDER_STATUS_LABEL[offer.lenderStatus || 'handoff'] || 'Applied') : null;
+  const tt: Record<string, string> = t as any;
+  const badgeText = offer.badgeText || (offer.recommended ? t.recommendedBadge : null);
+  const appliedLabel = offer.applied ? (tt[LENDER_STATUS_KEY[offer.lenderStatus || 'handoff']] || t.lenderStatusApplied) : null;
 
   return (
     <View style={[styles.card, offer.recommended && styles.cardRecommended]}>
@@ -344,7 +347,7 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
               partner it came through is shown small underneath. */}
           <Text style={[font(800), { fontSize: 17, color: colors.text, letterSpacing: -0.2 }]} numberOfLines={1}>{lenderName}</Text>
           {offer.lenderName && offer.partner?.name ? (
-            <Text style={[font(500), { fontSize: 10.5, color: colors.muted, marginTop: 1 }]}>via {offer.partner.name}</Text>
+            <Text style={[font(500), { fontSize: 10.5, color: colors.muted, marginTop: 1 }]}>{t.viaPrefix} {offer.partner.name}</Text>
           ) : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
             {offer.applied ? (
@@ -356,13 +359,13 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
             {offer.offerLikelihood && offer.offerLikelihood !== '0' ? (
               <View style={styles.trustPill}>
                 <Icon name="bolt" size={11} color={colors.greenDeep} />
-                <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>High match</Text>
+                <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>{t.highMatchLabel}</Text>
               </View>
             ) : null}
             {offer.partner?.rbiApproved ? (
               <View style={styles.trustPill}>
                 <Icon name="verified" size={12} color={colors.greenDeep} />
-                <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>RBI Approved</Text>
+                <Text style={[font(700), { fontSize: 10.5, color: colors.greenDeep }]}>{t.rbiApprovedLabel}</Text>
               </View>
             ) : null}
             {offer.partner?.rating != null ? (
@@ -395,13 +398,13 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
               secondary interest/repayment figures rather than three equal columns. */}
           <View style={styles.emiHero}>
             <View>
-              <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>Monthly EMI</Text>
+              <Text style={[font(600), { fontSize: 11.5, color: colors.greenDeep }]}>{t.monthlyEmiLabel}</Text>
               <Text style={[font(800), { fontSize: 26, color: colors.primary, letterSpacing: -0.5, marginTop: 2 }]}>{rupee(selected!.monthlyEmi)}</Text>
             </View>
             <View style={styles.heroDiv} />
             <View style={{ flex: 1, gap: 8 }}>
-              <MiniStat label="Total interest" value={rupee(selected!.totalInterestPayable)} />
-              <MiniStat label="Total repayment" value={rupee(selected!.totalRepaymentAmount)} />
+              <MiniStat label={t.fareTotalInterest} value={rupee(selected!.totalInterestPayable)} />
+              <MiniStat label={t.totalRepaymentLabel} value={rupee(selected!.totalRepaymentAmount)} />
             </View>
           </View>
         </>
@@ -411,23 +414,23 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
         // that hasn't returned any options. Still shows what IS known —
         // amount/rate/disbursal — rather than an empty placeholder.
         <View style={styles.pendingBox}>
-          <Metric label="Eligible amount" value={rupee(offer.amount)} highlight />
-          <Metric label="Interest rate" value={`${offer.apr}% p.a.`} />
-          <Metric label="Disbursal time" value={offer.partner?.disbursalTimeHrs ? `${offer.partner?.disbursalTimeHrs} hr` : 'Instant'} />
+          <Metric label={t.eligibleAmount} value={rupee(offer.amount)} highlight />
+          <Metric label={t.fareRateLabel} value={`${offer.apr}% p.a.`} />
+          <Metric label={t.disbursalTimeLabel} value={offer.partner?.disbursalTimeHrs ? `${offer.partner?.disbursalTimeHrs} ${t.hrSuffix}` : t.instantWord} />
         </View>
       )}
 
       {/* Fee breakdown — a compact "receipt" strip rather than another metrics row. */}
       <View style={styles.receipt}>
         <View style={{ flex: 1 }}>
-          <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>Processing fee</Text>
+          <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>{t.processingFeeLabel}</Text>
           <Text style={[font(700), { fontSize: 13, color: colors.text, marginTop: 1 }]}>
             {rupee(offer.processingFeeAmount)} <Text style={{ color: colors.textSoft, fontSize: 11 }}>+ {rupee(offer.gstOnProcessingFee)} GST</Text>
           </Text>
         </View>
         <Icon name="arrow_forward" size={14} color={colors.muted} />
         <View style={{ flex: 1, alignItems: 'flex-end' }}>
-          <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>You receive</Text>
+          <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>{t.youReceiveLabel}</Text>
           <Text style={[font(800), { fontSize: 14, color: colors.greenDeep, marginTop: 1 }]}>{rupee(offer.netDisbursalAmount)}</Text>
         </View>
       </View>
@@ -443,13 +446,13 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
             page in the in-app WebView (or the handoff screen when there's no
             deep link). */}
         <SparkleButton
-          label={offer.applied ? 'Apply Again' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}
+          label={offer.applied ? t.applyAgainLabel : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}
           onPress={() => onSelect(offer, selected?.id)}
           // Includes the lender name — the offers screen can show several
           // cards at once, each with an otherwise-identical "Apply"/"Apply
           // Again" label; without this every card registered under the same
           // id and the agent could only ever reach the first one in the list.
-          accessibilityLabel={`${offer.applied ? 'Apply Again' : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)} — ${lenderName}`}
+          accessibilityLabel={`${offer.applied ? t.applyAgainLabel : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)} — ${lenderName}`}
         />
       </View>
     </View>

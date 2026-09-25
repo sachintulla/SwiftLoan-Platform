@@ -25,10 +25,10 @@ function initials(name: string) {
   return (name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('') || 'U').toUpperCase();
 }
 
-function formatDob(dob: string): string {
-  if (!dob) return 'Not set';
+function formatDob(dob: string, notSetLabel: string): string {
+  if (!dob) return notSetLabel;
   const d = new Date(dob);
-  if (Number.isNaN(d.getTime())) return 'Not set';
+  if (Number.isNaN(d.getTime())) return notSetLabel;
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -73,11 +73,11 @@ export default function Profile() {
     if (tapCount.current >= 5) {
       tapCount.current = 0;
       set({ voiceFabUnlocked: true });
-      showToast('Voice assistant unlocked');
+      showToast(t.voiceUnlocked);
       return;
     }
     tapTimer.current = setTimeout(() => { tapCount.current = 0; }, 1500);
-  }, [state.voiceFabUnlocked, set, showToast]);
+  }, [state.voiceFabUnlocked, set, showToast, t.voiceUnlocked]);
 
   // Load the profile from the backend (when signed in) and hydrate the store.
   const load = useCallback(async () => {
@@ -107,7 +107,7 @@ export default function Profile() {
         reset();
         return;
       }
-      setErr(e?.message || 'Could not load your profile.');
+      setErr(e?.message || t.couldNotLoadProfile);
     } finally {
       setLoading(false);
     }
@@ -143,7 +143,7 @@ export default function Profile() {
       mergeApiContext({ profileSaveResult: { ok: true } });
       markUrgentContext();
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : 'Could not save. Please try again.';
+      const message = e instanceof ApiError ? e.message : t.couldNotSaveRetry;
       showToast(message);
       mergeApiContext({ profileSaveResult: { ok: false, error: message } });
       markUrgentContext();
@@ -183,7 +183,7 @@ export default function Profile() {
       await api.setLanguage(code);
     } catch {
       set({ lang: prevLang });
-      showToast('Could not save your language. Please try again.');
+      showToast(t.couldNotSaveLanguage);
     }
   };
   const changeNotif = async (patch: Partial<{ loan: boolean; security: boolean; promo: boolean }>, on: boolean) => {
@@ -211,8 +211,8 @@ export default function Profile() {
   // user's own tap triggered it.
   const logout = async () => {
     const allowed = await requestConfirmation(
-      "Log out? You'll need to verify your mobile number again to sign back in.",
-      { confirmLabel: 'Log out', cancelLabel: 'Cancel' },
+      t.logoutConfirmMsg,
+      { confirmLabel: t.logout, cancelLabel: t.cancel },
     );
     if (!allowed) return;
     await api.logout().catch(() => {});
@@ -220,17 +220,17 @@ export default function Profile() {
   };
 
   const deleteAccount = async () => {
-    if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
+    if (!isAuthed()) { showToast(t.pleaseVerifyMobile); return; }
     const allowed = await requestConfirmation(
-      'Delete your account? This permanently removes your profile, applications, loans, and KYC records. This cannot be undone.',
-      { confirmLabel: 'Delete', cancelLabel: 'Cancel' },
+      t.deleteConfirmMsg,
+      { confirmLabel: t.deleteLabel, cancelLabel: t.cancel },
     );
     if (!allowed) return;
     try {
       await api.deleteAccount();
       reset();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not delete your account. Please try again.');
+      showToast(e instanceof ApiError ? e.message : t.couldNotDeleteAccount);
     }
   };
 
@@ -243,7 +243,7 @@ export default function Profile() {
       const user = await uploadAvatar(asset.uri, mime);
       set({ authUser: user });
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not upload photo. Please try again.');
+      showToast(e instanceof ApiError ? e.message : t.couldNotUploadPhoto);
     } finally {
       setAvatarBusy(false);
     }
@@ -254,40 +254,40 @@ export default function Profile() {
     try {
       const user = await api.updateProfile({ avatarUrl: null });
       set({ authUser: user });
-      showToast('Photo removed.');
+      showToast(t.photoRemoved);
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not remove photo. Please try again.');
+      showToast(e instanceof ApiError ? e.message : t.couldNotRemovePhoto);
     } finally {
       setAvatarBusy(false);
     }
   };
 
   const pickAvatar = () => {
-    if (!isAuthed()) { showToast('Please verify your mobile number first.'); return; }
+    if (!isAuthed()) { showToast(t.pleaseVerifyMobile); return; }
     const hasPhoto = !!state.authUser?.avatarUrl;
-    Alert.alert('Profile photo', undefined, [
+    Alert.alert(t.profilePhotoTitle, undefined, [
       {
-        text: hasPhoto ? 'Take New Photo' : 'Take Photo',
+        text: hasPhoto ? t.takeNewPhoto : t.takePhoto,
         onPress: () => launchCamera({ mediaType: 'photo', quality: 0.8 }, res => {
           if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
         }),
       },
       {
-        text: 'Choose from Library',
+        text: t.chooseFromLibrary,
         onPress: () => launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, res => {
           if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
         }),
       },
       // Delete option — only when a photo is actually set.
-      ...(hasPhoto ? [{ text: 'Remove Photo', style: 'destructive' as const, onPress: removeAvatar }] : []),
-      { text: 'Cancel', style: 'cancel' as const },
+      ...(hasPhoto ? [{ text: t.removePhoto, style: 'destructive' as const, onPress: removeAvatar }] : []),
+      { text: t.cancel, style: 'cancel' as const },
     ]);
   };
 
   if (loading) {
     return (
       <Screen scroll={false} bottomNav padded>
-        <Loading label="Loading your account…" />
+        <Loading label={t.loadingAccount} />
       </Screen>
     );
   }
@@ -341,7 +341,7 @@ export default function Profile() {
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Icon name="event_available" size={18} color={colors.mint} />
             <Text style={[font(600), { fontSize: 12, color: colors.textMid }]}>
-              {state.authUser?.createdAt ? `Member since ${new Date(state.authUser.createdAt).getFullYear()}` : ''}
+              {state.authUser?.createdAt ? t.memberSinceTemplate.replace('{n}', String(new Date(state.authUser.createdAt).getFullYear())) : ''}
             </Text>
           </View>
         </View>
@@ -362,7 +362,7 @@ export default function Profile() {
             <DetailRow label={t.fullName} value={state.pdName} accessibilityLabel={`${t.fullName}: ${state.pdName}`} />
             <DetailRow label={t.email} value={state.pdEmail} accessibilityLabel={`${t.email}: ${state.pdEmail}`} />
             <DetailRow label={t.phone} value={state.pdPhone} accessibilityLabel={`${t.phone}: ${state.pdPhone}`} />
-            <DetailRow label={t.dob} value={formatDob(state.pdDob)} accessibilityLabel={`${t.dob}: ${formatDob(state.pdDob)}`} last />
+            <DetailRow label={t.dob} value={formatDob(state.pdDob, t.notSet)} accessibilityLabel={`${t.dob}: ${formatDob(state.pdDob, t.notSet)}`} last />
           </View>
         ) : (
           <View style={{ gap: 14, marginTop: 12 }}>
