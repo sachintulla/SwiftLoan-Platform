@@ -6,6 +6,7 @@ import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { MID_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
 
 /**
  * "A few more details" — OPTIONAL enrichment screen, the last step (after
@@ -110,20 +111,20 @@ export default function MoreDetails() {
       <SectionLabel text={t.mdAltContact} />
       <View style={{ gap: 14 }}>
         <Field label={t.mdAltMobileLabel} placeholder={t.tenDigitPlaceholder} keyboardType="number-pad" maxLength={10} value={state.optAltMobile} onChangeText={v => set({ optAltMobile: v.replace(/\D/g, '').slice(0, 10) })} />
-        <Field label={t.mdAltEmailLabel} placeholder={t.emailPlaceholder} autoCapitalize="none" keyboardType="email-address" value={state.optAltEmail} onChangeText={v => set({ optAltEmail: v })} />
+        <Field label={t.mdAltEmailLabel} placeholder={t.emailPlaceholder} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.optAltEmail} onChangeText={v => set({ optAltEmail: v })} />
       </View>
 
       {/* Address (extra lines — line 1/2, city and state are on the details step) */}
       <SectionLabel text={t.mdAddrExtra} />
       <View style={{ gap: 14 }}>
-        <Field label={t.mdLandmarkLabel} placeholder={t.mdLandmarkPlaceholder} value={state.optLandmark} onChangeText={v => set({ optLandmark: v })} />
-        <Field label={t.mdDistrictLabel} placeholder={t.mdDistrictLabel} value={state.optDistrict} onChangeText={v => set({ optDistrict: v })} />
+        <Field label={t.mdLandmarkLabel} placeholder={t.mdLandmarkPlaceholder} maxLength={MID_MAX} value={state.optLandmark} onChangeText={v => set({ optLandmark: v })} />
+        <Field label={t.mdDistrictLabel} placeholder={t.mdDistrictLabel} maxLength={MID_MAX} value={state.optDistrict} onChangeText={v => set({ optDistrict: v })} />
       </View>
 
       {/* Income */}
       <SectionLabel text={t.mdIncomeSection} />
       <View style={{ gap: 12 }}>
-        <Field label={t.mdObligationsLabel} placeholder={t.mdObligationsPlaceholder} keyboardType="number-pad" value={state.optObligations} onChangeText={v => set({ optObligations: v })} />
+        <Field label={t.mdObligationsLabel} placeholder={t.mdObligationsPlaceholder} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.optObligations} onChangeText={v => set({ optObligations: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
       </View>
 
       <View style={{ height: 8 }} />

@@ -7,6 +7,7 @@ import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { NAME_MAX, EMAIL_MAX } from '../utils/inputLimits';
 
 export default function AboutYou() {
   const { state, set, go, showToast } = useStore();
@@ -101,6 +102,7 @@ export default function AboutYou() {
           <Field
             label={t.aboutNameLabel}
             placeholder={t.aboutNamePlaceholder}
+            maxLength={NAME_MAX * 2}
             value={state.aboutName}
             onChangeText={v => set({ aboutName: v })}
           />
@@ -146,6 +148,7 @@ export default function AboutYou() {
             placeholder={t.emailPlaceholder}
             autoCapitalize="none"
             keyboardType="email-address"
+            maxLength={EMAIL_MAX}
             value={state.basicEmail}
             onChangeText={v => set({ basicEmail: v })}
           />

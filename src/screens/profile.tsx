@@ -10,6 +10,7 @@ import { ErrorState } from '../components/common/ErrorState';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
+import { NAME_MAX, EMAIL_MAX } from '../utils/inputLimits';
 import { requestConfirmation } from '../voice/ui/confirmationBridge';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
@@ -366,9 +367,9 @@ export default function Profile() {
           </View>
         ) : (
           <View style={{ gap: 14, marginTop: 12 }}>
-            <Field label={t.fullName} value={state.pdName} onChangeText={v => set({ pdName: v })} />
-            <Field label={t.email} value={state.pdEmail} onChangeText={v => set({ pdEmail: v })} autoCapitalize="none" />
-            <Field label={t.phone} value={state.pdPhone} onChangeText={v => set({ pdPhone: v })} />
+            <Field label={t.fullName} maxLength={NAME_MAX * 2} value={state.pdName} onChangeText={v => set({ pdName: v })} />
+            <Field label={t.email} maxLength={EMAIL_MAX} value={state.pdEmail} onChangeText={v => set({ pdEmail: v })} autoCapitalize="none" />
+            <Field label={t.phone} maxLength={15} value={state.pdPhone} onChangeText={v => set({ pdPhone: v })} />
             <View style={{ gap: 6 }}>
               <Text style={[font(600), { color: colors.textMid, fontSize: 13 }]}>{t.dobLabel}</Text>
               <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>

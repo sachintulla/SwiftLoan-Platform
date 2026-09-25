@@ -8,6 +8,7 @@ import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
 const RES_TYPE_SLUG: Record<string, string> = { Own: 'own', Rented: 'rented', Family: 'family', Company: 'company' };
@@ -318,10 +319,10 @@ export default function Basic() {
         <SectionLabel text={t.basicPersonalSection} />
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Field required label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
           </View>
           <View style={{ flex: 1 }}>
-            <Field required label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
           </View>
         </View>
 
@@ -353,13 +354,13 @@ export default function Basic() {
         {/* Contact & address */}
         <SectionLabel text={t.basicContactSection} />
         <View style={{ gap: 16 }}>
-          <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
+          <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
           <Field label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
-          <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
-          <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
+          <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} maxLength={ADDR_MAX} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
-            <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
+            <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} maxLength={MID_MAX} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
+            <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} maxLength={MID_MAX} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
           </View>
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicResLabel} required />
@@ -372,12 +373,12 @@ export default function Basic() {
         <View style={{ gap: 12 }}>
           <FieldLabel text={t.basicEmpLabel} required />
           <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
-          <Field label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" value={state.basicIncome} onChangeText={v => set({ basicIncome: v })} />
+          <Field label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicSalaryModeLabel} required />
             <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
           </View>
-          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
+          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
         <View style={{ height: 8 }} />

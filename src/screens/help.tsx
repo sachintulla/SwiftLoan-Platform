@@ -21,7 +21,7 @@ export default function Help() {
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text }]}>{t.helpTitle}</Text>
         <View style={styles.search}>
           <Icon name="search" size={20} color={colors.muted} />
-          <TextInput style={[styles.searchInput, font(500)]} placeholder={t.searchPlaceholder} placeholderTextColor={colors.muted} />
+          <TextInput style={[styles.searchInput, font(500)]} placeholder={t.searchPlaceholder} placeholderTextColor={colors.muted} maxLength={100} />
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
           <Text style={[font(600), { fontSize: 12, color: colors.textSoft, alignSelf: 'center' }]}>{t.popular}</Text>
