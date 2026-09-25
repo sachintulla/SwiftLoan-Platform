@@ -10,7 +10,7 @@ import { ErrorState } from '../components/common/ErrorState';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
-import { NAME_MAX, EMAIL_MAX } from '../utils/inputLimits';
+import { NAME_MAX, EMAIL_MAX, sanitizeNameInput, cleanName } from '../utils/inputLimits';
 import { requestConfirmation } from '../voice/ui/confirmationBridge';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
@@ -121,7 +121,7 @@ export default function Profile() {
     if (!isAuthed()) { set({ pdEdit: false }); return; }
     try {
       const { user }: any = await api.updateProfile({
-        fullName: state.pdName,
+        fullName: cleanName(state.pdName),
         email: state.pdEmail,
         ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
       });
@@ -367,7 +367,7 @@ export default function Profile() {
           </View>
         ) : (
           <View style={{ gap: 14, marginTop: 12 }}>
-            <Field label={t.fullName} maxLength={NAME_MAX * 2} value={state.pdName} onChangeText={v => set({ pdName: v })} />
+            <Field label={t.fullName} maxLength={NAME_MAX * 2} value={state.pdName} onChangeText={v => set({ pdName: sanitizeNameInput(v) })} onBlur={() => set({ pdName: cleanName(state.pdName) })} />
             <Field label={t.email} maxLength={EMAIL_MAX} value={state.pdEmail} onChangeText={v => set({ pdEmail: v })} autoCapitalize="none" />
             <Field label={t.phone} maxLength={15} value={state.pdPhone} onChangeText={v => set({ pdPhone: v })} />
             <View style={{ gap: 6 }}>

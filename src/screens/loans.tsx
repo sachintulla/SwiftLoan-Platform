@@ -134,9 +134,14 @@ export default function Loans() {
         const internal = INTERNAL_STATUS_META[la.internalStatus] || INTERNAL_STATUS_META.just_applied;
         const isDisbursedLoan = la.status === 'disbursed' && app.loan;
         const apr = la.apr ?? app.loan?.apr ?? null;
-        const midMetric = isDisbursedLoan
+        // `> 0`, not just `!= null` — a lender that hasn't priced this yet can
+        // carry `emi: 0` rather than null/undefined, and `rupee(0)` rendered
+        // as a real-looking "₹0" instead of falling through to the interest
+        // rate (or, failing that, the status) the way an actually-unpriced
+        // application already does.
+        const midMetric = isDisbursedLoan && app.loan.emiAmount > 0
           ? { label: t.metricNextEmi, value: rupee(app.loan.emiAmount) }
-          : la.emi != null
+          : la.emi != null && la.emi > 0
             ? { label: t.metricEmi, value: rupee(la.emi) }
             : apr != null
               ? { label: t.metricInterest, value: `${apr}% p.a.` }
@@ -178,7 +183,7 @@ export default function Loans() {
         const statusText = meta ? statusLabel(meta.key, st) : st;
         const statusColor = meta?.color || colors.muted;
         const apr = app.loan?.apr ?? o.apr ?? o.roi ?? null;
-        const midMetric = app.loan
+        const midMetric = app.loan && app.loan.emiAmount > 0
           ? { label: t.metricNextEmi, value: rupee(app.loan.emiAmount) }
           : apr != null
             ? { label: t.metricInterest, value: `${apr}% p.a.` }
@@ -224,7 +229,9 @@ export default function Loans() {
           updatedPrefix={t.updatedPrefix}
           metrics={[
             { label: t.metricAmount, value: rupee(app.amount) },
-            { label: t.metricNextEmi, value: rupee(app.loan.emiAmount) },
+            app.loan.emiAmount > 0
+              ? { label: t.metricNextEmi, value: rupee(app.loan.emiAmount) }
+              : { label: t.metricStatus, value: statusText },
           ]}
           onPress={() => open(app)}
         />

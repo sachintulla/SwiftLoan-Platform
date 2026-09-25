@@ -46,18 +46,31 @@ const NAME_MAX = 60, MID_MAX = 100, ADDR_MAX = 300, EMAIL_MAX = 254;
 // income/obligations/draft amount aren't loan amounts themselves but should
 // never approach Postgres's 32-bit Int column limit (~2.1bn) either.
 const MONEY_MAX = 999_999_999;
+// A PAN-card name is always Latin script regardless of the app's own display
+// language — letters, spaces, and the punctuation real names legitimately use
+// (O'Brien, Anne-Marie, "A. Rahul"). No digits, emoji, or symbols. `.trim()`
+// also closes the "saved with stray leading/trailing spaces" gap — the app's
+// own onBlur handler already trims, but this is the boundary that actually
+// matters for a caller that skips the app.
+const NAME_RE = /^[A-Za-z '.-]+$/;
+const nameField = (max: number) => z.string().trim().min(1).max(max).regex(NAME_RE, 'Only letters, spaces, apostrophes, hyphens and dots are allowed');
+// Real monthly incomes for a loan applicant; rejects the 0 / 100 / 1000
+// "technically a number but not a real income" cases outright.
+const MONTHLY_INCOME_MIN = 5000;
 
 const profilePatch = z.object({
-  firstName: z.string().max(NAME_MAX).optional(),
-  lastName: z.string().max(NAME_MAX).optional(),
-  fullName: z.string().max(NAME_MAX * 2).optional(),
+  firstName: nameField(NAME_MAX).optional(),
+  lastName: nameField(NAME_MAX).optional(),
+  fullName: nameField(NAME_MAX * 2).optional(),
   email: z.string().email().max(EMAIL_MAX).optional(),
   dob: z.string().datetime().refine(v => isAdult(new Date(v)), 'You must be at least 18 years old.').optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),
-  pincode: z.string().regex(/^\d{6}$/).optional(),
+  // Indian PIN codes are exactly 6 digits and never start with 0 (the first
+  // digit is a postal zone, 1–9) — matches src/utils/inputLimits.ts's PINCODE_RE.
+  pincode: z.string().regex(/^[1-9]\d{5}$/, 'pincode must be a valid 6-digit Indian PIN code').optional(),
   residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
   employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
-  monthlyIncome: z.number().int().nonnegative().max(MONEY_MAX).optional(),
+  monthlyIncome: z.number().int().min(MONTHLY_INCOME_MIN, `monthlyIncome must be at least ${MONTHLY_INCOME_MIN}`).max(MONEY_MAX).optional(),
   company: z.string().max(MID_MAX).optional(),
   panNumber: panSchema.optional(),
   // Aurix applicant fields collected across the PAN / details / optional screens.

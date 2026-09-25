@@ -7,7 +7,7 @@ import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
-import { NAME_MAX, EMAIL_MAX } from '../utils/inputLimits';
+import { NAME_MAX, EMAIL_MAX, sanitizeNameInput, cleanName } from '../utils/inputLimits';
 
 export default function AboutYou() {
   const { state, set, go, showToast } = useStore();
@@ -104,7 +104,8 @@ export default function AboutYou() {
             placeholder={t.aboutNamePlaceholder}
             maxLength={NAME_MAX * 2}
             value={state.aboutName}
-            onChangeText={v => set({ aboutName: v })}
+            onChangeText={v => set({ aboutName: sanitizeNameInput(v) })}
+            onBlur={() => set({ aboutName: cleanName(state.aboutName) })}
           />
 
           <View style={{ gap: 6 }}>

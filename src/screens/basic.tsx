@@ -8,7 +8,10 @@ import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
-import { NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
+import {
+  NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
+  PINCODE_RE, sanitizeNameInput, cleanName,
+} from '../utils/inputLimits';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
 const RES_TYPE_SLUG: Record<string, string> = { Own: 'own', Rented: 'rented', Family: 'family', Company: 'company' };
@@ -34,15 +37,25 @@ export default function Basic() {
   // on the screen, and avoids racing an in-flight lookup with a newer one if
   // the user keeps editing.
   const lastLookedUpPinRef = useRef<string | null>(null);
+  // Set once a lookup actually finds the pincode, so onContinue can cross-check
+  // whatever the user typed/edited into city/state against real postal data —
+  // never set on a network failure, so a flaky connection can't block Continue.
+  const pinLookupRef = useRef<{ city: string; state: string } | null>(null);
+  // Shown under the pincode field: a same-digit/leading-zero format problem
+  // (checked locally, no network) or "not found" (a real lookup that came
+  // back with no match) — a network hiccup shows nothing, same as before.
+  const [pinError, setPinError] = useState<string | null>(null);
 
-  // Auto-fill city/state from the pincode once it's a complete 6-digit code,
-  // via India Post's public Pincode API (free, no key). Best-effort only —
-  // an unmatched/invalid pincode or a network hiccup must never block typing
-  // or show an error; the user can still fill city/state by hand either way.
+  // Validate + auto-fill city/state from the pincode once it's a complete
+  // 6-digit code, via India Post's public Pincode API (free, no key). A
+  // network hiccup must never block typing; an actually-invalid code does.
   useEffect(() => {
     const pin = state.basicPin;
     if (pin.length !== 6 || pin === lastLookedUpPinRef.current) return;
     lastLookedUpPinRef.current = pin;
+    pinLookupRef.current = null;
+    if (!PINCODE_RE.test(pin)) { setPinError(t.basicValPin); return; }
+    setPinError(null);
     let cancelled = false;
     (async () => {
       try {
@@ -52,11 +65,14 @@ export default function Basic() {
         clearTimeout(timer);
         const json = await res.json();
         const po = json?.[0]?.PostOffice?.[0];
-        if (cancelled || !po) return;
+        if (cancelled) return;
+        if (!po) { setPinError(t.pinNotFound); return; }
         if (po.District) set({ optCity: po.District });
         if (po.State) set({ optState: po.State });
+        pinLookupRef.current = { city: po.District ?? '', state: po.State ?? '' };
       } catch {
-        // Silently ignore — city/state stay editable by hand.
+        // Silently ignore — city/state stay editable by hand, and onContinue
+        // has nothing to cross-check against since pinLookupRef stays null.
       }
     })();
     return () => { cancelled = true; };
@@ -165,6 +181,25 @@ export default function Basic() {
     if (!state.basicEmp) { showToast(t.basicValEmp); return; }
     if (!state.optSalaryMode) { showToast(t.basicValSalary); return; }
     if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast(t.basicValAddr); return; }
+    if (!PINCODE_RE.test(state.basicPin)) { showToast(t.basicValPin); return; }
+    const incomeCheck = parseInt(state.basicIncome, 10);
+    if (!state.basicIncome || !Number.isFinite(incomeCheck) || incomeCheck < MONTHLY_INCOME_MIN) {
+      showToast(t.basicValIncome);
+      return;
+    }
+    // The last successful pincode lookup is the one source of truth for what
+    // city/state that pincode actually belongs to — if the user has since
+    // hand-edited either away from it, stop rather than save a mismatched
+    // address. Skipped entirely when the lookup never resolved (network down
+    // / not yet run) so this never blocks on something outside our control.
+    if (pinLookupRef.current?.state && cleanName(state.optState).toLowerCase() !== pinLookupRef.current.state.toLowerCase()) {
+      showToast(t.pinStateMismatch);
+      return;
+    }
+    if (pinLookupRef.current?.city && cleanName(state.optCity).toLowerCase() !== pinLookupRef.current.city.toLowerCase()) {
+      showToast(t.pinCityMismatch);
+      return;
+    }
     if (!isAuthed()) {
       showToast(t.basicValMobile);
       go('mobile');
@@ -172,11 +207,16 @@ export default function Basic() {
     }
     setBusy(true);
     try {
-      const fullName = [state.basicFirst, state.basicLast].filter(Boolean).join(' ').trim();
+      // Cleaned once here (trim + collapse internal whitespace) — the
+      // onChangeText filter already keeps out anything but letters/space/
+      // '.-, so this only ever touches leading/trailing/doubled spaces.
+      const first = cleanName(state.basicFirst);
+      const last = cleanName(state.basicLast);
+      const fullName = [first, last].filter(Boolean).join(' ');
       const dobIso = dob ? new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() : null;
       const resSlug = state.basicRes ? RES_TYPE_SLUG[state.basicRes] : null;
       const empSlug = state.basicEmp ? EMP_SLUG[state.basicEmp] : null;
-      const incomeNum = state.basicIncome ? parseInt(state.basicIncome, 10) || 0 : null;
+      const incomeNum = Number.isFinite(incomeCheck) ? incomeCheck : null;
       const addr1 = state.optAddr1.trim();
       const addr2 = state.optAddr2.trim();
       const city = state.optCity.trim();
@@ -189,8 +229,8 @@ export default function Basic() {
       // the voice agent already saved it.
       const initial = initialUserRef.current || {};
       const patch: Record<string, unknown> = {};
-      if (state.basicFirst && state.basicFirst !== initial.firstName) patch.firstName = state.basicFirst;
-      if (state.basicLast && state.basicLast !== initial.lastName) patch.lastName = state.basicLast;
+      if (first && first !== initial.firstName) patch.firstName = first;
+      if (last && last !== initial.lastName) patch.lastName = last;
       if (fullName && fullName !== initial.fullName) patch.fullName = fullName;
       if (state.basicEmail && state.basicEmail !== initial.email) patch.email = state.basicEmail;
       if (dobIso && dobIso !== (initial.dob ? new Date(initial.dob).toISOString() : null)) patch.dob = dobIso;
@@ -323,10 +363,10 @@ export default function Basic() {
         <SectionLabel text={t.basicPersonalSection} />
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Field required maxLength={NAME_MAX} label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: sanitizeNameInput(v) })} onBlur={() => set({ basicFirst: cleanName(state.basicFirst) })} />
           </View>
           <View style={{ flex: 1 }}>
-            <Field required maxLength={NAME_MAX} label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: sanitizeNameInput(v) })} onBlur={() => set({ basicLast: cleanName(state.basicLast) })} />
           </View>
         </View>
 
@@ -359,7 +399,8 @@ export default function Basic() {
         <SectionLabel text={t.basicContactSection} />
         <View style={{ gap: 16 }}>
           <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
-          <Field label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+          <Field required label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+          {pinError ? <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: -10 }]}>{pinError}</Text> : null}
           <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
           <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} maxLength={ADDR_MAX} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -377,7 +418,7 @@ export default function Basic() {
         <View style={{ gap: 12 }}>
           <FieldLabel text={t.basicEmpLabel} required />
           <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
-          <Field label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
+          <Field required label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicSalaryModeLabel} required />
             <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />

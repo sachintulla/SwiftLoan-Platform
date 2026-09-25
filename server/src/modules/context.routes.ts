@@ -258,18 +258,22 @@ const CONTEXT_SAVE_KEY_MAP: Record<string, string> = { loanAmount: 'draftLoanAmo
 // rather than relying on the calling tool behaving.
 const NAME_MAX = 60, MID_MAX = 100, ADDR_MAX = 300, EMAIL_MAX = 254;
 const MONEY_MAX = 999_999_999;
+// Same charset/income-floor reasoning as users.routes.ts's profilePatch —
+// both write the same columns, so both need the same guardrails.
+const NAME_RE = /^[A-Za-z '.-]+$/;
+const MONTHLY_INCOME_MIN = 5000;
 const contextSaveFields = z.object({
-  fullName: z.string().max(NAME_MAX * 2).optional(),
+  fullName: z.string().trim().min(1).max(NAME_MAX * 2).regex(NAME_RE, 'fullName must be letters, spaces, apostrophes, hyphens and dots only').optional(),
   email: z.string().email().max(EMAIL_MAX).optional(),
   // Deliberately looser than profilePatch's `z.string().datetime()` — a voice
   // tool is far more likely to produce a bare "1995-05-20" than a full
   // ISO-8601 timestamp; normalized with `new Date()` below instead.
   dob: z.string().max(40).optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),
-  pincode: z.string().regex(/^\d{6}$/).optional(),
+  pincode: z.string().regex(/^[1-9]\d{5}$/, 'pincode must be a valid 6-digit Indian PIN code').optional(),
   residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
   employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
-  monthlyIncome: z.number().int().nonnegative().max(MONEY_MAX).optional(),
+  monthlyIncome: z.number().int().min(MONTHLY_INCOME_MIN).max(MONEY_MAX).optional(),
   company: z.string().max(MID_MAX).optional(),
   qualification: z.string().max(MID_MAX).optional(),
   maritalStatus: z.string().max(MID_MAX).optional(),
