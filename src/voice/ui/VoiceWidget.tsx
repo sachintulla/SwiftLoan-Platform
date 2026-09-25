@@ -161,17 +161,17 @@ function RobotHead() {
  */
 const RIBBONS: { k: number; speed: number; phase: number; width: number; color: string; opacity: number }[] = [
   // App theme: primary teal, mint, and a light aqua tint of the primary.
-  { k: 5, speed: 1.0, phase: 0, width: 7, color: colors.primary, opacity: 0.26 },
-  { k: 6, speed: -1.35, phase: 1.3, width: 4.5, color: colors.mint, opacity: 0.42 },
-  { k: 4, speed: 0.8, phase: 2.6, width: 3.5, color: colors.primary, opacity: 0.4 },
-  { k: 7, speed: -1.1, phase: 4.1, width: 2.5, color: '#7FD6D0', opacity: 0.55 },
+  { k: 5, speed: 1.0, phase: 0, width: 5, color: colors.primary, opacity: 0.28 },
+  { k: 6, speed: -1.35, phase: 1.3, width: 3.5, color: colors.mint, opacity: 0.45 },
+  { k: 4, speed: 0.8, phase: 2.6, width: 2.8, color: colors.primary, opacity: 0.42 },
+  { k: 7, speed: -1.1, phase: 4.1, width: 2, color: '#7FD6D0', opacity: 0.55 },
 ];
 
 const MOTION: Record<'connecting' | 'listening' | 'speaking' | 'executingTool', { amp: number; tempo: number; spin: number }> = {
-  connecting: { amp: 1.2, tempo: 0.6, spin: 1.2 },
-  listening: { amp: 3.2, tempo: 0.9, spin: 0.25 },
-  speaking: { amp: 6.5, tempo: 2.4, spin: 0.5 },
-  executingTool: { amp: 2.6, tempo: 1.1, spin: 0.35 },
+  connecting: { amp: 0.8, tempo: 0.6, spin: 1.2 },
+  listening: { amp: 2.2, tempo: 0.9, spin: 0.25 },
+  speaking: { amp: 4.2, tempo: 2.4, spin: 0.5 },
+  executingTool: { amp: 1.8, tempo: 1.1, spin: 0.35 },
 };
 
 /** Closed wavy loop: r(θ) = R + A·sin(kθ + φ), sampled finely enough to read as a smooth curve. */
@@ -188,7 +188,7 @@ function wavyPath(cx: number, cy: number, R: number, A: number, k: number, phase
   return d + 'Z';
 }
 
-function SiriGlow({ status }: { status: AgentStatus }) {
+function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.AnimatedInterpolation<number> | Animated.Value }) {
   const live = status !== 'idle' && status !== 'ended';
   const show = useRef(new Animated.Value(0)).current;
   const [t, setT] = useState(0);
@@ -228,11 +228,13 @@ function SiriGlow({ status }: { status: AgentStatus }) {
   const tool = status === 'executingTool';
   const S = GLOW_SIZE;
   const c = S / 2;
-  const R = FAB_SIZE / 2 + 13;
+  // Geometry is in the ball's base (floating) size; the whole ring is then
+  // scaled with the ball (see `scale`), so it hugs it at every size.
+  const R = FAB_SIZE / 2 + 5;
   const beat = 1 + (status === 'speaking' ? 0.08 : 0.03) * Math.sin(t * (status === 'speaking' ? 7 : 2.4));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show }]}>
+    <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show, transform: [{ scale }] }]}>
       <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: beat }] }]} />
       <Svg width={S} height={S}>
         <Defs>
@@ -608,7 +610,9 @@ export default function VoiceWidget() {
           pointerEvents="none"
           style={[styles.entranceBurst, { opacity: burstOpacity, transform: [{ scale: burstScale }] }]}
         />
-        <SiriGlow status={status} />
+        {/* Same size transform as the ball (notch 70pt ⇄ floating 50/60pt),
+            so the ring shrinks and grows with it instead of staying notch-sized. */}
+        <SiriGlow status={status} scale={Animated.multiply(sizeScale, entranceScale)} />
         {/* Call panel — status/timer + mic/end-call. Only exists during a live
             call; grows directly out of the FAB circle it's anchored to
             (transformOrigin), horizontally when the FAB floats at a screen
@@ -682,8 +686,9 @@ const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
 const NOTCH_SCALE = 70 / FAB_SIZE;
 const MIC_ICON_SIZE = Platform.OS === 'ios' ? 21 : 25;
 const HALO_SIZE = FAB_SIZE + 20;
-// Canvas for the in-call liquid ring (ribbons reach ~FAB radius + 22).
-const GLOW_SIZE = FAB_SIZE + 52;
+// Canvas for the in-call liquid ring at base size (ribbons reach ~FAB radius + 12);
+// scaled together with the ball.
+const GLOW_SIZE = FAB_SIZE + 32;
 const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
 const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
 // The panel's "cross-axis" size: its height when horizontal, its width when
@@ -694,7 +699,7 @@ const CALL_BTN_SIZE = 38;
 const styles = StyleSheet.create({
   glowWrap: { position: 'absolute', width: GLOW_SIZE, height: GLOW_SIZE, alignItems: 'center', justifyContent: 'center' },
   glowBlob: {
-    position: 'absolute', width: FAB_SIZE + 18, height: FAB_SIZE + 18, borderRadius: (FAB_SIZE + 18) / 2,
+    position: 'absolute', width: FAB_SIZE + 12, height: FAB_SIZE + 12, borderRadius: (FAB_SIZE + 12) / 2,
     backgroundColor: 'rgba(7,159,160,0.14)', // primary, soft
     shadowOpacity: 0.85, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 0,
   },
