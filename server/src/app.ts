@@ -8,6 +8,8 @@ import { env } from './config/env.js';
 import { notFound, errorHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
 import { debugHttpLog } from './lib/debugHttpLog.js';
+import { apiLogMiddleware } from './lib/apiLog.js';
+import { logsRouter } from './modules/logs.routes.js';
 
 import { authRouter } from './modules/auth.routes.js';
 import { usersRouter } from './modules/users.routes.js';
@@ -79,6 +81,9 @@ export function createApp() {
   // Opt-in full request/response body logging — see debugHttpLog.ts for why
   // this is off unless DEBUG_HTTP_LOGS=true is explicitly set.
   if (env.debugHttpLogs) app.use(debugHttpLog());
+  // Persist every inbound request/response to the ApiLog table (24h retention)
+  // for the internal /logs page. Redacted + fire-and-forget — see lib/apiLog.ts.
+  app.use(apiLogMiddleware());
 
   // ── Rate limiting ──
   // Previously only the two auth routes were throttled, which left every public
@@ -177,6 +182,12 @@ export function createApp() {
   app.use('/api/context/save', limiter(60_000, 120, 'Too many context save requests'), contextSaveRouter);
   app.use('/api/context', leadLimiter, contextRouter);
   app.use('/api/config', configRouter); // PUBLIC — app fetches admin-tuned config
+
+  // Internal API-traffic viewer (last 24h of app↔API and API↔Aurix). Mounted
+  // at both /logs and /api/logs so it's reachable however the edge proxies it.
+  // Optionally gated by LOGS_ACCESS_TOKEN (?key=…).
+  app.use('/logs', logsRouter);
+  app.use('/api/logs', logsRouter);
   // The website's OWN login (real User + a short, sliding session cookie) —
   // mounted before the lead-only /api/website line below so it isn't shadowed.
   // Distinct from /api/auth/otp/*: same login, shorter cookie-based session.

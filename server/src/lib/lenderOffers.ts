@@ -14,6 +14,7 @@ import type { LenderPartner, LoanApplication, User } from '@prisma/client';
 import { emi } from '../utils/emi.js';
 import { pick } from './integrations.js';
 import { prisma } from './prisma.js';
+import { recordApiLog } from './apiLog.js';
 import { getPanVerificationForOffers, type PanVerificationForOffers } from './panVerification.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -27,6 +28,8 @@ async function httpJson(
 ): Promise<{ ok: boolean; status: number; body: any; error?: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  let result: { ok: boolean; status: number; body: any; error?: string };
   try {
     const res = await fetch(url, {
       method,
@@ -37,13 +40,21 @@ async function httpJson(
     const text = await res.text();
     let parsed: any = text;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* provider returned non-JSON */ }
-    return { ok: res.ok, status: res.status, body: parsed, error: res.ok ? undefined : `HTTP ${res.status}` };
+    result = { ok: res.ok, status: res.status, body: parsed, error: res.ok ? undefined : `HTTP ${res.status}` };
   } catch (e: any) {
     const aborted = e?.name === 'AbortError';
-    return { ok: false, status: 0, body: null, error: aborted ? `timed out after ${timeoutMs}ms` : String(e?.message ?? e) };
+    result = { ok: false, status: 0, body: null, error: aborted ? `timed out after ${timeoutMs}ms` : String(e?.message ?? e) };
   } finally {
     clearTimeout(timer);
   }
+  // Record this outbound call (swiftloan-api → Aurix) for the internal /logs
+  // page. Fire-and-forget + redacted; never affects the returned result.
+  recordApiLog({
+    direction: 'outbound', source: 'swiftloan-api', target: 'aurix', method, url,
+    status: result.status || null, durationMs: Date.now() - startedAt,
+    requestBody: body, responseBody: result.body, error: result.error ?? null,
+  });
+  return result;
 }
 
 export interface EmiOptionResult {
