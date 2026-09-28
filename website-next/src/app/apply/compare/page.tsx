@@ -26,6 +26,8 @@ const RANK_HINT: Record<RankBy, string> = {
   emi: 'Smallest monthly payment',
   rate: 'Lowest annual interest rate',
   interest: 'Least interest paid over the loan',
+  fee: 'Smallest processing fee + GST',
+  approval: 'Fastest typical approval decision',
 };
 
 interface Filters {

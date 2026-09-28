@@ -24,7 +24,7 @@ kycRouter.use(requireAuth);
  * Registered before `/:method` so it isn't swallowed by it.
  */
 kycRouter.post('/pan/verify',
-  validate(z.object({ pan: z.string().trim().min(1) })),
+  validate(z.object({ pan: z.string().trim().min(1).max(20) })),
   ah(async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
@@ -42,7 +42,7 @@ kycRouter.post('/pan/verify',
  * auto-marked verified until a real KYC provider is integrated.
  */
 kycRouter.post('/:method',
-  validate(z.object({ applicationId: z.string().uuid().optional(), reference: z.string().optional() })),
+  validate(z.object({ applicationId: z.string().uuid().optional(), reference: z.string().max(200).optional() })),
   ah(async (req, res) => {
     const method = req.params.method as any;
     const rec = await prisma.kycVerification.upsert({

@@ -4,17 +4,20 @@ import { Screen, AppHeader } from '../components/Frame';
 import { Field, Chips, HeaderCta, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { MID_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
 
 /**
- * "A few more details" — OPTIONAL enrichment screen shown after PAN. Everything
+ * "A few more details" — OPTIONAL enrichment screen, the last step (after
+ * PAN → details). Everything
  * here is skippable: better data can unlock more/better lender offers, but none
  * of it blocks the application. The Continue/Skip bar is pinned (Screen.footer)
  * so it's always reachable while the fields scroll.
  */
 export default function MoreDetails() {
   const { state, set, go, showToast } = useStore();
+  const t = useT();
   const [busy, setBusy] = useState(false);
 
   const save = async (): Promise<boolean> => {
@@ -24,15 +27,15 @@ export default function MoreDetails() {
     // save. Catch it here with a clear message instead.
     const emailOk = (v: string) => /^\S+@\S+\.\S+$/.test(v.trim());
     if (state.optAltEmail.trim() && !emailOk(state.optAltEmail)) {
-      showToast('Enter a valid alternate email, or leave it blank.');
+      showToast(t.mdErrAltEmail);
       return false;
     }
     if (state.optCompanyEmail.trim() && !emailOk(state.optCompanyEmail)) {
-      showToast('Enter a valid company email, or leave it blank.');
+      showToast(t.mdErrCompanyEmail);
       return false;
     }
     if (state.optBusinessEmail.trim() && !emailOk(state.optBusinessEmail)) {
-      showToast('Enter a valid business email, or leave it blank.');
+      showToast(t.mdErrBusinessEmail);
       return false;
     }
     const patch: Record<string, unknown> = {};
@@ -57,7 +60,7 @@ export default function MoreDetails() {
       await api.updateProfile(patch);
       return true;
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not save your details.');
+      showToast(e instanceof ApiError ? e.message : t.mdErrSave);
       return false;
     }
   };
@@ -66,7 +69,7 @@ export default function MoreDetails() {
     setBusy(true);
     const ok = await save();
     setBusy(false);
-    if (ok) go('basicpan');
+    if (ok) go('finding');
   };
 
   return (
@@ -75,46 +78,53 @@ export default function MoreDetails() {
         title={<View />}
         right={
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Pressable onPress={() => go('basicpan')} hitSlop={8} accessibilityRole="button">
-              <Text style={[font(700), { fontSize: 14, color: colors.textSoft }]}>Skip</Text>
+            <Pressable onPress={() => go('finding')} hitSlop={8} accessibilityRole="button">
+              <Text style={[font(700), { fontSize: 14, color: colors.textSoft }]}>{t.mdSkip}</Text>
             </Pressable>
-            <HeaderCta label={busy ? 'Saving…' : 'Continue'} disabled={busy} onPress={onContinue} />
+            <HeaderCta label={busy ? t.saving : t.continueBtn} disabled={busy} onPress={onContinue} />
           </View>
         }
       />
-      <StepBadge step={2} of={3} label="Optional" />
-      <StepDots total={3} active={2} />
-      <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>A few more details</Text>
+      <StepBadge step={3} of={3} label={t.stepOptional} />
+      <StepDots total={3} active={3} />
+      <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.mdTitle}</Text>
       <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
-        Optional — sharing a bit more can unlock better offers. You can skip and continue.
+        {t.mdSub}
       </Text>
 
       {/* About you */}
-      <SectionLabel text="About you" />
+      <SectionLabel text={t.mdAboutYou} />
       <View style={{ gap: 8 }}>
-        <Text style={[font(600), { fontSize: 13, color: colors.textMid }]}>Marital status</Text>
-        <Chips value={state.optMarital} onChange={v => set({ optMarital: v })} options={['Single', 'Married', 'Other'].map(x => ({ label: x, value: x }))} />
+        <Text style={[font(600), { fontSize: 13, color: colors.textMid }]}>{t.mdMaritalLabel}</Text>
+        <Chips
+          value={state.optMarital}
+          onChange={v => set({ optMarital: v })}
+          options={[
+            { label: t.maritalSingle, value: 'Single' },
+            { label: t.maritalMarried, value: 'Married' },
+            { label: t.commonOther, value: 'Other' },
+          ]}
+        />
       </View>
 
       {/* Alternate contact */}
-      <SectionLabel text="Alternate contact" />
+      <SectionLabel text={t.mdAltContact} />
       <View style={{ gap: 14 }}>
-        <Field label="Alternate mobile (optional)" placeholder="10-digit" keyboardType="number-pad" maxLength={10} value={state.optAltMobile} onChangeText={v => set({ optAltMobile: v.replace(/\D/g, '').slice(0, 10) })} />
-        <Field label="Alternate email (optional)" placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={state.optAltEmail} onChangeText={v => set({ optAltEmail: v })} />
+        <Field label={t.mdAltMobileLabel} placeholder={t.tenDigitPlaceholder} keyboardType="number-pad" maxLength={10} value={state.optAltMobile} onChangeText={v => set({ optAltMobile: v.replace(/\D/g, '').slice(0, 10) })} />
+        <Field label={t.mdAltEmailLabel} placeholder={t.emailPlaceholder} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.optAltEmail} onChangeText={v => set({ optAltEmail: v })} />
       </View>
 
-      {/* Address (extra lines — line 1 / city / state captured on the previous step) */}
-      <SectionLabel text="Address (extra)" />
+      {/* Address (extra lines — line 1/2, city and state are on the details step) */}
+      <SectionLabel text={t.mdAddrExtra} />
       <View style={{ gap: 14 }}>
-        <Field label="Address line 2" placeholder="Street, area" value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
-        <Field label="Landmark" placeholder="Nearby landmark" value={state.optLandmark} onChangeText={v => set({ optLandmark: v })} />
-        <Field label="District" placeholder="District" value={state.optDistrict} onChangeText={v => set({ optDistrict: v })} />
+        <Field label={t.mdLandmarkLabel} placeholder={t.mdLandmarkPlaceholder} maxLength={MID_MAX} value={state.optLandmark} onChangeText={v => set({ optLandmark: v })} />
+        <Field label={t.mdDistrictLabel} placeholder={t.mdDistrictLabel} maxLength={MID_MAX} value={state.optDistrict} onChangeText={v => set({ optDistrict: v })} />
       </View>
 
       {/* Income */}
-      <SectionLabel text="Income" />
+      <SectionLabel text={t.mdIncomeSection} />
       <View style={{ gap: 12 }}>
-        <Field label="Monthly obligations / EMIs (₹)" placeholder="e.g. 15,000" keyboardType="number-pad" value={state.optObligations} onChangeText={v => set({ optObligations: v })} />
+        <Field label={t.mdObligationsLabel} placeholder={t.mdObligationsPlaceholder} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.optObligations} onChangeText={v => set({ optObligations: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
       </View>
 
       <View style={{ height: 8 }} />

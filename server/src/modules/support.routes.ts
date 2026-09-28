@@ -12,7 +12,7 @@ export const supportRouter = Router();
 supportRouter.use(requireAuth);
 
 supportRouter.post('/tickets',
-  validate(z.object({ type: z.enum(['query', 'grievance']).default('query'), subject: z.string().min(3), body: z.string().optional() })),
+  validate(z.object({ type: z.enum(['query', 'grievance']).default('query'), subject: z.string().min(3).max(200), body: z.string().max(5000).optional() })),
   ah(async (req, res) => {
     const ticket = await prisma.supportTicket.create({ data: { ...req.body, userId: req.user!.sub } });
     log.info('ticket created', { id: ticket.id, userId: req.user!.sub, type: ticket.type });

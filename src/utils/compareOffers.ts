@@ -9,7 +9,7 @@
  * Amounts are rupees (app convention for Offer.amount / fees).
  */
 
-export type RankBy = 'cost' | 'emi' | 'rate' | 'interest';
+export type RankBy = 'cost' | 'emi' | 'rate' | 'interest' | 'fee' | 'approval';
 
 export const TENURES = [12, 24, 36, 48, 60] as const;
 
@@ -18,6 +18,8 @@ export const RANK_LABELS: Record<RankBy, string> = {
   emi: 'Lowest EMI',
   rate: 'Lowest interest rate',
   interest: 'Least interest',
+  fee: 'Lowest processing fee',
+  approval: 'Quick approval',
 };
 
 /** Minimal offer shape both the app's and the website's Offer satisfy. */
@@ -30,6 +32,8 @@ export interface CompareOfferInput {
   processingFeeAmount?: number | null;
   gstOnProcessingFee?: number | null;
   logoUrl?: string | null;
+  /** Typical hours to an approval decision, when the lender/catalog provides it. */
+  approvalHrs?: number | null;
 }
 
 export interface CompareRow {
@@ -51,6 +55,8 @@ export interface CompareRow {
   totalRepay: number | null;
   /** Cost of borrowing per ₹1 lakh — lets different loan amounts be compared fairly. */
   costPerLakh: number | null;
+  /** Typical hours to approval; null = unknown (never "wins", ranks last for 'approval'). */
+  approvalHrs: number | null;
 }
 
 /** Standard reducing-balance EMI. */
@@ -65,7 +71,8 @@ export function emi(principal: number, annualRatePct: number, months: number): n
 export function computeRow(o: CompareOfferInput, tenure: number): CompareRow {
   const fees = Math.max(0, (o.processingFeeAmount ?? 0) + (o.gstOnProcessingFee ?? 0));
   const rate = o.apr != null && o.apr > 0 ? o.apr : null;
-  const base = { id: o.id, lenderName: o.lenderName, logoUrl: o.logoUrl ?? null, amount: o.amount, tenure, fees };
+  const approvalHrs = o.approvalHrs != null && o.approvalHrs >= 0 ? o.approvalHrs : null;
+  const base = { id: o.id, lenderName: o.lenderName, logoUrl: o.logoUrl ?? null, amount: o.amount, tenure, fees, approvalHrs };
   if (rate == null || o.amount <= 0) {
     return { ...base, onApproval: true, rate: null, emi: null, totalInterest: null, costOfBorrowing: null, totalRepay: null, costPerLakh: null };
   }
@@ -90,6 +97,8 @@ function metric(r: CompareRow, by: RankBy): number {
     case 'emi': return r.emi!;
     case 'rate': return r.rate!;
     case 'interest': return r.totalInterest!;
+    case 'fee': return r.fees;
+    case 'approval': return r.approvalHrs ?? Number.POSITIVE_INFINITY;
     case 'cost':
     default: return r.costPerLakh!;
   }
@@ -113,7 +122,7 @@ export interface CompareResult {
   hiddenCount: number;
   best: CompareRow | null;
   /** Per-metric winners among the shown priced offers (ids), for highlighting. */
-  winners: { emi: string | null; rate: string | null; interest: string | null; cost: string | null };
+  winners: { emi: string | null; rate: string | null; interest: string | null; cost: string | null; fee: string | null; approval: string | null };
   /** Savings of the best offer vs the most expensive shown one, by the active ranking's cost. */
   bestSavesVsWorst: number | null;
 }
@@ -147,11 +156,21 @@ export function compareOffers(offers: CompareOfferInput[], filters: CompareFilte
       rate: minBy(priced, r => r.rate!)?.id ?? null,
       interest: minBy(priced, r => r.totalInterest!)?.id ?? null,
       cost: minBy(priced, r => r.costPerLakh!)?.id ?? null,
+      fee: minBy(priced, r => r.fees)?.id ?? null,
+      approval: minBy(priced.filter(r => r.approvalHrs != null), r => r.approvalHrs!)?.id ?? null,
     },
     bestSavesVsWorst: best && worst && best.costOfBorrowing != null && worst.costOfBorrowing != null
       ? Math.max(0, worst.costOfBorrowing - best.costOfBorrowing)
       : null,
   };
+}
+
+/** "Instant" / "~6 hrs" / "~2 days" for an approval time; "—" when unknown. */
+export function formatApproval(hrs: number | null | undefined): string {
+  if (hrs == null) return '—';
+  if (hrs <= 3) return 'Instant';
+  if (hrs <= 24) return `~${Math.round(hrs)} hrs`;
+  return `~${Math.round(hrs / 24)} days`;
 }
 
 /** A sensible starting tenure: the lender's own if it's one of ours, else 24. */

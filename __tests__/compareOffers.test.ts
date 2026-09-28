@@ -1,4 +1,4 @@
-import { emi, computeRow, compareOffers, defaultTenure } from '../src/utils/compareOffers';
+import { emi, computeRow, compareOffers, defaultTenure, formatApproval } from '../src/utils/compareOffers';
 
 const OFFERS = [
   { id: 'idfc', lenderName: 'IDFC FIRST', amount: 300000, apr: 14.5, processingFeeAmount: 1499, gstOnProcessingFee: 270 },
@@ -100,5 +100,34 @@ describe('defaultTenure()', () => {
     expect(defaultTenure(36)).toBe(36);
     expect(defaultTenure(18)).toBe(24);
     expect(defaultTenure(null)).toBe(24);
+  });
+});
+
+describe('fee and approval ranking', () => {
+  const offers = [
+    { id: 'a', lenderName: 'A', amount: 300000, apr: 14.5, processingFeeAmount: 6999, approvalHrs: 48 },
+    { id: 'b', lenderName: 'B', amount: 300000, apr: 16.5, processingFeeAmount: 499, approvalHrs: 6 },
+    { id: 'c', lenderName: 'C', amount: 300000, apr: 17, processingFeeAmount: 1299, approvalHrs: 1 },
+    { id: 'd', lenderName: 'D', amount: 300000, apr: 15.5, processingFeeAmount: 1999 }, // approval unknown
+  ];
+  it('lowest processing fee (incl. GST) wins "fee"', () => {
+    const r = compareOffers(offers, { tenure: 24, rankBy: 'fee' });
+    expect(r.best?.id).toBe('b');
+    expect(r.winners.fee).toBe('b');
+  });
+  it('quickest known approval wins "approval"; unknown ranks last and never wins', () => {
+    const r = compareOffers(offers, { tenure: 24, rankBy: 'approval' });
+    expect(r.rows.map(x => x.id)).toEqual(['c', 'b', 'a', 'd']);
+    expect(r.winners.approval).toBe('c');
+  });
+  it('no approval data → no approval winner', () => {
+    const r = compareOffers(offers.map(({ approvalHrs, ...o }) => o), { tenure: 24, rankBy: 'approval' });
+    expect(r.winners.approval).toBeNull();
+  });
+  it('formats approval times', () => {
+    expect(formatApproval(1)).toBe('Instant');
+    expect(formatApproval(6)).toBe('~6 hrs');
+    expect(formatApproval(48)).toBe('~2 days');
+    expect(formatApproval(null)).toBe('—');
   });
 });

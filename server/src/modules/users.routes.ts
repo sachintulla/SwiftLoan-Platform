@@ -7,6 +7,7 @@ import { ah, HttpError } from '../middleware/error.js';
 import { publicUser } from './auth.routes.js';
 import { presignAvatarUpload, s3Configured } from '../lib/s3.js';
 import { scoped } from '../lib/log.js';
+import { isAdult } from '../lib/age.js';
 
 const log = scoped('users');
 
@@ -29,40 +30,70 @@ const panSchema = z
   .regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'panNumber must be a valid PAN (e.g. AAAPL1234C)')
   .refine(p => PAN_HOLDER_CODES.includes(p[3]), 'panNumber must be a valid PAN (e.g. AAAPL1234C)');
 
+// Every free-text field capped — an authenticated (or PAN-verify-anonymous)
+// caller can hit this endpoint directly, no app UI involved, so the app's own
+// TextInput maxLength is UX only and enforces nothing by itself. Without a
+// server-side bound here, a single field could carry an arbitrarily large
+// string (up to the 1mb body-parser cap in app.ts) into the DB — inflated
+// storage (worse for the PII columns, which are AES-256-GCM encrypted, so
+// bloats the ciphertext too), and a stored payload nothing downstream (this
+// API, the admin dashboard, Ruby's own context) ever expected a name/address
+// field to carry. Limits are generous for real data, not tight enough to
+// reject anyone: 60 for name-shaped fields, 100 for company/city/state-shaped
+// ones, 300 for free-form address lines, 254 for email (RFC 5321's own cap).
+const NAME_MAX = 60, MID_MAX = 100, ADDR_MAX = 300, EMAIL_MAX = 254;
+// Loan amounts are capped at 15,00,000 elsewhere (applications.routes.ts);
+// income/obligations/draft amount aren't loan amounts themselves but should
+// never approach Postgres's 32-bit Int column limit (~2.1bn) either.
+const MONEY_MAX = 999_999_999;
+// A PAN-card name is always Latin script regardless of the app's own display
+// language — letters, spaces, and the punctuation real names legitimately use
+// (O'Brien, Anne-Marie, "A. Rahul"). No digits, emoji, or symbols. `.trim()`
+// also closes the "saved with stray leading/trailing spaces" gap — the app's
+// own onBlur handler already trims, but this is the boundary that actually
+// matters for a caller that skips the app.
+const NAME_RE = /^[A-Za-z '.-]+$/;
+const nameField = (max: number) => z.string().trim().min(1).max(max).regex(NAME_RE, 'Only letters, spaces, apostrophes, hyphens and dots are allowed');
+// Real monthly incomes for a loan applicant; rejects the 0 / 100 / 1000
+// "technically a number but not a real income" cases outright.
+const MONTHLY_INCOME_MIN = 5000;
+
 const profilePatch = z.object({
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  fullName: z.string().optional(),
-  email: z.string().email().optional(),
-  dob: z.string().datetime().optional(),
+  firstName: nameField(NAME_MAX).optional(),
+  lastName: nameField(NAME_MAX).optional(),
+  fullName: nameField(NAME_MAX * 2).optional(),
+  email: z.string().email().max(EMAIL_MAX).optional(),
+  dob: z.string().datetime().refine(v => isAdult(new Date(v)), 'You must be at least 18 years old.').optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),
-  pincode: z.string().regex(/^\d{6}$/).optional(),
+  // Indian PIN codes are exactly 6 digits and never start with 0 (the first
+  // digit is a postal zone, 1–9) — matches src/utils/inputLimits.ts's PINCODE_RE.
+  pincode: z.string().regex(/^[1-9]\d{5}$/, 'pincode must be a valid 6-digit Indian PIN code').optional(),
   residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
   employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
-  monthlyIncome: z.number().int().nonnegative().optional(),
-  company: z.string().optional(),
+  monthlyIncome: z.number().int().min(MONTHLY_INCOME_MIN, `monthlyIncome must be at least ${MONTHLY_INCOME_MIN}`).max(MONEY_MAX).optional(),
+  company: z.string().max(MID_MAX).optional(),
   panNumber: panSchema.optional(),
   // Aurix applicant fields collected across the PAN / details / optional screens.
-  qualification: z.string().optional(),
-  maritalStatus: z.string().optional(),
-  alternateMobile: z.string().optional(),
-  alternateEmail: z.string().email().optional(),
-  loanPurpose: z.string().optional(),
-  salaryMode: z.string().optional(),
-  professionalType: z.string().optional(),
-  companyEmail: z.string().email().optional(),
-  businessEmail: z.string().email().optional(),
-  addressLine1: z.string().optional(),
-  addressLine2: z.string().optional(),
-  landmark: z.string().optional(),
-  city: z.string().optional(),
-  district: z.string().optional(),
-  state: z.string().optional(),
-  monthlyObligations: z.number().int().nonnegative().optional(),
+  qualification: z.string().max(MID_MAX).optional(),
+  maritalStatus: z.string().max(MID_MAX).optional(),
+  alternateMobile: z.string().max(15).optional(),
+  alternateEmail: z.string().email().max(EMAIL_MAX).optional(),
+  loanPurpose: z.string().max(MID_MAX).optional(),
+  salaryMode: z.string().max(MID_MAX).optional(),
+  professionalType: z.string().max(MID_MAX).optional(),
+  companyEmail: z.string().email().max(EMAIL_MAX).optional(),
+  businessEmail: z.string().email().max(EMAIL_MAX).optional(),
+  addressLine1: z.string().max(ADDR_MAX).optional(),
+  addressLine2: z.string().max(ADDR_MAX).optional(),
+  landmark: z.string().max(MID_MAX).optional(),
+  city: z.string().max(MID_MAX).optional(),
+  district: z.string().max(MID_MAX).optional(),
+  state: z.string().max(MID_MAX).optional(),
+  monthlyObligations: z.number().int().nonnegative().max(MONEY_MAX).optional(),
   // The desired loan amount, gathered conversationally before a real
   // LoanApplication exists to hold it — see the schema comment on the column
   // itself. Plain rupees, matching LoanApplication.amount's own convention.
-  draftLoanAmount: z.number().int().nonnegative().optional(),
+  draftLoanAmount: z.number().int().nonnegative().max(MONEY_MAX).optional(),
 }).strict();
 
 /** Update user information in the backend database. */

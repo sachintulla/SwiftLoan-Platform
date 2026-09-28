@@ -7,7 +7,7 @@ import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { LogoMark, Wordmark } from '../components/Logo';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api } from '../api/client';
 import { saveOffersCache } from '../state/session';
 
@@ -37,6 +37,7 @@ function Sparkle({ size, color = colors.mint }: { size: number; color?: string }
 
 export default function Finding() {
   const { state, go, set, mergeApiContext, markUrgentContext } = useStore();
+  const t = useT();
   const insets = useSafeAreaInsets();
   const pulse = useRef(new Animated.Value(0)).current;
   const prog = useRef(new Animated.Value(0)).current;
@@ -82,7 +83,7 @@ export default function Finding() {
           finish(list.length > 0);
         })
         .catch(() => {
-          set({ offersError: 'We couldn’t reach our lending partners just now. Please check your connection and try again.' });
+          set({ offersError: t.findingErrNetwork });
           finish(false);
         });
     } else {
@@ -139,7 +140,7 @@ export default function Finding() {
             <LogoMark size={40} style={{ borderRadius: 12 }} />
             <Wordmark size={28} />
           </View>
-          <Text style={[font(500), styles.tagline]}>Smart loans. Swift solutions.</Text>
+          <Text style={[font(500), styles.tagline]}>{t.findingTagline}</Text>
         </View>
 
         {/* orbiting logo */}
@@ -197,8 +198,8 @@ export default function Finding() {
         </View>
 
         {/* copy */}
-        <Text style={[font(800), styles.title]}>Finding your personalised offers…</Text>
-        <Text style={[font(400), styles.sub]}>Connecting to bureaus securely</Text>
+        <Text style={[font(800), styles.title]}>{t.findingTitle}</Text>
+        <Text style={[font(400), styles.sub]}>{t.findingSub}</Text>
 
         {/* progress */}
         <View style={styles.track}>
@@ -216,7 +217,7 @@ export default function Finding() {
           <View style={styles.shield}>
             <Icon name="verified_user" size={18} color="#fff" />
           </View>
-          <Text style={[font(700), styles.stepText]}>Checking your eligibility</Text>
+          <Text style={[font(700), styles.stepText]}>{t.findingStep}</Text>
         </View>
 
         <View style={{ flex: 1 }} />
@@ -227,9 +228,9 @@ export default function Finding() {
             <Icon name="lock" size={20} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[font(700), styles.safeTitle]}>Your data is safe with us</Text>
+            <Text style={[font(700), styles.safeTitle]}>{t.panSafeTitle}</Text>
             <Text style={[font(400), styles.safeBody]}>
-              We run a soft enquiry only · does not affect your credit score
+              {t.findingSafeBody}
             </Text>
           </View>
         </View>

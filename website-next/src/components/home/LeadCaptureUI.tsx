@@ -4,6 +4,7 @@ import { Check, Phone, X, type LucideIcon } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, type LeadCapture } from "@/hooks/useLeadCapture";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 
 /** Shared visual pieces for anything that captures amount + mobile + OTP +
  *  callback consent — the inline lead-form card and the popup version both
@@ -172,6 +173,7 @@ export function OtpModal({
     autoSubmitted.current = otp;
     otpFormRef.current?.requestSubmit();
   }, [otp, otpVerifying, showOtpModal]);
+  useBodyScrollLock(showOtpModal);
   if (!showOtpModal) return null;
 
   return (
@@ -181,7 +183,14 @@ export function OtpModal({
           in some mobile browsers instead of scrolling into view. This still
           centers short content and scrolls tall content top-to-bottom. */}
       <div className="flex min-h-full items-center justify-center">
-      <div className="bg-card my-auto w-[calc(100vw-2rem)] min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
+      {/* w-full (not w-[calc(100vw-2rem)], the old value here) — the raw vw
+          unit can include the page's own scrollbar gutter on some browsers,
+          which the parent's own padded content box never does, so the card
+          would render a few pixels wider than actually fits for one paint
+          and then visibly snap back once the layout settled. w-full sizes
+          off the parent (already exactly viewport-minus-padding), so there's
+          nothing to snap. */}
+      <div className="bg-card my-auto w-full min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
         <div className="bg-brand-gradient relative flex flex-col items-center gap-3 px-6 pb-8 pt-9 text-center">
           {/* Lets the visitor back out without submitting the OTP — the lead
               itself is already saved (submitLead ran before this modal ever
@@ -297,12 +306,14 @@ export function OtpModal({
 
 export function CallbackModal({ capture }: { capture: LeadCapture }) {
   const { t, showCallbackModal, handleCallbackChoice } = capture;
+  useBodyScrollLock(showCallbackModal);
   if (!showCallbackModal) return null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
       <div className="flex min-h-full items-center justify-center">
-      <div className="bg-card my-auto w-[calc(100vw-2rem)] min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
+      {/* w-full, not a raw vw calc — see OtpModal above for why. */}
+      <div className="bg-card my-auto w-full min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
         <div className="bg-brand-gradient relative flex flex-col items-center gap-2 px-6 pb-6 pt-8 text-center">
           <span className="bg-success-soft text-success absolute left-4 top-4 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide">
             {t.matchedBadge}
