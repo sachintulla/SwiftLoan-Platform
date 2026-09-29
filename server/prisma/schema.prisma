@@ -224,6 +224,11 @@ model LoanApplication {
   tenureMonths Int               @default(12)
   purpose      String?
   status       ApplicationStatus @default(draft)
+  // Why prequalify landed on zero offers — Aurix's own decline message when
+  // status=rejected (a real, informative lender answer), or a generic retry
+  // prompt when status=failed (a technical error, never the raw exception
+  // text — that stays in the server logs). Null otherwise.
+  prequalifyReason String?
 
   // Knight Fintech (Aurix) lead id, learned from the first status webhook that
   // carries it, so subsequent journey webhooks match this application precisely.

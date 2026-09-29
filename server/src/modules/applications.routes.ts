@@ -274,9 +274,22 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const aurixDebug = takeAurixDebug(app.id) as { httpStatus?: number; response?: any } | null;
   const aurixSucceededWithNoOffers =
     created.length === 0 && (aurixDebug?.response?.Result?.Meta?.Success ?? aurixDebug?.response?.Meta?.Success) === true;
+  // The applicant-facing reason for zero offers. For a genuine decline this
+  // is Aurix's own message — real, informative, safe to show as-is. For a
+  // technical failure this is deliberately a generic retry prompt, never the
+  // raw exception text ("timed out after 30000ms (HTTP 0)") — that's for the
+  // server log above (partner produced no offers), not the applicant.
+  const aurixMessage: string | undefined =
+    aurixDebug?.response?.Result?.Meta?.Message ?? aurixDebug?.response?.Meta?.Message;
+  const prequalifyReason =
+    created.length > 0
+      ? null
+      : aurixSucceededWithNoOffers
+        ? (aurixMessage ?? "You don't currently meet the eligibility criteria of our lending partners.")
+        : "We couldn't reach our lending partners just now. Please try again in a moment.";
   await prisma.loanApplication.update({
     where: { id: app.id },
-    data: { status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed' },
+    data: { status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed', prequalifyReason },
   });
 
   // WS5: eligibility genuinely finished here (server-side truth). The client

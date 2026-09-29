@@ -115,22 +115,62 @@ export default function OffersPage() {
     <ApplyShell backHref="/apply/step-1" backLabel="Update details" stepLabel="Your offers" progressPct={100} accountUser={accountUser}>
       <div className="flex flex-col gap-5">
         {allOffers.length === 0 ? (
-          <div className="py-10 text-center">
-            <h1 className="text-xl font-extrabold">No offers yet</h1>
-            <p className="text-muted-foreground mt-2 mb-6 text-sm">
-              We couldn&apos;t find a matching offer right now — update something in your application, or just try the check
-              again.
-            </p>
-            <div className="flex justify-center gap-3">
-              <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
-              <button
-                onClick={retry}
-                className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
-              >
-                Retry
-              </button>
+          // Two real, different situations were showing the exact same copy:
+          // a genuine "you don't qualify" decline from Aurix (status
+          // 'rejected', with Aurix's own real reason) vs an actual technical
+          // failure (status 'failed', where retrying is likely to work).
+          // Older applications from before prequalifyReason existed fall
+          // through to the original generic copy.
+          app?.status === 'rejected' ? (
+            <div className="py-10 text-center">
+              <h1 className="text-xl font-extrabold">You&apos;re not eligible right now</h1>
+              <p className="text-muted-foreground mt-2 mb-6 text-sm">
+                {app.prequalifyReason ?? "You don't currently meet the eligibility criteria of our lending partners."}
+              </p>
+              <div className="flex justify-center gap-3">
+                <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
+                <button
+                  onClick={retry}
+                  className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
+                >
+                  Retry
+                </button>
+              </div>
             </div>
-          </div>
+          ) : app?.status === 'failed' ? (
+            <div className="py-10 text-center">
+              <h1 className="text-xl font-extrabold">Something went wrong</h1>
+              <p className="text-muted-foreground mt-2 mb-6 text-sm">
+                {app.prequalifyReason ?? "We couldn't reach our lending partners just now. Please try again in a moment."}
+              </p>
+              <div className="flex justify-center gap-3">
+                <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
+                <button
+                  onClick={retry}
+                  className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="py-10 text-center">
+              <h1 className="text-xl font-extrabold">No offers yet</h1>
+              <p className="text-muted-foreground mt-2 mb-6 text-sm">
+                We couldn&apos;t find a matching offer right now — update something in your application, or just try the check
+                again.
+              </p>
+              <div className="flex justify-center gap-3">
+                <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
+                <button
+                  onClick={retry}
+                  className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )
         ) : appliedElsewhere ? (
           <div className="py-10 text-center">
             <h1 className="text-xl font-extrabold">You&apos;ve already applied</h1>
