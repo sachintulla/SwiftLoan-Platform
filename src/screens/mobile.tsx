@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
 import { Screen } from '../components/Frame';
 import { LoginHero } from '../components/LoginHero';
 import Icon from '../components/Icon';
@@ -31,6 +31,23 @@ export default function Mobile() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const hiddenOtpInput = useRef<TextInput>(null);
+
+  // Re-focus the hidden OTP field on tap. On Android, once the soft keyboard
+  // is dismissed by the user (back button, swipe-down, tapping outside) the
+  // TextInput itself never actually loses native focus — RN's `.focus()` is
+  // then a no-op (Android's View.requestFocus() short-circuits when the view
+  // already reports focused), so the keyboard never reappears and the boxes
+  // look permanently "stuck". Forcing a real blur → focus transition makes
+  // Android re-request the IME. iOS re-opens the keyboard from a bare
+  // .focus() just fine, so it's untouched there.
+  const refocusOtp = () => {
+    if (Platform.OS === 'android') {
+      hiddenOtpInput.current?.blur();
+      setTimeout(() => hiddenOtpInput.current?.focus(), 50);
+    } else {
+      hiddenOtpInput.current?.focus();
+    }
+  };
 
   const mobileLen = state.mobileVal.length;
   const mobileInvalid = mobileLen === 10 && !isValidMobile(state.mobileVal);
@@ -138,6 +155,20 @@ export default function Mobile() {
 
   const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
 
+  // Auto-continue: the moment all 6 digits are in — the iOS keyboard's
+  // one-time-code suggestion, Android's SMS autofill, a paste, or typing —
+  // verify straight away instead of waiting for the Verify tap. Each code is
+  // auto-submitted at most once, so a wrong code shows its error and waits
+  // for an edit rather than looping; the button still works for a retry.
+  const autoSubmitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!otpSent || busy || otpCode.length !== 6 || autoSubmitted.current === otpCode) return;
+    autoSubmitted.current = otpCode;
+    verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpCode, otpSent, busy]);
+  useEffect(() => { if (!otpSent) autoSubmitted.current = null; }, [otpSent]);
+
   // The OTP entry is one hidden TextInput behind 6 decorative digit boxes (see
   // hiddenOtpInput above) — the element-tree walk in screenGraph.ts can't
   // describe it correctly: it classifies the wrapping Pressable as a `button`
@@ -220,7 +251,7 @@ export default function Mobile() {
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
-            <Pressable style={styles.otpRow} onPress={() => hiddenOtpInput.current?.focus()}>
+            <Pressable style={styles.otpRow} onPress={refocusOtp}>
               {Array.from({ length: 6 }, (_, i) => (
                 <View
                   key={i}

@@ -46,7 +46,13 @@ export function LeadForm() {
   } = cap;
 
   return (
-    <section id="lead-form" className="shell scroll-mt-28 py-16 sm:py-24">
+    // overflow-x-clip: the card's soft-ping glow ring (below) scales up to
+    // 1.6x mid-pulse — on a mobile-width card that's most of the viewport,
+    // its peak size pokes past both screen edges, which was tripping real
+    // page-level horizontal overflow (confirmed: documentElement.scrollWidth
+    // > clientWidth). Matches the same overflow-x:clip fix already applied
+    // to <html> in design.css for this exact class of full-bleed overflow.
+    <section id="lead-form" className="shell scroll-mt-28 overflow-x-clip py-16 sm:py-24">
       <div className="grid items-center gap-12 sm:gap-14 md:grid-cols-[1fr_22rem] lg:grid-cols-[1fr_28rem]">
         {/* Left: copy + assurances */}
         <div className="flex flex-col gap-10">

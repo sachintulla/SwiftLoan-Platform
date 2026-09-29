@@ -29,7 +29,7 @@ const DEV_API_BASE = '';
  * applications submitted from a build pointed here trigger real Aurix/KFT
  * bureau pulls against real production data, not mock offers.
  */
-const API_ENV: 'dev' | 'prod' = 'prod';
+const API_ENV: 'dev' | 'prod' = 'dev';
 
 const DEPLOYED_API_BASE: Record<'dev' | 'prod', string> = {
   dev: 'https://dev-api.swiftloan.ai/api',

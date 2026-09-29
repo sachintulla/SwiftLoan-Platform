@@ -14,6 +14,8 @@ import {
   Easing,
   Vibration,
   Keyboard,
+  Platform,
+  TextInput,
 } from 'react-native';
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -138,6 +140,8 @@ export function Screen({
   const { state } = useStore();
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
+  const rootRef = useRef<View>(null);
+  const kbPad = useAndroidKeyboardOverlap(rootRef, scrollRef, scrollOffsetRef);
   const Bg =
     variant === 'hero' ? HeroBackground : variant === 'plain' ? React.Fragment : AppBackground;
   const barStyle = variant === 'hero' ? 'light-content' : 'dark-content';
@@ -258,12 +262,13 @@ export function Screen({
       onScroll={e => onScrollY(e.nativeEvent.contentOffset.y)}
       scrollEventThrottle={16}
       style={{ flex: 1 }}
-      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle]}
+      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle, kbPad > 0 && { paddingBottom: kbPad + 24 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // Keyboard handling for forms: iOS insets the scroll content by the
       // keyboard height (so the focused field stays visible and the form no
-      // longer jumps/scrolls the whole way); Android relies on adjustResize.
+      // longer jumps/scrolls the whole way). Android: adjustResize, plus
+      // useAndroidKeyboardOverlap for edge-to-edge devices where it no longer resizes.
       // `false` keeps our explicit paddingTop from being overridden by the OS.
       automaticallyAdjustKeyboardInsets={true}
       automaticallyAdjustContentInsets={false}
@@ -273,13 +278,14 @@ export function Screen({
       {children}
     </ScrollView>
   ) : (
-    <View style={[{ flex: 1, paddingTop: contentTopPad }, pad, bottomPad, contentStyle]}>
+    // Non-scrolling screens (e.g. the lender WebView) shrink above the keyboard instead.
+    <View style={[{ flex: 1, paddingTop: contentTopPad }, pad, bottomPad, contentStyle, kbPad > 0 && { paddingBottom: kbPad }]}>
       {children}
     </View>
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: variant === 'hero' ? colors.inkDeep : colors.paper }}>
+    <View ref={rootRef} collapsable={false} style={{ flex: 1, backgroundColor: variant === 'hero' ? colors.inkDeep : colors.paper }}>
       <StatusBar barStyle={barStyle} translucent backgroundColor="transparent" />
       {/* @ts-ignore Fragment accepts no props */}
       <Bg>
@@ -313,6 +319,51 @@ export function Screen({
       <Toast />
     </View>
   );
+}
+
+/**
+ * Android keyboard fix. `adjustResize` (AndroidManifest) used to shrink the
+ * window when the keyboard opened, so the ScrollView could reach every field.
+ * On Android 15+ with targetSdk 35+ the app is forced edge-to-edge and the
+ * window is NOT resized any more — the keyboard just covers the bottom of the
+ * form and it can't be scrolled any further.
+ *
+ * So measure what the keyboard actually covers: how far it reaches above the
+ * bottom of this screen. Where the window still resizes (older Android) that
+ * is 0 and nothing changes; where it doesn't, the scroll content gets that
+ * much extra bottom padding (non-scrolling screens like the lender WebView
+ * shrink by it instead), and the focused field is scrolled above the keyboard. Returns the padding to add (always 0 on iOS, which handles this
+ * with automaticallyAdjustKeyboardInsets).
+ */
+function useAndroidKeyboardOverlap(
+  rootRef: React.RefObject<View | null>,
+  scrollRef: React.RefObject<ScrollView | null>,
+  offsetRef: React.MutableRefObject<number>,
+): number {
+  const [overlap, setOverlap] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    const show = Keyboard.addListener('keyboardDidShow', e => {
+      const kbTop = e.endCoordinates.screenY;
+      rootRef.current?.measureInWindow((_x, y, _w, h) => {
+        const covered = Math.max(0, Math.round(y + h - kbTop));
+        setOverlap(covered);
+        if (covered <= 0) return;
+        // Keep the focused field visible above the keyboard.
+        const input = TextInput.State.currentlyFocusedInput?.();
+        if (!input) return;
+        requestAnimationFrame(() => {
+          (input as any).measureInWindow?.((_ix: number, iy: number, _iw: number, ih: number) => {
+            const gap = iy + ih + 16 - kbTop;
+            if (gap > 0) scrollRef.current?.scrollTo({ y: offsetRef.current + gap, animated: true });
+          });
+        });
+      });
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setOverlap(0));
+    return () => { show.remove(); hide.remove(); };
+  }, [rootRef, scrollRef, offsetRef]);
+  return overlap;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -431,14 +482,28 @@ export function BottomNav() {
   const W = width - 24; // navWrap has 12px padding each side
   const H = 66;
   const cornerR = 26;
-  const notchR = 46;
   const cx = W / 2;
+  // The notch is a true circle cut CONCENTRIC with the Ruby ball that nests in
+  // it (VoiceWidget: 70pt ball, centre TAB_NOTCH_CENTER=65 above the bar's
+  // bottom → 1pt below its top edge), so the gap is even all the way round.
+  // The old two-Bézier scoop was wider and shallower than the ball — a thin
+  // gap at the bottom but a wide one at the sides.
+  const BALL_R = 35;
+  const NOTCH_GAP = 1.5; // flush fit — just clear of the ball's edge
+  const notchR = BALL_R + NOTCH_GAP;
+  const notchCY = H - 65; // ball centre, measured down from the bar's top
+  const filletY = 7; // where the arc hands over to the rounded shoulder
+  const filletW = 9; // shoulder width along the top edge
+  const arcHalf = Math.sqrt(notchR * notchR - (filletY - notchCY) ** 2);
+  const xL = cx - arcHalf;
+  const xR = cx + arcHalf;
   const barPath =
     `M0 ${cornerR}` +
     ` Q0 0 ${cornerR} 0` +
-    ` L ${cx - notchR - 8} 0` +
-    ` C ${cx - notchR + 6} 0 ${cx - notchR + 4} ${notchR * 0.86} ${cx} ${notchR * 0.86}` +
-    ` C ${cx + notchR - 4} ${notchR * 0.86} ${cx + notchR - 6} 0 ${cx + notchR + 8} 0` +
+    ` L ${xL - filletW} 0` +
+    ` Q ${xL} 0 ${xL} ${filletY}` +
+    ` A ${notchR} ${notchR} 0 0 0 ${xR} ${filletY}` +
+    ` Q ${xR} 0 ${xR + filletW} 0` +
     ` L ${W - cornerR} 0` +
     ` Q ${W} 0 ${W} ${cornerR}` +
     ` L ${W} ${H - cornerR}` +

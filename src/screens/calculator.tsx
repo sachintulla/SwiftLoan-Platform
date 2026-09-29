@@ -25,7 +25,7 @@ export default function Calculator() {
           <Text style={[font(400), styles.sub]}>{t.fareSub}</Text>
         </View>
       </View>
-      <EmiCalculator onApply={() => { set({ applicationId: null, offersError: '' }); go('basic'); }} />
+      <EmiCalculator onApply={() => { set({ applicationId: null, offersError: '' }); go('basicpan'); }} />
     </Screen>
   );
 }

@@ -185,16 +185,16 @@ function readCalculator() {
 // readTracker() removed alongside the tracker tools: the redesign has no
 // tracker UI, so it only ever returned nulls.
 
-// The apply funnel's Steps 1-3 render a sticky, full-width bottom bar
-// (ApplyShell's BottomBar) with its Continue/Submit button right-aligned —
-// the same corner Ruby's launcher normally sits in. Every other page (home,
-// offers, lender, confirm, success, /account/*) either has no sticky bottom
-// bar or its own CTA is inline in the content flow, so the right corner is
-// free there.
-const LEFT_LAUNCHER_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3'];
-function launcherSide(path: string): 'left' | 'right' {
-  return LEFT_LAUNCHER_ROUTES.includes(path) ? 'left' : 'right';
-}
+// Ruby's launcher always sits in the bottom-right corner — on the apply
+// funnel's step-1/2/3 and compare, that's also where the sticky bottom bar's
+// Continue/Submit button lives, so BOTTOM_BAR_ROUTES below raises the
+// launcher above the bar (CSS: .sl-voice-above-bar) rather than covering it.
+// Below lg there's no left rail to sit over, and on phones BottomBar's
+// actions span the full width — so on these routes the launcher floats just
+// above the bar instead of covering it (CSS: .sl-voice-above-bar).
+const BOTTOM_BAR_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/compare'];
+// Routes whose bottom bar is two rows (summary + full-width button) on phones.
+const TALL_BOTTOM_BAR_ROUTES = ['/apply/compare'];
 
 export default function VoiceWidget() {
   const pathname = usePathname();
@@ -206,13 +206,16 @@ export default function VoiceWidget() {
   // act on the current page, and nudge the assistant's context on navigation.
   useEffect(() => {
     pathRef.current = pathname;
-    const side = launcherSide(pathname);
     const btn = document.querySelector('.sl-voice-launcher') as HTMLElement | null;
     const err = document.getElementById('sl-voice-error');
     for (const node of [btn, err]) {
       if (!node) continue;
-      node.style.left = side === 'left' ? '22px' : '';
-      node.style.right = side === 'left' ? '' : '22px';
+      node.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathname));
+    }
+    const fabAnchor = document.querySelector('.sl-fab-anchor') as HTMLElement | null;
+    if (fabAnchor) {
+      fabAnchor.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathname));
+      fabAnchor.classList.toggle('sl-voice-above-tall-bar', TALL_BOTTOM_BAR_ROUTES.includes(pathname));
     }
     const agent = agentRef.current;
     if (agent && agent.conversationId) {
@@ -570,35 +573,129 @@ export default function VoiceWidget() {
     // (not a JS resize listener) so it's correct on first paint, no flash.
     const launcherStyle = document.createElement('style');
     launcherStyle.textContent = `
-      @media (max-width: 640px) {
-        .sl-voice-launcher { padding: 0 !important; width: 52px; justify-content: center; }
-        .sl-voice-text { display: none !important; }
+      @media (max-width: 1023px) {
+        .sl-voice-launcher { display: none !important; }
+        #sl-voice-error.sl-voice-above-bar { bottom: 148px !important; }
       }
+      /* ── Phones/tablets: the app's agent FAB (src/voice/ui/VoiceWidget.tsx) ──
+         A round Ruby avatar with a halo; during a call a frosted panel grows
+         out of it with level bars, timer, mute and end-call. Everything sits
+         inside the viewport — the old pill's overhanging cut-out image and
+         shadow made phones pan sideways.
+
+         .sl-fab-anchor (not .sl-fab itself) is the position:fixed element,
+         sized to 100dvh — the DYNAMIC viewport height, which tracks the
+         browser chrome's real on-screen size as it collapses/expands on
+         scroll. A plain bottom:18px on a fixed element is anchored to the
+         LARGER, chrome-collapsed viewport on mobile Safari/Chrome, so it
+         visibly slides as the address bar animates in and out while
+         scrolling — reported as "Ruby moving around". 100dvh doesn't have
+         that lag, so anchoring bottom-alignment to it (via flex) does. */
+      .sl-fab-anchor { position: fixed; inset: 0; height: 100dvh; z-index: 9999; pointer-events: none;
+        display: none; flex-direction: column; justify-content: flex-end; align-items: flex-end;
+        padding: 0 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+      .sl-fab { display: flex; flex-direction: column; align-items: flex-end; pointer-events: none;
+        font-family: system-ui, -apple-system, sans-serif; }
+      @media (max-width: 1023px) {
+        .sl-fab-anchor { display: flex; }
+        .sl-fab-anchor.sl-voice-above-bar { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+        .sl-fab-anchor.sl-voice-above-tall-bar { padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+      }
+      /* Status is for screen readers only — sighted users read it off Ruby
+         herself (see the state styles below), not a text label. */
+      .sl-fab-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      .sl-fab-zone { position: relative; width: 64px; height: 64px; display: grid; place-items: center; pointer-events: auto; }
+      /* Motion ONLY while a call is live, so movement itself means "you're
+         in a call" — and its kind says who's talking:
+           listening  → calm: just the slowly spinning ring, Ruby still
+           speaking   → Ruby pulses with her real voice level (--sl-lvl,
+                        driven from agent.getOutputLevel()) + soft ripples
+           connecting → ring + a faint ripple
+         Idle = completely still. */
+      /* Ring + ripples live in a 96px circle that CLIPS them: a ripple or
+         ring can never reach past the 16px screen margin, so mid-animation
+         they can't make a phone widen/zoom the page (they did). */
+      .sl-fab-fx { position: absolute; width: 96px; height: 96px; left: -16px; top: -16px; border-radius: 50%;
+        overflow: hidden; pointer-events: none; display: grid; place-items: center; }
+      .sl-fab-ring, .sl-fab-ripple { display: none; }
+      .sl-fab[data-active="1"] .sl-fab-ring { display: block; }
+      .sl-fab[data-status="speaking"] .sl-fab-ripple, .sl-fab[data-status="connecting"] .sl-fab-ripple { display: block; }
+      .sl-fab-ring { position: absolute; width: 66px; height: 66px; border-radius: 50%; margin: auto; inset: 0;
+        background: conic-gradient(from 0deg, #2FB183, #079FA0 35%, rgba(47,177,131,0) 60%, #2FB183);
+        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+                mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+        animation: slFabSpin 3s linear infinite; }
+      .sl-fab-ripple { position: absolute; width: 58px; height: 58px; border-radius: 50%; border: 2px solid #2FB183; margin: auto; inset: 0;
+        animation: slFabRipple 2s ease-out infinite; }
+      .sl-fab[data-status="connecting"] .sl-fab-ripple { border-color: #079FA0; animation-duration: 3s; opacity: .6; }
+      @keyframes slFabSpin { to { transform: rotate(360deg); } }
+      @keyframes slFabRipple { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.6); opacity: 0; } /* 58px → 93px, inside the 96px clip */ }
+      .sl-fab-btn { position: relative; width: 56px; height: 56px; padding: 2px; border-radius: 50%; cursor: pointer;
+        border: 1.5px solid rgba(255,255,255,.6); background: linear-gradient(135deg,#079FA0,#2FB183);
+        box-shadow: 0 10px 22px rgba(10,63,65,.32); transition: transform .09s linear, box-shadow .09s linear; -webkit-tap-highlight-color: transparent;
+        transform: scale(calc(1 + var(--sl-lvl, 0) * .07)); } /* ≤ 60px, inside the 64px zone */
+      .sl-fab[data-status="speaking"] .sl-fab-btn {
+        box-shadow: 0 10px 22px rgba(10,63,65,.32), 0 0 0 calc(var(--sl-lvl, 0) * 6px) rgba(47,177,131,.35); }
+      .sl-fab-btn:active { transform: scale(.94); }
+      .sl-fab-btn img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+      .sl-fab-panel { position: absolute; top: 6px; right: 64px; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 8px;
+        border-radius: 26px; background: rgba(244,247,246,.97); border: 1px solid #DCE7E6; box-shadow: 0 8px 20px rgba(10,63,65,.22);
+        transform-origin: right center; transform: translateX(18px) scale(.35); opacity: 0; pointer-events: none;
+        transition: transform .22s cubic-bezier(.2,.9,.3,1.2), opacity .16s; }
+      .sl-fab[data-active="1"][data-expanded="1"] .sl-fab-panel { transform: none; opacity: 1; pointer-events: auto; }
+      .sl-fab-meta { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 34px; }
+      .sl-fab-eq { display: flex; align-items: center; gap: 3px; height: 18px; }
+      .sl-fab-eq span { width: 3.5px; height: 18px; border-radius: 2px; background: #2FB183; transform: scaleY(.3); animation: slFabEq .9s ease-in-out infinite alternate; }
+      .sl-fab-eq span:nth-child(2) { animation-delay: .15s; } .sl-fab-eq span:nth-child(3) { animation-delay: .3s; } .sl-fab-eq span:nth-child(4) { animation-delay: .45s; }
+      .sl-fab[data-muted="1"] .sl-fab-eq span { animation-play-state: paused; opacity: .4; }
+      .sl-fab:not([data-active="1"]) .sl-fab-eq span { animation: none; }
+      @keyframes slFabEq { to { transform: scaleY(1); } }
+      .sl-fab-timer { font-size: 10.5px; font-weight: 600; color: #64748B; font-variant-numeric: tabular-nums; }
+      .sl-fab-ctl { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; cursor: pointer; border: 1px solid #DCE7E6; background: #EEF3F2; color: #0A3F41; }
+      .sl-fab[data-muted="1"] .sl-fab-mute, .sl-voice-launcher[data-muted="1"] .sl-voice-mute { background: #DD8A0B; border-color: #DD8A0B; color: #fff; }
+      .sl-fab-mute .sl-off, .sl-voice-mute .sl-off { display: none; }
+      .sl-fab[data-muted="1"] .sl-fab-mute .sl-on, .sl-voice-launcher[data-muted="1"] .sl-voice-mute .sl-on { display: none; }
+      .sl-fab[data-muted="1"] .sl-fab-mute .sl-off, .sl-voice-launcher[data-muted="1"] .sl-voice-mute .sl-off { display: block; }
+      .sl-fab-end { background: #C0392B; border-color: #C0392B; color: #fff; }
+      @media (prefers-reduced-motion: reduce) { .sl-fab-ring, .sl-fab-ripple, .sl-fab-eq span { animation: none; } .sl-fab-ripple { opacity: .5; transform: scale(1.2); } }
     `;
     document.head.appendChild(launcherStyle);
 
-    const initialSide = launcherSide(pathRef.current);
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
+    // A <div>, not a <button>: once a call is active it hosts its own nested
+    // mute/end-call buttons, and a <button> can't legally contain another.
+    const btn = document.createElement('div');
+    btn.setAttribute('role', 'button');
+    btn.tabIndex = 0;
     btn.className = 'sl-voice-launcher';
     btn.setAttribute('aria-label', 'Talk to SwiftLoan — voice guide');
     // Ruby sits flush at the left of the pill, full-bleed, so she reads as a
     // person you are about to talk to rather than an icon in a button.
-    // right/left are set per-route below (and kept in sync on navigation by
-    // the pathname effect above) rather than hardcoded here.
     btn.style.cssText =
-      'position:fixed;bottom:22px;z-index:9999;display:flex;align-items:center;gap:10px;overflow:visible;' +
+      'position:fixed;bottom:22px;right:22px;z-index:9999;display:flex;align-items:center;gap:10px;overflow:visible;' +
       'padding:8px 10px 8px 8px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
+      // min-width holds the pill at its widest (idle text) content's size, so
+      // switching to the narrower in-call controls can't shrink the pill —
+      // without this, the right-anchored pill narrowing pulled Ruby's avatar
+      // (its leftmost content) visibly rightward the moment a call started.
+      'min-width:250px;' +
       'box-shadow:0 12px 30px rgba(7,159,160,.42);background:linear-gradient(135deg,#079FA0,#2FB183);transition:transform .15s';
-    btn.style.left = initialSide === 'left' ? '22px' : '';
-    btn.style.right = initialSide === 'left' ? '' : '22px';
+    btn.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
+    const ctlIcon = (d: string, cls = '') =>
+      `<svg class="${cls}" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
     // Ruby is a background-free cutout that rises above the pill on the left,
     // with a soft drop shadow so she stands off the page — matching the design.
+    // Idle: name + status text + a phone icon (the whole pill starts the
+    // call). Active: same avatar, but the text/phone swap for the same
+    // wave/mute/end-call controls the phone app's in-call FAB uses below.
     btn.innerHTML =
-      '<img class="ruby-cut" src="/ruby.png" alt="Ruby, the SwiftLoan assistant" ' +
+      // ruby-pill.png is ruby.png with its bottom-left corner cut along the
+      // pill's own curve (28px-radius rounded end, at this fixed 78px/56px
+      // display size) — without it, her flat rectangular photo edge pokes a
+      // few px past the pill's rounded corner instead of following it.
+      '<img class="ruby-cut" src="/ruby-pill.png" alt="Ruby, the SwiftLoan assistant" ' +
       'style="height:78px;width:auto;flex:none;align-self:flex-end;margin:-30px -2px -8px 0;pointer-events:none;' +
       'filter:drop-shadow(0 7px 9px rgba(0,0,0,.28))" />' +
+      '<span class="sl-voice-idle" style="display:flex;align-items:center;gap:10px">' +
       '<span class="sl-voice-text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.15">' +
       '<span style="font-size:14px;font-weight:800">Talk to Ruby</span>' +
       '<span class="voice-label" style="font-size:11px;font-weight:500;opacity:.9">SwiftLoan assistant</span>' +
@@ -607,14 +704,28 @@ export default function VoiceWidget() {
       'border-radius:50%;background:#fff;flex:none;margin-left:2px;box-shadow:0 2px 6px rgba(0,0,0,.15)">' +
       '<svg width="17" height="17" viewBox="0 0 24 24" fill="none">' +
       '<path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24 11.4 11.4 0 0 0 3.6.58 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.46.58 3.6a1 1 0 0 1-.24 1z" fill="#079FA0"/></svg>' +
+      '</span>' +
+      '</span>' +
+      // flex:1 + justify-content:flex-end fills the pill's now-fixed width and
+      // right-aligns the controls, so they sit flush at the edge (where the
+      // phone icon used to be) instead of leaving a gap where the pill no
+      // longer shrinks to fit them.
+      '<span class="sl-voice-call" style="display:none;flex:1;align-items:center;justify-content:flex-end;gap:8px" role="group" aria-label="Call controls">' +
+      '<span class="sl-fab-eq" aria-hidden="true"><span></span><span></span><span></span><span></span></span>' +
+      '<button type="button" class="sl-fab-ctl sl-voice-mute" aria-label="Mute microphone">' +
+      ctlIcon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>', 'sl-on') +
+      ctlIcon('<path d="M3 3l18 18M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.6 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3"/>', 'sl-off') +
+      '</button>' +
+      '<button type="button" class="sl-fab-ctl sl-fab-end" aria-label="End call">' +
+      ctlIcon('<path d="M3.3 13.4c5-4.5 12.4-4.5 17.4 0 .5.5.5 1.2.1 1.7l-1.7 1.9a1.2 1.2 0 0 1-1.6.2l-2.3-1.6a1.2 1.2 0 0 1-.5-1v-1.8a11 11 0 0 0-5.4 0v1.8c0 .4-.2.8-.5 1L6.5 17.2a1.2 1.2 0 0 1-1.6-.2l-1.7-1.9a1.2 1.2 0 0 1 .1-1.7z" fill="currentColor" stroke="none"/>') +
+      '</button>' +
       '</span>';
     const errBox = document.createElement('div');
     errBox.id = 'sl-voice-error';
     errBox.style.cssText =
-      'position:fixed;bottom:78px;z-index:9999;max-width:280px;display:none;' +
+      'position:fixed;bottom:78px;right:22px;z-index:9999;max-width:280px;display:none;' +
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
-    errBox.style.left = initialSide === 'left' ? '22px' : '';
-    errBox.style.right = initialSide === 'left' ? '' : '22px';
+    errBox.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
 
     const LABELS: Record<string, string> = {
       idle: 'SwiftLoan assistant',
@@ -624,8 +735,14 @@ export default function VoiceWidget() {
       executingTool: 'Working on it…',
       ended: 'SwiftLoan assistant',
     };
+    const idleEl = btn.querySelector('.sl-voice-idle') as HTMLElement;
+    const callEl = btn.querySelector('.sl-voice-call') as HTMLElement;
+    const muteBtn = btn.querySelector('.sl-voice-mute') as HTMLButtonElement;
+    const endBtn = btn.querySelector('.sl-fab-end') as HTMLButtonElement;
+
     agent.on('statusChange', (s: string) => {
       const active = s !== 'idle' && s !== 'ended';
+      btn.dataset.active = active ? '1' : '0';
       const label = btn.querySelector('.voice-label') as HTMLElement | null;
       if (label) label.textContent = LABELS[s] || 'SwiftLoan assistant';
       // Ruby's own ring signals listening/thinking now, so the pill no longer
@@ -633,27 +750,51 @@ export default function VoiceWidget() {
       btn.style.background = active
         ? 'linear-gradient(135deg,#0B6E6F,#128f5b)'
         : 'linear-gradient(135deg,#079FA0,#2FB183)';
+      // Once a call is live, the idle text/phone-icon give way to the same
+      // wave/mute/end-call controls the phone app's in-call FAB uses.
+      idleEl.style.display = active ? 'none' : 'flex';
+      callEl.style.display = active ? 'flex' : 'none';
+      if (!active) btn.dataset.muted = '0';
+      btn.setAttribute('aria-label', active ? 'In a call with SwiftLoan — click to end' : 'Talk to SwiftLoan — voice guide');
       if (agent.conversationId) agent.updatePageContext();
+    });
+    agent.on('muteChange', (m: boolean) => {
+      btn.dataset.muted = m ? '1' : '0';
+      muteBtn.setAttribute('aria-label', m ? 'Unmute microphone' : 'Mute microphone');
     });
     agent.on('error', (e: { message: string }) => {
       errBox.textContent = e.message;
       errBox.style.display = 'block';
+      // Permission/device errors tell the user to go DO something (open the
+      // browser's site-permission control) — 6s was tuned for a short status
+      // blip, not enough time to read an instruction and act on it.
+      const isActionable = /address bar|browser.?s site permissions/i.test(e.message);
       setTimeout(() => {
         errBox.style.display = 'none';
-      }, 6000);
+      }, isActionable ? 12000 : 6000);
     });
 
-    btn.addEventListener('click', () => {
-      if (btn.dataset.active === '1') {
-        agent.stop();
-        btn.dataset.active = '0';
-      } else {
-        agent.start();
-        btn.dataset.active = '1';
+    // Background of the pill starts the call (only reachable while idle —
+    // the call controls cover this area once active). Mute/end have their
+    // own handlers below and stop propagation so they don't also toggle this.
+    const toggleCall = () => {
+      if (btn.dataset.active === '1') agent.stop();
+      else agent.start();
+    };
+    btn.addEventListener('click', toggleCall);
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleCall();
       }
     });
-    agent.on('statusChange', (s: string) => {
-      btn.dataset.active = s !== 'idle' && s !== 'ended' ? '1' : '0';
+    muteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      agent.setMuted(!agent.isMuted());
+    });
+    endBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      agent.stop();
     });
 
     let scrollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -675,6 +816,96 @@ export default function VoiceWidget() {
     document.body.appendChild(btn);
     document.body.appendChild(errBox);
 
+    // ── Phones/tablets: app-style FAB (see CSS above) ───────────────────
+    // fabAnchor is the fixed, 100dvh-sized positioning element; fab itself
+    // is just a flex child of it now (see the CSS comment on .sl-fab-anchor).
+    const fabAnchor = document.createElement('div');
+    fabAnchor.className = 'sl-fab-anchor';
+    fabAnchor.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
+    fabAnchor.classList.toggle('sl-voice-above-tall-bar', TALL_BOTTOM_BAR_ROUTES.includes(pathRef.current));
+    const fab = document.createElement('div');
+    fab.className = 'sl-fab';
+    fab.dataset.active = '0';
+    fab.dataset.expanded = '0';
+    fab.dataset.muted = '0';
+    const icon = (d: string, cls = '') =>
+      `<svg class="${cls}" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    fab.innerHTML =
+      '<div class="sl-fab-status" role="status" aria-live="polite"><span class="sl-fab-status-text"></span></div>' +
+      '<div class="sl-fab-zone">' +
+      '<span class="sl-fab-fx" aria-hidden="true"><span class="sl-fab-ripple"></span><span class="sl-fab-ring"></span></span>' +
+      '<div class="sl-fab-panel" role="group" aria-label="Call controls">' +
+      '<div class="sl-fab-meta"><div class="sl-fab-eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div><span class="sl-fab-timer">0:00</span></div>' +
+      '<button type="button" class="sl-fab-ctl sl-fab-mute" aria-label="Mute microphone">' +
+      icon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>', 'sl-on') +
+      icon('<path d="M3 3l18 18M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.6 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3"/>', 'sl-off') +
+      '</button>' +
+      '<button type="button" class="sl-fab-ctl sl-fab-end" aria-label="End call">' +
+      icon('<path d="M3.3 13.4c5-4.5 12.4-4.5 17.4 0 .5.5.5 1.2.1 1.7l-1.7 1.9a1.2 1.2 0 0 1-1.6.2l-2.3-1.6a1.2 1.2 0 0 1-.5-1v-1.8a11 11 0 0 0-5.4 0v1.8c0 .4-.2.8-.5 1L6.5 17.2a1.2 1.2 0 0 1-1.6-.2l-1.7-1.9a1.2 1.2 0 0 1 .1-1.7z" fill="currentColor" stroke="none"/>') +
+      '</button>' +
+      '</div>' +
+      '<button type="button" class="sl-fab-btn" aria-label="Talk to Ruby, the SwiftLoan assistant">' +
+      '<img src="/ruby-avatar.png" alt="" width="52" height="52" />' +
+      '</button>' +
+      '</div>';
+    fabAnchor.appendChild(fab);
+    document.body.appendChild(fabAnchor);
+
+    const fabBtn = fab.querySelector('.sl-fab-btn') as HTMLButtonElement;
+    const fabStatus = fab.querySelector('.sl-fab-status-text') as HTMLElement;
+    const fabTimer = fab.querySelector('.sl-fab-timer') as HTMLElement;
+    const fabMute = fab.querySelector('.sl-fab-mute') as HTMLButtonElement;
+    let callTimer: ReturnType<typeof setInterval> | null = null;
+    // While Ruby speaks, her avatar follows her actual voice level.
+    let levelRaf: number | null = null;
+    let lvl = 0;
+    const trackLevel = () => {
+      const target = fab.dataset.status === 'speaking' ? agent.getOutputLevel() : 0;
+      lvl += (target - lvl) * 0.35; // smooth so it breathes rather than jitters
+      fab.style.setProperty('--sl-lvl', lvl < 0.01 ? '0' : lvl.toFixed(3));
+      levelRaf = fab.dataset.active === '1' ? requestAnimationFrame(trackLevel) : null;
+    };
+    const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    const setExpanded = (v: boolean) => {
+      fab.dataset.expanded = v ? '1' : '0';
+      fabBtn.setAttribute('aria-label', fab.dataset.active === '1' ? (v ? 'Hide call controls' : 'Show call controls') : 'Talk to Ruby, the SwiftLoan assistant');
+    };
+    fabBtn.addEventListener('click', () => {
+      if (fab.dataset.active === '1') setExpanded(fab.dataset.expanded !== '1');
+      else agent.start();
+    });
+    fab.querySelector('.sl-fab-end')!.addEventListener('click', () => agent.stop());
+    fabMute.addEventListener('click', () => agent.setMuted(!agent.isMuted()));
+    agent.on('muteChange', (m: boolean) => {
+      fab.dataset.muted = m ? '1' : '0';
+      fabMute.setAttribute('aria-label', m ? 'Unmute microphone' : 'Mute microphone');
+    });
+    agent.on('statusChange', (s: string) => {
+      const active = s !== 'idle' && s !== 'ended';
+      const wasActive = fab.dataset.active === '1';
+      fab.dataset.active = active ? '1' : '0';
+      fab.dataset.status = s;
+      fabStatus.textContent = LABELS[s] || 'Connecting…';
+      if (active && !wasActive) {
+        // Call just started: open the controls and start the clock.
+        const started = Date.now();
+        fabTimer.textContent = '0:00';
+        callTimer = setInterval(() => { fabTimer.textContent = fmt(Math.floor((Date.now() - started) / 1000)); }, 1000);
+        if (levelRaf == null) levelRaf = requestAnimationFrame(trackLevel);
+        setExpanded(true);
+      } else if (!active && wasActive) {
+        if (callTimer) clearInterval(callTimer);
+      if (levelRaf != null) cancelAnimationFrame(levelRaf);
+        callTimer = null;
+        fab.dataset.muted = '0';
+        if (levelRaf != null) cancelAnimationFrame(levelRaf);
+        levelRaf = null;
+        lvl = 0;
+        fab.style.setProperty('--sl-lvl', '0');
+        setExpanded(false);
+      }
+    });
+
     return () => {
       window.removeEventListener('scroll', onScroll);
       if (scrollTimer) clearTimeout(scrollTimer);
@@ -682,6 +913,8 @@ export default function VoiceWidget() {
       agentRef.current = null;
       btn.remove();
       errBox.remove();
+      fabAnchor.remove();
+      if (callTimer) clearInterval(callTimer);
       style.remove();
       launcherStyle.remove();
     };

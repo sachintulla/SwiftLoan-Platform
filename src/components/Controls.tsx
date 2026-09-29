@@ -286,6 +286,7 @@ export function ConsentRow({
 export function Field({
   label,
   hint,
+  required,
   style,
   voiceId,
   value,
@@ -294,6 +295,8 @@ export function Field({
 }: {
   label?: string;
   hint?: string;
+  /** Renders a red asterisk after the label — visual only, doesn't gate anything itself. */
+  required?: boolean;
   voiceId?: string;
 } & React.ComponentProps<typeof TextInput>) {
   const id = voiceId || label || hint;
@@ -328,7 +331,12 @@ export function Field({
 
   return (
     <View style={{ gap: 6 }}>
-      {label ? <Text style={[font(600), styles.fieldLabel]}>{label}</Text> : null}
+      {label ? (
+        <Text style={[font(600), styles.fieldLabel]}>
+          {label}
+          {required ? <Text style={{ color: colors.red }}> *</Text> : null}
+        </Text>
+      ) : null}
       <TextInput
         placeholderTextColor={colors.muted}
         style={[styles.input, font(500), style as StyleProp<TextStyle>]}
@@ -397,31 +405,54 @@ export function Slider({
   };
   const pct = max > min ? (value - min) / (max - min) : 0;
 
+  // Latest props for the (created-once) PanResponder — otherwise it keeps the
+  // first render's value/onChange forever.
+  const live = useRef({ min, max, step, onChange, value });
+  live.current = { min, max, step, onChange, value };
+  const lastSent = useRef<number | null>(null);
+
   const commit = (x: number) => {
     const width = wRef.current;
+    const { min: lo, max: hi, step: st, onChange: cb } = live.current;
     if (width <= 0) return;
-    let r = Math.max(0, Math.min(1, x / width));
-    let v = min + r * (max - min);
-    v = Math.round(v / step) * step;
-    v = Math.max(min, Math.min(max, v));
-    onChange?.(v);
+    const r = Math.max(0, Math.min(1, x / width));
+    let v = lo + r * (hi - lo);
+    v = Math.round(v / st) * st;
+    v = Math.max(lo, Math.min(hi, v));
+    // Only report real changes — every onChange re-renders the whole screen.
+    if (v === lastSent.current) return;
+    lastSent.current = v;
+    cb?.(v);
   };
 
+  // x of the touch along the track, fixed at the grant. `locationX` is
+  // relative to whichever view is under the finger (the thumb, mid-drag), so
+  // it's only read once, on the track itself (children are pointerEvents
+  // none); the drag then follows gesture dx, which is stable.
+  const startX = useRef(0);
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: e => commit(e.nativeEvent.locationX),
-      onPanResponderMove: e => commit(e.nativeEvent.locationX),
+      // Horizontal drags only — a vertical swipe starting here still scrolls the page.
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > Math.abs(g.dy),
+      // Once dragging, the page's ScrollView must not take the gesture over.
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: e => {
+        startX.current = e.nativeEvent.locationX;
+        lastSent.current = live.current.value;
+        commit(startX.current);
+      },
+      onPanResponderMove: (_e, g) => commit(startX.current + g.dx),
     }),
   ).current;
 
   return (
     <View style={styles.sliderHit} onLayout={onLayout} {...pan.panHandlers}>
-      <View style={styles.sliderTrack}>
+      <View style={styles.sliderTrack} pointerEvents="none">
         <View style={[styles.sliderFill, { width: `${pct * 100}%` }]} />
       </View>
-      <View style={[styles.sliderThumb, { left: Math.max(0, Math.min(w - 22, pct * w - 11)) }]} />
+      <View pointerEvents="none" style={[styles.sliderThumb, { left: Math.max(0, Math.min(w - 22, pct * w - 11)) }]} />
     </View>
   );
 }

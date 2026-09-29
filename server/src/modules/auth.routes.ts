@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
-import { createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
+import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('auth');
@@ -26,7 +26,7 @@ const phoneSchema = z
 /** Register a new user by phone (+ optional email/password) and send an OTP. */
 authRouter.post(
   '/register',
-  validate(z.object({ phone: phoneSchema, email: z.string().email().optional(), password: z.string().min(6).optional(), lang: z.string().optional() })),
+  validate(z.object({ phone: phoneSchema, email: z.string().email().max(254).optional(), password: z.string().min(6).max(200).optional(), lang: z.string().max(20).optional() })),
   ah(async (req, res) => {
     const { phone, email, password, lang } = req.body;
     const existing = await prisma.user.findUnique({ where: { phone } });
@@ -41,7 +41,7 @@ authRouter.post(
     });
     const { devOtp, delivered } = await createOtp(phone, user.id);
     log.info('registered', { userId: user.id, phone, hasDevOtp: !!devOtp, delivered });
-    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
+    assertOtpDelivered(delivered, phone);
     res.status(201).json({ userId: user.id, otpSent: true, devOtp });
   }),
 );
@@ -64,7 +64,7 @@ authRouter.post(
     ).catch(() => {});
 
     log.info('otp requested', { phone, userId: user.id, hasDevOtp: !!devOtp, delivered });
-    if (!delivered) throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
+    assertOtpDelivered(delivered, phone);
     res.json({ otpSent: true, devOtp });
   }),
 );
@@ -106,7 +106,7 @@ authRouter.post(
 /** Password login (email or phone + password). */
 authRouter.post(
   '/login',
-  validate(z.object({ identifier: z.string(), password: z.string() })),
+  validate(z.object({ identifier: z.string().max(254), password: z.string().max(200) })),
   ah(async (req, res) => {
     const { identifier, password } = req.body;
     const user = await prisma.user.findFirst({

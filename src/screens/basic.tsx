@@ -3,11 +3,15 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Chips, Slider, HeaderCta, StepBadge } from '../components/Controls';
-import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
+import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
-import { useStore, useT } from '../state/store';
+import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import {
+  NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
+  PINCODE_RE, sanitizeNameInput, cleanName,
+} from '../utils/inputLimits';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
 const RES_TYPE_SLUG: Record<string, string> = { Own: 'own', Rented: 'rented', Family: 'family', Company: 'company' };
@@ -29,6 +33,51 @@ export default function Basic() {
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
+  // Avoids re-querying the same pincode on every re-render/keystroke elsewhere
+  // on the screen, and avoids racing an in-flight lookup with a newer one if
+  // the user keeps editing.
+  const lastLookedUpPinRef = useRef<string | null>(null);
+  // Set once a lookup actually finds the pincode, so onContinue can cross-check
+  // whatever the user typed/edited into city/state against real postal data —
+  // never set on a network failure, so a flaky connection can't block Continue.
+  const pinLookupRef = useRef<{ city: string; state: string } | null>(null);
+  // Shown under the pincode field: a same-digit/leading-zero format problem
+  // (checked locally, no network) or "not found" (a real lookup that came
+  // back with no match) — a network hiccup shows nothing, same as before.
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  // Validate + auto-fill city/state from the pincode once it's a complete
+  // 6-digit code, via India Post's public Pincode API (free, no key). A
+  // network hiccup must never block typing; an actually-invalid code does.
+  useEffect(() => {
+    const pin = state.basicPin;
+    if (pin.length !== 6 || pin === lastLookedUpPinRef.current) return;
+    lastLookedUpPinRef.current = pin;
+    pinLookupRef.current = null;
+    if (!PINCODE_RE.test(pin)) { setPinError(t.basicValPin); return; }
+    setPinError(null);
+    let cancelled = false;
+    (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { signal: controller.signal });
+        clearTimeout(timer);
+        const json = await res.json();
+        const po = json?.[0]?.PostOffice?.[0];
+        if (cancelled) return;
+        if (!po) { setPinError(t.pinNotFound); return; }
+        if (po.District) set({ optCity: po.District });
+        if (po.State) set({ optState: po.State });
+        pinLookupRef.current = { city: po.District ?? '', state: po.State ?? '' };
+      } catch {
+        // Silently ignore — city/state stay editable by hand, and onContinue
+        // has nothing to cross-check against since pinLookupRef stays null.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.basicPin]);
   // Snapshot of what the server already held when this screen loaded (from
   // save_applicant_context during the warm-up conversation, or an earlier
   // profile edit) — onContinue diffs against this so it only PATCHes fields
@@ -39,7 +88,7 @@ export default function Basic() {
 
   // Auto-fill from whatever's already saved server-side.
   useEffect(() => {
-    if (!isAuthed()) return;
+    if (!isAuthed()) { applyPan(); return; }
     api.me().then((r: any) => {
       const user = r.user;
       if (!user) return;
@@ -80,20 +129,77 @@ export default function Basic() {
         const label = EMPS.find(e => EMP_SLUG[e] === user.employment);
         if (label) set({ basicEmp: label });
       }
+      if (!state.optAddr2 && user.addressLine2) set({ optAddr2: user.addressLine2 });
       if (!dob && user.dob) {
         const d = new Date(user.dob);
         setDob({ y: d.getFullYear(), m: d.getMonth(), d: d.getDate() });
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(applyPan);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Then the PAN Comprehensive details from Step 1 go on top: they're the
+  // verified identity, so name/DOB/gender/address from the PAN win over older
+  // profile values. Only fields the PAN actually returned are touched, and
+  // only once per verification — coming back to this step keeps any edits.
+  const [fromPan, setFromPan] = useState(!!state.panPrefill?.applied);
+  function applyPan() {
+    const hand = state.panPrefill;
+    if (!hand || hand.applied) return;
+    const p = hand.prefill;
+    const patch: Record<string, unknown> = {};
+    if (p.firstName) patch.basicFirst = p.firstName;
+    if (p.lastName) patch.basicLast = p.lastName;
+    if (p.gender) patch.aboutGender = p.gender;
+    if (p.email) patch.basicEmail = p.email;
+    if (p.pincode) patch.basicPin = p.pincode;
+    if (p.addressLine1) patch.optAddr1 = p.addressLine1;
+    if (p.addressLine2) patch.optAddr2 = p.addressLine2;
+    if (p.city) patch.optCity = p.city;
+    if (p.state) patch.optState = p.state;
+    if (p.district) patch.optDistrict = p.district;
+    const m = p.dob ? /^(\d{4})-(\d{2})-(\d{2})/.exec(p.dob) : null;
+    if (m) setDob({ y: +m[1], m: +m[2] - 1, d: +m[3] });
+    if (Object.keys(patch).length || m) setFromPan(true);
+    set({ ...patch, panPrefill: { ...hand, applied: true } });
+  }
+
   const onContinue = async () => {
+    // PAN comes first now — without a verified one, start from Step 1.
+    if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
+    if (!state.basicFirst.trim() || !state.basicLast.trim()) { showToast(t.basicValName); return; }
+    if (!dob) { showToast(t.basicValDob); return; }
+    // Belt-and-suspenders: the calendar/voice paths already refuse to set an
+    // under-18 date, but this re-checks the final value rather than trusting
+    // it could only ever have arrived here through one of those.
+    if (!isAtLeastAge(dob)) { showToast(t.basicValAge); return; }
+    if (!state.aboutGender) { showToast(t.basicValGender); return; }
     if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
     if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }
     if (!state.basicQualification) { showToast(t.basicValQual); return; }
+    if (!state.basicRes) { showToast(t.basicValRes); return; }
+    if (!state.basicEmp) { showToast(t.basicValEmp); return; }
     if (!state.optSalaryMode) { showToast(t.basicValSalary); return; }
     if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast(t.basicValAddr); return; }
+    if (!PINCODE_RE.test(state.basicPin)) { showToast(t.basicValPin); return; }
+    const incomeCheck = parseInt(state.basicIncome, 10);
+    if (!state.basicIncome || !Number.isFinite(incomeCheck) || incomeCheck < MONTHLY_INCOME_MIN) {
+      showToast(t.basicValIncome);
+      return;
+    }
+    // The last successful pincode lookup is the one source of truth for what
+    // city/state that pincode actually belongs to — if the user has since
+    // hand-edited either away from it, stop rather than save a mismatched
+    // address. Skipped entirely when the lookup never resolved (network down
+    // / not yet run) so this never blocks on something outside our control.
+    if (pinLookupRef.current?.state && cleanName(state.optState).toLowerCase() !== pinLookupRef.current.state.toLowerCase()) {
+      showToast(t.pinStateMismatch);
+      return;
+    }
+    if (pinLookupRef.current?.city && cleanName(state.optCity).toLowerCase() !== pinLookupRef.current.city.toLowerCase()) {
+      showToast(t.pinCityMismatch);
+      return;
+    }
     if (!isAuthed()) {
       showToast(t.basicValMobile);
       go('mobile');
@@ -101,12 +207,18 @@ export default function Basic() {
     }
     setBusy(true);
     try {
-      const fullName = [state.basicFirst, state.basicLast].filter(Boolean).join(' ').trim();
+      // Cleaned once here (trim + collapse internal whitespace) — the
+      // onChangeText filter already keeps out anything but letters/space/
+      // '.-, so this only ever touches leading/trailing/doubled spaces.
+      const first = cleanName(state.basicFirst);
+      const last = cleanName(state.basicLast);
+      const fullName = [first, last].filter(Boolean).join(' ');
       const dobIso = dob ? new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() : null;
       const resSlug = state.basicRes ? RES_TYPE_SLUG[state.basicRes] : null;
       const empSlug = state.basicEmp ? EMP_SLUG[state.basicEmp] : null;
-      const incomeNum = state.basicIncome ? parseInt(state.basicIncome, 10) || 0 : null;
+      const incomeNum = Number.isFinite(incomeCheck) ? incomeCheck : null;
       const addr1 = state.optAddr1.trim();
+      const addr2 = state.optAddr2.trim();
       const city = state.optCity.trim();
       const st = state.optState.trim();
 
@@ -117,8 +229,8 @@ export default function Basic() {
       // the voice agent already saved it.
       const initial = initialUserRef.current || {};
       const patch: Record<string, unknown> = {};
-      if (state.basicFirst && state.basicFirst !== initial.firstName) patch.firstName = state.basicFirst;
-      if (state.basicLast && state.basicLast !== initial.lastName) patch.lastName = state.basicLast;
+      if (first && first !== initial.firstName) patch.firstName = first;
+      if (last && last !== initial.lastName) patch.lastName = last;
       if (fullName && fullName !== initial.fullName) patch.fullName = fullName;
       if (state.basicEmail && state.basicEmail !== initial.email) patch.email = state.basicEmail;
       if (dobIso && dobIso !== (initial.dob ? new Date(initial.dob).toISOString() : null)) patch.dob = dobIso;
@@ -134,6 +246,7 @@ export default function Basic() {
       // Lender-required income mode + current address.
       if (state.optSalaryMode && state.optSalaryMode !== initial.salaryMode) patch.salaryMode = state.optSalaryMode;
       if (addr1 && addr1 !== initial.addressLine1) patch.addressLine1 = addr1;
+      if (addr2 && addr2 !== initial.addressLine2) patch.addressLine2 = addr2;
       if (city && city !== initial.city) patch.city = city;
       if (st && st !== initial.state) patch.state = st;
 
@@ -151,12 +264,13 @@ export default function Basic() {
 
       // Reuse the in-progress application already held in state (e.g. the user
       // went back and is re-submitting this screen) instead of inserting
-      // another row. PAN is attached later, on basicpan.tsx (the last step).
+      // another row. The Step 1 PAN is attached to it here (status pan_pending).
       let application: any;
       if (state.applicationId) {
         const { application: updated }: any = await api.updateApplication(state.applicationId, {
           amount: state.appAmount,
           tenureMonths: state.appTenure || 12,
+          panNumber: state.panNumber,
         });
         application = updated;
         mergeApiContext({ applicationUpdated: application });
@@ -168,6 +282,8 @@ export default function Basic() {
         });
         application = created;
         mergeApiContext({ applicationCreated: application });
+        const { application: withPan }: any = await api.updateApplication(created.id, { panNumber: state.panNumber });
+        application = withPan ?? created;
       }
       set({ applicationId: application.id });
       go('moredetails');
@@ -209,12 +325,14 @@ export default function Basic() {
       headerRight={<HeaderCta label={busy ? t.basicStarting : t.continueBtn} disabled={busy} onPress={onContinue} />}
     >
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={1} of={3} label={t.basicStepLabel} />
-        <StepDots total={3} active={1} />
+        <StepBadge step={2} of={3} label={t.basicStepLabel} />
+        <StepDots total={3} active={2} />
         <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.basicTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
           {t.basicSub}
         </Text>
+
+        {state.panPrefill ? <PanConfirmation info={state.panPrefill} prefilled={fromPan} /> : null}
 
         {/* Amount */}
         <View style={{ marginTop: 22 }}>
@@ -245,10 +363,10 @@ export default function Basic() {
         <SectionLabel text={t.basicPersonalSection} />
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Field label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: sanitizeNameInput(v) })} onBlur={() => set({ basicFirst: cleanName(state.basicFirst) })} />
           </View>
           <View style={{ flex: 1 }}>
-            <Field label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: sanitizeNameInput(v) })} onBlur={() => set({ basicLast: cleanName(state.basicLast) })} />
           </View>
         </View>
 
@@ -280,12 +398,14 @@ export default function Basic() {
         {/* Contact & address */}
         <SectionLabel text={t.basicContactSection} />
         <View style={{ gap: 16 }}>
-          <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
-          <Field label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
-          <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
+          <Field required label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+          {pinError ? <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: -10 }]}>{pinError}</Text> : null}
+          <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} maxLength={ADDR_MAX} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
-            <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
+            <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} maxLength={MID_MAX} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
+            <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} maxLength={MID_MAX} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
           </View>
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicResLabel} required />
@@ -298,17 +418,60 @@ export default function Basic() {
         <View style={{ gap: 12 }}>
           <FieldLabel text={t.basicEmpLabel} required />
           <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
-          <Field label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" value={state.basicIncome} onChangeText={v => set({ basicIncome: v })} />
+          <Field required label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicSalaryModeLabel} required />
             <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
           </View>
-          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
+          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
         <View style={{ height: 8 }} />
       </View>
     </Screen>
+  );
+}
+
+/** "30XXXXXXXX00" → "30XX XXXX XX00" (display only — it arrives already masked). */
+function formatMaskedAadhaar(m: string) {
+  return m.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '$1 ');
+}
+
+/** Confirmation of what the PAN lookup returned, shown at the top of this step. */
+function PanConfirmation({ info, prefilled }: { info: NonNullable<AppStateT['panPrefill']>; prefilled: boolean }) {
+  const t = useT();
+  const name = info.prefill.fullName;
+  const masked = info.prefill.maskedAadhaar;
+  const panMasked = `${info.pan.slice(0, 2)}XXXX${info.pan.slice(-4)}`;
+  return (
+    <View style={styles.panCard}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+        <View style={styles.panTick}><Icon name="verified" size={22} color="#fff" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 14, color: colors.text }]}>{t.panVerifiedCard}</Text>
+          {name ? <Text style={[font(600), { fontSize: 14, color: colors.text, marginTop: 1 }]} numberOfLines={1}>{name}</Text> : null}
+          <Text style={[font(500), { fontSize: 12, color: colors.textSoft, marginTop: 2, letterSpacing: 1.5 }]}>{panMasked}</Text>
+        </View>
+      </View>
+      {info.aadhaarLinked != null || masked ? (
+        <View style={styles.panChips}>
+          {info.aadhaarLinked != null ? (
+            <View style={[styles.panChip, info.aadhaarLinked ? { backgroundColor: 'rgba(47,177,131,0.15)' } : { backgroundColor: '#FCEFD9' }]}>
+              <Icon name="verified_user" size={14} color={info.aadhaarLinked ? colors.primary : '#B4740A'} />
+              <Text style={[font(700), { fontSize: 12, color: info.aadhaarLinked ? colors.primary : '#B4740A' }]}>
+                {info.aadhaarLinked ? t.aadhaarLinked : t.aadhaarNotLinked}
+              </Text>
+            </View>
+          ) : null}
+          {masked ? (
+            <View style={[styles.panChip, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line }]}>
+              <Text style={[font(600), { fontSize: 12, color: colors.text, letterSpacing: 1 }]}>{t.aadhaarLabel} {formatMaskedAadhaar(masked)}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+      {prefilled ? <Text style={[font(400), { fontSize: 12, color: colors.textSoft, marginTop: 10, lineHeight: 17 }]}>{t.panPrefilledNote}</Text> : null}
+    </View>
   );
 }
 
@@ -333,6 +496,10 @@ function RangeLabels({ min, max }: { min: string; max: string }) {
 }
 
 const styles = StyleSheet.create({
+  panCard: { marginTop: 18, borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)', backgroundColor: 'rgba(225,243,243,0.6)', borderRadius: 16, padding: 14 },
+  panTick: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
+  panChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.line },
+  panChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   dobBtn: {
     flexDirection: 'row',
     alignItems: 'center',

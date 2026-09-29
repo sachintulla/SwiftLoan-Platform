@@ -24,6 +24,7 @@ export interface ApplyDraft {
   email?: string;
   pincode?: string;
   addr1?: string;
+  addr2?: string;
   city?: string;
   state?: string;
   residence?: string;

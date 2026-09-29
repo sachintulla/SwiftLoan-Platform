@@ -36,7 +36,20 @@ export default function VerifyOtpPage() {
   const code = digits.join('');
 
   const setDigit = (i: number, v: string) => {
-    const clean = v.replace(/\D/g, '').slice(-1);
+    const all = v.replace(/\D/g, '');
+    // A whole code landing in one box — the browser/OS one-time-code autofill
+    // (iOS keyboard suggestion, Android SMS autofill) or a paste — is spread
+    // across the boxes from here instead of being cut to one digit.
+    if (all.length > 1) {
+      setDigits((prev) => {
+        const next = [...prev];
+        for (let k = 0; k < all.length && i + k < 6; k++) next[i + k] = all[k]!;
+        return next;
+      });
+      inputs.current[Math.min(i + all.length, 5)]?.focus();
+      return;
+    }
+    const clean = all.slice(-1);
     // Functional update: a fast sequence of keystrokes (or an OS-level autofill)
     // can fire several onChange events before React commits the first one —
     // reading `digits` from the closure dropped every digit but the last.
@@ -86,6 +99,17 @@ export default function VerifyOtpPage() {
     }
   };
 
+  // Auto-continue: the moment all 6 digits are in (autofill, paste or typing),
+  // verify without waiting for the button. Each code is auto-submitted once,
+  // so a wrong code shows its error and waits for an edit instead of looping.
+  const autoSubmitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (code.length !== 6 || loading || autoSubmitted.current === code) return;
+    autoSubmitted.current = code;
+    submit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, loading]);
+
   const resend = async () => {
     if (seconds > 0) return;
     setSeconds(RESEND_SECONDS);
@@ -119,7 +143,10 @@ export default function VerifyOtpPage() {
               onKeyDown={(e) => onKeyDown(i, e)}
               onPaste={onPaste}
               inputMode="numeric"
-              maxLength={1}
+              // Box 1 carries the one-time-code hint so the OS offers the SMS
+              // code; no hard 1-char limit, or an autofilled code would be cut.
+              autoComplete={i === 0 ? 'one-time-code' : 'off'}
+              aria-label={`Digit ${i + 1} of 6`}
               className={`input-interactive field-input h-14 w-12 rounded-xl text-center text-xl font-bold ${d ? 'border-primary bg-accent' : ''}`}
             />
           ))}

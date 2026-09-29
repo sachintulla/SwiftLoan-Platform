@@ -18,6 +18,21 @@ const log = scoped('authSession');
  */
 
 /**
+ * A failed OTP SMS blocks sign-in — EXCEPT where a test master OTP is
+ * configured (DEV_MASTER_OTP: dev/UAT only, never set in real prod). There
+ * the SMS provider refusing a test number mustn't stop anyone reaching the
+ * code screen, since the master OTP will sign them in anyway.
+ */
+export function assertOtpDelivered(delivered: boolean, phone: string): void {
+  if (delivered) return;
+  if (process.env.DEV_MASTER_OTP) {
+    log.warn('otp sms not delivered — continuing because DEV_MASTER_OTP is set', { phone });
+    return;
+  }
+  throw new HttpError(502, 'Could not send the verification code. Please try again in a moment.');
+}
+
+/**
  * `delivered: false` means the OTP row exists in the DB but the user has no
  * way to ever learn the code — confirmed live: a Vox 405 (wrong endpoint/
  * method, not a real per-message rejection) was swallowed here, and the

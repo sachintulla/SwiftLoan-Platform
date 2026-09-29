@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useAccount } from '@/lib/accountContext';
-import { AccountRail } from './AccountRail';
+import { AccountRail, MobileTopBar } from './AccountRail';
 
 export function AccountShell({
   children,
@@ -21,7 +21,8 @@ export function AccountShell({
     <div className="bg-background flex min-h-screen w-full">
       <AccountRail user={user} />
 
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
+        <MobileTopBar user={user} />
         {(backHref || title) && (
           <div className="flex items-center justify-between px-6 pt-6 sm:px-10">
             {backHref ? (

@@ -4,6 +4,7 @@ import { ArrowRight, X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP } from "@/hooks/useLeadCapture";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 /**
@@ -57,13 +58,15 @@ export function QuickCheckModal() {
     if (panel === "success") setOpen(false);
   }, [panel]);
 
+  useBodyScrollLock(open);
   if (!open) return <OverlayModals cap={cap} />;
 
   return (
     <>
       <div className="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
         <div className="flex min-h-full items-center justify-center">
-        <div className="bg-card relative my-auto w-[calc(100vw-2rem)] min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
+        {/* w-full, not a raw vw calc — see LeadCaptureUI's OtpModal for why. */}
+        <div className="bg-card relative my-auto w-full min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
           <button
             type="button"
             onClick={() => setOpen(false)}

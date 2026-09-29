@@ -7,7 +7,9 @@ import { Badge, Card, PrimaryButton, SecondaryButton } from '@/components/apply/
 import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
-import { applyOffer, getApplication, listApplications, type LoanApplication, type Offer } from '@/lib/applyApi';
+import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
+import { useApplyToOffer } from '@/hooks/useApplyToOffer';
+import { Scale } from 'lucide-react';
 
 // Same statuses the app's My Offers tab (fare.tsx) treats as "still carries
 // showable offers".
@@ -15,20 +17,21 @@ const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', '
 
 export default function OffersPage() {
   const router = useRouter();
-  const { applicationId, sessionReady, setApplicationId, setSelectedOffer } = useApply();
+  const { applicationId, sessionReady, setApplicationId } = useApply();
   const accountUser = useAccountUser();
   const [app, setApp] = useState<LoanApplication | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { apply: pickOffer, applyingId, error: applyError } = useApplyToOffer();
+  const error = loadError ?? applyError;
 
   const load = useCallback(() => {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
     if (applicationId) {
       getApplication(applicationId)
         .then(setApp)
-        .catch((e) => setError(e instanceof Error ? e.message : 'Could not load your offers.'))
+        .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load your offers.'))
         .finally(() => setLoading(false));
       return;
     }
@@ -51,7 +54,7 @@ export default function OffersPage() {
           setApp(withOffers);
         }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Could not load your offers.'))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load your offers.'))
       .finally(() => setLoading(false));
   }, [applicationId, setApplicationId]);
 
@@ -68,27 +71,6 @@ export default function OffersPage() {
   // your eligibility"), not a bare button spinner. That screen already calls
   // POST /:id/prequalify and lands back here on /apply/offers when it's done.
   const retry = () => router.push('/apply/finding');
-
-  const pickOffer = async (offer: Offer) => {
-    if (!applicationId || applyingId) return;
-    setApplyingId(offer.id);
-    try {
-      await applyOffer(applicationId, offer.id);
-      setSelectedOffer({
-        id: offer.id,
-        lenderName: offer.lenderName ?? offer.partner?.name ?? null,
-        redirectionUrl: offer.redirectionUrl,
-        amount: offer.amount,
-        apr: offer.apr,
-        emi: offer.emi,
-        tenureMonths: offer.tenureMonths,
-      });
-      router.push(offer.redirectionUrl ? '/apply/lender' : '/apply/confirm');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not apply to this offer. Please try again.');
-      setApplyingId(null);
-    }
-  };
 
   if (!sessionReady || loading) {
     return (
@@ -164,6 +146,15 @@ export default function OffersPage() {
                 {offers.length === 1 ? 'You have 1 offer!' : `Great news — you have ${offers.length} offers!`}
               </h1>
               <p className="text-muted-foreground mt-2 text-sm">Compare and choose the offer that works best for you.</p>
+              {offers.length >= 2 && (
+                <button
+                  onClick={() => router.push('/apply/compare')}
+                  className="border-primary text-primary hover:bg-accent mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full border-2 px-5 py-3 text-sm font-bold transition-colors sm:w-auto"
+                >
+                  <Scale className="h-4 w-4" />
+                  Compare all {offers.length} offers side by side
+                </button>
+              )}
               {allOffers.length > offers.length && (
                 <p className="text-muted-foreground mt-1 text-xs">
                   Already applied to {allOffers.length - offers.length} offer{allOffers.length - offers.length > 1 ? 's' : ''} —{' '}
@@ -177,7 +168,10 @@ export default function OffersPage() {
 
             {offers.map((offer) => {
               const lenderName = offer.lenderName ?? offer.partner?.name ?? 'Lender';
-              const hasEmi = !!offer.emiOptions?.length || offer.emi > 0;
+              // No rate yet (lender confirms it after approval): never show
+              // "0% p.a." or an EMI computed at 0% — both would be wrong.
+              const rateOnApproval = !(offer.apr > 0);
+              const hasEmi = !rateOnApproval && (!!offer.emiOptions?.length || offer.emi > 0);
               const applying = applyingId === offer.id;
               // Real signals from the lender/partner feed — mirrors
               // offers.tsx's OfferCard exactly. Previously this was
@@ -212,7 +206,7 @@ export default function OffersPage() {
                     ) : (
                       <>
                         <Metric k="Eligible amount" v={fmtINR(offer.amount)} />
-                        <Metric k="Interest rate" v={`${offer.apr}% p.a.`} />
+                        <Metric k="Interest rate" v={rateOnApproval ? 'On approval' : `${offer.apr}% p.a.`} />
                         <Metric k="Disbursal" v="24-48 hrs" />
                       </>
                     )}

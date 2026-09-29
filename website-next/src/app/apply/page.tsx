@@ -15,7 +15,7 @@ export default function ApplyPhonePage() {
   const { setPhone } = useApply();
   const [value, setValue] = useState('');
   // Must be an explicit opt-in, never pre-checked — same reasoning as the
-  // Step 3 PAN-consent checkbox.
+  // Step 1 PAN-consent checkbox.
   const [terms, setTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -67,7 +67,7 @@ export default function ApplyPhonePage() {
           </label>
 
           <label className="bg-muted mt-4 flex items-start gap-3 rounded-xl p-3.5 text-xs">
-            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required className="accent-primary mt-0.5" />
+            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required className="accent-primary mt-0.5 h-5 w-5 shrink-0" />
             <span className="text-muted-foreground">
               I agree to SwiftLoan&apos;s <a className="text-primary font-semibold underline">Terms of Service</a> and{' '}
               <a href="/privacypolicy" className="text-primary font-semibold underline">Privacy Policy</a>, and consent to being

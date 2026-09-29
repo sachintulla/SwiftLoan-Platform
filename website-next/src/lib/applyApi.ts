@@ -14,6 +14,7 @@ export interface Offer {
   emi: number;
   tenureMonths: number;
   processingFeeAmount: number | null;
+  gstOnProcessingFee?: number | null;
   netDisbursalAmount: number | null;
   redirectionUrl: string | null;
   lenderName: string | null;
@@ -140,4 +141,43 @@ export async function refreshApplicationStatus(applicationId: string) {
   // knew" (see applications.routes.ts) rather than a thrown error — surface
   // that as a soft warning, not a broken page.
   return { application: body.application as LoanApplication, refreshError: body.refreshError as string | undefined };
+}
+
+/** What PAN Comprehensive returned for Step 2's pre-fill (all optional). */
+export interface PanPrefill {
+  fullName?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  dob?: string; // YYYY-MM-DD
+  gender?: 'male' | 'female' | 'other';
+  email?: string;
+  /** Already masked by Aurix, e.g. 30XXXXXXXX00. */
+  maskedAadhaar?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface PanVerifyResult {
+  status: 'verified' | 'invalid';
+  verified: boolean;
+  aadhaarLinked: boolean | null;
+  prefill: PanPrefill;
+  message?: string;
+  source: 'cache' | 'aurix';
+}
+
+/**
+ * Step 1: verify the PAN (server/src/lib/panVerification.ts). The server
+ * answers from its own PAN cache when it has seen this PAN before, and only
+ * then calls the paid Aurix PAN Comprehensive API — so calling this again for
+ * the same PAN (back/forward, "Update details") costs nothing.
+ */
+export async function verifyPan(pan: string) {
+  const body = await authFetch('/api/kyc/pan/verify', { method: 'POST', body: JSON.stringify({ pan }) });
+  return body.data as PanVerifyResult;
 }

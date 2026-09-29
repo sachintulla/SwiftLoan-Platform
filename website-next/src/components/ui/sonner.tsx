@@ -7,6 +7,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       className="toaster group"
+      // Sonner defaults to bottom-right, and goes full-width at the bottom
+      // below 600px (its own responsive CSS) — the same corner/edge Ruby's
+      // voice widget lives in, so a toast would visually collide with it
+      // (looked like the widget "jumping" whenever one fired). Top-center
+      // is clear of it on every route/breakpoint.
+      position="top-center"
       toastOptions={{
         classNames: {
           toast:

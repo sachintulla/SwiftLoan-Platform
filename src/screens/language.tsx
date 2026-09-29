@@ -37,11 +37,9 @@ export default function Language() {
 
   return (
     <Screen bottomNav={false} scroll padded={false}>
-      {/* header */}
+      {/* header — no back arrow: splash auto-advances here and there's
+          nothing upstream worth returning to. */}
       <View style={styles.header}>
-        <Pressable onPress={() => go('splash')} style={styles.backCircle} hitSlop={8}>
-          <Icon name="arrow_back" size={22} color={colors.text} />
-        </Pressable>
         <Animated.View ref={wordHandoff.ref} onLayout={wordHandoff.onLayout} style={wordHandoff.style}>
           <Wordmark size={20} />
         </Animated.View>
@@ -119,16 +117,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 20,
     paddingBottom: 8,
-  },
-  backCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   langCard: { borderRadius: 16, borderWidth: 1.5, padding: 16 },
   langOn: { backgroundColor: 'rgba(7,159,160,0.12)', borderColor: colors.primary },

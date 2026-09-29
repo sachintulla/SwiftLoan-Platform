@@ -11,7 +11,7 @@ const LOAD_TIMEOUT_MS = 6000;
 
 export default function LenderFramePage() {
   const router = useRouter();
-  const { applicationId, selectedOffer, sessionReady } = useApply();
+  const { selectedOffer, sessionReady } = useApply();
   const accountUser = useAccountUser();
   const [loaded, setLoaded] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -41,20 +41,19 @@ export default function LenderFramePage() {
     setLoaded(true);
   };
 
-  const finished = () => router.push(applicationId ? `/account/${applicationId}` : '/account');
-
   return (
-    <ApplyShell backHref="/apply/offers" backLabel="Cancel & return to offers" stepLabel="Completing your application" accountUser={accountUser}>
-      <div className="flex flex-col gap-4">
+    <ApplyShell backHref="/apply/offers" backLabel="Cancel & return to offers" stepLabel="Completing your application" accountUser={accountUser} wide>
+      <div className="flex flex-col gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold">Finish up with {lenderName}</h1>
-          <p className="text-muted-foreground mt-2 text-sm">
+          <h1 className="text-xl font-extrabold sm:text-2xl">Finish up with {lenderName}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
             A few final identity and e-sign steps, shown right here — no need to go anywhere else. Your status updates
             automatically once you&apos;re done.
           </p>
         </div>
 
-        <div className="border-border relative h-[520px] overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)]">
+        {/* Fills the screen: viewport minus the shell header, title and the note below. */}
+        <div className="border-border relative h-[calc(100dvh-220px)] min-h-[480px] overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)]">
           {!loaded && !blocked && (
             <div className="bg-card absolute inset-0 grid place-items-center gap-3 text-center">
               <div className="bg-accent grid h-16 w-16 place-items-center rounded-2xl text-lg font-extrabold">
@@ -89,6 +88,14 @@ export default function LenderFramePage() {
             title={`${lenderName} application`}
             onLoad={onFrameLoad}
             className={`h-full w-full ${loaded ? '' : 'invisible'}`}
+            // Without this, the browser's Permissions Policy blocks the
+            // lender's page from ever showing its own permission prompt for
+            // these — geolocation (address/fraud checks), camera + microphone
+            // (video KYC, advertised on the homepage), regardless of what the
+            // lender's own page does. This only grants the ABILITY to ask;
+            // the user still sees and clicks the browser's real Allow/Block
+            // prompt themselves.
+            allow="geolocation; camera; microphone"
           />
         </div>
 
@@ -103,10 +110,6 @@ export default function LenderFramePage() {
             .
           </span>
         </div>
-
-        <button onClick={finished} className="bg-brand-gradient text-primary-foreground w-full rounded-full py-3.5 text-base font-bold">
-          I&apos;ve finished →
-        </button>
       </div>
     </ApplyShell>
   );
