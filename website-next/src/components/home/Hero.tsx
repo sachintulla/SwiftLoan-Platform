@@ -79,10 +79,12 @@ export function Hero() {
             </form>
             {/* Straight into the full application (login → PAN → details),
                 for visitors who'd rather apply than get a callback. Secondary
-                style so "Check eligibility" stays the primary action. */}
+                style so "Check eligibility" stays the primary action. Mobile
+                only — on wider screens the primary CTA next to the mobile
+                number field is enough, and this would just crowd the hero. */}
             <Link
               href="/apply"
-              className="group border-border bg-card/70 text-foreground mt-3 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl border px-6 text-sm font-bold backdrop-blur transition-transform hover:-translate-y-0.5 active:scale-[0.97] sm:w-auto"
+              className="group border-border bg-card/70 text-foreground mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl border px-6 text-sm font-bold backdrop-blur transition-transform hover:-translate-y-0.5 active:scale-[0.97] sm:hidden"
             >
               <FileText className="text-primary h-4 w-4 shrink-0" />
               {t.ctaApply}
