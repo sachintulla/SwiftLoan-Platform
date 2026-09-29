@@ -41,6 +41,19 @@
       "port": 4000
     },
     {
+      "name": "server-real-aurix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "NODE_EXTRA_CA_CERTS=/Users/charan.rallabandi/.sophos-ca.pem",
+        "npm",
+        "run",
+        "dev",
+        "--prefix",
+        "server"
+      ],
+      "port": 4000
+    },
+    {
       "name": "admin-dashboard",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
