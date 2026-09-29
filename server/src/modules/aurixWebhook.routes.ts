@@ -9,8 +9,17 @@
  * "My Loans" list reflects the lender's real, live progress without polling the
  * lender ourselves.
  *
- *  - Signature: X-KF-Signature = base64(sha256(shared_secret + raw_body)),
- *    verified against KFT_WEBHOOK_SECRET when configured (dev accepts + logs).
+ *  - Signature: X-KF-Signature, verified against KFT_WEBHOOK_SECRET when
+ *    configured (dev accepts + logs). KFT's docs describe this as
+ *    base64(sha256(shared_secret + raw_body)) — a plain concatenated hash —
+ *    but the secret KFT actually issued is explicitly labeled an HMAC
+ *    secret, and real HMAC-SHA256 is cryptographically NOT the same as
+ *    SHA256(secret‖body) (HMAC's inner/outer key padding means they never
+ *    collide, even with the identical secret and body). Confirmed live:
+ *    every real KFT webhook was 401ing under the documented scheme.
+ *    Checked against both — concatenated hash (per the doc) and real
+ *    HMAC-SHA256 (per the secret's own label) — so whichever KFT actually
+ *    signs with, this accepts it.
  *  - Idempotent on X-KF-Request-ID (best-effort in-memory dedupe).
  *  - Forward-only status transitions — an out-of-order webhook never regresses
  *    a further/terminal status.
@@ -30,6 +39,12 @@ const log = scoped('aurix-webhook');
 
 export const aurixWebhookRouter = Router();
 
+function timingSafeStringEqual(computed: string, provided: string): boolean {
+  const a = Buffer.from(computed);
+  const b = Buffer.from(provided);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 /** Verify KFT's X-KF-Signature, or the legacy shared-secret header. */
 function signatureOk(req: any): boolean {
   const secret = process.env.KFT_WEBHOOK_SECRET || process.env.AURIX_WEBHOOK_SECRET || '';
@@ -37,13 +52,14 @@ function signatureOk(req: any): boolean {
   const sig = req.get('x-kf-signature') || '';
   if (sig) {
     const raw: Buffer = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
-    const computed = crypto
+    // Two candidate schemes — see the module docstring on why both are
+    // checked. Either one matching is a valid, KFT-signed request.
+    const concatenatedHash = crypto
       .createHash('sha256')
       .update(Buffer.concat([Buffer.from(secret, 'utf8'), raw]))
       .digest('base64');
-    const a = Buffer.from(computed);
-    const b = Buffer.from(sig);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
+    const hmac = crypto.createHmac('sha256', secret).update(raw).digest('base64');
+    return timingSafeStringEqual(concatenatedHash, sig) || timingSafeStringEqual(hmac, sig);
   }
   // Legacy header fallback (pre-v1.2 shared-secret header).
   const got = req.get('x-aurix-webhook-secret') || req.get('x-api-key') || '';
