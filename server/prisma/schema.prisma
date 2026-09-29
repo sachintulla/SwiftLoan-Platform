@@ -108,6 +108,19 @@ model User {
   notifySecurityAlerts Boolean @default(true)
   notifyPromoOffers    Boolean @default(false)
 
+  // PAN verification attempt tracking (lib/panVerification.ts). Only a
+  // genuinely verified PAN is ever written to PanRecord; a "not found" or a
+  // real Aurix error is tracked here instead, never as a PanRecord row, so a
+  // retry is always a fresh paid Aurix call (never blocked by a cached
+  // negative result). No PII in these fields — Aurix's own status message.
+  panVerifyLastStatus    String?
+  panVerifyLastMessage   String?
+  panVerifyLastAttemptAt DateTime?
+  // Rolling 24h window for PAN_DAILY_LIMIT — every paid pan_comprehensive
+  // call counts against it, success or failure (Aurix bills either way).
+  panVerifyAttempts      Int       @default(0)
+  panVerifyWindowStartAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1435,7 +1448,9 @@ model PanRecord {
   id                String    @id @default(uuid())
   /// HMAC-SHA256 of the normalised PAN — the lookup key.
   panHash           String    @unique
-  /// verified | invalid (PAN not found / rejected; negative-cached until expiresAt)
+  /// Always "verified" — see lib/panVerification.ts. A "not found" or a real
+  /// Aurix error is never written here at all; those live on User instead
+  /// (panVerifyLastStatus etc.) so a retry is always a fresh paid call.
   status            String
   verified          Boolean   @default(false)
   /// Aurix Category, e.g. "Individual".
@@ -1448,11 +1463,12 @@ model PanRecord {
   keyVersion        Int       @default(1)
   /// The account whose PartnerCustomerId was used for the paid Aurix call.
   ownerUserId       String?
-  /// Negative results only: re-check with Aurix after this.
+  /// Unused by current writes (nothing here is ever negative-cached) — kept
+  /// nullable rather than dropped, in case a future need for it returns.
   expiresAt         DateTime?
   /// Times this PAN was answered from here instead of calling Aurix.
   cacheHits         Int       @default(0)
-  /// Last PAID pan_comprehensive call for this PAN (drives PAN_DAILY_LIMIT).
+  /// Last PAID pan_comprehensive call that verified this PAN.
   lastAurixCallAt   DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

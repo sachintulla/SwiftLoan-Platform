@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 
 const records = new Map<string, any>();
+const users = new Map<string, any>();
 const aurix = vi.fn();
 
 vi.mock('./prisma.js', () => {
@@ -25,10 +26,21 @@ vi.mock('./prisma.js', () => {
       else Object.assign(rec, data);
       return rec;
     },
-    count: async ({ where }: any) =>
-      [...records.values()].filter(r => r.ownerUserId === where.ownerUserId && r.lastAurixCallAt >= where.lastAurixCallAt.gte).length,
+    delete: async ({ where }: any) => {
+      const rec = [...records.values()].find(r => r.id === where.id);
+      if (rec) records.delete(rec.panHash);
+      return rec;
+    },
   };
-  return { prisma: { panRecord, user: { update: async () => ({}) } } };
+  const user = {
+    findUnique: async ({ where }: any) => users.get(where.id) ?? null,
+    update: async ({ where, data }: any) => {
+      const u = users.get(where.id);
+      Object.assign(u, data);
+      return u;
+    },
+  };
+  return { prisma: { panRecord, user } };
 });
 vi.mock('./lenderOffers.js', () => ({ callAurixPanComprehensive: (...a: any[]) => aurix(...a) }));
 
@@ -38,6 +50,8 @@ const { encryptJson, decryptJson, panHash } = await import('./pii.js');
 const userA = { id: 'user-a', phone: '9876543210', panNumber: null } as any;
 const userB = { id: 'user-b', phone: '9876543211', panNumber: null } as any;
 const PAN = 'ABCPE1234F';
+
+const freshUserRow = (id: string) => ({ id, panVerifyAttempts: 0, panVerifyWindowStartAt: null, panVerifyLastStatus: null, panVerifyLastMessage: null, panVerifyLastAttemptAt: null });
 
 /** Live UAT structure: { Data: { …flags, Data: {person} }, Meta }. */
 const live = (person: Record<string, unknown> | null, over: Record<string, unknown> = {}, meta: Record<string, unknown> = {}) => ({
@@ -57,6 +71,9 @@ const ok = { ok: true, status: 200, body: okBody };
 
 beforeEach(() => {
   records.clear();
+  users.clear();
+  users.set(userA.id, freshUserRow(userA.id));
+  users.set(userB.id, freshUserRow(userB.id));
   aurix.mockReset();
   delete process.env.PAN_SHARED_POLICY;
   delete process.env.PAN_DAILY_LIMIT;
@@ -211,13 +228,29 @@ describe('verifyPan — paid call happens at most once', () => {
     expect(results.every(r => r.verified)).toBe(true);
   });
 
-  it('not-found PAN is negative-cached, with Aurix\'s message both times', async () => {
-    aurix.mockResolvedValue({ ok: true, status: 200, body: live(null, { Success: false, Error: true, Message: 'No record found for the given PAN.' }, { Success: false, Message: 'No record found for the given PAN.' }) });
+  it('a genuine "not found" (confirmed live shape: Meta.Success:true, StatusCode 200, Data.Success:false, no ErrorResponse) is NEVER cached — retried fresh, tracked on the user row', async () => {
+    const notFound = live(null, { Success: false, Error: false, Status: 0, Message: 'No record found for the given input' });
+    aurix.mockResolvedValue({ ok: true, status: 200, body: notFound });
     const r1 = await verifyPan(userA, PAN);
     const r2 = await verifyPan(userA, PAN);
-    expect(r1).toMatchObject({ verified: false, source: 'aurix', message: 'No record found for the given PAN.', prefill: {} });
-    expect(r2).toMatchObject({ verified: false, source: 'cache', message: 'No record found for the given PAN.' });
-    expect(aurix).toHaveBeenCalledTimes(1);
+    expect(r1).toMatchObject({ verified: false, source: 'aurix', message: 'No record found for the given input', prefill: {} });
+    expect(r2).toMatchObject({ verified: false, source: 'aurix', message: 'No record found for the given input' });
+    expect(aurix).toHaveBeenCalledTimes(2);
+    expect(records.size).toBe(0);
+    expect(users.get(userA.id)).toMatchObject({ panVerifyLastStatus: 'not_found', panVerifyLastMessage: 'No record found for the given input' });
+  });
+
+  it('a real service error (confirmed live shape: Meta.Success:true, StatusCode 400, populated ErrorResponse) is NOT cached, 502, retried fresh', async () => {
+    const serviceError = live(null, {
+      Success: false, Error: true, Status: 0, Message: 'No record found for the given input',
+      ErrorResponse: { Status: null, ErrorType: 'ServiceError', ErrorCode: null, Message: 'Some Error has been occured, please try Again.', Source: 'pan_comprehensive' },
+    }, { StatusCode: '400', Message: 'Some Error has been occured, please try Again.' });
+    aurix.mockResolvedValueOnce({ ok: true, status: 200, body: serviceError });
+    await expect(verifyPan(userA, PAN)).rejects.toMatchObject({ status: 502 });
+    expect(records.size).toBe(0);
+    aurix.mockResolvedValueOnce(ok);
+    expect((await verifyPan(userA, PAN)).verified).toBe(true);
+    expect(aurix).toHaveBeenCalledTimes(2);
   });
 
   it('invalid status inside a success envelope reports the status, not "fetched successfully"', async () => {
@@ -227,31 +260,24 @@ describe('verifyPan — paid call happens at most once', () => {
     expect(r.message).toBe('PAN status: Invalid');
   });
 
-  it('an expired negative result is re-checked with Aurix', async () => {
-    aurix.mockResolvedValueOnce({ ok: true, status: 200, body: live(null, { Success: false }, { Success: false }) });
-    await verifyPan(userA, PAN);
-    records.get(panHash(PAN)).expiresAt = new Date(Date.now() - 1000);
-    aurix.mockResolvedValueOnce(ok);
-    expect((await verifyPan(userA, PAN)).verified).toBe(true);
-    expect(aurix).toHaveBeenCalledTimes(2);
-  });
-
   it.each([
     ['HTTP 500', { ok: false, status: 500, body: { Meta: { Success: false } }, error: 'HTTP 500' }],
     ['HTTP 401', { ok: false, status: 401, body: null, error: 'HTTP 401' }],
     ['timeout', { ok: false, status: 0, body: null, error: 'timed out after 20000ms' }],
-  ])('%s → 502 and is NOT cached', async (_label, failure) => {
+  ])('%s → 502, NOT cached, and does not count against the daily limit', async (_label, failure) => {
     aurix.mockResolvedValueOnce(failure);
     await expect(verifyPan(userA, PAN)).rejects.toMatchObject({ status: 502 });
     expect(records.size).toBe(0);
+    expect(users.get(userA.id).panVerifyAttempts).toBe(0); // Aurix never answered — a free retry
     aurix.mockResolvedValueOnce(ok);
     expect((await verifyPan(userA, PAN)).verified).toBe(true);
   });
 
-  it('token generation failure → 502, not a 500, and not cached', async () => {
+  it('token generation failure → 502, not a 500, not cached, not counted', async () => {
     aurix.mockRejectedValueOnce(new Error('Aurix generate_token failed: timed out after 15000ms (HTTP 0)'));
     await expect(verifyPan(userA, PAN)).rejects.toMatchObject({ status: 502 });
     expect(records.size).toBe(0);
+    expect(users.get(userA.id).panVerifyAttempts).toBe(0);
   });
 
   it('enforces the per-user daily limit on paid lookups only', async () => {
@@ -279,7 +305,38 @@ describe('re-mapping stored responses (no re-pay)', () => {
     expect(aurix).not.toHaveBeenCalled();
     expect(r).toMatchObject({ verified: true, source: 'cache' });
     expect(r.prefill).toMatchObject({ firstName: 'RAVI', lastName: 'SHARMA', city: 'Hyderabad' });
-    expect(records.get(panHash(PAN))).toMatchObject({ status: 'verified', expiresAt: null });
+    expect(records.get(panHash(PAN))).toMatchObject({ status: 'verified' });
+  });
+
+  it('a legacy negative-cached record (genuine "not found", from before this design) is discarded and re-checked fresh', async () => {
+    const notFound = live(null, { Success: false, Error: false, Status: 0, Message: 'No record found for the given input' });
+    records.set(panHash(PAN), {
+      id: 'old-negative', panHash: panHash(PAN), status: 'invalid', verified: false, category: null, aadhaarLinked: null,
+      verifiedAt: null, createdAt: new Date(), expiresAt: new Date(Date.now() + 3600_000), cacheHits: 0,
+      ownerUserId: userA.id, dataEnc: encryptJson({ pan: PAN, prefill: {}, raw: notFound }),
+    });
+    aurix.mockResolvedValueOnce(ok);
+    const r = await verifyPan(userA, PAN);
+    expect(aurix).toHaveBeenCalledTimes(1);
+    expect(records.get(panHash(PAN))?.id).not.toBe('old-negative');
+    expect(r).toMatchObject({ verified: true, source: 'aurix' });
+  });
+
+  it('a record wrongly cached (by the old bug) from a service-error envelope is discarded and re-checked fresh', async () => {
+    const serviceError = live(null, {
+      Success: false, Error: true, Status: 0, Message: 'No record found for the given input',
+      ErrorResponse: { Status: null, ErrorType: 'ServiceError', ErrorCode: null, Message: 'Some Error has been occured, please try Again.', Source: 'pan_comprehensive' },
+    }, { StatusCode: '400', Message: 'Some Error has been occured, please try Again.' });
+    records.set(panHash(PAN), {
+      id: 'old-bad', panHash: panHash(PAN), status: 'invalid', verified: false, category: null, aadhaarLinked: null,
+      verifiedAt: null, createdAt: new Date(), expiresAt: new Date(Date.now() + 3600_000), cacheHits: 0,
+      ownerUserId: userA.id, dataEnc: encryptJson({ pan: PAN, prefill: {}, raw: serviceError }),
+    });
+    aurix.mockResolvedValueOnce(ok);
+    const r = await verifyPan(userA, PAN);
+    expect(aurix).toHaveBeenCalledTimes(1);
+    expect(records.get(panHash(PAN))?.id).not.toBe('old-bad');
+    expect(r).toMatchObject({ verified: true, source: 'aurix' });
   });
 });
 

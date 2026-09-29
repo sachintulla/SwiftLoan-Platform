@@ -295,6 +295,25 @@ export async function callAurixPanComprehensive(
   );
   // Status + shape only — the body is the person's identity data, never logged.
   console.log(`[aurix-res] pan_comprehensive HTTP ${result.status} ok=${result.ok} success=${(result.body?.Result ?? result.body)?.Meta?.Success ?? '?'}`);
+  // Opt-in, envelope-only debug log (PAN_LOG_RESPONSE_SHAPE=true, develop only):
+  // Meta + the outer Data-level flags, never the nested person Data.Data — so
+  // this is still safe to leave in plaintext, unlike the raw body itself.
+  if (process.env.PAN_LOG_RESPONSE_SHAPE === 'true') {
+    const root = result.body?.Result ?? result.body;
+    const meta = root?.Meta ?? null;
+    const outer = root?.Data ?? null;
+    console.log('[aurix-res] pan_comprehensive envelope shape', {
+      meta,
+      dataLevel: outer ? {
+        Success: outer.Success,
+        Error: outer.Error,
+        Status: outer.Status,
+        Message: outer.Message,
+        ErrorResponse: outer.ErrorResponse,
+        hasPersonData: outer.Data != null,
+      } : null,
+    });
+  }
   return result;
 }
 
