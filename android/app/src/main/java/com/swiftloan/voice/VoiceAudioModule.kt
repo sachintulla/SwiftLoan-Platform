@@ -44,6 +44,11 @@ private const val AGC_MAX_GAIN = 8.0
 private const val AGC_MIN_GAIN = 1.0
 // Envelope smoothing so gain rides the recent loudness instead of jumping per chunk.
 private const val AGC_ENVELOPE_DECAY = 0.85
+// Per-chunk (40ms) release of the boost once input drops below speech level.
+// Without it the gain stayed at whatever the last utterance set (observed holding
+// ~2x for over a minute of silence), so room noise was sent boosted. 0.95/chunk
+// returns an 8x boost to 1x in about a second.
+private const val AGC_QUIET_RELEASE = 0.95
 
 /**
  * Native audio module for the voice-command agent: mic capture (16kHz mono
@@ -265,6 +270,7 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
         var totalBytesSent = 0L
         var envelope = 0.0
         var lastGain = 1.0
+        var gainState = 1.0
         // Always level in software: MODE_IN_COMMUNICATION's own mic calibration
         // (not just the AutomaticGainControl effect) measurably quiets the input
         // on some devices, so hardware AGC being present isn't sufficient here.
@@ -286,13 +292,16 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
               // Envelope-tracked gain (not per-chunk) so it doesn't pump between
               // syllables; every sample is hard-limited against wrap-around.
               if (maxAbs > AGC_TARGET_PEAK / AGC_MAX_GAIN) {
+                // Speech-level input: track its loudness and aim the gain at it.
                 envelope = max(maxAbs.toDouble(), envelope * AGC_ENVELOPE_DECAY)
-              }
-              gain = if (envelope > 1.0) {
-                (AGC_TARGET_PEAK / envelope).coerceIn(AGC_MIN_GAIN, AGC_MAX_GAIN)
+                gainState = (AGC_TARGET_PEAK / envelope).coerceIn(AGC_MIN_GAIN, AGC_MAX_GAIN)
               } else {
-                AGC_MIN_GAIN
+                // Quiet / ambient: let the boost relax back toward unity instead of
+                // holding the last utterance's gain (which amplified background noise).
+                envelope *= AGC_ENVELOPE_DECAY
+                gainState = max(AGC_MIN_GAIN, gainState * AGC_QUIET_RELEASE)
               }
+              gain = gainState
             } else {
               gain = 1.0
             }

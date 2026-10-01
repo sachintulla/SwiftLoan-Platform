@@ -7,6 +7,7 @@ import Svg, {
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, font } from '../theme/tokens';
 import Icon from './Icon';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { LogoMark, Wordmark } from './Logo';
 
 /**
@@ -104,6 +105,8 @@ export function HeroIllustration({ size = 160 }: { size?: number }) {
  * SwiftLoan lockup + tagline on the left, and the illustration on the right.
  */
 export function LoginHero({ onBack }: { onBack?: () => void }) {
+  // The back arrow is a bare icon, so go_back could not find it on the login screen.
+  useVoiceTarget(onBack ? 'Back' : undefined, { kind: 'button', onTap: onBack }, [onBack]);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const H = insets.top + 224;

@@ -61,9 +61,25 @@ export class ElloAgent {
   // Live) can fire several client-tool-call messages per turn; there is no
   // client-side batching, each is executed and answered independently.
   private inflight = new Map<string, AbortController>();
+  // Handlers run strictly one at a time, in arrival order. The model often fires
+  // e.g. select_option("English") and continue_next in the SAME millisecond; run in
+  // parallel, continue_next looked at the screen before select_option's state
+  // update rendered, got "Continue is disabled", and the agent then told the user
+  // the button was unavailable although the language was already selected. Queued,
+  // continue_next sees the screen select_option left behind (each handler waits for
+  // its own re-render before returning).
+  private toolQueue: Promise<unknown> = Promise.resolve();
   private pageContextFn: PageContextProvider | null = null;
   private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  // At most ONE deferred "flush once she stops speaking" listener at a time.
+  // Every deferred flush used to add its own statusChange listener, so N
+  // deferrals while she talked became N sends the instant she stopped.
+  private deferredFlushUnsub: (() => void) | null = null;
+  // Last page a client-tools-update was actually sent for — lets an unchanged,
+  // non-urgent repeat for the SAME page be dropped instead of sent as a bare
+  // marker that still reads server-side as a fresh turn.
+  private lastSentPage: string | null = null;
   // Full page_context already sent this session, keyed by screen — lets a
   // revisit with nothing changed (Home -> Profile -> Home -> Profile) send a
   // cheap page-marker instead of the whole object again. Reset per call in
@@ -149,7 +165,18 @@ export class ElloAgent {
   // current truth, not twice with the first one already stale by the time it
   // sends. Use urgent sparingly regardless: every other caller should keep
   // using the plain (debounced, non-interrupting) form.
-  updatePageContext(opts?: { urgent?: boolean }): void {
+  //
+  // `immediate` is for a tool's own result (tools.ts settled()): flush on the
+  // next microtask, bypassing the debounce, so the update is delivered while the
+  // server still sees that tool call as pending and can merge the two into ONE
+  // turn. Going through the 900ms debounce instead sent it AFTER she had already
+  // answered the tool result, producing a second, standalone spoken turn.
+  updatePageContext(opts?: { urgent?: boolean; immediate?: boolean }): void {
+    if (opts?.immediate && !opts.urgent) {
+      if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
+      Promise.resolve().then(() => this.flushPageContext(false));
+      return;
+    }
     if (opts?.urgent) {
       // Cancel any pending routine flush — an urgent one supersedes it
       // outright, not just delays it.
@@ -194,13 +221,19 @@ export class ElloAgent {
       // exactly the moment worth knowing about: an update queued because
       // she was mid-utterance, about to land the instant she stops.
       vlog('page_context deferred — agent is speaking, will flush once status leaves speaking');
+      if (this.deferredFlushUnsub) return; // already waiting; the flush reads live state anyway
       const unsubscribe = this.emitter.on('statusChange', next => {
-        if (next !== 'speaking') {
-          unsubscribe();
-          vlog('page_context flushing now — speaking ended (status ->', next, ')');
-          this.flushPageContext(false);
-        }
+        // Only 'listening' is a safe moment to send: 'executingTool' means a
+        // tool call is mid-flight (it would land inside it), and 'ended'/'idle'
+        // mean there is no one left to tell.
+        if (next === 'speaking' || next === 'executingTool' || next === 'connecting') return;
+        unsubscribe();
+        this.deferredFlushUnsub = null;
+        if (next !== 'listening') return;
+        vlog('page_context flushing now — speaking ended (status ->', next, ')');
+        this.flushPageContext(false);
       });
+      this.deferredFlushUnsub = unsubscribe;
       return;
     }
     // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
@@ -252,12 +285,27 @@ export class ElloAgent {
         );
         apiContext = Object.keys(meaningful).length ? meaningful : undefined;
       }
+      // `seconds_ago` on a toast ticks every second; it is not a content change.
+      if (apiContext && typeof apiContext === 'object' && (apiContext as any).lastToast) {
+        apiContext = { ...(apiContext as any), lastToast: { message: (apiContext as any).lastToast.message } };
+      }
       return JSON.stringify({ ...c, available_actions: actions, api_context: apiContext });
     };
     const fingerprint = fingerprintOf(ctx);
     const unchanged = this.lastSentPerScreen.get(screenKey) === fingerprint;
-    const payload = unchanged ? { page: ctx.page } : ctx;
+    // Non-urgent, nothing changed, and we already told the model about this very
+    // page: there is nothing to say, and even a bare marker can read as a new turn.
+    if (!urgent && unchanged && this.lastSentPage === screenKey) {
+      vlog('page_context skipped — nothing changed since the last send for', screenKey);
+      return;
+    }
+    // Always the full content. A bare {page} marker used to be sent on a revisit with
+    // nothing changed, relying on the model remembering an older snapshot of that
+    // screen — which it does not reliably do, so it described a revisited screen
+    // from memory. (An unchanged repeat for the SAME page is skipped above.)
+    const payload = ctx;
     if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
+    this.lastSentPage = screenKey;
 
     const includeTools = !this.toolsSentThisSession;
     this.toolsSentThisSession = true;
@@ -266,7 +314,7 @@ export class ElloAgent {
       ...(includeTools ? { tools: this.registry.toWire() } : {}),
       page_context: payload,
     });
-    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[unchanged, marker only] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
+    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[revisit, nothing changed] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
   }
 
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void {
@@ -300,6 +348,7 @@ export class ElloAgent {
     // landing on a stale %50 boundary, making response-time impossible to read.
     this.audioOutCount = 0;
     this.lastSentPerScreen.clear();
+    this.lastSentPage = null;
     this.toolsSentThisSession = false;
 
     this.setStatus('connecting');
@@ -492,11 +541,21 @@ export class ElloAgent {
     if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
     if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
     if (this.urgentFlushTimer) { clearTimeout(this.urgentFlushTimer); this.urgentFlushTimer = null; }
+    if (this.deferredFlushUnsub) { this.deferredFlushUnsub(); this.deferredFlushUnsub = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;
     this.setStatus('idle');
   }
+
+  // NOTE (removed): an automatic "send the real screen once the greeting finishes"
+  // follow-up was tried here. Every client-tools-update is injected into the model
+  // as a reminder (see ELLO_VOICE_SDK_INTEGRATION_GUIDE.md), so a standalone one on
+  // the same page made the model run the screen's opening script AGAIN — observed
+  // live: "Which language would you like to continue in…" asked twice, 4.6s apart.
+  // The starting screen therefore stays generic by design; the prompt tells Ruby to
+  // call read_screen (a tool call, which does not cause an extra turn) before
+  // describing or acting on a screen whose available_actions are empty.
 
   private setStatus(status: AgentStatus): void {
     this.status = status;
@@ -624,11 +683,16 @@ export class ElloAgent {
 
     const timeoutMs = Math.min(tool.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
     try {
-      const result = await this.runWithTimeout(
-        Promise.resolve(tool.handler(args, { toolCallId, signal: controller.signal })),
-        timeoutMs,
-        controller.signal,
-      );
+      // The timeout clock starts when the handler starts, not while it waits its turn.
+      const run = () =>
+        this.runWithTimeout(
+          Promise.resolve(tool.handler(args, { toolCallId, signal: controller.signal })),
+          timeoutMs,
+          controller.signal,
+        );
+      const queued = this.toolQueue.then(run, run);
+      this.toolQueue = queued.catch(() => undefined);
+      const result = await queued;
       respond('ok', result);
     } catch (e: any) {
       fail('tool_handler_failed', e?.message || 'tool handler failed');

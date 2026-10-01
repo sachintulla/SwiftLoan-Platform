@@ -6,6 +6,7 @@ import { ConsentRow, HeaderCta, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { api, ApiError, isAuthed } from '../api/client';
 import { PanVerifyingLoader } from '../components/PanVerifyingLoader';
 import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanResult } from '../utils/panOcr';
@@ -268,6 +269,9 @@ export default function BasicPan() {
 /** The PAN error popup — the API's own message, red (PAN failed) or amber (retry). */
 function PanAlertModal({ alert, okLabel, onClose }: { alert: PanAlert | null; okLabel: string; onClose: () => void }) {
   const red = alert?.tone === 'error';
+  // Content inside a <Modal> is invisible to the screen walker; while the popup is up,
+  // expose its OK button so the agent can see it is open and dismiss it.
+  useVoiceTarget(alert ? okLabel : undefined, { kind: 'button', onTap: onClose }, [alert, onClose]);
   return (
     <Modal visible={!!alert} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.scrim}>

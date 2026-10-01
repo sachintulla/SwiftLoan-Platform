@@ -15,7 +15,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Icon from './Icon';
 import { colors, font, navGradient } from '../theme/tokens';
 import { useStore } from '../state/store';
-import { registerTarget } from '../voice/actionRegistry';
+import { registerTarget, requestContextRefresh } from '../voice/actionRegistry';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { isSensitiveField } from '../voice/sensitive';
 
@@ -151,8 +151,18 @@ export function HeaderCta({
 }) {
   const { state } = useStore();
   useEffect(() => {
-    return registerTarget(state.screen, voiceId || label, { kind: 'button', label, onTap: onPress });
-  }, [state.screen, voiceId, label, onPress]);
+    // `disabled` and `primary` must be reported: without them a greyed-out Continue
+    // looked enabled to the agent, a tap bypassed the real `disabled` (the target's
+    // onTap is called directly), and continue_next could not find this screen's
+    // forward button by role on Hindi/Telugu (it only knew English label words).
+    return registerTarget(state.screen, voiceId || label, {
+      kind: 'button',
+      label,
+      disabled,
+      primary: true,
+      onTap: disabled ? undefined : onPress,
+    });
+  }, [state.screen, voiceId, label, onPress, disabled]);
 
   return (
     <Pressable
@@ -210,19 +220,31 @@ export function Chips({
   value,
   onChange,
   style,
+  group,
 }: {
   options: { label: string; value: string }[];
   value: string | null;
   onChange?: (v: string) => void;
   style?: StyleProp<ViewStyle>;
+  /** Name of the field these options belong to ("Gender", "Employment"…). Labels such as
+   *  "Other" repeat across groups on one screen, so the agent needs it to pick the right one. */
+  group?: string;
 }) {
   const { state } = useStore();
   useEffect(() => {
     const unregisters = options.map(o =>
-      registerTarget(state.screen, `chip:${o.label}`, { kind: 'chips', label: o.label, onTap: () => onChange?.(o.value) }),
+      registerTarget(state.screen, `chip:${group ?? ''}:${o.label}`, {
+        kind: 'chips',
+        label: o.label,
+        group,
+        // Whether this option is the selected one — without it the agent could never
+        // tell (prefilled from the server / PAN, or tapped by hand) and re-asked.
+        getValue: () => value === o.value,
+        onTap: () => onChange?.(o.value),
+      }),
     );
     return () => unregisters.forEach(u => u());
-  }, [state.screen, options, onChange]);
+  }, [state.screen, options, onChange, group, value]);
 
   return (
     <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, style]}>
@@ -343,6 +365,12 @@ export function Field({
         {...props}
         value={value}
         onChangeText={onChangeText}
+        onBlur={e => {
+          props.onBlur?.(e);
+          // The typed text is deliberately not part of the change signature (a send
+          // per keystroke); tell the agent once, when the user leaves the field.
+          requestContextRefresh();
+        }}
       />
       {hint ? <Text style={[font(400), { color: colors.muted, fontSize: 11.5 }]}>{hint}</Text> : null}
     </View>
@@ -363,6 +391,7 @@ export function Slider({
   step = 1,
   onChange,
   label,
+  role,
 }: {
   value: number;
   min: number;
@@ -370,6 +399,8 @@ export function Slider({
   step?: number;
   onChange?: (v: number) => void;
   label?: string;
+  /** What this slider controls, so set_loan_amount / set_tenure / set_interest_rate find it in any language. */
+  role?: 'amount' | 'tenure' | 'rate';
 }) {
   // A Slider is driven by PanResponder, so it exposes no onPress/onChangeText for
   // the element-tree walk to detect — without `label` it is completely invisible to
@@ -385,6 +416,10 @@ export function Slider({
     label,
     {
       kind: 'slider',
+      role,
+      min,
+      max,
+      step,
       getValue: () => value,
       setValue: v => {
         const n = Number(v);

@@ -387,6 +387,7 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
         <>
           {emiOptions.length > 1 ? (
             <Chips
+              group="Tenure"
               style={{ marginTop: 16 }}
               options={emiOptions.map(o => ({ label: `${o.tenureMonths} mo`, value: String(o.tenureMonths) }))}
               value={String(tenureMonths)}

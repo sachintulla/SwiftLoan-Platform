@@ -16,6 +16,18 @@ export interface ActionTarget {
    * work out that it needed to tick the terms box first.
    */
   disabled?: boolean;
+  /**
+   * Chips only: the field this option belongs to ("Gender", "Employment"...). Option
+   * labels repeat across groups on one screen ("Other" appears in four on `basic`),
+   * so the agent needs the group to say which one it means.
+   */
+  group?: string;
+  /** Sliders: which quantity this is, whatever language the label is in. */
+  role?: 'amount' | 'tenure' | 'rate';
+  /** Sliders: bounds, so the agent knows the limits it is working within. */
+  min?: number;
+  max?: number;
+  step?: number;
   onTap?: () => void;
   /**
    * This screen's main forward action (Continue/Next/Get Started/Send OTP/...).
@@ -28,7 +40,8 @@ export interface ActionTarget {
   primary?: boolean;
   // Numbers are included for sliders (loan amount / tenure / rate); dates travel
   // as YYYY-MM-DD strings.
-  setValue?: (v: string | boolean | number) => void;
+  /** Returns `false` when the value was rejected (e.g. an under-18 date of birth). */
+  setValue?: (v: string | boolean | number) => void | boolean;
   getValue?: () => string | boolean | number | undefined;
   scrollBy?: (amount: 'small' | 'page' | 'top' | 'bottom', direction?: 'up' | 'down') => void;
 }
@@ -36,9 +49,10 @@ export interface ActionTarget {
 const targetsByScreen = new Map<string, Map<string, ActionTarget>>();
 let currentScreen = '';
 
-// Fires when the *set* of explicitly self-registered target ids changes
-// (anywhere — a control appearing or disappearing on any screen), never on a
-// value/handler refresh of one that's already there. This is what lets a
+// Fires when the *set* of explicitly self-registered targets changes — a control
+// appearing or disappearing on any screen, OR one of them changing state (checked,
+// selected, enabled/disabled, slider/date value, text field going empty<->filled;
+// see stateOf below) — but never on a mere handler refresh. This is what lets a
 // control that registers late — e.g. a screen's own async load() finishing
 // well after the auto-discovered scan already settled, confirmed live to run
 // 500ms-1.5s on profile's notification toggles — extend the agent's debounced
@@ -53,7 +67,7 @@ let currentScreen = '';
 // delete as a removal and the immediate re-add as new, firing twice per
 // keystroke — exactly the spam this file's other dedup logic (the
 // `elementsSig` comment above) exists to prevent. Comparing a full signature
-// of every screen's id set once all of a commit's synchronous effects have
+// of every screen's targets once all of a commit's synchronous effects have
 // run absorbs that delete-then-immediately-re-add into a net no-op.
 const targetSetListeners = new Set<() => void>();
 export function onTargetSetChanged(cb: () => void): () => void {
@@ -62,19 +76,47 @@ export function onTargetSetChanged(cb: () => void): () => void {
 }
 let targetSetCheckScheduled = false;
 let lastTargetSetSignature = '';
+
+// What the agent should be told about, per explicitly registered control: its
+// identity, whether it is enabled, and its STATE — checked (toggle/consent),
+// selected (chips), value (slider/date), or just filled/empty (text fields, so a
+// prefill landing is noticed without a send per keystroke; the typed text itself
+// is picked up on blur / keyboard hide). Before this only the id set was
+// compared, so ticking a box, picking a chip or enabling a button by hand never
+// reached the agent, which then asked the user to do what was already done.
+function stateOf(t: ActionTarget): string {
+  let v: string | boolean | number | undefined;
+  try { v = t.getValue?.(); } catch { v = undefined; }
+  if (t.kind === 'field') return t.sensitive ? 'f' : String(v ?? '').trim() ? 'filled' : 'empty';
+  if (v === undefined) return '';
+  return String(v);
+}
+function targetSetSignature(): string {
+  return Array.from(targetsByScreen.entries())
+    .map(([screen, m]) =>
+      `${screen}:${Array.from(m.entries())
+        .map(([id, t]) => `${id}${t.disabled ? '!' : ''}=${stateOf(t)}`)
+        .sort()
+        .join(',')}`,
+    )
+    .sort()
+    .join('|');
+}
 function scheduleTargetSetCheck(): void {
   if (targetSetCheckScheduled) return;
   targetSetCheckScheduled = true;
   Promise.resolve().then(() => {
     targetSetCheckScheduled = false;
-    const sig = Array.from(targetsByScreen.entries())
-      .map(([screen, m]) => `${screen}:${Array.from(m.keys()).sort().join(',')}`)
-      .sort()
-      .join('|');
+    const sig = targetSetSignature();
     if (sig === lastTargetSetSignature) return;
     lastTargetSetSignature = sig;
     targetSetListeners.forEach(cb => cb());
   });
+}
+
+/** Ask for a fresh page_context (debounced by the agent) — e.g. a field was just committed. */
+export function requestContextRefresh(): void {
+  targetSetListeners.forEach(cb => cb());
 }
 
 // Auto-discovered elements from the rendered element tree (see screenGraph.ts),
@@ -129,6 +171,30 @@ export function waitForNextPublish(timeoutMs: number): Promise<void> {
   });
 }
 
+/** Drop a screen's auto-discovered controls and texts (e.g. when leaving it). */
+export function clearScreenGraph(screen: string): void {
+  autoByScreen.delete(screen);
+  screenTexts.delete(screen);
+  lastSignature.delete(screen);
+  lastNotifiedSignature.delete(screen);
+  lastElementsSignature.delete(screen);
+  lastPublishAt.delete(screen);
+  throttledChanges.delete(screen);
+  const t = trailingTimers.get(screen);
+  if (t) { clearTimeout(t); trailingTimers.delete(screen); }
+}
+
+// Text-only changes inside the throttle window are no longer simply forgotten: a
+// one-off change (an error line under a field, a readout, async text landing right
+// after the screen loaded) used to be dropped for good because its signature was
+// stored as "already seen" and nothing re-fired. They now get ONE trailing refresh
+// when the window ends — unless the text keeps changing (a carousel / count-up),
+// which is exactly the churn the throttle exists to absorb.
+const lastNotifiedSignature = new Map<string, string>();
+const throttledChanges = new Map<string, number>();
+const trailingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const MAX_ONE_OFF_CHANGES = 2;
+
 /** Returns true when the set of addressable controls actually changed. */
 export function publishScreenGraph(
   screen: string,
@@ -153,15 +219,14 @@ export function publishScreenGraph(
   // content arrives, so a controls-only signature would never re-notify the agent
   // and it would keep describing stale/placeholder data.
   //
-  // Checkbox/toggle values are folded in too, deliberately unlike fields:
-  // ticking consent is one discrete, rare flip — nothing like a keystroke
-  // stream — so including it can't reintroduce the per-keypress spam this
-  // signature exists to prevent. Without this, ticking "Accept terms" never
-  // notified the agent at all: kind and label stay identical before and
-  // after, so the agent only ever found out by coincidence, next time it
-  // happened to read the screen for an unrelated reason.
+  // Discovered checkbox/toggle values and enabled state are folded in too (ticking
+  // consent is one discrete flip, nothing like a keystroke stream). Explicitly
+  // registered controls have their state tracked separately by stateOf() above.
   const elementsSig = elements
-    .map(e => (e.kind === 'toggle' || e.kind === 'consent') ? `${e.kind}|${e.label}|${e.getValue?.()}` : `${e.kind}|${e.label}`)
+    .map(e => {
+      const stateful = e.kind === 'toggle' || e.kind === 'consent' || e.kind === 'chips';
+      return `${e.kind}|${e.label}${e.disabled ? '!' : ''}${stateful ? `|${e.getValue?.()}` : ''}`;
+    })
     .join('~');
   const sig = elementsSig + '§' + texts.join('¶');
   if (lastSignature.get(screen) === sig) return false;
@@ -170,18 +235,38 @@ export function publishScreenGraph(
   const now = Date.now();
   const sinceLastPublish = now - (lastPublishAt.get(screen) ?? 0);
   if (!controlsChanged && sinceLastPublish < TEXT_CHANGE_THROTTLE_MS) {
-    // Text-only churn inside the throttle window (a carousel/count-up tick) —
-    // remember the signature so this exact frame isn't re-flagged as "changed"
-    // next time, but don't notify the agent yet. Screens like this keep
-    // re-rendering on their own timer, so the picture catches up on the very
-    // next tick once the window has passed; nothing is lost, just batched.
+    // Text-only churn inside the throttle window. Remember the signature so this
+    // exact frame isn't re-flagged, and arrange a single trailing refresh for a
+    // genuine one-off change (see the note above).
     lastSignature.set(screen, sig);
+    const n = (throttledChanges.get(screen) ?? 0) + 1;
+    throttledChanges.set(screen, n);
+    if (n <= MAX_ONE_OFF_CHANGES && !trailingTimers.has(screen)) {
+      trailingTimers.set(
+        screen,
+        setTimeout(() => {
+          trailingTimers.delete(screen);
+          const changes = throttledChanges.get(screen) ?? 0;
+          throttledChanges.set(screen, 0);
+          if (changes > MAX_ONE_OFF_CHANGES) return; // it kept changing: animation, stay quiet
+          if (screen !== currentScreen) return;
+          const latest = lastSignature.get(screen);
+          if (latest && latest !== lastNotifiedSignature.get(screen)) {
+            lastNotifiedSignature.set(screen, latest);
+            lastPublishAt.set(screen, Date.now());
+            requestContextRefresh();
+          }
+        }, TEXT_CHANGE_THROTTLE_MS - sinceLastPublish + 50),
+      );
+    }
     return false;
   }
 
   lastSignature.set(screen, sig);
+  lastNotifiedSignature.set(screen, sig);
   lastElementsSignature.set(screen, elementsSig);
   lastPublishAt.set(screen, now);
+  throttledChanges.set(screen, 0);
   return true;
 }
 
@@ -225,6 +310,29 @@ function mergedTargets(screen: string): Map<string, ActionTarget> {
   return merged;
 }
 
+/**
+ * What the agent is told about one control. Chips report `selected` (and their
+ * `group`); toggles/consents/sliders/dates/fields report `value`; sensitive fields
+ * report only whether they are `filled`, never the text itself.
+ */
+export function describeTarget(t: { kind: TargetKind; label: string } & ActionTarget): Record<string, unknown> {
+  const out: Record<string, unknown> = { kind: t.kind, label: t.label };
+  if (t.group) out.group = t.group;
+  if (t.min !== undefined) out.min = t.min;
+  if (t.max !== undefined) out.max = t.max;
+  if (t.step !== undefined) out.step = t.step;
+  if (t.disabled) out.enabled = false;
+  if (t.sensitive) out.sensitive = true;
+  if (t.getValue) {
+    let v: string | boolean | number | undefined;
+    try { v = t.getValue(); } catch { v = undefined; }
+    if (t.kind === 'chips') out.selected = !!v;
+    else if (t.sensitive) out.filled = String(v ?? '').trim().length > 0;
+    else if (v !== undefined) out.value = v;
+  }
+  return out;
+}
+
 export function listTargets(screen: string): Array<{ id: string } & ActionTarget> {
   return Array.from(mergedTargets(screen).entries()).map(([id, t]) => ({ id, ...t }));
 }
@@ -232,7 +340,7 @@ export function listTargets(screen: string): Array<{ id: string } & ActionTarget
 // Lookup order, scoped to the given screen only (docs/USE_CASES.md notes some
 // labels repeat across screens, so cross-screen matching would be ambiguous):
 // exact id -> case-insensitive exact label -> substring either direction.
-export function findTarget(screen: string, query: string, kind?: TargetKind): ActionTarget | null {
+export function findTarget(screen: string, query: string, kind?: TargetKind, group?: string): ActionTarget | null {
   const m = mergedTargets(screen);
   if (!m.size) return null;
   if (m.has(query)) return m.get(query)!;
@@ -242,7 +350,14 @@ export function findTarget(screen: string, query: string, kind?: TargetKind): Ac
 
   // Never consider unlabelled targets: '' matches every query under substring
   // comparison, which previously let an unrelated request tap a random icon button.
-  const labelled = Array.from(m.values()).filter(t => t.label.trim().length > 0);
+  let labelled = Array.from(m.values()).filter(t => t.label.trim().length > 0);
+  // Option labels repeat across chip groups ("Other"); when the caller names the
+  // group, only that group's options are candidates.
+  if (group) {
+    const g = group.trim().toLowerCase();
+    const scoped = labelled.filter(t => (t.group ?? '').toLowerCase() === g || (t.group ?? '').toLowerCase().includes(g));
+    if (scoped.length) labelled = scoped;
+  }
   const pool = labelled.filter(t => !kind || t.kind === kind);
   // Prefer the kind the caller asked for, but fall back to any kind so a
   // mislabelled action ("set_toggle" on a checkbox row) still resolves.
@@ -304,12 +419,6 @@ export function buildPageContext(screen: string): Record<string, unknown> {
     //     '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
     //     'Then stop and listen.',
     // },
-    available_actions: targets.map(t => ({
-      kind: t.kind,
-      label: t.label,
-      ...(t.disabled ? { enabled: false } : {}),
-      ...(t.sensitive ? { sensitive: true } : {}),
-      ...(t.getValue ? { value: t.getValue() } : {}),
-    })),
+    available_actions: targets.map(describeTarget),
   };
 }

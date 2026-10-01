@@ -1,19 +1,25 @@
 import type { Screen } from '../state/store';
 
 /**
- * Proactive-help nudges: when the user stalls on a screen we vibrate, wiggle the
- * Ruby FAB and pop a contextual label (see App.tsx idle detector + VoiceWidget).
- * Each config gives the idle timeout, a tracking `reason`, and a few rotating
- * labels so the prompt feels dynamic rather than canned.
+ * Proactive-help tips shown in a bubble above the Ruby button (see App.tsx
+ * scheduler + VoiceWidget). Timing is hard-coded, not admin-tuned:
+ *   - the bubble appears NUDGE_START_MS after the user lands on a screen, whether
+ *     or not they touch anything in between;
+ *   - it then cycles through the screen's tips every NUDGE_ROTATE_MS and stays up
+ *     (it is not auto-hidden) until the screen changes or a voice call starts.
+ * The tip text is hard-coded too: one set before login, one set after.
  */
+export const NUDGE_START_MS = 5_000;
+export const NUDGE_ROTATE_MS = 3_000;
+
 export interface NudgeConfig {
-  timeoutMs: number;
   reason: string;
   labels: string[];
 }
 
-/** Timers the admin dashboard tunes (ms). Fetched from the backend; these are
- *  the built-in fallbacks used until/if that fetch returns. */
+/** Admin settings fetched from the backend. Only `enabled` (the on/off switch) is
+ *  still honoured; the three timers are kept for the DTO but no longer drive the
+ *  schedule — start/rotate timing is hard-coded above. */
 export interface NudgeTimers {
   enabled: boolean;
   idleMs: number;
@@ -25,22 +31,30 @@ export const DEFAULT_TIMERS: NudgeTimers = { enabled: true, idleMs: 30000, dropo
 // Application funnel — a stall here usually means the user is stuck/confused.
 const FUNNEL = new Set<Screen>(['basicpan', 'basic', 'moredetails']);
 // Offers surfaces — eligibility done, but they haven't picked/applied to a lender.
-const OFFERS = new Set<Screen>(['offers', 'fare']);
-// Main tab screens — a generic "need help?" is appropriate after a longer wait.
-// 'repay'/'status' are drill-down detail screens reached from 'loans', not
-// tabs, so they're deliberately not in this set either.
-const MAIN = new Set<Screen>(['home', 'loans', 'profile', 'help', 'calculator']);
-// Pre-login onboarding screens — same "need help?" nudge, before a session
-// exists. 'splash' is excluded: it auto-transitions in 2.6s, too short to
-// ever hit an idle timer. 'privacy' is excluded: a one-tap consent screen.
-const PRE_LOGIN = new Set<Screen>(['language', 'intro', 'mobile', 'otp', 'permissions']);
+const OFFERS = new Set<Screen>(['offers', 'fare', 'compare']);
+// Before login: the sign-in flow. 'splash' (auto-advances) and 'privacy' (the user
+// accepts the terms on their own; Ruby is hidden there) get no tip.
+const PRE_LOGIN = new Set<Screen>(['language', 'intro', 'mobile', 'otp']);
 
-/** Nudge config for a screen, or null when nudging is off / on a non-nudge screen. */
-export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS): NudgeConfig | null {
+const PRE_LOGIN_TIPS = [
+  'New here? I can help you get started.',
+  "Need any help? I'm right here.",
+  'Have a question? Tap to ask me.',
+  'Just tap me and speak — I will guide you.',
+];
+const POST_LOGIN_TIPS = [
+  'Any questions? Tap to ask me.',
+  "Need any help? I'm right here.",
+  'Let me help you — tap to ask.',
+  'Tap me and tell me what you need.',
+];
+
+/** Tips for a screen, or null when nudging is off / the screen gets none. */
+export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS, loggedIn = false): NudgeConfig | null {
   if (!timers.enabled) return null;
+  if (screen === 'splash' || screen === 'privacy') return null;
   if (FUNNEL.has(screen)) {
     return {
-      timeoutMs: timers.dropoffMs,
       reason: 'dropoff_apply',
       labels: [
         'Stuck here? I can help you finish.',
@@ -51,7 +65,6 @@ export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS): 
   }
   if (OFFERS.has(screen)) {
     return {
-      timeoutMs: timers.eligibleMs,
       reason: 'eligible_no_apply',
       labels: [
         'Want help choosing the best offer?',
@@ -60,27 +73,8 @@ export function nudgeFor(screen: Screen, timers: NudgeTimers = DEFAULT_TIMERS): 
       ],
     };
   }
-  if (MAIN.has(screen)) {
-    return {
-      timeoutMs: timers.idleMs,
-      reason: 'idle',
-      labels: [
-        'Any questions? Tap to ask me.',
-        "Need any help? I'm right here.",
-        'Let me help you — tap to ask.',
-      ],
-    };
-  }
-  if (PRE_LOGIN.has(screen)) {
-    return {
-      timeoutMs: timers.idleMs,
-      reason: 'idle_prelogin',
-      labels: [
-        'New here? I can help you get started.',
-        "Need any help? I'm right here.",
-        'Have a question? Tap to ask me.',
-      ],
-    };
-  }
+  if (!loggedIn && PRE_LOGIN.has(screen)) return { reason: 'idle_prelogin', labels: PRE_LOGIN_TIPS };
+  // Every other screen is after login (including permissions, which follows OTP).
+  if (loggedIn) return { reason: 'idle', labels: POST_LOGIN_TIPS };
   return null;
 }

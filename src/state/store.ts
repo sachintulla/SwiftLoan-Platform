@@ -55,8 +55,16 @@ const SCREEN_ALIASES: Record<string, Screen> = {
 /** Resolve a spoken/typed screen name to a canonical screen id, or null. */
 export function resolveScreenName(name: string): Screen | null {
   const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Aliases first, then exact ids. The order matters for exactly two names that are
+  // BOTH a screen id and an alias for a different screen: "offers" (the retired
+  // legacy results screen; spoken "offers" means My Offers = fare) and "apply" (a
+  // dead logic-only route with no UI; spoken "apply" means the application
+  // funnel = basicpan). With ids first, those two aliases were unreachable and
+  // navigate_screen landed on the legacy screen / an empty placeholder. Every other
+  // alias that equals an id maps to that same id, so nothing else changes.
+  if (SCREEN_ALIASES[key]) return SCREEN_ALIASES[key];
   if ((SCREEN_NAMES as readonly string[]).includes(key)) return key as Screen;
-  return SCREEN_ALIASES[key] ?? null;
+  return null;
 }
 export type Screen = (typeof SCREEN_NAMES)[number];
 
@@ -199,7 +207,7 @@ export interface AppState {
   // hasn't applied), the idle detector sets this so the VoiceWidget vibrates,
   // wiggles the Ruby FAB, and shows a contextual label — WITHOUT starting a
   // session (the user taps to ask). `id` is a monotonic nonce.
-  voiceNudge: { id: number; label: string; reason: string } | null;
+  voiceNudge: { id: number; labels: string[]; reason: string } | null;
   // Real back stack: every `go()` pushes the current screen here; `back()` pops it
   // to the screen the user actually came from — no more hardcoded parent map.
   history: Screen[];
@@ -223,7 +231,7 @@ export const initialState: AppState = {
   otpSent: false,
   basicFirst: '', basicLast: '', basicPin: '', basicEmail: '',
   basicIncome: '', basicCompany: '', basicEmp: '', basicEmpOther: '',
-  basicRes: 'own',
+  basicRes: '',
   basicQualification: '', basicLoanPurpose: '',
   optMarital: '', optAltMobile: '', optAltEmail: '',
   optAddr1: '', optAddr2: '', optLandmark: '', optCity: '', optDistrict: '', optState: '',
@@ -303,7 +311,11 @@ const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 // navigate_screen could be sent through (confirmed live: asked to change the
 // app language while still pre-login, it navigated to `profile`, a screen
 // that requires a session it did not have).
-const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions']);
+// `permissions` is deliberately NOT here: it is the first screen shown AFTER a
+// successful OTP (mobile.tsx → go('permissions') → aboutyou), i.e. the session
+// already exists when it is entered. Listing it redirected every new user
+// straight to home and skipped About You.
+const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp']);
 
 /**
  * Redirects across the login boundary in whichever direction is wrong:
@@ -316,7 +328,11 @@ const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro'
  */
 function guardScreen(screen: Screen): Screen {
   const authed = isAuthed();
-  if (PRE_LOGIN_ONLY.has(screen) && authed) return 'home';
+  // `privacy` is the one pre-login screen that is still legitimate WITH a session:
+  // boot restores tokens and THEN routes a never-accepted user to it (see the
+  // boot effect). Redirecting it to home here silently skipped the consent gate
+  // for every returning user who hadn't accepted yet.
+  if (PRE_LOGIN_ONLY.has(screen) && authed && screen !== 'privacy') return 'home';
   if (!PRE_LOGIN_ONLY.has(screen) && !authed) return 'mobile';
   return screen;
 }
@@ -339,6 +355,37 @@ let installReported = false;
 export const PREV_MAP = PREV;
 export function parentScreen(s: Screen): Screen {
   return PREV[s] || 'home';
+}
+
+// First name Ruby has used on the CURRENT call (see user_name in page_context).
+let stickyCallName = '';
+
+// One-shot RESULT keys in apiContext that screens write immediately before
+// navigating away (handoff -> disbursed, offers -> status/handoff/lenderweb,
+// lenderweb completed -> loans). The `go`/`back` reducers wipe apiContext, so
+// without this the result was erased in the same batch that told Ruby the
+// screen had changed — she was interrupted with the new screen but never got
+// the result, and re-asked or never narrated it. These survive exactly ONE
+// navigation (tracked in `__carried`), then drop like everything else.
+// panValidationResult / prequalifyResult are written right before the success
+// navigation (PAN verified -> details; offers found -> My Offers) and used to be
+// wiped by it, so the new screen opened with no word of how the last step ended.
+const CARRY_KEYS = [
+  'handoffResult', 'offerApplyResult', 'lenderWebFlow', 'lastToast', 'panValidationResult', 'prequalifyResult',
+] as const;
+
+function nextApiContext(prev: Record<string, unknown>): Record<string, unknown> {
+  const alreadyCarried = (prev.__carried as string[] | undefined) ?? [];
+  const out: Record<string, unknown> = {};
+  const kept: string[] = [];
+  for (const k of CARRY_KEYS) {
+    if (k in prev && !alreadyCarried.includes(k)) {
+      out[k] = prev[k];
+      kept.push(k);
+    }
+  }
+  if (kept.length) out.__carried = kept;
+  return out;
 }
 
 // apiContext exists purely to feed the voice agent's page_context (every
@@ -412,7 +459,13 @@ function reducer(state: AppState, action: Action): AppState {
     case 'set':
       return { ...state, ...action.patch };
     case 'mergeApiContext':
-      return { ...state, apiContext: { ...state.apiContext, ...stripForVoiceContext(action.patch) } };
+    {
+      // A freshly written key is a NEW result, not a leftover carried one.
+      const carried = ((state.apiContext.__carried as string[] | undefined) ?? []).filter(k => !(k in action.patch));
+      const merged: Record<string, unknown> = { ...state.apiContext, ...stripForVoiceContext(action.patch) };
+      if (carried.length) merged.__carried = carried; else delete merged.__carried;
+      return { ...state, apiContext: merged };
+    }
     case 'go': {
       const screen = guardScreen(action.screen);
       // No-op navigations don't touch the stack.
@@ -436,14 +489,19 @@ function reducer(state: AppState, action: Action): AppState {
       // comment above) — reset on every real screen change so a call started
       // later never carries forward data fetched for a screen the user has
       // since left. Each new screen repopulates it from its own API calls.
-      return { ...state, screen, history, apiContext: {} };
+      return { ...state, screen, history, apiContext: nextApiContext(state.apiContext) };
     }
     case 'back': {
+      // `permissions` is the first screen after a successful OTP. Its back target
+      // (`mobile`) is a pre-login screen the guard turns into `home`, so Back here
+      // used to silently skip About You. There is nowhere meaningful to go back to
+      // once the session exists, so stay put (the screen has its own forward CTA).
+      if (state.screen === 'permissions' && isAuthed()) return state;
       // The offers RESULT is a funnel endpoint: pressing back must return to
       // wherever the funnel was started from (My Offers / Home) — never back into
       // the funnel (Verify PAN → details → …). offersReturn records that origin.
       if (state.screen === 'offers') {
-        return { ...state, screen: guardScreen(state.offersReturn || 'home'), history: [], apiContext: {} };
+        return { ...state, screen: guardScreen(state.offersReturn || 'home'), history: [], apiContext: nextApiContext(state.apiContext) };
       }
       // Pop to the screen the user actually came from; fall back to the PREV map
       // (then home) only when the stack is empty (e.g. deep-linked entry).
@@ -452,9 +510,9 @@ function reducer(state: AppState, action: Action): AppState {
       // it covers `go()` — Back is just as capable of surfacing one.
       if (state.history.length > 0) {
         const history = state.history.slice(0, -1);
-        return { ...state, screen: guardScreen(state.history[state.history.length - 1]), history, apiContext: {} };
+        return { ...state, screen: guardScreen(state.history[state.history.length - 1]), history, apiContext: nextApiContext(state.apiContext) };
       }
-      return { ...state, screen: guardScreen(PREV[state.screen] || 'home'), apiContext: {} };
+      return { ...state, screen: guardScreen(PREV[state.screen] || 'home'), apiContext: nextApiContext(state.apiContext) };
     }
     case 'reset':
       // Logout: clear all session/profile state, but KEEP device-level consent
@@ -466,6 +524,11 @@ function reducer(state: AppState, action: Action): AppState {
         privacyAccepted: state.privacyAccepted,
         lang: state.lang,
         selectedLang: state.selectedLang,
+        // Persisted across logout (session.ts never clears it), so the in-memory
+        // copy must survive too — otherwise agent_language silently reverts to the
+        // UI language for the rest of the call even though storage still holds
+        // the Hindi/Telugu choice.
+        voiceLang: state.voiceLang,
         screen: 'mobile',
       };
     default:
@@ -488,7 +551,10 @@ interface Ctx {
   markUrgentContext: () => void;
   go: (screen: Screen) => void;
   back: () => void;
-  showToast: (msg: string) => void;
+  // Every toast is also copied into apiContext.lastToast so the voice agent can see
+  // what the user was just shown (errors especially). Pass { silentToAgent: true }
+  // for toasts that are not the user's own action result.
+  showToast: (msg: string, opts?: { silentToAgent?: boolean }) => void;
   reset: () => void;
   parentOf: (s: Screen) => Screen;
 }
@@ -515,7 +581,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // the first and, for now, only caller. Not app state: this never needs to
   // trigger a re-render, and nothing should read it back.
   const urgentNextContext = useRef(false);
-  const markUrgentContext = useCallback(() => { urgentNextContext.current = true; }, []);
+  const urgentFallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markUrgentContext = useCallback(() => {
+    urgentNextContext.current = true;
+    // Most callers navigate right after marking, and the screen-change effect
+    // consumes the flag. Several do NOT (wrong OTP, profile save error, PAN
+    // error): the flag then stayed armed with nothing sent, and the result
+    // reached Ruby only via the slow, deferred routine path — while the NEXT
+    // unrelated navigation would barge in on her. If nothing consumed the flag
+    // shortly after, send the urgent update ourselves and disarm it.
+    if (urgentFallbackTimer.current) clearTimeout(urgentFallbackTimer.current);
+    urgentFallbackTimer.current = setTimeout(() => {
+      urgentFallbackTimer.current = null;
+      if (!urgentNextContext.current) return; // a navigation already consumed it
+      urgentNextContext.current = false;
+      agent.updatePageContext({ urgent: true });
+    }, 400);
+  }, []);
 
   const clearAuto = () => {
     if (timers.current.auto) clearTimeout(timers.current.auto);
@@ -533,8 +615,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'back' });
   }, []);
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, opts?: { silentToAgent?: boolean }) => {
     dispatch({ type: 'set', patch: { toast: msg } });
+    // A toast is invisible to the voice agent otherwise: tool results say "tapped
+    // Continue, still on <screen>" with no reason, so Ruby retried blindly or went
+    // silent while the user read an error (e.g. "This email is already in use").
+    // `at` makes every toast a distinct value, so a repeat of the same message is
+    // not dropped by page_context's unchanged-content dedup.
+    if (msg && !opts?.silentToAgent) {
+      dispatch({ type: 'mergeApiContext', patch: { lastToast: { message: msg, at: Date.now() } } });
+    }
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(
       () => dispatch({ type: 'set', patch: { toast: '' } }),
@@ -659,11 +749,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // every update. Reads stateRef so the closure never goes stale.
   useEffect(() => {
     ensureToolsRegistered({
+      recentToast: () => {
+        const t = stateRef.current.apiContext.lastToast as { message: string; at: number } | undefined;
+        return t && Date.now() - t.at < 6000 ? t.message : null;
+      },
       navigateToScreen: (screenName: string) => {
         const target = resolveScreenName(screenName);
         if (!target) return false;
         go(target);
-        return true;
+        return { requested: target, landed: guardScreen(target) };
       },
       // Bug fix: logout now runs the real action from any screen (was a no-op
       // unless the Profile screen's "Log out" button happened to be on screen).
@@ -742,8 +836,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // inventing one (bug #15). Empty when unknown so the prompt can fall back
       // to a neutral greeting.
       const s = stateRef.current;
-      const userName =
+      const liveName =
         (s.authUser?.firstName || s.authUser?.fullName || s.pdName || '').trim().split(/\s+/)[0] || '';
+      // Fixed for the duration of a call once known: typing a different first
+      // name into the application form rewrites authUser.firstName mid-call, and
+      // the prompt says the name Ruby uses does not change within a call.
+      const callLive = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
+      if (!callLive) stickyCallName = '';
+      else if (!stickyCallName && liveName) stickyCallName = liveName;
+      const userName = callLive ? stickyCallName || liveName : liveName;
       // Only relevant on the Profile screen itself — these are exactly the
       // fields skipped at aboutyou/never filled via the application flow that
       // Profile lets the user edit directly. Computed fresh every time the
@@ -789,8 +890,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       heard_intro_pitch: stateRef.current.introPitchHeard,
       // The offers the user just received (or the problem) so the agent can speak
       // about them proactively on the offers screen.
-      offers_summary: s.offersSummary || undefined,
-      offers_error: s.offersError || undefined,
+      // Only meaningful while on the offers surfaces; they were never cleared, so
+      // the agent kept being told about "no offers" long after the user moved on.
+      offers_summary: (s.screen === 'offers' || s.screen === 'fare') && s.offersSummary ? s.offersSummary : undefined,
+      offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? s.offersError : undefined,
       priorInquiries: stateRef.current.priorInquiries,
       // Details Ruby gathered conversationally on a previous call (or earlier
       // this one), before the user had reached the application form — see
@@ -814,7 +917,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // screen_overview for these entities since it's the actual response,
       // not scraped visible text. Populated by whichever of these calls has
       // run so far this session; absent until at least one has.
-      api_context: Object.keys(stateRef.current.apiContext).length ? stateRef.current.apiContext : undefined,
+      api_context: (() => {
+        const ctx = { ...stateRef.current.apiContext };
+        delete ctx.__carried; // internal bookkeeping, not for the model
+        // A toast is a moment, not a standing fact. Tell the agent how old it is, and
+        // stop sending it once it is clearly stale, so a fixed problem is not
+        // announced again as if it were current.
+        const toast = ctx.lastToast as { message: string; at: number } | undefined;
+        if (toast) {
+          const ago = Math.round((Date.now() - toast.at) / 1000);
+          if (ago > 20) delete ctx.lastToast;
+          else ctx.lastToast = { message: toast.message, seconds_ago: ago };
+        }
+        return Object.keys(ctx).length ? ctx : undefined;
+      })(),
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -978,7 +1094,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Continue the journey: land on the loan-application start (PAN
       // first); the name carries through to the details step.
       dispatch({ type: 'go', screen: 'basicpan' });
-      showToast(ctx.greeting);
+      showToast(ctx.greeting, { silentToAgent: true });
     };
 
     Linking.getInitialURL().then(applyContext).catch(() => {});

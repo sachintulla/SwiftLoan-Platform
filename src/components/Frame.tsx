@@ -25,7 +25,7 @@ import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
 import { useStore, Screen as ScreenName, TAB_SCREENS } from '../state/store';
-import { publishScreenGraph, registerTarget } from '../voice/actionRegistry';
+import { publishScreenGraph, registerTarget, clearScreenGraph } from '../voice/actionRegistry';
 
 /** Pure so it's directly unit-testable without mounting a ScrollView. */
 export function scrollDelta(amount: 'small' | 'page', direction: 'up' | 'down' = 'down'): number {
@@ -196,7 +196,19 @@ export function Screen({
       // agent had no way to know that snapshot wasn't real: it read "date of
       // birth: ''" as the user's actual data and proactively suggested filling
       // it in. Never publish a 0-control snapshot; wait for the real one.
-      if (graph.elements.length === 0) return;
+      if (graph.elements.length === 0) {
+        if (graph.texts.length > 0) {
+          // A view with text but no controls (handoff, finding, a lender page...):
+          // the agent still needs to know what it says.
+          if (publishScreenGraph(state.screen, [], graph.texts)) agent.updatePageContext();
+        } else {
+          // Nothing at all right now (a loader/error view replaced the form, or a
+          // data screen hasn't loaded): drop what was published before so the agent
+          // is not told about controls and data that are no longer on screen.
+          clearScreenGraph(state.screen);
+        }
+        return;
+      }
       // Only notify the agent when the control set actually changed — otherwise
       // every keystroke would push a client-tools-update over the socket.
       if (publishScreenGraph(state.screen, graph.elements, graph.texts)) {
@@ -214,6 +226,13 @@ export function Screen({
       // discovery is best-effort — never break rendering over it
     }
   }, [children, state.screen]);
+
+  // Leaving a screen forgets its published graph, so a later visit never starts from
+  // the previous visit's controls, field values or data (profile, loans, status...).
+  useEffect(() => {
+    const leaving = state.screen;
+    return () => clearScreenGraph(leaving);
+  }, [state.screen]);
 
   // A typed field's VALUE is deliberately excluded from the publish signature
   // above (see its comment) — otherwise every keystroke would push a
@@ -513,6 +532,11 @@ export function BottomNav() {
     ` Z`;
 
   useEffect(() => {
+    // The bar is persistent but slides off-screen on non-tab screens. Registering its
+    // tabs there offered the agent invisible controls (Home / My Offers / My Loans /
+    // Profile on language, aboutyou, the funnel...), which it then tapped on its own
+    // to jump out of the flow. Only expose them while the bar is really showing.
+    if (!TAB_SCREENS.has(state.screen)) return undefined;
     const cleanups = NAV_TABS.filter(t => t.key !== 'support').map(tab =>
       registerTarget(state.screen, `nav:${tab.key}`, { kind: 'button', label: tab.label, onTap: () => go(tab.key as ScreenName) }),
     );

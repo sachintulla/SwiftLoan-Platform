@@ -12,8 +12,8 @@ import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
-import { nudgeFor, DEFAULT_TIMERS, NudgeTimers } from './src/voice/nudges';
-import { trackEvent, api, NudgeConfigDTO } from './src/api/client';
+import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, NUDGE_START_MS } from './src/voice/nudges';
+import { trackEvent, api, isAuthed, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
 import { agent } from './src/voice';
 
@@ -24,11 +24,16 @@ const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
   eligibleMs: d.nudgeEligibleMs,
 });
 
-// Voice FAB is always shown (Ruby is a first-class entry point). VoiceWidget
-// self-hides only when Ello isn't configured. The `voiceFabUnlocked` flag (and
+// Voice FAB is shown on every screen except the splash and the first-launch
+// privacy/terms screen. VoiceWidget also self-hides when Ello isn't configured. The `voiceFabUnlocked` flag (and
 // the Profile 5-tap gesture / nudge that set it) are retained but no longer gate
 // visibility.
 function VoiceFabGate() {
+  const { state } = useStore();
+  // Hidden on the first-launch Terms & Privacy screen: accepting them is the user's
+  // own act, so the assistant isn't available there (and not on the splash before
+  // it). It appears on the language screen, right after "Accept & Continue".
+  if (state.screen === 'splash' || state.screen === 'privacy') return null;
   return <VoiceWidget />;
 }
 
@@ -53,25 +58,17 @@ function BackHandlerBridge() {
 }
 
 /**
- * Proactive-help idle detector. Any touch (capture phase) re-arms a per-screen
- * timer; if the user stalls past the screen's threshold (see nudgeFor), we fire
- * a nudge — the VoiceWidget then vibrates, wiggles the Ruby FAB and shows a
- * contextual label — and emit a `nudge` tracking event for backend follow-up
- * (callback/SMS/admin alert). One nudge per screen visit, so it never nags.
+ * Proactive-help tips. NUDGE_START_MS after the user lands on a screen — touched
+ * or not — the Ruby button gets a tip bubble that cycles through that screen's
+ * tips and stays until the screen changes or a call starts (see nudges.ts and
+ * VoiceWidget). One `nudge` tracking event per screen visit.
  */
 function AppShell() {
   const { state, set } = useStore();
   const screen = state.screen;
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nudgeIdRef = useRef(0);
-  const nudgeCountRef = useRef(0);
-  const nudgedScreenRef = useRef<string | null>(null);
-  // Latest set/screen kept in refs so `armIdle` can be STABLE — otherwise it
-  // changes identity on every store re-render (animated screens re-render a
-  // lot), which would clear + restart the idle timer and it'd never elapse.
   const setRef = useRef(set); setRef.current = set;
-  const screenRef = useRef(screen); screenRef.current = screen;
-  // Admin-tuned timers (from the backend); falls back to built-in defaults.
+  // Admin on/off switch (from the backend); timing itself is hard-coded.
   const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
 
   // Load the last-known config instantly, then fetch fresh; re-fetch on every
@@ -89,39 +86,27 @@ function AppShell() {
     return () => sub.remove();
   }, [refreshConfig]);
 
-  const armIdle = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    const scr = screenRef.current;
-    const cfg = nudgeFor(scr, timersRef.current);
-    if (!cfg || nudgedScreenRef.current === scr) return;
-    timerRef.current = setTimeout(() => {
-      // Never nudge (or track a nudge) while a voice call is actually in
-      // progress — same rule VoiceWidget already applies to showing the
-      // bubble ("never interrupt a live session"). Without this check here
-      // too, a nudge firing mid-call would still spam trackEvent even
-      // though the widget silently drops the visual bubble.
-      const status = agent.getStatus();
-      if (status !== 'idle' && status !== 'ended') return;
-      nudgedScreenRef.current = scr;
-      nudgeIdRef.current += 1;
-      const label = cfg.labels[nudgeCountRef.current % cfg.labels.length];
-      nudgeCountRef.current += 1;
-      setRef.current({ voiceFabUnlocked: true, voiceNudge: { id: nudgeIdRef.current, label, reason: cfg.reason } });
-      trackEvent('nudge', cfg.reason, scr, { label });
-    }, cfg.timeoutMs);
-  }, []);
-
-  // Re-arm only when the screen actually changes (fresh visit → nudge allowed).
+  // New screen: drop the previous screen's tip and start a fresh clock.
   useEffect(() => {
-    nudgedScreenRef.current = null;
-    armIdle();
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [screen, armIdle]);
-
-  const onTouchCapture = useCallback(() => { armIdle(); return false; }, [armIdle]);
+    setRef.current({ voiceNudge: null });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fire = () => {
+      // Never show (or track) a tip during a live call; try again shortly so a
+      // call that ends on this same screen still gets its tip.
+      const status = agent.getStatus();
+      if (status !== 'idle' && status !== 'ended') { timer = setTimeout(fire, 3000); return; }
+      const cfg = nudgeFor(screen, timersRef.current, isAuthed());
+      if (!cfg) return;
+      nudgeIdRef.current += 1;
+      setRef.current({ voiceFabUnlocked: true, voiceNudge: { id: nudgeIdRef.current, labels: cfg.labels, reason: cfg.reason } });
+      trackEvent('nudge', cfg.reason, screen, { label: cfg.labels[0] });
+    };
+    timer = setTimeout(fire, NUDGE_START_MS);
+    return () => { if (timer) clearTimeout(timer); };
+  }, [screen]);
 
   return (
-    <View style={{ flex: 1 }} onStartShouldSetResponderCapture={onTouchCapture}>
+    <View style={{ flex: 1 }}>
       <Router />
       <ContextBanner />
       {/* Persistent tab bar + FAB (rendered above the screens): the bar slides

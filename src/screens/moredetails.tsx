@@ -5,6 +5,7 @@ import { Field, Chips, HeaderCta, StepBadge } from '../components/Controls';
 import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { api, ApiError, isAuthed } from '../api/client';
 import { MID_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
 
@@ -65,7 +66,12 @@ export default function MoreDetails() {
     }
   };
 
+  // The Skip link lives in the header's `right` slot, which the screen walker does not
+  // inspect, so register it. (Tapping it by voice goes through the user-confirmation guard.)
+  useVoiceTarget(t.mdSkip, { kind: 'button', onTap: () => go('finding') }, [go]);
+
   const onContinue = async () => {
+    if (busy) return;
     setBusy(true);
     const ok = await save();
     setBusy(false);
@@ -97,6 +103,7 @@ export default function MoreDetails() {
       <View style={{ gap: 8 }}>
         <Text style={[font(600), { fontSize: 13, color: colors.textMid }]}>{t.mdMaritalLabel}</Text>
         <Chips
+          group={t.mdMaritalLabel}
           value={state.optMarital}
           onChange={v => set({ optMarital: v })}
           options={[
