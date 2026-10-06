@@ -54,4 +54,20 @@ describe('the agent is not shown on-screen instructions it would read aloud', ()
     expect(text).not.toMatch(/verify your number/i);
     expect(listTargets('otp').length).toBeGreaterThan(0);
   });
+
+  it('OTP step: the code is one "OTP" field — no "OTP digit" button and no second, mislabelled field', () => {
+    // The `otp` route is the mobile screen with `otpSent` on; turn it on so the code boxes render.
+    function OtpSent() {
+      const { set } = useStore();
+      useEffect(() => { set({ otpSent: true, mobileVal: '9182922731' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return <Mobile />;
+    }
+    renderAt('otp', <OtpSent />);
+    const targets = listTargets('otp');
+    const fields = targets.filter(t => t.kind === 'field');
+    // Before: the digit boxes showed up as a button "OTP digit 1" and the hidden input as another
+    // field labelled with the "change phone number" button text, both holding the same code.
+    expect(fields.map(f => f.label)).toEqual(['OTP']);
+    expect(targets.some(t => /OTP digit/i.test(t.label))).toBe(false);
+  });
 });

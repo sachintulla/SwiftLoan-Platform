@@ -197,12 +197,21 @@ const throttledChanges = new Map<string, number>();
 const trailingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const MAX_ONE_OFF_CHANGES = 2;
 
+/**
+ * Screens where the agent is told ONLY the available buttons — no screen text. Home is a dashboard
+ * whose text (hero headline, offer cards, counters) keeps changing as data loads; every change was
+ * a new context send, and a send that lands while the agent is speaking is treated by Ello as a
+ * barge-in, so it cut itself off and regenerated (three sends in two seconds after login).
+ */
+export const BUTTONS_ONLY_SCREENS = new Set<string>(['home']);
+
 /** Returns true when the set of addressable controls actually changed. */
 export function publishScreenGraph(
   screen: string,
   elements: Array<{ id: string } & ActionTarget>,
   texts: string[],
 ): boolean {
+  if (BUTTONS_ONLY_SCREENS.has(screen)) texts = [];
   const m = new Map<string, ActionTarget>();
   for (const { id, ...target } of elements) m.set(id, target);
   autoByScreen.set(screen, m);
@@ -406,7 +415,7 @@ export function buildPageContext(screen: string): Record<string, unknown> {
     // Include enough of the visible text that data-heavy screens (offers, loans)
     // convey their actual content — 12 lines cut off the offer list, leaving the
     // agent to fall back on example figures from its prompt.
-    screen_overview: getScreenTexts(screen).slice(0, 40).join(' · '),
+    screen_overview: BUTTONS_ONLY_SCREENS.has(screen) ? undefined : getScreenTexts(screen).slice(0, 40).join(' · '),
     // interactionGuide.opening is injected into the model's system prompt verbatim
     // as "Page-specific behavior: …". Without it the agent never opens the
     // conversation: sending a non-empty `page` puts the backend on its

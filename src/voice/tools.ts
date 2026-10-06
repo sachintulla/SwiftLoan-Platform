@@ -426,7 +426,21 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
         const isDate = /^\d{4}-\d{2}-\d{2}$/.test(raw);
         const num = Number(raw);
         // Dates stay strings; numeric sliders are passed as numbers.
-        target.setValue(!isDate && Number.isFinite(num) && raw !== '' ? (num as any) : raw);
+        const accepted = target.setValue(!isDate && Number.isFinite(num) && raw !== '' ? (num as any) : raw);
+        // A target returns `false` when it refuses the value (a date that is not YYYY-MM-DD, not a
+        // real day, or under 18). Reporting that as ok:true made the agent believe the date was set.
+        if (accepted === false) {
+          return {
+            ok: false,
+            reason: 'value_rejected',
+            control: target.label,
+            requested: raw,
+            message:
+              target.kind === 'date'
+                ? 'That date was not accepted. It must be a real date, written YYYY-MM-DD, and the person must be at least 18. Ask the user for their date of birth again in plain words.'
+                : 'That value was not accepted. Ask the user for it again in plain words.',
+          };
+        }
         {
           const done = await settled(screen, { ok: true, control: target.label, requested: raw });
           // `applied` is read AFTER the re-render (the old object's getValue still

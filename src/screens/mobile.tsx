@@ -20,7 +20,7 @@ function isValidMobile(v: string): boolean {
 }
 
 export default function Mobile() {
-  const { state, set, go, markUrgentContext } = useStore();
+  const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -124,6 +124,9 @@ export default function Mobile() {
       // when it arrives. Same reasoning for a wrong code below: she needs to
       // know it failed the instant it's known, not after finishing whatever
       // she's already saying.
+      // Load this account's history first, so the urgent update that tells the agent who just
+      // logged in also says whether an application is under review (about 0.3s, capped at 1.5s).
+      await refreshUserContext();
       markUrgentContext();
       // Returning users never see the Permissions screen, which is where push is normally
       // requested — so request it here. iOS only shows its prompt once (when the choice is
@@ -273,6 +276,11 @@ export default function Mobile() {
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
+            {/* VoiceHidden: the digit boxes and the hidden input are exposed to the agent by the
+                explicit `OTP` field registered above. Left visible, the walker listed them again
+                as a button "OTP digit 1" and a second field mislabelled with the "change phone
+                number" button text (both holding the same code). */}
+            <VoiceHidden>
             <Pressable style={styles.otpRow} onPress={refocusOtp}>
               {Array.from({ length: 6 }, (_, i) => (
                 <View
@@ -299,6 +307,7 @@ export default function Mobile() {
                 onChangeText={onOtpChange}
               />
             </Pressable>
+            </VoiceHidden>
 
             <Pressable style={{ alignSelf: 'center', marginTop: 14, flexDirection: 'row' }} onPress={resend}>
               <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>{t.otpResend}</Text>
