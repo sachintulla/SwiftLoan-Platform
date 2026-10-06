@@ -12,7 +12,6 @@ import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
 import { NUDGE_ROTATE_MS, snoozeNudges } from '../nudges';
-import { fetchUserContext } from '../../api/client';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -272,7 +271,7 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { state, set, showToast } = useStore();
+  const { state, set, showToast, refreshUserContext } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   // Which edge the FAB is docked to — persisted so the user's choice survives
@@ -420,16 +419,12 @@ export default function VoiceWidget() {
   // handshake agent.start() itself has to complete before it builds its
   // first page_context payload, so this almost always lands first. If it
   // doesn't, the agent falls back to whatever snapshot it already had.
-  const refreshSessionContext = () => {
-    fetchUserContext()
-      .then(ctx => { if (ctx?.hasHistory) set({ userContext: ctx }); })
-      .catch(() => undefined);
-  };
-
+  // The context is now awaited (see startAgent), not fire-and-forget: the agent's first
+  // page_context has to carry `account_summary`, or it opens without knowing about an
+  // application that is under review.
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
-    refreshSessionContext();
-    agent.start(state.authUser?.phone).then(() => {
+    (state.authUser ? refreshUserContext() : Promise.resolve()).then(() => agent.start(state.authUser?.phone)).then(() => {
       // Runs after voice-session-start (and this call's own first
       // page_context, carrying whatever heard_intro_pitch was at the time)
       // has already gone out — marking it here can't affect THIS call's own

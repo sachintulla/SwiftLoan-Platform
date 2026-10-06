@@ -11,7 +11,7 @@ import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
   trackLoanStep, trackInstall, fetchContext, setTokens, api,
   isAuthed, upshotOfferViewed, knownOfferInfo,
-  type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill,
+  type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill, fetchUserContext,
 } from '../api/client';
 import {
   loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
@@ -68,6 +68,37 @@ export function resolveScreenName(name: string): Screen | null {
   if ((SCREEN_NAMES as readonly string[]).includes(key)) return key as Screen;
   return null;
 }
+/**
+ * What the voice agent is told about this account's history, sent in page_context as
+ * `account_summary`. It comes from the app's own authenticated GET /context/me, because Ello's
+ * get_user_context lookup cannot reliably learn the phone number (every lookup in the dev API
+ * logs arrived with the unfilled "{context_data.phone_number}" template, none with a real
+ * number — see context.routes.ts), so the agent never saw applications that were under review.
+ * Compact on purpose: no PAN, no income, no address.
+ */
+export function summarizeUserContext(ctx: UserContext | null): Record<string, unknown> | undefined {
+  if (!ctx) return undefined;
+  const app = ctx.application;
+  return {
+    has_history: ctx.hasHistory,
+    name_on_file: !!ctx.profile?.name,
+    dob_on_file: !!ctx.profile?.dob,
+    application_status: ctx.applicationStatus ?? null,
+    application_status_label: ctx.applicationStatusLabel,
+    ...(app
+      ? {
+          application: {
+            ref: app.ref,
+            status: app.status,
+            offers_ready: app.offers?.length ?? 0,
+            lenders_applied: (app.offers ?? []).filter(o => o.applied && o.lenderName).map(o => o.lenderName),
+          },
+        }
+      : {}),
+    has_active_loan: !!ctx.loan,
+  };
+}
+
 export type Screen = (typeof SCREEN_NAMES)[number];
 
 // Screens that show the bottom tab bar. The tab bar and the assistant FAB both
@@ -551,6 +582,9 @@ interface Ctx {
   // Marks the *next* screen change as urgent — see the ref of the same name
   // in StoreProvider for what that actually does and why it's rare to call.
   markUrgentContext: () => void;
+  // Fetches the account's history (GET /context/me, max ~1.5s) into `userContext` so the next
+  // page_context carries `account_summary`. Never throws.
+  refreshUserContext: () => Promise<void>;
   go: (screen: Screen) => void;
   back: () => void;
   // Every toast is also copied into apiContext.lastToast so the voice agent can see
@@ -575,6 +609,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
   const mergeApiContext = useCallback((patch: Record<string, unknown>) => dispatch({ type: 'mergeApiContext', patch }), []);
+  const refreshUserContext = useCallback(async () => {
+    try {
+      const ctx = await Promise.race([
+        fetchUserContext(),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 1500)),
+      ]);
+      if (ctx) dispatch({ type: 'set', patch: { userContext: ctx } });
+    } catch {
+      /* never block a screen on this */
+    }
+  }, []);
   // One-shot flag consumed by the very next screen-change effect run below —
   // set by a screen right before its own go() call to mark THAT specific
   // transition as urgent (interrupts Ruby immediately instead of waiting for
@@ -896,7 +941,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // the agent kept being told about "no offers" long after the user moved on.
       offers_summary: (s.screen === 'offers' || s.screen === 'fare') && s.offersSummary ? s.offersSummary : undefined,
       offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? s.offersError : undefined,
-      priorInquiries: stateRef.current.priorInquiries,
+      // Not on Home: that screen sends the buttons only (see BUTTONS_ONLY_SCREENS).
+      priorInquiries: s.screen === 'home' ? undefined : stateRef.current.priorInquiries,
+      // Where this account stands (applications under review, offers ready, loan) — see summarizeUserContext.
+      account_summary: summarizeUserContext(stateRef.current.userContext),
       // Details Ruby gathered conversationally on a previous call (or earlier
       // this one), before the user had reached the application form — see
       // save_applicant_details / the prompt's "Proactive Details Collection"
@@ -1125,7 +1173,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, go, back, showToast, reset, parentOf };
+  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, refreshUserContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
 }
 

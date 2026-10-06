@@ -19,7 +19,10 @@ const SENSITIVE_LABEL_RE = /pin(?!\s*code)\b|cvv|cvc|password|passcode|pan\b|aad
  * harmless. "Full name (as per PAN)" is a name field, not a PAN number — but a
  * bare /pan\b/ match flagged it, so the agent refused to type the user's own name.
  */
-const NOT_ACTUALLY_SECRET_RE = /\b(name|holder|as per)\b/i;
+// नाम (Hindi) and పేరు (Telugu) are "name" too — \b is ASCII-only in JS, so they are matched
+// without it. Without these, the app-language Hindi/Telugu "Full name (as per PAN)" label
+// was flagged as a PAN field and the agent refused to type the user's name.
+const NOT_ACTUALLY_SECRET_RE = /\b(name|holder|as per)\b|नाम|పేరు/i;
 
 export interface SensitiveFieldProps {
   secureTextEntry?: boolean;
