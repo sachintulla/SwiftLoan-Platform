@@ -14,10 +14,24 @@
  * import, so a missing package is a no-op instead of a red-screen at boot.
  */
 
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
+import { UPSHOT_DEMO } from '../config/build';
 
-const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? "aa5b7c7f-0ec1-4888-9bd8-35c210f0e5fb";
-const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? "f3bf1d6f-5771-41f7-a6ff-640d3af4805e";
+/** Upshot's platform label for this build — never hard-code it: iPhones were being
+ *  profiled as Android. */
+export const PLATFORM: 'iOS' | 'Android' = Platform.OS === 'ios' ? 'iOS' : 'Android';
+
+// Two Upshot apps exist in the console (Account settings -> App Management). The
+// SDK's "Owner ID" is the console's "Account ID"; "App SDK ID" is the App ID.
+//   - Builds pointed at a dev/local backend  -> the Demo app "Swiftloan", so test
+//     traffic never lands in production data (see UPSHOT_DEMO in config/build.ts).
+//   - Builds pointed at the production API   -> the Production app "Swiftloan_prod".
+// Either can still be overridden with globalThis.SWIFTLOAN_UPSHOT_APP_ID / _OWNER_ID.
+const UPSHOT_IDS = UPSHOT_DEMO
+  ? { appId: 'ce84173a-1e4b-4dcf-b1d3-8d9504cd0c50', ownerId: '6cfe2c70-4130-46d5-9202-54252d38e57f' } // Demo
+  : { appId: 'f8ac8f46-ba91-4d54-a8de-da4546e85fdb', ownerId: '6cfe2c70-4130-46d5-9202-54252d38e57f' }; // Production
+const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? UPSHOT_IDS.appId;
+const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? UPSHOT_IDS.ownerId;
 
 /** Activity types Upshot can render (surveys, polls, trivia/mini-games…). */
 export type UpshotActivityType =
@@ -81,6 +95,12 @@ function sdk(): UpshotNative | null {
   return native;
 }
 
+/** Debug builds only: one greppable line per call handed to the SDK
+ *  (`adb logcat | grep "\[upshot\]"`, or the Metro terminal). Release builds log nothing. */
+function devLog(...args: unknown[]): void {
+  if (__DEV__) console.log('[upshot]', ...args);
+}
+
 /** Swallow everything — analytics must never break a screen. */
 function safe(fn: () => void): void {
   if (!started) return;
@@ -140,7 +160,15 @@ export function initUpshot(): boolean {
     s.addListener?.('UpshotAuthStatus', (status) => {
       if (__DEV__) console.log('[upshot] auth', status);
     });
-    s.setDispatchInterval?.(60); // documented range 10–120s
+    // Push lifecycle (iOS emits these from the native module; Android handles push in
+    // SwiftLoanMessagingService). Debug-only visibility: the token itself is never logged.
+    s.addListener?.('UpshotPushToken', () => devLog('push token registered with Upshot'));
+    s.addListener?.('UpshotOnPushClickInfo', () => devLog('push notification tapped'));
+    s.addListener?.('UpshotPushPayload', () => devLog('push payload received'));
+    // Documented range 10–120s. Short in debug builds so events reach the dashboard
+    // quickly while testing; 60s in release to batch for battery.
+    s.setDispatchInterval?.(UPSHOT_DEMO ? 10 : 60);
+    devLog('initialised', { platform: PLATFORM, demo: UPSHOT_DEMO, dispatchSeconds: UPSHOT_DEMO ? 10 : 60 });
     started = true;
     return true;
   } catch (e) {
@@ -157,13 +185,40 @@ export function initUpshot(): boolean {
 // payload, isTimed, callback)`). Omitting it makes the bridge throw "argument
 // must be a function. Got undefined" — so pass a no-op callback.
 const noop = (): void => {};
+/** SDK callback for events: in debug builds it confirms the SDK accepted the call. */
+const accepted = (what: string) => (): void => devLog('sdk accepted', what);
+
+/**
+ * Readable names for the screens whose internal ids are not self-explanatory.
+ * Upshot (Live Events, screen-targeted campaigns) sees these labels; every screen
+ * not listed here is sent under its internal id (home, profile, offers, ...).
+ * The application funnel steps are numbered in the order the user does them.
+ */
+export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
+  intro: 'Get Started',
+  fare: 'My Offers',
+  loans: 'My Loans',
+  basicpan: 'PAN Verification Step 1',
+  basic: 'Basic Details Step 2',
+  moredetails: 'More Details Step 3',
+  finding: 'Finding Loader',
+  compare: 'Compare Offers',
+};
+
+/** Screens that are never reported: the animated logo at launch carries no information. */
+const UPSHOT_SKIPPED_SCREENS = new Set(['splash']);
 
 export function upshotScreen(screen: string): void {
-  safe(() => sdk()?.createPageViewEvent?.(screen, noop));
+  if (!started || UPSHOT_SKIPPED_SCREENS.has(screen)) return;
+  const name = UPSHOT_SCREEN_LABELS[screen] ?? screen;
+  devLog('screen ->', name);
+  safe(() => sdk()?.createPageViewEvent?.(name, __DEV__ ? accepted(`screen:${name}`) : noop));
 }
 
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
-  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false, noop));
+  if (!started) return;
+  devLog('event ->', name, attrs);
+  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false, __DEV__ ? accepted(`event:${name}`) : noop));
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -188,16 +243,33 @@ export function upshotIdentify(user: {
       ? user.phone!
       : `+91${digits.slice(-10)}`
     : undefined;
+  const fullName = (user.name || '').trim();
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  if (started) {
+    devLog('identify ->', {
+      appuID: user.userId,
+      phone: phone ? `${phone.slice(0, 3)}******${phone.slice(-2)}` : null,
+      name: fullName || null,
+      platform: PLATFORM,
+    });
+  }
+  // The SDK maps profile fields by EXACT key: `appuID`, `firstName`, `lastName`,
+  // `userName`, `email`, `phone` (see UpshotModule.java predefinedKeys / the iOS
+  // wrapper). Any other key is stored as a custom attribute, so the old
+  // `appuid` / `Name` / `Email` / `Phone` left App UID and Name blank on the
+  // dashboard. Platform / City / Country stay custom attributes.
   safe(() =>
     sdk()?.setUserProfile?.(
       JSON.stringify({
-        appuid: user.userId,
-        Name: user.name ?? undefined,
-        Email: user.email ?? undefined,
-        Phone: phone,
+        appuID: user.userId,
+        firstName: parts[0],
+        lastName: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
+        userName: fullName || undefined,
+        email: user.email ?? undefined,
+        phone,
         City: user.city ?? undefined,
         Country: 'India',
-        Platform: 'Android',
+        Platform: PLATFORM,
       }),
     ),
   );
@@ -274,12 +346,14 @@ export function showUpshotInbox(): void {
  * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step.
  */
 export const MOBILE_UPSHOT_EVENTS: Array<{ name: string; attributes: Record<string, unknown> }> = [
-  { name: 'app_installed', attributes: { platform: 'Android', source: 'organic' } },
-  { name: 'app_opened', attributes: { platform: 'Android' } },
+  { name: 'app_installed', attributes: { platform: PLATFORM, source: 'organic' } },
+  { name: 'app_opened', attributes: { platform: PLATFORM } },
   { name: 'language_selected', attributes: { language: 'en', label: 'English' } },
   { name: 'otp_requested', attributes: { screen: 'mobile' } },
   { name: 'otp_verified', attributes: { priorInquiryCount: 1 } },
+  { name: 'PAN Verified', attributes: { source: 'aurix', aadhaarLinked: true } },
   { name: 'eligibility_completed', attributes: { offerCount: 4 } },
+  { name: 'Offers Got', attributes: { offerCount: 4, bestApr: 10.49 } },
   { name: 'offer_viewed', attributes: { offerCount: 4, bestApr: 10.49 } },
   { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance' } },
   { name: 'kyc_started', attributes: { method: 'aadhaar' } },
@@ -311,7 +385,7 @@ export function seedUpshotCatalogue(): number {
   }
   MOBILE_UPSHOT_EVENTS.forEach((e, i) => {
     // Spread over time so the SDK batches rather than dropping.
-    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: 'Android', seeded: true }), i * 150);
+    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: PLATFORM, seeded: true }), i * 150);
   });
   if (__DEV__) console.log(`[upshot] seeding ${MOBILE_UPSHOT_EVENTS.length} events`);
   return MOBILE_UPSHOT_EVENTS.length;

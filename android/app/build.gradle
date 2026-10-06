@@ -1,9 +1,16 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
-// Firebase/FCM is not used — push notifications go through our own backend
-// instead. Not applying this plugin means no google-services.json is needed.
-// apply plugin: "com.google.gms.google-services"
+// Firebase (FCM) is the push transport for Upshot, so push needs
+// android/app/google-services.json (Firebase project swiftloan-de051, one client per
+// applicationId — currently com.swiftloan.ai). The file is gitignored (get it from the
+// Firebase console: Project settings > Your apps). Without it the app still builds and
+// runs — it just has no push token — so a teammate/CI machine without the file is not blocked.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.warn("google-services.json not found in android/app: building WITHOUT Firebase (no Upshot push token).")
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -85,8 +92,8 @@ android {
         applicationId "com.swiftloan.ai"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20
-        versionName "0.1.15"
+        versionCode 21
+        versionName "1.0.1"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.

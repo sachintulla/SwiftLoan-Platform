@@ -10,7 +10,7 @@ import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
   trackLoanStep, trackInstall, fetchContext, setTokens, api,
-  isAuthed,
+  isAuthed, upshotOfferViewed, knownOfferInfo,
   type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill,
 } from '../api/client';
 import {
@@ -19,7 +19,8 @@ import {
   loadIntroPitchHeard,
 } from './session';
 import { BUILD } from '../config/build';
-import { initUpshot, upshotScreen, upshotEvent } from '../analytics/upshot';
+import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
@@ -964,7 +965,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Upshot: boot once per process. No-ops entirely unless the SDK is
     // installed AND credentials are set, so this is safe on every build.
     if (initUpshot()) {
-      upshotEvent('app_opened', { platform: Platform.OS });
+      upshotEvent('app_opened', { platform: UPSHOT_PLATFORM });
+      // Demo/test builds only (pointed at a dev or local backend): ask for push
+      // permission at launch so a test push can be sent without walking through
+      // onboarding to the Permissions screen. Production builds keep asking only there.
+      if (UPSHOT_DEMO) registerUpshotPush();
       // Note: the notification permission (registerUpshotPush) is NOT requested
       // here. It's requested from the 'Allow permissions' onboarding screen
       // (permissions.tsx) so nothing prompts the user before they reach it.
@@ -1033,6 +1038,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // of our analytics already uses.
     upshotScreen(screen);
 
+    // Upshot funnel moments the screen names already map to (same screens as the
+    // `funnel` events below). Values come from the offers the app has seen.
+    if (screen === 'fare' || screen === 'offers') upshotOfferViewed();
+    if (screen === 'status') {
+      const { amount } = knownOfferInfo(stateRef.current.selectedOfferId);
+      upshotEvent('application_submitted', { ...(typeof amount === 'number' ? { amount } : {}), product: 'Personal Loan' });
+    }
+    if (screen === 'disbursed') {
+      const { amount, partner } = knownOfferInfo(stateRef.current.selectedOfferId);
+      upshotEvent('loan_disbursed', { ...(typeof amount === 'number' ? { amount } : {}), ...(partner ? { partner } : {}) });
+    }
+
     const funnelName = FUNNEL_EVENTS[screen];
     if (funnelName) {
       trackEvent('funnel', funnelName, screen, {
@@ -1048,6 +1065,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Correct model: leaving a screen completes THAT step with the time actually
     // spent on it; arriving marks the new step in_progress.
     const prev = prevOnboardingStep.current;
+    // Upshot: leaving the language picker means a language was actually chosen.
+    if (prev?.screen === 'language') {
+      upshotEvent('language_selected', { language: stateRef.current.lang ?? 'en', label: stateRef.current.selectedLang ?? '' });
+    }
     if (prev) trackOnboardingStep(prev.step, prev.screen, 'completed', spent);
 
     const stepNum = ONBOARDING_STEPS[screen];

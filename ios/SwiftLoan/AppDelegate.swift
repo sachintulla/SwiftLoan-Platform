@@ -1,10 +1,11 @@
 import UIKit
+import UserNotifications
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
   var window: UIWindow?
 
   var reactNativeDelegate: ReactNativeDelegate?
@@ -47,6 +48,58 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     installLaunchCover(background: brandTeal)
 
     return true
+  }
+
+  // MARK: - Upshot push (APNs)
+  //
+  // The Upshot React Native module registers for remote notifications when JS calls
+  // registerForPush (Permissions screen) and sets this delegate on the notification
+  // center — but the app delegate has to hand the APNs token and tapped payloads
+  // back to it. UpshotUtility is looked up by name at runtime so this compiles and
+  // does nothing in builds where the Upshot pods are not linked (e.g. the
+  // arm64 simulator).
+
+  private func upshotUtility() -> NSObject? {
+    guard let cls = NSClassFromString("UpshotUtility") as? NSObject.Type else { return nil }
+    return cls.perform(NSSelectorFromString("sharedUtility"))?.takeUnretainedValue() as? NSObject
+  }
+
+  func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    _ = upshotUtility()?.perform(NSSelectorFromString("applicationDidRegisterWithDeviceToken:"), with: deviceToken as NSData)
+  }
+
+  func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    NSLog("[SwiftLoanPush] APNs registration failed: %@", error.localizedDescription)
+  }
+
+  /// Show the banner even while the app is open (Upshot campaigns are meant to be seen).
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .list, .sound, .badge])
+    } else {
+      completionHandler([.alert, .sound, .badge])
+    }
+  }
+
+  /// The user tapped a notification: let Upshot record the click and run its action.
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let userInfo = response.notification.request.content.userInfo
+    _ = upshotUtility()?.perform(NSSelectorFromString("didReceivePushNotifcationWithResponse:"), with: userInfo as NSDictionary)
+    completionHandler()
   }
 
   private func installLaunchCover(background: UIColor) {
