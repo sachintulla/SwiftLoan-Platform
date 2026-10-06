@@ -87,6 +87,29 @@ function refreshOnce(): Promise<boolean> {
  */
 const REQUEST_TIMEOUT_MS = 12000;
 
+/** Cheap health probe of our own API; true only if it answers with a 2xx. */
+async function apiAnswers(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { method: 'HEAD', signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * After a failed request on a connected phone: wait a moment, probe the API, and only
+ * report "unreachable" if the probe fails too (so transient blips stay silent).
+ */
+async function confirmServerUnreachable(): Promise<void> {
+  await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+  if (!(await apiAnswers())) reportServerUnreachable();
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -137,12 +160,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       // actually reporting it, so only a real, sustained outage shows the banner.
       await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
       if (await looksOffline()) reportOfflineAttempt();
-      else reportServerUnreachable();
+      else void confirmServerUnreachable();
     } else {
-      // Connected, yet the request itself failed: the servers were not reachable
-      // or trusted from this network (office/public Wi-Fi that blocks or re-signs
-      // secure connections, firewall, server down). Say that, not "no internet".
-      reportServerUnreachable();
+      // Connected, yet the request itself failed. One failed request is often a blip
+      // (the radio waking up, a Wi-Fi handoff, a slow endpoint) and the next one works,
+      // so don't flash a scary banner for it: re-check the server in the background and
+      // only say "can't reach SwiftLoan securely" if it is STILL unreachable. This runs
+      // off to the side so the original error reaches the caller immediately.
+      void confirmServerUnreachable();
     }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);

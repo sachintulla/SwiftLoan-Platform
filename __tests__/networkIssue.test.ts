@@ -21,12 +21,28 @@ const ok = (body: unknown) => ({ ok: true, status: 200, statusText: 'OK', json: 
 describe('network issue reporting', () => {
   afterEach(() => jest.useRealTimers());
 
-  it('connected but the request fails (blocked / re-signed HTTPS) -> "unreachable", not "offline"', async () => {
+  it('connected, request fails AND the server is still unreachable on re-check -> "unreachable", not "offline"', async () => {
     const { api, net, seen } = load();
     net({ isConnected: true, isInternetReachable: false });
     (globalThis as any).fetch = jest.fn().mockRejectedValue(new TypeError('Network request failed'));
-    await expect(api.health()).rejects.toBeTruthy();
+    jest.useFakeTimers();
+    await expect(api.health()).rejects.toBeTruthy(); // the caller still gets the error immediately
+    expect(seen).toEqual([]); // nothing flashed yet
+    await jest.advanceTimersByTimeAsync(2000);
     expect(seen).toEqual(['unreachable']);
+  });
+
+  it('a one-off failed request while the server is fine stays silent (no scary banner)', async () => {
+    const { api, net, seen } = load();
+    net({ isConnected: true, isInternetReachable: true });
+    (globalThis as any).fetch = jest
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Network request failed')) // the blip
+      .mockResolvedValue({ ok: true, status: 200 }); // the follow-up health probe
+    jest.useFakeTimers();
+    await expect(api.health()).rejects.toBeTruthy();
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(seen).toEqual([]);
   });
 
   it('a false "not reachable" reading no longer blocks a request that would succeed', async () => {
