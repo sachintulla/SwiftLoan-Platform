@@ -8,10 +8,10 @@ import { useAccount } from '@/lib/accountContext';
 import { patchProfile, patchNotifications } from '@/lib/applyApi';
 
 const LINKS = [
-  { label: 'FAQs', href: '/faqs' },
-  { label: 'Privacy Policy', href: '/privacypolicy' },
+  { label: 'FAQs', href: '/account/faqs' },
+  { label: 'Privacy Policy', href: '/account/privacy' },
   { label: 'Terms of Service', href: '#' },
-  { label: 'Lending Partners', href: '#' },
+  { label: 'Lending Partners', href: '/account/partners' },
   { label: 'Grievance Redressal', href: '/account/support' },
 ];
 

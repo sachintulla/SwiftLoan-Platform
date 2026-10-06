@@ -329,7 +329,7 @@ export default function VoiceWidget() {
             // answer and is the least personal, so it earns the right to ask
             // for a phone number next. The form itself only has these two
             // fields now — no name/city/email/consent step exists anymore.
-            'Offer to fill the "Check eligibility" form by voice, asking ONE field at a time IN THIS ORDER: 1) how much they need (set_loan_amount), 2) mobile number (fill_phone). Confirm each value back before moving on.',
+            'Offer to fill the "Apply now" form by voice, asking ONE field at a time IN THIS ORDER: 1) how much they need (set_loan_amount), 2) mobile number (fill_phone). Confirm each value back before moving on.',
             'As soon as they mention personal or business — even in passing, before you reach the amount — CALL select_loan_type immediately so their loan type is recorded correctly (there is no visible picker for this, but it still matters for the lead).',
             'Never re-ask for something already present in alreadyFilled; read it back to confirm instead.',
             'For EMI questions, CALL set_calculator with the amount/rate/tenure they mention and read back the emi/total from the result.',
@@ -369,7 +369,7 @@ export default function VoiceWidget() {
       },
     });
 
-    // ── Lead / "check eligibility" form (home only) ─────────────────────
+    // ── Lead / "apply now" form (home only) ─────────────────────
     // Gate for every lead-form tool. This checked `#leadForm`, which the
     // redesign renamed to the `#lead-form` SECTION — so availableWhen returned
     // false and the agent was never offered fill_phone/submit at all. That is

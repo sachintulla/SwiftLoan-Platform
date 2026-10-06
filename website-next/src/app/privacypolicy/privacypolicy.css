@@ -32,6 +32,10 @@
 /* hero */
 .compliancePage .head { background: var(--sl-grad-dark); color: #fff; border-radius: 0 0 28px 28px; padding: 46px 0 40px; margin-bottom: 38px; }
 .compliancePage .head .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--sl-mint); margin-bottom: 12px; display: block; }
+/* The site-wide `.eyebrow` pill (glass background, border, padding) from design.css
+   bleeds into this label — reset it to the plain mint caption this hero was
+   designed with. */
+.compliancePage .head .eyebrow { background: none; backdrop-filter: none; border: 0; border-radius: 0; padding: 0; box-shadow: none; width: auto; display: block; }
 .compliancePage .head h1 { font-size: clamp(2rem,4.5vw,2.9rem); font-weight: 800; letter-spacing: -.03em; margin-bottom: 14px; }
 .compliancePage .head p { color: rgba(255,255,255,.85); max-width: 64ch; font-size: 1.02rem; }
 .compliancePage .updated { margin-top: 18px; font-size: .82rem; color: #9fc4bf; }

@@ -60,6 +60,7 @@ android/app/.cxx/
 android/local.properties
 *.keystore
 !debug.keystore
+*.jks
 
 # Metro
 .metro-health-check*
