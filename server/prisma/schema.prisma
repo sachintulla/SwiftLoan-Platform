@@ -545,15 +545,30 @@ enum TicketStatus {
 
 model SupportTicket {
   id        String       @id @default(uuid())
+  // Human-friendly sequence number; the public reference is "SL-T-00042".
+  ticketNo  Int          @unique @default(autoincrement())
   userId    String
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      TicketType   @default(query)
+  // repayments | documents | privacy | disbursement | fees | application | other
+  category  String       @default("other")
   subject   String
   body      String?
+  // Optional: the loan application the ticket is about (not a hard FK, so a
+  // ticket outlives a deleted application).
+  applicationId String?
   status    TicketStatus @default(open)
   createdAt DateTime     @default(now())
+  updatedAt DateTime     @default(now()) @updatedAt
+  resolvedAt DateTime?
+  // Internal note from the admin handling it; also shown to the user.
+  adminNote String?
+  // Notification email to the support team: when it went out, or why it didn't.
+  emailSentAt DateTime?
+  emailError  String?
 
   @@index([userId])
+  @@index([status, createdAt])
 }
 
 // ─────────────────────── Audit (scalability) ───────────────────────

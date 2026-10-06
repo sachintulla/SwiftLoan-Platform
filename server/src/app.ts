@@ -35,6 +35,7 @@ import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
+import { adminSupportRouter } from './modules/adminSupport.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
 import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
@@ -149,6 +150,7 @@ export function createApp() {
   app.use('/api/admin/agents', agentsRouter);
   app.use('/api/admin/stall-rules', stallRulesRouter);
   app.use('/api/admin/ops', adminOpsRouter);
+  app.use('/api/admin/support', adminSupportRouter);
   app.use('/api/admin/conversations', adminConversationsRouter);
   app.use('/api/admin/customers', customersRouter);
   app.use('/api/admin/integrations', integrationsRouter);

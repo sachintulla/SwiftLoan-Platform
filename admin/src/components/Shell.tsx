@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
 
-interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs'; superAdminOnly?: boolean }
+interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
 
 const NAV: { section?: string; items: NavDef[] }[] = [
   { items: [
@@ -31,6 +31,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/users', label: 'All Users', icon: '☺' },
       // Analytics merged into Master Overview's "Trends" section; /analytics
       // still resolves via a redirect for old links.
+      { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
     ],
   },
@@ -49,7 +50,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications',
+  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
@@ -74,6 +75,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   const { data: realtime } = useSWR('/api/admin/dashboard/realtime', swrFetcher, { refreshInterval: 8000 });
   const rt = (realtime?.data ?? {}) as { unreadNotifs?: number; activeSessions?: number };
+  // Open + in-progress support tickets — what still needs a human.
+  const { data: supSummary } = useSWR('/api/admin/support/summary', swrFetcher, { refreshInterval: 15000 });
+  const supportOpen = ((supSummary?.data ?? {}) as { needsAction?: number }).needsAction;
   const admin = getAdmin();
 
   const title = TITLES[pathname] || (Object.keys(TITLES).find((k) => pathname.startsWith(k)) ? TITLES[Object.keys(TITLES).find((k) => pathname.startsWith(k))!] : 'SwiftLoan Admin');
@@ -93,7 +97,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               .filter((it) => !it.superAdminOnly || admin?.role === 'super_admin')
               .map((it) => {
               const active = pathname === it.href || pathname.startsWith(it.href + '/');
-              const badge = it.badgeKey ? rt[it.badgeKey] : undefined;
+              const badge = it.badgeKey === 'supportOpen' ? supportOpen : it.badgeKey ? rt[it.badgeKey] : undefined;
               const inner = (
                 <>
                   <span className="row" style={{ gap: 10 }}><span style={{ width: 18, textAlign: 'center', opacity: .9 }}>{it.icon}</span>{it.label}</span>
