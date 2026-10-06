@@ -1,6 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
-import { reportOfflineAttempt } from '../state/offlineBridge';
+import { reportOfflineAttempt, reportServerUnreachable } from '../state/offlineBridge';
 import { upshotEvent, upshotIdentify } from '../analytics/upshot';
 
 /**
@@ -96,8 +96,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // user-facing screen (OTP, application, offers, loans…) goes through, so
     // catching "no signal" here means those screens fail fast with a clear
     // reason instead of sitting on a spinner for the full request timeout.
+    // Only a phone with NO connection at all is refused up front. `isInternetReachable`
+    // is NOT used here: it comes from probing our own /health endpoint, so on a
+    // network that blocks or re-signs HTTPS (office Wi-Fi with TLS inspection) it reads
+    // "unreachable" and would make the app refuse every request as "no internet".
+    // In that case we simply attempt the real request and report what actually happens.
     const netState = await NetInfo.fetch();
-    if (netState.isConnected === false || netState.isInternetReachable === false) {
+    if (netState.isConnected === false) {
       throw new TypeError('offline: no internet connection');
     }
     res = await fetch(API_BASE + path, {
@@ -122,7 +127,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // backend doesn't get mislabeled as "no internet connection."
     const looksOffline = async () =>
       NetInfo.fetch()
-        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .then(st => st.isConnected === false)
         .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
     if (await looksOffline()) {
       // A single instantaneous reading isn't enough — a momentary signal drop
@@ -132,6 +137,12 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       // actually reporting it, so only a real, sustained outage shows the banner.
       await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
       if (await looksOffline()) reportOfflineAttempt();
+      else reportServerUnreachable();
+    } else {
+      // Connected, yet the request itself failed: the servers were not reachable
+      // or trusted from this network (office/public Wi-Fi that blocks or re-signs
+      // secure connections, firewall, server down). Say that, not "no internet".
+      reportServerUnreachable();
     }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
