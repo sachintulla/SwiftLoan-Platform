@@ -1,6 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
-import { reportOfflineAttempt } from '../state/offlineBridge';
+import { reportOfflineAttempt, reportServerUnreachable } from '../state/offlineBridge';
 import { upshotEvent, upshotIdentify } from '../analytics/upshot';
 
 /**
@@ -87,6 +87,29 @@ function refreshOnce(): Promise<boolean> {
  */
 const REQUEST_TIMEOUT_MS = 12000;
 
+/** Cheap health probe of our own API; true only if it answers with a 2xx. */
+async function apiAnswers(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { method: 'HEAD', signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * After a failed request on a connected phone: wait a moment, probe the API, and only
+ * report "unreachable" if the probe fails too (so transient blips stay silent).
+ */
+async function confirmServerUnreachable(): Promise<void> {
+  await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+  if (!(await apiAnswers())) reportServerUnreachable();
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -96,8 +119,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // user-facing screen (OTP, application, offers, loans…) goes through, so
     // catching "no signal" here means those screens fail fast with a clear
     // reason instead of sitting on a spinner for the full request timeout.
+    // Only a phone with NO connection at all is refused up front. `isInternetReachable`
+    // is NOT used here: it comes from probing our own /health endpoint, so on a
+    // network that blocks or re-signs HTTPS (office Wi-Fi with TLS inspection) it reads
+    // "unreachable" and would make the app refuse every request as "no internet".
+    // In that case we simply attempt the real request and report what actually happens.
     const netState = await NetInfo.fetch();
-    if (netState.isConnected === false || netState.isInternetReachable === false) {
+    if (netState.isConnected === false) {
       throw new TypeError('offline: no internet connection');
     }
     res = await fetch(API_BASE + path, {
@@ -122,7 +150,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // backend doesn't get mislabeled as "no internet connection."
     const looksOffline = async () =>
       NetInfo.fetch()
-        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .then(st => st.isConnected === false)
         .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
     if (await looksOffline()) {
       // A single instantaneous reading isn't enough — a momentary signal drop
@@ -132,6 +160,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       // actually reporting it, so only a real, sustained outage shows the banner.
       await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
       if (await looksOffline()) reportOfflineAttempt();
+      else void confirmServerUnreachable();
+    } else {
+      // Connected, yet the request itself failed. One failed request is often a blip
+      // (the radio waking up, a Wi-Fi handoff, a slow endpoint) and the next one works,
+      // so don't flash a scary banner for it: re-check the server in the background and
+      // only say "can't reach SwiftLoan securely" if it is STILL unreachable. This runs
+      // off to the side so the original error reaches the caller immediately.
+      void confirmServerUnreachable();
     }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);

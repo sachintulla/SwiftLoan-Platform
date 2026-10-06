@@ -529,14 +529,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
+  // No horizontal padding on the button itself: the native gradient draws INSIDE its
+  // own padding, which made every gradient button ~20pt narrower on each side than its
+  // neighbours (e.g. "Continue" vs "Skip for now"). The padding lives on btnInner instead.
   btn: {
     height: 54,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
   },
-  btnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  btnInner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20 },
   btnLabel: { color: '#fff', fontSize: 16 },
   ghost: {
     height: 50,
