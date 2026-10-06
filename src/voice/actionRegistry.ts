@@ -3,6 +3,8 @@
 // single perform_ui_action tool (see tools.ts) dispatches against whatever is
 // registered for the CURRENT screen. This is what lets one generic tool cover
 // tap/fill/toggle/scroll across all 25 screens with no per-screen tool authoring.
+import { SCREEN_INFO } from './screenInfo';
+
 export type TargetKind = 'button' | 'field' | 'toggle' | 'chips' | 'consent' | 'scroll' | 'slider' | 'date';
 
 export interface ActionTarget {
@@ -376,8 +378,13 @@ export function findTarget(screen: string, query: string, kind?: TargetKind, gro
 
 export function buildPageContext(screen: string): Record<string, unknown> {
   const targets = listTargets(screen);
+  const info = SCREEN_INFO[screen];
   return {
     page: screen,
+    // Plain-language name + purpose, so the agent can tell the user where they are
+    // (and never has to speak the internal id above). Omitted for unknown screens.
+    screen_title: info?.title,
+    screen_purpose: info?.purpose,
     // Include enough of the visible text that data-heavy screens (offers, loans)
     // convey their actual content — 12 lines cut off the offer list, leaving the
     // agent to fall back on example figures from its prompt.
