@@ -10,9 +10,10 @@
 // auto-discovered from the rendered tree (screenGraph.ts) with controls that
 // register themselves via useVoiceTarget. So new screens and controls become
 // voice-addressable without adding tools.
-import { buildPageContext, findTarget, getCurrentScreen, listTargets, waitForNextPublish } from './actionRegistry';
+import { buildPageContext, describeTarget, findTarget, getCurrentScreen, listTargets, waitForNextPublish } from './actionRegistry';
 import type { TargetKind } from './actionRegistry';
 import type { AgentLike, JSONSchema } from './types';
+import { requestConfirmation } from './ui/confirmationBridge';
 
 /**
  * App actions the voice tools invoke directly (bound to the store), rather than
@@ -20,8 +21,14 @@ import type { AgentLike, JSONSchema } from './types';
  * ANY screen (logout) or that resolve data (open a loan by reference).
  */
 export interface VoiceActions {
-  /** Resolve a screen name/alias and navigate; false if unknown. */
-  navigateToScreen: (screen: string) => boolean;
+  /**
+   * Resolve a screen name/alias and navigate. Returns the resolved request and the
+   * screen the app will actually land on (the login-boundary guard may redirect,
+   * e.g. a logged-in user asking for `mobile` lands on `home`), or false if unknown.
+   */
+  navigateToScreen: (screen: string) => { requested: string; landed: string } | false;
+  /** The message the app just showed the user in a toast (last few seconds), if any. */
+  recentToast?: () => string | null;
   /** End the session and return to the welcome flow, from any screen. */
   logout: () => void | Promise<void>;
   /** Look up a loan/application by its reference number and open it. */
@@ -70,6 +77,8 @@ interface PerformUiActionArgs {
   value?: string;
   amount?: 'small' | 'page' | 'top' | 'bottom';
   direction?: 'up' | 'down';
+  /** Chips: which field's options (e.g. "Gender") when a label like "Other" repeats. */
+  group?: string;
 }
 
 /** Words that identify a screen's main forward action, for `continue_next`. */
@@ -84,9 +93,49 @@ const FORWARD_WORDS = ['continue', 'next', 'get started', 'proceed', 'send otp',
 const CONFIRM_BEFORE_CONTINUE_SCREENS = new Set(['aboutyou']);
 let reviewConfirmed = false;
 
+// "Skip for now" / "Skip" in English, Hindi, Telugu. Skipping is the user's own
+// decision, never the agent's: the agent used to tap these on its own and drop
+// people out of About You / Optional details without asking.
+const SKIP_LABEL = /skip|स्किप|స్కిప్/i;
+// First-run flow. While the user is on one of these, the agent must not navigate
+// elsewhere by itself (navigate_screen to home etc. skipped the whole onboarding).
+const ONBOARDING_SCREENS = new Set(['privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou']);
+
+// Filling the last digit of the OTP verifies and navigates by itself (mobile.tsx
+// auto-verifies at 6 digits), but the model habitually follows fill_field with
+// continue_next. By the time that second call runs the app has already moved on,
+// and "continue" resolved to the NEXT screen's primary button — tapping "Allow
+// permissions" or About You's Continue on the user's behalf. Remember where the
+// last field was filled; if a continue arrives right after and that screen is
+// gone, tell the model it already advanced instead of tapping anything.
+const ADVANCED_WINDOW_MS = 4000;
+let lastFill: { screen: string; at: number } | null = null;
+
+/**
+ * Control names with their state, e.g. "Send OTP (disabled)", "Accept terms (checked)",
+ * "Gender: Male (selected)". Used for controls_now / available, so the agent sees what
+ * its action actually changed, not just which labels exist.
+ */
 function describeScreen(screen: string) {
-  return listTargets(screen).map(t => t.label);
+  return listTargets(screen).map(t => {
+    const d = describeTarget(t) as Record<string, unknown>;
+    const bits: string[] = [];
+    if (d.enabled === false) bits.push('disabled');
+    if (d.selected === true) bits.push('selected');
+    if (t.kind === 'toggle' || t.kind === 'consent') bits.push(d.value === true ? 'checked' : 'unchecked');
+    else if (d.filled === true) bits.push('filled');
+    else if (d.value !== undefined && d.value !== '' && t.kind !== 'chips') bits.push(`= ${String(d.value).slice(0, 40)}`);
+    const name = t.group ? `${t.group}: ${t.label}` : t.label;
+    return bits.length ? `${name} (${bits.join(', ')})` : name;
+  });
 }
+
+/** The same control, looked up again after a re-render (the old object's getValue is stale). */
+function freshTarget(screen: string, t: { label: string; kind: string; group?: string }) {
+  return listTargets(screen).find(x => x.label === t.label && x.kind === t.kind && x.group === t.group) ?? null;
+}
+
+const anyPrimaryDisabled = (screen: string) => listTargets(screen).some(t => t.primary && t.disabled);
 
 export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void {
   /**
@@ -96,11 +145,28 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
    * screen", which was false. The wait lets React re-render and <Screen>
    * re-publish its graph.
    */
-  const settled = async (screenBefore: string, base: Record<string, unknown>) => {
+  const settled = async (
+    screenBefore: string,
+    base: Record<string, unknown>,
+    opts: { primaryBusyBefore?: boolean } = {},
+  ) => {
     // Event-driven: resolve as soon as <Screen> re-publishes its graph (usually
     // one render, ~16-50ms) rather than always paying a fixed delay. The timeout
     // is only a floor for actions that trigger no re-render at all.
     await waitForNextPublish(250);
+    // A tap that starts real work (Send OTP, Continue -> save) first just flips the
+    // main button to its busy/disabled state; the outcome (navigation, an error
+    // toast) lands later. Reporting at 250ms said "tapped, still on this screen" and
+    // the agent had no idea the save then failed. If the forward button went
+    // disabled because of this action, wait (bounded) for it to come back or for
+    // the screen to change.
+    if (opts.primaryBusyBefore === false && getCurrentScreen() === screenBefore && anyPrimaryDisabled(screenBefore)) {
+      const deadline = Date.now() + 3500;
+      while (Date.now() < deadline && getCurrentScreen() === screenBefore && anyPrimaryDisabled(screenBefore)) {
+        await new Promise<void>(r => setTimeout(r, 120));
+      }
+      await waitForNextPublish(150);
+    }
     const now = getCurrentScreen();
     // Trigger the page-context push HERE, synchronously before this function
     // returns, rather than leaving it to store.ts's/Frame.tsx's own effects.
@@ -114,12 +180,18 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     // result), that send is queued — and therefore delivered over the socket —
     // first, so the server still sees the tool call as pending when the
     // context update arrives and can merge them into one turn.
-    agent.updatePageContext();
+    // `immediate` is what makes that true: the plain form is debounced 900ms
+    // (PAGE_CONTEXT_DEBOUNCE_MS), which delivered it AFTER she had already
+    // answered the tool result — a second, standalone spoken turn.
+    agent.updatePageContext({ immediate: true });
+    const toast = actions.recentToast?.();
     return {
       ...base,
       screen_after: now,
       navigated: now !== screenBefore,
-      controls_now: describeScreen(now).slice(0, 20),
+      // What the app showed the user because of this action (usually why it failed).
+      ...(toast ? { message_shown_to_user: toast } : {}),
+      controls_now: describeScreen(now).slice(0, 30),
     };
   };
 
@@ -127,6 +199,25 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   async function performAction(args: PerformUiActionArgs): Promise<Record<string, unknown>> {
     const screen = getCurrentScreen();
     if (!CONFIRM_BEFORE_CONTINUE_SCREENS.has(screen)) reviewConfirmed = false;
+
+    if (
+      args.action === 'tap' &&
+      args.target === 'continue' &&
+      lastFill &&
+      lastFill.screen !== screen &&
+      Date.now() - lastFill.at < ADVANCED_WINDOW_MS
+    ) {
+      const from = lastFill.screen;
+      lastFill = null;
+      return {
+        ok: false,
+        reason: 'already_advanced',
+        screen_now: screen,
+        message:
+          `Filling that field already submitted "${from}" and the app moved to "${screen}". ` +
+          'Nothing was tapped. Read the new screen and continue from there only if the user wants to.',
+      };
+    }
 
     // Block the forward action on a details-review screen until the model has
     // read the entered data back to the user and gotten explicit confirmation.
@@ -161,7 +252,16 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
             : undefined;
 
     // `continue_next` passes a sentinel: find whichever forward-ish button exists.
-    let target = findTarget(screen, args.target, wantKind);
+    let target = findTarget(screen, args.target, wantKind, args.group);
+    // set_loan_amount / set_tenure / set_interest_rate address a slider by what it
+    // controls, not by its (translated, screen-specific) label.
+    const roleMatch = /^@role:(amount|tenure|rate)$/.exec(args.target);
+    if (roleMatch) {
+      target = listTargets(screen).find(t => t.kind === 'slider' && t.role === roleMatch[1]) ?? null;
+      if (!target) {
+        return { ok: false, reason: 'not_on_this_screen', message: `There is no ${roleMatch[1]} control on this screen.` };
+      }
+    }
     if (!target && args.target === 'continue') {
       for (const word of FORWARD_WORDS) {
         target = findTarget(screen, word);
@@ -206,14 +306,41 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       if (!dateTarget?.setValue) {
         return { ok: false, reason: 'no_date_picker_on_screen', available: describeScreen(screen).slice(0, 20) };
       }
-      dateTarget.setValue(args.value ?? '');
-      return settled(screen, { ok: true, date_set: args.value, applied: dateTarget.getValue?.() });
+      const accepted = dateTarget.setValue(args.value ?? '');
+      if (accepted === false) {
+        return {
+          ok: false,
+          reason: 'value_rejected',
+          requested: args.value,
+          message: 'That date was not accepted — it must be a real date and the applicant must be at least 18 years old. Ask the user for a valid date of birth.',
+        };
+      }
+      const done = await settled(screen, { ok: true, date_set: args.value });
+      const after = freshTarget(getCurrentScreen(), dateTarget);
+      return { ...done, applied: after?.getValue?.() ?? '' };
     }
 
     if (!target) {
       // Hand back the real labels so the model can retry with a valid one
       // instead of guessing again.
       return { ok: false, reason: 'not_found', available: describeScreen(screen).slice(0, 25) };
+    }
+
+    // Skipping a step is the user's decision. Even when the user asked for it by voice,
+    // make them confirm with a tap on the confirmation sheet, so the agent can never
+    // skip on its own initiative.
+    if (args.action === 'tap' && SKIP_LABEL.test(target.label)) {
+      const allowed = await requestConfirmation('Skip this step?', { confirmLabel: 'Skip', cancelLabel: 'Stay here' });
+      if (!allowed) {
+        return {
+          ok: false,
+          refused: true,
+          reason: 'skip_not_confirmed',
+          message:
+            'The user did not confirm skipping. Do not tap Skip yourself and do not offer to skip ' +
+            'for them. Carry on with the step in front of the user.',
+        };
+      }
     }
 
     // A disabled control exists but can't be actioned yet. Say so explicitly, and
@@ -235,10 +362,12 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     }
 
     switch (args.action) {
-      case 'tap':
+      case 'tap': {
         if (!target.onTap) return { ok: false, reason: 'not_tappable', kind: target.kind };
+        const primaryBusyBefore = anyPrimaryDisabled(screen);
         target.onTap();
-        return settled(screen, { ok: true, tapped: target.label });
+        return settled(screen, { ok: true, tapped: target.label }, { primaryBusyBefore });
+      }
 
       case 'set_input':
         if (target.sensitive) {
@@ -251,7 +380,19 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
         }
         if (!target.setValue) return { ok: false, reason: 'not_fillable', kind: target.kind };
         target.setValue(args.value ?? '');
-        return settled(screen, { ok: true, field: target.label, value: args.value ?? '' });
+        lastFill = { screen, at: Date.now() };
+        {
+          const done = await settled(screen, { ok: true, field: target.label });
+          // Report what the field actually holds now (digit-stripping, max length...),
+          // not what was asked for.
+          const after = freshTarget(getCurrentScreen(), target);
+          const committed = after?.getValue ? String(after.getValue() ?? '') : (args.value ?? '');
+          return {
+            ...done,
+            value: committed,
+            ...(committed !== (args.value ?? '') ? { note: 'The field kept a different value than requested (it filters or limits input).' } : {}),
+          };
+        }
 
       case 'set_toggle': {
         const on = args.value === undefined ? true : args.value === 'true';
@@ -271,7 +412,12 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
           return { ok: false, reason: 'not_togglable', kind: target.kind };
         }
         target.setValue(on);
-        return settled(screen, { ok: true, toggle: target.label, checked: on });
+        {
+          const done = await settled(screen, { ok: true, toggle: target.label });
+          const after = freshTarget(getCurrentScreen(), target);
+          const checked = after?.getValue ? !!after.getValue() : on;
+          return checked === on ? { ...done, checked } : { ...done, ok: false, reason: 'not_applied', checked, message: 'The control did not change to the requested state.' };
+        }
       }
 
       case 'set_value': {
@@ -281,12 +427,14 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
         const num = Number(raw);
         // Dates stay strings; numeric sliders are passed as numbers.
         target.setValue(!isDate && Number.isFinite(num) && raw !== '' ? (num as any) : raw);
-        return settled(screen, {
-          ok: true,
-          control: target.label,
-          value: raw,
-          applied: target.getValue ? target.getValue() : undefined,
-        });
+        {
+          const done = await settled(screen, { ok: true, control: target.label, requested: raw });
+          // `applied` is read AFTER the re-render (the old object's getValue still
+          // returns the pre-change value), and may differ from `requested` (clamped
+          // to the slider's range/step).
+          const after = freshTarget(getCurrentScreen(), target);
+          return { ...done, applied: after?.getValue ? after.getValue() : undefined };
+        }
       }
 
       case 'scroll': {
@@ -317,13 +465,15 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
         ok: true,
         screen,
         summary: ctx.screen_overview,
-        controls: listTargets(screen).map(t => ({
-          kind: t.kind,
-          label: t.label,
-          ...(t.disabled ? { enabled: false, note: 'not actionable until its precondition is met' } : {}),
-          ...(t.sensitive ? { sensitive: true, note: 'cannot be filled by voice' } : {}),
-          ...(t.getValue ? { current_value: t.getValue() } : {}),
-        })),
+        controls: listTargets(screen).map(t => {
+          const { value, ...d } = describeTarget(t) as Record<string, unknown>;
+          return {
+            ...d,
+            ...(t.disabled ? { note: 'not actionable until its precondition is met' } : {}),
+            ...(t.sensitive ? { note: 'cannot be filled by voice' } : {}),
+            ...(value !== undefined ? { current_value: value } : {}),
+          };
+        }),
       };
     },
   });
@@ -387,12 +537,13 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     a => ({ action: 'set_toggle', target: a.label, value: String(a.checked ?? true) }),
   );
 
-  alias<{ option: string }>(
+  alias<{ option: string; group?: string }>(
     'select_option',
-    'Choose an option, chip, card or list item by its visible text.',
-    { option: { type: 'string' } },
+    'Choose an option, chip, card or list item by its visible text. When the same option text appears ' +
+      'in more than one group (e.g. "Other" under Gender and Employment), also pass "group" — the field name shown with the option.',
+    { option: { type: 'string' }, group: { type: 'string', description: 'the field the option belongs to, e.g. "Gender"' } },
     ['option'],
-    a => ({ action: 'tap', target: a.option }),
+    a => ({ action: 'tap', target: a.option, group: a.group }),
   );
 
   alias<{ date: string }>(
@@ -408,7 +559,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     'Set the loan amount slider, in rupees.',
     { amount: { type: 'number' } },
     ['amount'],
-    a => ({ action: 'set_value', target: 'Loan amount', value: String(a.amount) }),
+    a => ({ action: 'set_value', target: '@role:amount', value: String(a.amount) }),
   );
 
   alias<{ months: number }>(
@@ -416,7 +567,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     'Set the loan tenure slider, in months.',
     { months: { type: 'number' } },
     ['months'],
-    a => ({ action: 'set_value', target: 'Tenure', value: String(a.months) }),
+    a => ({ action: 'set_value', target: '@role:tenure', value: String(a.months) }),
   );
 
   alias<{ rate: number }>(
@@ -424,7 +575,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     'Set the interest-rate slider, in percent per annum.',
     { rate: { type: 'number' } },
     ['rate'],
-    a => ({ action: 'set_value', target: 'Interest rate', value: String(a.rate) }),
+    a => ({ action: 'set_value', target: '@role:rate', value: String(a.rate) }),
   );
 
   alias<Record<string, never>>(
@@ -458,15 +609,32 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
 
   /* ── 4. Navigation ──────────────────────────────────────────── */
   const navDescription =
-    'Navigate to a named app screen: home, loans, fare, help, profile, basic, basicpan, offers, ' +
-    'handoff, status, repay, disbursed, mobile, ' +
-    'permissions, aboutyou, language, intro. Prefer tapping a visible control when one exists.';
+    'Navigate to a named app screen: home, loans, fare (My Offers), compare (compare offers), ' +
+    'calculator, help, profile, basicpan (start an application), basic, handoff, status, repay, ' +
+    'disbursed, mobile, permissions, aboutyou, language, intro. ' +
+    'Prefer tapping a visible control when one exists.';
 
-  const navHandler = ({ screen }: { screen: string }) => {
-    const went = actions.navigateToScreen(screen);
-    return went
-      ? { ok: true, screen, controls_now: describeScreen(getCurrentScreen()).slice(0, 20) }
-      : { ok: false, reason: 'unknown_screen', available_screens: 'see description' };
+  const navHandler = async ({ screen }: { screen: string }) => {
+    const before = getCurrentScreen();
+    if (ONBOARDING_SCREENS.has(before)) {
+      return {
+        ok: false,
+        refused: true,
+        reason: 'finish_this_step',
+        message:
+          'The user is in the first-run flow. Do not navigate away on your own — help them complete ' +
+          'the step in front of them (the screen advances when it is done).',
+      };
+    }
+    const landed = actions.navigateToScreen(screen);
+    if (!landed) return { ok: false, reason: 'unknown_screen', available_screens: 'see description' };
+    // Report where the app REALLY is after the render commits — not the screen
+    // that was requested, and not the previous screen's controls (which is what
+    // describing the screen synchronously returned).
+    const result = await settled(before, { ok: true, requested: screen });
+    return landed.landed !== landed.requested
+      ? { ...result, redirected: true, note: `"${screen}" is not available right now; the app is on "${result.screen_after}".` }
+      : result;
   };
 
   agent.registerTool<{ screen: string }>({

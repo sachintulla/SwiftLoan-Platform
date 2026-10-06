@@ -114,6 +114,9 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
      * anything will send — a wrong region silently writes to the wrong tenant.
      */
     baseUrl: '',
+    /** Set from the admin Messaging card (secrets.appId / accountId also work). */
+    appId: '',
+    accountId: '',
     eventPath: '/event/add',
     eventMethod: 'POST',
     userUpsertPath: '/userprofile/add',
@@ -614,7 +617,10 @@ export type UpshotPlatform = 'mobile' | 'web';
  * Upshot authenticates in the request body, not via headers. Every payload
  * carries this block.
  */
-function upshotAuth(cfg: ProviderConfig, platform: UpshotPlatform = 'mobile') {
+export function upshotAuth(cfg: ProviderConfig, platform: UpshotPlatform = 'mobile') {
+  // The admin "Messaging" card saves App ID and Account ID as plain settings and
+  // only the API key as a secret, so accept either place (secrets win — they are
+  // what a per-platform setup via the API uses).
   const appId =
     (platform === 'web' ? cfg.secrets.appIdWeb : cfg.secrets.appIdMobile) ??
     // Fall back to the other app rather than sending an empty appId, which
@@ -622,10 +628,11 @@ function upshotAuth(cfg: ProviderConfig, platform: UpshotPlatform = 'mobile') {
     cfg.secrets.appIdMobile ??
     cfg.secrets.appIdWeb ??
     cfg.secrets.appId ??
+    cfg.settings.appId ??
     '';
   return {
-    appId,
-    accountId: cfg.secrets.accountId ?? '',
+    appId: String(appId).trim(),
+    accountId: String(cfg.secrets.accountId ?? cfg.settings.accountId ?? '').trim(),
     apiKey: cfg.secrets.apiKey ?? '',
   };
 }

@@ -10,7 +10,7 @@ import { api, ApiError, isAuthed } from '../api/client';
 import { NAME_MAX, EMAIL_MAX, sanitizeNameInput, cleanName } from '../utils/inputLimits';
 
 export default function AboutYou() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, go, showToast, mergeApiContext, markUrgentContext } = useStore();
   const t = useT();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,6 +40,10 @@ export default function AboutYou() {
   const onContinue = async () => {
     if (!(state.aboutName.trim() && state.aboutPin.length === 6)) {
       showToast(t.aboutYouValidate);
+      // A toast is invisible to the voice agent. Without this, continue_next reported
+      // "tapped Continue, still on aboutyou" with no reason, and Ruby kept retrying.
+      mergeApiContext({ aboutYouSaveResult: { ok: false, error: t.aboutYouValidate } });
+      markUrgentContext();
       return;
     }
     setBusy(true);
@@ -66,7 +70,13 @@ export default function AboutYou() {
       }
       go('home');
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.aboutYouSaveErr);
+      const message = e instanceof ApiError ? e.message : t.aboutYouSaveErr;
+      showToast(message);
+      // Same as profile.tsx's save: the real reason (e.g. "This email is already in
+      // use by another account.") must reach the agent, and urgently — it is still
+      // on this screen mid-turn and would otherwise retry blindly.
+      mergeApiContext({ aboutYouSaveResult: { ok: false, error: message } });
+      markUrgentContext();
     } finally {
       setBusy(false);
     }
@@ -131,6 +141,7 @@ export default function AboutYou() {
           <View style={{ gap: 8 }}>
             <Text style={[font(600), { color: colors.textMid, fontSize: 13 }]}>{t.genderOptionalLabel}</Text>
             <Chips
+              group={t.genderOptionalLabel}
               value={state.aboutGender}
               onChange={v => set({ aboutGender: v })}
               options={[

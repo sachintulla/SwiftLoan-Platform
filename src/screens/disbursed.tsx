@@ -5,6 +5,7 @@ import Icon from '../components/Icon';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { useDrive } from '../utils/useDrive';
+import { VoiceHidden } from '../voice/screenGraph';
 
 const CONFETTI_COLORS = ['#2FB183', '#079FA0', '#F5A624', '#7DC24B', '#0E8C7E', '#E9C21F', '#EF6A5E'];
 
@@ -26,6 +27,10 @@ export default function Disbursed() {
           <Text style={[font(700), { fontSize: 10.5, color: colors.primary, letterSpacing: 0.3 }]}>Powered by AI</Text>
         </View>
         <Text style={[font(800), { fontSize: 26, letterSpacing: -0.5, color: colors.text, marginTop: 14, textAlign: 'center' }]}>Funds on the way!</Text>
+        {/* Everything below is hard-coded demo content (₹25,000, ••4291, 12 months, Oct 2023,
+            TransID): not this user's real loan. Hidden from the agent so it can never quote
+            it as fact; the real figures are in api_context.handoffResult. */}
+        <VoiceHidden>
         <Text style={[font(400), { fontSize: 14, lineHeight: 20, color: colors.textSoft, marginTop: 6, textAlign: 'center' }]}>
           ₹25,000 is being transferred to your bank account ending in ••4291.
         </Text>
@@ -43,6 +48,7 @@ export default function Disbursed() {
           <Row label="Tenure" value="12 Months" />
           <Row label="First EMI date" value="Oct 05, 2023" />
         </View>
+        </VoiceHidden>
 
         {/* This screen is hardcoded demo data (see CLAUDE.md) with no real
             loanId behind it, and the button's own label ("Go to Dashboard")
@@ -55,9 +61,11 @@ export default function Disbursed() {
           <Icon name="receipt_long" size={18} color={colors.text} />
           <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>View Receipt</Text>
         </Pressable>
-        <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, textAlign: 'center', marginTop: 14 }]}>
-          SwiftLoan is a regulated entity. Transaction processed via Secure Gateway. TransID: SL-9821-X.
-        </Text>
+        <VoiceHidden>
+          <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, textAlign: 'center', marginTop: 14 }]}>
+            SwiftLoan is a regulated entity. Transaction processed via Secure Gateway. TransID: SL-9821-X.
+          </Text>
+        </VoiceHidden>
       </View>
     </Screen>
   );

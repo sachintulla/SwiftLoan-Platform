@@ -7,9 +7,10 @@ import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
-import { upshotIdentify, upshotEvent } from '../analytics/upshot';
+import { upshotIdentify, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
+import { agent } from '../voice';
 
 // Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
 // ("0000000000", "9999999999") — the server's own phoneSchema only checked
@@ -85,11 +86,20 @@ export default function Mobile() {
       // previous account on a shared device) and must be reset here too, or
       // the very next page_context still reports heard_intro_pitch: true and
       // Ruby skips the first-time pitch for someone who's never heard it.
+      //
+      // Exception: a call that is LIVE right now. The person logging in is the one
+      // already on that call, and has heard (or is hearing) the pitch — resetting
+      // it mid-call made every later page_context say heard_intro_pitch:false, so
+      // Ruby greeted them again on Home. Only reset between calls.
+      const callLive = (() => {
+        const s = agent.getStatus();
+        return s !== 'idle' && s !== 'ended';
+      })();
       set({
         authUser: r.user,
         otpSent: false,
         priorInquiries: r.priorInquiries,
-        introPitchHeard: false,
+        ...(callLive ? {} : { introPitchHeard: false }),
         savedApplicantDraft: null,
       });
 
@@ -115,6 +125,10 @@ export default function Mobile() {
       // know it failed the instant it's known, not after finishing whatever
       // she's already saying.
       markUrgentContext();
+      // Returning users never see the Permissions screen, which is where push is normally
+      // requested — so request it here. iOS only shows its prompt once (when the choice is
+      // still undetermined), and nothing is shown if they already decided.
+      if (alreadyOnboarded) registerUpshotPush();
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);

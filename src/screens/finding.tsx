@@ -50,6 +50,10 @@ export default function Finding() {
   // animates, then advance to the offers screen. Keeps a ~2.6s minimum on screen.
   useEffect(() => {
     let done = false;
+    // Set on unmount so a user who leaves mid-load (Back, Home) isn't dragged on
+    // to My Offers ~2.6s later with an urgent interrupt for a screen they left.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const started = Date.now();
     // On success (offers returned) go straight to My Offers, which now shows the
     // results — the old "Review your offers" screen is only used for the
@@ -58,7 +62,8 @@ export default function Finding() {
       if (done) return;
       done = true;
       const wait = Math.max(0, 2600 - (Date.now() - started));
-      setTimeout(() => {
+      timer = setTimeout(() => {
+        if (cancelled) return;
         // Real offers is the one outcome on this screen worth Ruby cutting
         // herself off for — she may still be mid-"let me check that for
         // you" when this lands. The empty/error case isn't urgent the same
@@ -87,8 +92,12 @@ export default function Finding() {
           finish(false);
         });
     } else {
-      setTimeout(() => finish(false), 100); // demo path (no live application)
+      timer = setTimeout(() => finish(false), 100); // demo path (no live application)
     }
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

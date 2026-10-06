@@ -36,6 +36,15 @@ const DEPLOYED_API_BASE: Record<'dev' | 'prod', string> = {
   prod: 'https://api.swiftloan.ai/api',
 };
 
+/**
+ * Which Upshot app a build reports to: the Demo app for every build that is NOT
+ * pointed at the production backend, the Production app otherwise. A TestFlight/APK
+ * build pointed at api.swiftloan.ai therefore reports to Production automatically.
+ */
+export function isUpshotDemo(apiBase: string): boolean {
+  return apiBase !== DEPLOYED_API_BASE.prod;
+}
+
 export const BUILD = {
   // Flipped between builds (generic -> false, context -> true).
   CONTEXT_ENABLED: true,
@@ -44,6 +53,8 @@ export const BUILD = {
   // Deployed API (all app API calls + context resolve go here).
   API_BASE: DEV_API_BASE || DEPLOYED_API_BASE[API_ENV],
 };
+
+export const UPSHOT_DEMO = isUpshotDemo(BUILD.API_BASE);
 
 // Point the api-client + tracking at the same backend.
 //

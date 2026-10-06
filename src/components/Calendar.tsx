@@ -65,20 +65,21 @@ export function useDobVoiceTarget(dob: Dob | null, setDob: (v: Dob) => void, min
       getValue: () => (dob ? formatDob(dob.y, dob.m, dob.d) : ''),
       setValue: v => {
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
-        if (!match) return;
+        if (!match) return false;
         const [, yy, mm, dd] = match;
         const year = Number(yy);
         const month = Number(mm) - 1; // JS months are 0-based
         const day = Number(dd);
-        if (month < 0 || month > 11) return;
+        if (month < 0 || month > 11) return false;
         // Reject impossible dates (e.g. 31 Feb) rather than letting Date roll over.
-        if (day < 1 || day > new Date(year, month + 1, 0).getDate()) return;
+        if (day < 1 || day > new Date(year, month + 1, 0).getDate()) return false;
         // Same age gate the calendar grid enforces — a spoken "set date of
         // birth to 2015-01-01" bypasses the grid entirely otherwise, since
         // this hook writes straight to state.
         const c = maxDob(minAgeYears);
-        if (afterYm({ y: year, m: month }, c) || (year === c.y && month === c.m && day > c.d)) return;
+        if (afterYm({ y: year, m: month }, c) || (year === c.y && month === c.m && day > c.d)) return false;
         setDob({ y: year, m: month, d: day });
+        return true;
       },
     },
     [dob, setDob, minAgeYears],
