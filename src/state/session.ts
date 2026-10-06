@@ -63,13 +63,18 @@ export async function loadVoiceLang(): Promise<string | null> {
   return AsyncStorage.getItem(VOICE_LANG_KEY).catch(() => null);
 }
 
-/** Whether the user has accepted the Privacy Policy — shown once, at first launch. */
+/**
+ * Whether the user has accepted the CURRENT Privacy Policy version. The version they agreed to
+ * is stored, so when the policy changes (PRIVACY_POLICY_VERSION) the consent gate shows again
+ * once. Older installs stored the bare flag '1' (v1.0), which never matches a newer version,
+ * so they are asked again too.
+ */
 const PRIVACY_KEY = 'swiftloan.session.privacyAccepted';
-export async function savePrivacyAccepted(): Promise<void> {
-  await AsyncStorage.setItem(PRIVACY_KEY, '1').catch(() => {});
+export async function savePrivacyAccepted(version: string): Promise<void> {
+  await AsyncStorage.setItem(PRIVACY_KEY, version).catch(() => {});
 }
-export async function loadPrivacyAccepted(): Promise<boolean> {
-  return (await AsyncStorage.getItem(PRIVACY_KEY).catch(() => null)) === '1';
+export async function loadPrivacyAccepted(currentVersion: string): Promise<boolean> {
+  return (await AsyncStorage.getItem(PRIVACY_KEY).catch(() => null)) === currentVersion;
 }
 
 /** Which screen edge the voice FAB is docked to — the user drags it once and it stays there. */

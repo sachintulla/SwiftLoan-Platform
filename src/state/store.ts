@@ -19,6 +19,7 @@ import {
   loadIntroPitchHeard,
 } from './session';
 import { BUILD } from '../config/build';
+import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -656,7 +657,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (pitchHeard) dispatch({ type: 'set', patch: { introPitchHeard: true } });
 
       // Privacy consent gate — loaded before any routing decision.
-      const accepted = await loadPrivacyAccepted();
+      const accepted = await loadPrivacyAccepted(PRIVACY_POLICY_VERSION);
       if (accepted) dispatch({ type: 'set', patch: { privacyAccepted: true } });
 
       const tokens = await loadTokens();
