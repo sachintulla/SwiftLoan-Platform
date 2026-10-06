@@ -216,8 +216,12 @@ export default function Mobile() {
       <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
           <>
-            <Text style={styles.h1}>{t.mobileTitle}</Text>
-            <Text style={styles.sub}>{t.mobileSub}</Text>
+            {/* On-screen instructions ("enter your number…") are for the user's eyes: if the agent
+                sees them it reads them aloud instead of asking naturally. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.mobileTitle}</Text>
+              <Text style={styles.sub}>{t.mobileSub}</Text>
+            </VoiceHidden>
 
             <Text style={[font(600), styles.label]}>{t.mobileNumberLabel}</Text>
             <View style={styles.phoneRow}>
@@ -256,10 +260,14 @@ export default function Mobile() {
           </>
         ) : (
           <>
-            <Text style={styles.h1}>{t.otpTitle}</Text>
-            <Text style={styles.sub}>
-              {t.otpSub} <Text style={font(700)}>{masked}</Text>
-            </Text>
+            {/* Same here: "enter the 6-digit code…" is a UI instruction the agent must not parrot
+                (it was read out in Telugu on a live call). It asks for the OTP its own way. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.otpTitle}</Text>
+              <Text style={styles.sub}>
+                {t.otpSub} <Text style={font(700)}>{masked}</Text>
+              </Text>
+            </VoiceHidden>
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>

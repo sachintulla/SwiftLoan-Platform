@@ -342,6 +342,22 @@ export function listTargets(screen: string): Array<{ id: string } & ActionTarget
 // Lookup order, scoped to the given screen only (docs/USE_CASES.md notes some
 // labels repeat across screens, so cross-screen matching would be ambiguous):
 // exact id -> case-insensitive exact label -> substring either direction.
+/**
+ * The language cards are labelled in their own scripts (English / हिन्दी / తెలుగు), but users and
+ * the model say "Telugu" or "Hindi". Plain text matching could not connect them, so
+ * "select Telugu" came back not_found and the agent had to apologise on the language screen.
+ * Maps a spoken name (any case) to every spelling a label may use, both ways.
+ */
+const LANGUAGE_NAME_ALIASES: string[][] = [
+  ['english', 'inglish', 'इंग्लिश', 'अंग्रेज़ी', 'అంగ్లం', 'ఇంగ్లీష్'],
+  ['hindi', 'हिन्दी', 'हिंदी', 'హిందీ'],
+  ['telugu', 'తెలుగు', 'तेलुगु', 'तेलगू'],
+];
+function queryVariants(q: string): string[] {
+  const group = LANGUAGE_NAME_ALIASES.find(g => g.includes(q));
+  return group ? [q, ...group.filter(x => x !== q)] : [q];
+}
+
 export function findTarget(screen: string, query: string, kind?: TargetKind, group?: string): ActionTarget | null {
   const m = mergedTargets(screen);
   if (!m.size) return null;
@@ -365,13 +381,15 @@ export function findTarget(screen: string, query: string, kind?: TargetKind, gro
   // mislabelled action ("set_toggle" on a checkbox row) still resolves.
   const candidates = pool.length ? pool : labelled;
 
-  for (const t of candidates) if (t.label.toLowerCase() === q) return t;
-  for (const t of candidates) if (t.label.toLowerCase().startsWith(q)) return t;
-  for (const t of candidates) {
-    const label = t.label.toLowerCase();
-    // Require a couple of characters before allowing fuzzy containment, so short
-    // labels ("₹", "OK") can't swallow unrelated queries.
-    if (label.length >= 3 && q.length >= 3 && (label.includes(q) || q.includes(label))) return t;
+  for (const v of queryVariants(q)) {
+    for (const t of candidates) if (t.label.toLowerCase() === v) return t;
+    for (const t of candidates) if (t.label.toLowerCase().startsWith(v)) return t;
+    for (const t of candidates) {
+      const label = t.label.toLowerCase();
+      // Require a couple of characters before allowing fuzzy containment, so short
+      // labels ("₹", "OK") can't swallow unrelated queries.
+      if (label.length >= 3 && v.length >= 3 && (label.includes(v) || v.includes(label))) return t;
+    }
   }
   return null;
 }
