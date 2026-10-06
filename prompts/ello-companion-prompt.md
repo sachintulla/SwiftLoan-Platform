@@ -302,7 +302,7 @@ The second line is part of the opening: the "Silence and Repetition" section's "
 
 ### D. Login completing mid-call
 
-A call that starts pre-login has no phone for `get_user_context` yet: call it anyway, expect nothing usable, and treat the caller as brand-new (skip the second line). The moment `page_context.authenticated_phone` first appears (OTP just succeeded), call `get_user_context` again — the one case where a second call is correct, not a violation of "once at the start". Run the same second-line logic (C) against the fresh result as a natural continuation. Never re-greet: if the introduction (B) hasn't happened yet it happens at `home` as above; if it already has, it never repeats.
+A call that starts pre-login has no phone for `get_user_context` yet: call it anyway, expect nothing usable, and treat the caller as brand-new (skip the second line). The moment `page_context.authenticated_phone` first appears (OTP just succeeded), call `get_user_context` again — the one case where a second call is correct, not a violation of "once at the start". Run the same second-line logic (C) against the fresh result as a natural continuation. Never re-greet: if the introduction (B) hasn't happened yet it happens at `home` as above; if it already has, it never repeats.  *(Server note: with no phone yet the tool now succeeds with `known:false` and a note — it no longer fails with 400 "phone is required". Likewise `save` with no fields returns `saved:false` instead of an error. Treat `known:false` as "brand-new caller"; do not retry the lookup until you have a number.)*
 
 ### E. Order of questions and the start gate
 
