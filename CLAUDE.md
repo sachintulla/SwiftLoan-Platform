@@ -242,3 +242,18 @@ It runs on port 4001 and talks to server/ at http://localhost:4000.
 GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
 `cd server && npm run prisma:push && npm run seed:ws4 && npm start` →
 `cd admin && npm run dev` (http://localhost:4001, login admin@swiftloan.com / admin123).
+
+#### Support tickets (website Support page → admin dashboard → email)
+- Customer raises a ticket on the website's `/account/support` (or the app's `createTicket`) →
+  `POST /api/support/tickets` (`server/src/modules/support.routes.ts`): category + subject + message,
+  optional linked application, rate-limited (3 / 10 min, 10 / day). Public reference = `SL-T-00042`.
+- Notification email goes to `SUPPORT_NOTIFY_TO` via SMTP (`server/src/lib/mail.ts`, template in
+  `lib/supportTickets.ts`, unit-tested). Env: `SMTP_HOST/PORT/SECURE/USER/PASS`, `MAIL_FROM`,
+  `SUPPORT_NOTIFY_TO`, `ADMIN_DASHBOARD_URL`. Unset SMTP = ticket still saved, email skipped
+  (`emailError` recorded, shown in admin with a Resend button). Email is fire-and-forget.
+- Admin: `/support` page (`admin/src/app/(dash)/support`) backed by `/api/admin/support` —
+  filter, status, reply to customer (`adminNote`, shown on the customer's ticket), resend email.
+  Sidebar badge = open + in-progress count.
+- Schema change shipped as `prisma/migrations/20261006120000_support_ticket_workflow` (additive).
+  Note: `prisma migrate dev` can't build its shadow DB here (old `PreApprovedPlan` baseline
+  migration) — write the SQL by hand and apply with `prisma migrate deploy`.
