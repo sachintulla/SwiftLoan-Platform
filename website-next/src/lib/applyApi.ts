@@ -185,3 +185,41 @@ export async function verifyPan(pan: string) {
   const body = await authFetch('/api/kyc/pan/verify', { method: 'POST', body: JSON.stringify({ pan }) });
   return body.data as PanVerifyResult;
 }
+
+// ── Support tickets ──────────────────────────────────────────────────────────
+
+export type TicketCategory = 'repayments' | 'documents' | 'privacy' | 'disbursement' | 'fees' | 'application' | 'other';
+export type TicketStatus = 'open' | 'in_progress' | 'resolved';
+
+export interface SupportTicket {
+  id: string;
+  /** Public reference, e.g. SL-T-00042. */
+  ref: string;
+  type: 'query' | 'grievance';
+  category: TicketCategory;
+  subject: string;
+  body: string | null;
+  status: TicketStatus;
+  applicationId: string | null;
+  /** Reply from the support team, once they've added one. */
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
+export async function listTickets(): Promise<SupportTicket[]> {
+  const body = await authFetch('/api/support/tickets');
+  return body.tickets as SupportTicket[];
+}
+
+export async function createTicket(payload: {
+  type: 'query' | 'grievance';
+  category: TicketCategory;
+  subject: string;
+  body: string;
+  applicationId?: string;
+}): Promise<SupportTicket> {
+  const body = await authFetch('/api/support/tickets', { method: 'POST', body: JSON.stringify(payload) });
+  return body.ticket as SupportTicket;
+}

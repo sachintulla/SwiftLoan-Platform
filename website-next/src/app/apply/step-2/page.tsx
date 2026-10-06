@@ -8,6 +8,7 @@ import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives
 import { Slider } from '@/components/ui/slider';
 import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
+import { useAccountUser } from '@/hooks/useAccountUser';
 import { patchProfile, createApplication, fetchMe, getApplication, patchApplication, type PanPrefill } from '@/lib/applyApi';
 import { loadDraft, saveDraft } from '@/lib/applyDraft';
 import { loadPanHandoff, type PanHandoff } from '@/lib/panPrefill';
@@ -29,6 +30,7 @@ function unslug(options: string[], value: string | null | undefined): string | n
 
 export default function Step2BasicsPage() {
   const router = useRouter();
+  const accountUser = useAccountUser();
   const { phone, applicationId, setApplicationId } = useApply();
   // Plain SSR-safe defaults — matches what the server renders. localStorage
   // only exists on the client, so reading it here (or at module scope) would
@@ -254,7 +256,7 @@ export default function Step2BasicsPage() {
   };
 
   return (
-    <ApplyShell backHref="/apply/step-1" stepLabel="Step 2 of 3" progressPct={52}>
+    <ApplyShell backHref="/apply/step-1" stepLabel="Step 2 of 3" progressPct={52} accountUser={accountUser}>
       <Stepper step={2} />
       <h1 className="text-2xl font-extrabold">Tell us about your loan</h1>
       <p className="text-muted-foreground mt-2 mb-6 text-sm">

@@ -7,12 +7,14 @@ import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives';
 import { patchProfile } from '@/lib/applyApi';
 import { loadPanHandoff } from '@/lib/panPrefill';
+import { useAccountUser } from '@/hooks/useAccountUser';
 
 const MARITAL = ['Single', 'Married', 'Other'];
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
 
 export default function Step3MoreDetailsPage() {
   const router = useRouter();
+  const accountUser = useAccountUser();
   const [marital, setMarital] = useState(MARITAL[0]!);
   const [altMobile, setAltMobile] = useState('');
   const [altEmail, setAltEmail] = useState('');
@@ -55,7 +57,7 @@ export default function Step3MoreDetailsPage() {
   const skip = () => router.push('/apply/finding');
 
   return (
-    <ApplyShell backHref="/apply/step-2" stepLabel="Step 3 of 3" progressPct={74}>
+    <ApplyShell backHref="/apply/step-2" stepLabel="Step 3 of 3" progressPct={74} accountUser={accountUser}>
       <Stepper step={3} />
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-extrabold">A few more details</h1>
