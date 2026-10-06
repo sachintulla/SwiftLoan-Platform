@@ -82,6 +82,9 @@ jobs:
             --build-arg NEXT_PUBLIC_ELLO_ASSISTANT_ID="$WEBSITE_NEXT_PUBLIC_ELLO_ASSISTANT_ID" \
             --build-arg NEXT_PUBLIC_ELLO_API_BASE="$WEBSITE_NEXT_PUBLIC_ELLO_API_BASE" \
             --build-arg NEXT_PUBLIC_ELLO_WS_URL="$WEBSITE_NEXT_PUBLIC_ELLO_WS_URL" \
+            --build-arg NEXT_PUBLIC_UPSHOT_APP_ID="$WEBSITE_NEXT_PUBLIC_UPSHOT_APP_ID" \
+            --build-arg NEXT_PUBLIC_UPSHOT_OWNER_ID="$WEBSITE_NEXT_PUBLIC_UPSHOT_OWNER_ID" \
+            --build-arg NEXT_PUBLIC_UPSHOT_DATA_REGION="$WEBSITE_NEXT_PUBLIC_UPSHOT_DATA_REGION" \
             -t swiftloan-website .
           docker stop swiftloan-website || true
           docker rm swiftloan-website || true

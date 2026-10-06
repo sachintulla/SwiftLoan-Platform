@@ -11,7 +11,7 @@ import { loadVoiceFabSide, saveVoiceFabSide, markIntroPitchHeard } from '../../s
 import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { NUDGE_ROTATE_MS } from '../nudges';
+import { NUDGE_ROTATE_MS, snoozeNudges } from '../nudges';
 import { fetchUserContext } from '../../api/client';
 import type { AgentStatus } from '../types';
 
@@ -642,14 +642,19 @@ export default function VoiceWidget() {
       style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
     >
       {/* Proactive-help label — an informational speech bubble above the FAB.
-          Not tappable: it's just a hint, starting a call is the FAB's job. */}
+          The bubble body isn't tappable (starting a call is the FAB's job); only the
+          ✕ badge is, to dismiss the tip for this screen. */}
       {nudgeLabel && !active ? (
         <Animated.View
           style={[
-            styles.nudgeBubble,
+            styles.nudgeWrap,
+            // In the tab-bar notch the avatar is dead centre (and 1.4x bigger), so
+            // centre the bubble on it and lift it clear; floating in the corner it
+            // stays right-aligned over the avatar.
+            isTab && styles.nudgeWrapNotch,
             {
               opacity: bubbleIn,
-              transformOrigin: 'right bottom',
+              transformOrigin: isTab ? 'center bottom' : 'right bottom',
               transform: [
                 { translateY: bubbleIn.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
                 { scale: bubbleIn.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) },
@@ -657,19 +662,33 @@ export default function VoiceWidget() {
             },
           ]}
           accessibilityLabel={nudgeLabel}
-          pointerEvents="none"
+          pointerEvents="box-none"
         >
-          {/* Brand teal -> mint gradient (the same one as the active tab pill), white text. */}
-          <LinearGradient colors={[...navGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.nudgeFill}>
-            {/* Fixed two-line window that clips the sentence while it slides, so the
-                bubble keeps one stable size instead of jumping between tips. */}
-            <View style={styles.nudgeClip}>
-              <Animated.Text style={[styles.nudgeText, { opacity: textOpacity, transform: [{ translateY: textY }] }]}>
-                {nudgeLabel}
-              </Animated.Text>
+          <View style={styles.nudgeBubble} pointerEvents="none">
+            {/* Brand teal -> mint gradient (the same one as the active tab pill), white text. */}
+            <LinearGradient colors={[...navGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.nudgeGradient} pointerEvents="none" />
+            {/* Padding lives on a plain view: the native gradient ignores its own
+                padding, which left the gradient inset inside a solid teal shell. */}
+            <View style={styles.nudgeBody}>
+              {/* Fixed two-line window that clips the sentence while it slides, so the
+                  bubble keeps one stable size instead of jumping between tips. */}
+              <View style={styles.nudgeClip}>
+                <Animated.Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.nudgeText, { opacity: textOpacity, transform: [{ translateY: textY }] }]}>
+                  {nudgeLabel}
+                </Animated.Text>
+              </View>
             </View>
-          </LinearGradient>
-          <View style={styles.nudgeTail} />
+            <View style={[styles.nudgeTail, isTab && styles.nudgeTailNotch]} />
+          </View>
+          <Pressable
+            onPress={() => { snoozeNudges(); set({ voiceNudge: null }); }}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss tip"
+            style={styles.nudgeClose}
+          >
+            <Icon name="close" size={11} color="#fff" />
+          </Pressable>
         </Animated.View>
       ) : null}
       {/* Status pill only while floating and collapsed — once the panel opens
@@ -755,6 +774,8 @@ const TAB_NOTCH_CENTER = 65;
 // How far to raise the floating FAB on screens that pin a bottom CTA bar, so the
 // FAB clears the footer (button 54 + ~20 padding + a gap) and never overlaps it.
 const FOOTER_CTA_LIFT = 78;
+// Width of the proactive-help bubble.
+const NUDGE_W = 176;
 // iOS renders this FAB visibly larger than Android at the same point size.
 const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
 // The original notch avatar was ~70pt; scale the FAB up to that size when it's
@@ -796,23 +817,42 @@ const styles = StyleSheet.create({
   statusText: { ...font(600), fontSize: 11.5, color: '#fff' },
   // The bubble itself carries the shadow (and a solid fill so Android's elevation
   // shadow renders); the gradient sits inside it, clipped to the same radius.
-  nudgeBubble: {
-    width: 208, marginBottom: 12, marginRight: 4,
-    backgroundColor: colors.primary, borderRadius: 16,
-    shadowColor: colors.ink, shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 6,
+  // Right edge is flush with the Ruby circle (not the wider halo), and it sits just
+  // above it, so the bubble reads as attached to the button.
+  nudgeWrap: {
+    width: NUDGE_W, marginBottom: 2, marginRight: (HALO_SIZE - FAB_SIZE) / 2,
   },
-  nudgeFill: {
-    borderRadius: 16, paddingVertical: 9, paddingHorizontal: 13, overflow: 'hidden',
+  // Centred on the avatar: its centre is HALO_SIZE/2 from the wrapper's right edge,
+  // so shift the bubble's right edge by (HALO_SIZE - NUDGE_W)/2. The extra bottom
+  // margin clears the avatar's notch-size growth (NOTCH_SCALE).
+  nudgeWrapNotch: {
+    marginRight: (HALO_SIZE - NUDGE_W) / 2,
+    marginBottom: 2 + (FAB_SIZE * (NOTCH_SCALE - 1)) / 2,
+  },
+  nudgeBubble: {
+    backgroundColor: colors.primary, borderRadius: 14,
+    shadowColor: colors.ink, shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+  },
+  nudgeGradient: { ...StyleSheet.absoluteFill, borderRadius: 14, overflow: 'hidden' },
+  nudgeBody: {
+    borderRadius: 14, paddingVertical: 7, paddingLeft: 11, paddingRight: 28,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
   },
-  nudgeClip: { height: 34, justifyContent: 'center', overflow: 'hidden' },
-  nudgeText: { ...font(700), fontSize: 12.5, color: '#fff', lineHeight: 17 },
-  // Points at the Ruby button; the gradient ends in mint at the bottom-right.
+  nudgeClip: { height: 32, justifyContent: 'center', overflow: 'hidden' },
+  nudgeText: { ...font(700), fontSize: 11.5, color: '#fff', lineHeight: 15 },
+  // ✕ badge tucked into the bubble's top-right corner, fully inside its frame.
+  nudgeClose: {
+    position: 'absolute', top: 5, right: 5, width: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(10,63,65,0.28)',
+  },
+  // Points at the Ruby button's centre; the gradient ends in mint at the bottom-right.
   nudgeTail: {
-    position: 'absolute', right: 22, bottom: -6, width: 12, height: 12,
+    position: 'absolute', right: FAB_SIZE / 2 - 5, bottom: -5, width: 10, height: 10,
     backgroundColor: colors.mint, borderRadius: 2,
     transform: [{ rotate: '45deg' }],
   },
+  nudgeTailNotch: { right: NUDGE_W / 2 - 5 },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
   // The frosted "growing out of the FAB" panel. No native blur view is wired

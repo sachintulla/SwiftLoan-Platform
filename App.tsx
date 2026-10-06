@@ -12,7 +12,7 @@ import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
-import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, NUDGE_START_MS } from './src/voice/nudges';
+import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, NUDGE_START_MS, nudgeSnoozeRemaining, onNudgeWake } from './src/voice/nudges';
 import { trackEvent, api, isAuthed, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
 import { agent } from './src/voice';
@@ -68,6 +68,12 @@ function AppShell() {
   const screen = state.screen;
   const nudgeIdRef = useRef(0);
   const setRef = useRef(set); setRef.current = set;
+  // Tip language. On the language picker, until the user actually taps a language
+  // (selectedLang), the saved `lang` is just a leftover from a previous session, so
+  // the tip stays English (the default) instead of showing e.g. Telugu unprompted.
+  const tipLang = screen === 'language' && !state.selectedLang ? null : state.lang;
+  const langRef = useRef(tipLang); langRef.current = tipLang;
+  const nudgeRef = useRef(state.voiceNudge); nudgeRef.current = state.voiceNudge;
   // Admin on/off switch (from the backend); timing itself is hard-coded.
   const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
 
@@ -91,19 +97,37 @@ function AppShell() {
     setRef.current({ voiceNudge: null });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const fire = () => {
+      // The user closed the bubble recently: wait out the snooze (the wake
+      // listener below also fires this the moment it ends).
+      const snoozed = nudgeSnoozeRemaining();
+      if (snoozed > 0) { timer = setTimeout(fire, snoozed); return; }
       // Never show (or track) a tip during a live call; try again shortly so a
       // call that ends on this same screen still gets its tip.
       const status = agent.getStatus();
       if (status !== 'idle' && status !== 'ended') { timer = setTimeout(fire, 3000); return; }
-      const cfg = nudgeFor(screen, timersRef.current, isAuthed());
+      const cfg = nudgeFor(screen, timersRef.current, isAuthed(), langRef.current);
       if (!cfg) return;
       nudgeIdRef.current += 1;
       setRef.current({ voiceFabUnlocked: true, voiceNudge: { id: nudgeIdRef.current, labels: cfg.labels, reason: cfg.reason } });
       trackEvent('nudge', cfg.reason, screen, { label: cfg.labels[0] });
     };
     timer = setTimeout(fire, NUDGE_START_MS);
-    return () => { if (timer) clearTimeout(timer); };
+    const offWake = onNudgeWake(() => { if (timer) clearTimeout(timer); fire(); });
+    return () => { if (timer) clearTimeout(timer); offWake(); };
   }, [screen]);
+
+  // The user switched language (e.g. on the language picker) while a tip is up:
+  // re-word the visible bubble in the new language. Same id/reason, so the bubble
+  // swaps its text in place instead of popping up again or logging a new event.
+  useEffect(() => {
+    const cur = nudgeRef.current;
+    if (!cur) return;
+    const cfg = nudgeFor(screen, timersRef.current, isAuthed(), tipLang);
+    if (cfg && cfg.reason === cur.reason && cfg.labels[0] !== cur.labels[0]) {
+      setRef.current({ voiceNudge: { ...cur, labels: cfg.labels } });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipLang]);
 
   return (
     <View style={{ flex: 1 }}>
