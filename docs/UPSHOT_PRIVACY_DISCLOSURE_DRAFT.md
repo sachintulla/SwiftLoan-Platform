@@ -9,7 +9,7 @@
 
 ## Why this is needed
 
-The app and website send usage events and a limited profile to **Upshot (Brandmobile / goupshot.com)**,
+The app and website send usage events and a limited profile to **Upshot (upshot.ai; its SDK is named BrandKinesis; console at goupshot.com)**,
 a third-party engagement platform. Under the DPDP Act 2023 and the RBI Digital Lending Guidelines,
 sharing with a processor for a new purpose should be disclosed in the privacy notice and covered by
 the user's consent, with a way to withdraw it.
