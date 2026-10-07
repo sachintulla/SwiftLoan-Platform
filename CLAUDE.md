@@ -257,3 +257,40 @@ GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
 - Schema change shipped as `prisma/migrations/20261006120000_support_ticket_workflow` (additive).
   Note: `prisma migrate dev` can't build its shadow DB here (old `PreApprovedPlan` baseline
   migration) — write the SQL by hand and apply with `prisma migrate deploy`.
+
+---
+
+## UI sound effects + agent action choreography (`src/feedback/`)
+
+**Sound policy (global keys in `src/config/sounds.ts`):**
+- `UI_SOUNDS_ENABLED` (master): `false` = no sound anywhere (the agent's visual effects still run).
+- `UI_SOUNDS_MANUAL_TEST_MODE`: shipped as `false` — the USER'S own taps, typing, sliders, scrolling
+  and menu-bar taps are ALL silent; sound plays only while the voice agent works the screen (scroll
+  roll, key ticks, soft-pop taps/select/toggle, slider detents, the error cue, nav). The agent's
+  focus ring and successful fills are deliberately SILENT — the click that follows is the only sound.
+  `true` = test mode: manual interaction also plays the full set so it can be tried by hand. Don't
+  add `playSound` calls to user-driven handlers — use `playManualSound` (silent unless test mode).
+  `setSoundsEnabled()` / `setManualSoundsEnabled()` override at runtime (tests).
+
+- `sounds.ts` — `playSound(name)` / `playTypingTick()`; clips are synthesised by
+  `scripts/gen-sounds.js` into `soundData.ts` (base64 WAV; re-run the script to retune) and loaded
+  once into the native **`UiSound`** module (`android/.../uisound/UiSoundModule.kt` SoundPool;
+  `ios/SwiftLoan/UiSound/UiSoundModule.swift` System Sounds, exposed to JS as `UiSound` via
+  `RCT_EXTERN_REMAP_MODULE`). Nothing to link; no-op if the module is missing (Jest / stale build).
+- `boot.ts` (first import in `index.js`) swaps react-native's `Pressable` for one that registers
+  each labelled button with the agent (`installPressableFx.ts`) — covers the 116+ raw Pressables with
+  no screen edits. It is silent; it only enables scroll-into-view and the agent's ring/ripple.
+- `agentFx.ts` — what `perform_ui_action` / `navigate` (tools.ts) do around every agent action:
+  `revealTarget` scrolls the control into view (via the scroller `<Screen>` registers and the
+  per-control refs from `useAgentFx`; controls flagged `fixed`, i.e. the tab bar, are never scrolled
+  to), `agentApproach` lights it (ring, no sound), `typeText` types character-by-character with
+  key ticks (always writes through a FRESH target — the registered handler goes stale per render),
+  `slideTo` walks sliders, `agentPress` dips + clicks, `agentSettle` ends silently (only a refused entry plays the error cue). Typing has a
+  ~1.5 s budget and batches characters when a step is slow (each keystroke re-renders the whole
+  screen: 26 chars took 8.7 s on the Redmi dev build before, 1.9 s after). `perform_ui_action`
+  calls run one at a time (queued) so they can't interleave. All pacing is skipped under Jest
+  (`configureFx({instant})`); visual animations are also off under Jest (`animate`) because
+  Animated's 0 ms rAF shim spins on a faked clock.
+- Controls (`Controls.tsx`) each call `useAgentFx(label, group)` and render `<AgentRing/>`.
+- Mic caveat: UI sounds play on the sonification stream at low volume; the agent's mic is open
+  during a call, so keep new sounds short/quiet or they can be transcribed as stray user turns.
