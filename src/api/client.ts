@@ -489,6 +489,7 @@ export const api = {
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
+  deleteAvatar: () => request('DELETE', '/users/me/avatar'),
 
   // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
   // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.

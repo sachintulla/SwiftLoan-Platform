@@ -107,7 +107,7 @@ function iconLabel(node: any, depth = 0): string {
   return iconLabel(props.children, depth + 1);
 }
 
-function firstLabel(node: any): { label: string; all: string[] } {
+export function firstLabel(node: any): { label: string; all: string[] } {
   const texts: string[] = [];
   collectText(node, texts);
   const label = texts[0] || iconLabel((node as any)?.props?.children);

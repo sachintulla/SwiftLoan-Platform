@@ -5,7 +5,6 @@
 //
 // The app talks to the DEPLOYED backend so the installed APK works on a real
 // phone (localhost is unreachable there). Tracking already uses the same host.
-
 /**
  * Local-development override. Set back to '' to fall back to the deployed
  * dev API below.
@@ -18,6 +17,9 @@
  * Left empty so a standalone build talks to the real deployed dev API and
  * needs no cable/network match at all.
  */
+// Empty = use the DEPLOYED dev API (dev-api.swiftloan.ai) on every platform, so the app, Ello's
+// tools and the data all share the one dev database. To use a local server instead, set
+// 'http://localhost:4000/api' (Android, with `adb reverse tcp:4000 tcp:4000`) — and never commit it.
 const DEV_API_BASE = '';
 
 /**
@@ -29,7 +31,7 @@ const DEV_API_BASE = '';
  * applications submitted from a build pointed here trigger real Aurix/KFT
  * bureau pulls against real production data, not mock offers.
  */
-const API_ENV: 'dev' | 'prod' = 'prod';
+const API_ENV: 'dev' | 'prod' = 'dev';
 
 const DEPLOYED_API_BASE: Record<'dev' | 'prod', string> = {
   dev: 'https://dev-api.swiftloan.ai/api',

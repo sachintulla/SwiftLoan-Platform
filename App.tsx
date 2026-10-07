@@ -16,6 +16,7 @@ import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, NUDGE_START_MS, nudgeSnoozeRemai
 import { trackEvent, api, isAuthed, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
 import { agent } from './src/voice';
+import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 
 const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
   enabled: d.nudgeEnabled,
@@ -145,6 +146,24 @@ function AppShell() {
 }
 
 export default function App() {
+  // Dev builds keep the screen on while the app is in front, so a long on-device test session
+  // (agent calls, logcat watching) isn't interrupted by the screen timeout. Release builds never do.
+  useEffect(() => {
+    if (!__DEV__) return undefined;
+    try {
+      activateKeepAwake();
+    } catch {
+      // best-effort
+    }
+    return () => {
+      try {
+        deactivateKeepAwake();
+      } catch {
+        // best-effort
+      }
+    };
+  }, []);
+
   return (
     <SafeAreaProvider>
       <StoreProvider>
