@@ -2,6 +2,7 @@
 // new line plays immediately (Ello sends audio faster than it plays, so old audio can still be
 // queued when the next line arrives).
 import { agent } from '../src/voice';
+import { setCurrentScreen } from '../src/voice/actionRegistry';
 
 const chunk = () => (agent as any).handleMessage({ type: 'voice-audio-output', audio: 'AAAA', format: 'pcm_16000' });
 const agentText = () =>
@@ -92,5 +93,30 @@ describe('agent audio: a new line cuts the old one', () => {
     (agent as any).handleMessage({ type: 'conversation-text', data: { text: 'There is no speech limit.', source: 'agent', is_interim: false } });
     (agent as any).handleMessage({ type: 'conversation-text', data: { text: '(No speech)', source: 'user', is_interim: false } });
     expect(purge).not.toHaveBeenCalled();
+  });
+});
+
+describe('already_introduced', () => {
+  beforeEach(() => { (agent as any).signedInLineSpoken = false; });
+  const say = (text: string, source = 'agent') =>
+    (agent as any).handleMessage({ type: 'conversation-text', data: { text, source, is_interim: false } });
+
+  it('is false for lines spoken during sign-in, true once a line is spoken on a signed-in screen', () => {
+    setCurrentScreen('language');
+    say('Which language would you like to continue in?');
+    setCurrentScreen('otp');
+    say('What is the OTP?');
+    expect(agent.hasIntroducedThisCall()).toBe(false);
+    setCurrentScreen('home');
+    say('Hi Charan, I am Ruby from SwiftLoan.');
+    expect(agent.hasIntroducedThisCall()).toBe(true);
+  });
+
+  it('is not set by a silent-turn marker, an empty line, or the user\'s own words', () => {
+    setCurrentScreen('home');
+    say('(No speech)');
+    say('   ');
+    say('hello', 'user');
+    expect(agent.hasIntroducedThisCall()).toBe(false);
   });
 });

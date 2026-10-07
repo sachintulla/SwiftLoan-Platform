@@ -23,6 +23,7 @@ import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
+import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
 // The full list of screens, mirroring the design's state machine. Kept as a
@@ -392,6 +393,8 @@ export function parentScreen(s: Screen): Screen {
 
 // First name Ruby has used on the CURRENT call (see user_name in page_context).
 let stickyCallName = '';
+// Last agent_language sent in page_context — only to log when it CHANGES (see vlogAlways).
+let lastSentAgentLanguage = '';
 
 // One-shot RESULT keys in apiContext that screens write immediately before
 // navigating away (handoff -> disbursed, offers -> status/handoff/lenderweb,
@@ -818,13 +821,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // screen text. The persistence effect below (AsyncStorage +
       // api.setVoiceLanguage) picks it up, and agent_language (page_context)
       // prefers it over `lang` on the very next turn — and on every future call.
-      setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
+      setLanguage: (lang: string) => {
+        vlogAlways('lang: set_language tool ->', lang, '(was voiceLang=' + String(stateRef.current.voiceLang) + ', ui lang=' + String(stateRef.current.lang) + ')');
+        dispatch({ type: 'set', patch: { voiceLang: lang } });
+      },
       // The app's own UI-copy language (`lang`), settable directly from any
       // screen instead of requiring a navigate-to-language/profile-then-tap
       // detour — the persistence effect below (AsyncStorage + api.setLanguage
       // when signed in) picks this up exactly the same way a real tap on
       // either screen's language card already does.
-      setAppLanguage: (lang: string) => dispatch({ type: 'set', patch: { lang } }),
+      setAppLanguage: (lang: string) => {
+        vlogAlways('lang: set_app_language tool ->', lang, '(was ui lang=' + String(stateRef.current.lang) + ', voiceLang=' + String(stateRef.current.voiceLang) + ')');
+        dispatch({ type: 'set', patch: { lang } });
+      },
       // Merges (never replaces) into whatever's already saved — the model
       // calls this incrementally as details come up across a conversation.
       // Persisted immediately so it survives the call ending, not just this
@@ -877,6 +886,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       },
     });
+    if (__DEV__) {
+      // Dev builds only: lets a QA session on the Metro inspector read the live app state.
+      const dbg = (globalThis as { __ello?: Record<string, unknown> }).__ello;
+      if (dbg) dbg.getState = () => stateRef.current;
+    }
     agent.registerPageContext(() => {
       // The authoritative logged-in name — so the agent addresses the user
       // correctly instead of picking a lead name out of `userContext` or
@@ -918,7 +932,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // screen could get read as a change to how the agent talks, or vice
       // versa, depending on which one a given prompt happened to key off.
       preferred_language: LANGUAGE_NAMES[s.lang ?? 'en'] ?? 'English',
-      agent_language: LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English',
+      agent_language: (() => {
+        const al = LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English';
+        if (al !== lastSentAgentLanguage) {
+          vlogAlways('lang: agent_language', lastSentAgentLanguage || '(first)', '->', al, '| voiceLang=' + String(s.voiceLang), 'ui lang=' + String(s.lang), 'screen=' + s.screen);
+          lastSentAgentLanguage = al;
+        }
+        return al;
+      })(),
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
@@ -935,6 +956,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // exists. Always sent (never omitted), even `false` — the Opening Call
       // Protocol's first-time pitch is conditioned on this being false.
       heard_intro_pitch: stateRef.current.introPitchHeard,
+      // Set once the agent has introduced itself on this call, so returning to Home is not a new opening.
+      already_introduced: agent.hasIntroducedThisCall() || undefined,
       // The offers the user just received (or the problem) so the agent can speak
       // about them proactively on the offers screen.
       // Only meaningful while on the offers surfaces; they were never cleared, so
@@ -1175,6 +1198,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const value: Ctx = { state, set, mergeApiContext, markUrgentContext, refreshUserContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
+}
+
+/** Like useStore, but null outside a StoreProvider — for shared building blocks that may render bare (tests, previews). */
+export function useOptionalStore(): Ctx | null {
+  return useContext(StoreContext);
 }
 
 export function useStore(): Ctx {

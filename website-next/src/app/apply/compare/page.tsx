@@ -412,6 +412,7 @@ function FilterPanel({
         {emiRange && (
           <Section title="Monthly EMI budget" right={filters.maxEmi != null ? `Up to ${fmtINR(filters.maxEmi)}` : 'Any'}>
             <Slider
+              aria-label="Monthly EMI budget"
               min={emiRange.lo}
               max={emiRange.hi}
               step={500}

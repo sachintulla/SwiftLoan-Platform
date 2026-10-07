@@ -232,6 +232,16 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
     if (BuildConfig.DEBUG) Log.d("VoiceJS", msg)
   }
 
+  /**
+   * Always-on (release too) diagnostics channel for SHORT, NON-PERSONAL lines only — language codes
+   * and state transitions, never transcripts, names, numbers or payloads (those stay behind
+   * nativeLog's debug gate above). Read with:  adb logcat -s SwiftLoanDiag
+   */
+  @ReactMethod
+  fun diagLog(msg: String) {
+    Log.i("SwiftLoanDiag", msg)
+  }
+
   // Required by RN's NativeEventEmitter (JS side wraps this module in one) even
   // though actual emission goes straight through RCTDeviceEventEmitter below —
   // without these no-ops, NativeEventEmitter logs an "addListener" warning.

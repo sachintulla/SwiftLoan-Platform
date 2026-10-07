@@ -161,6 +161,7 @@ function ToggleRow({ label, sub, on, onToggle, last }: { label: string; sub: str
         onClick={onToggle}
         role="switch"
         aria-checked={on}
+        aria-label={label}
         className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full p-0 transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}
       >
         {/* `left-0.5` is explicit (not left implicit/auto) so the knob's rest

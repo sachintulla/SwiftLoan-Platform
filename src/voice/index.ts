@@ -41,3 +41,12 @@ export function ensureToolsRegistered(actions: VoiceActions): void {
 export { ELLO_CONFIGURED };
 export * from './types';
 export * from './actionRegistry';
+
+// Dev builds only: a handle so a QA session on the Metro inspector can run the agent's own tools
+// (fill a field, tap a chip, scroll…) without a live voice call. Compiled out of release builds.
+if (__DEV__) {
+  (globalThis as { __ello?: unknown }).__ello = {
+    callTool: (name: string, args: Record<string, unknown>) =>
+      (agent as unknown as { registry: { get: (n: string) => { handler: (a: unknown) => unknown } } }).registry.get(name).handler(args),
+  };
+}

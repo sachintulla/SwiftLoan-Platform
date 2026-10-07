@@ -31,6 +31,8 @@ export interface ActionTarget {
   max?: number;
   step?: number;
   onTap?: () => void;
+  /** Floats over the page (the tab bar): never scroll the page to bring it into view. */
+  fixed?: boolean;
   /**
    * This screen's main forward action (Continue/Next/Get Started/Send OTP/...).
    * Set by the shared PrimaryButton component so `continue_next` (tools.ts) can
@@ -403,10 +405,24 @@ export function findTarget(screen: string, query: string, kind?: TargetKind, gro
   return null;
 }
 
+/**
+ * Extra facts a screen publishes for the agent about ITS OWN state that the control list can't
+ * express — today, the mandatory fields still empty on `basic`. Cleared when the screen unmounts.
+ */
+const screenHints = new Map<string, Record<string, unknown>>();
+export function setScreenHint(screen: string, hint: Record<string, unknown> | null): void {
+  if (hint) screenHints.set(screen, hint);
+  else screenHints.delete(screen);
+}
+export function getScreenHint(screen: string): Record<string, unknown> {
+  return screenHints.get(screen) ?? {};
+}
+
 export function buildPageContext(screen: string): Record<string, unknown> {
   const targets = listTargets(screen);
   const info = SCREEN_INFO[screen];
   return {
+    ...getScreenHint(screen),
     page: screen,
     // Plain-language name + purpose, so the agent can tell the user where they are
     // (and never has to speak the internal id above). Omitted for unknown screens.

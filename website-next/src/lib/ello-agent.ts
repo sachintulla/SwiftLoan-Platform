@@ -92,6 +92,11 @@ export interface ElloAgentOptions {
   sessionUrl?: string;
   /** Which agent role to start. */
   role?: 'websiteCompanion' | 'companion' | 'adminNavigator';
+  /**
+   * Awaited (up to 2.5s) after the mic is granted and before the session is
+   * brokered, so page context built at connect time is already complete.
+   */
+  prepare?: () => Promise<void>;
   debug?: boolean;
 }
 
@@ -232,6 +237,11 @@ export class ElloAgent {
       await this.ensureAudioContext();
     } catch {
       /* ignore */
+    }
+    try {
+      await Promise.race([this.opts.prepare?.() ?? Promise.resolve(), new Promise<void>((r) => setTimeout(r, 2500))]);
+    } catch {
+      /* context is best-effort; the call must not fail on it */
     }
     try {
       // Session is started through OUR server, not Ello directly.
@@ -834,7 +844,10 @@ function floatTo16BitPCM(input: Float32Array): Int16Array {
   return out;
 }
 
-const SENSITIVE_RE = /password|otp|cvv|cvc|ssn|pin/i;
+// `pan|aadhaar` and the OTP digit boxes ("Digit 2 of 6") were not covered: those
+// boxes carry only an aria-label and autocomplete="off" (only box 1 is
+// one-time-code), and the PAN box is identified by its placeholder.
+const SENSITIVE_RE = /password|otp|cvv|cvc|ssn|pin|\bpan\b|aadhaar|aadhar|digit \d of \d|^ABCDE1234F$/i;
 const SENSITIVE_AUTOCOMPLETE = new Set(['one-time-code', 'cc-csc', 'current-password', 'new-password']);
 
 export function isSensitiveInput(el: Element): boolean {

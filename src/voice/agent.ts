@@ -56,6 +56,9 @@ const URGENT_COALESCE_MS = 120;
 /** A pause this long between audio chunks, after the previous line's text arrived, starts a new line. */
 const NEW_UTTERANCE_GAP_MS = 300;
 
+/** Screens before the dashboard: lines spoken here are the sign-in flow, not the introduction. */
+const ONBOARDING_SCREENS = new Set(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou']);
+
 /** Placeholder text for a silent agent turn, e.g. "(No speech)" or "<no speech>{pause}". */
 const NO_SPEECH_MARKER = /^[\s(<[{]*no[\s_-]*speech\b|\{\s*pause\s*\}/i;
 
@@ -112,6 +115,10 @@ export class ElloAgent {
   // text for a line arrives once that line is complete, so "text received + a real pause since
   // the last audio chunk" marks the start of a new line: drop the old line's unplayed rest.
   private lastAudioChunkAt = 0;
+  // True once the agent has spoken a line on a signed-in screen this call — i.e. it has already
+  // introduced itself. Sent to the agent as `already_introduced` so that coming back to Home from
+  // another screen is not treated as a fresh opening ("Hi, I'm Ruby…" again).
+  private signedInLineSpoken = false;
   private agentTextSinceAudio = false;
   // Fallback so the FAB never gets stuck on "speaking": if audio chunks stop
   // arriving and no 'voice-audio-stream-end' follows (server timing, or the
@@ -351,6 +358,11 @@ export class ElloAgent {
     this.muted = muted;
   }
 
+  /** Has the agent already spoken (introduced itself) on a signed-in screen during this call? */
+  hasIntroducedThisCall(): boolean {
+    return this.signedInLineSpoken;
+  }
+
   getStatus(): AgentStatus {
     return this.status;
   }
@@ -375,6 +387,7 @@ export class ElloAgent {
     this.audioOutCount = 0;
     this.lastAudioChunkAt = 0;
     this.agentTextSinceAudio = false;
+    this.signedInLineSpoken = false;
     this.lastSentPerScreen.clear();
     this.lastSentPage = null;
     this.toolsSentThisSession = false;
@@ -597,6 +610,13 @@ export class ElloAgent {
         break;
       case 'conversation-text':
         if (msg.data?.source === 'agent' && !msg.data?.is_interim) this.agentTextSinceAudio = true;
+        if (
+          msg.data?.source === 'agent' && !msg.data?.is_interim &&
+          String(msg.data?.text ?? '').trim() && !NO_SPEECH_MARKER.test(String(msg.data?.text ?? '')) &&
+          !ONBOARDING_SCREENS.has(getCurrentScreen())
+        ) {
+          this.signedInLineSpoken = true;
+        }
         // Ello logs a turn the model chose to stay silent as "(No speech)" / "<no speech>{pause}", and
         // the model has been heard SAYING those words aloud. The text arrives just after the audio,
         // so drop whatever of that audio is still queued rather than let it play out.

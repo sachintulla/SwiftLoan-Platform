@@ -8,6 +8,8 @@ import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
+import { missingBasicRequired } from '../utils/basicRequired';
 import {
   NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
   PINCODE_RE, sanitizeNameInput, cleanName,
@@ -163,6 +165,26 @@ export default function Basic() {
     if (Object.keys(patch).length || m) setFromPan(true);
     set({ ...patch, panPrefill: { ...hand, applied: true } });
   }
+
+  // Tell the voice agent EVERY mandatory field still empty, up front. Without this it only learned
+  // about them one at a time, from Continue's error toast — asked, pressed Continue, hit the next
+  // error, asked again. An empty list means Continue will go through.
+  const missingRequired = missingBasicRequired(
+    {
+      first: state.basicFirst, last: state.basicLast, dobSet: !!dob, gender: state.aboutGender,
+      email: state.basicEmail, loanPurpose: state.basicLoanPurpose, qualification: state.basicQualification,
+      residence: state.basicRes, employment: state.basicEmp, salaryMode: state.optSalaryMode,
+      addr1: state.optAddr1, city: state.optCity, state: state.optState, pin: state.basicPin, income: state.basicIncome,
+    },
+    { pincodeRe: PINCODE_RE, incomeMin: MONTHLY_INCOME_MIN },
+  );
+  const missingKey = missingRequired.join('|');
+  useEffect(() => {
+    setScreenHint('basic', { missing_required_fields: missingRequired });
+    requestContextRefresh();
+    return () => setScreenHint('basic', null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingKey]);
 
   const onContinue = async () => {
     // Already saving: a second tap (or a voice retry) must not create a second application.

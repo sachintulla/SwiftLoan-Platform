@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
 import { colors, font, navGradient } from '../../theme/tokens';
@@ -149,8 +149,8 @@ function RobotHead() {
 /**
  * In-call "liquid ring" — translucent teal/mint ribbons (app theme) that wave around the avatar,
  * each a closed loop whose radius ripples with its own wave count, speed and
- * phase, so they cross and weave like a living ring, over a thin dark core
- * line and a soft glow. Only rendered while a call is live; the idle avatar is
+ * phase, so they cross and weave like a living ring, over a soft green glow
+ * (green only — there is deliberately no dark/black line in the ring). Only rendered while a call is live; the idle avatar is
  * still and the animation loop is fully stopped.
  *
  * State-driven (this client has no PCM level access):
@@ -237,13 +237,6 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
     <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show, transform: [{ scale }] }]}>
       <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: beat }] }]} />
       <Svg width={S} height={S}>
-        <Defs>
-          <SvgGradient id="core" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={colors.inkDeep} stopOpacity="0.95" />
-            <Stop offset="0.5" stopColor={colors.ink} stopOpacity="0.9" />
-            <Stop offset="1" stopColor={colors.primary} stopOpacity="0.95" />
-          </SvgGradient>
-        </Defs>
         {RIBBONS.map((rb, idx) => (
           <Path
             key={idx}
@@ -255,13 +248,6 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
             fill="none"
           />
         ))}
-        <Path
-          d={wavyPath(c, c, R * beat, m.amp * 0.55, 5, t * m.tempo * 0.9 + 0.7, t * m.spin * 0.5)}
-          stroke="url(#core)"
-          strokeWidth={1.6}
-          strokeLinejoin="round"
-          fill="none"
-        />
       </Svg>
     </Animated.View>
   );
