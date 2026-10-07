@@ -269,14 +269,14 @@ export default function Step2BasicsPage() {
           <SectionHead icon={Wallet} label="Loan amount" />
           <div className="bg-accent rounded-2xl p-5">
             <div className="text-primary text-3xl font-extrabold">{fmtINR(amount)}</div>
-            <Slider className="mt-4" min={25000} max={1500000} step={25000} value={[amount]} onValueChange={([v]) => v != null && setAmount(v)} />
+            <Slider className="mt-4" aria-label="Loan amount" min={25000} max={1500000} step={25000} value={[amount]} onValueChange={([v]) => v != null && setAmount(v)} />
             <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
               <span>{fmtINR(25000)}</span>
               <span>{fmtINR(1500000)}</span>
             </div>
           </div>
           <p className="text-foreground mt-5 mb-3 text-sm font-semibold">What&apos;s this loan for?</p>
-          <ChipGroup options={PURPOSES} value={purpose} onChange={setPurpose} />
+          <ChipGroup label="What's this loan for?" options={PURPOSES} value={purpose} onChange={setPurpose} />
         </Card>
 
         <Card className="sm:p-7">
