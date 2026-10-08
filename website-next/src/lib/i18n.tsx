@@ -1,6 +1,7 @@
 'use client';
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -31,8 +32,31 @@ const LanguageContext = createContext<LanguageContextValue>({
   setLang: () => {},
 });
 
+const STORAGE_KEY = "sl_lang";
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLangState] = useState<Lang>("en");
+
+  /** Every way of changing language (both menus, the voice assistant) goes through here, so it is remembered. */
+  const setLang = useCallback((next: Lang) => {
+    setLangState(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* storage blocked — the choice still holds for this page view */
+    }
+  }, []);
+
+  // Restore the last choice after hydration (not in the initial state, which must match the server render).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      const match = LANGS.find((l) => l === saved);
+      if (match) setLangState(match);
+    } catch {
+      /* storage blocked */
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -61,9 +85,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return () => {
       delete (window as unknown as { __swiftloanLang?: SwiftLoanLangApi }).__swiftloanLang;
     };
-  }, [lang]);
+  }, [lang, setLang]);
 
-  const value = useMemo(() => ({ lang, setLang }), [lang]);
+  const value = useMemo(() => ({ lang, setLang }), [lang, setLang]);
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }

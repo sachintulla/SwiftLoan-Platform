@@ -35,8 +35,10 @@ export interface ScreenControl {
   enabled: boolean;
   /** Text fields: already has content (sensitive fields show only this). */
   filled?: boolean;
-  /** The visitor must type this themselves — voice tools refuse it. */
+  /** Voice tools refuse to fill this (PAN, passwords); the visitor types it. */
   sensitive?: boolean;
+  /** Not a free-text field: fill it with this dedicated tool instead (the OTP boxes → enter_otp). */
+  via?: string;
   required?: boolean;
   min?: number;
   max?: number;
@@ -62,7 +64,8 @@ export function norm(s: string | null | undefined): string {
   return (s ?? '')
     .toLowerCase()
     .replace(/[*:]/g, ' ')
-    .replace(/[^\p{L}\p{N}₹%&+ ]/gu, ' ')
+    // \p{M} keeps Devanagari and Telugu vowel signs: without it "हिन्दी" falls apart into fragments.
+    .replace(/[^\p{L}\p{M}\p{N}₹%&+ ]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -179,7 +182,34 @@ export function groupOf(el: Element): string | undefined {
   return undefined;
 }
 
+/** The sign-in code: six digit boxes on /apply/verify, one input in the home popup. */
+export function isOtpInput(el: Element): boolean {
+  if (!(el instanceof HTMLInputElement)) return false;
+  // `data-voice-otp` is the language-proof marker (the aria-label below is translated on Hindi/Telugu pages).
+  if (el.dataset.voiceOtp === 'true') return true;
+  return el.autocomplete === 'one-time-code' || /^digit \d of \d$/i.test(el.getAttribute('aria-label') ?? '');
+}
+
+/** The first visible OTP input — on the six-box page, the box that spreads a whole pasted code. */
+export function findOtpField(): HTMLInputElement | null {
+  const boxes = Array.from(document.querySelectorAll<HTMLInputElement>('input')).filter((i) => isOtpInput(i) && isVisible(i));
+  return boxes[0] ?? null;
+}
+
+/**
+ * The `data-voice-gate` marker of a button (or an ancestor): what the control commits the visitor
+ * to, independent of the page language ("logout", "apply-offer", "confirm-loan", "verify-pan",
+ * "submit-ticket", "skip-step"). Matching English button text would silently stop gating the moment
+ * a page is shown in Hindi or Telugu.
+ */
+export function gateOf(el: Element): string | null {
+  return el.closest<HTMLElement>('[data-voice-gate]')?.dataset.voiceGate ?? null;
+}
+
 export function isSensitive(el: Element): boolean {
+  if ((el as HTMLElement).dataset?.voiceSensitive) return true;
+  // The sign-in code is entered through its own tool, not filled as a field; for
+  // fill_field it stays off-limits so there is exactly one audited path.
   const attrs = [
     el.getAttribute('name'),
     el.getAttribute('id'),
@@ -206,6 +236,19 @@ function sliderNumbers(el: Element) {
   return { value: n('aria-valuenow'), min: n('aria-valuemin'), max: n('aria-valuemax') };
 }
 
+/**
+ * Is this field mandatory? Either the native `required` attribute, or the red asterisk the form's
+ * label carries (`<Field required>` renders it; the inputs themselves have no `required`, which is
+ * why the assistant could not tell a mandatory surname from an optional landmark).
+ */
+export function isRequired(el: Element): boolean {
+  if ((el as HTMLInputElement).required) return true;
+  const wrap = el.closest('label');
+  if (!wrap) return false;
+  const star = wrap.querySelector(':scope > span .text-danger, :scope > span > .text-danger');
+  return !!star && (star.textContent ?? '').includes('*');
+}
+
 /** What a control looks like to the agent. */
 export function describeControl(el: Element): ScreenControl | null {
   const role = el.getAttribute('role');
@@ -215,7 +258,19 @@ export function describeControl(el: Element): ScreenControl | null {
   if (el instanceof HTMLInputElement) {
     if (el.type === 'hidden' || el.type === 'file' || el.type === 'submit') return null;
     if (el.type === 'checkbox') {
-      return { kind: 'checkbox', label, value: el.checked, enabled: !el.disabled, required: el.required };
+      return { kind: 'checkbox', label, value: el.checked, enabled: !el.disabled, required: isRequired(el) || undefined };
+    }
+    if (isOtpInput(el)) {
+      // Six boxes are one control to the agent: "Verification code", filled when all are.
+      const boxes = Array.from(document.querySelectorAll<HTMLInputElement>('input')).filter((i) => isOtpInput(i) && isVisible(i));
+      return {
+        kind: 'text',
+        label: 'Verification code',
+        enabled: !el.disabled,
+        filled: boxes.length > 0 && boxes.every((b) => b.value.length > 0),
+        via: 'enter_otp',
+        required: true,
+      };
     }
     const sensitive = isSensitive(el);
     return {
@@ -224,12 +279,12 @@ export function describeControl(el: Element): ScreenControl | null {
       enabled: !el.disabled,
       filled: el.value.length > 0,
       sensitive: sensitive || undefined,
-      required: el.required || undefined,
+      required: isRequired(el) || undefined,
       ...(sensitive ? {} : { value: el.value }),
     };
   }
   if (el instanceof HTMLTextAreaElement) {
-    return { kind: 'text', label, value: el.value, filled: el.value.length > 0, enabled: !el.disabled };
+    return { kind: 'text', label, value: el.value, filled: el.value.length > 0, enabled: !el.disabled, required: isRequired(el) || undefined };
   }
   if (el instanceof HTMLSelectElement) {
     return {
@@ -237,6 +292,7 @@ export function describeControl(el: Element): ScreenControl | null {
       label,
       value: el.selectedOptions[0]?.textContent?.trim() ?? '',
       enabled: !el.disabled,
+      required: isRequired(el) || undefined,
     };
   }
   if (role === 'slider') {
@@ -300,7 +356,7 @@ function isChrome(el: Element): boolean {
   return !!el.closest('header, footer, nav');
 }
 
-export function collectControls(root: ParentNode = scopeRoot(), limit = 40): ScreenControl[] {
+export function collectControls(root: ParentNode = scopeRoot(), limit = 90): ScreenControl[] {
   const inDialog = root !== document.body && root instanceof Element && root === activeDialog();
   const out: ScreenControl[] = [];
   const seen = new Map<string, number>();
@@ -325,6 +381,23 @@ export function collectControls(root: ParentNode = scopeRoot(), limit = 40): Scr
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/**
+ * The mandatory fields that are still empty, in on-screen order — the one list the assistant must
+ * drive to empty before offering to continue. Fields she cannot enter herself (the PAN) are listed
+ * separately so she does not try to fill them.
+ */
+export function collectMissingRequired(root: ParentNode = scopeRoot()): { missingRequired: string[]; missingForVisitor: string[] } {
+  const missingRequired: string[] = [];
+  const missingForVisitor: string[] = [];
+  for (const c of collectControls(root)) {
+    if (!c.required) continue;
+    const empty = c.kind === 'checkbox' || c.kind === 'switch' ? c.value !== true : (c.kind === 'text' || c.kind === 'date') && !c.filled;
+    if (!empty) continue;
+    (c.sensitive ? missingForVisitor : missingRequired).push(c.label);
+  }
+  return { missingRequired, missingForVisitor };
 }
 
 /** Visible error / helper text the app is showing (why Continue is disabled, a failed OTP…). */
@@ -514,8 +587,6 @@ export function selectByText(el: HTMLSelectElement, text: string): string | null
   return opt.textContent?.trim() ?? opt.value;
 }
 
-const nextFrame = () => new Promise<void>((r) => setTimeout(r, 20));
-
 function pressKey(el: HTMLElement, k: string) {
   el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 }
@@ -530,9 +601,19 @@ function pressKey(el: HTMLElement, k: string) {
  * not assumed, so the same code serves a ₹25,000-step amount slider and a
  * ₹500-step EMI-budget slider.
  */
-export async function setSliderTo(thumb: HTMLElement, target: number): Promise<{ value: number; min?: number; max?: number }> {
+export async function setSliderTo(
+  thumb: HTMLElement,
+  target: number,
+  opts: { onStep?: () => void; stepDelayMs?: number } = {},
+): Promise<{ value: number; min?: number; max?: number }> {
+  // Pacing and a per-step cue (the detent sound) are optional so the helper stays usable headless.
+  const wait = () => new Promise<void>((r) => setTimeout(r, opts.stepDelayMs ?? 20));
+  const press = (el: HTMLElement, k: string) => {
+    pressKey(el, k);
+    opts.onStep?.();
+  };
   thumb.focus();
-  await nextFrame();
+  await wait();
   const read = () => sliderNumbers(thumb);
   let { min, max } = read();
   const clamp = (n: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
@@ -541,17 +622,17 @@ export async function setSliderTo(thumb: HTMLElement, target: number): Promise<{
   let cur = read().value ?? 0;
   if (cur === goal) return { value: cur, min, max };
 
-  if (goal === min) pressKey(thumb, 'Home');
-  else if (goal === max) pressKey(thumb, 'End');
+  if (goal === min) press(thumb, 'Home');
+  else if (goal === max) press(thumb, 'End');
   if (goal === min || goal === max) {
-    await nextFrame();
+    await wait();
     return { value: read().value ?? goal, min, max };
   }
 
   // Probe the step with one Arrow press toward the goal.
   const dir = goal > cur ? 'ArrowRight' : 'ArrowLeft';
-  pressKey(thumb, dir);
-  await nextFrame();
+  press(thumb, dir);
+  await wait();
   let next = read().value ?? cur;
   const step = Math.abs(next - cur);
   if (!step) return { value: next, min, max };
@@ -562,8 +643,8 @@ export async function setSliderTo(thumb: HTMLElement, target: number): Promise<{
     if (remaining === 0) break;
     const k =
       Math.abs(remaining) >= 10 ? (remaining > 0 ? 'PageUp' : 'PageDown') : remaining > 0 ? 'ArrowRight' : 'ArrowLeft';
-    pressKey(thumb, k);
-    await nextFrame();
+    press(thumb, k);
+    await wait();
     next = read().value ?? cur;
     if (next === cur) break; // hit a bound
     cur = next;
@@ -583,9 +664,31 @@ export function settle(ms = 450): Promise<void> {
  * (bounded) for the placeholder to clear.
  */
 export async function waitUntilLoaded(maxMs = 3000): Promise<void> {
+  // English wording AND the language-proof marker: loading placeholders carry aria-busy="true", so
+  // this still waits when the page is in Hindi or Telugu.
   const loading = () =>
+    !!document.querySelector('[aria-busy="true"]') ||
     /\bloading\b[^.\n]{0,40}…|please wait…|(checking|verifying|saving|applying|confirming|submitting|sending|finding)…/i.test(document.body.innerText);
   const t0 = Date.now();
   await settle(150);
   while (loading() && Date.now() - t0 < maxMs) await settle(150);
+}
+
+/** The element that actually scrolls: the document, or (on pages with an inner scroll area) the biggest one. */
+export function findScroller(): HTMLElement {
+  const root = (document.scrollingElement as HTMLElement | null) ?? document.documentElement;
+  if (root.scrollHeight > root.clientHeight + 8) return root;
+  let best: HTMLElement | null = null;
+  let area = 0;
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>('main, section, div'))) {
+    const oy = getComputedStyle(el).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 8 && isVisible(el)) {
+      const a = el.clientWidth * el.clientHeight;
+      if (a > area) {
+        area = a;
+        best = el;
+      }
+    }
+  }
+  return best ?? root;
 }

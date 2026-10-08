@@ -9,11 +9,12 @@ import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { handoff } from '@/lib/applyApi';
-
-const DOCS = ['Verified identity profile', 'Bank statement summary (last 3 months)', 'Income & tax proof'];
+import { useCopy } from '@/lib/i18n';
+import { applyFlowCopy } from '@/i18n/apply-flow';
 
 export default function ConfirmPage() {
   const router = useRouter();
+  const t = useCopy(applyFlowCopy).confirm;
   const { applicationId, selectedOffer, sessionReady } = useApply();
   const accountUser = useAccountUser();
   const [loading, setLoading] = useState(false);
@@ -27,7 +28,7 @@ export default function ConfirmPage() {
   }, [sessionReady, applicationId, selectedOffer, router]);
 
   if (!applicationId || !selectedOffer) return null;
-  const lenderName = selectedOffer.lenderName || 'the lender';
+  const lenderName = selectedOffer.lenderName || t.lenderFallback;
 
   const confirm = async () => {
     setLoading(true);
@@ -36,43 +37,42 @@ export default function ConfirmPage() {
       await handoff(applicationId);
       router.push('/apply/success');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not complete the handoff. Please try again.');
+      setError(e instanceof Error ? e.message : t.handoffFailed);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ApplyShell backHref="/apply/offers" stepLabel="Confirm & continue" accountUser={accountUser}>
+    <ApplyShell backHref="/apply/offers" stepLabel={t.stepLabel} accountUser={accountUser}>
       <div className="flex flex-col gap-5">
-        <Badge tone="warning">Fallback path — used only when a lender has no redirect URL on file</Badge>
+        <Badge tone="warning">{t.fallbackBadge}</Badge>
         <div>
-          <h1 className="text-2xl font-extrabold">Confirm your loan</h1>
-          <p className="text-muted-foreground mt-2 text-sm">Review your selected offer from {lenderName} before we proceed.</p>
+          <h1 className="text-2xl font-extrabold">{t.title}</h1>
+          <p className="text-muted-foreground mt-2 text-sm">{t.review(lenderName)}</p>
         </div>
 
         <Card>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Metric k="Loan amount" v={fmtINR(selectedOffer.amount)} />
-            <Metric k="Est. APR" v={`${selectedOffer.apr}%`} />
-            <Metric k="Tenure" v={`${selectedOffer.tenureMonths} mo`} />
-            <Metric k="Monthly EMI" v={selectedOffer.emi > 0 ? fmtINR(selectedOffer.emi) : '—'} />
+            <Metric k={t.loanAmount} v={fmtINR(selectedOffer.amount)} />
+            <Metric k={t.apr} v={`${selectedOffer.apr}%`} />
+            <Metric k={t.tenure} v={t.tenureValue(selectedOffer.tenureMonths)} />
+            <Metric k={t.monthlyEmi} v={selectedOffer.emi > 0 ? fmtINR(selectedOffer.emi) : '—'} />
           </div>
         </Card>
 
         <div>
-          <SectionLabel>Important disclosure</SectionLabel>
+          <SectionLabel>{t.disclosureLabel}</SectionLabel>
           <p className="text-muted-foreground text-xs leading-relaxed">
-            SwiftLoan is a loan facilitation platform (LSP) and credit mediator —{' '}
-            <strong className="text-foreground">not the lender</strong>. {lenderName}, an RBI-registered NBFC, will disburse and
-            service this loan directly.
+            {t.disclosureA}
+            <strong className="text-foreground">{t.disclosureStrong}</strong>{t.disclosureB(lenderName)}
           </p>
         </div>
 
         <div>
-          <SectionLabel>What we&apos;ll share with {lenderName}</SectionLabel>
+          <SectionLabel>{t.shareLabel(lenderName)}</SectionLabel>
           <div className="flex flex-col gap-2">
-            {DOCS.map((d) => (
+            {t.docs.map((d) => (
               <div key={d} className="flex items-center gap-2.5 text-sm">
                 <Check className="text-mint h-4 w-4 shrink-0" />
                 {d}
@@ -86,9 +86,10 @@ export default function ConfirmPage() {
         <button
           onClick={confirm}
           disabled={loading}
+          data-voice-gate="confirm-loan"
           className="bg-brand-gradient text-primary-foreground w-full rounded-full py-3.5 text-base font-bold"
         >
-          {loading ? 'Confirming…' : 'Confirm & continue →'}
+          {loading ? t.confirming : t.confirmCta}
         </button>
       </div>
     </ApplyShell>

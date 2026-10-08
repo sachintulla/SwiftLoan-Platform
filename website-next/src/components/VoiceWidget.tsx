@@ -3,8 +3,11 @@
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ElloAgent } from '@/lib/ello-agent';
+import { agentApproach, agentPress, agentSettle, slideTo, typeText } from '@/feedback/agentFx';
+import { installManualSounds } from '@/feedback/manual';
+import { initSounds, playSound } from '@/feedback/sounds';
 import { faqsCopy } from '@/i18n/faqs';
-import { bootstrapSession, getAccessToken } from '@/lib/session';
+import { bootstrapSession, getAccessToken, subscribeSession } from '@/lib/session';
 import { fetchMe, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { statusMeta } from '@/lib/statusMeta';
 import type { SwiftLoanLeadApi } from '@/components/home/LeadForm';
@@ -13,14 +16,19 @@ import {
   collectCards,
   collectControls,
   collectMessages,
+  collectMissingRequired,
   collectTables,
   describeControl,
   findChip,
+  findScroller,
+  findOtpField,
   findPressable,
   findSlider,
   findTextField,
   findToggle,
+  gateOf,
   groupOf,
+  isOtpInput,
   isSensitive,
   isVisible,
   labelOf,
@@ -261,7 +269,20 @@ function summariseAccount(user: Record<string, any> | null, apps: LoanApplicatio
  * unless the model passes user_confirmed — a forcing function to ask out loud
  * first, mirroring the confirmation-gated actions in the mobile copilot.
  */
-function needsConfirmation(label: string, path: string): string | null {
+const GATE_ACTIONS: Record<string, string> = {
+  logout: 'logging the visitor out',
+  'apply-offer': 'sending their application to a lender',
+  'confirm-loan': 'confirming the loan with the lender',
+  'verify-pan': 'a soft credit check using their PAN',
+  'submit-ticket': 'raising a support ticket',
+  'skip-step': 'skipping the optional step',
+};
+
+function needsConfirmation(el: Element, label: string, path: string): string | null {
+  // The marker first: it does not change with the page language. The English wording below stays
+  // as a fallback for any button that has not been marked.
+  const marked = gateOf(el);
+  if (marked && GATE_ACTIONS[marked]) return GATE_ACTIONS[marked];
   const l = norm(label);
   if (/^log ?out$/.test(l)) return 'logging the visitor out';
   if (/^(apply now|select this offer|apply with)\b/.test(l) && /^\/apply\/(offers|compare)/.test(path)) return 'sending their application to a lender';
@@ -390,6 +411,7 @@ export default function VoiceWidget() {
   const pathRef = useRef(pathname);
   const agentRef = useRef<ElloAgent | null>(null);
   const accountRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  const prevPathRef = useRef(pathname);
 
   // Keep the live route in a ref so tool handlers (registered once) always
   // act on the current page, and nudge the assistant's context on navigation.
@@ -407,13 +429,20 @@ export default function VoiceWidget() {
       fabAnchor.classList.toggle('sl-voice-above-tall-bar', TALL_BOTTOM_BAR_ROUTES.includes(pathname));
     }
     const agent = agentRef.current;
-    if (agent && agent.conversationId) {
-      // Give the new page a tick to mount its DOM before re-describing it.
-      setTimeout(() => agent.updatePageContext(), 150);
-      // A sign-in or a submitted application changes who they are to us. Only worth
-      // asking once there is a session in memory (a sign-in sets one); a signed-out
-      // visitor would just collect a 401 per page.
-      if (getAccessToken()) accountRefreshRef.current?.().then(() => agent.updatePageContext());
+    const prev = prevPathRef.current;
+    prevPathRef.current = pathname;
+    if (agent && agent.conversationId && prev !== pathname) {
+      // Tell the agent about the NEW page, but only once it has real content: a page
+      // that is still fetching ("Loading…") would be described as empty. The first
+      // paint after a route change is exactly that, so wait for it to clear, refresh
+      // who they are (a sign-in just happened, or an application was submitted), then
+      // send. Offers appearing after the finding loader is news worth cutting in for.
+      const urgent = prev.startsWith('/apply/finding') && pathname.startsWith('/apply/offers');
+      (async () => {
+        await waitUntilLoaded(3500);
+        if (getAccessToken()) await accountRefreshRef.current?.();
+        agent.updatePageContext({ urgent, immediate: true });
+      })();
     }
   }, [pathname]);
 
@@ -463,11 +492,13 @@ export default function VoiceWidget() {
 
     function scrollToId(id: string): boolean {
       if (id === 'top') {
+        playSound('scroll');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return true;
       }
       const node = el(id);
       if (!node) return false;
+      playSound('scroll');
       node.scrollIntoView({ behavior: 'smooth', block: 'start' });
       highlight(node);
       return true;
@@ -480,6 +511,7 @@ export default function VoiceWidget() {
       const heads = Array.from(document.querySelectorAll('h1, h2, h3')).filter(isVisible);
       const hit = heads.find((h) => norm(h.textContent) === q) ?? heads.find((h) => norm(h.textContent).includes(q));
       if (!hit) return null;
+      playSound('scroll');
       hit.scrollIntoView({ behavior: 'smooth', block: 'start' });
       highlight(hit);
       return (hit.textContent ?? '').trim().slice(0, 80);
@@ -497,11 +529,18 @@ export default function VoiceWidget() {
     agentRef.current = agent;
     (window as unknown as { __swiftloanVoice: ElloAgent }).__swiftloanVoice = agent;
 
+    // NO tool here is gated on what is currently on screen. A call's tool set is fixed when
+    // it connects, and a tool declared "unavailable" at that moment (enter_otp, while the
+    // visitor is still on the home page) can never be called later — which is exactly how
+    // the agent ended up saying it was unable to enter the code. Every tool is always
+    // offered; each handler says plainly when it does not apply to the current page.
+
     // ── Who is on the call ─────────────────────────────────────────────
     // Fetched when the visitor taps the mic (and again after each navigation
     // during a call), never on page load: there is no cookie to read from JS, so
     // finding out whether a session exists costs a refresh request, and plain
     // browsing should not pay it.
+    let introduced = false;
     let account: AccountSummary = signedOutSummary();
     async function refreshAccount() {
       try {
@@ -518,6 +557,11 @@ export default function VoiceWidget() {
     }
 
     accountRefreshRef.current = refreshAccount;
+    // Logging out clears the token but nothing else would clear what we told the agent
+    // the visitor is — the next update would still say signed in, with their name.
+    const unsubscribeSession = subscribeSession(() => {
+      if (!getAccessToken()) account = signedOutSummary();
+    });
 
     const toastText = (): string | null => {
       const t = Array.from(document.querySelectorAll('[data-sonner-toast]')).pop();
@@ -526,26 +570,29 @@ export default function VoiceWidget() {
 
     // ── What the agent is told about the page ──────────────────────────
     agent.registerPageContext(() => {
-      const sid = currentSectionId();
       const sections = sectionsForCurrentPage();
-      const sec = sections.find((s) => s.id === sid);
       const route = routeInfo(pathRef.current);
       const dialog = activeDialog();
       const onHome = isHome();
+      lastSig = screenSignature();
       return {
         // Required by the backend's greeting path: a non-empty top-level `page`
         // string is what puts it on the prompt-driven greeting flow at all —
         // without it there is no "speak first" trigger and the agent stays
         // silent for the whole call.
-        page: route.label + (sid && sec ? ` — ${sec.label}` : ''),
+        page: route.label,
         site: 'SwiftLoan.ai — a digital lending marketplace that matches borrowers to the right lender',
         currentPage: { path: pathRef.current, key: route.key, label: route.label, purpose: route.purpose },
         // The screen language ('en' | 'hi' | 'te'). Distinct from the language the
         // visitor is speaking: the voice follows the visitor, this is the page text.
         siteLanguage: langApi()?.get() ?? 'en',
         pages: Object.entries(PAGES).map(([key, p]) => ({ key, path: p.path, label: p.label, needsSignIn: !!p.needsSignIn })),
-        currentSection: sid ? { id: sid, label: sec ? sec.label : sid } : null,
+        // The section the visitor is looking at is left out — it changes with every scroll
+        // and a scroll must not become a turn; read_screen reports it on demand.
         sections: sections.map((s) => ({ id: s.id, label: s.label })),
+        // True once she has spoken this call: she has already introduced herself, so a new
+        // page is never a new opening.
+        alreadyIntroduced: introduced,
         loanProducts: ['Personal Loan', 'Business Loan'],
         faqQuestions: faqItems().map((f) => f.question),
         // Account state, so the opening and every later turn can be personal
@@ -563,6 +610,10 @@ export default function VoiceWidget() {
                 heading: pageHeading(),
                 step: stepMarker(),
                 dialogOpen: !!dialog,
+                // The mandatory fields still empty, in page order. Ask for each until this is empty;
+                // only then is it right to offer to go ahead. (`missingForVisitor` are mandatory fields
+                // the assistant cannot enter itself, e.g. the PAN.)
+                ...collectMissingRequired(),
                 controls: collectControls(),
                 cards: collectCards(),
                 table: collectTables(),
@@ -582,8 +633,17 @@ export default function VoiceWidget() {
       };
     });
 
-    const fail = (reason: string, extra: Record<string, unknown> = {}) => ({ success: false, reason, ...extra });
-    const SENSITIVE_MESSAGE = 'This one is safer for the visitor to type themselves.';
+    // A refused or rejected ENTRY plays the error cue; ordinary "not applicable" results stay silent.
+    const ERROR_CUE = new Set(['sensitive_field', 'invalid_number', 'bad_date', 'need_six_digits', 'invalid_amount', 'did_not_change']);
+    const fail = (reason: string, extra: Record<string, unknown> = {}) => {
+      if (ERROR_CUE.has(reason)) playSound('error');
+      return { success: false, reason, ...extra };
+    };
+    /** Deliver the new page to the agent NOW, inside the pending tool call, so the update and the
+     *  tool result are answered as one turn — not the result first and a second, late turn after. */
+    const pushContext = () => agent.updatePageContext({ immediate: true });
+    const SENSITIVE_MESSAGE =
+      "That one can't be filled by you. Tell the visitor, in your own words and without naming any control, that it has to be entered by them directly, then carry on once it is.";
 
     // ── Navigation ─────────────────────────────────────────────────────
     agent.registerTool({
@@ -597,6 +657,7 @@ export default function VoiceWidget() {
         if (pathRef.current === target.path) return { success: true, navigatedTo: target.path, alreadyHere: true };
         const from = pathRef.current;
         router.push(target.path);
+        playSound('nav'); // changing page — the same cue as a menu-bar switch in the app
         // Report where the visitor actually landed, not where we asked to send them:
         // the route commits a moment later (longer on a first, uncompiled visit), and
         // signed-in pages bounce a signed-out visitor to /apply. Poll until one of
@@ -615,10 +676,13 @@ export default function VoiceWidget() {
           // invisible to JS) give that check time to finish before claiming arrival.
           if (target.needsSignIn && !getAccessToken()) await settle(1400);
           await waitUntilLoaded();
-          if (pathRef.current === target.path) return { success: true, navigatedTo: target.path };
+          if (pathRef.current === target.path) {
+            pushContext();
+            return { success: true, navigatedTo: target.path };
+          }
         }
         if (target.needsSignIn && pathRef.current === '/apply') {
-          return fail('sign_in_required', { navigatedTo: '/apply', note: 'They are not signed in. Offer to sign in with their mobile number first.' });
+          return fail('sign_in_required', { navigatedTo: '/apply', note: 'They are not signed in. Ask whether to sign them in now, and ask for their mobile number.' });
         }
         return fail('navigation_slow', { stillOn: pathRef.current, note: 'The page is still loading; check read_screen before saying you are there.' });
       },
@@ -651,7 +715,13 @@ export default function VoiceWidget() {
         heading: pageHeading(),
         step: stepMarker(),
         dialogOpen: !!activeDialog(),
-        controls: collectControls(scopeRoot(), 60),
+        currentSection: (() => {
+          const id = currentSectionId();
+          const sec = sectionsForCurrentPage().find((x) => x.id === id);
+          return id ? { id, label: sec ? sec.label : id } : null;
+        })(),
+        ...collectMissingRequired(),
+        controls: collectControls(scopeRoot()),
         cards: collectCards(),
         table: collectTables(),
         messages: collectMessages(),
@@ -659,12 +729,43 @@ export default function VoiceWidget() {
       }),
     });
 
+    agent.registerTool({
+      name: 'scroll_page',
+      description:
+        "Scroll the page when the visitor asks you to — down, up, to the top or to the bottom. You rarely need it: every other tool already brings the control it works on into view.",
+      schema: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['down', 'up', 'top', 'bottom'] },
+          amount: { type: 'string', enum: ['small', 'page'], description: "'small' is about a third of the screen; default 'page'" },
+        },
+        required: ['direction'],
+      },
+      handler: async (a: { direction: string; amount?: string }) => {
+        const sc = findScroller();
+        const view = sc === document.scrollingElement || sc === document.documentElement ? window.innerHeight : sc.clientHeight;
+        const step = (a.amount === 'small' ? 0.33 : 0.8) * view;
+        const top =
+          a.direction === 'top' ? 0 : a.direction === 'bottom' ? sc.scrollHeight : sc.scrollTop + (a.direction === 'up' ? -step : step);
+        const before = sc.scrollTop;
+        playSound('scroll'); // the same pulse roll as a visitor scrolling in test mode
+        sc.scrollTo({ top, behavior: 'smooth' });
+        await settle(Math.min(700, 240 + Math.abs(top - before) * 0.15));
+        const nowTop = sc.scrollTop;
+        return {
+          success: true,
+          moved: Math.abs(nowTop - before) > 2,
+          atTop: nowTop <= 2,
+          atBottom: nowTop + view >= sc.scrollHeight - 4,
+        };
+      },
+    });
+
     // ── Lead / "check your rate" form (home only) ──────────────────────
     // The lead form's amount and loan type are React state, reached through the
     // bridge LeadForm publishes — not through the DOM — so these are gated on
     // that bridge being mounted. (The old gate looked for `#lead-form`, which
     // outlived a redesign that moved everything inside it.)
-    const leadAvailable = () => !!leadApi();
 
     agent.registerTool({
       name: 'fill_phone',
@@ -682,8 +783,9 @@ export default function VoiceWidget() {
           null;
         if (!field) return fail('no_mobile_field', { note: 'There is no mobile number field on this page.' });
         if (field.closest('#lead-form')) scrollToId('lead-form');
-        else field.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        writeValue(field, digits);
+        await agentApproach(field);
+        await typeText(field, digits);
+        agentSettle();
         await settle(150);
         return { success: true, accepted: field.value.length === 10 };
       },
@@ -693,11 +795,11 @@ export default function VoiceWidget() {
       description:
         "Call as soon as the visitor says which loan they want — 'personal', 'a business loan', 'for my shop'. Sets the loan type on the home page rate form (there is no visible picker; it still matters for the lead).",
       schema: { type: 'object', properties: { loan_type: { type: 'string', enum: ['Personal Loan', 'Business Loan'] } }, required: ['loan_type'] },
-      availableWhen: leadAvailable,
       handler: (a: { loan_type: string }) => {
         const said = (a.loan_type || '').toLowerCase();
         const want = /business|vyapar|व्यापार|వ్యాపార|shop|company|firm|msme/.test(said) ? 'Business Loan' : 'Personal Loan';
         const res = leadApi()?.set({ loanType: want });
+        if (res) playSound('select');
         return res ? { success: true, selected: want } : fail('form_not_on_screen');
       },
     });
@@ -706,13 +808,15 @@ export default function VoiceWidget() {
       description:
         'Call when the visitor states how much they want to borrow on the home page rate form (rupees). The slider runs ₹10,000 to ₹50,00,000 in ₹5,000 steps. For "what would my EMI be", use set_calculator instead.',
       schema: { type: 'object', properties: { amount: { type: 'number' } }, required: ['amount'] },
-      availableWhen: leadAvailable,
       handler: async (a: { amount: number }) => {
         const api = leadApi();
         if (!api) return fail('form_not_on_screen');
         if (!(a.amount > 0)) return fail('invalid_amount');
         scrollToId('lead-form');
-        api.set({ amount: a.amount });
+        const thumb = document.querySelector<HTMLElement>('#lead-form [role="slider"]');
+        if (thumb) await agentApproach(thumb);
+        await slideTo({ from: api.read().amount ?? 10_000, to: a.amount, write: (v) => leadApi()?.set({ amount: v }) });
+        agentSettle();
         // The bridge re-publishes after React commits; read the settled state, not the
         // render this call started from (a select_loan_type moments earlier is not in it yet).
         await settle(160);
@@ -734,9 +838,8 @@ export default function VoiceWidget() {
       // voice-first flow, so the ASSISTANT must ask out loud and hear a yes
       // (see the system prompt) before ever calling this tool.
       description:
-        'Submit the home page rate form: saves the lead and sends a 6-digit code to the mobile number. Call ONLY after you asked "shall I send the code to that number?" and the visitor clearly said yes. Needs the amount and the mobile number already set. The visitor then types the code themselves — you never take or enter it.',
+        'Submit the home page rate form: saves the lead and sends a 6-digit code to the mobile number. Call ONLY after you asked whether to send the code to that number and the visitor clearly said yes. Needs the amount and the mobile number already set. Once it returns awaiting_otp, ask the visitor for the code and enter it with enter_otp.',
       schema: { type: 'object', properties: {} },
-      availableWhen: leadAvailable,
       handler: async () => {
         const st = leadApi()?.read();
         if (!st) return fail('form_not_on_screen');
@@ -746,9 +849,12 @@ export default function VoiceWidget() {
         }
         const btn = document.querySelector<HTMLButtonElement>('#lead-form button[type="submit"]');
         if (!btn) return fail('submit_button_not_found');
+        await agentApproach(btn);
+        await agentPress(btn, 'tap');
         btn.click();
         await settle(1200);
-        const otp = Array.from(document.querySelectorAll<HTMLInputElement>('input[autocomplete="one-time-code"]')).find(isVisible);
+        const otp = findOtpField();
+        pushContext();
         return {
           success: true,
           awaiting_otp: !!otp,
@@ -757,10 +863,52 @@ export default function VoiceWidget() {
       },
     });
 
+    // ── Sign-in code ───────────────────────────────────────────────────
+    // The visitor says the code and the agent enters it — same as the mobile app. It is
+    // its own tool (fill_field refuses the code boxes) so there is exactly one place
+    // that ever writes it: six digits, into a code field that is actually on screen.
+    agent.registerTool({
+      name: 'enter_otp',
+      description:
+        'Enter the 6-digit verification code the visitor has just said out loud — on the sign-in page (six boxes) or in the code popup after the home rate form. Pass only the digits, exactly as they said them ("one two three four five six" → "123456"). Never guess, infer or reuse a code. The page verifies by itself once all six digits are in; the result says where they landed or why it failed.',
+      schema: { type: 'object', properties: { code: { type: 'string', description: 'the six digits' } }, required: ['code'] },
+      handler: async (a: { code: string }) => {
+        const digits = String(a.code ?? '').replace(/\D/g, '');
+        if (digits.length !== 6) return fail('need_six_digits', { heard: digits.length, note: 'Ask for the full six-digit code again.' });
+        const field = findOtpField();
+        if (!field) return fail('no_code_field', { note: 'There is no code to enter on this page.' });
+        const before = pathRef.current;
+        await agentApproach(field);
+        await typeText(field, digits);
+        agentSettle();
+        // Both forms verify on their own the moment the sixth digit lands. Wait for the
+        // OUTCOME, not just for the request: either an error appears, or the code field
+        // goes away and the visitor is moved on — and that move lands a beat after the
+        // field disappears. Reporting earlier would hand the agent a stale page.
+        await settle(500);
+        const until = Date.now() + 5000;
+        while (findOtpField() && !collectMessages().length && Date.now() < until) await settle(150);
+        if (!findOtpField() && pathRef.current === before) {
+          const moved = Date.now() + 3000;
+          while (pathRef.current === before && Date.now() < moved) await settle(100);
+        }
+        await waitUntilLoaded(5000);
+        const messages = collectMessages();
+        pushContext();
+        return {
+          success: true,
+          accepted: pathRef.current !== before || !findOtpField(),
+          pathAfter: pathRef.current,
+          heading: pageHeading(),
+          messages,
+          ...(toastText() ? { message_shown_to_user: toastText() } : {}),
+        };
+      },
+    });
+
     // ── EMI calculator (home only) ─────────────────────────────────────
     // Availability is "has the calculator published its API", i.e. is it
     // mounted — not "does a DOM node with a magic id exist".
-    const calculatorAvailable = () => !!calcApi();
 
     agent.registerTool({
       name: 'set_calculator',
@@ -774,12 +922,20 @@ export default function VoiceWidget() {
           tenure: { type: 'number', description: 'tenure in months' },
         },
       },
-      availableWhen: calculatorAvailable,
       handler: async (a: { amount?: number; rate?: number; tenure?: number }) => {
         const api = calcApi();
         if (!api) return fail('The EMI calculator is not on screen');
-        api.set({ amount: a.amount, rate: a.rate, tenure: a.tenure });
         scrollToId('emi-calculator');
+        const start = api.read();
+        const thumb = document.querySelector<HTMLElement>('#emi-calculator [role="slider"]');
+        if (thumb) await agentApproach(thumb);
+        const lerp = (from: number, to: number | undefined, t: number) => (typeof to === 'number' ? from + (to - from) * t : undefined);
+        await slideTo({
+          from: 0,
+          to: 1,
+          write: (t) => calcApi()?.set({ amount: lerp(start.amount, a.amount, t), rate: lerp(start.rate, a.rate, t), tenure: lerp(start.tenure, a.tenure, t) }),
+        });
+        agentSettle();
         // The calculator re-publishes its API after React commits the new values,
         // so reading straight away returns the OLD numbers. Wait, then read fresh.
         await settle(220);
@@ -790,8 +946,7 @@ export default function VoiceWidget() {
       name: 'get_calculator',
       description: "Read the EMI calculator's CURRENT values/result without changing anything — e.g. 'what's my EMI right now'.",
       schema: { type: 'object', properties: {} },
-      availableWhen: calculatorAvailable,
-      handler: () => ({ success: true, result: readCalculator() }),
+      handler: () => (calcApi() ? { success: true, result: readCalculator() } : fail('The EMI calculator is not on this page', { note: 'It is on the home page.' })),
     });
 
     // ── Language ───────────────────────────────────────────────────────
@@ -806,13 +961,13 @@ export default function VoiceWidget() {
       // Language is React context, so there is no button to click — the
       // provider publishes get/set instead. The switcher lives in the site
       // header, which /apply and /account hide, but the context still works.
-      availableWhen: () => !!langApi(),
       handler: (a: { language: string }) => {
         const api = langApi();
         if (!api) return fail('language switcher not available');
         const spoken = (a.language || '').toLowerCase();
         const code = spoken.startsWith('hi') ? 'hi' : spoken.startsWith('te') ? 'te' : 'en';
         if (!api.set(code)) return fail(`unsupported language "${a.language}"`);
+        playSound('select');
         return { success: true, language: code };
       },
     });
@@ -825,8 +980,7 @@ export default function VoiceWidget() {
       schema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
       // FAQ answers are knowledge, not a screen widget: the agent should be
       // able to answer "does it affect my credit score" from anywhere on the site.
-      availableWhen: () => true,
-      handler: (a: { question: string }) => {
+      handler: async (a: { question: string }) => {
         const q = (a.question || '').toLowerCase();
         let bestIdx = -1;
         let bestScore = 0;
@@ -854,8 +1008,11 @@ export default function VoiceWidget() {
           return key.length > 6 && text.includes(key);
         });
         if (trigger) {
-          if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
-          trigger.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (trigger.getAttribute('aria-expanded') !== 'true') {
+            await agentApproach(trigger);
+            await agentPress(trigger, 'tap');
+            trigger.click();
+          }
           highlight(trigger);
         }
         return { success: true, question: picked.question, answer: picked.answer, shownOnScreen: !!trigger };
@@ -870,7 +1027,7 @@ export default function VoiceWidget() {
     agent.registerTool({
       name: 'fill_field',
       description:
-        "Type into a text, number, date or dropdown field by its on-screen label — e.g. {label:'First name', value:'Priya'}, {label:'Date of birth', value:'1992-04-18'} (always YYYY-MM-DD), {label:'Monthly income', value:'65000'}, {label:'Related application', value:'SL-2048'}. Use read_screen to see the exact labels. REFUSES PAN, OTP digits and passwords — those are always typed by the visitor.",
+        "Type into a text, number, date or dropdown field by its on-screen label — e.g. {label:'First name', value:'Priya'}, {label:'Date of birth', value:'1992-04-18'} (always YYYY-MM-DD), {label:'Monthly income', value:'65000'}, {label:'Related application', value:'SL-2048'}. Use read_screen to see the exact labels. REFUSES the PAN and passwords — the visitor enters those directly. The verification code has its own tool, enter_otp.",
       schema: {
         type: 'object',
         properties: { label: { type: 'string', description: 'the field label as shown' }, value: { type: 'string' } },
@@ -884,22 +1041,30 @@ export default function VoiceWidget() {
           return fail('field_not_found', { available: names });
         }
         const node = m.el;
+        if (isOtpInput(node)) return fail('use_enter_otp', { note: 'The verification code goes in with enter_otp.' });
         if (isSensitive(node)) {
           node.focus();
           return fail('sensitive_field', { refused: true, message: SENSITIVE_MESSAGE });
         }
         if (node.disabled || (node as HTMLInputElement).readOnly) return fail('field_not_editable');
-        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        if (node instanceof HTMLSelectElement) {
-          const chosen = selectByText(node, a.value);
-          return chosen ? { success: true, field: labelOf(node), applied: chosen } : fail('option_not_found', { options: Array.from(node.options).map((o) => o.textContent?.trim()) });
-        }
         if (node instanceof HTMLInputElement && node.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(a.value)) {
           return fail('bad_date', { message: 'Dates must be YYYY-MM-DD.' });
         }
-        writeValue(node, String(a.value));
+        await agentApproach(node);
+        if (node instanceof HTMLSelectElement) {
+          await agentPress(node, 'select');
+          const chosen = selectByText(node, a.value);
+          return chosen ? { success: true, field: labelOf(node), applied: chosen } : fail('option_not_found', { options: Array.from(node.options).map((o) => o.textContent?.trim()) });
+        }
+        if (node instanceof HTMLInputElement && node.type === 'date') {
+          writeValue(node, String(a.value)); // a native date picker is not typed character by character
+        } else {
+          await typeText(node as HTMLInputElement | HTMLTextAreaElement, String(a.value));
+        }
+        agentSettle();
         await settle(160);
-        return { success: true, field: labelOf(node), applied: node.value };
+        // What is still mandatory-and-empty AFTER this fill: the next question to ask.
+        return { success: true, field: labelOf(node), applied: node.value, stillMissing: collectMissingRequired().missingRequired };
       },
     });
 
@@ -919,8 +1084,10 @@ export default function VoiceWidget() {
           const names = collectControls().filter((c) => c.kind === 'chip').map((c) => `${c.group ?? ''}: ${c.label}`);
           return fail('option_not_found', { available: names });
         }
-        m.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await agentApproach(m.el);
+        await agentPress(m.el, 'select');
         m.el.click();
+        agentSettle();
         await settle(220);
         const now = describeControl(m.el);
         return { success: true, option: labelOf(m.el), group: groupOf(m.el), selected: now?.selected ?? true };
@@ -943,12 +1110,14 @@ export default function VoiceWidget() {
         const node = m.el;
         const isOn = node instanceof HTMLInputElement ? node.checked : node.getAttribute('aria-checked') === 'true';
         if (isOn !== a.checked) {
-          node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          await agentApproach(node);
+          await agentPress(node, a.checked ? 'toggleOn' : 'toggleOff');
           node.click();
+          agentSettle();
           await settle(260);
         }
         const nowOn = node instanceof HTMLInputElement ? node.checked : node.getAttribute('aria-checked') === 'true';
-        return nowOn === a.checked ? { success: true, label: labelOf(node), checked: nowOn } : fail('did_not_change', { label: labelOf(node), checked: nowOn, message_shown_to_user: toastText() });
+        return nowOn === a.checked ? { success: true, label: labelOf(node), checked: nowOn, stillMissing: collectMissingRequired().missingRequired } : fail('did_not_change', { label: labelOf(node), checked: nowOn, message_shown_to_user: toastText() });
       },
     });
 
@@ -965,8 +1134,9 @@ export default function VoiceWidget() {
         const m = findSlider(a.label);
         if (m.ambiguous) return fail('ambiguous_slider', { options: m.ambiguous });
         if (!m.el) return fail('slider_not_found');
-        m.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const res = await setSliderTo(m.el, Number(a.value));
+        await agentApproach(m.el);
+        const res = await setSliderTo(m.el, Number(a.value), { onStep: () => playSound('slide'), stepDelayMs: 55 });
+        agentSettle();
         return { success: true, value: res.value, min: res.min, max: res.max };
       },
     });
@@ -992,21 +1162,25 @@ export default function VoiceWidget() {
         }
         const node = m.el;
         const label = labelOf(node);
-        const gate = needsConfirmation(label, pathRef.current);
+        const gate = needsConfirmation(node, label, pathRef.current);
         if (gate && !a.user_confirmed) {
           return fail('needs_confirmation', { action: gate, note: 'Ask the visitor out loud, wait for a clear yes, then call again with user_confirmed:true.' });
         }
         if ((node as HTMLButtonElement).disabled || node.getAttribute('aria-disabled') === 'true') {
-          return fail('disabled', { reason_shown: collectMessages()[0] ?? null });
+          return fail('disabled', { reason_shown: collectMessages()[0] ?? null, ...collectMissingRequired() });
         }
         const before = pathRef.current;
-        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Light it up, dip and click — then the press goes through. Menu links get the navigation cue.
+        await agentApproach(node);
+        await agentPress(node, node.matches('header a, nav a, aside a') ? 'nav' : 'tap');
         node.click();
+        agentSettle();
         await settle(700);
         // Pressing usually starts a request ("Please wait…", "Verifying…") and often a
         // route change; report the settled result, not the instant after the click.
         await waitUntilLoaded();
         const messages = collectMessages();
+        pushContext();
         return {
           success: true,
           pressed: label,
@@ -1210,7 +1384,11 @@ export default function VoiceWidget() {
       callEl.style.display = active ? 'flex' : 'none';
       if (!active) btn.dataset.muted = '0';
       btn.setAttribute('aria-label', active ? 'In a call with SwiftLoan — click to end' : 'Talk to SwiftLoan — voice guide');
-      if (agent.conversationId) agent.updatePageContext();
+      // (No context send here: a status change is not a change to the page, and every
+      // send is a turn the agent answers.)
+      if (s === 'connecting') initSounds(); // the mic tap is the user gesture browsers require for audio
+      if (s === 'speaking') introduced = true;
+      if (!active) introduced = false;
     });
     agent.on('muteChange', (m: boolean) => {
       btn.dataset.muted = m ? '1' : '0';
@@ -1251,15 +1429,59 @@ export default function VoiceWidget() {
       agent.stop();
     });
 
-    let scrollTimer: ReturnType<typeof setTimeout> | null = null;
-    const onScroll = () => {
-      if (scrollTimer) return;
-      scrollTimer = setTimeout(() => {
-        scrollTimer = null;
-        if (agent.conversationId) agent.updatePageContext();
-      }, 700);
+    // ── Keeping the agent's picture of the page current ─────────────────
+    // A page changes in more ways than the URL: offers arrive after a loader, a popup
+    // opens, a field becomes valid and its button enables, an error appears. Watch the
+    // DOM and, once it has gone quiet, send an update if what the agent would care
+    // about actually differs from what it was last told. There is deliberately NO scroll
+    // listener any more — every send is a turn, and scrolling is not news.
+    let lastSig = '';
+    const screenSignature = (): string => {
+      const dlg = activeDialog();
+      // Home is long and busy, and the agent drives it through tools whose results
+      // already say what changed; only a popup opening or leaving is worth an update.
+      if (isHome() && !dlg) return JSON.stringify({ p: pathRef.current });
+      // Left out on purpose: field values, whether a text box is filled, and the
+      // "Required to continue: …" hint. All of those change with every field the agent
+      // (or the visitor) fills, and every send is a turn — an update after each field
+      // would have the agent talking over a form it is part-way through. What IS news:
+      // the page, a popup, new options or cards, a button becoming usable (Continue
+      // enabling is the cue to move on), and an error appearing. A pill or switch being
+      // chosen is not: the tool that chose it already reported it.
+      return JSON.stringify({
+        p: pathRef.current,
+        h: pageHeading(),
+        s: stepMarker(),
+        d: !!dlg,
+        c: collectControls(scopeRoot()).map((c) =>
+          [c.kind, c.group ?? '', c.label, c.enabled ? 1 : 0].join('|'),
+        ),
+        m: collectMessages().filter((x) => !/^required to continue/i.test(x)),
+        k: collectCards().map((x) => x.title),
+      });
     };
-    window.addEventListener('scroll', onScroll, { passive: true });
+    let moTimer: ReturnType<typeof setTimeout> | null = null;
+    let moStarted = 0;
+    const onMutations = () => {
+      if (!agent.conversationId) return;
+      if (!moStarted) moStarted = Date.now();
+      if (moTimer) clearTimeout(moTimer);
+      // Quiet for 500ms, or 2.5s of constant churn (an animation) — whichever first.
+      moTimer = setTimeout(() => {
+        moTimer = null;
+        moStarted = 0;
+        if (screenSignature() !== lastSig) agent.updatePageContext({ immediate: true });
+      }, Date.now() - moStarted > 2500 ? 0 : 500);
+    };
+    // Test mode only (src/config/sounds.ts): the visitor's own clicks/typing/scrolling make the same cues.
+    const removeManualSounds = installManualSounds();
+    const observer = new MutationObserver(onMutations);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['aria-checked', 'aria-pressed', 'disabled', 'hidden'],
+    });
 
     const style = document.createElement('style');
     style.textContent =
@@ -1361,8 +1583,10 @@ export default function VoiceWidget() {
     });
 
     return () => {
-      window.removeEventListener('scroll', onScroll);
-      if (scrollTimer) clearTimeout(scrollTimer);
+      observer.disconnect();
+      removeManualSounds();
+      unsubscribeSession();
+      if (moTimer) clearTimeout(moTimer);
       agent.stop();
       agentRef.current = null;
       btn.remove();

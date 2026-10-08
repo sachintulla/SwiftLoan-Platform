@@ -8,10 +8,14 @@ import { Badge } from '@/components/apply/primitives';
 import { useAccount } from '@/lib/accountContext';
 import { listApplications, type LoanApplication } from '@/lib/applyApi';
 import { fmtINR } from '@/lib/core';
-import { statusMeta } from '@/lib/statusMeta';
+import { useStatusMeta } from '@/lib/statusMeta';
+import { useCopy } from '@/lib/i18n';
+import { accountCopy } from '@/i18n/account';
 
 export default function ApplicationsPage() {
   const { loading: accountLoading, user } = useAccount();
+  const t = useCopy(accountCopy);
+  const statusMeta = useStatusMeta();
   const [apps, setApps] = useState<LoanApplication[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -22,28 +26,28 @@ export default function ApplicationsPage() {
       .finally(() => setLoading(false));
   }, [accountLoading]);
 
-  const name = (user?.fullName as string)?.split(' ')[0] || 'there';
+  const name = (user?.fullName as string)?.split(' ')[0] || t.guestName;
 
   return (
     <AccountShell>
       {/* Phones: stacked, so the greeting isn't squeezed beside the button. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-extrabold">Welcome back, {name} 👋</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Here&apos;s where your loan applications stand.</p>
+          <h1 className="text-2xl font-extrabold">{t.welcome(name)}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">{t.welcomeSub}</p>
         </div>
         <Link href="/apply/step-1" className="border-border self-start rounded-full border px-4 py-2 text-sm font-bold whitespace-nowrap">
-          + Apply for a new loan
+          {t.applyNew}
         </Link>
       </div>
 
       <div className="mt-6 flex flex-col gap-3">
         {loading || accountLoading ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm" aria-busy="true">{t.loading}</p>
         ) : apps.length === 0 ? (
           <div className="border-border rounded-2xl border border-dashed p-8 text-center">
-            <p className="text-sm font-bold">No applications yet</p>
-            <p className="text-muted-foreground mt-1 text-xs">Apply for a loan to track it here.</p>
+            <p className="text-sm font-bold">{t.noApplications}</p>
+            <p className="text-muted-foreground mt-1 text-xs">{t.noApplicationsSub}</p>
           </div>
         ) : (
           apps.flatMap((app) => {
@@ -61,10 +65,10 @@ export default function ApplicationsPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold">
-                      {la.lenderName || 'Personal Loan'}
-                      {la.lenderName && <span className="text-muted-foreground font-medium"> · Personal Loan</span>}
+                      {la.lenderName || t.personalLoan}
+                      {la.lenderName && <span className="text-muted-foreground font-medium"> · {t.personalLoan}</span>}
                     </div>
-                    <div className="text-muted-foreground text-xs">Ref {app.ref}</div>
+                    <div className="text-muted-foreground text-xs">{t.ref(app.ref)}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-extrabold">{fmtINR(la.amount)}</div>

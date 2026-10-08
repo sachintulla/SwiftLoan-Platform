@@ -119,7 +119,18 @@ export class ElloAgent {
   private playbackQueueTime = 0;
   private playing: AudioBufferSourceNode[] = [];
   private startTime = 0;
-  private contextUpdatesUnsupported = false;
+  // ── Page-context updates (protocol ported from the mobile client, src/voice/agent.ts) ──
+  // The backend's message for this is `client-tools-update` — NOT `update-context`,
+  // which it rejects as "Unknown message type". This class used to send the latter
+  // and, on that rejection, switch context updates OFF for the rest of the call, so
+  // the agent saw the first page and never another one.
+  private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A flush that was held back because the agent was mid-sentence; sent when she stops. */
+  private flushAfterSpeech = false;
+  private lastSentPage: string | null = null;
+  private lastSentFingerprint = new Map<string, string>();
+  private toolsSentThisSession = false;
   private speakingQuietTimer: ReturnType<typeof setTimeout> | null = null;
   stats = { micFrames: 0, micSoundFrames: 0, audioOut: 0, toolsSent: 0, toolsAcked: null as number | null };
   conversationId: string | null = null;
@@ -173,6 +184,12 @@ export class ElloAgent {
     // acquireMic) instead of muting, matching the mobile app's client
     // (src/voice/agent.ts), which documents this exact tradeoff.
     this.emit('statusChange', s);
+    // A page-context update held back while she was speaking goes out the moment she
+    // is done — only to 'listening': 'executingTool' would land inside a tool call.
+    if (s === 'listening' && this.flushAfterSpeech) {
+      this.flushAfterSpeech = false;
+      this.flushPageContext(false);
+    }
   }
 
   registerTool(tool: ElloTool) {
@@ -196,23 +213,98 @@ export class ElloAgent {
     }));
   }
 
-  updatePageContext() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    if (this.contextUpdatesUnsupported) return;
+  /**
+   * Tell the agent what the page looks like now.
+   *
+   * Every send is a TURN server-side: the agent reacts to it. That is the point on
+   * a page change (it should speak to the new page at once), and the danger on
+   * everything else (a send while she is mid-sentence reads as a barge-in and cuts
+   * her off). Hence three modes, same as the mobile app:
+   *   - default   debounced (900ms) so a page that is still loading settles first,
+   *               and deferred while she is speaking;
+   *   - immediate from a tool, on the next microtask, so the update lands while the
+   *               server still sees that tool call pending and merges both into
+   *               ONE turn instead of two;
+   *   - urgent    for news worth interrupting for (offers arriving) — skips the
+   *               speaking guard.
+   */
+  updatePageContext(opts?: { urgent?: boolean; immediate?: boolean }) {
+    if (opts?.immediate && !opts.urgent) {
+      if (this.pageContextFlushTimer) {
+        clearTimeout(this.pageContextFlushTimer);
+        this.pageContextFlushTimer = null;
+      }
+      Promise.resolve().then(() => this.flushPageContext(false));
+      return;
+    }
+    if (opts?.urgent) {
+      if (this.pageContextFlushTimer) {
+        clearTimeout(this.pageContextFlushTimer);
+        this.pageContextFlushTimer = null;
+      }
+      if (this.urgentFlushTimer) clearTimeout(this.urgentFlushTimer);
+      // Collapse a burst of urgent calls into one send of whatever is true by then.
+      this.urgentFlushTimer = setTimeout(() => {
+        this.urgentFlushTimer = null;
+        this.flushPageContext(true);
+      }, 120);
+      return;
+    }
+    if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
+    this.pageContextFlushTimer = setTimeout(() => {
+      this.pageContextFlushTimer = null;
+      this.flushPageContext(false);
+    }, 900);
+  }
+
+  private flushPageContext(urgent: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.conversationId) return;
+    if (!urgent && this.status === 'speaking') {
+      this.flushAfterSpeech = true;
+      this.dbg('info', 'page context deferred', 'agent is speaking; will send when she stops');
+      return;
+    }
+    const ctx: Record<string, any> = this.pageContextFn?.() ?? {};
+    // The "speak first, introduce yourself" instruction belongs to call start only.
+    // Left in a navigation update it makes the agent greet again on every page.
+    if (ctx.interactionGuide && 'opening' in ctx.interactionGuide) {
+      const guide = { ...ctx.interactionGuide };
+      delete guide.opening;
+      ctx.interactionGuide = guide;
+    }
+    const screenKey = String(ctx.page ?? '');
+    const fingerprint = JSON.stringify(ctx);
+    // Same page, same content as the last send: nothing to tell her, and even a bare
+    // marker would be read as a new turn.
+    if (!urgent && this.lastSentPage === screenKey && this.lastSentFingerprint.get(screenKey) === fingerprint) {
+      this.dbg('info', 'page context skipped', 'unchanged since the last send');
+      return;
+    }
+    this.lastSentFingerprint.set(screenKey, fingerprint);
+    this.lastSentPage = screenKey;
+    // Field is `tools` here but `client_tools` in voice-session-start — the asymmetry
+    // is real. Tools can't be added mid-session; the first update only refreshes their
+    // `available` flags, so later ones omit the array.
+    const includeTools = !this.toolsSentThisSession;
+    this.toolsSentThisSession = true;
     const payload = {
-      type: 'update-context',
+      type: 'client-tools-update',
       conversation_id: this.conversationId,
-      client_tools: this.toolsPayload(),
-      page_context: this.pageContextFn?.() ?? {},
+      ...(includeTools ? { tools: this.toolsPayload() } : {}),
+      page_context: ctx,
     };
-    this.log('update-context ->', payload);
-    this.dbg('out', 'update-context');
+    this.log('client-tools-update ->', payload);
+    this.dbg('out', 'client-tools-update', `${urgent ? '[urgent] ' : ''}${screenKey}`);
     this.ws.send(JSON.stringify(payload));
   }
 
   async start() {
     if (this.status !== 'idle' && this.status !== 'ended') return;
     this.startTime = Date.now();
+    this.lastSentPage = null;
+    this.lastSentFingerprint.clear();
+    this.toolsSentThisSession = false;
+    this.flushAfterSpeech = false;
     this.stats = { micFrames: 0, micSoundFrames: 0, audioOut: 0, toolsSent: 0, toolsAcked: null };
     this.dbg('info', 'start()', 'connecting');
     this.setStatus('connecting');
@@ -428,9 +520,10 @@ export class ElloAgent {
       case 'error': {
         const d = msg.error ?? msg;
         const message = String(d.message ?? 'unknown error');
-        if (/unknown message type/i.test(message) && /update-context/i.test(message)) {
-          this.contextUpdatesUnsupported = true;
-          this.dbg('info', 'update-context unsupported', 'backend rejected it; disabling further sends');
+        if (/unknown message type/i.test(message)) {
+          // Never switch updates off because of this: a rejected type is OUR bug to
+          // see, not a reason to go deaf for the rest of the call.
+          this.dbg('warn', 'backend rejected a message type', message);
           break;
         }
         this.dbg('error', 'server error', message);
@@ -779,6 +872,10 @@ export class ElloAgent {
 
   stop() {
     this.muted = false;
+    for (const t of [this.pageContextFlushTimer, this.urgentFlushTimer]) if (t) clearTimeout(t);
+    this.pageContextFlushTimer = null;
+    this.urgentFlushTimer = null;
+    this.flushAfterSpeech = false;
     if (this.speakingQuietTimer) {
       clearTimeout(this.speakingQuietTimer);
       this.speakingQuietTimer = null;

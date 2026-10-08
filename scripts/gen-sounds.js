@@ -188,4 +188,7 @@ export type SoundName = keyof typeof SOUND_DATA;
 `;
 fs.mkdirSync(path.join(__dirname, '../src/feedback'), { recursive: true });
 fs.writeFileSync(path.join(__dirname, '../src/feedback/soundData.ts'), out);
+// The website plays the same clips (WebAudio), and website-next is a separate app that cannot import
+// from ../src, so it keeps its own copy — written here so the two can never drift.
+fs.writeFileSync(path.join(__dirname, '../website-next/src/feedback/soundData.ts'), out);
 console.log(`\nwrote src/feedback/soundData.ts (${Math.round(total / 1024)} KB of WAV)`);

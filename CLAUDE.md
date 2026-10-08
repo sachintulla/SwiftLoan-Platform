@@ -294,3 +294,26 @@ GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
 - Controls (`Controls.tsx`) each call `useAgentFx(label, group)` and render `<AgentRing/>`.
 - Mic caveat: UI sounds play on the sonification stream at low volume; the agent's mic is open
   during a call, so keep new sounds short/quiet or they can be transcribed as stray user turns.
+- **Website parity (`website-next/src/feedback/`):** the website has the same system — `config/sounds.ts` (same two
+  switches), `sounds.ts` (WebAudio, lazy-loaded at call start), `agentFx.ts` (DOM: reveal, ring + ripple overlays, typing
+  ticks, slider detents, press dip), `manual.ts` (visitor cues, test mode only), wired into the tools in
+  `VoiceWidget.tsx`. `scripts/gen-sounds.js` writes both copies of `soundData.ts`. Keep the two policies identical.
+
+## Website language (`website-next/`)
+
+- Exactly three languages — English, Hindi, Telugu — in `src/lib/i18n.tsx` (`LANGS`, `defineCopy`, `useCopy`). The choice is
+  stored in `localStorage` (`sl_lang`) and restored after hydration. The switch is the header menu on marketing pages and
+  `components/site/LanguageSwitcher.tsx` inside the `/apply/*` and `/account/*` shells (the header is hidden there); the
+  voice assistant's `set_language` drives the same context.
+- Copy lives in `src/i18n/*.ts` (one module per area: `apply-shell`, `apply-flow`, `apply-details`, `apply-offers`,
+  `apply-compare`, `account`, `account-support`, `status`). The `en` entry is the source and must match the page
+  character-for-character. Option pills keep the English string as the VALUE (`ChipGroup renderLabel` translates only the
+  display). Brand/technical terms stay in Latin script (SwiftLoan, PAN, OTP, EMI, KFS, Aadhaar, APR, GST, UPI, eKYC, RBI, NBFC).
+  Status labels come from `useStatusMeta()`. Not translated (legal text, English on purpose): the privacy-policy body
+  (`src/content/privacyBody.ts`) and the compliance page.
+- **Voice must not depend on page wording.** Controls are found by their on-screen text, so in Hindi/Telugu the assistant
+  passes back the translated label it read. The things that must hold in every language are marked, not matched:
+  `data-voice-gate` (logout, apply-offer, confirm-loan, verify-pan, submit-ticket, skip-step), `data-voice-otp`,
+  `data-voice-sensitive`, and `aria-busy="true"` on loading placeholders. New gated buttons need the attribute.
+- A word the owner has asked not to use: Telugu "మొదలుపెడదాం" — keep it out of all copy.
+

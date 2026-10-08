@@ -1,5 +1,14 @@
+'use client';
+
 import '@/app/theme.css'; // --sl-* tokens the legal-page stylesheet depends on
 import '@/app/privacypolicy/privacypolicy.css';
+import { defineCopy, useCopy } from '@/lib/i18n';
+
+const copy = defineCopy({
+  en: { eyebrow: 'Legal' },
+  hi: { eyebrow: 'कानूनी' },
+  te: { eyebrow: 'చట్టపరమైనవి' },
+});
 
 /**
  * Wraps a legal page in the website's own `.compliancePage` styling (dark hero
@@ -19,11 +28,12 @@ export function LegalPage({
   updated?: string;
   children: React.ReactNode;
 }) {
+  const t = useCopy(copy);
   return (
     <div className="compliancePage" style={{ minHeight: 'auto', background: 'transparent', paddingBottom: 0 }}>
       <div className="head" style={{ borderRadius: 28, padding: '38px 0 34px', marginBottom: 28 }}>
         <div className="wrap" style={{ padding: '0 30px' }}>
-          <span className="eyebrow">Legal</span>
+          <span className="eyebrow">{t.eyebrow}</span>
           <h1>{title}</h1>
           <p>{intro}</p>
           {updated && <div className="updated">{updated}</div>}

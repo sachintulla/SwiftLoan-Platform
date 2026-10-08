@@ -8,11 +8,14 @@ import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
 import { fetchMe } from '@/lib/applyApi';
 import { bootstrapSession, requestOtp } from '@/lib/session';
+import { useCopy } from '@/lib/i18n';
+import { applyFlowCopy } from '@/i18n/apply-flow';
 
 const PHONE_RE = /^[6-9]\d{9}$/;
 
 export default function ApplyPhonePage() {
   const router = useRouter();
+  const t = useCopy(applyFlowCopy).phone;
   const { setPhone, setApplicationId } = useApply();
   // True until we know whether a live login session already exists. Held so a
   // signed-in visitor never sees the phone form flash before being redirected.
@@ -60,7 +63,7 @@ export default function ApplyPhonePage() {
       setPhone(value);
       router.push('/apply/verify');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send OTP. Please try again.');
+      setError(e instanceof Error ? e.message : t.sendFailed);
     } finally {
       setLoading(false);
     }
@@ -68,25 +71,25 @@ export default function ApplyPhonePage() {
 
   if (checking) {
     return (
-      <ApplyShell stepLabel="Get started" center>
-        <div className="text-muted-foreground py-16 text-center text-sm">Loading…</div>
+      <ApplyShell stepLabel={t.stepLabel} center>
+        <div className="text-muted-foreground py-16 text-center text-sm" aria-busy="true">{t.loading}</div>
       </ApplyShell>
     );
   }
 
   return (
-    <ApplyShell stepLabel="Get started" center>
+    <ApplyShell stepLabel={t.stepLabel} center>
       <div className="flex flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-extrabold">Let&apos;s get you funded</h1>
+          <h1 className="text-2xl font-extrabold">{t.title}</h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            Enter your mobile number — we&apos;ll send a one-time code to verify it&apos;s you.
+            {t.subtitle}
           </p>
         </div>
 
         <div className="border-border rounded-2xl border bg-card p-5 text-left shadow-[var(--shadow-soft)]">
           <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-foreground font-semibold">Mobile number</span>
+            <span className="text-foreground font-semibold">{t.mobileLabel}</span>
             <div className="input-interactive flex h-11 items-center gap-2 rounded-xl px-3.5">
               <span className="text-muted-foreground text-sm font-semibold">+91</span>
               <input
@@ -106,9 +109,8 @@ export default function ApplyPhonePage() {
           <label className="bg-muted mt-4 flex items-start gap-3 rounded-xl p-3.5 text-xs">
             <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required className="accent-primary mt-0.5 h-5 w-5 shrink-0" />
             <span className="text-muted-foreground">
-              I agree to SwiftLoan&apos;s <a className="text-primary font-semibold underline">Terms of Service</a> and{' '}
-              <a href="/privacypolicy" className="text-primary font-semibold underline">Privacy Policy</a>, and consent to being
-              contacted about my loan application.
+              {t.termsA}<a className="text-primary font-semibold underline">{t.termsLink}</a>{t.termsAnd}
+              <a href="/privacypolicy" className="text-primary font-semibold underline">{t.privacyLink}</a>{t.termsB}
             </span>
           </label>
 
@@ -116,11 +118,11 @@ export default function ApplyPhonePage() {
 
           <div className="mt-4">
             <PrimaryButton onClick={submit} disabled={!valid} loading={loading}>
-              Send OTP
+              {t.sendOtp}
             </PrimaryButton>
           </div>
           <p className="text-muted-foreground mt-3 flex items-center justify-center gap-1 text-center text-[11px]">
-            <Lock className="h-3 w-3" /> We never share your number or make spam calls.
+            <Lock className="h-3 w-3" /> {t.noSpam}
           </p>
         </div>
       </div>

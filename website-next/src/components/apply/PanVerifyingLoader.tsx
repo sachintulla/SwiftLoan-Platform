@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { LockKeyhole, ScanLine, ShieldCheck, UserCheck } from 'lucide-react';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
 
-const STEPS = [
-  { icon: ScanLine, label: 'Reading your PAN', hint: 'Checking the number format' },
-  { icon: ShieldCheck, label: 'Verifying your identity', hint: 'Matching against PAN records' },
-  { icon: UserCheck, label: 'Fetching your details', hint: 'Preparing your application' },
-];
+const STEPS = [ScanLine, ShieldCheck, UserCheck];
 const STEP_MS = 1100; // pace while waiting on the API
 const FINISH_MS = 280; // pace of the fast-forward once it has answered
 const SLOW_MS = 8000; // after this, reassure that it's still working
@@ -30,6 +28,7 @@ const SLOW_MS = 8000; // after this, reassure that it's still working
  * ticks. (On failure the caller just unmounts this; it never fakes success.)
  */
 export function PanVerifyingLoader({ done = false, onFinished }: { done?: boolean; onFinished?: () => void }) {
+  const copy = useCopy(applyShellCopy);
   // step === STEPS.length means every step is complete.
   const [step, setStep] = useState(0);
   const [slow, setSlow] = useState(false);
@@ -60,18 +59,19 @@ export function PanVerifyingLoader({ done = false, onFinished }: { done?: boolea
     // on common narrow phones (confirmed: ~19px past each edge at 320px
     // width, and essentially zero margin left at 360px) — same class of
     // bug as the homepage lead-form card's ring, fixed the same way.
-    <div role="status" aria-live="polite" aria-label="Verifying your PAN" className="animate-rise-in flex flex-col items-center gap-8 overflow-x-clip py-4">
+    <div role="status" aria-live="polite" aria-busy={!allDone} aria-label={copy.panAriaLabel} className="animate-rise-in flex flex-col items-center gap-8 overflow-x-clip py-4">
       <PanScanHero done={allDone} />
 
       <div className="text-center">
-        <h1 className="text-2xl font-extrabold">{allDone ? 'PAN verified' : 'Verifying your PAN'}</h1>
+        <h1 className="text-2xl font-extrabold">{allDone ? copy.panVerified : copy.panVerifying}</h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          {allDone ? 'Taking you to your details…' : slow ? 'Still working on it — almost there' : 'Hang tight — this usually takes a few seconds'}
+          {allDone ? copy.panTakingYou : slow ? copy.panStillWorking : copy.panHangTight}
         </p>
       </div>
 
       <ol className="relative w-full max-w-sm">
-        {STEPS.map(({ icon: Icon, label, hint }, i) => {
+        {copy.panSteps.map(({ label, hint }, i) => {
+          const Icon = STEPS[i];
           const done = i < step;
           const active = i === step;
           const last = i === STEPS.length - 1;
@@ -106,7 +106,7 @@ export function PanVerifyingLoader({ done = false, onFinished }: { done?: boolea
               </span>
               <div className={`pt-1.5 transition-opacity duration-300 ${i > step ? 'opacity-45' : 'opacity-100'}`}>
                 <p className={`text-sm ${active ? 'text-foreground font-extrabold' : 'text-foreground font-semibold'}`}>{label}</p>
-                <p className="text-muted-foreground mt-0.5 text-xs">{done ? 'Done' : active ? `${hint}…` : hint}</p>
+                <p className="text-muted-foreground mt-0.5 text-xs">{done ? copy.panDone : active ? `${hint}…` : hint}</p>
               </div>
             </li>
           );
@@ -118,8 +118,8 @@ export function PanVerifyingLoader({ done = false, onFinished }: { done?: boolea
           <LockKeyhole className="text-primary h-4 w-4" />
         </span>
         <div>
-          <div className="text-sm font-bold">Your data is safe with us</div>
-          <div className="text-muted-foreground text-xs">Encrypted end to end · never shared without your consent</div>
+          <div className="text-sm font-bold">{copy.panSafeTitle}</div>
+          <div className="text-muted-foreground text-xs">{copy.panSafeBody}</div>
         </div>
       </div>
     </div>
