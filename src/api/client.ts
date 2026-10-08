@@ -594,6 +594,35 @@ export const api = {
     }),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
 
+  // Alternative-offers facility (Yubi/YMPL). On tapping the "Alternative offers"
+  // tile the app mints a fresh partner redirect URL to open in the in-app
+  // WebView. Always resolves (never throws for a graceful tile): check
+  // `.altOffer.available`.
+  altOfferRedirect: (
+    applicationId: string,
+  ): Promise<{
+    altOffer: {
+      available: boolean; provider: string; status: string; redirectUrl: string | null;
+      pan?: string | null;
+      // The funnel details we already hold, to prefill YMPL's hosted journey.
+      prefill?: Record<string, string | number | null>;
+      // When true, offers already exist and the journey resumes straight to its
+      // offers page — the app keeps its loader up until offers show.
+      resumeToOffers?: boolean;
+      journeyStatus?: string | null;
+    };
+  }> =>
+    request('POST', `/applications/${applicationId}/alt-offer`),
+
+  // Record that the applicant tapped "Proceed" on the Yubi/YMPL offers page, so
+  // it surfaces in My Loans with its date/time. Fire-and-forget.
+  altOfferApplied: (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null }> =>
+    request('POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {}),
+
+  // Client feature flags (public). Fetched on launch to decide whether the
+  // "Alternative offers" tile is shown at all.
+  features: (): Promise<{ data: { altOffers: boolean } }> => request('GET', '/config/features'),
+
   // KYC / loans / misc
   submitKyc: (method: 'aadhaar' | 'pan' | 'bank' | 'selfie', payload: Record<string, unknown> = {}) =>
     request('POST', `/kyc/${method}`, payload),
