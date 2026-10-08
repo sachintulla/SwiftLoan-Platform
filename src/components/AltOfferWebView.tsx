@@ -215,6 +215,17 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
           try{ window.ReactNativeWebView.postMessage(JSON.stringify({ type:'YUBI_OFFERS_READY' })); }catch(e){}
         }
       }
+      // Detect the partner's own in-page error ("Something went wrong …") — it's
+      // a 200 page, so the WebView's onError never fires. The first token/session
+      // occasionally lands here; the app silently re-mints once (same as the
+      // refresh icon), which reliably reaches offers.
+      if(!window.__yubiErrPosted){
+        var et=((document.body&&document.body.innerText)||'').toLowerCase();
+        if(/something went wrong|unexpected error occurred|return to your lender/.test(et)){
+          window.__yubiErrPosted=true;
+          try{ window.ReactNativeWebView.postMessage(JSON.stringify({ type:'YUBI_ERROR' })); }catch(e){}
+        }
+      }
     }
     run();
     var mo; try{ mo=new MutationObserver(run); mo.observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
@@ -246,12 +257,16 @@ export default function AltOfferWebView({
   prefill,
   onProceed,
   onBack,
+  onPartnerError,
   waitForOffers = false,
 }: {
   url: string;
   prefill?: Record<string, string | number | null>;
   onProceed?: (label?: string) => void;
   onBack?: () => void;
+  // The partner page rendered its own "Something went wrong" error (a 200 page,
+  // so onError can't see it). The parent can silently re-mint once.
+  onPartnerError?: () => void;
   // When the referral already has offers, the journey resumes straight to its
   // offers page — hold the branded loader over the auto-advancing intermediate
   // screens (DOB etc.) until offers actually show, so none of them flash.
@@ -279,6 +294,8 @@ export default function AltOfferWebView({
     // other intermediate screens should stay hidden behind the loader).
     else if (msg?.type === 'YUBI_STEP_FILLED') { if (!waitForOffers) hideLoader(); }
     else if (msg?.type === 'YUBI_PROCEED') onProceed?.(msg.label);
+    // Keep the loader up (don't reveal the error) and let the parent re-mint.
+    else if (msg?.type === 'YUBI_ERROR') { setLoading(true); onPartnerError?.(); }
   };
 
   if (!url || failed) {
