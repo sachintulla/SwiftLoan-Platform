@@ -248,6 +248,7 @@ export function OtpModal({
               <input
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                data-voice-otp="true"
                 maxLength={6}
                 pattern="\d{6}"
                 required
