@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Animated, Easing } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from './Icon';
 import { Skeleton } from './common/Loading';
 import { colors, font, inr } from '../theme/tokens';
 import { api, PrequalifyingOffer } from '../api/client';
 import { LENDER_LOGOS } from '../theme/lenderLogos';
+
+/** Local copy of the featured ads (see PrequalifiedOffers). Bump the version to refresh them everywhere. */
+export const FEATURED_OFFERS_CACHE_KEY = 'swiftloan.featuredOffers.v1';
 
 // These are SPONSORED LENDER ADS — marketing creatives lenders publish in
 // SwiftLoan — deliberately NOT styled like the personalised "eligible offers"
@@ -87,12 +91,34 @@ export function PrequalifiedOffers({ onCheckEligibility }: { onCheckEligibility:
   const [offers, setOffers] = useState<PrequalifyingOffer[] | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // These ads are static, so the API is called ONCE: the first time they load they are saved on
+  // the phone, and every later visit and login shows the saved copy without calling the API.
+  // An empty or failed response is not saved, so the next open tries again. To force a refresh
+  // on every phone (e.g. the ads were changed), bump FEATURED_OFFERS_CACHE_KEY's version.
   useEffect(() => {
     let alive = true;
-    api.prequalifyingOffers()
-      .then((res) => { if (alive) setOffers(res.data || []); })
-      .catch(() => { if (alive) setOffers([]); })
-      .finally(() => { if (alive) setLoading(false); });
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(FEATURED_OFFERS_CACHE_KEY);
+        const parsed = saved ? JSON.parse(saved) : null;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (alive) { setOffers(parsed as PrequalifyingOffer[]); setLoading(false); }
+          return;
+        }
+      } catch {
+        /* unreadable cache: fall through and fetch */
+      }
+      try {
+        const res = await api.prequalifyingOffers();
+        const list = res.data || [];
+        if (list.length > 0) AsyncStorage.setItem(FEATURED_OFFERS_CACHE_KEY, JSON.stringify(list)).catch(() => undefined);
+        if (alive) setOffers(list);
+      } catch {
+        if (alive) setOffers([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
     return () => { alive = false; };
   }, []);
 

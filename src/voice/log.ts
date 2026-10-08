@@ -34,3 +34,19 @@ export function vlog(...parts: unknown[]): void {
     // never let diagnostics break the pipeline
   }
 }
+
+/**
+ * Like vlog, but ALSO in release builds. Only for short, non-personal diagnostics — language codes
+ * and state transitions, never transcripts, names, numbers or payloads. Used to trace which path
+ * switched the agent's language mid-call:   adb logcat -s SwiftLoanDiag
+ */
+export function vlogAlways(...parts: unknown[]): void {
+  const msg = parts.map(p => (typeof p === 'string' ? p : String(p))).join(' ');
+  try {
+    // Android has an always-on channel (tag SwiftLoanDiag); elsewhere fall back to the debug-only one.
+    if (mod?.diagLog) mod.diagLog(msg);
+    else mod?.nativeLog?.(msg);
+  } catch {
+    // diagnostics must never break the app
+  }
+}

@@ -47,10 +47,10 @@ export function ApplyShell({
       ) : (
         <aside className="bg-deep-gradient relative hidden h-screen w-[360px] shrink-0 flex-col gap-7 self-start overflow-hidden p-10 text-white lg:sticky lg:top-0 lg:flex">
           <div className="absolute -right-24 -bottom-24 h-72 w-72 rounded-full bg-[var(--mint)]/25 blur-3xl" aria-hidden />
-          <Link href="/" className="relative z-10 flex items-center gap-2.5 text-lg font-extrabold">
+          <div className="relative z-10 flex items-center gap-2.5 text-lg font-extrabold">
             <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
             SwiftLoan
-          </Link>
+          </div>
           <div className="relative z-10">
             <h2 className="text-2xl leading-tight font-extrabold">Smarter borrowing starts here</h2>
             <p className="mt-2 text-sm leading-relaxed text-white/70">

@@ -74,6 +74,15 @@
         "website-next"
       ],
       "port": 4002
+    },
+    {
+      "name": "metro",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "react-native",
+        "start"
+      ],
+      "port": 8081
     }
   ]
 }

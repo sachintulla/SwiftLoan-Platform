@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApplyShell } from '@/components/apply/ApplyShell';
-import { Badge, Card, PrimaryButton, SecondaryButton } from '@/components/apply/primitives';
+import { Badge, PrimaryButton, SecondaryButton } from '@/components/apply/primitives';
+import { LenderLogo, prettyLenderName } from '@/components/apply/LenderLogo';
 import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
-import { Scale } from 'lucide-react';
+import { ArrowRight, Lock, Scale, ShieldCheck } from 'lucide-react';
 
 // Same statuses the app's My Offers tab (fare.tsx) treats as "still carries
 // showable offers".
@@ -74,7 +75,7 @@ export default function OffersPage() {
 
   if (!sessionReady || loading) {
     return (
-      <ApplyShell stepLabel="Your offers" center accountUser={accountUser}>
+      <ApplyShell center accountUser={accountUser}>
         <p className="text-muted-foreground text-sm">Loading your offers…</p>
       </ApplyShell>
     );
@@ -86,7 +87,7 @@ export default function OffersPage() {
   // id loaded a tick later.
   if (!applicationId) {
     return (
-      <ApplyShell stepLabel="Your offers" center accountUser={accountUser}>
+      <ApplyShell center accountUser={accountUser}>
         <h1 className="text-xl font-extrabold">No application yet</h1>
         <p className="text-muted-foreground mt-2 mb-6 text-sm">Apply for a loan to see personalised offers here.</p>
         <PrimaryButton onClick={() => router.push('/apply/step-1')}>Apply for a loan</PrimaryButton>
@@ -96,7 +97,7 @@ export default function OffersPage() {
 
   if (error && !app) {
     return (
-      <ApplyShell stepLabel="Your offers" center accountUser={accountUser}>
+      <ApplyShell center accountUser={accountUser}>
         <p className="text-danger mb-4 text-sm font-semibold">{error}</p>
         <SecondaryButton onClick={load}>Retry</SecondaryButton>
       </ApplyShell>
@@ -110,9 +111,10 @@ export default function OffersPage() {
   const allOffers = app?.offers ?? [];
   const offers = allOffers.filter((o) => !o.applied);
   const appliedElsewhere = allOffers.length > 0 && offers.length === 0;
+  const lowestApr = Math.min(...offers.filter((o) => o.apr > 0).map((o) => o.apr));
 
   return (
-    <ApplyShell backHref="/apply/step-1" backLabel="Update details" stepLabel="Your offers" progressPct={100} accountUser={accountUser}>
+    <ApplyShell progressPct={100} accountUser={accountUser} wide>
       <div className="flex flex-col gap-5">
         {allOffers.length === 0 ? (
           // Two real, different situations were showing the exact same copy:
@@ -182,19 +184,23 @@ export default function OffersPage() {
         ) : (
           <>
             <div>
-              <h1 className="text-2xl font-extrabold">
-                {offers.length === 1 ? 'You have 1 offer!' : `Great news — you have ${offers.length} offers!`}
-              </h1>
-              <p className="text-muted-foreground mt-2 text-sm">Compare and choose the offer that works best for you.</p>
-              {offers.length >= 2 && (
-                <button
-                  onClick={() => router.push('/apply/compare')}
-                  className="border-primary text-primary hover:bg-accent mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full border-2 px-5 py-3 text-sm font-bold transition-colors sm:w-auto"
-                >
-                  <Scale className="h-4 w-4" />
-                  Compare all {offers.length} offers side by side
-                </button>
-              )}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-extrabold">
+                    {offers.length === 1 ? 'You have 1 offer!' : `Great news — you have ${offers.length} offers!`}
+                  </h1>
+                  <p className="text-muted-foreground mt-2 text-sm">Compare and choose the offer that works best for you.</p>
+                </div>
+                {offers.length >= 2 && (
+                  <button
+                    onClick={() => router.push('/apply/compare')}
+                    className="border-primary text-primary hover:bg-accent inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-full border-2 px-5 py-3 text-sm font-bold whitespace-nowrap transition-colors sm:w-auto"
+                  >
+                    <Scale className="h-4 w-4" />
+                    Compare all {offers.length} offers side by side
+                  </button>
+                )}
+              </div>
               {allOffers.length > offers.length && (
                 <p className="text-muted-foreground mt-1 text-xs">
                   Already applied to {allOffers.length - offers.length} offer{allOffers.length - offers.length > 1 ? 's' : ''} —{' '}
@@ -206,76 +212,91 @@ export default function OffersPage() {
               )}
             </div>
 
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,420px),1fr))] items-stretch gap-5">
             {offers.map((offer) => {
-              const lenderName = offer.lenderName ?? offer.partner?.name ?? 'Lender';
+              const lenderName = prettyLenderName(offer.lenderName ?? offer.partner?.name ?? 'Lender');
               // No rate yet (lender confirms it after approval): never show
               // "0% p.a." or an EMI computed at 0% — both would be wrong.
               const rateOnApproval = !(offer.apr > 0);
               const hasEmi = !rateOnApproval && (!!offer.emiOptions?.length || offer.emi > 0);
               const applying = applyingId === offer.id;
               // Real signals from the lender/partner feed — mirrors
-              // offers.tsx's OfferCard exactly. Previously this was
-              // `i === 0 ? 'High match' : 'Pending eligibility'`, a purely
-              // positional badge with no connection to any actual lender or
-              // webhook status — "Pending eligibility" isn't a real state at
-              // all, which is how it could show something at odds with what
-              // the lender (via KFT) was actually reporting.
+              // offers.tsx's OfferCard exactly.
               const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
+              const lowestRate = offer.apr > 0 && offer.apr === lowestApr && offers.length > 1;
               return (
-                <Card key={offer.id} className={offer.recommended ? 'border-primary' : ''}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-accent text-primary grid h-11 w-11 place-items-center rounded-xl text-sm font-extrabold">
-                        {lenderName.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="text-foreground text-sm font-extrabold">{lenderName}</div>
-                        <div className="text-muted-foreground text-xs">NBFC · RBI Registered</div>
+                <article
+                  key={offer.id}
+                  className={`bg-card flex flex-col overflow-hidden rounded-3xl border transition-shadow hover:shadow-[var(--shadow-float)] ${
+                    highMatch || offer.recommended ? 'border-primary/60 shadow-[var(--shadow-soft)]' : 'border-border'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3 p-5 pb-4">
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <LenderLogo name={lenderName} logoUrl={offer.lenderLogoUrl} />
+                      <div className="min-w-0">
+                        <h2 className="text-foreground line-clamp-2 text-base leading-snug font-extrabold">{lenderName}</h2>
+                        <p className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs font-medium">
+                          <ShieldCheck className="text-mint h-3.5 w-3.5" /> RBI registered lender
+                        </p>
                       </div>
                     </div>
-                    {highMatch && <Badge tone="success">★ High match</Badge>}
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      {highMatch && <Badge tone="success">★ High match</Badge>}
+                      {lowestRate && <Badge tone="info">Lowest rate</Badge>}
+                    </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2.5">
+                  <div className="border-border bg-muted/50 grid grid-cols-3 divide-x divide-border border-y">
                     {hasEmi ? (
                       <>
-                        <Metric k="Monthly EMI" v={fmtINR(offer.emi)} />
-                        <Metric k="Tenure" v={`${offer.tenureMonths} mo`} />
-                        <Metric k="Interest" v={`${offer.apr}% p.a.`} />
+                        <Stat k="Loan amount" v={fmtINR(offer.amount)} sub={`over ${offer.tenureMonths} months`} />
+                        <Stat k="Monthly EMI" v={fmtINR(offer.emi)} accent />
+                        <Stat k="Interest rate" v={`${offer.apr}%`} sub="per annum" />
                       </>
                     ) : (
                       <>
-                        <Metric k="Eligible amount" v={fmtINR(offer.amount)} />
-                        <Metric k="Interest rate" v={rateOnApproval ? 'On approval' : `${offer.apr}% p.a.`} />
-                        <Metric k="Disbursal" v="24-48 hrs" />
+                        <Stat k="Eligible amount" v={fmtINR(offer.amount)} />
+                        <Stat k="Interest rate" v={rateOnApproval ? 'On approval' : `${offer.apr}%`} sub={rateOnApproval ? undefined : 'per annum'} />
+                        <Stat k="Disbursal" v="24-48 hrs" />
                       </>
                     )}
                   </div>
 
-                  {offer.processingFeeAmount != null && (
-                    <div className="bg-muted text-muted-foreground mt-3 flex justify-between rounded-lg px-3 py-2 text-xs">
-                      <span>Processing fee {fmtINR(offer.processingFeeAmount)}</span>
-                      {offer.netDisbursalAmount != null && (
-                        <span>
-                          Net disbursal <strong className="text-foreground">{fmtINR(offer.netDisbursalAmount)}</strong>
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex flex-1 flex-col p-5 pt-4">
+                    {offer.processingFeeAmount != null && (
+                      <dl className="text-muted-foreground mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
+                        <div className="flex gap-1.5">
+                          <dt>Processing fee</dt>
+                          <dd className="text-foreground font-bold">{fmtINR(offer.processingFeeAmount)}</dd>
+                        </div>
+                        {offer.netDisbursalAmount != null && (
+                          <div className="flex gap-1.5">
+                            <dt>You receive</dt>
+                            <dd className="text-foreground font-bold">{fmtINR(offer.netDisbursalAmount)}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    )}
 
-                  <button
-                    onClick={() => pickOffer(offer)}
-                    disabled={!!applyingId}
-                    className={`bg-brand-gradient text-primary-foreground mt-4 w-full rounded-full py-3 text-sm font-bold ${applyingId && !applying ? 'opacity-50' : ''}`}
-                  >
-                    {applying ? 'Applying…' : offer.redirectionUrl ? 'Apply →' : 'Select this offer'}
-                  </button>
-                  {offer.redirectionUrl && (
-                    <p className="text-muted-foreground mt-1.5 text-center text-[10px]">Opens {lenderName}&apos;s own secure application page</p>
-                  )}
-                </Card>
+                    <button
+                      onClick={() => pickOffer(offer)}
+                      disabled={!!applyingId}
+                      className={`bg-brand-gradient text-primary-foreground mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5 active:scale-[0.98] ${applyingId && !applying ? 'opacity-50' : ''}`}
+                    >
+                      {applying ? 'Applying…' : offer.redirectionUrl ? 'Apply now' : 'Select this offer'}
+                      {!applying && <ArrowRight className="h-4 w-4" />}
+                    </button>
+                    {offer.redirectionUrl && (
+                      <p className="text-muted-foreground mt-2 flex items-center justify-center gap-1 text-[11px]">
+                        <Lock className="h-3 w-3" /> Continues on {lenderName}&apos;s secure application page
+                      </p>
+                    )}
+                  </div>
+                </article>
               );
             })}
+            </div>
 
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-xs">
               <strong className="text-foreground">Offer validity —</strong> these offers are valid for 24 hours and are based on
@@ -289,11 +310,12 @@ export default function OffersPage() {
   );
 }
 
-function Metric({ k, v }: { k: string; v: string }) {
+function Stat({ k, v, sub, accent }: { k: string; v: string; sub?: string; accent?: boolean }) {
   return (
-    <div className="bg-muted rounded-lg px-3 py-2">
-      <div className="text-muted-foreground text-[10px] font-bold uppercase">{k}</div>
-      <div className="text-foreground mt-0.5 text-sm font-extrabold">{v}</div>
+    <div className="min-w-0 px-3 py-3.5 sm:px-4">
+      <div className="text-muted-foreground text-[10px] font-bold tracking-wide uppercase">{k}</div>
+      <div className={`mt-1 text-[13px] font-extrabold whitespace-nowrap sm:text-[15px] ${accent ? 'text-primary' : 'text-foreground'}`}>{v}</div>
+      {sub && <div className="text-muted-foreground mt-0.5 text-[11px]">{sub}</div>}
     </div>
   );
 }

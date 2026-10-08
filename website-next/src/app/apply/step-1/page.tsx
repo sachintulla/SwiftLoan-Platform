@@ -9,6 +9,7 @@ import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
 import { fetchMe, verifyPan } from '@/lib/applyApi';
 import { savePanHandoff } from '@/lib/panPrefill';
+import { useAccountUser } from '@/hooks/useAccountUser';
 
 const PAN_HOLDER_CODES = 'ABCFGHJLPT';
 function isValidPan(v: string) {
@@ -31,6 +32,9 @@ function alertFromError(e: unknown): AlertContent {
 
 export default function Step1PanPage() {
   const router = useRouter();
+  // Non-null once a login session exists: swaps in the account sidebar (with
+  // Log out) and sends "Back" to the dashboard rather than the marketing site.
+  const accountUser = useAccountUser();
   const [pan, setPan] = useState('');
   // Consent must be an explicit, unforced opt-in — it authorizes a credit-report
   // pull, so it must never start pre-checked.
@@ -89,7 +93,7 @@ export default function Step1PanPage() {
   // brand rail stays, and it reads as its own page within the funnel.
   if (loading) {
     return (
-      <ApplyShell stepLabel="Step 1 of 3" progressPct={40}>
+      <ApplyShell stepLabel="Step 1 of 3" progressPct={40} accountUser={accountUser}>
         <Stepper step={1} />
         <PanVerifyingLoader done={verified} onFinished={goToDetails} />
       </ApplyShell>
@@ -97,7 +101,13 @@ export default function Step1PanPage() {
   }
 
   return (
-    <ApplyShell backHref="/" backLabel="Back to home" stepLabel="Step 1 of 3" progressPct={28}>
+    <ApplyShell
+      backHref={accountUser ? '/account' : '/'}
+      backLabel={accountUser ? 'Back to dashboard' : 'Back to home'}
+      stepLabel="Step 1 of 3"
+      progressPct={28}
+      accountUser={accountUser}
+    >
       <Stepper step={1} />
       <div className="mb-7 flex items-start gap-3.5">
         <span className="bg-accent grid h-11 w-11 shrink-0 place-items-center rounded-2xl">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Award, Check, Info, SlidersHorizontal, TrendingDown, X } from 'lucide-react';
+import { Award, CalendarClock, Check, Info, PiggyBank, Percent, Receipt, SlidersHorizontal, TrendingDown, Wallet, X, Zap, type LucideIcon } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { Slider } from '@/components/ui/slider';
 import { fmtINR } from '@/lib/core';
@@ -149,7 +149,17 @@ export default function CompareOffersPage() {
 
       <div className="lg:grid lg:grid-cols-[272px_minmax(0,1fr)] lg:items-start lg:gap-6">
         {/* Desktop filters */}
-        <aside className="border-border bg-card sticky top-4 hidden rounded-2xl border p-5 shadow-[var(--shadow-soft)] lg:block">{filterPanel}</aside>
+        <aside className="border-border bg-card sticky top-4 hidden rounded-2xl border p-5 shadow-[var(--shadow-soft)] lg:block">
+          <FilterPanel
+            filters={filters}
+            set={set}
+            emiRange={emiRange}
+            amountOptions={amountOptions}
+            activeFilterCount={activeFilterCount}
+            onReset={resetFilters}
+            showHeader
+          />
+        </aside>
 
         {/* Phones / tablets: quick controls + filter sheet */}
         <div className="mb-4 flex flex-col gap-3 lg:hidden">
@@ -185,7 +195,20 @@ export default function CompareOffersPage() {
 
         <div className="flex min-w-0 flex-col gap-4">
           {result.best ? (
-            <BestCard row={result.best} rankBy={filters.rankBy} saves={result.bestSavesVsWorst} />
+            <BestCard
+              // Shows the currently selected lender (the best one until the
+              // visitor picks another in the table) so the header and the
+              // Apply button beside it always refer to the same offer.
+              row={selectedRow ?? result.best}
+              isBest={(selectedRow ?? result.best).id === result.best.id}
+              rankBy={filters.rankBy}
+              saves={result.bestSavesVsWorst}
+              action={
+                selectedRow && selectedOffer ? (
+                  <ApplyButton offer={selectedOffer} row={selectedRow} applyingId={applyingId} onApply={apply} compact />
+                ) : null
+              }
+            />
           ) : (
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-sm">
               {result.rows.length ? 'These lenders confirm their rate only after approval, so we can’t rank them yet.' : null}
@@ -242,14 +265,6 @@ export default function CompareOffersPage() {
           </p>
 
           {applyError && <p className="text-danger text-sm font-semibold">{applyError}</p>}
-
-          {/* Desktop apply bar */}
-          {selectedRow && selectedOffer && (
-            <div className="hidden items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-soft)] lg:flex">
-              <SelectionSummary row={selectedRow} bestId={result.best?.id ?? null} />
-              <ApplyButton offer={selectedOffer} row={selectedRow} applyingId={applyingId} onApply={apply} />
-            </div>
-          )}
         </div>
       </div>
 
@@ -288,6 +303,15 @@ export default function CompareOffersPage() {
 
 // ── Filters ────────────────────────────────────────────────────────────────
 
+const RANK_ICONS: Partial<Record<RankBy, LucideIcon>> = {
+  cost: Wallet,
+  emi: CalendarClock,
+  rate: Percent,
+  interest: PiggyBank,
+  fee: Receipt,
+  approval: Zap,
+};
+
 function FilterPanel({
   filters,
   set,
@@ -295,6 +319,7 @@ function FilterPanel({
   amountOptions,
   activeFilterCount,
   onReset,
+  showHeader,
 }: {
   filters: Filters;
   set: (p: Partial<Filters>) => void;
@@ -302,100 +327,145 @@ function FilterPanel({
   amountOptions: number[];
   activeFilterCount: number;
   onReset: () => void;
+  /** Desktop sidebar only — the phone sheet already has its own "Filters" title. */
+  showHeader?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-6">
-      <Section title="Tenure">
-        <div className="grid grid-cols-5 gap-1.5">
-          {TENURES.map((t) => (
-            <button
-              key={t}
-              onClick={() => set({ tenure: t })}
-              className={`rounded-lg py-2 text-xs font-bold transition-colors ${
-                filters.tenure === t ? 'bg-primary text-white shadow-[var(--shadow-soft)]' : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {t}
-              <span className="block text-[9px] font-semibold opacity-80">mo</span>
+    <div className="flex flex-col">
+      {showHeader && (
+        <div className="border-border mb-5 flex items-center justify-between border-b pb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="bg-accent text-primary grid h-8 w-8 place-items-center rounded-lg">
+              <SlidersHorizontal className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-sm leading-tight font-extrabold">Filters</p>
+              <p className="text-muted-foreground text-[11px]">
+                {activeFilterCount > 0 ? `${activeFilterCount} applied` : 'Fine-tune your offers'}
+              </p>
+            </div>
+          </div>
+          {activeFilterCount > 0 && (
+            <button onClick={onReset} className="text-primary hover:bg-accent rounded-full px-2.5 py-1 text-xs font-bold transition-colors">
+              Reset
             </button>
-          ))}
+          )}
         </div>
-      </Section>
-
-      <Section title="Best offer by">
-        <div className="flex flex-col gap-1.5">
-          {RANKS.map((k) => {
-            const on = filters.rankBy === k;
-            return (
-              <button
-                key={k}
-                onClick={() => set({ rankBy: k })}
-                className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                  on ? 'border-primary bg-accent' : 'border-border hover:bg-muted/60'
-                }`}
-              >
-                <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 ${on ? 'border-primary' : 'border-border'}`}>
-                  {on && <span className="bg-primary h-2 w-2 rounded-full" />}
-                </span>
-                <span>
-                  <span className="block text-sm font-bold">{RANK_LABELS[k]}</span>
-                  <span className="text-muted-foreground block text-[11px] leading-snug">{RANK_HINT[k]}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      {emiRange && (
-        <Section title="Monthly EMI budget" right={filters.maxEmi != null ? `Up to ${fmtINR(filters.maxEmi)}` : 'Any'}>
-          <Slider
-            min={emiRange.lo}
-            max={emiRange.hi}
-            step={500}
-            value={[filters.maxEmi ?? emiRange.hi]}
-            onValueChange={([v]) => v != null && set({ maxEmi: v >= emiRange.hi ? null : v })}
-          />
-          <div className="text-muted-foreground mt-2 flex justify-between text-[11px] font-semibold">
-            <span>{fmtINR(emiRange.lo)}</span>
-            <span>{fmtINR(emiRange.hi)}</span>
-          </div>
-        </Section>
       )}
 
-      {amountOptions.length > 1 && (
-        <Section title="Loan amount">
-          <div className="flex flex-wrap gap-1.5">
-            <SmallChip on={filters.minAmount == null} onClick={() => set({ minAmount: null })}>
-              Any
-            </SmallChip>
-            {amountOptions.slice(1).map((a) => (
-              <SmallChip key={a} on={filters.minAmount === a} onClick={() => set({ minAmount: a })}>
-                {fmtINR(a)}+
+      <div className="divide-border flex flex-col gap-5 [&>*:not(:first-child)]:border-t [&>*:not(:first-child)]:border-border [&>*:not(:first-child)]:pt-5">
+        <Section title="Tenure" right={`${filters.tenure} months`}>
+          <div role="radiogroup" aria-label="Tenure" className="bg-muted grid grid-cols-5 gap-1 rounded-xl p-1">
+            {TENURES.map((t) => {
+              const on = filters.tenure === t;
+              return (
+                <button
+                  key={t}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => set({ tenure: t })}
+                  className={`rounded-lg py-2 text-xs font-extrabold transition-all ${
+                    on ? 'bg-card text-primary shadow-[var(--shadow-soft)]' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-muted-foreground mt-1.5 text-center text-[10px] font-semibold">months</p>
+        </Section>
+
+        <Section title="Best offer by">
+          <div role="radiogroup" aria-label="Best offer by" className="flex flex-col gap-1">
+            {RANKS.map((k) => {
+              const on = filters.rankBy === k;
+              const Icon = RANK_ICONS[k] ?? Award;
+              return (
+                <button
+                  key={k}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => set({ rankBy: k })}
+                  className={`flex items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                    on ? 'bg-accent' : 'hover:bg-muted/70'
+                  }`}
+                >
+                  <span
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors ${
+                      on ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block text-[13px] leading-tight font-bold ${on ? 'text-foreground' : 'text-foreground/80'}`}>{RANK_LABELS[k]}</span>
+                    {on && <span className="text-muted-foreground mt-0.5 block text-[11px] leading-snug">{RANK_HINT[k]}</span>}
+                  </span>
+                  {on && <Check className="text-primary h-4 w-4 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+
+        {emiRange && (
+          <Section title="Monthly EMI budget" right={filters.maxEmi != null ? `Up to ${fmtINR(filters.maxEmi)}` : 'Any'}>
+            <Slider
+              aria-label="Monthly EMI budget"
+              min={emiRange.lo}
+              max={emiRange.hi}
+              step={500}
+              value={[filters.maxEmi ?? emiRange.hi]}
+              onValueChange={([v]) => v != null && set({ maxEmi: v >= emiRange.hi ? null : v })}
+            />
+            <div className="text-muted-foreground mt-2.5 flex justify-between text-[11px] font-semibold">
+              <span>{fmtINR(emiRange.lo)}</span>
+              <span>{fmtINR(emiRange.hi)}</span>
+            </div>
+          </Section>
+        )}
+
+        {amountOptions.length > 1 && (
+          <Section title="Minimum loan amount">
+            <div className="flex flex-wrap gap-1.5">
+              <SmallChip on={filters.minAmount == null} onClick={() => set({ minAmount: null })}>
+                Any
               </SmallChip>
-            ))}
-          </div>
-        </Section>
-      )}
+              {amountOptions.slice(1).map((a) => (
+                <SmallChip key={a} on={filters.minAmount === a} onClick={() => set({ minAmount: a })}>
+                  {fmtINR(a)}+
+                </SmallChip>
+              ))}
+            </div>
+          </Section>
+        )}
 
-      <label className="flex cursor-pointer items-center justify-between gap-3">
-        <span>
-          <span className="block text-sm font-bold">Include “rate on approval”</span>
-          <span className="text-muted-foreground block text-[11px]">Lenders who confirm the rate later</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={filters.includeOnApproval}
-          onChange={(e) => set({ includeOnApproval: e.target.checked })}
-          className="accent-primary h-5 w-5 shrink-0"
-        />
-      </label>
+        <div className="flex items-center justify-between gap-3">
+          <span>
+            <span className="block text-[13px] font-bold">Include “rate on approval”</span>
+            <span className="text-muted-foreground block text-[11px]">Lenders who confirm the rate later</span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={filters.includeOnApproval}
+            aria-label="Include rate on approval"
+            onClick={() => set({ includeOnApproval: !filters.includeOnApproval })}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${filters.includeOnApproval ? 'bg-primary' : 'bg-border'}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${filters.includeOnApproval ? 'translate-x-5' : ''}`}
+            />
+          </button>
+        </div>
 
-      {activeFilterCount > 0 && (
-        <button onClick={onReset} className="text-primary self-start text-sm font-bold underline">
-          Reset filters
-        </button>
-      )}
+        {!showHeader && activeFilterCount > 0 && (
+          <button onClick={onReset} className="text-primary self-start text-sm font-bold underline">
+            Reset filters
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -403,8 +473,8 @@ function FilterPanel({
 function Section({ title, right, children }: { title: string; right?: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-2.5 flex items-center justify-between">
-        <p className="text-muted-foreground text-[11px] font-bold tracking-wide uppercase">{title}</p>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-foreground text-xs font-extrabold tracking-wide uppercase">{title}</p>
         {right && <p className="text-primary text-xs font-bold">{right}</p>}
       </div>
       {children}
@@ -442,43 +512,64 @@ function SmallChip({ on, onClick, children }: { on: boolean; onClick: () => void
 
 // ── Results ────────────────────────────────────────────────────────────────
 
-function BestCard({ row, rankBy, saves }: { row: CompareRow; rankBy: RankBy; saves: number | null }) {
+function BestCard({
+  row,
+  isBest,
+  rankBy,
+  saves,
+  action,
+}: {
+  row: CompareRow;
+  isBest: boolean;
+  rankBy: RankBy;
+  saves: number | null;
+  /** Apply button — desktop only; phones/tablets keep the sticky bottom bar. */
+  action?: React.ReactNode;
+}) {
   return (
-    <div className="bg-deep-gradient relative overflow-hidden rounded-2xl p-5 text-white shadow-[var(--shadow-float)]">
-      <div className="absolute -top-10 -right-10 h-36 w-36 rounded-full bg-white/10 blur-2xl" aria-hidden />
-      <div className="relative flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <LenderMark row={row} light />
+    // Light mint card (not the dark green) so the gradient Apply button in the
+    // corner stands out instead of blending into the background.
+    <div
+      className="border-primary/20 relative overflow-hidden rounded-2xl border p-5 shadow-[var(--shadow-soft)]"
+      style={{ background: 'linear-gradient(135deg, #e8f8f3 0%, #ffffff 55%, #ddf2ec 100%)' }}
+    >
+      <div className="bg-primary/10 absolute -top-12 -right-12 h-40 w-40 rounded-full blur-3xl" aria-hidden />
+      <div className="relative flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <LenderMark row={row} />
           <div>
-            <p className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-white/75 uppercase">
-              <Award className="h-3.5 w-3.5" /> Best for you · {RANK_LABELS[rankBy].toLowerCase()}
+            <p className="text-primary flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase">
+              <Award className="h-3.5 w-3.5" /> {isBest ? `Best for you · ${RANK_LABELS[rankBy].toLowerCase()}` : 'Your choice'}
             </p>
-            <p className="text-lg font-extrabold">{row.lenderName}</p>
+            <p className="text-foreground text-lg font-extrabold">{row.lenderName}</p>
           </div>
         </div>
-        {saves != null && saves > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold">
-            <TrendingDown className="h-3.5 w-3.5" /> Saves {fmtINR(saves)} vs the costliest
-          </span>
-        )}
+        {action && <div className="hidden max-w-[60%] min-w-0 shrink-0 lg:flex">{action}</div>}
       </div>
       <div className="relative mt-4 grid grid-cols-3 gap-2">
         <BigStat k="Monthly EMI" v={fmtINR(row.emi)} />
         <BigStat k="Interest" v={`${row.rate}% p.a.`} />
         <BigStat k="Total cost" v={fmtINR(row.costOfBorrowing)} />
       </div>
-      <p className="relative mt-3 text-xs text-white/70">
-        {fmtINR(row.amount)} over {row.tenure} months · you repay {fmtINR(row.totalRepay)} in total
-      </p>
+      <div className="relative mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="text-muted-foreground text-xs">
+          {fmtINR(row.amount)} over {row.tenure} months · you repay {fmtINR(row.totalRepay)} in total
+        </p>
+        {isBest && saves != null && saves > 0 && (
+          <span className="bg-success-soft text-success inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
+            <TrendingDown className="h-3.5 w-3.5" /> Saves {fmtINR(saves)} vs the costliest
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
 function BigStat({ k, v }: { k: string; v: string }) {
   return (
-    <div className="rounded-xl bg-white/12 px-3 py-2.5">
-      <p className="text-[10px] font-bold tracking-wide text-white/70 uppercase">{k}</p>
-      <p className="mt-0.5 text-sm font-extrabold sm:text-base">{v}</p>
+    <div className="border-border rounded-xl border bg-white/80 px-3 py-2.5">
+      <p className="text-muted-foreground text-[10px] font-bold tracking-wide uppercase">{k}</p>
+      <p className="text-foreground mt-0.5 text-sm font-extrabold sm:text-base">{v}</p>
     </div>
   );
 }
@@ -486,7 +577,7 @@ function BigStat({ k, v }: { k: string; v: string }) {
 function LenderMark({ row, light }: { row: CompareRow; light?: boolean }) {
   if (row.logoUrl) {
     return (
-      <img src={row.logoUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-white/20 bg-white object-contain p-1" />
+      <img src={row.logoUrl} alt="" className="border-border h-10 w-10 shrink-0 rounded-xl border bg-white object-contain p-1" />
     );
   }
   return (
@@ -705,6 +796,7 @@ function ApplyButton({
   applyingId,
   onApply,
   block,
+  compact,
 }: {
   offer: Offer;
   row: CompareRow;
@@ -712,19 +804,21 @@ function ApplyButton({
   onApply: (o: Offer) => void;
   /** Full width (phones). */
   block?: boolean;
+  /** Plain "Apply now" — for the best-offer card, which already names the lender beside it. */
+  compact?: boolean;
 }) {
   const busy = applyingId === offer.id;
   return (
     <button
       onClick={() => onApply(offer)}
       disabled={!!applyingId}
-      className={`bg-brand-gradient text-primary-foreground inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-6 py-3 text-sm font-bold whitespace-nowrap shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5 disabled:opacity-60 ${
-        block ? 'w-full sm:w-auto sm:max-w-xs' : 'max-w-xs'
+      className={`bg-brand-gradient text-primary-foreground inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-6 py-3 text-sm font-bold whitespace-nowrap shadow-[var(--shadow-float)] transition-transform hover:-translate-y-0.5 disabled:opacity-60 ${
+        block ? 'w-full sm:w-auto sm:max-w-xs' : 'max-w-sm'
       }`}
     >
       {busy ? 'Applying…' : (
         <>
-          <span className="truncate">Apply with {row.lenderName}</span>
+          <span className="truncate">{compact ? 'Apply now' : `Apply with ${row.lenderName}`}</span>
           <span aria-hidden>→</span>
         </>
       )}

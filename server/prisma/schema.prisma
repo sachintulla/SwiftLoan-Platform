@@ -431,6 +431,44 @@ model LenderApplication {
   @@index([kftApplicationId])
 }
 
+/// Alternative-offers facility (Yubi Markets / YMPL "Indiamart referrer" APIs),
+/// run in PARALLEL to the Aurix eligibility flow. Unlike a LenderPartner, YMPL
+/// does not return structured offers — it issues a hosted web journey that the
+/// app opens in an in-app WebView. One PartnerReferral per LoanApplication:
+///   create referral (at application create) → ymplReferralId
+///   auth token      (at prequalify / on tile tap) → redirectUrl (short-lived)
+/// Stored as plain scalar FKs (no Prisma relation) so this is fully additive and
+/// touches no existing model. Secrets (X-Api-Key, x-referrer-id) live in env,
+/// never here and never in the app bundle.
+model PartnerReferral {
+  id                   String   @id @default(uuid())
+  applicationId        String // parent LoanApplication (plain FK, no relation)
+  userId               String // SwiftLoan User.id
+  provider             String   @default("ympl")
+  // UUID we generate and send as clientReferralId — our idempotent handle on
+  // the referral across create / auth-token / status calls.
+  clientReferralId     String   @unique
+  ymplReferralId       String? // id returned by Create Referral
+  // created | referred | token_issued | failed | pending_data
+  status               String   @default("created")
+  redirectUrl          String? // last auth-token redirect (short-lived)
+  returnRedirectionUrl String? // where YMPL sends the user back to
+  lastError            String?
+  rawCreate            Json?
+  rawAuth              Json?
+  // Set when the applicant taps "Proceed" on YMPL's offers page (detected in
+  // the in-app WebView) — this is what surfaces the referral as an application
+  // in My Loans, with its date/time.
+  appliedAt            DateTime?
+  appliedLender        String? // lender the applicant proceeded with, if known
+  lastStatus           String? // latest journeyStatus from Get Status (NEW_LEAD…)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([userId])
+}
+
 // One row per tenure choice offered for a given Offer — lets a single lender
 // offer present several EMI/tenure combinations (per the sample lender-API
 // response this mirrors) instead of the single flat tenure Offer itself has.
@@ -545,15 +583,30 @@ enum TicketStatus {
 
 model SupportTicket {
   id        String       @id @default(uuid())
+  // Human-friendly sequence number; the public reference is "SL-T-00042".
+  ticketNo  Int          @unique @default(autoincrement())
   userId    String
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      TicketType   @default(query)
+  // repayments | documents | privacy | disbursement | fees | application | other
+  category  String       @default("other")
   subject   String
   body      String?
+  // Optional: the loan application the ticket is about (not a hard FK, so a
+  // ticket outlives a deleted application).
+  applicationId String?
   status    TicketStatus @default(open)
   createdAt DateTime     @default(now())
+  updatedAt DateTime     @default(now()) @updatedAt
+  resolvedAt DateTime?
+  // Internal note from the admin handling it; also shown to the user.
+  adminNote String?
+  // Notification email to the support team: when it went out, or why it didn't.
+  emailSentAt DateTime?
+  emailError  String?
 
   @@index([userId])
+  @@index([status, createdAt])
 }
 
 // ─────────────────────── Audit (scalability) ───────────────────────

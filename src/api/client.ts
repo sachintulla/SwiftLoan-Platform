@@ -1,6 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
-import { reportOfflineAttempt } from '../state/offlineBridge';
+import { reportOfflineAttempt, reportServerUnreachable } from '../state/offlineBridge';
 import { upshotEvent, upshotIdentify } from '../analytics/upshot';
 
 /**
@@ -31,13 +31,18 @@ NetInfo.configure({
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
+// Applications whose alt-offer "applied" record has already been sent this
+// session — so a re-emitted Proceed (partner resume auto-advance) doesn't
+// re-POST or re-toast. Cleared on logout with the rest of the session.
+const _appliedAltOffers = new Set<string>();
+
 export function setTokens(access: string | null, refresh?: string | null) {
   accessToken = access;
   if (refresh !== undefined) refreshToken = refresh;
   // Persisted so a returning user stays logged in across app restarts, not
   // just within one in-memory session.
   if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
-  else if (!access) clearTokens();
+  else if (!access) { clearTokens(); _appliedAltOffers.clear(); }
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
@@ -87,6 +92,29 @@ function refreshOnce(): Promise<boolean> {
  */
 const REQUEST_TIMEOUT_MS = 12000;
 
+/** Cheap health probe of our own API; true only if it answers with a 2xx. */
+async function apiAnswers(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { method: 'HEAD', signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * After a failed request on a connected phone: wait a moment, probe the API, and only
+ * report "unreachable" if the probe fails too (so transient blips stay silent).
+ */
+async function confirmServerUnreachable(): Promise<void> {
+  await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+  if (!(await apiAnswers())) reportServerUnreachable();
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -96,8 +124,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // user-facing screen (OTP, application, offers, loans…) goes through, so
     // catching "no signal" here means those screens fail fast with a clear
     // reason instead of sitting on a spinner for the full request timeout.
+    // Only a phone with NO connection at all is refused up front. `isInternetReachable`
+    // is NOT used here: it comes from probing our own /health endpoint, so on a
+    // network that blocks or re-signs HTTPS (office Wi-Fi with TLS inspection) it reads
+    // "unreachable" and would make the app refuse every request as "no internet".
+    // In that case we simply attempt the real request and report what actually happens.
     const netState = await NetInfo.fetch();
-    if (netState.isConnected === false || netState.isInternetReachable === false) {
+    if (netState.isConnected === false) {
       throw new TypeError('offline: no internet connection');
     }
     res = await fetch(API_BASE + path, {
@@ -122,7 +155,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // backend doesn't get mislabeled as "no internet connection."
     const looksOffline = async () =>
       NetInfo.fetch()
-        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .then(st => st.isConnected === false)
         .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
     if (await looksOffline()) {
       // A single instantaneous reading isn't enough — a momentary signal drop
@@ -132,6 +165,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       // actually reporting it, so only a real, sustained outage shows the banner.
       await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
       if (await looksOffline()) reportOfflineAttempt();
+      else void confirmServerUnreachable();
+    } else {
+      // Connected, yet the request itself failed. One failed request is often a blip
+      // (the radio waking up, a Wi-Fi handoff, a slow endpoint) and the next one works,
+      // so don't flash a scary banner for it: re-check the server in the background and
+      // only say "can't reach SwiftLoan securely" if it is STILL unreachable. This runs
+      // off to the side so the original error reaches the caller immediately.
+      void confirmServerUnreachable();
     }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
@@ -453,6 +494,7 @@ export const api = {
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
+  deleteAvatar: () => request('DELETE', '/users/me/avatar'),
 
   // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
   // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.
@@ -556,6 +598,52 @@ export const api = {
       ...(lenderApplicationId ? { lenderApplicationId } : {}),
     }),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
+
+  // Alternative-offers facility (Yubi/YMPL). On tapping the "Alternative offers"
+  // tile the app mints a fresh partner redirect URL to open in the in-app
+  // WebView. Always resolves (never throws for a graceful tile): check
+  // `.altOffer.available`.
+  altOfferRedirect: (
+    applicationId: string,
+  ): Promise<{
+    altOffer: {
+      available: boolean; provider: string; status: string; redirectUrl: string | null;
+      pan?: string | null;
+      // The funnel details we already hold, to prefill YMPL's hosted journey.
+      prefill?: Record<string, string | number | null>;
+      // When true, offers already exist and the journey resumes straight to its
+      // offers page — the app keeps its loader up until offers show.
+      resumeToOffers?: boolean;
+      journeyStatus?: string | null;
+    };
+  }> =>
+    request('POST', `/applications/${applicationId}/alt-offer`),
+
+  // Record that the applicant tapped "Proceed" on the Yubi/YMPL offers page, so
+  // it surfaces in My Loans with its date/time. Fire-and-forget.
+  // Idempotent: the partner page re-emits "Proceed" on every resume (its own
+  // auto-advance programmatically clicks Proceed), so we record + let the caller
+  // toast only once per application per session. The server also stamps
+  // appliedAt only once, so a duplicate POST is harmless either way.
+  altOfferApplied: async (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null; alreadyApplied: boolean }> => {
+    if (_appliedAltOffers.has(applicationId)) {
+      return { applied: true, appliedAt: null, lender: lender ?? null, alreadyApplied: true };
+    }
+    _appliedAltOffers.add(applicationId);
+    try {
+      const r = await request<{ applied: boolean; appliedAt: string | null; lender: string | null }>(
+        'POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {},
+      );
+      return { ...r, alreadyApplied: false };
+    } catch (e) {
+      _appliedAltOffers.delete(applicationId); // let a later Proceed retry on failure
+      throw e;
+    }
+  },
+
+  // Client feature flags (public). Fetched on launch to decide whether the
+  // "Alternative offers" tile is shown at all.
+  features: (): Promise<{ data: { altOffers: boolean } }> => request('GET', '/config/features'),
 
   // KYC / loans / misc
   submitKyc: (method: 'aadhaar' | 'pan' | 'bank' | 'selfie', payload: Record<string, unknown> = {}) =>

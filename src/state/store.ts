@@ -11,7 +11,7 @@ import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
   trackLoanStep, trackInstall, fetchContext, setTokens, api,
   isAuthed, upshotOfferViewed, knownOfferInfo,
-  type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill,
+  type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill, fetchUserContext,
 } from '../api/client';
 import {
   loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
@@ -19,9 +19,11 @@ import {
   loadIntroPitchHeard,
 } from './session';
 import { BUILD } from '../config/build';
+import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
+import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
 // The full list of screens, mirroring the design's state machine. Kept as a
@@ -30,7 +32,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 export const SCREEN_NAMES = [
   'splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
   'home', 'loans', 'fare', 'help', 'profile',
-  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
+  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'status', 'disbursed', 'repay', 'calculator', 'compare',
 ] as const;
@@ -67,6 +69,37 @@ export function resolveScreenName(name: string): Screen | null {
   if ((SCREEN_NAMES as readonly string[]).includes(key)) return key as Screen;
   return null;
 }
+/**
+ * What the voice agent is told about this account's history, sent in page_context as
+ * `account_summary`. It comes from the app's own authenticated GET /context/me, because Ello's
+ * get_user_context lookup cannot reliably learn the phone number (every lookup in the dev API
+ * logs arrived with the unfilled "{context_data.phone_number}" template, none with a real
+ * number — see context.routes.ts), so the agent never saw applications that were under review.
+ * Compact on purpose: no PAN, no income, no address.
+ */
+export function summarizeUserContext(ctx: UserContext | null): Record<string, unknown> | undefined {
+  if (!ctx) return undefined;
+  const app = ctx.application;
+  return {
+    has_history: ctx.hasHistory,
+    name_on_file: !!ctx.profile?.name,
+    dob_on_file: !!ctx.profile?.dob,
+    application_status: ctx.applicationStatus ?? null,
+    application_status_label: ctx.applicationStatusLabel,
+    ...(app
+      ? {
+          application: {
+            ref: app.ref,
+            status: app.status,
+            offers_ready: app.offers?.length ?? 0,
+            lenders_applied: (app.offers ?? []).filter(o => o.applied && o.lenderName).map(o => o.lenderName),
+          },
+        }
+      : {}),
+    has_active_loan: !!ctx.loan,
+  };
+}
+
 export type Screen = (typeof SCREEN_NAMES)[number];
 
 // Screens that show the bottom tab bar. The tab bar and the assistant FAB both
@@ -99,7 +132,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   prequalify: 'consent',
   // Fallback only — back() dynamically returns offers to its actual origin
   // (state.offersReturn); this parent is used if that's ever unset.
-  offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
+  offers: 'home', handoff: 'offers', lenderweb: 'offers', altweb: 'fare', status: 'home',
   disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home',
   compare: 'fare',
@@ -180,6 +213,17 @@ export interface AppState {
   // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
   // user taps Continue on an offer that carries a lender deep link.
   webUrl: string; webTitle: string;
+  // Whether the alternative-offers facility (Yubi/YMPL) tile is available —
+  // fetched from /config/features on launch. Optimistically true so the tile
+  // shows immediately; only an explicit server `false` hides it.
+  altOffersEnabled: boolean;
+  // The funnel details we already hold (PAN, dob, address, income…), passed to
+  // the 'altweb' WebView to prefill YMPL's hosted journey so nothing is re-typed.
+  // Data-only — never used to accept consent or submit. Empty when unknown.
+  altPrefill: Record<string, string | number | null>;
+  // Offers already exist → the journey resumes straight to its offers page, so
+  // the WebView holds its loader over the intermediate screens until offers show.
+  altResumeToOffers: boolean;
   // A friendly, actionable note when prequalify returns no offers (e.g. lender
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
@@ -253,7 +297,7 @@ export const initialState: AppState = {
   userContext: null,
   savedApplicantDraft: null,
   introPitchHeard: false,
-  webUrl: '', webTitle: '',
+  webUrl: '', webTitle: '', altOffersEnabled: true, altPrefill: {}, altResumeToOffers: false,
   offersError: '',
   offersSummary: '',
   apiContext: {},
@@ -360,6 +404,8 @@ export function parentScreen(s: Screen): Screen {
 
 // First name Ruby has used on the CURRENT call (see user_name in page_context).
 let stickyCallName = '';
+// Last agent_language sent in page_context — only to log when it CHANGES (see vlogAlways).
+let lastSentAgentLanguage = '';
 
 // One-shot RESULT keys in apiContext that screens write immediately before
 // navigating away (handoff -> disbursed, offers -> status/handoff/lenderweb,
@@ -550,6 +596,9 @@ interface Ctx {
   // Marks the *next* screen change as urgent — see the ref of the same name
   // in StoreProvider for what that actually does and why it's rare to call.
   markUrgentContext: () => void;
+  // Fetches the account's history (GET /context/me, max ~1.5s) into `userContext` so the next
+  // page_context carries `account_summary`. Never throws.
+  refreshUserContext: () => Promise<void>;
   go: (screen: Screen) => void;
   back: () => void;
   // Every toast is also copied into apiContext.lastToast so the voice agent can see
@@ -574,6 +623,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
   const mergeApiContext = useCallback((patch: Record<string, unknown>) => dispatch({ type: 'mergeApiContext', patch }), []);
+  const refreshUserContext = useCallback(async () => {
+    try {
+      const ctx = await Promise.race([
+        fetchUserContext(),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 1500)),
+      ]);
+      if (ctx) dispatch({ type: 'set', patch: { userContext: ctx } });
+    } catch {
+      /* never block a screen on this */
+    }
+  }, []);
   // One-shot flag consumed by the very next screen-change effect run below —
   // set by a screen right before its own go() call to mark THAT specific
   // transition as urgent (interrupts Ruby immediately instead of waiting for
@@ -656,8 +716,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (pitchHeard) dispatch({ type: 'set', patch: { introPitchHeard: true } });
 
       // Privacy consent gate — loaded before any routing decision.
-      const accepted = await loadPrivacyAccepted();
+      const accepted = await loadPrivacyAccepted(PRIVACY_POLICY_VERSION);
       if (accepted) dispatch({ type: 'set', patch: { privacyAccepted: true } });
+
+      // Client feature flags (public). Drives whether the alternative-offers
+      // (Yubi/YMPL) tile is shown. Optimistic default is true, so we only act on
+      // an explicit server `false`; any failure leaves the tile enabled.
+      api.features()
+        .then(r => { if (r?.data && r.data.altOffers === false) dispatch({ type: 'set', patch: { altOffersEnabled: false } }); })
+        .catch(() => {});
 
       const tokens = await loadTokens();
       if (!tokens) return;
@@ -772,13 +839,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // screen text. The persistence effect below (AsyncStorage +
       // api.setVoiceLanguage) picks it up, and agent_language (page_context)
       // prefers it over `lang` on the very next turn — and on every future call.
-      setLanguage: (lang: string) => dispatch({ type: 'set', patch: { voiceLang: lang } }),
+      setLanguage: (lang: string) => {
+        vlogAlways('lang: set_language tool ->', lang, '(was voiceLang=' + String(stateRef.current.voiceLang) + ', ui lang=' + String(stateRef.current.lang) + ')');
+        dispatch({ type: 'set', patch: { voiceLang: lang } });
+      },
       // The app's own UI-copy language (`lang`), settable directly from any
       // screen instead of requiring a navigate-to-language/profile-then-tap
       // detour — the persistence effect below (AsyncStorage + api.setLanguage
       // when signed in) picks this up exactly the same way a real tap on
       // either screen's language card already does.
-      setAppLanguage: (lang: string) => dispatch({ type: 'set', patch: { lang } }),
+      setAppLanguage: (lang: string) => {
+        vlogAlways('lang: set_app_language tool ->', lang, '(was ui lang=' + String(stateRef.current.lang) + ', voiceLang=' + String(stateRef.current.voiceLang) + ')');
+        dispatch({ type: 'set', patch: { lang } });
+      },
       // Merges (never replaces) into whatever's already saved — the model
       // calls this incrementally as details come up across a conversation.
       // Persisted immediately so it survives the call ending, not just this
@@ -831,6 +904,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       },
     });
+    if (__DEV__) {
+      // Dev builds only: lets a QA session on the Metro inspector read the live app state.
+      const dbg = (globalThis as { __ello?: Record<string, unknown> }).__ello;
+      if (dbg) dbg.getState = () => stateRef.current;
+    }
     agent.registerPageContext(() => {
       // The authoritative logged-in name — so the agent addresses the user
       // correctly instead of picking a lead name out of `userContext` or
@@ -872,7 +950,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // screen could get read as a change to how the agent talks, or vice
       // versa, depending on which one a given prompt happened to key off.
       preferred_language: LANGUAGE_NAMES[s.lang ?? 'en'] ?? 'English',
-      agent_language: LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English',
+      agent_language: (() => {
+        const al = LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English';
+        if (al !== lastSentAgentLanguage) {
+          vlogAlways('lang: agent_language', lastSentAgentLanguage || '(first)', '->', al, '| voiceLang=' + String(s.voiceLang), 'ui lang=' + String(s.lang), 'screen=' + s.screen);
+          lastSentAgentLanguage = al;
+        }
+        return al;
+      })(),
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
@@ -889,13 +974,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // exists. Always sent (never omitted), even `false` — the Opening Call
       // Protocol's first-time pitch is conditioned on this being false.
       heard_intro_pitch: stateRef.current.introPitchHeard,
+      // Set once the agent has introduced itself on this call, so returning to Home is not a new opening.
+      already_introduced: agent.hasIntroducedThisCall() || undefined,
       // The offers the user just received (or the problem) so the agent can speak
       // about them proactively on the offers screen.
       // Only meaningful while on the offers surfaces; they were never cleared, so
       // the agent kept being told about "no offers" long after the user moved on.
       offers_summary: (s.screen === 'offers' || s.screen === 'fare') && s.offersSummary ? s.offersSummary : undefined,
       offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? s.offersError : undefined,
-      priorInquiries: stateRef.current.priorInquiries,
+      // Not on Home: that screen sends the buttons only (see BUTTONS_ONLY_SCREENS).
+      priorInquiries: s.screen === 'home' ? undefined : stateRef.current.priorInquiries,
+      // Where this account stands (applications under review, offers ready, loan) — see summarizeUserContext.
+      account_summary: summarizeUserContext(stateRef.current.userContext),
       // Details Ruby gathered conversationally on a previous call (or earlier
       // this one), before the user had reached the application form — see
       // save_applicant_details / the prompt's "Proactive Details Collection"
@@ -1124,8 +1214,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, go, back, showToast, reset, parentOf };
+  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, refreshUserContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
+}
+
+/** Like useStore, but null outside a StoreProvider — for shared building blocks that may render bare (tests, previews). */
+export function useOptionalStore(): Ctx | null {
+  return useContext(StoreContext);
 }
 
 export function useStore(): Ctx {

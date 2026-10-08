@@ -53,7 +53,7 @@ function formatDateTime(iso?: string | null): string {
 }
 
 export default function Loans() {
-  const { set, mergeApiContext, go } = useStore();
+  const { set, mergeApiContext, go, showToast } = useStore();
   const t = useT();
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(isAuthed());
@@ -111,6 +111,33 @@ export default function Loans() {
       selectedLenderApplicationId: opts?.lenderApp?.id ?? null,
     });
     go(app.loan ? 'repay' : 'status');
+  };
+
+  // Reopen the Yubi Markets (YMPL) partner journey from a My Loans card. It
+  // resumes where the applicant left off (usually the offers page).
+  const openYubi = async (app: any) => {
+    set({ applicationId: app.id });
+    try {
+      const r = await api.altOfferRedirect(app.id);
+      const alt = r?.altOffer;
+      if (alt?.available && alt.redirectUrl) {
+        set({ webUrl: alt.redirectUrl, webTitle: t.altOffersTitle, altPrefill: alt.prefill || (alt.pan ? { pan: alt.pan } : {}), altResumeToOffers: !!alt.resumeToOffers });
+        go('altweb');
+      } else {
+        showToast(t.altOffersOpenFailed);
+      }
+    } catch {
+      showToast(t.altOffersOpenFailed);
+    }
+  };
+
+  // Friendly status for a Yubi partner application, from the last journeyStatus.
+  const yubiStatus = (pr: any): { text: string; color: string } => {
+    const T = t as any;
+    const s = String(pr.lastStatus || '').toUpperCase();
+    if (/DISBURS|APPROV|COMPLETE|SUCCESS|SANCTION/.test(s)) return { text: T.statusApproved || 'Approved', color: colors.green };
+    if (/REJECT|FAIL|DECLIN|EXPIR/.test(s)) return { text: T.statusRejected || 'Rejected', color: colors.red };
+    return { text: T.statusInProgress || 'In progress', color: colors.amber }; // NEW_LEAD / mid-journey
   };
 
   // My Loans shows ONE card per lender application. Each "Apply" from My Offers
@@ -241,6 +268,37 @@ export default function Loans() {
     return [];
   });
 
+  // Yubi Markets (YMPL) alternative-offer applications — one card per applied
+  // PartnerReferral (the applicant tapped Proceed on YMPL's offers page), shown
+  // alongside the lender applications with its own status + date/time. Tapping
+  // reopens the partner journey.
+  const partnerCards = apps.flatMap((app: any) =>
+    ((app.partnerReferrals || []) as any[]).map((pr: any) => {
+      const st = yubiStatus(pr);
+      return (
+        <AppCard
+          key={`pr-${pr.id}`}
+          icon="storefront"
+          name={pr.appliedLender || t.altOffersPartnerName}
+          ref_={t.altOffersPartnerLabel}
+          typeLabel={t.altOffersPartnerLabel}
+          status={st.text}
+          statusColor={st.color}
+          updated={formatDateTime(pr.appliedAt)}
+          updatedPrefix={t.appliedPrefix}
+          metrics={[
+            { label: t.metricAmount, value: rupee(app.amount) },
+            { label: t.metricStatus, value: st.text },
+          ]}
+          onPress={() => openYubi(app)}
+        />
+      );
+    }),
+  );
+
+  // Partner applications first (most recent intent), then lender applications.
+  const allCards = [...partnerCards, ...cards];
+
   return (
     <Screen scroll bottomNav padded>
       <View style={{ marginTop: 8 }}>
@@ -255,7 +313,7 @@ export default function Loans() {
         <Loading label={t.loansLoading} />
       ) : err ? (
         <ErrorState message={err} onRetry={load} />
-      ) : cards.length === 0 ? (
+      ) : allCards.length === 0 ? (
         // Tracking-only screen: the single "Apply" entry lives on the Offers tab.
         // When there's nothing to track, offer a shortcut into that flow.
         <View style={{ alignItems: 'center', paddingVertical: 12 }}>
@@ -272,7 +330,7 @@ export default function Loans() {
           </Pressable>
         </View>
       ) : (
-        <View style={{ gap: 12 }}>{cards}</View>
+        <View style={{ gap: 12 }}>{allCards}</View>
       )}
     </Screen>
   );

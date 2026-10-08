@@ -9,6 +9,7 @@ import { useStore } from '../state/store';
 import { useHandoffIn } from '../utils/handoff';
 import { trackEvent } from '../api/client';
 import { VoiceHidden } from '../voice/screenGraph';
+import { registerTarget } from '../voice/actionRegistry';
 
 const GREETINGS = [
   'Welcome to SwiftLoan',
@@ -34,6 +35,23 @@ export default function Language() {
   }, []);
 
   const contEnabled = !!state.selectedLang;
+
+  // Tell the voice agent which language card is picked. The cards only show a tick icon,
+  // so without this the agent saw three identical buttons and asked "which language?" even
+  // when the user had already chosen one before starting the call.
+  useEffect(() => {
+    const unregisters = LANGS.map(l =>
+      registerTarget(state.screen, `chip:Language:${l.label}`, {
+        kind: 'chips',
+        label: l.label,
+        group: 'Language',
+        getValue: () => state.selectedLang === l.selected,
+        onTap: () => set({ selectedLang: l.selected, lang: l.lang ?? state.lang }),
+      }),
+    );
+    return () => unregisters.forEach(u => u());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.screen, state.selectedLang, state.lang]);
 
   return (
     <Screen bottomNav={false} scroll padded={false}>
@@ -69,18 +87,21 @@ export default function Language() {
         <View style={{ gap: 12 }}>
           {LANGS.map(l => {
             const on = state.selectedLang === l.selected;
+            // VoiceHidden: the card is exposed to the agent by the "Language" options registered
+            // above (which carry the selected state), so the plain button must not be listed too.
             return (
-              <Pressable
-                key={l.label}
-                onPress={() => set({ selectedLang: l.selected, lang: l.lang ?? state.lang })}
-                style={[styles.langCard, on ? styles.langOn : styles.langOff]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={[font(800), { fontSize: 17, color: colors.text }]}>{l.label}</Text>
-                  {on ? <Icon name="check_circle" size={22} color={colors.primary} /> : null}
-                </View>
-                <Text style={[font(400), { fontSize: 12.5, color: '#7A8A8A', marginTop: 2 }]}>{l.sub}</Text>
-              </Pressable>
+              <VoiceHidden key={l.label}>
+                <Pressable
+                  onPress={() => set({ selectedLang: l.selected, lang: l.lang ?? state.lang })}
+                  style={[styles.langCard, on ? styles.langOn : styles.langOff]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[font(800), { fontSize: 17, color: colors.text }]}>{l.label}</Text>
+                    {on ? <Icon name="check_circle" size={22} color={colors.primary} /> : null}
+                  </View>
+                  <Text style={[font(400), { fontSize: 12.5, color: '#7A8A8A', marginTop: 2 }]}>{l.sub}</Text>
+                </Pressable>
+              </VoiceHidden>
             );
           })}
         </View>

@@ -20,7 +20,7 @@ function isValidMobile(v: string): boolean {
 }
 
 export default function Mobile() {
-  const { state, set, go, markUrgentContext } = useStore();
+  const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -124,6 +124,9 @@ export default function Mobile() {
       // when it arrives. Same reasoning for a wrong code below: she needs to
       // know it failed the instant it's known, not after finishing whatever
       // she's already saying.
+      // Load this account's history first, so the urgent update that tells the agent who just
+      // logged in also says whether an application is under review (about 0.3s, capped at 1.5s).
+      await refreshUserContext();
       markUrgentContext();
       // Returning users never see the Permissions screen, which is where push is normally
       // requested — so request it here. iOS only shows its prompt once (when the choice is
@@ -216,8 +219,12 @@ export default function Mobile() {
       <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
           <>
-            <Text style={styles.h1}>{t.mobileTitle}</Text>
-            <Text style={styles.sub}>{t.mobileSub}</Text>
+            {/* On-screen instructions ("enter your number…") are for the user's eyes: if the agent
+                sees them it reads them aloud instead of asking naturally. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.mobileTitle}</Text>
+              <Text style={styles.sub}>{t.mobileSub}</Text>
+            </VoiceHidden>
 
             <Text style={[font(600), styles.label]}>{t.mobileNumberLabel}</Text>
             <View style={styles.phoneRow}>
@@ -256,15 +263,24 @@ export default function Mobile() {
           </>
         ) : (
           <>
-            <Text style={styles.h1}>{t.otpTitle}</Text>
-            <Text style={styles.sub}>
-              {t.otpSub} <Text style={font(700)}>{masked}</Text>
-            </Text>
+            {/* Same here: "enter the 6-digit code…" is a UI instruction the agent must not parrot
+                (it was read out in Telugu on a live call). It asks for the OTP its own way. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.otpTitle}</Text>
+              <Text style={styles.sub}>
+                {t.otpSub} <Text style={font(700)}>{masked}</Text>
+              </Text>
+            </VoiceHidden>
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
+            {/* VoiceHidden: the digit boxes and the hidden input are exposed to the agent by the
+                explicit `OTP` field registered above. Left visible, the walker listed them again
+                as a button "OTP digit 1" and a second field mislabelled with the "change phone
+                number" button text (both holding the same code). */}
+            <VoiceHidden>
             <Pressable style={styles.otpRow} onPress={refocusOtp}>
               {Array.from({ length: 6 }, (_, i) => (
                 <View
@@ -291,6 +307,7 @@ export default function Mobile() {
                 onChangeText={onOtpChange}
               />
             </Pressable>
+            </VoiceHidden>
 
             <Pressable style={{ alignSelf: 'center', marginTop: 14, flexDirection: 'row' }} onPress={resend}>
               <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>{t.otpResend}</Text>

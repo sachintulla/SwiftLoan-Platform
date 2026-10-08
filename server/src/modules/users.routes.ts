@@ -138,6 +138,12 @@ usersRouter.patch('/me/avatar',
     res.json({ user: publicUser(user) });
   }));
 
+/** Remove the profile photo. PATCH /me can't do it: its schema is strict and has no avatarUrl. */
+usersRouter.delete('/me/avatar', ah(async (req, res) => {
+  const user = await prisma.user.update({ where: { id: req.user!.sub }, data: { avatarUrl: null } });
+  res.json({ user: publicUser(user) });
+}));
+
 /** Set display language. */
 usersRouter.patch('/me/language', validate(z.object({ lang: z.enum(['en', 'hi', 'te', 'hinglish', 'tenglish']) })),
   ah(async (req, res) => {

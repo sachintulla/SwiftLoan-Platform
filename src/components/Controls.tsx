@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   View,
   Text,
   Pressable,
@@ -18,6 +19,8 @@ import { useStore } from '../state/store';
 import { registerTarget, requestContextRefresh } from '../voice/actionRegistry';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { isSensitiveField } from '../voice/sensitive';
+import { AgentRing, useAgentFx } from '../feedback/useAgentFx';
+import { isAgentActive, playManualSound, playManualTypingTick } from '../feedback/sounds';
 
 /* Card — white rounded surface with soft border + shadow. */
 export function Card({
@@ -61,6 +64,7 @@ export function PrimaryButton({
   voiceId?: string;
 }) {
   const { state } = useStore();
+  const fx = useAgentFx(label);
   useEffect(() => {
     // Registered even when disabled, so the agent can see the control exists and
     // be told it isn't pressable yet rather than getting a bare "not_found".
@@ -81,22 +85,26 @@ export function PrimaryButton({
   );
   return (
     <Pressable
+      ref={fx.ref}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [{ opacity: disabled ? 0.45 : pressed ? 0.9 : 1 }, style]}
     >
-      {solid ? (
-        <View style={[styles.btn, { backgroundColor: colors.primary }]}>{content}</View>
-      ) : (
-        <LinearGradient
-          colors={navGradient as unknown as string[]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.btn}
-        >
-          {content}
-        </LinearGradient>
-      )}
+      <Animated.View style={fx.pressStyle}>
+        {solid ? (
+          <View style={[styles.btn, { backgroundColor: colors.primary }]}>{content}</View>
+        ) : (
+          <LinearGradient
+            colors={navGradient as unknown as string[]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.btn}
+          >
+            {content}
+          </LinearGradient>
+        )}
+      </Animated.View>
+      <AgentRing fx={fx} radius={16} />
     </Pressable>
   );
 }
@@ -116,17 +124,22 @@ export function GhostButton({
   voiceId?: string;
 }) {
   const { state } = useStore();
+  const fx = useAgentFx(label);
   useEffect(() => {
     return registerTarget(state.screen, voiceId || label, { kind: 'button', label, onTap: onPress });
   }, [state.screen, voiceId, label, onPress]);
 
   return (
     <Pressable
+      ref={fx.ref}
       onPress={onPress}
       style={({ pressed }) => [styles.ghost, pressed && { opacity: 0.6 }, style]}
     >
-      {icon ? <Icon name={icon} size={18} color={colors.text} /> : null}
-      <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>{label}</Text>
+      <Animated.View style={[styles.ghostInner, fx.pressStyle]}>
+        {icon ? <Icon name={icon} size={18} color={colors.text} /> : null}
+        <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>{label}</Text>
+      </Animated.View>
+      <AgentRing fx={fx} radius={14} />
     </Pressable>
   );
 }
@@ -150,6 +163,7 @@ export function HeaderCta({
   voiceId?: string;
 }) {
   const { state } = useStore();
+  const fx = useAgentFx(label);
   useEffect(() => {
     // `disabled` and `primary` must be reported: without them a greyed-out Continue
     // looked enabled to the agent, a tap bypassed the real `disabled` (the target's
@@ -166,13 +180,17 @@ export function HeaderCta({
 
   return (
     <Pressable
+      ref={fx.ref}
       accessibilityRole="button"
       onPress={disabled ? undefined : onPress}
       disabled={disabled}
       style={({ pressed }) => [styles.headerCta, disabled && { opacity: 0.5 }, pressed && { opacity: 0.85 }]}
     >
-      <Text style={[font(700), { color: '#fff', fontSize: 13.5 }]} numberOfLines={1}>{label}</Text>
-      {icon ? <Icon name={icon} size={16} color="#fff" /> : null}
+      <Animated.View style={[styles.ghostInner, { gap: 6 }, fx.pressStyle]}>
+        <Text style={[font(700), { color: '#fff', fontSize: 13.5 }]} numberOfLines={1}>{label}</Text>
+        {icon ? <Icon name={icon} size={16} color="#fff" /> : null}
+      </Animated.View>
+      <AgentRing fx={fx} radius={20} />
     </Pressable>
   );
 }
@@ -193,6 +211,7 @@ export function Toggle({
   voiceId?: string;
 }) {
   const { state } = useStore();
+  const fx = useAgentFx(voiceId || label);
   useEffect(() => {
     const id = voiceId || label;
     if (!id) return undefined;
@@ -205,10 +224,18 @@ export function Toggle({
   }, [state.screen, voiceId, label, value, onChange]);
 
   return (
-    <Pressable onPress={() => onChange?.(!value)} hitSlop={8}>
+    <Pressable
+      ref={fx.ref}
+      onPress={() => {
+        playManualSound(value ? 'toggleOff' : 'toggleOn');
+        onChange?.(!value);
+      }}
+      hitSlop={8}
+    >
       <View style={[styles.track, { backgroundColor: value ? colors.mint : colors.trackOff }]}>
         <View style={[styles.knob, { transform: [{ translateX: value ? 19 : 0 }] }]} />
       </View>
+      <AgentRing fx={fx} radius={14} inset={-2} />
     </Pressable>
   );
 }
@@ -248,21 +275,32 @@ export function Chips({
 
   return (
     <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, style]}>
-      {options.map(o => {
-        const on = value === o.value;
-        return (
-          <Pressable
-            key={o.value}
-            onPress={() => onChange?.(o.value)}
-            style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
-          >
-            <Text style={[font(on ? 700 : 600), { color: on ? colors.greenDeep : colors.textSoft, fontSize: 13 }]}>
-              {o.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+      {options.map(o => (
+        <ChipOption key={o.value} label={o.label} group={group} on={value === o.value} onPress={() => onChange?.(o.value)} />
+      ))}
     </View>
+  );
+}
+
+/** One option of <Chips> — its own component so each can take part in the agent's choreography. */
+function ChipOption({ label, group, on, onPress }: { label: string; group?: string; on: boolean; onPress: () => void }) {
+  const fx = useAgentFx(label, group);
+  return (
+    <Pressable
+      ref={fx.ref}
+      onPress={() => {
+        playManualSound('select');
+        onPress();
+      }}
+      style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
+    >
+      <Animated.View style={fx.pressStyle}>
+        <Text style={[font(on ? 700 : 600), { color: on ? colors.greenDeep : colors.textSoft, fontSize: 13 }]}>
+          {label}
+        </Text>
+      </Animated.View>
+      <AgentRing fx={fx} radius={12} />
+    </Pressable>
   );
 }
 
@@ -280,6 +318,7 @@ export function ConsentRow({
   voiceId?: string;
 }) {
   const { state } = useStore();
+  const fx = useAgentFx(voiceId || (typeof children === 'string' ? children : undefined));
   useEffect(() => {
     const id = voiceId || (typeof children === 'string' ? children : undefined);
     if (!id) return undefined;
@@ -292,11 +331,19 @@ export function ConsentRow({
   }, [state.screen, voiceId, children, checked, onChange]);
 
   return (
-    <Pressable onPress={() => onChange?.(!checked)} style={styles.consent}>
-      <View style={[styles.box, checked && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
+    <Pressable
+      ref={fx.ref}
+      onPress={() => {
+        playManualSound(checked ? 'toggleOff' : 'toggleOn');
+        onChange?.(!checked);
+      }}
+      style={styles.consent}
+    >
+      <Animated.View style={[styles.box, checked && { backgroundColor: colors.primary, borderColor: colors.primary }, fx.pressStyle]}>
         {checked ? <Icon name="check" size={15} color="#fff" /> : null}
-      </View>
+      </Animated.View>
       <Text style={[font(500), { flex: 1, color: colors.textSoft, fontSize: 12.5, lineHeight: 18 }]}>{children}</Text>
+      <AgentRing fx={fx} radius={8} inset={-4} />
     </Pressable>
   );
 }
@@ -322,6 +369,7 @@ export function Field({
   voiceId?: string;
 } & React.ComponentProps<typeof TextInput>) {
   const id = voiceId || label || hint;
+  const fx = useAgentFx(id);
   // Registered via useVoiceTarget (like Slider below), NOT a hand-rolled
   // registerTarget call — Field is the one Controls.tsx primitive whose own
   // call site passes onChangeText directly (`<Field ... onChangeText={...}/>`
@@ -351,27 +399,37 @@ export function Field({
     [value, onChangeText, props.secureTextEntry, props.textContentType, props.autoComplete],
   );
 
+  // A key tick per character the USER types (test mode). While the agent is typing it plays its own,
+  // so this stays quiet then — otherwise every character would sound twice.
+  const handleChangeText = (t: string) => {
+    if (!isAgentActive()) playManualTypingTick(t.length < String(value ?? '').length);
+    onChangeText?.(t);
+  };
+
   return (
-    <View style={{ gap: 6 }}>
+    <View ref={fx.ref} collapsable={false} style={{ gap: 6 }}>
       {label ? (
         <Text style={[font(600), styles.fieldLabel]}>
           {label}
           {required ? <Text style={{ color: colors.red }}> *</Text> : null}
         </Text>
       ) : null}
-      <TextInput
-        placeholderTextColor={colors.muted}
-        style={[styles.input, font(500), style as StyleProp<TextStyle>]}
-        {...props}
-        value={value}
-        onChangeText={onChangeText}
-        onBlur={e => {
-          props.onBlur?.(e);
-          // The typed text is deliberately not part of the change signature (a send
-          // per keystroke); tell the agent once, when the user leaves the field.
-          requestContextRefresh();
-        }}
-      />
+      <View>
+        <TextInput
+          placeholderTextColor={colors.muted}
+          style={[styles.input, font(500), style as StyleProp<TextStyle>]}
+          {...props}
+          value={value}
+          onChangeText={handleChangeText}
+          onBlur={e => {
+            props.onBlur?.(e);
+            // The typed text is deliberately not part of the change signature (a send
+            // per keystroke); tell the agent once, when the user leaves the field.
+            requestContextRefresh();
+          }}
+        />
+        <AgentRing fx={fx} radius={12} />
+      </View>
       {hint ? <Text style={[font(400), { color: colors.muted, fontSize: 11.5 }]}>{hint}</Text> : null}
     </View>
   );
@@ -431,6 +489,7 @@ export function Slider({
     [value, min, max, step, onChange],
   );
 
+  const fx = useAgentFx(label);
   const [w, setW] = useState(0);
   const wRef = useRef(0);
   const onLayout = (e: LayoutChangeEvent) => {
@@ -457,6 +516,7 @@ export function Slider({
     // Only report real changes — every onChange re-renders the whole screen.
     if (v === lastSent.current) return;
     lastSent.current = v;
+    if (!isAgentActive()) playManualSound('slide');
     cb?.(v);
   };
 
@@ -483,11 +543,12 @@ export function Slider({
   ).current;
 
   return (
-    <View style={styles.sliderHit} onLayout={onLayout} {...pan.panHandlers}>
+    <View ref={fx.ref} style={styles.sliderHit} onLayout={onLayout} {...pan.panHandlers}>
       <View style={styles.sliderTrack} pointerEvents="none">
         <View style={[styles.sliderFill, { width: `${pct * 100}%` }]} />
       </View>
       <View pointerEvents="none" style={[styles.sliderThumb, { left: Math.max(0, Math.min(w - 22, pct * w - 11)) }]} />
+      <AgentRing fx={fx} radius={10} inset={-2} />
     </View>
   );
 }
@@ -529,14 +590,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
+  // No horizontal padding on the button itself: the native gradient draws INSIDE its
+  // own padding, which made every gradient button ~20pt narrower on each side than its
+  // neighbours (e.g. "Continue" vs "Skip for now"). The padding lives on btnInner instead.
   btn: {
     height: 54,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
   },
-  btnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  btnInner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20 },
   btnLabel: { color: '#fff', fontSize: 16 },
   ghost: {
     height: 50,
@@ -549,6 +612,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: 'rgba(255,255,255,0.6)',
   },
+  ghostInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   headerCta: {
     flexDirection: 'row',
     alignItems: 'center',

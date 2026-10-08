@@ -14,6 +14,9 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -42,6 +45,18 @@ private const val CHUNK_SAMPLES = 640 // 40ms @ 16kHz
 private const val AGC_TARGET_PEAK = 9000
 private const val AGC_MAX_GAIN = 8.0
 private const val AGC_MIN_GAIN = 1.0
+// A 40ms chunk counts as speech (and is boosted) only when its peak is above this
+// (~1.8% of full scale). It used to be TARGET/MAX_GAIN (~1,125), which sat above soft
+// speech on some phones (peaks ~1,000 in live calls), so Ello's volume gate never saw
+// the user speak. Room noise on the same phone peaks at 200-450.
+private const val AGC_SPEECH_PEAK = 600
+// While the agent's own audio is playing, plus this long after it ends, the mic is NOT
+// boosted: what it picks up then is mostly the speaker's echo, and boosting it made it
+// look like the user talking, so Ello cut the agent off (barge-in) after ~0.8s. A real
+// interruption is loud enough to pass unboosted, and the mic itself is never muted.
+private const val AGENT_ECHO_TAIL_MS = 500L
+// Frames of agent audio (at 16 kHz) the speaker track needs before it starts playing: 3,200 = 200 ms.
+private const val START_THRESHOLD_FRAMES = 3200
 // Envelope smoothing so gain rides the recent loudness instead of jumping per chunk.
 private const val AGC_ENVELOPE_DECAY = 0.85
 // Per-chunk (40ms) release of the boost once input drops below speech level.
@@ -128,7 +143,9 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       val am = audioManager
       dlog(
         "audio state: mode=${am.mode} musicVol=${am.getStreamVolume(AudioManager.STREAM_MUSIC)}/" +
-          "${am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}",
+          "${am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)} " +
+          "voiceCallVol=${am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)}/" +
+          "${am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)}",
       )
     } catch (e: Exception) {
       Log.e("VoiceAudioModule", "logAudioState failed: ${e.message}")
@@ -215,6 +232,16 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
     if (BuildConfig.DEBUG) Log.d("VoiceJS", msg)
   }
 
+  /**
+   * Always-on (release too) diagnostics channel for SHORT, NON-PERSONAL lines only — language codes
+   * and state transitions, never transcripts, names, numbers or payloads (those stay behind
+   * nativeLog's debug gate above). Read with:  adb logcat -s SwiftLoanDiag
+   */
+  @ReactMethod
+  fun diagLog(msg: String) {
+    Log.i("SwiftLoanDiag", msg)
+  }
+
   // Required by RN's NativeEventEmitter (JS side wraps this module in one) even
   // though actual emission goes straight through RCTDeviceEventEmitter below —
   // without these no-ops, NativeEventEmitter logs an "addListener" warning.
@@ -291,7 +318,11 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
             if (needSoftwareAgc) {
               // Envelope-tracked gain (not per-chunk) so it doesn't pump between
               // syllables; every sample is hard-limited against wrap-around.
-              if (maxAbs > AGC_TARGET_PEAK / AGC_MAX_GAIN) {
+              if (SystemClock.elapsedRealtime() < agentAudioEndsAtMs + AGENT_ECHO_TAIL_MS) {
+                // Agent is talking: pass the mic through untouched and drop any boost.
+                envelope = 0.0
+                gainState = AGC_MIN_GAIN
+              } else if (maxAbs > AGC_SPEECH_PEAK) {
                 // Speech-level input: track its loudness and aim the gain at it.
                 envelope = max(maxAbs.toDouble(), envelope * AGC_ENVELOPE_DECAY)
                 gainState = (AGC_TARGET_PEAK / envelope).coerceIn(AGC_MIN_GAIN, AGC_MAX_GAIN)
@@ -333,7 +364,8 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
               dlog(
                 "capture alive: chunks=$chunkCount totalBytes=$totalBytesSent " +
                   "rawPeak=$maxAbs/32767 gain=${"%.2f".format(lastGain)} " +
-                  "sentPeak=${minOf(32767, (maxAbs * lastGain).toInt())}",
+                  "sentPeak=${minOf(32767, (maxAbs * lastGain).toInt())} " +
+                  "agentQueuedMs=${agentQueuedMs()} track=${audioTrack?.playState} ${playbackDebug()}",
               )
             }
           } else if (read < 0) {
@@ -370,6 +402,8 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
     audioRecord = null
     releaseVoiceEffects()
     playChunkCount = 0
+    agentAudioEndsAtMs = 0L
+    framesWritten = 0L
     audioTrack?.let {
       try { it.stop(); it.release() } catch (_: Exception) {}
     }
@@ -379,6 +413,30 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
 
   private var playChunkCount = 0
 
+  // When the audio queued so far will have finished playing (elapsedRealtime ms).
+  @Volatile private var agentAudioEndsAtMs = 0L
+  // PCM16 frames handed to the AudioTrack since it was created/flushed — compared with its
+  // playback head to tell how much agent audio is still waiting to be heard.
+  @Volatile private var framesWritten = 0L
+
+  private fun playbackDebug(): String {
+    val track = audioTrack ?: return "head=- written=$framesWritten"
+    return try {
+      "head=${track.playbackHeadPosition} written=$framesWritten underruns=${track.underrunCount}"
+    } catch (_: Exception) {
+      "head=? written=$framesWritten"
+    }
+  }
+
+  private fun agentQueuedMs(): Long {
+    val track = audioTrack ?: return 0
+    return try {
+      max(0L, (framesWritten - track.playbackHeadPosition.toLong()) * 1000 / SAMPLE_RATE)
+    } catch (_: Exception) {
+      0L
+    }
+  }
+
   @ReactMethod
   fun playChunk(base64: String) {
     try {
@@ -386,6 +444,21 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       val track = ensurePlaybackTrack()
       val written = track.write(bytes, 0, bytes.size)
       if (track.playState != AudioTrack.PLAYSTATE_PLAYING) track.play()
+      // 16 kHz mono PCM16 = 32 bytes per millisecond.
+      val nowMs = SystemClock.elapsedRealtime()
+      // A chunk arriving after a pause is the start of a new agent utterance: log it with how
+      // much earlier audio is still queued, so "the agent spoke but I heard nothing" can be
+      // checked (queued audio that never drains = playback stuck).
+      if (nowMs > agentAudioEndsAtMs + 400) {
+        dlog("agent utterance START (first chunk ${bytes.size} bytes, queuedMs=${agentQueuedMs()}, track=${track.playState})")
+      }
+      agentAudioEndsAtMs = max(agentAudioEndsAtMs, nowMs) + bytes.size / 32
+      framesWritten += written / 2
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        kickHandler.removeCallbacks(kickRunnable)
+        kickHeadAtPost = track.playbackHeadPosition
+        kickHandler.postDelayed(kickRunnable, 400)
+      }
       playChunkCount++
       // Periodic only — one line per chunk floods logcat during a live call.
       // A short write (written < size) means the track is backed up, so always log that.
@@ -429,19 +502,61 @@ class VoiceAudioModule(reactContext: ReactApplicationContext) : ReactContextBase
       .setBufferSizeInBytes(max(minBuf, 64 * 1024))
       .setTransferMode(AudioTrack.MODE_STREAM)
       .build()
+    // A streaming AudioTrack does not start (or restart after an underrun) until the audio
+    // written reaches its "start threshold", which defaults to the WHOLE buffer (64KB = ~2s).
+    // Any agent sentence shorter than that — "Shall we get started?" is ~1.4s — was written to
+    // the track and then never played until the NEXT sentence filled the buffer, so the user
+    // heard it seconds late or not at all (live log: written=94080, head frozen at 71360 for
+    // 19s with the track "PLAYING"). Start after ~200ms of audio instead.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      try {
+        track.setStartThresholdInFrames(START_THRESHOLD_FRAMES)
+      } catch (e: Exception) {
+        Log.w("VoiceAudioModule", "setStartThresholdInFrames failed: ${e.message}")
+      }
+    }
+    dlog("playback track created: bufferFrames=${track.bufferSizeInFrames} startThreshold=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) track.startThresholdInFrames else -1}")
     audioTrack = track
     return track
   }
 
+  // Android < 12 has no start-threshold API: if the track has not moved ~400ms after the last
+  // chunk, top it up with silence so the buffer fills and the real audio plays out.
+  private val kickHandler = Handler(Looper.getMainLooper())
+  private var kickHeadAtPost = -1
+  private val kickRunnable = Runnable {
+    val track = audioTrack ?: return@Runnable
+    try {
+      val head = track.playbackHeadPosition
+      val queuedFrames = framesWritten - head
+      if (queuedFrames > 0 && head == kickHeadAtPost) {
+        val padFrames = (track.bufferSizeInFrames - queuedFrames).toInt()
+        if (padFrames > 0) {
+          track.write(ByteArray(padFrames * 2), 0, padFrames * 2)
+          framesWritten += padFrames
+          dlog("playback not started with $queuedFrames frames queued — padded $padFrames frames of silence")
+        }
+      }
+    } catch (_: Exception) {
+    }
+  }
+
   @ReactMethod
   fun purgePlayback() {
+    agentAudioEndsAtMs = 0L
+    framesWritten = 0L
+    // Release the track instead of pause/flush/play on the same one: in a live call the reused
+    // track kept reporting PLAYING while its playback head stopped moving after a barge-in
+    // purge, leaving ~1.5s of the agent's next sentence queued and never played. The next
+    // playChunk() builds a fresh track (ensurePlaybackTrack) and starts it.
     audioTrack?.let {
       try {
         it.pause()
         it.flush()
-        it.play()
+        it.release()
       } catch (_: Exception) {
       }
     }
+    audioTrack = null
   }
 }

@@ -1,13 +1,15 @@
-# DRAFT — Privacy Policy wording for the Upshot analytics / engagement processor
+# Privacy Policy wording for the Upshot analytics / engagement processor
 
-> **Status: draft for review by your compliance owner / legal counsel. Not legal advice.**
-> Nothing here is live. The in-app Privacy Policy (`src/screens/privacy.tsx`, `src/i18n/strings.ts`)
-> currently says data is shared with a Lending Partner only when the user chooses to apply, and
-> does not mention Upshot or any analytics / engagement tool.
+> **Status: APPLIED in the app and website as policy v1.1 (6 Oct 2026) — still needs review by your compliance owner / legal counsel before real customers use it. Not legal advice.**
+>
+> - In-app: `src/content/privacyPolicy.ts` (sections 2, 3, 6, 9), the consent line in `src/screens/privacy.tsx`.
+>   Users who accepted v1.0 are shown the consent screen again once (acceptance is now stored per version).
+> - Website: `website-next/src/content/privacyBody.ts` (sections 4 and 8) and the version/date on the policy page.
+> - Not changed from here: the copy of the policy in the Ello assistant's knowledge (update by hand).
 
 ## Why this is needed
 
-The app and website send usage events and a limited profile to **Upshot (Brandmobile / goupshot.com)**,
+The app and website send usage events and a limited profile to **Upshot (upshot.ai; its SDK is named BrandKinesis; console at goupshot.com)**,
 a third-party engagement platform. Under the DPDP Act 2023 and the RBI Digital Lending Guidelines,
 sharing with a processor for a new purpose should be disclosed in the privacy notice and covered by
 the user's consent, with a way to withdraw it.

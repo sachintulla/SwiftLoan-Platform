@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
 import { colors, font, navGradient } from '../../theme/tokens';
@@ -12,7 +12,6 @@ import { agent } from '../index';
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
 import { NUDGE_ROTATE_MS, snoozeNudges } from '../nudges';
-import { fetchUserContext } from '../../api/client';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -150,8 +149,8 @@ function RobotHead() {
 /**
  * In-call "liquid ring" — translucent teal/mint ribbons (app theme) that wave around the avatar,
  * each a closed loop whose radius ripples with its own wave count, speed and
- * phase, so they cross and weave like a living ring, over a thin dark core
- * line and a soft glow. Only rendered while a call is live; the idle avatar is
+ * phase, so they cross and weave like a living ring, over a soft green glow
+ * (green only — there is deliberately no dark/black line in the ring). Only rendered while a call is live; the idle avatar is
  * still and the animation loop is fully stopped.
  *
  * State-driven (this client has no PCM level access):
@@ -238,13 +237,6 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
     <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show, transform: [{ scale }] }]}>
       <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: beat }] }]} />
       <Svg width={S} height={S}>
-        <Defs>
-          <SvgGradient id="core" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={colors.inkDeep} stopOpacity="0.95" />
-            <Stop offset="0.5" stopColor={colors.ink} stopOpacity="0.9" />
-            <Stop offset="1" stopColor={colors.primary} stopOpacity="0.95" />
-          </SvgGradient>
-        </Defs>
         {RIBBONS.map((rb, idx) => (
           <Path
             key={idx}
@@ -256,13 +248,6 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
             fill="none"
           />
         ))}
-        <Path
-          d={wavyPath(c, c, R * beat, m.amp * 0.55, 5, t * m.tempo * 0.9 + 0.7, t * m.spin * 0.5)}
-          stroke="url(#core)"
-          strokeWidth={1.6}
-          strokeLinejoin="round"
-          fill="none"
-        />
       </Svg>
     </Animated.View>
   );
@@ -272,7 +257,7 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { state, set, showToast } = useStore();
+  const { state, set, showToast, refreshUserContext } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   // Which edge the FAB is docked to — persisted so the user's choice survives
@@ -420,16 +405,12 @@ export default function VoiceWidget() {
   // handshake agent.start() itself has to complete before it builds its
   // first page_context payload, so this almost always lands first. If it
   // doesn't, the agent falls back to whatever snapshot it already had.
-  const refreshSessionContext = () => {
-    fetchUserContext()
-      .then(ctx => { if (ctx?.hasHistory) set({ userContext: ctx }); })
-      .catch(() => undefined);
-  };
-
+  // The context is now awaited (see startAgent), not fire-and-forget: the agent's first
+  // page_context has to carry `account_summary`, or it opens without knowing about an
+  // application that is under review.
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
-    refreshSessionContext();
-    agent.start(state.authUser?.phone).then(() => {
+    (state.authUser ? refreshUserContext() : Promise.resolve()).then(() => agent.start(state.authUser?.phone)).then(() => {
       // Runs after voice-session-start (and this call's own first
       // page_context, carrying whatever heard_intro_pitch was at the time)
       // has already gone out — marking it here can't affect THIS call's own

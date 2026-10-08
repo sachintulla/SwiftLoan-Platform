@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, PermissionsAndroid, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
@@ -16,24 +16,13 @@ const PERMS = [
 ];
 
 /**
- * Real, requestable permissions only. Notifications is requested here on "Allow
- * permissions" (registerUpshotPush) — not at app boot. SMS is deliberately
- * NOT requested here — READ_SMS is a heavily-restricted Play Store permission
- * (Google requires the app to be a default SMS/dialer handler to use it) and
- * nothing in the app actually reads SMS content, so requesting it would be
- * asking for access we can't legitimately use.
+ * "Allow permissions" asks for notifications (registerUpshotPush) on BOTH platforms, nothing else up
+ * front. Camera is asked by the OS the first time it is used (PAN scan, profile photo), the same on
+ * Android and iOS. Android used to also pop camera + location prompts here while iOS asked for
+ * neither; nothing in the app reads location, so that asymmetry only added a prompt Play review
+ * could question. SMS is deliberately not requested either (READ_SMS is restricted on Play and
+ * nothing reads SMS content).
  */
-async function requestRealPermissions(): Promise<void> {
-  if (Platform.OS !== 'android') return; // no proactive iOS equivalent without a dedicated permissions library
-  try {
-    await PermissionsAndroid.requestMultiple([
-      PermissionsAndroid.PERMISSIONS.CAMERA,
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    ]);
-  } catch {
-    // Never block onboarding on a permission dialog failing.
-  }
-}
 
 export default function Permissions() {
   const { go } = useStore();
@@ -42,10 +31,9 @@ export default function Permissions() {
 
   const allow = async () => {
     setBusy(true);
-    // Notification permission is requested here (not at app boot) — this is the
-    // screen that explains why we need it. Camera/location on Android too.
+    // Notification permission is requested here (not at app boot) — this is the screen that explains
+    // why we need it. Same on Android and iOS.
     registerUpshotPush();
-    await requestRealPermissions();
     setBusy(false);
     go('aboutyou');
   };

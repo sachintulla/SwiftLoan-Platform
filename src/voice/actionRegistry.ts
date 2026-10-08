@@ -3,6 +3,8 @@
 // single perform_ui_action tool (see tools.ts) dispatches against whatever is
 // registered for the CURRENT screen. This is what lets one generic tool cover
 // tap/fill/toggle/scroll across all 25 screens with no per-screen tool authoring.
+import { SCREEN_INFO } from './screenInfo';
+
 export type TargetKind = 'button' | 'field' | 'toggle' | 'chips' | 'consent' | 'scroll' | 'slider' | 'date';
 
 export interface ActionTarget {
@@ -29,6 +31,8 @@ export interface ActionTarget {
   max?: number;
   step?: number;
   onTap?: () => void;
+  /** Floats over the page (the tab bar): never scroll the page to bring it into view. */
+  fixed?: boolean;
   /**
    * This screen's main forward action (Continue/Next/Get Started/Send OTP/...).
    * Set by the shared PrimaryButton component so `continue_next` (tools.ts) can
@@ -195,12 +199,21 @@ const throttledChanges = new Map<string, number>();
 const trailingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const MAX_ONE_OFF_CHANGES = 2;
 
+/**
+ * Screens where the agent is told ONLY the available buttons — no screen text. Home is a dashboard
+ * whose text (hero headline, offer cards, counters) keeps changing as data loads; every change was
+ * a new context send, and a send that lands while the agent is speaking is treated by Ello as a
+ * barge-in, so it cut itself off and regenerated (three sends in two seconds after login).
+ */
+export const BUTTONS_ONLY_SCREENS = new Set<string>(['home']);
+
 /** Returns true when the set of addressable controls actually changed. */
 export function publishScreenGraph(
   screen: string,
   elements: Array<{ id: string } & ActionTarget>,
   texts: string[],
 ): boolean {
+  if (BUTTONS_ONLY_SCREENS.has(screen)) texts = [];
   const m = new Map<string, ActionTarget>();
   for (const { id, ...target } of elements) m.set(id, target);
   autoByScreen.set(screen, m);
@@ -340,6 +353,22 @@ export function listTargets(screen: string): Array<{ id: string } & ActionTarget
 // Lookup order, scoped to the given screen only (docs/USE_CASES.md notes some
 // labels repeat across screens, so cross-screen matching would be ambiguous):
 // exact id -> case-insensitive exact label -> substring either direction.
+/**
+ * The language cards are labelled in their own scripts (English / हिन्दी / తెలుగు), but users and
+ * the model say "Telugu" or "Hindi". Plain text matching could not connect them, so
+ * "select Telugu" came back not_found and the agent had to apologise on the language screen.
+ * Maps a spoken name (any case) to every spelling a label may use, both ways.
+ */
+const LANGUAGE_NAME_ALIASES: string[][] = [
+  ['english', 'inglish', 'इंग्लिश', 'अंग्रेज़ी', 'అంగ్లం', 'ఇంగ్లీష్'],
+  ['hindi', 'हिन्दी', 'हिंदी', 'హిందీ'],
+  ['telugu', 'తెలుగు', 'तेलुगु', 'तेलगू'],
+];
+function queryVariants(q: string): string[] {
+  const group = LANGUAGE_NAME_ALIASES.find(g => g.includes(q));
+  return group ? [q, ...group.filter(x => x !== q)] : [q];
+}
+
 export function findTarget(screen: string, query: string, kind?: TargetKind, group?: string): ActionTarget | null {
   const m = mergedTargets(screen);
   if (!m.size) return null;
@@ -363,25 +392,46 @@ export function findTarget(screen: string, query: string, kind?: TargetKind, gro
   // mislabelled action ("set_toggle" on a checkbox row) still resolves.
   const candidates = pool.length ? pool : labelled;
 
-  for (const t of candidates) if (t.label.toLowerCase() === q) return t;
-  for (const t of candidates) if (t.label.toLowerCase().startsWith(q)) return t;
-  for (const t of candidates) {
-    const label = t.label.toLowerCase();
-    // Require a couple of characters before allowing fuzzy containment, so short
-    // labels ("₹", "OK") can't swallow unrelated queries.
-    if (label.length >= 3 && q.length >= 3 && (label.includes(q) || q.includes(label))) return t;
+  for (const v of queryVariants(q)) {
+    for (const t of candidates) if (t.label.toLowerCase() === v) return t;
+    for (const t of candidates) if (t.label.toLowerCase().startsWith(v)) return t;
+    for (const t of candidates) {
+      const label = t.label.toLowerCase();
+      // Require a couple of characters before allowing fuzzy containment, so short
+      // labels ("₹", "OK") can't swallow unrelated queries.
+      if (label.length >= 3 && v.length >= 3 && (label.includes(v) || v.includes(label))) return t;
+    }
   }
   return null;
 }
 
+/**
+ * Extra facts a screen publishes for the agent about ITS OWN state that the control list can't
+ * express — today, the mandatory fields still empty on `basic`. Cleared when the screen unmounts.
+ */
+const screenHints = new Map<string, Record<string, unknown>>();
+export function setScreenHint(screen: string, hint: Record<string, unknown> | null): void {
+  if (hint) screenHints.set(screen, hint);
+  else screenHints.delete(screen);
+}
+export function getScreenHint(screen: string): Record<string, unknown> {
+  return screenHints.get(screen) ?? {};
+}
+
 export function buildPageContext(screen: string): Record<string, unknown> {
   const targets = listTargets(screen);
+  const info = SCREEN_INFO[screen];
   return {
+    ...getScreenHint(screen),
     page: screen,
+    // Plain-language name + purpose, so the agent can tell the user where they are
+    // (and never has to speak the internal id above). Omitted for unknown screens.
+    screen_title: info?.title,
+    screen_purpose: info?.purpose,
     // Include enough of the visible text that data-heavy screens (offers, loans)
     // convey their actual content — 12 lines cut off the offer list, leaving the
     // agent to fall back on example figures from its prompt.
-    screen_overview: getScreenTexts(screen).slice(0, 40).join(' · '),
+    screen_overview: BUTTONS_ONLY_SCREENS.has(screen) ? undefined : getScreenTexts(screen).slice(0, 40).join(' · '),
     // interactionGuide.opening is injected into the model's system prompt verbatim
     // as "Page-specific behavior: …". Without it the agent never opens the
     // conversation: sending a non-empty `page` puts the backend on its

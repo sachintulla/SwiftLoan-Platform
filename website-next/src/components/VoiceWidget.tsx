@@ -2,16 +2,50 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ElloAgent, fillInput } from '@/lib/ello-agent';
+import { ElloAgent } from '@/lib/ello-agent';
 import { faqsCopy } from '@/i18n/faqs';
+import { bootstrapSession, getAccessToken } from '@/lib/session';
+import { fetchMe, listApplications, type LoanApplication } from '@/lib/applyApi';
+import { statusMeta } from '@/lib/statusMeta';
+import type { SwiftLoanLeadApi } from '@/components/home/LeadForm';
+import {
+  activeDialog,
+  collectCards,
+  collectControls,
+  collectMessages,
+  collectTables,
+  describeControl,
+  findChip,
+  findPressable,
+  findSlider,
+  findTextField,
+  findToggle,
+  groupOf,
+  isSensitive,
+  isVisible,
+  labelOf,
+  norm,
+  pageHeading,
+  scopeRoot,
+  selectByText,
+  setSliderTo,
+  settle,
+  stepMarker,
+  waitUntilLoaded,
+  writeValue,
+} from '@/lib/voice-dom';
 
-// SwiftLoan.ai voice co-pilot — a floating mic that lets a visitor navigate
-// the ENTIRE site (home, compliance, brand, logo) and operate every
-// interactive control by voice: the EMI calculator, the application tracker,
-// the "check your rate" lead form, the FAQ accordion, and the EN/HI language
-// toggle. Mounted once in the root layout so the live call survives
-// client-side route changes (the agent/WebSocket connection is not torn down
-// when the visitor navigates between pages).
+// SwiftLoan.ai voice co-pilot (Ruby) — a floating mic that lets a visitor
+// navigate the whole site (home, FAQs, compliance, privacy policy, the apply
+// funnel and the signed-in account area) and operate its controls by voice: the
+// home "check your rate" form, the EMI calculator, the sign-in / PAN / details /
+// offers / compare steps, support tickets, the FAQ accordion and the EN/HI/TE
+// language switch. Mounted once in the root layout so the live call survives
+// client-side route changes (the WebSocket is not torn down on navigation).
+//
+// The agent's behaviour lives in prompts/ello-website-next-navigator-prompt.md;
+// this file is the tool surface and the live facts it is given. Change one,
+// change the other.
 
 // No Ello API key here, deliberately.
 //
@@ -71,15 +105,176 @@ const COMPLIANCE_SECTIONS: SectionDef[] = [
   { id: 'contact', label: 'Contact', aliases: ['contact', 'contact us', 'reach us'] },
 ];
 
-const PAGES: Record<string, { path: string; label: string; aliases: string[] }> = {
+interface PageDef {
+  path: string;
+  label: string;
+  aliases: string[];
+  /** The page bounces a signed-out visitor to /apply. */
+  needsSignIn?: boolean;
+}
+
+/** Pages the agent can send a visitor to (navigate_to_page). */
+const PAGES: Record<string, PageDef> = {
   home: { path: '/', label: 'Home', aliases: ['home', 'homepage', 'main page', 'landing page'] },
   // FAQs became a page of its own in the redesign (it used to be a section on
   // the home page), so "go to FAQs" must navigate rather than scroll.
   faqs: { path: '/faqs', label: 'FAQs', aliases: ['faq', 'faqs', 'questions', 'frequently asked', 'help'] },
   compliance: { path: '/compliance', label: 'Compliance & policies', aliases: ['compliance', 'compliance page', 'policies', 'legal', 'rbi disclosures'] },
+  privacy_policy: { path: '/privacypolicy', label: 'Privacy policy', aliases: ['privacy', 'privacy policy', 'data policy', 'privacypolicy'] },
   brand: { path: '/brand', label: 'Brand showcase', aliases: ['brand', 'brand page', 'brand identity', 'brand guidelines'] },
   logo: { path: '/logo', label: 'Logo assets', aliases: ['logo', 'logo page', 'logo assets'] },
+  apply: { path: '/apply', label: 'Apply / sign in', aliases: ['apply', 'sign in', 'login', 'log in', 'start application', 'get started', 'apply now'] },
+  offers: { path: '/apply/offers', label: 'My offers', aliases: ['offers', 'my offers', 'matched offers'], needsSignIn: true },
+  applications: { path: '/account', label: 'My applications', aliases: ['applications', 'my applications', 'track', 'track application', 'dashboard', 'account', 'status'], needsSignIn: true },
+  profile: { path: '/account/profile', label: 'My profile', aliases: ['profile', 'my profile', 'my details', 'notifications'], needsSignIn: true },
+  support: { path: '/account/support', label: 'Support', aliases: ['support', 'help centre', 'tickets', 'raise a ticket', 'grievance', 'contact support'], needsSignIn: true },
+  partners: { path: '/account/partners', label: 'Lending partners', aliases: ['partners', 'lending partners', 'my lenders', 'lenders'], needsSignIn: true },
 };
+
+/** Every route, for describing where the visitor currently is. */
+const ROUTES: Array<{ test: RegExp; key: string; label: string; purpose: string }> = [
+  { test: /^\/$/, key: 'home', label: 'Home', purpose: 'Marketing page: products, how it works, rate form, EMI calculator.' },
+  { test: /^\/faqs/, key: 'faqs', label: 'FAQs', purpose: 'Seven common questions.' },
+  { test: /^\/compliance/, key: 'compliance', label: 'Compliance', purpose: 'RBI Digital Lending disclosures.' },
+  { test: /^\/privacypolicy/, key: 'privacy_policy', label: 'Privacy policy', purpose: 'Full privacy policy, 18 sections.' },
+  { test: /^\/brand/, key: 'brand', label: 'Brand', purpose: 'Brand identity showcase.' },
+  { test: /^\/logo/, key: 'logo', label: 'Logo', purpose: 'Logo concepts.' },
+  { test: /^\/apply\/?$/, key: 'apply', label: 'Sign in', purpose: 'Enter mobile number and agree to terms to get a 6-digit code.' },
+  { test: /^\/apply\/verify/, key: 'apply_verify', label: 'Verify code', purpose: 'The visitor types the 6-digit code themselves. Never take it by voice.' },
+  { test: /^\/apply\/step-1/, key: 'apply_pan', label: 'Step 1 of 3 — PAN', purpose: 'Visitor types their own PAN and the soft-check consent is given.' },
+  { test: /^\/apply\/step-2/, key: 'apply_details', label: 'Step 2 of 3 — your details', purpose: 'Loan amount, purpose, personal, address and employment details (pre-filled from PAN).' },
+  { test: /^\/apply\/step-3/, key: 'apply_optional', label: 'Step 3 of 3 — optional details', purpose: 'Optional extras; can be skipped.' },
+  { test: /^\/apply\/finding/, key: 'apply_finding', label: 'Finding offers', purpose: 'Loader while eligibility is checked. Say nothing.' },
+  { test: /^\/apply\/offers/, key: 'apply_offers', label: 'Your offers', purpose: 'Matched offers with rate, EMI and fees.' },
+  { test: /^\/apply\/compare/, key: 'apply_compare', label: 'Compare offers', purpose: 'Side-by-side comparison with tenure and ranking filters.' },
+  { test: /^\/apply\/lender/, key: 'apply_lender', label: "Lender's application", purpose: "The lender's own secure form inside the page — you cannot see or operate it." },
+  { test: /^\/apply\/confirm/, key: 'apply_confirm', label: 'Confirm loan', purpose: 'Final confirmation when a lender has no redirect.' },
+  { test: /^\/apply\/success/, key: 'apply_success', label: 'Application submitted', purpose: 'Confirmation after submitting to a lender.' },
+  { test: /^\/account\/profile/, key: 'profile', label: 'My profile', purpose: 'Name and email, notification switches, links.' },
+  { test: /^\/account\/support/, key: 'support', label: 'Support', purpose: 'Search help, raise a ticket or grievance, see past tickets.' },
+  { test: /^\/account\/partners/, key: 'partners', label: 'Lending partners', purpose: 'Lenders that made the visitor an offer.' },
+  { test: /^\/account\/faqs/, key: 'account_faqs', label: 'FAQs', purpose: 'The same seven FAQs inside the account area.' },
+  { test: /^\/account\/privacy/, key: 'account_privacy', label: 'Privacy policy', purpose: 'Privacy policy inside the account area.' },
+  { test: /^\/account\/[^/]+/, key: 'application_status', label: 'Application status', purpose: "One application's status and 4-step timeline." },
+  { test: /^\/account\/?$/, key: 'applications', label: 'My applications', purpose: "The visitor's applications, one row per lender." },
+];
+
+function routeInfo(path: string) {
+  return ROUTES.find((r) => r.test.test(path)) ?? { key: 'unknown', label: path, purpose: '' };
+}
+
+/** Sections of /privacypolicy (and /account/privacy), ids as rendered. */
+const PRIVACY_SECTIONS: SectionDef[] = [
+  { id: 'intro', label: 'Introduction and scope', aliases: ['introduction', 'scope', 'intro'] },
+  { id: 'who', label: 'Who we are', aliases: ['who we are', 'about'] },
+  { id: 'defs', label: 'Definitions', aliases: ['definitions'] },
+  { id: 'collect', label: 'Information we collect', aliases: ['collect', 'what we collect', 'information collected'] },
+  { id: 'use', label: 'How we use your information', aliases: ['use', 'how we use'] },
+  { id: 'consent', label: 'Consent and legal basis', aliases: ['consent', 'legal basis'] },
+  { id: 'lending', label: 'Lending services', aliases: ['lending', 'lending services', 'loan referral'] },
+  { id: 'share', label: 'How we share your information', aliases: ['share', 'sharing', 'who gets my data'] },
+  { id: 'retention', label: 'Data retention and deletion', aliases: ['retention', 'deletion', 'how long', 'delete my data'] },
+  { id: 'security', label: 'Data security', aliases: ['security', 'safe', 'encryption'] },
+  { id: 'rights', label: 'Your rights', aliases: ['rights', 'my rights'] },
+  { id: 'grievance', label: 'Grievance officer / DPO', aliases: ['grievance', 'dpo', 'complaint', 'data protection officer'] },
+  { id: 'children', label: 'Children', aliases: ['children', 'minors', 'age'] },
+  { id: 'localization', label: 'Data localization and cross-border transfers', aliases: ['localization', 'localisation', 'cross border', 'data in india', 'transfers'] },
+  { id: 'thirdparty', label: 'Third-party links and services', aliases: ['third party', 'third-party', 'links'] },
+  { id: 'changes', label: 'Changes to this policy', aliases: ['changes', 'updates'] },
+  { id: 'contact', label: 'Contact us', aliases: ['contact', 'contact us'] },
+  { id: 'precedence', label: 'Precedence', aliases: ['precedence'] },
+];
+
+/** Ranges the site states per product (Offers section / compliance page). */
+const PRODUCT_LIMITS: Record<string, { min: number; max: number }> = {
+  'Personal Loan': { min: 50_000, max: 25_00_000 },
+  'Business Loan': { min: 1_00_000, max: 75_00_000 },
+};
+
+// ── Account state handed to the agent ────────────────────────────────────
+
+type CustomerType =
+  | 'signed_out'
+  | 'no_application'
+  | 'in_progress'
+  | 'offers_ready'
+  | 'in_review'
+  | 'approved'
+  | 'active_loan'
+  | 'declined';
+
+interface AccountSummary {
+  signedIn: boolean;
+  customerType: CustomerType;
+  /** First name only, from the signed-in profile. Null when unknown — never guess one. */
+  firstName: string | null;
+  hasApplication: boolean;
+  applications: Array<{
+    ref: string;
+    status: string;
+    statusLabel: string;
+    amountRupees: number;
+    lendersApplied: string[];
+    offersReady: number;
+  }>;
+}
+
+function signedOutSummary(): AccountSummary {
+  return { signedIn: false, customerType: 'signed_out', firstName: null, hasApplication: false, applications: [] };
+}
+
+function summariseAccount(user: Record<string, any> | null, apps: LoanApplication[]): AccountSummary {
+  const applications = apps.slice(0, 3).map((a) => ({
+    ref: a.ref,
+    status: a.status,
+    statusLabel: statusMeta(a.status).label,
+    amountRupees: a.amount,
+    lendersApplied: (a.lenderApplications ?? []).map((l) => l.lenderName).filter((n): n is string => !!n),
+    offersReady: (a.offers ?? []).filter((o) => !o.applied).length,
+  }));
+  const raw = apps.map((a) => a.status);
+  const customerType: CustomerType = !apps.length
+    ? 'no_application'
+    : raw.includes('disbursed')
+      ? 'active_loan'
+      : raw.some((x) => x === 'handoff' || x === 'under_review')
+        ? 'in_review'
+        : raw.includes('approved')
+          ? 'approved'
+          : apps.some((a) => a.status === 'offers_ready' && (a.offers ?? []).some((o) => !o.applied))
+            ? 'offers_ready'
+            : raw.some((x) => x === 'rejected' || x === 'failed') && !raw.some((x) => ['draft', 'pan_pending', 'prequalifying'].includes(x))
+              ? 'declined'
+              : 'in_progress';
+  const full = String(user?.fullName ?? user?.firstName ?? '').trim();
+  return {
+    signedIn: true,
+    customerType,
+    firstName: full ? full.split(/\s+/)[0]! : null,
+    hasApplication: apps.length > 0,
+    applications,
+  };
+}
+
+/**
+ * Buttons that commit the visitor to something real. The tool refuses them
+ * unless the model passes user_confirmed — a forcing function to ask out loud
+ * first, mirroring the confirmation-gated actions in the mobile copilot.
+ */
+function needsConfirmation(label: string, path: string): string | null {
+  const l = norm(label);
+  if (/^log ?out$/.test(l)) return 'logging the visitor out';
+  if (/^(apply now|select this offer|apply with)\b/.test(l) && /^\/apply\/(offers|compare)/.test(path)) return 'sending their application to a lender';
+  if (/^confirm (and|&) continue/.test(l) || /^confirm &? ?continue/.test(l)) return 'confirming the loan with the lender';
+  if (/^verify pan/.test(l)) return 'a soft credit check using their PAN';
+  if (/^submit (ticket|grievance)/.test(l)) return 'raising a support ticket';
+  if (/^skip for now/.test(l)) return 'skipping the optional step';
+  return null;
+}
+
+function leadApi(): SwiftLoanLeadApi | null {
+  return (window as unknown as { __swiftloanLead?: SwiftLoanLeadApi }).__swiftloanLead ?? null;
+}
 
 interface FaqItem {
   question: string;
@@ -132,22 +327,15 @@ function calcApi(): CalcApi | null {
 }
 
 /**
- * Snapshot of the lead form, by `name` rather than id.
- *
- * Scoped to `#lead-form` so it cannot accidentally pick up a same-named input
- * elsewhere on the page.
+ * What the visitor has already given the home page rate form, so the agent does
+ * not re-ask. Amount and loan type come from the form's own state (via its
+ * bridge); the mobile number only reports whether a valid one is entered — the
+ * digits are never sent to the model.
  */
 function readLeadForm() {
-  const f = (name: string) =>
-    (document.querySelector(`#lead-form [name="${name}"]`) as HTMLInputElement | HTMLSelectElement | null)?.value || null;
-  // Simplified form: amount, loan type and mobile only — no name/city/email/
-  // consent fields exist anymore (there's no checkbox; eligibility is checked
-  // straight from amount + phone + OTP verification).
-  return {
-    phone: f('mobile'),
-    loan_type: f('loanType'),
-    amount: f('amount'),
-  };
+  const st = leadApi()?.read();
+  if (!st) return null;
+  return { amount: st.amount, loanType: st.loanType, mobileEntered: st.mobileFilled, readyToSubmit: st.canSubmit };
 }
 
 /** Language switcher control surface, published by LanguageProvider. */
@@ -201,6 +389,7 @@ export default function VoiceWidget() {
   const router = useRouter();
   const pathRef = useRef(pathname);
   const agentRef = useRef<ElloAgent | null>(null);
+  const accountRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
   // Keep the live route in a ref so tool handlers (registered once) always
   // act on the current page, and nudge the assistant's context on navigation.
@@ -221,6 +410,10 @@ export default function VoiceWidget() {
     if (agent && agent.conversationId) {
       // Give the new page a tick to mount its DOM before re-describing it.
       setTimeout(() => agent.updatePageContext(), 150);
+      // A sign-in or a submitted application changes who they are to us. Only worth
+      // asking once there is a session in memory (a sign-in sets one); a signed-out
+      // visitor would just collect a 401 per page.
+      if (getAccessToken()) accountRefreshRef.current?.().then(() => agent.updatePageContext());
     }
   }, [pathname]);
 
@@ -236,7 +429,12 @@ export default function VoiceWidget() {
 
     const el = (id: string) => document.getElementById(id);
     const isHome = () => pathRef.current === '/';
-    const sectionsForCurrentPage = () => (pathRef.current === '/compliance' ? COMPLIANCE_SECTIONS : isHome() ? HOME_SECTIONS : []);
+    const sectionsForCurrentPage = () => {
+      const p = pathRef.current;
+      if (p === '/compliance') return COMPLIANCE_SECTIONS;
+      if (p === '/privacypolicy' || p === '/account/privacy') return PRIVACY_SECTIONS;
+      return isHome() ? HOME_SECTIONS : [];
+    };
 
     function currentSectionId(): string | null {
       const list = sectionsForCurrentPage();
@@ -275,179 +473,287 @@ export default function VoiceWidget() {
       return true;
     }
 
+    /** Scroll to the first visible heading matching the text — for pages without a section list. */
+    function scrollToHeading(query: string): string | null {
+      const q = norm(query);
+      if (!q) return null;
+      const heads = Array.from(document.querySelectorAll('h1, h2, h3')).filter(isVisible);
+      const hit = heads.find((h) => norm(h.textContent) === q) ?? heads.find((h) => norm(h.textContent).includes(q));
+      if (!hit) return null;
+      hit.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      highlight(hit);
+      return (hit.textContent ?? '').trim().slice(0, 80);
+    }
+
     const agent = new ElloAgent({
       sessionUrl: CONFIG.sessionUrl,
       role: 'websiteCompanion',
       wsUrl: CONFIG.wsUrl,
+      // Learn who is calling (signed in? which applications?) BEFORE the opening,
+      // so the first words are already the right ones for them.
+      prepare: () => accountRefreshRef.current?.() ?? Promise.resolve(),
       debug: window.location.hostname === 'localhost' || window.location.search.indexOf('voicedebug') >= 0,
     });
     agentRef.current = agent;
     (window as unknown as { __swiftloanVoice: ElloAgent }).__swiftloanVoice = agent;
 
+    // ── Who is on the call ─────────────────────────────────────────────
+    // Fetched when the visitor taps the mic (and again after each navigation
+    // during a call), never on page load: there is no cookie to read from JS, so
+    // finding out whether a session exists costs a refresh request, and plain
+    // browsing should not pay it.
+    let account: AccountSummary = signedOutSummary();
+    async function refreshAccount() {
+      try {
+        const ok = getAccessToken() ? true : await bootstrapSession();
+        if (!ok) {
+          account = signedOutSummary();
+          return;
+        }
+        const [me, apps] = await Promise.all([fetchMe(), listApplications()]);
+        account = summariseAccount(me?.data?.user ?? null, apps ?? []);
+      } catch {
+        account = { ...signedOutSummary(), signedIn: !!getAccessToken() };
+      }
+    }
+
+    accountRefreshRef.current = refreshAccount;
+
+    const toastText = (): string | null => {
+      const t = Array.from(document.querySelectorAll('[data-sonner-toast]')).pop();
+      return t ? (t.textContent ?? '').trim() || null : null;
+    };
+
+    // ── What the agent is told about the page ──────────────────────────
     agent.registerPageContext(() => {
       const sid = currentSectionId();
       const sections = sectionsForCurrentPage();
       const sec = sections.find((s) => s.id === sid);
-      const pageKey = Object.keys(PAGES).find((k) => PAGES[k].path === pathRef.current) ?? 'unknown';
-      const pageLabel = PAGES[pageKey]?.label ?? pathRef.current;
+      const route = routeInfo(pathRef.current);
+      const dialog = activeDialog();
+      const onHome = isHome();
       return {
         // Required by the backend's greeting path: a non-empty top-level `page`
         // string is what puts it on the prompt-driven greeting flow at all —
         // without it there is no "speak first" trigger and the agent stays
-        // silent for the whole call (confirmed against src/voice/actionRegistry.ts,
-        // the mobile app's verified equivalent of this same page context).
-        page: pageLabel + (sid && sec ? ` — ${sec.label}` : ''),
+        // silent for the whole call.
+        page: route.label + (sid && sec ? ` — ${sec.label}` : ''),
         site: 'SwiftLoan.ai — a digital lending marketplace that matches borrowers to the right lender',
-        currentPage: { path: pathRef.current, key: pageKey, label: pageLabel },
-        pages: Object.entries(PAGES).map(([key, p]) => ({ key, path: p.path, label: p.label })),
+        currentPage: { path: pathRef.current, key: route.key, label: route.label, purpose: route.purpose },
+        // The screen language ('en' | 'hi' | 'te'). Distinct from the language the
+        // visitor is speaking: the voice follows the visitor, this is the page text.
+        siteLanguage: langApi()?.get() ?? 'en',
+        pages: Object.entries(PAGES).map(([key, p]) => ({ key, path: p.path, label: p.label, needsSignIn: !!p.needsSignIn })),
         currentSection: sid ? { id: sid, label: sec ? sec.label : sid } : null,
         sections: sections.map((s) => ({ id: s.id, label: s.label })),
         loanProducts: ['Personal Loan', 'Business Loan'],
         faqQuestions: faqItems().map((f) => f.question),
-        // What the visitor has already typed, so the agent does not ask again.
-        // Read by `name`, matching the redesigned form — reading the old ids
-        // returned null for every field, which made the agent re-ask for a name
-        // the visitor had just given it.
-        alreadyFilled: isHome() ? readLeadForm() : null,
-        calculator: isHome() ? readCalculator() : null,
+        // Account state, so the opening and every later turn can be personal
+        // without asking the visitor for what the site already knows.
+        account,
+        // Home: what the visitor already typed, so the agent never re-asks.
+        alreadyFilled: onHome ? readLeadForm() : null,
+        calculator: onHome ? readCalculator() : null,
+        // Everywhere except plain home: a live read of the screen — heading,
+        // step, every control with its state, and any message the app is showing.
+        // Trust this over what was said earlier; the visitor can also act by hand.
+        screen:
+          !onHome || dialog
+            ? {
+                heading: pageHeading(),
+                step: stepMarker(),
+                dialogOpen: !!dialog,
+                controls: collectControls(),
+                cards: collectCards(),
+                table: collectTables(),
+                messages: collectMessages(),
+              }
+            : null,
+        loading: /^\/apply\/finding/.test(pathRef.current),
         interactionGuide: {
-          role:
-            "You are SwiftLoan.ai's voice guide. Warmly help visitors understand the products, navigate the site (home, FAQs, compliance), operate the EMI calculator, answer FAQs, switch language (English, Hindi, Telugu), and check their loan eligibility by filling the application form hands-free.",
+          role: "You are Ruby, SwiftLoan.ai's voice guide. Follow your system instructions exactly; this block only supplies live facts.",
           // Required for the agent to say anything at all at call start — the
           // backend's speak-first instruction is otherwise gated on a non-empty
           // greeting, which stays empty without this. See the `page` comment above.
           opening:
-            'Speak first, right away, before the visitor says anything. Open warmly, like ' +
-            '"Welcome to SwiftLoan!" — then in the same short sentence, name the current page/section ' +
-            'in plain everyday words and one thing they can do here. One sentence, genuinely warm, no script. ' +
-            'Then stop and listen.',
-          behaviour: [
-            "Greet the visitor, say which page/section they're on, and ask what they need.",
-            'If the visitor asks for something on a different page, CALL navigate_to_page first, then go_to_section once there.',
-            'When they express interest in loans, CALL go_to_section to take them there, then describe it.',
-            // Deliberate order: the amount is the question the visitor came to
-            // answer and is the least personal, so it earns the right to ask
-            // for a phone number next. The form itself only has these two
-            // fields now — no name/city/email/consent step exists anymore.
-            'Offer to fill the "Check eligibility" form by voice, asking ONE field at a time IN THIS ORDER: 1) how much they need (set_loan_amount), 2) mobile number (fill_phone). Confirm each value back before moving on.',
-            'As soon as they mention personal or business — even in passing, before you reach the amount — CALL select_loan_type immediately so their loan type is recorded correctly (there is no visible picker for this, but it still matters for the lead).',
-            'Never re-ask for something already present in alreadyFilled; read it back to confirm instead.',
-            'For EMI questions, CALL set_calculator with the amount/rate/tenure they mention and read back the emi/total from the result.',
-            'If they ask to track an existing application, say that tracking lives in the SwiftLoan app and offer to send the app link — there is no tracker on this site.',
-            'For FAQ-style questions, CALL answer_faq with their question — use the returned answer text to reply, and it will also open the matching FAQ item on screen.',
-            'The site is available in English, Hindi and Telugu. If the visitor speaks one of those, offer to switch with set_language.',
-            'Never ask the visitor to speak passwords, OTPs, PAN, Aadhaar, or any security codes.',
-          ],
+            'Speak first, right away, before the visitor says anything — once, at the true start of the call. ' +
+            'Follow the Opening rules in your instructions for `account.customerType`. Short, warm, one or two sentences, then stop and listen.',
         },
       };
     });
+
+    const fail = (reason: string, extra: Record<string, unknown> = {}) => ({ success: false, reason, ...extra });
+    const SENSITIVE_MESSAGE = 'This one is safer for the visitor to type themselves.';
 
     // ── Navigation ─────────────────────────────────────────────────────
     agent.registerTool({
       name: 'navigate_to_page',
       description:
-        "Go to a different page of the site — e.g. 'take me to the compliance page', 'show me the brand page', 'go home'. Valid pages: home, compliance, brand, logo.",
+        "Go to a page of the site. Public: home, faqs, compliance, privacy_policy, brand, logo. Application: apply (mobile number + OTP sign-in / start), offers (their matched offers). Signed-in only: applications (My Applications), profile, support, partners. The loan steps themselves (PAN, details, finding, compare, confirm) are reached with the on-screen buttons, not this tool. If sign-in is needed the result says so.",
       schema: { type: 'object', properties: { page: { type: 'string', enum: Object.keys(PAGES) } }, required: ['page'] },
-      handler: (a: { page: string }) => {
+      handler: async (a: { page: string }) => {
         const target = PAGES[a.page] ?? fuzzyFind(Object.entries(PAGES).map(([key, p]) => ({ ...p, id: key })), a.page);
-        if (!target) return { success: false, reason: `Unknown page "${a.page}"` };
+        if (!target) return fail(`Unknown page "${a.page}"`, { pages: Object.keys(PAGES) });
+        if (pathRef.current === target.path) return { success: true, navigatedTo: target.path, alreadyHere: true };
+        const from = pathRef.current;
         router.push(target.path);
-        return { success: true, navigatedTo: target.path };
+        // Report where the visitor actually landed, not where we asked to send them:
+        // the route commits a moment later (longer on a first, uncompiled visit), and
+        // signed-in pages bounce a signed-out visitor to /apply. Poll until one of
+        // those happens so the agent never claims an arrival that did not occur.
+        const deadline = Date.now() + (target.needsSignIn ? 3000 : 5000);
+        let bounced = 0;
+        while (pathRef.current !== target.path && Date.now() < deadline) {
+          await settle(100);
+          if (target.needsSignIn && from !== '/apply' && pathRef.current === '/apply') {
+            if (++bounced >= 4) break; // sat on /apply for ~400ms: it is a redirect, not a stop on the way
+          }
+        }
+        if (pathRef.current === target.path) {
+          // A signed-in page flashes up before it finds out the visitor is signed
+          // out and bounces them. With no token in memory (a cookie session is
+          // invisible to JS) give that check time to finish before claiming arrival.
+          if (target.needsSignIn && !getAccessToken()) await settle(1400);
+          await waitUntilLoaded();
+          if (pathRef.current === target.path) return { success: true, navigatedTo: target.path };
+        }
+        if (target.needsSignIn && pathRef.current === '/apply') {
+          return fail('sign_in_required', { navigatedTo: '/apply', note: 'They are not signed in. Offer to sign in with their mobile number first.' });
+        }
+        return fail('navigation_slow', { stillOn: pathRef.current, note: 'The page is still loading; check read_screen before saying you are there.' });
       },
     });
 
     agent.registerTool({
       name: 'go_to_section',
       description:
-        "Scroll to a section on the CURRENT page — e.g. 'show me the loan products', 'open the EMI calculator', 'take me to apply', 'go to FAQ' on the home page, or 'grievance redressal', 'key facts statement' on the compliance page. If the section isn't on this page, call navigate_to_page first.",
+        "Scroll to a section of the CURRENT page — e.g. 'loan products', 'EMI calculator', 'how it works', 'check your rate' on home; 'grievance redressal', 'key facts statement', 'fees' on /compliance; any of the 18 policy sections on /privacypolicy (e.g. 'data retention', 'your rights'). Falls back to matching a heading on any other page. If the section isn't on this page, call navigate_to_page first.",
       schema: { type: 'object', properties: { section: { type: 'string', description: 'section the user asked for' } }, required: ['section'] },
       handler: (a: { section: string }) => {
         const list = sectionsForCurrentPage();
         const match = fuzzyFind(list, a.section);
-        if (!match) return { success: false, reason: `Section "${a.section}" isn't on this page. Try navigate_to_page first.` };
-        return { success: scrollToId(match.id), openedSection: match.id };
+        if (match) return { success: scrollToId(match.id), openedSection: match.id };
+        const heading = scrollToHeading(a.section);
+        if (heading) return { success: true, openedSection: heading };
+        return fail(`Section "${a.section}" isn't on this page.`, { sections: list.map((s) => s.label) });
       },
     });
 
-    // ── Lead / "check eligibility" form (home only) ─────────────────────
-    // Gate for every lead-form tool. This checked `#leadForm`, which the
-    // redesign renamed to the `#lead-form` SECTION — so availableWhen returned
-    // false and the agent was never offered fill_phone/submit at all. That is
-    // why it could hear the request and do nothing: the tools were not
-    // absent-but-broken, they were simply never advertised.
-    const homeOnly = () => !!document.getElementById('lead-form');
+    // ── Read the screen ────────────────────────────────────────────────
+    agent.registerTool({
+      name: 'read_screen',
+      description:
+        'Read what is on screen right now: the heading, step, every field/button/option with its current state, and any message the app is showing (e.g. why Continue is disabled). Call it before describing a screen or acting on a control you have not seen, and after anything that changes the page.',
+      schema: { type: 'object', properties: {} },
+      handler: () => ({
+        success: true,
+        path: pathRef.current,
+        heading: pageHeading(),
+        step: stepMarker(),
+        dialogOpen: !!activeDialog(),
+        controls: collectControls(scopeRoot(), 60),
+        cards: collectCards(),
+        table: collectTables(),
+        messages: collectMessages(),
+        signedIn: account.signedIn,
+      }),
+    });
+
+    // ── Lead / "check your rate" form (home only) ──────────────────────
+    // The lead form's amount and loan type are React state, reached through the
+    // bridge LeadForm publishes — not through the DOM — so these are gated on
+    // that bridge being mounted. (The old gate looked for `#lead-form`, which
+    // outlived a redesign that moved everything inside it.)
+    const leadAvailable = () => !!leadApi();
 
     agent.registerTool({
       name: 'fill_phone',
-      description: 'Call immediately when the user states their phone number. Digits only, optional leading +.',
+      description:
+        "Call when the visitor gives their 10-digit Indian mobile number — on the home page's rate form or on the sign-in page (/apply). Digits only. Never read the number back digit by digit.",
       schema: { type: 'object', properties: { phone: { type: 'string' } }, required: ['phone'] },
-      availableWhen: homeOnly,
-      handler: (a: { phone: string }) => {
-        scrollToId('lead-form');
-        return fillInput('[name="mobile"]', a.phone);
+      handler: async (a: { phone: string }) => {
+        const digits = String(a.phone ?? '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+        if (!/^[6-9]\d{9}$/.test(digits)) {
+          return fail('invalid_number', { message: 'An Indian mobile number is 10 digits and starts with 6, 7, 8 or 9.' });
+        }
+        const field =
+          document.querySelector<HTMLInputElement>('#lead-form [name="mobile"]') ??
+          Array.from(document.querySelectorAll<HTMLInputElement>('input[type="tel"]')).find(isVisible) ??
+          null;
+        if (!field) return fail('no_mobile_field', { note: 'There is no mobile number field on this page.' });
+        if (field.closest('#lead-form')) scrollToId('lead-form');
+        else field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        writeValue(field, digits);
+        await settle(150);
+        return { success: true, accepted: field.value.length === 10 };
       },
     });
     agent.registerTool({
       name: 'select_loan_type',
-      description: "Call as soon as the user says which loan they want — e.g. 'personal', 'a business loan', 'for my shop'. Sets the loan type on the APPLICATION FORM.",
+      description:
+        "Call as soon as the visitor says which loan they want — 'personal', 'a business loan', 'for my shop'. Sets the loan type on the home page rate form (there is no visible picker; it still matters for the lead).",
       schema: { type: 'object', properties: { loan_type: { type: 'string', enum: ['Personal Loan', 'Business Loan'] } }, required: ['loan_type'] },
-      availableWhen: homeOnly,
-      /**
-       * Resolved to a stable English key, not the spoken text.
-       *
-       * The loan-type field is a custom-rendered dropdown (not a native
-       * <select> — see LeadForm.tsx for why), so there are no <option>
-       * elements to match against. Its value is mirrored onto a hidden
-       * input#loanType that fillInput can still set the same way it fills
-       * every other field: native setter + dispatchEvent('input'), which the
-       * hidden input's onChange picks up and pushes into React state.
-       */
+      availableWhen: leadAvailable,
       handler: (a: { loan_type: string }) => {
         const said = (a.loan_type || '').toLowerCase();
-        const wantBusiness = /business|vyapar|व्यापार|వ్యాపార|shop|company|firm|msme/.test(said);
-        const want = wantBusiness ? 'Business Loan' : 'Personal Loan';
-
-        const res = fillInput('#lead-form [name="loanType"]', want);
-        return res.success ? { success: true, selected: want } : res;
+        const want = /business|vyapar|व्यापार|వ్యాపార|shop|company|firm|msme/.test(said) ? 'Business Loan' : 'Personal Loan';
+        const res = leadApi()?.set({ loanType: want });
+        return res ? { success: true, selected: want } : fail('form_not_on_screen');
       },
     });
     agent.registerTool({
       name: 'set_loan_amount',
-      description: 'Call when the user states how much they want to borrow on the APPLICATION FORM (a number in rupees). For "what would my EMI be", use set_calculator instead.',
+      description:
+        'Call when the visitor states how much they want to borrow on the home page rate form (rupees). The slider runs ₹10,000 to ₹50,00,000 in ₹5,000 steps. For "what would my EMI be", use set_calculator instead.',
       schema: { type: 'object', properties: { amount: { type: 'number' } }, required: ['amount'] },
-      availableWhen: homeOnly,
-      handler: (a: { amount: number }) => fillInput('[name="amount"]', String(a.amount)),
+      availableWhen: leadAvailable,
+      handler: async (a: { amount: number }) => {
+        const api = leadApi();
+        if (!api) return fail('form_not_on_screen');
+        if (!(a.amount > 0)) return fail('invalid_amount');
+        scrollToId('lead-form');
+        api.set({ amount: a.amount });
+        // The bridge re-publishes after React commits; read the settled state, not the
+        // render this call started from (a select_loan_type moments earlier is not in it yet).
+        await settle(160);
+        const res = { amount: leadApi()?.read().amount ?? null, loanType: leadApi()?.read().loanType ?? 'Personal Loan' };
+        const limits = PRODUCT_LIMITS[res.loanType];
+        const outside = limits && res.amount != null && (res.amount < limits.min || res.amount > limits.max);
+        return {
+          success: true,
+          amount: res.amount,
+          ...(outside
+            ? { warning: `${res.loanType}s on SwiftLoan run ${inrText(limits.min)} to ${inrText(limits.max)}. Tell the visitor and confirm the amount.` }
+            : {}),
+        };
+      },
     });
     agent.registerTool({
       name: 'submit_application',
-      // No requiresConfirmation / on-screen popup here on purpose — this is a
-      // voice-first flow, so the ASSISTANT must ask "shall I submit this now?"
-      // out loud and wait for a spoken yes (see the system prompt's behaviour
-      // rules) before ever calling this tool. Once called, it submits immediately.
+      // No requiresConfirmation / on-screen popup on purpose — this is a
+      // voice-first flow, so the ASSISTANT must ask out loud and hear a yes
+      // (see the system prompt) before ever calling this tool.
       description:
-        "Call ONLY after the visitor has verbally confirmed out loud that they want to submit (e.g. said \"yes\", \"go ahead\", \"submit it\") in response to you asking them. Requires phone to already be set (there is no consent checkbox anymore — the form itself has no separate consent step).",
+        'Submit the home page rate form: saves the lead and sends a 6-digit code to the mobile number. Call ONLY after you asked "shall I send the code to that number?" and the visitor clearly said yes. Needs the amount and the mobile number already set. The visitor then types the code themselves — you never take or enter it.',
       schema: { type: 'object', properties: {} },
-      availableWhen: homeOnly,
-      handler: () => {
-        const btn = document.querySelector('#lead-form button[type="submit"]') as HTMLButtonElement | null;
-        if (!btn) return { success: false, reason: 'submit button not found' };
+      availableWhen: leadAvailable,
+      handler: async () => {
+        const st = leadApi()?.read();
+        if (!st) return fail('form_not_on_screen');
+        if (!st.canSubmit) {
+          const missing = [st.amount == null ? 'loan amount' : null, !st.mobileFilled ? 'mobile number' : null].filter(Boolean);
+          return fail('form_not_ready', { missing });
+        }
+        const btn = document.querySelector<HTMLButtonElement>('#lead-form button[type="submit"]');
+        if (!btn) return fail('submit_button_not_found');
         btn.click();
-        return { success: true };
-      },
-    });
-    agent.registerTool({
-      name: 'reset_application_form',
-      description: "Call when the user wants to check another rate / start a new application after already submitting one.",
-      schema: { type: 'object', properties: {} },
-      availableWhen: () => {
-        const fs = el('formSuccess') as HTMLElement | null;
-        return !!fs && !fs.hidden;
-      },
-      handler: () => {
-        const btn = el('resetLead') as HTMLButtonElement | null;
-        if (!btn) return { success: false, reason: 'reset button not found' };
-        btn.click();
-        return { success: true };
+        await settle(1200);
+        const otp = Array.from(document.querySelectorAll<HTMLInputElement>('input[autocomplete="one-time-code"]')).find(isVisible);
+        return {
+          success: true,
+          awaiting_otp: !!otp,
+          ...(otp ? {} : { message_shown_to_user: toastText() }),
+        };
       },
     });
 
@@ -459,7 +765,7 @@ export default function VoiceWidget() {
     agent.registerTool({
       name: 'set_calculator',
       description:
-        "Set the EMI calculator sliders — loan amount (₹50,000–₹75,00,000), annual interest rate (9–28%), and/or tenure in months (3–60). Provide only the values the user mentioned; omitted ones keep their current value. Returns the computed EMI/principal/interest/total so you can read it back.",
+        "Set the EMI calculator sliders — loan amount (₹50,000–₹75,00,000), annual interest rate (9–28%), and/or tenure in months (3–60). Provide only the values the user mentioned; omitted ones keep their current value. Returns the computed EMI/principal/interest/total so you can read it back. Rate is the visitor's assumption — the real rate comes from the lender.",
       schema: {
         type: 'object',
         properties: {
@@ -469,11 +775,14 @@ export default function VoiceWidget() {
         },
       },
       availableWhen: calculatorAvailable,
-      handler: (a: { amount?: number; rate?: number; tenure?: number }) => {
+      handler: async (a: { amount?: number; rate?: number; tenure?: number }) => {
         const api = calcApi();
-        if (!api) return { success: false, reason: 'The EMI calculator is not on screen' };
+        if (!api) return fail('The EMI calculator is not on screen');
         api.set({ amount: a.amount, rate: a.rate, tenure: a.tenure });
         scrollToId('emi-calculator');
+        // The calculator re-publishes its API after React commits the new values,
+        // so reading straight away returns the OLD numbers. Wait, then read fresh.
+        await settle(220);
         return { success: true, result: readCalculator() };
       },
     });
@@ -485,48 +794,37 @@ export default function VoiceWidget() {
       handler: () => ({ success: true, result: readCalculator() }),
     });
 
-    // ── Application tracker: REMOVED ────────────────────────────────────
-    // The redesign has no tracker section, so track_application and
-    // use_demo_track had nothing to drive. They self-disabled via
-    // availableWhen, but shipping tools that can never fire invites the model
-    // to promise a visitor something it cannot deliver — worse than not
-    // offering it. Restore them alongside a real tracker UI backed by the API,
-    // rather than the old in-page demo data.
-
-    // ── Language toggle ─────────────────────────────────────────────────
+    // ── Language ───────────────────────────────────────────────────────
     agent.registerTool({
       name: 'set_language',
-      // Telugu is new in this design — the old toggle was EN/HI only.
-      description: "Switch the site's display language. English, Hindi or Telugu.",
+      description: "Switch the site's display language. English, Hindi or Telugu. This changes the page text only.",
       schema: {
         type: 'object',
         properties: { language: { type: 'string', enum: ['English', 'Hindi', 'Telugu'] } },
         required: ['language'],
       },
-      // Language is React context now, so there is no button to click — the
-      // provider publishes get/set instead.
+      // Language is React context, so there is no button to click — the
+      // provider publishes get/set instead. The switcher lives in the site
+      // header, which /apply and /account hide, but the context still works.
       availableWhen: () => !!langApi(),
       handler: (a: { language: string }) => {
         const api = langApi();
-        if (!api) return { success: false, reason: 'language switcher not available' };
+        if (!api) return fail('language switcher not available');
         const spoken = (a.language || '').toLowerCase();
         const code = spoken.startsWith('hi') ? 'hi' : spoken.startsWith('te') ? 'te' : 'en';
-        if (!api.set(code)) return { success: false, reason: `unsupported language "${a.language}"` };
+        if (!api.set(code)) return fail(`unsupported language "${a.language}"`);
         return { success: true, language: code };
       },
     });
 
-    // ── FAQ ──────────────────────────────────────────────────────────────
+    // ── FAQ ────────────────────────────────────────────────────────────
     agent.registerTool({
       name: 'answer_faq',
       description:
-        'Answer a question about SwiftLoan.ai using the FAQ list (lending model, credit score impact, approval time, documents, charges, data safety, low credit score). Pass the user\'s question; the closest FAQ match is opened on screen and its answer text is returned for you to speak.',
+        "Answer a question about SwiftLoan.ai using the 7 official FAQs (lending model, credit-score impact, approval time, documents, charges, data safety, low credit score). Pass the user's question; the closest match is returned for you to speak, and opened on screen when the FAQ page is showing.",
       schema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
       // FAQ answers are knowledge, not a screen widget: the agent should be
-      // able to answer "does it affect my credit score" from anywhere on the
-      // site, not only while the accordion happens to be rendered. When the
-      // /faqs accordion IS on screen the matching item is also opened, so the
-      // visitor sees what they are being told.
+      // able to answer "does it affect my credit score" from anywhere on the site.
       availableWhen: () => true,
       handler: (a: { question: string }) => {
         const q = (a.question || '').toLowerCase();
@@ -543,13 +841,12 @@ export default function VoiceWidget() {
             bestIdx = i;
           }
         });
-        if (bestIdx === -1) return { success: false, reason: 'No matching FAQ found for that question.' };
+        if (bestIdx === -1) return fail('No matching FAQ found for that question.');
         const picked = faqItems()[bestIdx];
 
-        // If the /faqs accordion is on screen, open the matching item so the
+        // If an FAQ accordion is on screen, open the matching item so the
         // visitor reads along. Radix renders each question as a trigger button,
-        // so match on its text rather than a positional index — the on-screen
-        // order is translated and will not line up with this list.
+        // so match on its text rather than a positional index.
         const triggers = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-slot="accordion-trigger"], button[aria-expanded]'));
         const trigger = triggers.find((b) => {
           const text = (b.textContent || '').toLowerCase();
@@ -562,6 +859,163 @@ export default function VoiceWidget() {
           highlight(trigger);
         }
         return { success: true, question: picked.question, answer: picked.answer, shownOnScreen: !!trigger };
+      },
+    });
+
+    // ── Operating the application funnel and account pages ─────────────
+    // Label-driven (see lib/voice-dom.ts): these pages have no name/id hooks.
+    // Sensitive fields (PAN, OTP digits, anything password-like) are refused
+    // here, not left to the model's judgement.
+
+    agent.registerTool({
+      name: 'fill_field',
+      description:
+        "Type into a text, number, date or dropdown field by its on-screen label — e.g. {label:'First name', value:'Priya'}, {label:'Date of birth', value:'1992-04-18'} (always YYYY-MM-DD), {label:'Monthly income', value:'65000'}, {label:'Related application', value:'SL-2048'}. Use read_screen to see the exact labels. REFUSES PAN, OTP digits and passwords — those are always typed by the visitor.",
+      schema: {
+        type: 'object',
+        properties: { label: { type: 'string', description: 'the field label as shown' }, value: { type: 'string' } },
+        required: ['label', 'value'],
+      },
+      handler: async (a: { label: string; value: string }) => {
+        const m = findTextField(a.label);
+        if (m.ambiguous) return fail('ambiguous_field', { options: m.ambiguous });
+        if (!m.el) {
+          const names = collectControls().filter((c) => c.kind === 'text' || c.kind === 'date' || c.kind === 'select').map((c) => c.label);
+          return fail('field_not_found', { available: names });
+        }
+        const node = m.el;
+        if (isSensitive(node)) {
+          node.focus();
+          return fail('sensitive_field', { refused: true, message: SENSITIVE_MESSAGE });
+        }
+        if (node.disabled || (node as HTMLInputElement).readOnly) return fail('field_not_editable');
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (node instanceof HTMLSelectElement) {
+          const chosen = selectByText(node, a.value);
+          return chosen ? { success: true, field: labelOf(node), applied: chosen } : fail('option_not_found', { options: Array.from(node.options).map((o) => o.textContent?.trim()) });
+        }
+        if (node instanceof HTMLInputElement && node.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(a.value)) {
+          return fail('bad_date', { message: 'Dates must be YYYY-MM-DD.' });
+        }
+        writeValue(node, String(a.value));
+        await settle(160);
+        return { success: true, field: labelOf(node), applied: node.value };
+      },
+    });
+
+    agent.registerTool({
+      name: 'select_option',
+      description:
+        "Pick one of a set of on-screen choices (the pill buttons) — e.g. {option:'Salaried', group:'Employment type'}, {option:'Male', group:'Gender'}, {option:'Medical', group:'What\\'s this loan for?'}, {option:'36', group:'Tenure'}, {option:'Lowest EMI', group:'Best offer by'}, {option:'Repayments'} for a support topic. Pass `group` whenever the same word appears in more than one question (e.g. 'Other').",
+      schema: {
+        type: 'object',
+        properties: { option: { type: 'string' }, group: { type: 'string', description: 'the question the option belongs to' } },
+        required: ['option'],
+      },
+      handler: async (a: { option: string; group?: string }) => {
+        const m = findChip(a.option, a.group);
+        if (m.ambiguous) return fail('ambiguous_option', { options: m.ambiguous, note: 'Pass `group`.' });
+        if (!m.el) {
+          const names = collectControls().filter((c) => c.kind === 'chip').map((c) => `${c.group ?? ''}: ${c.label}`);
+          return fail('option_not_found', { available: names });
+        }
+        m.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        m.el.click();
+        await settle(220);
+        const now = describeControl(m.el);
+        return { success: true, option: labelOf(m.el), group: groupOf(m.el), selected: now?.selected ?? true };
+      },
+    });
+
+    agent.registerTool({
+      name: 'set_checkbox',
+      description:
+        "Tick or untick a checkbox or on/off switch by its on-screen text. The consent boxes (terms & privacy on sign-in, the PAN / soft credit check authorisation on step 1) may ONLY be ticked after you read the wording to the visitor and they clearly said yes — never on your own. Returns the exact wording so you can read it. Notification switches (Loan updates, Security alerts, Promotional offers) are fine on a direct request.",
+      schema: {
+        type: 'object',
+        properties: { label: { type: 'string', description: 'text next to the box' }, checked: { type: 'boolean' } },
+        required: ['label', 'checked'],
+      },
+      handler: async (a: { label: string; checked: boolean }) => {
+        const m = findToggle(a.label);
+        if (m.ambiguous) return fail('ambiguous_checkbox', { options: m.ambiguous });
+        if (!m.el) return fail('checkbox_not_found', { available: collectControls().filter((c) => c.kind === 'checkbox' || c.kind === 'switch').map((c) => c.label) });
+        const node = m.el;
+        const isOn = node instanceof HTMLInputElement ? node.checked : node.getAttribute('aria-checked') === 'true';
+        if (isOn !== a.checked) {
+          node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          node.click();
+          await settle(260);
+        }
+        const nowOn = node instanceof HTMLInputElement ? node.checked : node.getAttribute('aria-checked') === 'true';
+        return nowOn === a.checked ? { success: true, label: labelOf(node), checked: nowOn } : fail('did_not_change', { label: labelOf(node), checked: nowOn, message_shown_to_user: toastText() });
+      },
+    });
+
+    agent.registerTool({
+      name: 'set_slider',
+      description:
+        "Move an on-screen slider to a value — the Loan amount on step 2 (₹25,000 to ₹15,00,000 in ₹25,000 steps), or the Monthly EMI budget on the compare page. Values snap to the slider's own step. On the home page use set_loan_amount / set_calculator instead.",
+      schema: {
+        type: 'object',
+        properties: { label: { type: 'string', description: 'which slider, if there is more than one' }, value: { type: 'number' } },
+        required: ['value'],
+      },
+      handler: async (a: { label?: string; value: number }) => {
+        const m = findSlider(a.label);
+        if (m.ambiguous) return fail('ambiguous_slider', { options: m.ambiguous });
+        if (!m.el) return fail('slider_not_found');
+        m.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const res = await setSliderTo(m.el, Number(a.value));
+        return { success: true, value: res.value, min: res.min, max: res.max };
+      },
+    });
+
+    agent.registerTool({
+      name: 'press_button',
+      description:
+        "Press a button or link by its on-screen text — Continue, 'Send OTP', 'Verify PAN & continue', 'See my offers', 'Compare all 3 offers', 'Back to offers', 'Refresh status', a topic tile, an application row (pass its reference, e.g. 'SL-2048'), and so on. Moves the visitor on, so only press when they have asked or clearly agreed. For these you MUST ask out loud first and pass user_confirmed:true once they said yes: Log out, Apply now / Select this offer / Apply with <lender>, Confirm & continue, Verify PAN & continue, Submit ticket / grievance, Skip for now. A disabled button returns the reason the page gives.",
+      schema: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', description: 'button or link text' },
+          user_confirmed: { type: 'boolean', description: 'true only if the visitor said yes out loud to exactly this action' },
+        },
+        required: ['label'],
+      },
+      handler: async (a: { label: string; user_confirmed?: boolean }) => {
+        const m = findPressable(a.label);
+        if (m.ambiguous) return fail('ambiguous_button', { options: m.ambiguous });
+        if (!m.el) {
+          const names = collectControls().filter((c) => c.kind === 'button' || c.kind === 'link').map((c) => c.label);
+          return fail('button_not_found', { available: names });
+        }
+        const node = m.el;
+        const label = labelOf(node);
+        const gate = needsConfirmation(label, pathRef.current);
+        if (gate && !a.user_confirmed) {
+          return fail('needs_confirmation', { action: gate, note: 'Ask the visitor out loud, wait for a clear yes, then call again with user_confirmed:true.' });
+        }
+        if ((node as HTMLButtonElement).disabled || node.getAttribute('aria-disabled') === 'true') {
+          return fail('disabled', { reason_shown: collectMessages()[0] ?? null });
+        }
+        const before = pathRef.current;
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        node.click();
+        await settle(700);
+        // Pressing usually starts a request ("Please wait…", "Verifying…") and often a
+        // route change; report the settled result, not the instant after the click.
+        await waitUntilLoaded();
+        const messages = collectMessages();
+        return {
+          success: true,
+          pressed: label,
+          pathAfter: pathRef.current,
+          navigated: pathRef.current !== before,
+          heading: pageHeading(),
+          messages,
+          ...(toastText() ? { message_shown_to_user: toastText() } : {}),
+        };
       },
     });
 

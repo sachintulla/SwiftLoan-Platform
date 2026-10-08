@@ -10,10 +10,13 @@
 // auto-discovered from the rendered tree (screenGraph.ts) with controls that
 // register themselves via useVoiceTarget. So new screens and controls become
 // voice-addressable without adding tools.
-import { buildPageContext, describeTarget, findTarget, getCurrentScreen, listTargets, waitForNextPublish } from './actionRegistry';
+import { buildPageContext, describeTarget, findTarget, getCurrentScreen, getScreenHint, listTargets, waitForNextPublish } from './actionRegistry';
 import type { TargetKind } from './actionRegistry';
 import type { AgentLike, JSONSchema } from './types';
 import { requestConfirmation } from './ui/confirmationBridge';
+import { agentApproach, agentPress, agentSettle, emitFx, slideTo, typeText } from '../feedback/agentFx';
+import { playSound } from '../feedback/sounds';
+import { tabLabelForScreen } from '../components/navTabs';
 
 /**
  * App actions the voice tools invoke directly (bound to the store), rather than
@@ -72,7 +75,7 @@ function normalizeLanguage(input: string): 'en' | 'hi' | 'te' | null {
 }
 
 interface PerformUiActionArgs {
-  action: 'tap' | 'set_input' | 'set_toggle' | 'set_value' | 'scroll';
+  action: 'tap' | 'set_input' | 'set_toggle' | 'set_value' | 'scroll' | 'show';
   target: string;
   value?: string;
   amount?: 'small' | 'page' | 'top' | 'bottom';
@@ -135,6 +138,19 @@ function freshTarget(screen: string, t: { label: string; kind: string; group?: s
   return listTargets(screen).find(x => x.label === t.label && x.kind === t.kind && x.group === t.group) ?? null;
 }
 
+/**
+ * The screen changed while the agent was animating towards a control (the user tapped away, or an
+ * auto-transition fired) — acting now would hit the wrong screen, so the caller bails out.
+ */
+const screenMoved = (screen: string): { ok: false; reason: string; message: string } | null =>
+  getCurrentScreen() === screen
+    ? null
+    : {
+        ok: false,
+        reason: 'screen_changed',
+        message: 'The screen changed before that could be done. Read the screen again and carry on from where it is now.',
+      };
+
 const anyPrimaryDisabled = (screen: string) => listTargets(screen).some(t => t.primary && t.disabled);
 
 export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void {
@@ -195,8 +211,20 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     };
   };
 
+  /**
+   * The model can issue several tool calls at once. Each one now scrolls, animates and types over
+   * a second or so, so two running together would type into the same field or scroll against each
+   * other — they run one after another instead (each is bounded, so the queue cannot jam).
+   */
+  let actionQueue: Promise<unknown> = Promise.resolve();
+  function performAction(args: PerformUiActionArgs): Promise<Record<string, unknown>> {
+    const run = actionQueue.then(() => performActionNow(args));
+    actionQueue = run.catch(() => undefined);
+    return run;
+  }
+
   /** The one executor every tool funnels into. */
-  async function performAction(args: PerformUiActionArgs): Promise<Record<string, unknown>> {
+  async function performActionNow(args: PerformUiActionArgs): Promise<Record<string, unknown>> {
     const screen = getCurrentScreen();
     if (!CONFIRM_BEFORE_CONTINUE_SCREENS.has(screen)) reviewConfirmed = false;
 
@@ -298,7 +326,11 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
           findTarget(screen, 'date of birth') ||
           findTarget(screen, 'calendar month');
         if (opener?.onTap) {
+          const openerFx = { label: opener.label, group: opener.group };
+          await agentApproach(screen, openerFx);
+          await agentPress(openerFx);
           opener.onTap();
+          emitFx('done', openerFx.label, openerFx.group);
           await new Promise<void>(resolve => setTimeout(() => resolve(), 300));
           dateTarget = dateOf(getCurrentScreen());
         }
@@ -306,7 +338,11 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       if (!dateTarget?.setValue) {
         return { ok: false, reason: 'no_date_picker_on_screen', available: describeScreen(screen).slice(0, 20) };
       }
+      // The date picker is its own control; bring it into view before the date lands on it.
+      const dateFx = { label: dateTarget.label, group: dateTarget.group };
+      await agentApproach(screen, dateFx);
       const accepted = dateTarget.setValue(args.value ?? '');
+      agentSettle(dateFx, accepted !== false);
       if (accepted === false) {
         return {
           ok: false,
@@ -318,6 +354,23 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       const done = await settled(screen, { ok: true, date_set: args.value });
       const after = freshTarget(getCurrentScreen(), dateTarget);
       return { ...done, applied: after?.getValue?.() ?? '' };
+    }
+
+    // "show": bring a control (or a whole option group, e.g. "Employment") into view and light it up,
+    // changing nothing. The agent calls it BEFORE asking about a field, so the user is already
+    // looking at the field when the question is spoken.
+    if (args.action === 'show') {
+      if (!target) {
+        const g = String(args.target ?? '').trim().toLowerCase();
+        target = listTargets(screen).find(t => !!t.group && (t.group.toLowerCase() === g || t.group.toLowerCase().includes(g))) ?? null;
+      }
+      if (!target) return { ok: false, reason: 'not_found', available: describeScreen(screen).slice(0, 25) };
+      const fxT = { label: target.label, group: target.group };
+      await agentApproach(screen, fxT, { reveal: !target.fixed });
+      const moved = screenMoved(screen);
+      if (moved) return moved;
+      emitFx('done', fxT.label, fxT.group);
+      return { ok: true, shown: target.group ?? target.label };
     }
 
     if (!target) {
@@ -364,8 +417,17 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     switch (args.action) {
       case 'tap': {
         if (!target.onTap) return { ok: false, reason: 'not_tappable', kind: target.kind };
+        // Show the user what is about to be pressed: scroll it into view, light it up, dip + click.
+        const fxT = { label: target.label, group: target.group };
+        // The tab bar floats over the page: light it up where it is (never scroll to it) and give
+        // tab switches their own cue.
+        await agentApproach(screen, fxT, { reveal: !target.fixed });
+        await agentPress(fxT, target.fixed ? 'nav' : target.kind === 'chips' ? 'select' : 'tap');
+        const moved = screenMoved(screen);
+        if (moved) return moved;
         const primaryBusyBefore = anyPrimaryDisabled(screen);
-        target.onTap();
+        (freshTarget(screen, target)?.onTap ?? target.onTap)();
+        emitFx('done', fxT.label, fxT.group);
         return settled(screen, { ok: true, tapped: target.label }, { primaryBusyBefore });
       }
 
@@ -379,8 +441,22 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
           };
         }
         if (!target.setValue) return { ok: false, reason: 'not_fillable', kind: target.kind };
-        target.setValue(args.value ?? '');
-        lastFill = { screen, at: Date.now() };
+        {
+          // Scroll the field into view first so the user can watch it fill, then type it in
+          // character by character with keyboard ticks. The handler captured at registration goes
+          // stale as the field re-renders, so every keystroke is written through a fresh lookup.
+          const fxT = { label: target.label, group: target.group };
+          await agentApproach(screen, fxT);
+          const moved = screenMoved(screen);
+          if (moved) return moved;
+          await typeText({
+            current: String(freshTarget(screen, target)?.getValue?.() ?? ''),
+            text: args.value ?? '',
+            write: v => (freshTarget(screen, target)?.setValue ?? target.setValue!)(v),
+          });
+          agentSettle(fxT);
+          lastFill = { screen, at: Date.now() };
+        }
         {
           const done = await settled(screen, { ok: true, field: target.label });
           // Report what the field actually holds now (digit-stripping, max length...),
@@ -396,6 +472,11 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
 
       case 'set_toggle': {
         const on = args.value === undefined ? true : args.value === 'true';
+        const fxT = { label: target.label, group: target.group };
+        await agentApproach(screen, fxT);
+        await agentPress(fxT, on ? 'toggleOn' : 'toggleOff');
+        const moved = screenMoved(screen);
+        if (moved) return moved;
         if (!target.setValue) {
           // Many consent rows are plain <Pressable>s that flip their own state, so
           // they surface as buttons with no setValue. Tapping is the only way to
@@ -411,7 +492,8 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
           }
           return { ok: false, reason: 'not_togglable', kind: target.kind };
         }
-        target.setValue(on);
+        (freshTarget(screen, target)?.setValue ?? target.setValue)(on);
+        emitFx('done', fxT.label, fxT.group);
         {
           const done = await settled(screen, { ok: true, toggle: target.label });
           const after = freshTarget(getCurrentScreen(), target);
@@ -425,8 +507,37 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
         const raw = args.value ?? '';
         const isDate = /^\d{4}-\d{2}-\d{2}$/.test(raw);
         const num = Number(raw);
+        const fxT = { label: target.label, group: target.group };
+        await agentApproach(screen, fxT);
+        const moved = screenMoved(screen);
+        if (moved) return moved;
         // Dates stay strings; numeric sliders are passed as numbers.
-        target.setValue(!isDate && Number.isFinite(num) && raw !== '' ? (num as any) : raw);
+        let accepted: void | boolean = undefined;
+        if (target.kind === 'slider' && Number.isFinite(num) && raw !== '') {
+          // Walk the slider to the new value so the user sees it move (and hears it detent).
+          await slideTo({
+            from: Number(freshTarget(screen, target)?.getValue?.()),
+            to: num,
+            write: v => (freshTarget(screen, target)?.setValue ?? target.setValue!)(v),
+          });
+        } else {
+          accepted = target.setValue(!isDate && Number.isFinite(num) && raw !== '' ? (num as any) : raw);
+        }
+        agentSettle(fxT, accepted !== false);
+        // A target returns `false` when it refuses the value (a date that is not YYYY-MM-DD, not a
+        // real day, or under 18). Reporting that as ok:true made the agent believe the date was set.
+        if (accepted === false) {
+          return {
+            ok: false,
+            reason: 'value_rejected',
+            control: target.label,
+            requested: raw,
+            message:
+              target.kind === 'date'
+                ? 'That date was not accepted. It must be a real date, written YYYY-MM-DD, and the person must be at least 18. Ask the user for their date of birth again in plain words.'
+                : 'That value was not accepted. Ask the user for it again in plain words.',
+          };
+        }
         {
           const done = await settled(screen, { ok: true, control: target.label, requested: raw });
           // `applied` is read AFTER the re-render (the old object's getValue still
@@ -440,6 +551,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       case 'scroll': {
         const scroller = target.scrollBy ? target : findTarget(screen, 'page', 'scroll');
         if (!scroller?.scrollBy) return { ok: false, reason: 'not_scrollable' };
+        playSound('scroll');
         scroller.scrollBy(args.amount || 'page', args.direction || 'down');
         return { ok: true, scrolled: args.amount || 'page', direction: args.direction || 'down' };
       }
@@ -464,6 +576,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       return {
         ok: true,
         screen,
+        ...getScreenHint(screen),
         summary: ctx.screen_overview,
         controls: listTargets(screen).map(t => {
           const { value, ...d } = describeTarget(t) as Record<string, unknown>;
@@ -485,11 +598,12 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       'Act on ONE control on the current screen when no dedicated tool fits. Use the control\'s ' +
       'visible label as "target" (call read_screen first if unsure). Actions: "tap" a button/row/chip; ' +
       '"set_input" to type into a text field; "set_toggle" with "true"/"false"; "set_value" for a slider ' +
-      'or date (dates as YYYY-MM-DD); "scroll" to move the page (pass "direction" to scroll back up).',
+      'or date (dates as YYYY-MM-DD); "scroll" to move the page (pass "direction" to scroll back up); ' +
+      '"show" to scroll a control into view and highlight it WITHOUT changing it.',
     schema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['tap', 'set_input', 'set_toggle', 'set_value', 'scroll'] },
+        action: { type: 'string', enum: ['tap', 'set_input', 'set_toggle', 'set_value', 'scroll', 'show'] },
         target: { type: 'string', description: 'the control\'s visible on-screen label' },
         value: { type: 'string', description: 'text, "true"/"false", a number, or YYYY-MM-DD' },
         amount: { type: 'string', enum: ['small', 'page', 'top', 'bottom'], description: 'for scroll only' },
@@ -527,6 +641,17 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     { label: { type: 'string', description: "the field's visible label" }, value: { type: 'string' } },
     ['label', 'value'],
     a => ({ action: 'set_input', target: a.label, value: a.value }),
+  );
+
+  alias<{ label: string; group?: string }>(
+    'show_field',
+    'Scroll a field or option group into view and highlight it WITHOUT changing it. Call this right before you ask the user about it (e.g. before asking for employment type), so they can see it while you ask.',
+    {
+      label: { type: 'string', description: "the field's visible label, or the option group name (e.g. \"Employment\")" },
+      group: { type: 'string' },
+    },
+    ['label'],
+    ({ label, group }) => ({ action: 'show', target: label, group }),
   );
 
   alias<{ label: string; checked?: boolean }>(
@@ -628,6 +753,13 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     }
     const landed = actions.navigateToScreen(screen);
     if (!landed) return { ok: false, reason: 'unknown_screen', available_screens: 'see description' };
+    // The agent changing screens used to be silent. Same cue as a manual tab switch, and the
+    // destination tab (when it has one) dips and ripples so the user sees where it went.
+    if (landed.landed !== before) {
+      playSound('nav');
+      const tab = tabLabelForScreen(landed.landed);
+      if (tab) emitFx('press', tab);
+    }
     // Report where the app REALLY is after the render commits — not the screen
     // that was requested, and not the previous screen's controls (which is what
     // describing the screen synchronously returned).
@@ -666,7 +798,11 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       properties: { reference: { type: 'string', description: 'the loan/application reference number the user said' } },
       required: ['reference'],
     },
-    handler: ({ reference }) => actions.openLoan(reference),
+    handler: async ({ reference }) => {
+      const result = await actions.openLoan(reference);
+      if (result && result.ok !== false) playSound('nav'); // it lands on My Loans — same cue as any tab switch
+      return result;
+    },
   });
 
   /* ── 6. Language preference ─────────────────────────────────── */
