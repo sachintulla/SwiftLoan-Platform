@@ -42,6 +42,14 @@ export default function MyOffers() {
   // Two sources of offers: 'knight' = our matched (Aurix/Knight Fintech) offers;
   // 'yubi' = the Yubi Markets web journey hosted inline in its own tab.
   const [tab, setTab] = useState<'knight' | 'yubi'>('knight');
+  // Explore-lenders webview is lazily mounted on first visit, then kept alive
+  // (hidden) across tab switches so the partner journey keeps its place instead
+  // of reloading every time. Bumping `yubiKey` remounts it — a fresh start from
+  // the refresh icon beside the tab label.
+  const [yubiMounted, setYubiMounted] = useState(false);
+  const [yubiKey, setYubiKey] = useState(0);
+  const openYubi = () => { setYubiMounted(true); setTab('yubi'); };
+  const refreshYubi = () => { setYubiMounted(true); setTab('yubi'); setYubiKey(k => k + 1); };
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
@@ -136,7 +144,7 @@ export default function MyOffers() {
       </View>
       <View style={styles.tabsRow}>
         {(['knight', 'yubi'] as const).map(k => (
-          <Pressable key={k} onPress={() => setTab(k)} accessibilityRole="tab" style={styles.tabBtn}>
+          <Pressable key={k} onPress={() => (k === 'yubi' ? openYubi() : setTab(k))} accessibilityRole="tab" style={styles.tabBtn}>
             <View style={styles.tabLabelRow}>
               {/* Sparkle marks the lender marketplace tab as the richer, exciting
                   destination — not a secondary "more" option. */}
@@ -144,6 +152,14 @@ export default function MyOffers() {
               <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
                 {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
               </Text>
+              {/* Refresh beside the active Explore-lenders label: restart the
+                  partner journey from the beginning (the tab otherwise keeps its
+                  state across switches). */}
+              {k === 'yubi' && tab === 'yubi' ? (
+                <Pressable onPress={refreshYubi} hitSlop={10} accessibilityRole="button" accessibilityLabel={t.recheckOffers}>
+                  <Icon name="refresh" size={16} color={colors.primary} />
+                </Pressable>
+              ) : null}
             </View>
             <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
           </Pressable>
@@ -159,12 +175,15 @@ export default function MyOffers() {
   return (
     <Screen scroll={false} bottomNav padded={false}>
       <View style={{ paddingHorizontal: 18 }}>{header}</View>
-      {tab === 'yubi' ? (
-        // Explore lenders: the hosted journey fills the frame, full-width.
-        <View style={{ flex: 1, marginTop: 8 }}>
-          <YubiOffersTab onApply={startApply} />
+      {/* Explore lenders: lazily mounted on first visit, then kept alive but
+          hidden on other tabs so the partner journey doesn't reload on every
+          switch (its place is preserved). `yubiKey` remounts it on refresh. */}
+      {yubiMounted ? (
+        <View style={[{ flex: 1, marginTop: 8 }, tab !== 'yubi' && styles.hidden]} pointerEvents={tab === 'yubi' ? 'auto' : 'none'}>
+          <YubiOffersTab key={yubiKey} onApply={startApply} />
         </View>
-      ) : (
+      ) : null}
+      {tab === 'knight' ? (
         // Instant offers: the matched offers list / empty state, scrolling
         // inside the stable frame.
         <ScrollView
@@ -201,7 +220,7 @@ export default function MyOffers() {
                 ))}
               </View>
               {/* More lender options live in the "Explore lenders" tab above. */}
-              <Pressable onPress={() => setTab('yubi')} style={styles.moreRow} accessibilityRole="button">
+              <Pressable onPress={openYubi} style={styles.moreRow} accessibilityRole="button">
                 <Icon name="storefront" size={15} color={colors.primary} />
                 <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
               </Pressable>
@@ -211,11 +230,11 @@ export default function MyOffers() {
               onApply={startApply}
               onRetry={retryEligibility}
               offersError={state.offersError}
-              onSeeYubi={() => setTab('yubi')}
+              onSeeYubi={openYubi}
             />
           )}
         </ScrollView>
-      )}
+      ) : null}
     </Screen>
   );
 }
@@ -447,6 +466,7 @@ const styles = StyleSheet.create({
   moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18, paddingHorizontal: 20 },
   // Two-source tab bar (Knight Fintech | Yubi)
   tabsRow: { flexDirection: 'row', marginTop: 4, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
+  hidden: { display: 'none' },
   tabBtn: { flex: 1, alignItems: 'center', paddingBottom: 0 },
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tabTxt: { fontSize: 14.5, color: colors.textSoft, paddingVertical: 10 },
