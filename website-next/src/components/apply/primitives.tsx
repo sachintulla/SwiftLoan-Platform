@@ -1,6 +1,8 @@
 'use client';
 
 import { ArrowRight } from 'lucide-react';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
 
 export function Field({
   label,
@@ -39,6 +41,7 @@ export function ChipGroup({
   value,
   onChange,
   label,
+  renderLabel,
 }: {
   options: string[];
   value: string;
@@ -46,6 +49,9 @@ export function ChipGroup({
   /** Names the group for assistive tech and the voice assistant. Groups already
    *  inside a <Field label> are named by it, so this is only needed for the rest. */
   label?: string;
+  /** How an option is DISPLAYED. The option string itself stays the value (it is compared and sent
+   *  to the API in English), so translating a pill never changes what is stored. */
+  renderLabel?: (option: string) => string;
 }) {
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={label}>
@@ -64,7 +70,7 @@ export function ChipGroup({
                 : 'border-border text-foreground bg-card'
             }`}
           >
-            {opt}
+            {renderLabel ? renderLabel(opt) : opt}
           </button>
         );
       })}
@@ -82,17 +88,19 @@ export function PrimaryButton({
   loading,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean }) {
+  const t = useCopy(applyShellCopy);
   return (
     <button
       {...rest}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold transition-transform duration-200 ${
         disabled || loading
           ? 'bg-muted text-muted-foreground cursor-not-allowed'
           : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-float)] hover:-translate-y-0.5 active:scale-[0.98]'
       } ${rest.className ?? ''}`}
     >
-      <span>{loading ? 'Please wait…' : children}</span>
+      <span>{loading ? t.pleaseWait : children}</span>
       {!loading && <ArrowRight className="h-5 w-5" />}
     </button>
   );

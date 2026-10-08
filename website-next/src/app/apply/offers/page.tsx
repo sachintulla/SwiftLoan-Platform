@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { Badge, PrimaryButton, SecondaryButton } from '@/components/apply/primitives';
@@ -11,6 +11,8 @@ import { useAccountUser } from '@/hooks/useAccountUser';
 import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
 import { ArrowRight, Lock, Scale, ShieldCheck } from 'lucide-react';
+import { useCopy } from '@/lib/i18n';
+import { applyOffersCopy } from '@/i18n/apply-offers';
 
 // Same statuses the app's My Offers tab (fare.tsx) treats as "still carries
 // showable offers".
@@ -18,6 +20,10 @@ const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', '
 
 export default function OffersPage() {
   const router = useRouter();
+  const t = useCopy(applyOffersCopy);
+  // Read inside load() without making a language switch re-fetch the offers.
+  const tRef = useRef(t);
+  tRef.current = t;
   const { applicationId, sessionReady, setApplicationId } = useApply();
   const accountUser = useAccountUser();
   const [app, setApp] = useState<LoanApplication | null>(null);
@@ -32,7 +38,7 @@ export default function OffersPage() {
     if (applicationId) {
       getApplication(applicationId)
         .then(setApp)
-        .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load your offers.'))
+        .catch((e) => setLoadError(e instanceof Error ? e.message : tRef.current.loadFailed))
         .finally(() => setLoading(false));
       return;
     }
@@ -55,7 +61,7 @@ export default function OffersPage() {
           setApp(withOffers);
         }
       })
-      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load your offers.'))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : tRef.current.loadFailed))
       .finally(() => setLoading(false));
   }, [applicationId, setApplicationId]);
 
@@ -76,7 +82,7 @@ export default function OffersPage() {
   if (!sessionReady || loading) {
     return (
       <ApplyShell center accountUser={accountUser}>
-        <p className="text-muted-foreground text-sm">Loading your offers…</p>
+        <p className="text-muted-foreground text-sm" aria-busy="true">{t.loading}</p>
       </ApplyShell>
     );
   }
@@ -88,9 +94,9 @@ export default function OffersPage() {
   if (!applicationId) {
     return (
       <ApplyShell center accountUser={accountUser}>
-        <h1 className="text-xl font-extrabold">No application yet</h1>
-        <p className="text-muted-foreground mt-2 mb-6 text-sm">Apply for a loan to see personalised offers here.</p>
-        <PrimaryButton onClick={() => router.push('/apply/step-1')}>Apply for a loan</PrimaryButton>
+        <h1 className="text-xl font-extrabold">{t.noApplicationTitle}</h1>
+        <p className="text-muted-foreground mt-2 mb-6 text-sm">{t.noApplicationBody}</p>
+        <PrimaryButton onClick={() => router.push('/apply/step-1')}>{t.applyForLoan}</PrimaryButton>
       </ApplyShell>
     );
   }
@@ -99,7 +105,7 @@ export default function OffersPage() {
     return (
       <ApplyShell center accountUser={accountUser}>
         <p className="text-danger mb-4 text-sm font-semibold">{error}</p>
-        <SecondaryButton onClick={load}>Retry</SecondaryButton>
+        <SecondaryButton onClick={load}>{t.retry}</SecondaryButton>
       </ApplyShell>
     );
   }
@@ -125,61 +131,60 @@ export default function OffersPage() {
           // through to the original generic copy.
           app?.status === 'rejected' ? (
             <div className="py-10 text-center">
-              <h1 className="text-xl font-extrabold">You&apos;re not eligible right now</h1>
+              <h1 className="text-xl font-extrabold">{t.notEligibleTitle}</h1>
               <p className="text-muted-foreground mt-2 mb-6 text-sm">
-                {app.prequalifyReason ?? "You don't currently meet the eligibility criteria of our lending partners."}
+                {app.prequalifyReason ?? t.notEligibleFallback}
               </p>
               <div className="flex justify-center gap-3">
-                <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
+                <SecondaryButton onClick={() => router.push('/apply/step-1')}>{t.updateDetails}</SecondaryButton>
                 <button
                   onClick={retry}
                   className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
                 >
-                  Retry
+                  {t.retry}
                 </button>
               </div>
             </div>
           ) : app?.status === 'failed' ? (
             <div className="py-10 text-center">
-              <h1 className="text-xl font-extrabold">Something went wrong</h1>
+              <h1 className="text-xl font-extrabold">{t.failedTitle}</h1>
               <p className="text-muted-foreground mt-2 mb-6 text-sm">
-                {app.prequalifyReason ?? "We couldn't reach our lending partners just now. Please try again in a moment."}
+                {app.prequalifyReason ?? t.failedFallback}
               </p>
               <div className="flex justify-center gap-3">
-                <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
+                <SecondaryButton onClick={() => router.push('/apply/step-1')}>{t.updateDetails}</SecondaryButton>
                 <button
                   onClick={retry}
                   className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
                 >
-                  Retry
+                  {t.retry}
                 </button>
               </div>
             </div>
           ) : (
             <div className="py-10 text-center">
-              <h1 className="text-xl font-extrabold">No offers yet</h1>
+              <h1 className="text-xl font-extrabold">{t.noOffersTitle}</h1>
               <p className="text-muted-foreground mt-2 mb-6 text-sm">
-                We couldn&apos;t find a matching offer right now — update something in your application, or just try the check
-                again.
+                {t.noOffersBody}
               </p>
               <div className="flex justify-center gap-3">
-                <SecondaryButton onClick={() => router.push('/apply/step-1')}>Update details</SecondaryButton>
+                <SecondaryButton onClick={() => router.push('/apply/step-1')}>{t.updateDetails}</SecondaryButton>
                 <button
                   onClick={retry}
                   className="bg-brand-gradient text-primary-foreground inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold"
                 >
-                  Retry
+                  {t.retry}
                 </button>
               </div>
             </div>
           )
         ) : appliedElsewhere ? (
           <div className="py-10 text-center">
-            <h1 className="text-xl font-extrabold">You&apos;ve already applied</h1>
+            <h1 className="text-xl font-extrabold">{t.appliedTitle}</h1>
             <p className="text-muted-foreground mt-2 mb-6 text-sm">
-              Track its status, offer details and next steps anytime in My Applications.
+              {t.appliedBody}
             </p>
-            <PrimaryButton onClick={() => router.push(`/account/${applicationId}`)}>Go to My Applications</PrimaryButton>
+            <PrimaryButton onClick={() => router.push(`/account/${applicationId}`)}>{t.goToApplications}</PrimaryButton>
           </div>
         ) : (
           <>
@@ -187,9 +192,9 @@ export default function OffersPage() {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h1 className="text-2xl font-extrabold">
-                    {offers.length === 1 ? 'You have 1 offer!' : `Great news — you have ${offers.length} offers!`}
+                    {offers.length === 1 ? t.oneOffer : t.manyOffers(offers.length)}
                   </h1>
-                  <p className="text-muted-foreground mt-2 text-sm">Compare and choose the offer that works best for you.</p>
+                  <p className="text-muted-foreground mt-2 text-sm">{t.compareSubtitle}</p>
                 </div>
                 {offers.length >= 2 && (
                   <button
@@ -197,24 +202,24 @@ export default function OffersPage() {
                     className="border-primary text-primary hover:bg-accent inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-full border-2 px-5 py-3 text-sm font-bold whitespace-nowrap transition-colors sm:w-auto"
                   >
                     <Scale className="h-4 w-4" />
-                    Compare all {offers.length} offers side by side
+                    {t.compareAll(offers.length)}
                   </button>
                 )}
               </div>
               {allOffers.length > offers.length && (
                 <p className="text-muted-foreground mt-1 text-xs">
-                  Already applied to {allOffers.length - offers.length} offer{allOffers.length - offers.length > 1 ? 's' : ''} —{' '}
+                  {t.alreadyApplied(allOffers.length - offers.length)}{' '}
                   <button onClick={() => router.push(`/account/${applicationId}`)} className="text-primary font-semibold underline">
-                    view in My Applications
+                    {t.viewInApplications}
                   </button>
-                  .
+                  {t.sentenceEnd}
                 </p>
               )}
             </div>
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,420px),1fr))] items-stretch gap-5">
             {offers.map((offer) => {
-              const lenderName = prettyLenderName(offer.lenderName ?? offer.partner?.name ?? 'Lender');
+              const lenderName = prettyLenderName(offer.lenderName ?? offer.partner?.name ?? t.lenderFallback);
               // No rate yet (lender confirms it after approval): never show
               // "0% p.a." or an EMI computed at 0% — both would be wrong.
               const rateOnApproval = !(offer.apr > 0);
@@ -237,28 +242,28 @@ export default function OffersPage() {
                       <div className="min-w-0">
                         <h2 className="text-foreground line-clamp-2 text-base leading-snug font-extrabold">{lenderName}</h2>
                         <p className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs font-medium">
-                          <ShieldCheck className="text-mint h-3.5 w-3.5" /> RBI registered lender
+                          <ShieldCheck className="text-mint h-3.5 w-3.5" /> {t.rbiLender}
                         </p>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5">
-                      {highMatch && <Badge tone="success">★ High match</Badge>}
-                      {lowestRate && <Badge tone="info">Lowest rate</Badge>}
+                      {highMatch && <Badge tone="success">{t.highMatch}</Badge>}
+                      {lowestRate && <Badge tone="info">{t.lowestRate}</Badge>}
                     </div>
                   </div>
 
                   <div className="border-border bg-muted/50 grid grid-cols-3 divide-x divide-border border-y">
                     {hasEmi ? (
                       <>
-                        <Stat k="Loan amount" v={fmtINR(offer.amount)} sub={`over ${offer.tenureMonths} months`} />
-                        <Stat k="Monthly EMI" v={fmtINR(offer.emi)} accent />
-                        <Stat k="Interest rate" v={`${offer.apr}%`} sub="per annum" />
+                        <Stat k={t.loanAmount} v={fmtINR(offer.amount)} sub={t.overMonths(offer.tenureMonths)} />
+                        <Stat k={t.monthlyEmi} v={fmtINR(offer.emi)} accent />
+                        <Stat k={t.interestRate} v={`${offer.apr}%`} sub={t.perAnnum} />
                       </>
                     ) : (
                       <>
-                        <Stat k="Eligible amount" v={fmtINR(offer.amount)} />
-                        <Stat k="Interest rate" v={rateOnApproval ? 'On approval' : `${offer.apr}%`} sub={rateOnApproval ? undefined : 'per annum'} />
-                        <Stat k="Disbursal" v="24-48 hrs" />
+                        <Stat k={t.eligibleAmount} v={fmtINR(offer.amount)} />
+                        <Stat k={t.interestRate} v={rateOnApproval ? t.onApproval : `${offer.apr}%`} sub={rateOnApproval ? undefined : t.perAnnum} />
+                        <Stat k={t.disbursal} v={t.disbursalTime} />
                       </>
                     )}
                   </div>
@@ -267,12 +272,12 @@ export default function OffersPage() {
                     {offer.processingFeeAmount != null && (
                       <dl className="text-muted-foreground mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
                         <div className="flex gap-1.5">
-                          <dt>Processing fee</dt>
+                          <dt>{t.processingFee}</dt>
                           <dd className="text-foreground font-bold">{fmtINR(offer.processingFeeAmount)}</dd>
                         </div>
                         {offer.netDisbursalAmount != null && (
                           <div className="flex gap-1.5">
-                            <dt>You receive</dt>
+                            <dt>{t.youReceive}</dt>
                             <dd className="text-foreground font-bold">{fmtINR(offer.netDisbursalAmount)}</dd>
                           </div>
                         )}
@@ -282,14 +287,15 @@ export default function OffersPage() {
                     <button
                       onClick={() => pickOffer(offer)}
                       disabled={!!applyingId}
+                      data-voice-gate="apply-offer"
                       className={`bg-brand-gradient text-primary-foreground mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5 active:scale-[0.98] ${applyingId && !applying ? 'opacity-50' : ''}`}
                     >
-                      {applying ? 'Applying…' : offer.redirectionUrl ? 'Apply now' : 'Select this offer'}
+                      {applying ? t.applying : offer.redirectionUrl ? t.applyNow : t.selectOffer}
                       {!applying && <ArrowRight className="h-4 w-4" />}
                     </button>
                     {offer.redirectionUrl && (
                       <p className="text-muted-foreground mt-2 flex items-center justify-center gap-1 text-[11px]">
-                        <Lock className="h-3 w-3" /> Continues on {lenderName}&apos;s secure application page
+                        <Lock className="h-3 w-3" /> {t.continuesOn(lenderName)}
                       </p>
                     )}
                   </div>
@@ -299,8 +305,7 @@ export default function OffersPage() {
             </div>
 
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-xs">
-              <strong className="text-foreground">Offer validity —</strong> these offers are valid for 24 hours and are based on
-              a soft credit check that does not affect your credit score.
+              <strong className="text-foreground">{t.validityLabel}</strong> {t.validityBody}
             </div>
           </>
         )}

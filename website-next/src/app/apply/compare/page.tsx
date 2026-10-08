@@ -10,25 +10,20 @@ import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
 import { getApplication, type Offer } from '@/lib/applyApi';
+import { useCopy } from '@/lib/i18n';
+import { applyCompareCopy, COMPARE_LOAD_FALLBACK } from '@/i18n/apply-compare';
 import {
   compareOffers,
   computeRow,
   defaultTenure,
-  RANK_LABELS,
   TENURES,
   type CompareRow,
   type RankBy,
 } from '@/lib/compareOffers';
 
 const RANKS: RankBy[] = ['cost', 'emi', 'rate', 'interest'];
-const RANK_HINT: Record<RankBy, string> = {
-  cost: 'Interest + fees per ₹1 lakh — the fairest overall measure',
-  emi: 'Smallest monthly payment',
-  rate: 'Lowest annual interest rate',
-  interest: 'Least interest paid over the loan',
-  fee: 'Smallest processing fee + GST',
-  approval: 'Fastest typical approval decision',
-};
+
+type CompareCopy = (typeof applyCompareCopy)['en'];
 
 interface Filters {
   tenure: number;
@@ -49,6 +44,7 @@ interface Filters {
  * right. Phones: quick tenure / rank chips + a filter sheet, ranked cards.
  */
 export default function CompareOffersPage() {
+  const t = useCopy(applyCompareCopy);
   const router = useRouter();
   const { applicationId, sessionReady } = useApply();
   const accountUser = useAccountUser();
@@ -72,7 +68,7 @@ export default function CompareOffersPage() {
         const first = list.find((o) => o.apr > 0);
         setFilters((f) => ({ ...f, tenure: defaultTenure(first?.tenureMonths) }));
       })
-      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load your offers.'));
+      .catch((e) => setLoadError(e instanceof Error ? e.message : COMPARE_LOAD_FALLBACK));
   }, [sessionReady, applicationId, router]);
 
   const inputs = useMemo(
@@ -109,19 +105,19 @@ export default function CompareOffersPage() {
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
   const shell = (children: React.ReactNode) => (
-    <ApplyShell backHref="/apply/offers" backLabel="Back to offers" stepLabel="Compare offers" accountUser={accountUser} wide>
+    <ApplyShell backHref="/apply/offers" backLabel={t.backToOffers} stepLabel={t.stepLabel} accountUser={accountUser} wide>
       {children}
     </ApplyShell>
   );
 
-  if (loadError) return shell(<p className="text-danger py-10 text-center text-sm font-semibold">{loadError}</p>);
-  if (!offers) return shell(<p className="text-muted-foreground py-10 text-center text-sm">Loading your offers…</p>);
+  if (loadError) return shell(<p className="text-danger py-10 text-center text-sm font-semibold">{loadError === COMPARE_LOAD_FALLBACK ? t.loadFailed : loadError}</p>);
+  if (!offers) return shell(<p className="text-muted-foreground py-10 text-center text-sm" aria-busy="true">{t.loading}</p>);
   if (offers.length === 0) {
     return shell(
       <div className="py-10 text-center">
-        <h1 className="text-xl font-extrabold">No offers to compare</h1>
+        <h1 className="text-xl font-extrabold">{t.noOffersTitle}</h1>
         <button onClick={() => router.push('/apply/offers')} className="text-primary mt-3 text-sm font-bold underline">
-          Back to offers
+          {t.backToOffers}
         </button>
       </div>,
     );
@@ -141,10 +137,8 @@ export default function CompareOffersPage() {
   return shell(
     <div className="pb-28 lg:pb-8">
       <div className="mb-5">
-        <h1 className="text-2xl font-extrabold">Compare your offers</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          We&apos;ve worked out the EMI, interest and total cost of each offer for you — choose what matters most.
-        </p>
+        <h1 className="text-2xl font-extrabold">{t.heading}</h1>
+        <p className="text-muted-foreground mt-1 text-sm">{t.subtitle}</p>
       </div>
 
       <div className="lg:grid lg:grid-cols-[272px_minmax(0,1fr)] lg:items-start lg:gap-6">
@@ -164,9 +158,9 @@ export default function CompareOffersPage() {
         {/* Phones / tablets: quick controls + filter sheet */}
         <div className="mb-4 flex flex-col gap-3 lg:hidden">
           <ChipRow>
-            {TENURES.map((t) => (
-              <Chip key={t} on={filters.tenure === t} onClick={() => set({ tenure: t })}>
-                {t} mo
+            {TENURES.map((n) => (
+              <Chip key={n} on={filters.tenure === n} onClick={() => set({ tenure: n })}>
+                {t.tenureChip(n)}
               </Chip>
             ))}
           </ChipRow>
@@ -174,14 +168,14 @@ export default function CompareOffersPage() {
             <ChipRow className="flex-1">
               {RANKS.map((k) => (
                 <Chip key={k} on={filters.rankBy === k} onClick={() => set({ rankBy: k })} dark>
-                  {RANK_LABELS[k]}
+                  {t.rankLabels[k]}
                 </Chip>
               ))}
             </ChipRow>
             <button
               onClick={() => setSheetOpen(true)}
               className="border-border bg-card relative grid h-10 w-10 shrink-0 place-items-center rounded-full border"
-              aria-label="More filters"
+              aria-label={t.moreFilters}
             >
               <SlidersHorizontal className="h-4 w-4" />
               {activeFilterCount > 0 && (
@@ -211,15 +205,15 @@ export default function CompareOffersPage() {
             />
           ) : (
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-sm">
-              {result.rows.length ? 'These lenders confirm their rate only after approval, so we can’t rank them yet.' : null}
+              {result.rows.length ? t.rankOnApprovalNote : null}
             </div>
           )}
 
           {result.rows.length === 0 ? (
             <div className="border-border rounded-2xl border border-dashed p-8 text-center">
-              <p className="text-sm font-bold">No offers match these filters</p>
+              <p className="text-sm font-bold">{t.noMatch}</p>
               <button onClick={resetFilters} className="text-primary mt-2 text-sm font-bold underline">
-                Clear filters
+                {t.clearFilters}
               </button>
             </div>
           ) : (
@@ -251,17 +245,16 @@ export default function CompareOffersPage() {
 
           {result.hiddenCount > 0 && (
             <p className="text-muted-foreground text-xs">
-              {result.hiddenCount} offer{result.hiddenCount > 1 ? 's' : ''} hidden by your filters ·{' '}
+              {t.hidden(result.hiddenCount)}{' '}
               <button onClick={resetFilters} className="text-primary font-semibold underline">
-                show all
+                {t.showAll}
               </button>
             </p>
           )}
 
           <p className="text-muted-foreground flex items-start gap-2 text-xs">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Figures are indicative — calculated by SwiftLoan from each lender&apos;s rate and fees for the tenure you choose. The
-            lender confirms final terms before disbursal.
+            {t.disclaimer}
           </p>
 
           {applyError && <p className="text-danger text-sm font-semibold">{applyError}</p>}
@@ -281,18 +274,18 @@ export default function CompareOffersPage() {
       )}
 
       {sheetOpen && (
-        <div className="fixed inset-0 z-[10002] lg:hidden" role="dialog" aria-modal="true" aria-label="Filters">
+        <div className="fixed inset-0 z-[10002] lg:hidden" role="dialog" aria-modal="true" aria-label={t.filters}>
           <div className="animate-in fade-in absolute inset-0 bg-black/40" onClick={() => setSheetOpen(false)} />
           <div className="animate-in slide-in-from-bottom bg-card absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl p-5 pb-8 shadow-[var(--shadow-float)] duration-200">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-base font-extrabold">Filters</p>
-              <button onClick={() => setSheetOpen(false)} className="bg-muted grid h-9 w-9 place-items-center rounded-full" aria-label="Close filters">
+              <p className="text-base font-extrabold">{t.filters}</p>
+              <button onClick={() => setSheetOpen(false)} className="bg-muted grid h-9 w-9 place-items-center rounded-full" aria-label={t.closeFilters}>
                 <X className="h-4 w-4" />
               </button>
             </div>
             {filterPanel}
             <button onClick={() => setSheetOpen(false)} className="bg-brand-gradient text-primary-foreground mt-5 w-full rounded-full py-3.5 text-sm font-bold">
-              Show {result.rows.length} offer{result.rows.length === 1 ? '' : 's'}
+              {t.showOffers(result.rows.length)}
             </button>
           </div>
         </div>
@@ -330,6 +323,7 @@ function FilterPanel({
   /** Desktop sidebar only — the phone sheet already has its own "Filters" title. */
   showHeader?: boolean;
 }) {
+  const t = useCopy(applyCompareCopy);
   return (
     <div className="flex flex-col">
       {showHeader && (
@@ -339,45 +333,45 @@ function FilterPanel({
               <SlidersHorizontal className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-sm leading-tight font-extrabold">Filters</p>
+              <p className="text-sm leading-tight font-extrabold">{t.filters}</p>
               <p className="text-muted-foreground text-[11px]">
-                {activeFilterCount > 0 ? `${activeFilterCount} applied` : 'Fine-tune your offers'}
+                {activeFilterCount > 0 ? t.filterPanel.applied(activeFilterCount) : t.filterPanel.fineTune}
               </p>
             </div>
           </div>
           {activeFilterCount > 0 && (
             <button onClick={onReset} className="text-primary hover:bg-accent rounded-full px-2.5 py-1 text-xs font-bold transition-colors">
-              Reset
+              {t.filterPanel.reset}
             </button>
           )}
         </div>
       )}
 
       <div className="divide-border flex flex-col gap-5 [&>*:not(:first-child)]:border-t [&>*:not(:first-child)]:border-border [&>*:not(:first-child)]:pt-5">
-        <Section title="Tenure" right={`${filters.tenure} months`}>
-          <div role="radiogroup" aria-label="Tenure" className="bg-muted grid grid-cols-5 gap-1 rounded-xl p-1">
-            {TENURES.map((t) => {
-              const on = filters.tenure === t;
+        <Section title={t.filterPanel.tenure} right={t.filterPanel.months(filters.tenure)}>
+          <div role="radiogroup" aria-label={t.filterPanel.tenure} className="bg-muted grid grid-cols-5 gap-1 rounded-xl p-1">
+            {TENURES.map((n) => {
+              const on = filters.tenure === n;
               return (
                 <button
-                  key={t}
+                  key={n}
                   role="radio"
                   aria-checked={on}
-                  onClick={() => set({ tenure: t })}
+                  onClick={() => set({ tenure: n })}
                   className={`rounded-lg py-2 text-xs font-extrabold transition-all ${
                     on ? 'bg-card text-primary shadow-[var(--shadow-soft)]' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  {t}
+                  {n}
                 </button>
               );
             })}
           </div>
-          <p className="text-muted-foreground mt-1.5 text-center text-[10px] font-semibold">months</p>
+          <p className="text-muted-foreground mt-1.5 text-center text-[10px] font-semibold">{t.filterPanel.monthsUnit}</p>
         </Section>
 
-        <Section title="Best offer by">
-          <div role="radiogroup" aria-label="Best offer by" className="flex flex-col gap-1">
+        <Section title={t.filterPanel.bestBy}>
+          <div role="radiogroup" aria-label={t.filterPanel.bestBy} className="flex flex-col gap-1">
             {RANKS.map((k) => {
               const on = filters.rankBy === k;
               const Icon = RANK_ICONS[k] ?? Award;
@@ -399,8 +393,8 @@ function FilterPanel({
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className={`block text-[13px] leading-tight font-bold ${on ? 'text-foreground' : 'text-foreground/80'}`}>{RANK_LABELS[k]}</span>
-                    {on && <span className="text-muted-foreground mt-0.5 block text-[11px] leading-snug">{RANK_HINT[k]}</span>}
+                    <span className={`block text-[13px] leading-tight font-bold ${on ? 'text-foreground' : 'text-foreground/80'}`}>{t.rankLabels[k]}</span>
+                    {on && <span className="text-muted-foreground mt-0.5 block text-[11px] leading-snug">{t.rankHints[k]}</span>}
                   </span>
                   {on && <Check className="text-primary h-4 w-4 shrink-0" />}
                 </button>
@@ -410,9 +404,9 @@ function FilterPanel({
         </Section>
 
         {emiRange && (
-          <Section title="Monthly EMI budget" right={filters.maxEmi != null ? `Up to ${fmtINR(filters.maxEmi)}` : 'Any'}>
+          <Section title={t.filterPanel.emiBudget} right={filters.maxEmi != null ? t.filterPanel.upTo(fmtINR(filters.maxEmi)) : t.filterPanel.any}>
             <Slider
-              aria-label="Monthly EMI budget"
+              aria-label={t.filterPanel.emiBudget}
               min={emiRange.lo}
               max={emiRange.hi}
               step={500}
@@ -427,10 +421,10 @@ function FilterPanel({
         )}
 
         {amountOptions.length > 1 && (
-          <Section title="Minimum loan amount">
+          <Section title={t.filterPanel.minAmount}>
             <div className="flex flex-wrap gap-1.5">
               <SmallChip on={filters.minAmount == null} onClick={() => set({ minAmount: null })}>
-                Any
+                {t.filterPanel.any}
               </SmallChip>
               {amountOptions.slice(1).map((a) => (
                 <SmallChip key={a} on={filters.minAmount === a} onClick={() => set({ minAmount: a })}>
@@ -443,14 +437,14 @@ function FilterPanel({
 
         <div className="flex items-center justify-between gap-3">
           <span>
-            <span className="block text-[13px] font-bold">Include “rate on approval”</span>
-            <span className="text-muted-foreground block text-[11px]">Lenders who confirm the rate later</span>
+            <span className="block text-[13px] font-bold">{t.filterPanel.includeOnApproval}</span>
+            <span className="text-muted-foreground block text-[11px]">{t.filterPanel.includeOnApprovalHint}</span>
           </span>
           <button
             type="button"
             role="switch"
             aria-checked={filters.includeOnApproval}
-            aria-label="Include rate on approval"
+            aria-label={t.filterPanel.includeOnApprovalAria}
             onClick={() => set({ includeOnApproval: !filters.includeOnApproval })}
             className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${filters.includeOnApproval ? 'bg-primary' : 'bg-border'}`}
           >
@@ -462,7 +456,7 @@ function FilterPanel({
 
         {!showHeader && activeFilterCount > 0 && (
           <button onClick={onReset} className="text-primary self-start text-sm font-bold underline">
-            Reset filters
+            {t.filterPanel.resetFilters}
           </button>
         )}
       </div>
@@ -526,6 +520,7 @@ function BestCard({
   /** Apply button — desktop only; phones/tablets keep the sticky bottom bar. */
   action?: React.ReactNode;
 }) {
+  const t = useCopy(applyCompareCopy);
   return (
     // Light mint card (not the dark green) so the gradient Apply button in the
     // corner stands out instead of blending into the background.
@@ -539,7 +534,7 @@ function BestCard({
           <LenderMark row={row} />
           <div>
             <p className="text-primary flex items-center gap-1.5 text-[11px] font-bold tracking-wide uppercase">
-              <Award className="h-3.5 w-3.5" /> {isBest ? `Best for you · ${RANK_LABELS[rankBy].toLowerCase()}` : 'Your choice'}
+              <Award className="h-3.5 w-3.5" /> {isBest ? t.best.bestForRank(t.rankLabels[rankBy].toLowerCase()) : t.best.yourChoice}
             </p>
             <p className="text-foreground text-lg font-extrabold">{row.lenderName}</p>
           </div>
@@ -547,17 +542,17 @@ function BestCard({
         {action && <div className="hidden max-w-[60%] min-w-0 shrink-0 lg:flex">{action}</div>}
       </div>
       <div className="relative mt-4 grid grid-cols-3 gap-2">
-        <BigStat k="Monthly EMI" v={fmtINR(row.emi)} />
-        <BigStat k="Interest" v={`${row.rate}% p.a.`} />
-        <BigStat k="Total cost" v={fmtINR(row.costOfBorrowing)} />
+        <BigStat k={t.best.monthlyEmi} v={fmtINR(row.emi)} />
+        <BigStat k={t.best.interest} v={t.best.perYear(row.rate)} />
+        <BigStat k={t.best.totalCost} v={fmtINR(row.costOfBorrowing)} />
       </div>
       <div className="relative mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <p className="text-muted-foreground text-xs">
-          {fmtINR(row.amount)} over {row.tenure} months · you repay {fmtINR(row.totalRepay)} in total
+          {t.best.summary(fmtINR(row.amount), row.tenure, fmtINR(row.totalRepay))}
         </p>
         {isBest && saves != null && saves > 0 && (
           <span className="bg-success-soft text-success inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
-            <TrendingDown className="h-3.5 w-3.5" /> Saves {fmtINR(saves)} vs the costliest
+            <TrendingDown className="h-3.5 w-3.5" /> {t.best.saves(fmtINR(saves))}
           </span>
         )}
       </div>
@@ -589,14 +584,19 @@ function LenderMark({ row, light }: { row: CompareRow; light?: boolean }) {
 
 type Winners = { emi: string | null; rate: string | null; interest: string | null; cost: string | null };
 
-const METRICS: { key: string; label: string; win?: keyof Winners; tag?: string; value: (r: CompareRow) => string; sub?: (r: CompareRow) => string }[] = [
-  { key: 'emi', label: 'Monthly EMI', win: 'emi', tag: 'Lowest EMI', value: (r) => fmtINR(r.emi) },
-  { key: 'rate', label: 'Interest rate', win: 'rate', tag: 'Lowest rate', value: (r) => `${r.rate}% p.a.` },
-  { key: 'amount', label: 'Eligible amount', value: (r) => fmtINR(r.amount) },
-  { key: 'interest', label: 'Total interest', win: 'interest', tag: 'Least interest', value: (r) => fmtINR(r.totalInterest) },
-  { key: 'fees', label: 'Processing fee + GST', value: (r) => fmtINR(r.fees) },
-  { key: 'cost', label: 'Total cost of loan', win: 'cost', tag: 'Cheapest', value: (r) => fmtINR(r.costOfBorrowing), sub: (r) => `${fmtINR(r.costPerLakh)} per ₹1L` },
-  { key: 'repay', label: 'Total you repay', value: (r) => fmtINR(r.totalRepay) },
+const METRICS: {
+  key: keyof CompareCopy['table']['metrics'];
+  win?: keyof Winners;
+  value: (r: CompareRow, t: CompareCopy) => string;
+  sub?: (r: CompareRow, t: CompareCopy) => string;
+}[] = [
+  { key: 'emi', win: 'emi', value: (r) => fmtINR(r.emi) },
+  { key: 'rate', win: 'rate', value: (r, t) => t.best.perYear(r.rate) },
+  { key: 'amount', value: (r) => fmtINR(r.amount) },
+  { key: 'interest', win: 'interest', value: (r) => fmtINR(r.totalInterest) },
+  { key: 'fees', value: (r) => fmtINR(r.fees) },
+  { key: 'cost', win: 'cost', value: (r) => fmtINR(r.costOfBorrowing), sub: (r, t) => t.table.perLakh(fmtINR(r.costPerLakh)) },
+  { key: 'repay', value: (r) => fmtINR(r.totalRepay) },
 ];
 
 function CompareTable({
@@ -612,6 +612,7 @@ function CompareTable({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const t = useCopy(applyCompareCopy);
   return (
     <div className="border-border bg-card hidden overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] md:block">
       <div className="overflow-x-auto">
@@ -627,14 +628,14 @@ function CompareTable({
                       <LenderMark row={r} />
                       <span className="text-sm font-extrabold">{r.lenderName}</span>
                       <span className="flex flex-wrap justify-center gap-1">
-                        {r.id === bestId && <MiniBadge tone="best">Best for you</MiniBadge>}
-                        {r.onApproval && <MiniBadge tone="amber">Rate on approval</MiniBadge>}
+                        {r.id === bestId && <MiniBadge tone="best">{t.best.bestForYou}</MiniBadge>}
+                        {r.onApproval && <MiniBadge tone="amber">{t.table.rateOnApproval}</MiniBadge>}
                         {sel ? (
                           <MiniBadge tone="sel">
-                            <Check className="h-3 w-3" /> Selected
+                            <Check className="h-3 w-3" /> {t.table.selected}
                           </MiniBadge>
                         ) : (
-                          <span className="text-primary text-[11px] font-bold">Select</span>
+                          <span className="text-primary text-[11px] font-bold">{t.table.select}</span>
                         )}
                       </span>
                     </button>
@@ -646,7 +647,7 @@ function CompareTable({
           <tbody>
             {METRICS.map((m) => (
               <tr key={m.key} className="border-border border-t">
-                <td className="text-muted-foreground bg-card sticky left-0 z-10 p-3 text-xs font-bold">{m.label}</td>
+                <td className="text-muted-foreground bg-card sticky left-0 z-10 p-3 text-xs font-bold">{t.table.metrics[m.key]}</td>
                 {rows.map((r) => {
                   const sel = r.id === selectedId;
                   const priced = !r.onApproval || m.key === 'amount';
@@ -655,12 +656,12 @@ function CompareTable({
                     <td key={r.id} className={`p-3 text-center ${sel ? 'bg-accent/60' : ''}`}>
                       {priced ? (
                         <div className={`inline-flex flex-col items-center rounded-lg px-2 py-1 ${win ? 'bg-success-soft text-success' : ''}`}>
-                          <span className="font-extrabold">{m.value(r)}</span>
-                          {m.sub && <span className="text-muted-foreground text-[10px] font-semibold">{m.sub(r)}</span>}
-                          {win && <span className="text-[10px] font-bold">{m.tag}</span>}
+                          <span className="font-extrabold">{m.value(r, t)}</span>
+                          {m.sub && <span className="text-muted-foreground text-[10px] font-semibold">{m.sub(r, t)}</span>}
+                          {win && m.win &&<span className="text-[10px] font-bold">{t.table.tags[m.win]}</span>}
                         </div>
                       ) : (
-                        <span className="text-warning text-xs font-bold">On approval</span>
+                        <span className="text-warning text-xs font-bold">{t.table.onApproval}</span>
                       )}
                     </td>
                   );
@@ -689,9 +690,8 @@ function OfferCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const tags = (['cost', 'emi', 'rate', 'interest'] as const)
-    .filter((k) => winners[k] === row.id)
-    .map((k) => ({ cost: 'Cheapest', emi: 'Lowest EMI', rate: 'Lowest rate', interest: 'Least interest' })[k]);
+  const t = useCopy(applyCompareCopy);
+  const tags = (['cost', 'emi', 'rate', 'interest'] as const).filter((k) => winners[k] === row.id);
   return (
     <button
       onClick={onSelect}
@@ -706,7 +706,7 @@ function OfferCard({
         <LenderMark row={row} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-extrabold">{row.lenderName}</p>
-          <p className="text-muted-foreground text-xs">{fmtINR(row.amount)} eligible</p>
+          <p className="text-muted-foreground text-xs">{t.card.eligible(fmtINR(row.amount))}</p>
         </div>
         <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 ${selected ? 'border-primary bg-primary text-white' : 'border-border'}`}>
           {selected && <Check className="h-3.5 w-3.5" />}
@@ -715,26 +715,26 @@ function OfferCard({
 
       {(isBest || row.onApproval || tags.length > 0) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {isBest && <MiniBadge tone="best">Best for you</MiniBadge>}
-          {row.onApproval && <MiniBadge tone="amber">Rate on approval</MiniBadge>}
-          {tags.filter((t) => !(isBest && t === 'Cheapest')).map((t) => (
-            <MiniBadge key={t} tone="soft">
-              {t}
+          {isBest && <MiniBadge tone="best">{t.best.bestForYou}</MiniBadge>}
+          {row.onApproval && <MiniBadge tone="amber">{t.table.rateOnApproval}</MiniBadge>}
+          {tags.filter((k) => !(isBest && k === 'cost')).map((k) => (
+            <MiniBadge key={k} tone="soft">
+              {t.table.tags[k]}
             </MiniBadge>
           ))}
         </div>
       )}
 
       {row.onApproval ? (
-        <p className="text-muted-foreground mt-3 text-xs">This lender confirms the interest rate after approval, so EMI and costs can’t be worked out yet.</p>
+        <p className="text-muted-foreground mt-3 text-xs">{t.card.onApprovalNote}</p>
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Stat k="Monthly EMI" v={fmtINR(row.emi)} win={winners.emi === row.id} />
-          <Stat k="Interest rate" v={`${row.rate}% p.a.`} win={winners.rate === row.id} />
-          <Stat k="Total interest" v={fmtINR(row.totalInterest)} win={winners.interest === row.id} />
-          <Stat k="Fee + GST" v={fmtINR(row.fees)} />
+          <Stat k={t.card.monthlyEmi} v={fmtINR(row.emi)} win={winners.emi === row.id} />
+          <Stat k={t.card.interestRate} v={t.best.perYear(row.rate)} win={winners.rate === row.id} />
+          <Stat k={t.card.totalInterest} v={fmtINR(row.totalInterest)} win={winners.interest === row.id} />
+          <Stat k={t.card.feeGst} v={fmtINR(row.fees)} />
           <div className="bg-muted col-span-2 flex items-center justify-between rounded-xl px-3 py-2.5">
-            <span className="text-muted-foreground text-[11px] font-bold uppercase">Total cost of loan</span>
+            <span className="text-muted-foreground text-[11px] font-bold uppercase">{t.card.totalCostOfLoan}</span>
             <span className={`text-sm font-extrabold ${winners.cost === row.id ? 'text-success' : ''}`}>{fmtINR(row.costOfBorrowing)}</span>
           </div>
         </div>
@@ -763,26 +763,27 @@ function MiniBadge({ tone, children }: { tone: 'best' | 'amber' | 'sel' | 'soft'
 }
 
 function SelectionSummary({ row, bestId, inline }: { row: CompareRow; bestId: string | null; inline?: boolean }) {
+  const t = useCopy(applyCompareCopy);
   if (inline) {
     return (
       <p className="min-w-0 truncate text-xs sm:flex-1">
-        <span className="text-primary font-bold">{row.id === bestId ? 'Best for you' : 'Your choice'}</span>
+        <span className="text-primary font-bold">{row.id === bestId ? t.best.bestForYou : t.best.yourChoice}</span>
         <span className="text-foreground font-extrabold"> · {row.lenderName}</span>
-        {!row.onApproval && <span className="text-muted-foreground font-semibold"> · {fmtINR(row.emi)}/mo</span>}
+        {!row.onApproval && <span className="text-muted-foreground font-semibold"> · {t.summary.perMonth(fmtINR(row.emi))}</span>}
       </p>
     );
   }
   return (
     <div className="min-w-0">
       <p className="text-muted-foreground truncate text-[11px] font-bold uppercase">
-        {row.id === bestId ? 'Best for you' : 'Your choice'}
+        {row.id === bestId ? t.best.bestForYou : t.best.yourChoice}
       </p>
       <p className="truncate text-sm font-extrabold">
         {row.lenderName}
         {!row.onApproval && (
           <span className="text-muted-foreground font-semibold">
             {' '}
-            · {fmtINR(row.emi)}/mo for {row.tenure} months
+            · {t.summary.perMonthFor(fmtINR(row.emi), row.tenure)}
           </span>
         )}
       </p>
@@ -807,18 +808,20 @@ function ApplyButton({
   /** Plain "Apply now" — for the best-offer card, which already names the lender beside it. */
   compact?: boolean;
 }) {
+  const t = useCopy(applyCompareCopy);
   const busy = applyingId === offer.id;
   return (
     <button
       onClick={() => onApply(offer)}
       disabled={!!applyingId}
+      data-voice-gate="apply-offer"
       className={`bg-brand-gradient text-primary-foreground inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-6 py-3 text-sm font-bold whitespace-nowrap shadow-[var(--shadow-float)] transition-transform hover:-translate-y-0.5 disabled:opacity-60 ${
         block ? 'w-full sm:w-auto sm:max-w-xs' : 'max-w-sm'
       }`}
     >
-      {busy ? 'Applying…' : (
+      {busy ? t.apply.applying : (
         <>
-          <span className="truncate">{compact ? 'Apply now' : `Apply with ${row.lenderName}`}</span>
+          <span className="truncate">{compact ? t.apply.applyNow : t.apply.applyWith(row.lenderName)}</span>
           <span aria-hidden>→</span>
         </>
       )}
