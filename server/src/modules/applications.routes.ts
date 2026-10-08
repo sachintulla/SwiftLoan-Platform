@@ -9,6 +9,7 @@ import { makeRef } from '../utils/ref.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('applications');
@@ -53,7 +54,21 @@ applicationsRouter.get('/', ah(async (req, res) => {
     orderBy: { createdAt: 'desc' },
     include: { offers: true, loan: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
   });
-  res.json({ applications: apps });
+  // Surface Yubi/YMPL alt-offer applications (where the applicant tapped Proceed)
+  // as their own entries in My Loans. PartnerReferral has no Prisma relation to
+  // LoanApplication (plain FK), so attach by applicationId.
+  const appliedReferrals = await prisma.partnerReferral.findMany({
+    where: { userId: req.user!.sub, appliedAt: { not: null } },
+    orderBy: { appliedAt: 'desc' },
+  });
+  const byApp = new Map<string, typeof appliedReferrals>();
+  for (const r of appliedReferrals) {
+    const list = byApp.get(r.applicationId) ?? [];
+    list.push(r);
+    byApp.set(r.applicationId, list);
+  }
+  const withReferrals = apps.map(a => ({ ...a, partnerReferrals: byApp.get(a.id) ?? [] }));
+  res.json({ applications: withReferrals });
 }));
 
 /** Get one application with offers + loan. */
@@ -170,6 +185,15 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
   const partners = await prisma.lenderPartner.findMany({ where: { active: true }, take: 3, orderBy: { baseApr: 'asc' } });
   if (partners.length === 0) throw new HttpError(503, 'No lending partners configured — run the seed script');
+
+  // Alternative-offers facility (Yubi/YMPL). The offer API is the right moment:
+  // the funnel has now collected the applicant's name, email and pincode that
+  // YMPL requires. Runs Create Referral → Auth Token in sequence (see
+  // ensureRedirectUrl) in PARALLEL with Aurix eligibility, pre-warming the
+  // redirect URL so the "Alternative offers" tile opens instantly. Fire-and-
+  // forget — independent of the Aurix result below; the on-tap endpoint re-mints
+  // a fresh URL anyway (the token is short-lived, ~90s).
+  kickoffRedirect(app.id, req.user!.sub);
 
   // Gather offers across partners. A provider whose single API call returns
   // many offers (Aurix → one per real lender) uses getOffers; others yield a
@@ -309,6 +333,82 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
   res.json({ offers: created, aurixResponse: aurixDebug });
 }));
+
+/**
+ * Alternative-offers facility (Yubi/YMPL) — called when the applicant taps the
+ * "Alternative offers" / "More offers" tile. Ensures the referral exists and
+ * mints a FRESH redirect URL (tokens are short-lived), returned for the app to
+ * open in its in-app WebView. Always 200 with `available`: the tile degrades
+ * gracefully (a toast) rather than erroring when YMPL is down or disabled.
+ */
+applicationsRouter.post('/:id/alt-offer', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  if (!yubiEnabled()) {
+    res.json({ altOffer: { available: false, provider: 'ympl', status: 'disabled', redirectUrl: null } });
+    return;
+  }
+  const { redirectUrl, status } = await ensureRedirectUrl(app.id, req.user!.sub);
+  // Return the applicant's own verified PAN so the WebView can prefill the one
+  // remaining data field on YMPL's hosted journey (the only field not already
+  // populated by our referral). Data-only — the app never auto-accepts the
+  // consent or submits; that stays the user's explicit action.
+  // Hand the WebView the details the funnel already collected — the SAME source
+  // the Aurix offers payload reads (application.panNumber || user.panNumber, and
+  // the user profile) — so YMPL's hosted journey needs no re-typing. Data-only:
+  // used to prefill form fields, never to accept consent or submit.
+  const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+  const prefill = {
+    pan: app.panNumber || user?.panNumber || null,
+    firstName: user?.firstName || null,
+    middleName: null as string | null,
+    lastName: user?.lastName || null,
+    fullName: user?.fullName || null,
+    dob: user?.dob ? user.dob.toISOString().slice(0, 10) : null,
+    gender: user?.gender || null,
+    email: user?.email || null,
+    mobile: user?.phone ? user.phone.replace(/\D/g, '').slice(-10) : null,
+    pincode: user?.pincode || null,
+    addressLine1: user?.addressLine1 || null,
+    addressLine2: user?.addressLine2 || null,
+    city: user?.city || null,
+    state: user?.state || null,
+    employmentType: user?.employment || null,
+    companyName: user?.company || null,
+    monthlyIncome: user?.monthlyIncome ?? null,
+    loanAmount: app.amount ?? null,
+  };
+  // Whether this referral already has offers generated — if so the hosted
+  // journey resumes straight to its offers page (auto-advancing past DOB etc.),
+  // so the app keeps its branded loader up until offers show, hiding the flash.
+  const { journeyStatus } = await getReferralStatus(app.id, req.user!.sub).catch(() => ({ journeyStatus: null as string | null }));
+  const resumeToOffers = /OFFER|APPROV|DISBURS|SANCTION|SELECT|COMPLETE/i.test(String(journeyStatus || ''));
+  res.json({
+    altOffer: {
+      available: !!redirectUrl,
+      provider: 'ympl',
+      status,
+      redirectUrl,
+      pan: prefill.pan, // kept for back-compat
+      prefill,
+      journeyStatus: journeyStatus ?? null,
+      resumeToOffers,
+    },
+  });
+}));
+
+/**
+ * Alternative-offers facility (Yubi/YMPL) — the applicant tapped "Proceed" on
+ * YMPL's offers page (detected in the in-app WebView). Stamps the referral as
+ * applied so it surfaces in My Loans with its date/time. Optional `lender` is
+ * the one they proceeded with.
+ */
+applicationsRouter.post('/:id/alt-offer/applied',
+  validate(z.object({ lender: z.string().max(120).optional() })),
+  ah(async (req, res) => {
+    const app = await owned(req.user!.sub, req.params.id);
+    const ref = await markReferralApplied(app.id, req.user!.sub, req.body.lender ?? null);
+    res.json({ applied: !!ref, appliedAt: ref?.appliedAt ?? null, lender: ref?.appliedLender ?? null });
+  }));
 
 /** List offers for an application. */
 applicationsRouter.get('/:id/offers', ah(async (req, res) => {

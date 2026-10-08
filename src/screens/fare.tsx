@@ -9,6 +9,7 @@ import { api, isAuthed, Offer } from '../api/client';
 import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
+import YubiOffersTab from '../components/YubiOffersTab';
 
 // Statuses whose applications still carry showable offers.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
@@ -37,6 +38,9 @@ export default function MyOffers() {
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  // Two sources of offers: 'knight' = our matched (Aurix/Knight Fintech) offers;
+  // 'yubi' = the Yubi Markets web journey hosted inline in its own tab.
+  const [tab, setTab] = useState<'knight' | 'yubi'>('knight');
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
@@ -119,34 +123,59 @@ export default function MyOffers() {
 
   const hasOffers = offers.length > 0;
 
-  return (
-    <Screen scroll bottomNav padded contentStyle={{ paddingBottom: 40 }}>
-      {/* Header with top-right refresh */}
+  // Title + two-source tab bar, shared by both tab layouts.
+  const header = (
+    <>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={[font(800), styles.title]}>{t.myOffersTitle}</Text>
           <Text style={[font(400), styles.sub]}>
-            {hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
+            {tab === 'yubi'
+              ? t.offersTabYubiSub
+              : hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
           </Text>
         </View>
-        {/* "Recheck" only makes sense once there's an existing offer set to
-            recheck — with none yet, this was an always-visible second button
-            doing the exact same thing as EmptyOffers' "Apply for a loan"
-            below (both just call startApply()), which left two competing,
-            differently-labelled CTAs for one action — a person who's never
-            applied doesn't have anything to "recheck". */}
-        {hasOffers && (
-          <Pressable
-            onPress={refresh}
-            accessibilityLabel={t.recheckOffers}
-            style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}
-          >
+        {tab === 'knight' && hasOffers && (
+          <Pressable onPress={refresh} accessibilityLabel={t.recheckOffers} style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}>
             <Icon name="autorenew" size={19} color={colors.primary} />
             <Text style={[font(700), styles.refreshLabel]}>{t.recheckOffers}</Text>
           </Pressable>
         )}
       </View>
+      <View style={styles.tabsRow}>
+        {(['knight', 'yubi'] as const).map(k => (
+          <Pressable key={k} onPress={() => setTab(k)} accessibilityRole="tab" style={styles.tabBtn}>
+            <View style={styles.tabLabelRow}>
+              {/* Sparkle marks the lender marketplace tab as the richer, exciting
+                  destination — not a secondary "more" option. */}
+              {k === 'yubi' ? <Icon name="auto_awesome" size={15} color={tab === k ? colors.primary : colors.textSoft} /> : null}
+              <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
+                {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
+              </Text>
+            </View>
+            <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
 
+  // Yubi tab: the hosted journey fills the screen (non-scrolling), full-width.
+  if (tab === 'yubi') {
+    return (
+      <Screen scroll={false} bottomNav padded={false}>
+        <View style={{ paddingHorizontal: 18 }}>{header}</View>
+        <View style={{ flex: 1, marginTop: 8 }}>
+          <YubiOffersTab onApply={startApply} />
+        </View>
+      </Screen>
+    );
+  }
+
+  // Knight (matched) tab: the existing scrollable offers list / empty state.
+  return (
+    <Screen scroll bottomNav padded contentStyle={{ paddingBottom: 120 }}>
+      {header}
       {loading ? (
         <View style={{ paddingTop: 60, alignItems: 'center' }}>
           <ActivityIndicator color={colors.primary} />
@@ -175,16 +204,18 @@ export default function MyOffers() {
               <MyOfferCard key={o.id} offer={o} onSelect={select} />
             ))}
           </View>
-          <View style={styles.moreRow}>
-            <Icon name="auto_awesome" size={15} color={colors.primary} />
-            <Text style={[font(500), { fontSize: 12.5, color: colors.textMid }]}>{t.moreOffersAvailable}</Text>
-          </View>
+          {/* More lender options live in the "Yubi" tab above. */}
+          <Pressable onPress={() => setTab('yubi')} style={styles.moreRow} accessibilityRole="button">
+            <Icon name="storefront" size={15} color={colors.primary} />
+            <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
+          </Pressable>
         </>
       ) : (
         <EmptyOffers
           onApply={startApply}
           onRetry={retryEligibility}
           offersError={state.offersError}
+          onSeeYubi={() => setTab('yubi')}
         />
       )}
     </Screen>
@@ -296,12 +327,15 @@ function EmptyOffers({
   onApply,
   onRetry,
   offersError,
+  onSeeYubi,
 }: {
   onApply: () => void;
   onRetry: () => void;
   offersError: string;
+  onSeeYubi: () => void;
 }) {
   const t = useT();
+  const { state } = useStore();
   const failed = !!offersError;
   return (
     <View style={styles.empty}>
@@ -336,6 +370,17 @@ function EmptyOffers({
           </View>
         </>
       )}
+
+      {/* Alternative offers live in the "Yubi" tab — point there once an
+          eligibility run exists to refer (applicationId set, e.g. after a failed
+          Aurix attempt). */}
+      {state.altOffersEnabled && state.applicationId ? (
+        <Pressable onPress={onSeeYubi} style={styles.seeYubiBtn} accessibilityRole="button">
+          <Icon name="storefront" size={18} color={colors.primary} />
+          <Text style={[font(700), { color: colors.primary, fontSize: 14 }]}>{t.offersSeeYubi}</Text>
+          <Icon name="chevron_right" size={18} color={colors.primary} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -400,6 +445,15 @@ const styles = StyleSheet.create({
   receipt: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
   applyBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: 14, height: 48, marginTop: 14 },
   moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18, paddingHorizontal: 20 },
+  // Two-source tab bar (Knight Fintech | Yubi)
+  tabsRow: { flexDirection: 'row', marginTop: 4, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
+  tabBtn: { flex: 1, alignItems: 'center', paddingBottom: 0 },
+  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  tabTxt: { fontSize: 14.5, color: colors.textSoft, paddingVertical: 10 },
+  tabTxtOn: { color: colors.primary },
+  tabUnderline: { height: 2.5, alignSelf: 'stretch', backgroundColor: 'transparent', borderTopLeftRadius: 2, borderTopRightRadius: 2 },
+  tabUnderlineOn: { backgroundColor: colors.primary },
+  seeYubiBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 20, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: '#BFE3E3', backgroundColor: '#F2FAFA', width: '100%' },
 
   empty: { alignItems: 'center', paddingTop: 36, paddingHorizontal: 6 },
   emptyIcon: { width: 92, height: 92, borderRadius: 46, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },

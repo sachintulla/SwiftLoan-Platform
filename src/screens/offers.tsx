@@ -7,6 +7,7 @@ import { Chips, PrimaryButton } from '../components/Controls';
 import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { Empty } from '../components/common/Empty';
+import AltOfferTile from '../components/AltOfferTile';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, Offer } from '../api/client';
@@ -219,6 +220,10 @@ export default function Offers() {
                   <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>{t.updateDetailsRetry}</Text>
                 </Pressable>
               </View>
+              {/* Alternative-offers facility — shown even when Aurix found none. */}
+              <View style={{ marginTop: 16 }}>
+                <AltOfferTile variant="empty" />
+              </View>
             </View>
           )
         ) : (
@@ -227,6 +232,11 @@ export default function Offers() {
               {offers.map(o => (
                 <OfferCard key={o.id} offer={o} onSelect={select} />
               ))}
+            </View>
+
+            {/* Alternative-offers facility — an extra partner web journey. */}
+            <View style={{ marginTop: 16 }}>
+              <AltOfferTile variant="default" />
             </View>
 
             {/* Offer validity — only meaningful when there are real offers. */}
