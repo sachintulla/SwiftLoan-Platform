@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, ScrollView } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
@@ -124,7 +124,7 @@ export default function MyOffers() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={[font(800), styles.title]}>{t.myOffersTitle}</Text>
-          <Text style={[font(400), styles.sub]}>
+          <Text style={[font(400), styles.sub]} numberOfLines={2}>
             {tab === 'yubi'
               ? t.offersTabYubiSub
               : hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
@@ -152,63 +152,69 @@ export default function MyOffers() {
     </>
   );
 
-  // Yubi tab: the hosted journey fills the screen (non-scrolling), full-width.
-  if (tab === 'yubi') {
-    return (
-      <Screen scroll={false} bottomNav padded={false}>
-        <View style={{ paddingHorizontal: 18 }}>{header}</View>
+  // One stable layout for both tabs: the <Screen> wrapper, the branding header
+  // and the tab bar stay mounted across switches — only the body below swaps.
+  // Previously each tab returned its own <Screen> (scroll vs non-scroll), so
+  // switching remounted the whole screen and the header/tabs visibly jumped.
+  return (
+    <Screen scroll={false} bottomNav padded={false}>
+      <View style={{ paddingHorizontal: 18 }}>{header}</View>
+      {tab === 'yubi' ? (
+        // Explore lenders: the hosted journey fills the frame, full-width.
         <View style={{ flex: 1, marginTop: 8 }}>
           <YubiOffersTab onApply={startApply} />
         </View>
-      </Screen>
-    );
-  }
-
-  // Knight (matched) tab: the existing scrollable offers list / empty state.
-  return (
-    <Screen scroll bottomNav padded contentStyle={{ paddingBottom: 120 }}>
-      {header}
-      {loading ? (
-        <View style={{ paddingTop: 60, alignItems: 'center' }}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : hasOffers ? (
-        <>
-          {offers.length >= 2 ? (
-            <Pressable
-              onPress={() => go('compare')}
-              accessibilityRole="button"
-              accessibilityLabel={t.compareAllOffersTemplate.replace('{n}', String(offers.length))}
-              style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
-            >
-              <View style={styles.compareIcon}>
-                <Icon name="balance" size={20} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[font(700), styles.compareLabel]}>{t.compareAllOffersTemplate.replace('{n}', String(offers.length))}</Text>
-                <Text style={[font(500), styles.compareSub]}>{t.compareOffersSub}</Text>
-              </View>
-              <Icon name="chevron_right" size={22} color={colors.primary} />
-            </Pressable>
-          ) : null}
-          <View style={{ gap: 14 }}>
-            {offers.map(o => (
-              <MyOfferCard key={o.id} offer={o} onSelect={select} />
-            ))}
-          </View>
-          {/* More lender options live in the "Yubi" tab above. */}
-          <Pressable onPress={() => setTab('yubi')} style={styles.moreRow} accessibilityRole="button">
-            <Icon name="storefront" size={15} color={colors.primary} />
-            <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
-          </Pressable>
-        </>
       ) : (
-        <EmptyOffers
-          onApply={startApply}
-          onRetry={retryEligibility}
-          offersError={state.offersError}
-          onSeeYubi={() => setTab('yubi')}
-        />
+        // Instant offers: the matched offers list / empty state, scrolling
+        // inside the stable frame.
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {loading ? (
+            <View style={{ paddingTop: 60, alignItems: 'center' }}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : hasOffers ? (
+            <>
+              {offers.length >= 2 ? (
+                <Pressable
+                  onPress={() => go('compare')}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.compareAllOffersTemplate.replace('{n}', String(offers.length))}
+                  style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
+                >
+                  <View style={styles.compareIcon}>
+                    <Icon name="balance" size={20} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[font(700), styles.compareLabel]}>{t.compareAllOffersTemplate.replace('{n}', String(offers.length))}</Text>
+                    <Text style={[font(500), styles.compareSub]}>{t.compareOffersSub}</Text>
+                  </View>
+                  <Icon name="chevron_right" size={22} color={colors.primary} />
+                </Pressable>
+              ) : null}
+              <View style={{ gap: 14 }}>
+                {offers.map(o => (
+                  <MyOfferCard key={o.id} offer={o} onSelect={select} />
+                ))}
+              </View>
+              {/* More lender options live in the "Explore lenders" tab above. */}
+              <Pressable onPress={() => setTab('yubi')} style={styles.moreRow} accessibilityRole="button">
+                <Icon name="storefront" size={15} color={colors.primary} />
+                <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <EmptyOffers
+              onApply={startApply}
+              onRetry={retryEligibility}
+              offersError={state.offersError}
+              onSeeYubi={() => setTab('yubi')}
+            />
+          )}
+        </ScrollView>
       )}
     </Screen>
   );
@@ -389,7 +395,9 @@ function Benefit({ icon, text }: { icon: string; text: string }) {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8, marginBottom: 18 },
   title: { fontSize: 26, letterSpacing: -0.5, color: colors.text },
-  sub: { fontSize: 13.5, color: colors.textSoft, marginTop: 4 },
+  // Fixed 2-line height so the tab bar below never shifts when the subtitle
+  // text differs per tab (1 line on Instant offers, 2 on Explore lenders).
+  sub: { fontSize: 13.5, lineHeight: 18, color: colors.textSoft, marginTop: 4, minHeight: 36 },
   refreshBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: colors.chip, borderRadius: 20, borderWidth: 1, borderColor: colors.line,
