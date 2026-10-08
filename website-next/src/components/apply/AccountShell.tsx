@@ -9,11 +9,14 @@ export function AccountShell({
   backHref,
   backLabel = 'Back',
   title,
+  wide,
 }: {
   children: React.ReactNode;
   backHref?: string;
   backLabel?: string;
   title?: string;
+  /** Use the full content width (e.g. the public-site FAQ layout) instead of the reading column. */
+  wide?: boolean;
 }) {
   const { user } = useAccount();
 
@@ -35,7 +38,7 @@ export function AccountShell({
             {title && <span className="bg-accent text-accent-foreground rounded-full px-3 py-1.5 text-xs font-bold">{title}</span>}
           </div>
         )}
-        <div className="mx-auto w-full max-w-2xl px-6 py-6 sm:px-10">{children}</div>
+        <div className={`mx-auto w-full px-6 py-6 sm:px-10 ${wide ? 'max-w-5xl' : 'max-w-2xl'}`}>{children}</div>
       </div>
     </div>
   );

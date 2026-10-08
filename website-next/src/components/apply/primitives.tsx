@@ -38,19 +38,25 @@ export function ChipGroup({
   options,
   value,
   onChange,
+  label,
 }: {
   options: string[];
   value: string;
   onChange: (v: string) => void;
+  /** Names the group for assistive tech and the voice assistant. Groups already
+   *  inside a <Field label> are named by it, so this is only needed for the rest. */
+  label?: string;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={label}>
       {options.map((opt) => {
         const selected = value === opt;
         return (
           <button
             type="button"
             key={opt}
+            role="radio"
+            aria-checked={selected}
             onClick={() => onChange(opt)}
             className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
               selected

@@ -14,6 +14,12 @@ describe('UC-N7 agent screen-name resolution (bug: "My Loan" opened Repayment)',
     ['dashboard', 'home'],
     ['profile', 'profile'],
     ['loans', 'loans'],       // exact id still resolves
+    ['offers', 'fare'],       // spoken "offers" = My Offers, never the retired legacy screen
+    ['apply', 'basicpan'],    // spoken "apply" = the application funnel, not the dead `apply` route
+    ['Apply for a loan', 'basicpan'],
+    ['compare offers', 'compare'],
+    ['basic', 'basic'],       // other exact ids unaffected
+    ['finding', 'finding'],
     ['totally-unknown', null],
   ];
   it.each(cases)('%s → %s', (name, expected) => {
@@ -189,8 +195,38 @@ describe('UC-N14 the login boundary is guarded in both directions', () => {
 
   it('back() redirects too — a stale pre-login entry on the stack cannot resurface after login', () => {
     setTokens('fake-access-token');
-    const withStaleHistory: AppState = { ...initialState, screen: 'aboutyou', history: ['splash', 'language', 'intro', 'mobile', 'permissions'] };
+    const withStaleHistory: AppState = { ...initialState, screen: 'profile', history: ['splash', 'language', 'intro', 'mobile'] };
     const s = _reducer(withStaleHistory, { type: 'back' });
     expect(s.screen).toBe('home');
+  });
+
+  it('back() from permissions stays put after login — it must not skip About You via the guard', () => {
+    setTokens('fake-access-token');
+    const s = _reducer({ ...initialState, screen: 'permissions', history: ['mobile'] }, { type: 'back' });
+    expect(s.screen).toBe('permissions');
+  });
+
+  it('go() carries one-shot results across exactly one navigation, then drops them', () => {
+    setTokens('fake-access-token');
+    const withResult: AppState = { ...initialState, screen: 'handoff', apiContext: { handoffResult: { id: 'L1' }, other: 1 } };
+    const a = _reducer(withResult, { type: 'go', screen: 'disbursed' });
+    expect(a.apiContext.handoffResult).toEqual({ id: 'L1' });
+    expect(a.apiContext.other).toBeUndefined();
+    const b = _reducer(a, { type: 'go', screen: 'loans' });
+    expect(b.apiContext.handoffResult).toBeUndefined();
+  });
+
+  it('go() carries the last toast across one navigation so a toast + navigate is not lost', () => {
+    setTokens('fake-access-token');
+    const withToast: AppState = { ...initialState, screen: 'offers', apiContext: { lastToast: { message: 'Already applied', at: 1 } } };
+    const a = _reducer(withToast, { type: 'go', screen: 'status' });
+    expect(a.apiContext.lastToast).toEqual({ message: 'Already applied', at: 1 });
+    expect(_reducer(a, { type: 'go', screen: 'loans' }).apiContext.lastToast).toBeUndefined();
+  });
+
+  it('privacy stays reachable with a restored session (consent gate must not be skipped)', () => {
+    setTokens('fake-access-token');
+    const s = _reducer(initialState, { type: 'go', screen: 'privacy' });
+    expect(s.screen).toBe('privacy');
   });
 });

@@ -45,10 +45,10 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
   return (
     <>
       <aside className="bg-deep-gradient relative hidden h-screen w-[320px] shrink-0 flex-col gap-6 self-start overflow-y-auto p-8 text-white lg:sticky lg:top-0 lg:flex">
-        <Link href="/" className="flex items-center gap-2.5 text-lg font-extrabold">
+        <div className="flex items-center gap-2.5 text-lg font-extrabold">
           <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
           SwiftLoan
-        </Link>
+        </div>
         {/* Deliberately NOT the brand-gradient tile above — a glass/outline
             treatment reads as "a person" at a glance instead of a second logo. */}
         <div className="flex items-center gap-3 border-t border-white/10 pt-6">
@@ -115,10 +115,10 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
   return (
     <div className="lg:hidden">
       <div className="border-border bg-background/95 sticky top-0 z-40 flex h-14 items-center justify-between border-b px-4 backdrop-blur sm:px-6">
-        <Link href="/" className="flex items-center gap-2 text-base font-extrabold">
+        <div className="flex items-center gap-2 text-base font-extrabold">
           <span className="bg-brand-gradient grid h-7 w-7 place-items-center rounded-lg text-xs text-white">S</span>
           SwiftLoan
-        </Link>
+        </div>
         {user && (
           <button
             onClick={() => setOpen((o) => !o)}

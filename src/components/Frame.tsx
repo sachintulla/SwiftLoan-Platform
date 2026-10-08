@@ -25,7 +25,7 @@ import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
 import { useStore, Screen as ScreenName, TAB_SCREENS } from '../state/store';
-import { publishScreenGraph, registerTarget } from '../voice/actionRegistry';
+import { publishScreenGraph, registerTarget, clearScreenGraph } from '../voice/actionRegistry';
 
 /** Pure so it's directly unit-testable without mounting a ScrollView. */
 export function scrollDelta(amount: 'small' | 'page', direction: 'up' | 'down' = 'down'): number {
@@ -36,6 +36,9 @@ import { buildScreenGraph } from '../voice/screenGraph';
 import { agent } from '../voice';
 import { onAudioLevel } from '../voice/audio/nativeAudioBridge';
 import { vlog } from '../voice/log';
+import { registerScroller } from '../feedback/agentFx';
+import { NAV_TABS } from './navTabs';
+import { isAgentActive, playManualSound } from '../feedback/sounds';
 
 // The assistant avatar is the single persistent floating FAB (VoiceWidget) that
 // animates into the tab-bar notch on tab screens. With this on, the tab bar
@@ -156,8 +159,14 @@ export function Screen({
   // scrolled past it, so the pinned header shows the title instead of empty space.
   const titleAnim = useRef(new Animated.Value(0)).current;
   const titleShown = useRef(false);
+  const lastTickY = useRef(0);
   const onScrollY = (y: number) => {
     scrollOffsetRef.current = y;
+    // Test mode: one soft swipe per ~260px the user scrolls (the agent plays its own whoosh).
+    if (Math.abs(y - lastTickY.current) > 260) {
+      lastTickY.current = y;
+      if (!isAgentActive()) playManualSound('scroll');
+    }
     if (collapsingTitle == null) return;
     const shouldShow = y > 52;
     if (shouldShow !== titleShown.current) {
@@ -196,7 +205,19 @@ export function Screen({
       // agent had no way to know that snapshot wasn't real: it read "date of
       // birth: ''" as the user's actual data and proactively suggested filling
       // it in. Never publish a 0-control snapshot; wait for the real one.
-      if (graph.elements.length === 0) return;
+      if (graph.elements.length === 0) {
+        if (graph.texts.length > 0) {
+          // A view with text but no controls (handoff, finding, a lender page...):
+          // the agent still needs to know what it says.
+          if (publishScreenGraph(state.screen, [], graph.texts)) agent.updatePageContext();
+        } else {
+          // Nothing at all right now (a loader/error view replaced the form, or a
+          // data screen hasn't loaded): drop what was published before so the agent
+          // is not told about controls and data that are no longer on screen.
+          clearScreenGraph(state.screen);
+        }
+        return;
+      }
       // Only notify the agent when the control set actually changed — otherwise
       // every keystroke would push a client-tools-update over the socket.
       if (publishScreenGraph(state.screen, graph.elements, graph.texts)) {
@@ -214,6 +235,13 @@ export function Screen({
       // discovery is best-effort — never break rendering over it
     }
   }, [children, state.screen]);
+
+  // Leaving a screen forgets its published graph, so a later visit never starts from
+  // the previous visit's controls, field values or data (profile, loans, status...).
+  useEffect(() => {
+    const leaving = state.screen;
+    return () => clearScreenGraph(leaving);
+  }, [state.screen]);
 
   // A typed field's VALUE is deliberately excluded from the publish signature
   // above (see its comment) — otherwise every keystroke would push a
@@ -255,6 +283,24 @@ export function Screen({
       },
     });
   }, [scroll, state.screen]);
+
+  // Lets the agent bring a control into view before it acts on it (feedback/agentFx.ts). The
+  // bottom inset keeps it clear of the tab bar / mic button that float over the page.
+  useEffect(() => {
+    if (!scroll) return undefined;
+    return registerScroller(state.screen, {
+      scrollToY: y => scrollRef.current?.scrollTo({ y, animated: true }),
+      getOffset: () => scrollOffsetRef.current,
+      measureViewport: cb => {
+        // ScrollView forwards the native measure methods, its type just doesn't declare them
+        const node = scrollRef.current as unknown as View | null;
+        if (!node) return;
+        node.measureInWindow((_x, y, _w, h) => cb(y, h));
+      },
+      topInset: hasPinnedHeader ? 0 : insets.top,
+      bottomInset: bottomNav ? 120 : 70,
+    });
+  }, [scroll, state.screen, hasPinnedHeader, insets.top, bottomNav]);
 
   const inner = scroll ? (
     <ScrollView
@@ -453,19 +499,19 @@ export function AppHeader({
 // Bottom tab bar: Home · Offers · Support (centre, raised Ruby avatar) · My Loans
 // · Profile. "Offers" opens the loan calculator (fare); "My Loans" the loans list;
 // "Support" opens the Ruby help sheet (store.supportOpen).
-type TabDef = { key: ScreenName | 'support'; icon: string; label: string };
-const NAV_TABS: TabDef[] = [
-  { key: 'home', icon: 'home', label: 'Home' },
-  { key: 'fare', icon: 'local_offer', label: 'My Offers' },
-  { key: 'support', icon: 'support_agent', label: 'Support' },
-  { key: 'loans', icon: 'description', label: 'My Loans' },
-  { key: 'profile', icon: 'person', label: 'Profile' },
-];
-
-function NavTab({ tab, active, onPress }: { tab: TabDef; active: boolean; onPress: () => void }) {
+function NavTab({ tab, active, onPress }: { tab: (typeof NAV_TABS)[number]; active: boolean; onPress: () => void }) {
   const tint = active ? colors.primary : colors.muted;
   return (
-    <Pressable accessibilityLabel={tab.label} onPress={onPress} style={styles.navTab}>
+    <Pressable
+      accessibilityLabel={tab.label}
+      onPress={() => {
+        // Silent for the user's own taps (like everything else they do); the agent's tab switches
+        // play this same cue. In manual test mode it sounds here too.
+        playManualSound('nav');
+        onPress();
+      }}
+      style={styles.navTab}
+    >
       <Icon name={tab.icon} size={22} color={tint} />
       <Text style={[font(active ? 700 : 500), { fontSize: 10.5, color: tint, marginTop: 3 }]}>{tab.label}</Text>
     </Pressable>
@@ -513,8 +559,19 @@ export function BottomNav() {
     ` Z`;
 
   useEffect(() => {
+    // The bar is persistent but slides off-screen on non-tab screens. Registering its
+    // tabs there offered the agent invisible controls (Home / My Offers / My Loans /
+    // Profile on language, aboutyou, the funnel...), which it then tapped on its own
+    // to jump out of the flow. Only expose them while the bar is really showing.
+    if (!TAB_SCREENS.has(state.screen)) return undefined;
     const cleanups = NAV_TABS.filter(t => t.key !== 'support').map(tab =>
-      registerTarget(state.screen, `nav:${tab.key}`, { kind: 'button', label: tab.label, onTap: () => go(tab.key as ScreenName) }),
+      registerTarget(state.screen, `nav:${tab.key}`, {
+        kind: 'button',
+        label: tab.label,
+        // The tab bar floats over the page, so the agent must never scroll the page to "reach" it.
+        fixed: true,
+        onTap: () => go(tab.key as ScreenName),
+      }),
     );
     return () => cleanups.forEach(fn => fn());
   }, [state.screen, go]);

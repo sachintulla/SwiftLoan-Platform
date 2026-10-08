@@ -8,6 +8,8 @@ import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
+import { missingBasicRequired } from '../utils/basicRequired';
 import {
   NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
   PINCODE_RE, sanitizeNameInput, cleanName,
@@ -164,7 +166,29 @@ export default function Basic() {
     set({ ...patch, panPrefill: { ...hand, applied: true } });
   }
 
+  // Tell the voice agent EVERY mandatory field still empty, up front. Without this it only learned
+  // about them one at a time, from Continue's error toast — asked, pressed Continue, hit the next
+  // error, asked again. An empty list means Continue will go through.
+  const missingRequired = missingBasicRequired(
+    {
+      first: state.basicFirst, last: state.basicLast, dobSet: !!dob, gender: state.aboutGender,
+      email: state.basicEmail, loanPurpose: state.basicLoanPurpose, qualification: state.basicQualification,
+      residence: state.basicRes, employment: state.basicEmp, salaryMode: state.optSalaryMode,
+      addr1: state.optAddr1, city: state.optCity, state: state.optState, pin: state.basicPin, income: state.basicIncome,
+    },
+    { pincodeRe: PINCODE_RE, incomeMin: MONTHLY_INCOME_MIN },
+  );
+  const missingKey = missingRequired.join('|');
+  useEffect(() => {
+    setScreenHint('basic', { missing_required_fields: missingRequired });
+    requestContextRefresh();
+    return () => setScreenHint('basic', null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingKey]);
+
   const onContinue = async () => {
+    // Already saving: a second tap (or a voice retry) must not create a second application.
+    if (busy) return;
     // PAN comes first now — without a verified one, start from Step 1.
     if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
     if (!state.basicFirst.trim() || !state.basicLast.trim()) { showToast(t.basicValName); return; }
@@ -340,6 +364,7 @@ export default function Basic() {
           <Text style={[font(800), { fontSize: 26, color: colors.primary, marginVertical: 4 }]}>₹ {inr(state.appAmount)}</Text>
           <Slider
             label="Desired loan amount"
+            role="amount"
             value={state.appAmount}
             min={25000}
             max={1500000}
@@ -353,6 +378,7 @@ export default function Basic() {
         <View style={{ gap: 8, marginTop: 18 }}>
           <FieldLabel text={t.basicPurposeLabel} required />
           <Chips
+            group={t.basicPurposeLabel}
             value={state.basicLoanPurpose}
             onChange={v => set({ basicLoanPurpose: v })}
             options={PURPOSE_OPTS}
@@ -383,12 +409,13 @@ export default function Basic() {
 
         <View style={{ gap: 8, marginTop: 16 }}>
           <FieldLabel text={t.genderLabel} required />
-          <Chips value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={GENDER_OPTS} />
+          <Chips group={t.genderLabel} value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={GENDER_OPTS} />
         </View>
 
         <View style={{ gap: 8, marginTop: 16 }}>
           <FieldLabel text={t.basicQualLabel} required />
           <Chips
+            group={t.basicQualLabel}
             value={state.basicQualification}
             onChange={v => set({ basicQualification: v })}
             options={QUAL_OPTS}
@@ -409,7 +436,7 @@ export default function Basic() {
           </View>
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicResLabel} required />
-            <Chips value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: RES_LABELS[r], value: r }))} />
+            <Chips group={t.basicResLabel} value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: RES_LABELS[r], value: r }))} />
           </View>
         </View>
 
@@ -417,11 +444,11 @@ export default function Basic() {
         <SectionLabel text={t.basicWorkSection} />
         <View style={{ gap: 12 }}>
           <FieldLabel text={t.basicEmpLabel} required />
-          <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
+          <Chips group={t.basicEmpLabel} value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
           <Field required label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicSalaryModeLabel} required />
-            <Chips value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
+            <Chips group={t.basicSalaryModeLabel} value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
           </View>
           <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>

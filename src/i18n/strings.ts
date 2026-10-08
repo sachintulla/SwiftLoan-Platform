@@ -133,6 +133,8 @@ export const STR: Record<string, Record<string, string>> = {
         networkOfflineTitle: 'No internet connection',
         networkOfflineMessage: 'This needs Wi-Fi or mobile data — the rest of the app still works.',
         networkOfflineDismiss: 'Dismiss',
+        networkUnreachableTitle: "Can't reach SwiftLoan securely",
+        networkUnreachableMessage: 'Your network may be blocking secure connections (common on office or public Wi-Fi). Try mobile data or another Wi-Fi.',
 
         // --- Onboarding/funnel screens (intro, mobile/otp, permissions, aboutyou, basicpan, basic) ---
         continueBtn: 'Continue', saving: 'Saving…', submitting: 'Submitting…',
@@ -447,6 +449,8 @@ export const STR: Record<string, Record<string, string>> = {
         networkOfflineTitle: 'इंटरनेट कनेक्शन नहीं है',
         networkOfflineMessage: 'इसके लिए वाई-फाई या मोबाइल डेटा चाहिए — बाकी ऐप अभी भी काम करेगा।',
         networkOfflineDismiss: 'ठीक है',
+        networkUnreachableTitle: 'SwiftLoan से सुरक्षित कनेक्शन नहीं बन पा रहा',
+        networkUnreachableMessage: 'आपका नेटवर्क सुरक्षित कनेक्शन रोक रहा हो सकता है (ऑफिस या पब्लिक वाई-फाई पर आम बात है)। मोबाइल डेटा या दूसरा वाई-फाई आज़माएँ।',
 
         // --- Onboarding/funnel screens ---
         continueBtn: 'कंटिन्यू', saving: 'सेव हो रहा है…', submitting: 'सबमिट हो रहा है…',
@@ -760,6 +764,8 @@ export const STR: Record<string, Record<string, string>> = {
         networkOfflineTitle: 'ఇంటర్నెట్ కనెక్షన్ లేదు',
         networkOfflineMessage: 'దీనికి వై-ఫై లేదా మొబైల్ డేటా కావాలి — మిగతా యాప్ ఇప్పటికీ పని చేస్తుంది.',
         networkOfflineDismiss: 'సరే',
+        networkUnreachableTitle: 'SwiftLoanకి సురక్షితంగా కనెక్ట్ కాలేకపోతోంది',
+        networkUnreachableMessage: 'మీ నెట్\u200cవర్క్ సురక్షిత కనెక్షన్\u200cలను అడ్డుకుంటుండవచ్చు (ఆఫీస్ లేదా పబ్లిక్ వై-ఫైలో సాధారణం). మొబైల్ డేటా లేదా మరో వై-ఫై ప్రయత్నించండి.',
 
         // --- Onboarding/funnel screens ---
         continueBtn: 'కంటిన్యూ', saving: 'సేవ్ అవుతోంది…', submitting: 'సబ్మిట్ అవుతోంది…',

@@ -1,16 +1,21 @@
 /**
  * PAN verification + pre-fill, backed by Aurix PAN Comprehensive (a PAID call).
  *
- * Rule: a PAN is paid for at most once. Every lookup goes to the PanRecord
- * table first (keyed by an HMAC of the PAN — see lib/pii.ts); Aurix is only
- * called for a PAN we have never seen, or whose negative ("invalid") result
- * has expired. Personal details are stored AES-256-GCM encrypted.
+ * Rule: a PAN is paid for at most once — but ONLY a genuinely verified PAN
+ * ever gets a PanRecord row (keyed by an HMAC of the PAN — see lib/pii.ts),
+ * AES-256-GCM encrypted. A "not found" or a real Aurix error is never
+ * written there: those are tracked on the User row instead (no PII — just
+ * Aurix's status message), so a retry is always a fresh paid Aurix call,
+ * never blocked by a stale cached negative result.
  *
  * Extra guards on the paid call:
  *   • PAN format is validated before anything else (typos never reach Aurix)
  *   • concurrent requests for the same PAN share one in-flight call
- *   • per-user cap on NEW (uncached) PAN lookups per 24h (PAN_DAILY_LIMIT)
- *   • "PAN not found/invalid" is negative-cached for 24h
+ *   • per-user cap on paid Aurix calls per 24h (PAN_DAILY_LIMIT) — tracked on
+ *     User.panVerifyAttempts/panVerifyWindowStartAt, since a failed attempt
+ *     leaves no PanRecord to count. Every call Aurix actually answered
+ *     counts, success or failure — Aurix bills either way. A pure transport
+ *     failure (Aurix never answered) does not count; caller may retry free.
  *
  * Cross-account use (PAN verified by account A, entered by account B) is
  * governed by PAN_SHARED_POLICY: 'allow' (default — answer from the DB, no
@@ -18,6 +23,8 @@
  *
  * The full raw response is kept (encrypted) and every cached read is re-mapped
  * from it, so a mapping change applies to PANs already paid for — no re-call.
+ * Any legacy row from before this design (an "invalid" PanRecord, cached by
+ * the old code) self-heals: the next lookup discards it and re-checks fresh.
  */
 import type { User } from '@prisma/client';
 import { prisma } from './prisma.js';
@@ -30,7 +37,7 @@ const log = scoped('pan');
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const PAN_HOLDER_CODES = 'ABCFGHJLPT';
-const NEGATIVE_TTL_MS = 24 * 60 * 60_000;
+const DAILY_WINDOW_MS = 24 * 60 * 60_000;
 const dailyLimit = () => parseInt(process.env.PAN_DAILY_LIMIT || '5', 10);
 const sharedPolicy = () => (process.env.PAN_SHARED_POLICY === 'block' ? 'block' : 'allow');
 
@@ -132,6 +139,15 @@ export function mapPanResponse(body: any): {
   category: string | null;
   aadhaarLinked: boolean | null;
   prefill: PanPrefill;
+  /**
+   * True only for an actual Aurix answer about this PAN (verified, or a
+   * genuine "not found") — false for a technical/service error wearing a
+   * 200 and Meta.Success:true. Confirmed live (UAT, Sep 2026): a real error
+   * still reports Meta.Success:true, so that flag alone can't be trusted —
+   * the tell is Meta.StatusCode ("200" vs "400") plus a populated
+   * Data.ErrorResponse. Gates whether panVerification.ts caches anything.
+   */
+  hasRealData: boolean;
 } {
   const root = body?.Result ?? body;
   const meta = root?.Meta ?? {};
@@ -151,8 +167,15 @@ export function mapPanResponse(body: any): {
   const success = meta?.Success === true && outer?.Success !== false && outer?.Error !== true;
   const failureText = str(outer?.ErrorResponse?.Message ?? outer?.ErrorResponse) ?? (outer?.Success === false ? str(outer?.Message) : undefined);
 
+  // Meta.Success is true even on a real service error (confirmed live) — the
+  // only reliable "this is an actual answer" signal is a clean 200 with no
+  // ErrorResponse. Missing StatusCode (e.g. the { Result } wrapper's outer
+  // shell, or a garbage body) is treated as NOT real data — fail safe.
+  const hasRealData = str(meta?.StatusCode) === '200' && outer?.ErrorResponse == null;
+
   // Only an explicit negative overrides success — never an unrecognised word.
-  const status = str(pick('PanStatus', 'PanStatusDescription'))?.toLowerCase();
+  const statusRaw = str(pick('PanStatus', 'PanStatusDescription'));
+  const status = statusRaw?.toLowerCase();
   const explicit = pick('Verified', 'IsValid', 'IsVerified');
   const negativeStatus = !!status && /invalid|deactivat|not ?found|fake|deleted|inoperative|no record/.test(status);
   const verified = success && explicit !== false && !negativeStatus;
@@ -166,10 +189,18 @@ export function mapPanResponse(body: any): {
   const masked = str(pick('MaskedAadhaar'))?.replace(/\s+/g, '');
   const maskedAadhaar = masked && /^[0-9X*]{12}$/i.test(masked) && (masked.match(/\d/g) ?? []).length <= 4 ? masked.toUpperCase() : undefined;
 
+  // A negative PAN status inside an otherwise-successful envelope deserves
+  // its own message ("PAN status: Invalid") — Aurix's own Meta.Message would
+  // just say "fetched successfully", which is true but misleading here.
+  const message = !success
+    ? failureText ?? str(meta?.Message)
+    : negativeStatus && statusRaw ? `PAN status: ${statusRaw}` : str(meta?.Message);
+
   return {
     success,
-    message: success ? str(meta?.Message) : failureText ?? str(meta?.Message),
+    message,
     verified,
+    hasRealData,
     category: str(pick('Category', 'PanType', 'TypeOfHolder')) ?? null,
     aadhaarLinked: toBool(pick('AadhaarLinked', 'AadhaarSeedingStatus', 'IsAadhaarLinked')),
     prefill: {
@@ -201,63 +232,57 @@ type PanRecordRow = { id: string; status: string; verified: boolean; category: s
  * Re-derive a cached record from its stored raw Aurix response with the
  * CURRENT mapping, and persist any change. Mapping fixes therefore apply to
  * PANs already paid for — no second Aurix call.
+ *
+ * A PanRecord only ever represents a genuinely verified PAN now, so any
+ * record that re-maps to NOT verified (a legacy "invalid" row from before
+ * this design, or the old bug that cached a service error as real data) is
+ * discarded entirely — the next lookup re-checks with Aurix fresh.
  */
-async function remapFromRaw<T extends PanRecordRow>(rec: T): Promise<T> {
+async function remapFromRaw<T extends PanRecordRow>(rec: T): Promise<T | null> {
   if (!rec.dataEnc) return rec;
   const data = decryptJson<PanRecordData>(rec.dataEnc);
   if (!data.raw) return rec;
   const m = mapPanResponse(data.raw);
   const verified = m.success && m.verified;
-  const prefill = verified ? m.prefill : {};
+  if (!verified) {
+    await prisma.panRecord.delete({ where: { id: rec.id } }).catch(() => {});
+    log.warn('discarded pan record that is no longer a verified result', { panRecordId: rec.id });
+    return null;
+  }
   const changed =
     verified !== rec.verified || m.category !== rec.category || m.aadhaarLinked !== rec.aadhaarLinked ||
-    JSON.stringify(prefill) !== JSON.stringify(data.prefill ?? {});
+    JSON.stringify(m.prefill) !== JSON.stringify(data.prefill ?? {});
   if (!changed) return rec;
   const fields = {
-    status: verified ? 'verified' : 'invalid',
+    status: 'verified',
     verified,
     category: m.category,
     aadhaarLinked: m.aadhaarLinked,
-    verifiedAt: verified ? rec.verifiedAt ?? rec.createdAt : null,
-    dataEnc: encryptJson({ ...data, prefill }),
-    ...(verified ? { expiresAt: null } : {}),
+    verifiedAt: rec.verifiedAt ?? rec.createdAt,
+    dataEnc: encryptJson({ ...data, prefill: m.prefill }),
   };
   log.info('pan record remapped from stored response', { panRecordId: rec.id, verified });
   return (await prisma.panRecord.update({ where: { id: rec.id }, data: fields })) as unknown as T;
 }
 
-/**
- * Why a PAN wasn't verified, in Aurix's own words when it gave any — its
- * Meta.Message on a failed lookup, or the PAN status text on a "successful"
- * lookup of an invalid PAN. Generic text only when Aurix said nothing usable.
- */
-function failureMessage(raw: unknown): string {
-  const m = raw ? mapPanResponse(raw) : null;
-  const root = (raw as any)?.Result ?? raw;
-  const inner = root?.Data?.Data ?? root?.Data ?? {};
-  const statusText = str(inner?.PanStatusDescription ?? inner?.PanStatus);
-  if (m && !m.success && m.message) return m.message;
-  if (statusText) return `PAN status: ${statusText}`;
-  return 'We couldn’t verify this PAN. Please check the number and try again.';
-}
-
-function fromRecord(rec: { status: string; verified: boolean; category: string | null; aadhaarLinked: boolean | null; verifiedAt: Date | null; dataEnc: string | null }, source: PanVerifyResult['source']): PanVerifyResult {
+function fromRecord(rec: { category: string | null; aadhaarLinked: boolean | null; verifiedAt: Date | null; dataEnc: string | null }): PanVerifyResult {
   const data = rec.dataEnc ? decryptJson<PanRecordData>(rec.dataEnc) : null;
   return {
-    status: rec.status === 'verified' ? 'verified' : 'invalid',
-    verified: rec.verified,
+    status: 'verified',
+    verified: true,
     category: rec.category,
     aadhaarLinked: rec.aadhaarLinked,
     verifiedAt: rec.verifiedAt?.toISOString() ?? null,
-    prefill: rec.status === 'verified' ? data?.prefill ?? {} : {},
-    message: rec.status === 'verified' ? undefined : failureMessage(data?.raw),
-    source,
+    prefill: data?.prefill ?? {},
+    message: undefined,
+    source: 'cache',
   };
 }
 
 /**
- * Verify a PAN for `user` and return pre-fill details. DB first; Aurix only
- * for a never-seen PAN (or an expired negative result).
+ * Verify a PAN for `user` and return pre-fill details. DB first (verified
+ * PANs only); Aurix is called for anything else — never seen, or a PAN that
+ * previously failed (not found / errored), since neither leaves a cache.
  */
 export async function verifyPan(user: User, rawPan: string): Promise<PanVerifyResult> {
   const pan = normalisePan(rawPan);
@@ -266,73 +291,123 @@ export async function verifyPan(user: User, rawPan: string): Promise<PanVerifyRe
 
   const found = await prisma.panRecord.findUnique({ where: { panHash: hash } });
   const cached = found ? await remapFromRaw(found) : null;
-  const fresh = cached && (cached.status === 'verified' || (cached.expiresAt && cached.expiresAt.getTime() > Date.now()));
-  if (cached && fresh) {
+  if (cached) {
     if (cached.ownerUserId && cached.ownerUserId !== user.id) {
       if (sharedPolicy() === 'block') throw new HttpError(409, 'This PAN is already registered with another account.');
       log.warn('pan reused across accounts (served from cache)', { panRecordId: cached.id, ownerUserId: cached.ownerUserId, userId: user.id });
     }
     await prisma.panRecord.update({ where: { id: cached.id }, data: { cacheHits: { increment: 1 } } }).catch(() => {});
-    const result = fromRecord(cached, 'cache');
-    if (result.verified) await attachPanToUser(user, pan);
+    const result = fromRecord(cached);
+    await attachPanToUser(user, pan);
     return result;
   }
 
-  // Never seen (or negative result expired) → paid call, deduplicated.
+  // Never seen as verified → paid call, deduplicated. A prior failed attempt
+  // (not_found/error) left nothing cached, so this always re-checks fresh.
   const pending = inflight.get(hash);
   if (pending) return pending;
-  const p = callAndStore(user, pan, hash, cached?.id ?? null).finally(() => inflight.delete(hash));
+  const p = callAndStore(user, pan, hash).finally(() => inflight.delete(hash));
   inflight.set(hash, p);
   return p;
 }
 
-async function callAndStore(user: User, pan: string, hash: string, existingId: string | null): Promise<PanVerifyResult> {
-  const since = new Date(Date.now() - 24 * 60 * 60_000);
-  const used = await prisma.panRecord.count({ where: { ownerUserId: user.id, lastAurixCallAt: { gte: since } } });
+/**
+ * PAN_DAILY_LIMIT, tracked on the user row (a failed attempt leaves no
+ * PanRecord to count from) — two phases, deliberately not one atomic step:
+ *   • ensureUnderDailyLimit: gate BEFORE calling Aurix.
+ *   • bumpDailyLimitUsage: increment only AFTER Aurix actually answered
+ *     (success, not-found, or a real error). A pure transport failure — a
+ *     timeout, a 5xx, a token-generation failure — never reached Aurix in
+ *     any billable sense, so it must NOT count; the caller can retry free.
+ */
+function windowExpired(startedAt: Date | null | undefined): boolean {
+  return !startedAt || Date.now() - startedAt.getTime() >= DAILY_WINDOW_MS;
+}
+
+async function ensureUnderDailyLimit(user: User): Promise<void> {
+  const fresh = await prisma.user.findUnique({ where: { id: user.id }, select: { panVerifyAttempts: true, panVerifyWindowStartAt: true } });
+  const used = windowExpired(fresh?.panVerifyWindowStartAt) ? 0 : fresh!.panVerifyAttempts;
   if (used >= dailyLimit()) {
     log.warn('daily PAN lookup limit reached', { userId: user.id, used });
     throw new HttpError(429, 'Too many PAN checks today. Please try again tomorrow.');
   }
+}
+
+async function bumpDailyLimitUsage(user: User): Promise<void> {
+  const fresh = await prisma.user.findUnique({ where: { id: user.id }, select: { panVerifyAttempts: true, panVerifyWindowStartAt: true } });
+  const expired = windowExpired(fresh?.panVerifyWindowStartAt);
+  const now = new Date();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { panVerifyAttempts: (expired ? 0 : fresh!.panVerifyAttempts) + 1, panVerifyWindowStartAt: expired ? now : fresh!.panVerifyWindowStartAt },
+  });
+}
+
+/** Track a failed attempt (not found, or a real error) on the user row — never a PanRecord. */
+async function recordFailedAttempt(user: User, status: 'not_found' | 'error', message: string | undefined): Promise<void> {
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { panVerifyLastStatus: status, panVerifyLastMessage: message ?? null, panVerifyLastAttemptAt: new Date() },
+  }).catch(e => {
+    log.warn('could not record failed pan attempt on user', { userId: user.id, error: String(e?.message ?? e) });
+  });
+}
+
+async function callAndStore(user: User, pan: string, hash: string): Promise<PanVerifyResult> {
+  await ensureUnderDailyLimit(user);
 
   let res: Awaited<ReturnType<typeof callAurixPanComprehensive>>;
   try {
     res = await callAurixPanComprehensive(user, pan);
   } catch (e: any) {
-    // Token generation / config failure — same user-facing outcome as a
-    // transport error, and likewise not cached.
+    // Token generation / config failure — Aurix was never actually reached,
+    // so this doesn't count as a paid call; not tracked anywhere, free retry.
     log.error('pan_comprehensive not attempted', { userId: user.id, error: String(e?.message ?? e) });
     throw new HttpError(502, 'We couldn’t verify your PAN right now. Please try again in a moment.');
   }
   if (!res.ok || !res.body) {
-    // Transport/auth/5xx — NOT cached (not the PAN's fault), caller may retry.
+    // Transport/auth/5xx — Aurix never answered either; same as above.
     log.error('pan_comprehensive failed', { userId: user.id, httpStatus: res.status, error: res.error });
     throw new HttpError(502, 'We couldn’t verify your PAN right now. Please try again in a moment.');
   }
 
-  const mapped = mapPanResponse(res.body);
-  const verified = mapped.success && mapped.verified;
-  const now = new Date();
-  const data: PanRecordData = { pan, prefill: verified ? mapped.prefill : {}, raw: res.body };
-  const fields = {
-    status: verified ? 'verified' : 'invalid',
-    verified,
-    category: mapped.category,
-    aadhaarLinked: mapped.aadhaarLinked,
-    verifiedAt: verified ? now : null,
-    dataEnc: encryptJson(data),
-    keyVersion: PII_KEY_VERSION,
-    ownerUserId: user.id,
-    expiresAt: verified ? null : new Date(now.getTime() + NEGATIVE_TTL_MS),
-    lastAurixCallAt: now,
-  };
-  const rec = existingId
-    ? await prisma.panRecord.update({ where: { id: existingId }, data: fields })
-    : await prisma.panRecord.create({ data: { panHash: hash, ...fields } });
+  // Aurix answered — counts against the daily cap from here on, whatever
+  // the outcome (verified, not-found, or a real service error).
+  await bumpDailyLimitUsage(user);
 
-  log.info('pan verified via aurix', { userId: user.id, panRecordId: rec.id, verified, aurixMessage: mapped.message });
-  if (verified) await attachPanToUser(user, pan);
-  const out = fromRecord(rec, 'aurix');
-  return out;
+  const mapped = mapPanResponse(res.body);
+  const verified = mapped.hasRealData && mapped.success && mapped.verified;
+
+  if (!verified) {
+    // Genuine "not found" or a real service error — Aurix answered (so it
+    // counted against the daily cap above), but nothing about this PAN is
+    // real, verified data: never a PanRecord, never encrypted. Tracked on
+    // the user row instead so the next attempt is always a fresh paid call.
+    await recordFailedAttempt(user, mapped.hasRealData ? 'not_found' : 'error', mapped.message);
+    if (!mapped.hasRealData) {
+      log.error('pan_comprehensive returned an error envelope; not cached', { userId: user.id, aurixMessage: mapped.message });
+      throw new HttpError(502, 'We couldn’t verify your PAN right now. Please try again in a moment.');
+    }
+    log.info('pan not found via aurix', { userId: user.id, aurixMessage: mapped.message });
+    return {
+      status: 'invalid', verified: false, category: null, aadhaarLinked: null, verifiedAt: null,
+      prefill: {}, message: mapped.message ?? 'We couldn’t verify this PAN. Please check the number and try again.',
+      source: 'aurix',
+    };
+  }
+
+  const now = new Date();
+  const data: PanRecordData = { pan, prefill: mapped.prefill, raw: res.body };
+  const rec = await prisma.panRecord.create({
+    data: {
+      panHash: hash, status: 'verified', verified: true, category: mapped.category, aadhaarLinked: mapped.aadhaarLinked,
+      verifiedAt: now, dataEnc: encryptJson(data), keyVersion: PII_KEY_VERSION, ownerUserId: user.id, lastAurixCallAt: now,
+    },
+  });
+
+  log.info('pan verified via aurix', { userId: user.id, panRecordId: rec.id, aurixMessage: mapped.message });
+  await attachPanToUser(user, pan);
+  return { ...fromRecord(rec), source: 'aurix' };
 }
 
 /** Keep User.panNumber in step with the verified PAN (existing column the rest of the flow reads). */

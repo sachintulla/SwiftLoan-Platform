@@ -86,6 +86,29 @@ describe('UC-V1 auto-discovery of raw Pressables', () => {
   });
 });
 
+describe('UC-V1b language cards report which one is selected', () => {
+  it('tells the agent nothing is selected at first, then which language is', () => {
+    renderAt('language', <Language />);
+    const chipFor = (label: string) =>
+      (buildPageContext('language') as any).available_actions.find((a: any) => a.kind === 'chips' && a.label === label);
+
+    // Before any pick: three Language options, none selected (previously the agent saw
+    // three plain buttons and could not tell a prior pick from none).
+    expect(chipFor('English')).toMatchObject({ group: 'Language', selected: false });
+    expect(chipFor('తెలుగు')).toMatchObject({ group: 'Language', selected: false });
+
+    act(() => { findTarget('language', 'English', 'chips')!.onTap!(); });
+    expect(chipFor('English')).toMatchObject({ selected: true });
+    expect(chipFor('हिन्दी')).toMatchObject({ selected: false });
+  });
+
+  it('does not list each language twice', () => {
+    renderAt('language', <Language />);
+    const actions = (buildPageContext('language') as any).available_actions;
+    expect(actions.filter((a: any) => a.label === 'English')).toHaveLength(1);
+  });
+});
+
 describe('UC-V2 screen reading', () => {
   it('collects visible text so the agent can describe the screen', () => {
     renderAt('language', <Language />);
@@ -95,7 +118,8 @@ describe('UC-V2 screen reading', () => {
     // was triggering a fresh page_context send (and a re-spoken nudge) on
     // every rotation. The language options themselves stay visible to voice.
     const texts = getScreenTexts('language');
-    expect(texts.join(' ')).toContain('English');
+    // The language cards themselves are exposed as selectable options (UC-V1b), not as text.
+    expect(texts.join(' ')).toContain('View Policy');
   });
 
   it('page context exposes screen name, summary and available actions', () => {
@@ -240,6 +264,24 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
     // Actual secrets stay refused. OTP is deliberately fillable — see UC-V9.
     expect(isSensitiveField('PAN Number', {})).toBe(true);
     expect(isSensitiveField('Enter OTP', {})).toBe(false);
+  });
+
+  it('does NOT treat the Hindi/Telugu "Full name (as per PAN)" label as a secret', () => {
+    // \b is ASCII-only, so नाम / పేరు were not recognised as "name" and the label was refused.
+    expect(isSensitiveField('पूरा नाम (PAN के अनुसार)', {})).toBe(false);
+    expect(isSensitiveField('పూర్తి పేరు (PAN ప్రకారం)', {})).toBe(false);
+    // A bare PAN field in any language label still refuses.
+    expect(isSensitiveField('PAN Number', {})).toBe(true);
+  });
+
+  it('a rejected date (under 18 / not a real day) returns false so the tool can say so', () => {
+    AUTHED();
+    const AboutYou = require('../src/screens/aboutyou').default;
+    renderAt('aboutyou', <AboutYou />);
+    const dateTarget = () => listTargets('aboutyou').find(t => t.kind === 'date')!;
+    expect(dateTarget().setValue!('2015-01-01')).toBe(false); // under 18
+    expect(dateTarget().setValue!('1991-02-31')).toBe(false); // not a real day
+    expect(dateTarget().setValue!('29-12-1991')).toBe(false); // wrong format
   });
 
   it('does NOT treat a postal "Pin code" as a secret, but a real PIN stays refused', () => {

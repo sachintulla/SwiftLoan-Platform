@@ -1,6 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
-import { reportOfflineAttempt } from '../state/offlineBridge';
+import { reportOfflineAttempt, reportServerUnreachable } from '../state/offlineBridge';
+import { upshotEvent, upshotIdentify } from '../analytics/upshot';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
@@ -86,6 +87,29 @@ function refreshOnce(): Promise<boolean> {
  */
 const REQUEST_TIMEOUT_MS = 12000;
 
+/** Cheap health probe of our own API; true only if it answers with a 2xx. */
+async function apiAnswers(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { method: 'HEAD', signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * After a failed request on a connected phone: wait a moment, probe the API, and only
+ * report "unreachable" if the probe fails too (so transient blips stay silent).
+ */
+async function confirmServerUnreachable(): Promise<void> {
+  await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+  if (!(await apiAnswers())) reportServerUnreachable();
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -95,11 +119,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // user-facing screen (OTP, application, offers, loans…) goes through, so
     // catching "no signal" here means those screens fail fast with a clear
     // reason instead of sitting on a spinner for the full request timeout.
-    // Only pre-block on `isConnected === false` (no interface at all). We do NOT
-    // block on `isInternetReachable === false`: that probe is unreliable —
-    // notably in the iOS Simulator it reports false/null even when the Mac is
-    // fully online — and a genuine "reachable but no internet" case still fails
-    // at the fetch below, which the catch reports via reportOfflineAttempt().
+    // Only a phone with NO connection at all is refused up front (isConnected ===
+    // false). `isInternetReachable` is NOT used here: it comes from probing our own
+    // /health endpoint, so it is unreliable — on the iOS Simulator it reports
+    // false/null even when the Mac is online, and on a network that blocks or
+    // re-signs HTTPS (office Wi-Fi with TLS inspection) it reads "unreachable" —
+    // and would make the app refuse every request as "no internet". In those cases
+    // we attempt the real request and report what actually happens.
     const netState = await NetInfo.fetch();
     if (netState.isConnected === false) {
       throw new TypeError('offline: no internet connection');
@@ -126,7 +152,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // backend doesn't get mislabeled as "no internet connection."
     const looksOffline = async () =>
       NetInfo.fetch()
-        .then(s => s.isConnected === false || s.isInternetReachable === false)
+        .then(st => st.isConnected === false)
         .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
     if (await looksOffline()) {
       // A single instantaneous reading isn't enough — a momentary signal drop
@@ -136,6 +162,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
       // actually reporting it, so only a real, sustained outage shows the banner.
       await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
       if (await looksOffline()) reportOfflineAttempt();
+      else void confirmServerUnreachable();
+    } else {
+      // Connected, yet the request itself failed. One failed request is often a blip
+      // (the radio waking up, a Wi-Fi handoff, a slow endpoint) and the next one works,
+      // so don't flash a scary banner for it: re-check the server in the background and
+      // only say "can't reach SwiftLoan securely" if it is STILL unreachable. This runs
+      // off to the side so the original error reaches the caller immediately.
+      void confirmServerUnreachable();
     }
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
@@ -355,13 +389,46 @@ export interface NudgeConfigDTO {
   version: number;
 }
 
+
+/* ───── Upshot funnel events (fire-and-forget, never change a response) ─────
+ * The offers the user was last shown, so `offer_viewed` / `offer_selected` /
+ * `application_submitted` carry real values (amount in rupees, APR, partner)
+ * without any screen having to pass them in. Replaced wholesale whenever a full
+ * offers list arrives (prequalify, getApplication). */
+const knownOffers = new Map<string, Offer>();
+let offerViewPending = false;
+
+function offerPartner(o: Offer): string | undefined {
+  return o.lenderName ?? o.partner?.name ?? undefined;
+}
+function rememberOffers(list: unknown): void {
+  if (!Array.isArray(list)) return;
+  knownOffers.clear();
+  for (const o of list as Offer[]) if (o?.id) knownOffers.set(o.id, o);
+  if (offerViewPending && knownOffers.size > 0) { offerViewPending = false; fireOfferViewed(); }
+}
+function fireOfferViewed(): void {
+  const aprs = [...knownOffers.values()].map((o) => o.apr).filter((n) => typeof n === 'number' && n > 0);
+  upshotEvent('offer_viewed', { offerCount: knownOffers.size, ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}) });
+}
+/** The user opened an offers screen: report it now, or as soon as offers load. */
+export function upshotOfferViewed(): void {
+  if (knownOffers.size > 0) fireOfferViewed(); else offerViewPending = true;
+}
+/** Amount (rupees) + partner of an offer the app has seen, for funnel events. */
+export function knownOfferInfo(id: string | null | undefined): { amount?: number; partner?: string } {
+  const o = id ? knownOffers.get(id) : undefined;
+  return o ? { amount: o.amount, partner: offerPartner(o) } : {};
+}
+
 export const api = {
   health: () => request('GET', '/health'),
 
   // Auth
   register: (phone: string, opts: { email?: string; password?: string; lang?: string } = {}) =>
     request('POST', '/auth/register', { phone, ...opts }),
-  requestOtp: (phone: string) => request('POST', '/auth/otp/request', { phone }),
+  requestOtp: (phone: string) =>
+    request('POST', '/auth/otp/request', { phone }).then((r) => { upshotEvent('otp_requested', { screen: 'mobile' }); return r; }),
   verifyOtp: async (phone: string, code: string): Promise<AuthResult> => {
     // WS5: hand over the anonymous tracking session so the server can claim
     // everything done before login (install, app_opened, language) onto this
@@ -408,7 +475,14 @@ export const api = {
   me: () => request('GET', '/users/me'),
   /** Right to erasure — irreversible, cascades every record tied to this user. */
   deleteAccount: () => request('DELETE', '/users/me'),
-  updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
+  updateProfile: (patch: Record<string, unknown>) =>
+    request('PATCH', '/users/me', patch).then((r: any) => {
+      // Name/email are only known after About You: push them to Upshot so the
+      // profile on the dashboard isn't left blank.
+      const u = r?.user;
+      if (u?.id) upshotIdentify({ userId: String(u.id), phone: u.phone, name: u.fullName, email: u.email });
+      return r;
+    }),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
   /** The language the user has spoken to the voice agent — distinct from setLanguage's UI-copy language. */
   setVoiceLanguage: (lang: string) => request('PATCH', '/users/me/voice-language', { lang }),
@@ -417,20 +491,31 @@ export const api = {
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
+  deleteAvatar: () => request('DELETE', '/users/me/avatar'),
 
   // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
   // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.
   // The server answers from its own PAN cache when it has seen this PAN
   // before — calling this again for the same PAN never costs a second paid
   // Aurix call. The server can wait up to 20s on Aurix, hence the timeout.
-  verifyPan: async (pan: string) =>
-    (await request<{ data: PanVerifyResult }>('POST', '/kyc/pan/verify', { pan }, false, 30000)).data,
+  verifyPan: async (pan: string) => {
+    const result = (await request<{ data: PanVerifyResult }>('POST', '/kyc/pan/verify', { pan }, false, 30000)).data;
+    // Never send the PAN itself to analytics — only that it verified.
+    if (result?.verified) {
+      upshotEvent('PAN Verified', {
+        source: result.source,
+        ...(typeof result.aadhaarLinked === 'boolean' ? { aadhaarLinked: result.aadhaarLinked } : {}),
+      });
+    }
+    return result;
+  },
 
   // Application funnel
   createApplication: (payload: { amount: number; tenureMonths?: number; loanType?: string }) =>
     request('POST', '/applications', payload),
   listApplications: () => request('GET', '/applications'),
-  getApplication: (id: string) => request('GET', `/applications/${id}`),
+  getApplication: (id: string) =>
+    request('GET', `/applications/${id}`).then((r: any) => { rememberOffers(r?.application?.offers); return r; }),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
   // "Refresh status" — pulls the lender's live status via Aurix's Fetch Lead
   // API instead of just re-reading our own DB-backed state. UAT only for now.
@@ -446,6 +531,28 @@ export const api = {
       false,
       45000,
     );
+    rememberOffers(res?.offers);
+    upshotEvent('eligibility_completed', { offerCount: (res?.offers ?? []).length });
+    {
+      // Offer facts from Aurix's eligible_offers response (lender names, amounts,
+      // rates) — none of it personal data. PAN / DOB / address / bureau fields are
+      // deliberately NOT shared with Upshot.
+      const got = (res?.offers ?? []) as Offer[];
+      if (got.length > 0) {
+        const aprs = got.map((o) => o?.apr).filter((n): n is number => typeof n === 'number' && n > 0);
+        const amounts = got.map((o) => o?.amount).filter((n): n is number => typeof n === 'number' && n > 0);
+        const lenders = [...new Set(got.map((o) => offerPartner(o)).filter((n): n is string => !!n))];
+        const best = aprs.length ? got.filter((o) => o?.apr === Math.min(...aprs))[0] : undefined;
+        const topLender = best ? offerPartner(best) : undefined;
+        upshotEvent('Offers Got', {
+          offerCount: got.length,
+          ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}),
+          ...(amounts.length ? { maxAmount: Math.max(...amounts) } : {}),
+          ...(lenders.length ? { lenders: lenders.slice(0, 8).join(', ') } : {}),
+          ...(topLender ? { topLender } : {}),
+        });
+      }
+    }
     // Turn any lender-side rejection into a clear, actionable note for the user
     // (surfaced on the offers screen), instead of a raw debug dump.
     return { ...res, friendlyError: friendlyAurixError(res?.aurixResponse, (res?.offers ?? []).length) };
@@ -455,7 +562,22 @@ export const api = {
   // Apply to a specific lender's offer — creates a tracked per-lender
   // application (returns { offer, lenderApplicationId, alreadyApplied }).
   applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
-    request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined),
+    request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined).then((r: any) => {
+      const o = knownOffers.get(offerId);
+      // A repeat apply for the same lender+amount isn't a new selection.
+      if (o && !r?.duplicate) {
+        const tenure = o.emiOptions?.find((e) => e.id === emiOptionId)?.tenureMonths ?? o.emiOptions?.find((e) => e.recommended)?.tenureMonths;
+        const partner = offerPartner(o);
+        upshotEvent('offer_selected', {
+          apr: o.apr, amount: o.amount,
+          ...(typeof tenure === 'number' ? { tenureMonths: tenure } : {}),
+          ...(partner ? { partner } : {}),
+          ...(o.offerType ? { offerType: o.offerType } : {}),
+          ...(o.offerLikelihood ? { offerLikelihood: o.offerLikelihood } : {}),
+        });
+      }
+      return r;
+    }),
   // Record the app-side outcome of a lender web flow: 'success' | 'failed' |
   // 'error'. Sets the application's internalStatus (shown as its own state in My
   // Loans); failed/error also mark the lender status failed. Pass

@@ -253,7 +253,7 @@ export default function Profile() {
   const removeAvatar = async () => {
     setAvatarBusy(true);
     try {
-      const user = await api.updateProfile({ avatarUrl: null });
+      const { user }: any = await api.deleteAvatar();
       set({ authUser: user });
       showToast(t.photoRemoved);
     } catch (e) {

@@ -10,7 +10,9 @@ import { useStore } from '../state/store';
 import { api, Offer } from '../api/client';
 import { loadOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
-import { compareOffers, computeRow, defaultTenure, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
+import { compareOffers, computeRow, defaultTenure, summariseCompareForAgent, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
+import { registerTarget } from '../voice/actionRegistry';
+import { VoiceHidden } from '../voice/screenGraph';
 
 // Same visual language as the compare-offers design reference.
 const C = {
@@ -75,7 +77,7 @@ const METRICS: MetricRow[] = [
  * a small "Filters" link so the main view stays as simple as the design.
  */
 export default function Compare() {
-  const { state, back } = useStore();
+  const { state, back, mergeApiContext } = useStore();
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [tenure, setTenure] = useState(24);
   const [rankBy, setRankBy] = useState<RankBy>('cost');
@@ -156,7 +158,10 @@ export default function Compare() {
   const headlineAmount = Math.max(0, ...inputs.map(o => o.amount));
   const pricedCount = result.rows.filter(r => !r.onApproval).length;
 
-  // On a Rank/tenure change, scroll the recommended column into view and pulse it.
+  // Tenure / rank change: drop the manual pick; the effect below scrolls the
+  // recommended column into view and pulses it.
+  const changeTenure = (t: number) => { setTenure(t); setPicked(null); };
+  const changeRank = (k: RankBy) => { setRankBy(k); setPicked(null); };
   useEffect(() => {
     if (!best) return;
     const idx = result.rows.findIndex(r => r.id === best.id);
@@ -180,6 +185,54 @@ export default function Compare() {
     setApplying(true);
     try { await select(selectedOffer); } finally { setApplying(false); }
   };
+
+  const rankLabel = RANKS.find(r => r.key === rankBy)!;
+
+  // ── What the voice agent can see and do on this screen ─────────────────────
+  // The matrix is a horizontally scrolling grid of Pressables and prop-only cells,
+  // which the screen walker cannot read (and its 40-line cap would cut it short), so
+  // the agent is given the whole comparison as data instead...
+  useEffect(() => {
+    if (offers == null) { mergeApiContext({ compare: { status: 'loading' } }); return; }
+    if (offers.length === 0) { mergeApiContext({ compare: { status: 'empty', message: 'No offers to compare yet.' } }); return; }
+    mergeApiContext({
+      compare: summariseCompareForAgent({
+        result,
+        tenure,
+        rankLabel: rankLabel.label,
+        rankOptions: RANKS.map(r => r.label),
+        selectedId: selected?.id ?? null,
+        pickedId: picked,
+      }),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offers, result, tenure, rankBy, picked, selected?.id]);
+
+  // ...and the controls are exposed directly, so it never has to open the tenure /
+  // ranking sheets (which live in a Modal it cannot see): every tenure, every ranking
+  // and every lender is a selectable option with a selected state.
+  useEffect(() => {
+    if (!offers?.length) return undefined;
+    const un: Array<() => void> = [];
+    TENURES.forEach(tn =>
+      un.push(registerTarget(state.screen, `compare:tenure:${tn}`, {
+        kind: 'chips', group: 'Tenure', label: `${tn} months`, getValue: () => tenure === tn, onTap: () => changeTenure(tn),
+      })),
+    );
+    RANKS.forEach(r =>
+      un.push(registerTarget(state.screen, `compare:rank:${r.key}`, {
+        kind: 'chips', group: 'Rank best offer by', label: r.label, getValue: () => rankBy === r.key, onTap: () => changeRank(r.key),
+      })),
+    );
+    result.rows.forEach(r =>
+      un.push(registerTarget(state.screen, `compare:lender:${r.id}`, {
+        kind: 'chips', group: 'Lender', label: r.lenderName, getValue: () => r.id === selected?.id, onTap: () => setPicked(r.id),
+      })),
+    );
+    un.push(registerTarget(state.screen, 'compare:back', { kind: 'button', label: 'Back', onTap: back }));
+    return () => un.forEach(u => u());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offers, result, tenure, rankBy, selected?.id, state.screen]);
 
   return (
     <Screen padded={false} contentStyle={{ paddingBottom: 110 }}>
@@ -223,7 +276,7 @@ export default function Compare() {
                   ariaLabel="Repayment tenure"
                   value={tenure}
                   options={TENURES.map(t => ({ value: t as number, label: `${t} months` }))}
-                  onChange={v => { setTenure(v); setPicked(null); }}
+                  onChange={v => changeTenure(v)}
                 />
               </View>
               <View style={{ flex: 1 }}>
@@ -238,12 +291,13 @@ export default function Compare() {
                   ariaLabel="Rank best offer by"
                   value={rankBy}
                   options={RANKS.map(r => ({ value: r.key, label: r.label }))}
-                  onChange={v => { setRankBy(v); setPicked(null); }}
+                  onChange={v => changeRank(v)}
                 />
               </View>
             </View>
 
-            {/* Matrix */}
+            {/* Matrix — hidden from the text scrape; the agent gets it as `compare` data. */}
+            <VoiceHidden>
             {result.rows.length === 0 ? (
               <View style={styles.noMatch}>
                 <Text style={[font(700), { fontSize: 14, color: colors.text }]}>No offers match these filters</Text>
@@ -338,8 +392,10 @@ export default function Compare() {
               Green = best value in that row at the selected tenure. <Text style={font(700)}>Tap any lender</Text> to choose it over the recommendation.{'\n'}
               EMIs are indicative; some lenders confirm the rate only after approval.
             </Text>
+            </VoiceHidden>
 
             {/* Best overall — sits just above Apply */}
+            <VoiceHidden>
             {best ? (
               <View style={styles.best}>
                 <View style={styles.bestIc}><Icon name="check" size={14} color="#fff" /></View>
@@ -353,6 +409,7 @@ export default function Compare() {
             ) : result.rows.length ? (
               <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>These lenders confirm their rate only after approval, so we can’t rank them yet.</Text></View>
             ) : null}
+            </VoiceHidden>
 
             {selected && selectedOffer ? (
               <View style={{ marginTop: 4 }}>

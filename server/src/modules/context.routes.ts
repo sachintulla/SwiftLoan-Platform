@@ -10,6 +10,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
+import { parseAgentPhone } from '../lib/agentPhone.js';
 import { scoped } from '../lib/log.js';
 import { isAdult } from '../lib/age.js';
 
@@ -234,9 +235,24 @@ contextLookupRouter.post('/', ah(async (req, res) => {
   // actually got a real number resolved, where `phone` with `{phone_number}`
   // in the description never did), so whichever property name a given tool
   // config ends up using should still reach a real user here.
-  const raw = req.body?.phone ?? req.body?.phone_number ?? '';
-  const phone = String(raw).replace(/\D/g, '').slice(-10);
-  if (phone.length !== 10) return fail(res, 400, 'phone is required');
+  const parsed = parseAgentPhone(req.body?.phone ?? req.body?.phone_number);
+  if (parsed.kind === 'pending') {
+    // The call has no phone yet (Ello sends its unfilled `{context_data.phone_number}`
+    // template). That is not an error — answer with an empty context so the agent's tool
+    // call succeeds and it simply asks the user for their number, instead of a 400 that
+    // makes the tool fail and derails the conversation.
+    return ok(
+      res,
+      {
+        hasHistory: false,
+        known: false,
+        note: 'No phone number is available yet for this call. Ask the user for their mobile number; do not call this lookup again until you have it.',
+      },
+      'No phone number yet',
+    );
+  }
+  if (parsed.kind === 'invalid') return fail(res, 400, 'phone is required');
+  const phone = parsed.phone;
 
   const user = await prisma.user.findFirst({ where: { phone } });
   const ctx = await buildUserContext(phone, user?.id);
@@ -334,7 +350,12 @@ contextSaveRouter.post('/', ah(async (req, res) => {
     if (!isAdult(d)) return fail(res, 400, 'dob must belong to someone at least 18 years old');
     data.dob = d;
   }
-  if (Object.keys(data).length === 0) return fail(res, 400, 'No fields to update');
+  // Nothing to write is a harmless no-op, not a client error: the agent sometimes calls save
+  // with only the phone (e.g. before it has collected anything). A 400 made that tool call
+  // fail; say plainly that nothing was saved so it can carry on.
+  if (Object.keys(data).length === 0) {
+    return ok(res, { updatedFields: [], saved: false }, 'No fields provided — nothing was saved');
+  }
 
   const user = await prisma.user.findFirst({ where: { phone } });
   if (!user) return fail(res, 404, 'No user found for this phone number');

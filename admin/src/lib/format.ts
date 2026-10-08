@@ -86,6 +86,8 @@ const STATUS_TONE: Record<string, StatusTone> = {
   abandoned: 'red', rejected: 'red', failed: 'red', defaulted: 'red', lost: 'red',
   anonymous: 'grey', not_started: 'grey', new: 'grey', skipped: 'grey', cancelled: 'grey',
   converted: 'teal', qualified: 'teal',
+  // support tickets (in_progress is blue above)
+  open: 'amber', resolved: 'green',
 };
 
 export function statusTone(status: string | null | undefined): StatusTone {

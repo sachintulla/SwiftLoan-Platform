@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
-import { colors, font } from '../../theme/tokens';
+import { colors, font, navGradient } from '../../theme/tokens';
 import { useStore, useT, SCREENS_WITH_FOOTER_CTA } from '../../state/store';
 import { loadVoiceFabSide, saveVoiceFabSide, markIntroPitchHeard } from '../../state/session';
 import { agent } from '../index';
@@ -28,7 +28,7 @@ function keepAwake(on: boolean) {
 }
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { fetchUserContext } from '../../api/client';
+import { NUDGE_ROTATE_MS, snoozeNudges } from '../nudges';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -166,8 +166,8 @@ function RobotHead() {
 /**
  * In-call "liquid ring" — translucent teal/mint ribbons (app theme) that wave around the avatar,
  * each a closed loop whose radius ripples with its own wave count, speed and
- * phase, so they cross and weave like a living ring, over a thin dark core
- * line and a soft glow. Only rendered while a call is live; the idle avatar is
+ * phase, so they cross and weave like a living ring, over a soft green glow
+ * (green only — there is deliberately no dark/black line in the ring). Only rendered while a call is live; the idle avatar is
  * still and the animation loop is fully stopped.
  *
  * State-driven (this client has no PCM level access):
@@ -254,13 +254,6 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
     <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show, transform: [{ scale }] }]}>
       <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: beat }] }]} />
       <Svg width={S} height={S}>
-        <Defs>
-          <SvgGradient id="core" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={colors.inkDeep} stopOpacity="0.95" />
-            <Stop offset="0.5" stopColor={colors.ink} stopOpacity="0.9" />
-            <Stop offset="1" stopColor={colors.primary} stopOpacity="0.95" />
-          </SvgGradient>
-        </Defs>
         {RIBBONS.map((rb, idx) => (
           <Path
             key={idx}
@@ -272,13 +265,6 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
             fill="none"
           />
         ))}
-        <Path
-          d={wavyPath(c, c, R * beat, m.amp * 0.55, 5, t * m.tempo * 0.9 + 0.7, t * m.spin * 0.5)}
-          stroke="url(#core)"
-          strokeWidth={1.6}
-          strokeLinejoin="round"
-          fill="none"
-        />
       </Svg>
     </Animated.View>
   );
@@ -288,7 +274,7 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
 export default function VoiceWidget() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const { state, set, showToast } = useStore();
+  const { state, set, showToast, refreshUserContext } = useStore();
   const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   // Which edge the FAB is docked to — persisted so the user's choice survives
@@ -435,21 +421,21 @@ export default function VoiceWidget() {
   // handshake agent.start() itself has to complete before it builds its
   // first page_context payload, so this almost always lands first. If it
   // doesn't, the agent falls back to whatever snapshot it already had.
-  const refreshSessionContext = () => {
-    fetchUserContext()
-      .then(ctx => { if (ctx?.hasHistory) set({ userContext: ctx }); })
-      .catch(() => undefined);
-  };
-
+  // The context is now awaited (see startAgent), not fire-and-forget: the agent's first
+  // page_context has to carry `account_summary`, or it opens without knowing about an
+  // application that is under review.
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
-    refreshSessionContext();
-    agent.start(state.authUser?.phone).then(() => {
+    (state.authUser ? refreshUserContext() : Promise.resolve()).then(() => agent.start(state.authUser?.phone)).then(() => {
       // Runs after voice-session-start (and this call's own first
       // page_context, carrying whatever heard_intro_pitch was at the time)
       // has already gone out — marking it here can't affect THIS call's own
       // pitch decision, only every call after it.
-      if (!state.introPitchHeard) {
+      // start() also resolves (without throwing) when the user hangs up while it
+      // is still connecting — no greeting was ever spoken then, so don't record
+      // the pitch as heard (and persist it) for a call that never started.
+      const connected = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
+      if (connected && !state.introPitchHeard) {
         set({ introPitchHeard: true });
         markIntroPitchHeard();
       }
@@ -527,23 +513,72 @@ export default function VoiceWidget() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.voiceTrigger]);
 
-  // Proactive-help nudge (idle / drop-off / eligible-but-didn't-apply): vibrate,
-  // wiggle the FAB and show a contextual label — but DON'T start a session (the
-  // user taps to ask). The label auto-dismisses after a few seconds.
+  // Proactive-help tips: the bubble above the FAB. App.tsx sets state.voiceNudge
+  // 5s after the user lands on a screen; here the bubble pops in, then each tip
+  // slides up out of the bottom of the bubble to replace the previous one (which
+  // lifts away and fades) every NUDGE_ROTATE_MS. It stays up (no auto-hide) until
+  // the screen changes (voiceNudge cleared) or a call starts, and never starts a
+  // session itself.
   const [nudgeLabel, setNudgeLabel] = useState<string | null>(null);
   const lastNudgeId = useRef(0);
-  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bubbleIn = useRef(new Animated.Value(0)).current;
+  const textY = useRef(new Animated.Value(0)).current;
+  const textOpacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const n = state.voiceNudge;
-    if (!n || n.id === lastNudgeId.current) return;
-    lastNudgeId.current = n.id;
-    if (active) return; // never interrupt a live session
-    playAttention();
-    setNudgeLabel(n.label);
-    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
-    nudgeTimer.current = setTimeout(() => setNudgeLabel(null), 9000);
+    if (!n) { setNudgeLabel(null); return undefined; }
+    if (active) {
+      // Never over a live session — and don't bring it back after the call.
+      setNudgeLabel(null);
+      set({ voiceNudge: null });
+      return undefined;
+    }
+    let cancelled = false;
+    let i = 0;
+    setNudgeLabel(n.labels[0] ?? null);
+    textY.setValue(0);
+    textOpacity.setValue(1);
+    if (n.id !== lastNudgeId.current) {
+      lastNudgeId.current = n.id;
+      // The bubble itself pops up out of the Ruby button; then the button wiggles.
+      bubbleIn.setValue(0);
+      Animated.spring(bubbleIn, { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }).start();
+      playAttention();
+    } else {
+      bubbleIn.setValue(1);
+    }
+    // The whole bubble closes (shrinks toward the Ruby button and fades), the
+    // sentence is swapped while it is shut, then it springs back open and the new
+    // sentence rises in from the bottom of the bubble.
+    const swapTo = (next: string) => {
+      Animated.timing(bubbleIn, { toValue: 0, duration: 200, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(() => {
+        if (cancelled) return;
+        setNudgeLabel(next);
+        textY.setValue(14);
+        textOpacity.setValue(0);
+        Animated.parallel([
+          Animated.spring(bubbleIn, { toValue: 1, friction: 6, tension: 95, useNativeDriver: true }),
+          Animated.timing(textY, { toValue: 0, duration: 360, delay: 90, easing: Easing.out(Easing.back(1.4)), useNativeDriver: true }),
+          Animated.timing(textOpacity, { toValue: 1, duration: 240, delay: 90, useNativeDriver: true }),
+        ]).start();
+      });
+    };
+    let rotate: ReturnType<typeof setInterval> | undefined;
+    if (n.labels.length > 1) {
+      rotate = setInterval(() => {
+        i = (i + 1) % n.labels.length;
+        swapTo(n.labels[i]);
+      }, NUDGE_ROTATE_MS);
+    }
+    return () => {
+      cancelled = true;
+      if (rotate) clearInterval(rotate);
+      textY.stopAnimation();
+      textOpacity.stopAnimation();
+      bubbleIn.stopAnimation();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.voiceNudge]);
+  }, [state.voiceNudge, active]);
 
   // Two fixed offsets, not one — screens with a BottomNav pill need real
   // clearance above it; screens without one (intro, language, etc.) should
@@ -604,12 +639,54 @@ export default function VoiceWidget() {
       style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
     >
       {/* Proactive-help label — an informational speech bubble above the FAB.
-          Not tappable: it's just a hint, starting a call is the FAB's job. */}
+          The bubble body isn't tappable (starting a call is the FAB's job); only the
+          ✕ badge is, to dismiss the tip for this screen. */}
       {nudgeLabel && !active ? (
-        <View style={styles.nudgeBubble} accessibilityLabel={nudgeLabel} pointerEvents="none">
-          <Text style={styles.nudgeText}>{nudgeLabel}</Text>
-          <View style={styles.nudgeTail} />
-        </View>
+        <Animated.View
+          style={[
+            styles.nudgeWrap,
+            // In the tab-bar notch the avatar is dead centre (and 1.4x bigger), so
+            // centre the bubble on it and lift it clear; floating in the corner it
+            // stays right-aligned over the avatar.
+            isTab && styles.nudgeWrapNotch,
+            {
+              opacity: bubbleIn,
+              transformOrigin: isTab ? 'center bottom' : 'right bottom',
+              transform: [
+                { translateY: bubbleIn.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
+                { scale: bubbleIn.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) },
+              ],
+            },
+          ]}
+          accessibilityLabel={nudgeLabel}
+          pointerEvents="box-none"
+        >
+          <View style={styles.nudgeBubble} pointerEvents="none">
+            {/* Brand teal -> mint gradient (the same one as the active tab pill), white text. */}
+            <LinearGradient colors={[...navGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.nudgeGradient} pointerEvents="none" />
+            {/* Padding lives on a plain view: the native gradient ignores its own
+                padding, which left the gradient inset inside a solid teal shell. */}
+            <View style={styles.nudgeBody}>
+              {/* Fixed two-line window that clips the sentence while it slides, so the
+                  bubble keeps one stable size instead of jumping between tips. */}
+              <View style={styles.nudgeClip}>
+                <Animated.Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.nudgeText, { opacity: textOpacity, transform: [{ translateY: textY }] }]}>
+                  {nudgeLabel}
+                </Animated.Text>
+              </View>
+            </View>
+            <View style={[styles.nudgeTail, isTab && styles.nudgeTailNotch]} />
+          </View>
+          <Pressable
+            onPress={() => { snoozeNudges(); set({ voiceNudge: null }); }}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss tip"
+            style={styles.nudgeClose}
+          >
+            <Icon name="close" size={11} color="#fff" />
+          </Pressable>
+        </Animated.View>
       ) : null}
       {/* Status pill only while floating and collapsed — once the panel opens
           it carries the same status text itself, so showing both would be
@@ -694,6 +771,8 @@ const TAB_NOTCH_CENTER = 65;
 // How far to raise the floating FAB on screens that pin a bottom CTA bar, so the
 // FAB clears the footer (button 54 + ~20 padding + a gap) and never overlaps it.
 const FOOTER_CTA_LIFT = 78;
+// Width of the proactive-help bubble.
+const NUDGE_W = 176;
 // iOS renders this FAB visibly larger than Android at the same point size.
 const FAB_SIZE = Platform.OS === 'ios' ? 50 : 60;
 // The original notch avatar was ~70pt; scale the FAB up to that size when it's
@@ -733,18 +812,44 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusText: { ...font(600), fontSize: 11.5, color: '#fff' },
-  nudgeBubble: {
-    maxWidth: 216, marginBottom: 12, marginRight: 4,
-    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: colors.line,
-    paddingVertical: 9, paddingHorizontal: 13,
-    shadowColor: '#0A3F41', shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 5,
+  // The bubble itself carries the shadow (and a solid fill so Android's elevation
+  // shadow renders); the gradient sits inside it, clipped to the same radius.
+  // Right edge is flush with the Ruby circle (not the wider halo), and it sits just
+  // above it, so the bubble reads as attached to the button.
+  nudgeWrap: {
+    width: NUDGE_W, marginBottom: 2, marginRight: (HALO_SIZE - FAB_SIZE) / 2,
   },
-  nudgeText: { ...font(700), fontSize: 12.5, color: colors.text, lineHeight: 17 },
+  // Centred on the avatar: its centre is HALO_SIZE/2 from the wrapper's right edge,
+  // so shift the bubble's right edge by (HALO_SIZE - NUDGE_W)/2. The extra bottom
+  // margin clears the avatar's notch-size growth (NOTCH_SCALE).
+  nudgeWrapNotch: {
+    marginRight: (HALO_SIZE - NUDGE_W) / 2,
+    marginBottom: 2 + (FAB_SIZE * (NOTCH_SCALE - 1)) / 2,
+  },
+  nudgeBubble: {
+    backgroundColor: colors.primary, borderRadius: 14,
+    shadowColor: colors.ink, shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+  },
+  nudgeGradient: { ...StyleSheet.absoluteFill, borderRadius: 14, overflow: 'hidden' },
+  nudgeBody: {
+    borderRadius: 14, paddingVertical: 7, paddingLeft: 11, paddingRight: 28,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
+  },
+  nudgeClip: { height: 32, justifyContent: 'center', overflow: 'hidden' },
+  nudgeText: { ...font(700), fontSize: 11.5, color: '#fff', lineHeight: 15 },
+  // ✕ badge tucked into the bubble's top-right corner, fully inside its frame.
+  nudgeClose: {
+    position: 'absolute', top: 5, right: 5, width: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(10,63,65,0.28)',
+  },
+  // Points at the Ruby button's centre; the gradient ends in mint at the bottom-right.
   nudgeTail: {
-    position: 'absolute', right: 22, bottom: -6, width: 12, height: 12,
-    backgroundColor: '#fff', borderRightWidth: 1, borderBottomWidth: 1, borderColor: colors.line,
+    position: 'absolute', right: FAB_SIZE / 2 - 5, bottom: -5, width: 10, height: 10,
+    backgroundColor: colors.mint, borderRadius: 2,
     transform: [{ rotate: '45deg' }],
   },
+  nudgeTailNotch: { right: NUDGE_W / 2 - 5 },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
   // The frosted "growing out of the FAB" panel. No native blur view is wired

@@ -158,6 +158,14 @@ class VoiceAudioModule: RCTEventEmitter {
     #endif
   }
 
+  /// Always-on (release too) diagnostics channel for SHORT, NON-PERSONAL lines only — language codes
+  /// and state transitions, never transcripts, names, numbers or payloads (those stay behind
+  /// nativeLog's DEBUG gate above). Mirrors Android's diagLog(). Read with:
+  ///   log stream --device --predicate 'eventMessage contains "SwiftLoanDiag"'
+  @objc func diagLog(_ msg: String) {
+    NSLog("SwiftLoanDiag: %@", msg)
+  }
+
   /// Attaches + connects the playback node into the engine graph exactly once.
   /// This MUST happen before the engine is first started — attaching/connecting a
   /// node to an already-running engine and then calling play() aborts with

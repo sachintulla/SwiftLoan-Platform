@@ -7,6 +7,7 @@ import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.swiftloan.voice.VoiceAudioPackage
 import com.swiftloan.panocr.PanOcrPackage
+import com.swiftloan.uisound.UiSoundPackage
 import com.upshotreactlibrary.UpshotApplication
 
 /**
@@ -30,6 +31,7 @@ class MainApplication : UpshotApplication(), ReactApplication {
           // add(MyReactNativePackage())
           add(VoiceAudioPackage())
           add(PanOcrPackage())
+          add(UiSoundPackage())
         },
     )
   }

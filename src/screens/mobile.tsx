@@ -7,9 +7,10 @@ import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
-import { upshotIdentify, upshotEvent } from '../analytics/upshot';
+import { upshotIdentify, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
+import { agent } from '../voice';
 
 // Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
 // ("0000000000", "9999999999") — the server's own phoneSchema only checked
@@ -19,7 +20,7 @@ function isValidMobile(v: string): boolean {
 }
 
 export default function Mobile() {
-  const { state, set, go, markUrgentContext } = useStore();
+  const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -85,11 +86,20 @@ export default function Mobile() {
       // previous account on a shared device) and must be reset here too, or
       // the very next page_context still reports heard_intro_pitch: true and
       // Ruby skips the first-time pitch for someone who's never heard it.
+      //
+      // Exception: a call that is LIVE right now. The person logging in is the one
+      // already on that call, and has heard (or is hearing) the pitch — resetting
+      // it mid-call made every later page_context say heard_intro_pitch:false, so
+      // Ruby greeted them again on Home. Only reset between calls.
+      const callLive = (() => {
+        const s = agent.getStatus();
+        return s !== 'idle' && s !== 'ended';
+      })();
       set({
         authUser: r.user,
         otpSent: false,
         priorInquiries: r.priorInquiries,
-        introPitchHeard: false,
+        ...(callLive ? {} : { introPitchHeard: false }),
         savedApplicantDraft: null,
       });
 
@@ -114,7 +124,14 @@ export default function Mobile() {
       // when it arrives. Same reasoning for a wrong code below: she needs to
       // know it failed the instant it's known, not after finishing whatever
       // she's already saying.
+      // Load this account's history first, so the urgent update that tells the agent who just
+      // logged in also says whether an application is under review (about 0.3s, capped at 1.5s).
+      await refreshUserContext();
       markUrgentContext();
+      // Returning users never see the Permissions screen, which is where push is normally
+      // requested — so request it here. iOS only shows its prompt once (when the choice is
+      // still undetermined), and nothing is shown if they already decided.
+      if (alreadyOnboarded) registerUpshotPush();
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
@@ -202,8 +219,12 @@ export default function Mobile() {
       <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
           <>
-            <Text style={styles.h1}>{t.mobileTitle}</Text>
-            <Text style={styles.sub}>{t.mobileSub}</Text>
+            {/* On-screen instructions ("enter your number…") are for the user's eyes: if the agent
+                sees them it reads them aloud instead of asking naturally. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.mobileTitle}</Text>
+              <Text style={styles.sub}>{t.mobileSub}</Text>
+            </VoiceHidden>
 
             <Text style={[font(600), styles.label]}>{t.mobileNumberLabel}</Text>
             <View style={styles.phoneRow}>
@@ -242,15 +263,24 @@ export default function Mobile() {
           </>
         ) : (
           <>
-            <Text style={styles.h1}>{t.otpTitle}</Text>
-            <Text style={styles.sub}>
-              {t.otpSub} <Text style={font(700)}>{masked}</Text>
-            </Text>
+            {/* Same here: "enter the 6-digit code…" is a UI instruction the agent must not parrot
+                (it was read out in Telugu on a live call). It asks for the OTP its own way. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.otpTitle}</Text>
+              <Text style={styles.sub}>
+                {t.otpSub} <Text style={font(700)}>{masked}</Text>
+              </Text>
+            </VoiceHidden>
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
               <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
+            {/* VoiceHidden: the digit boxes and the hidden input are exposed to the agent by the
+                explicit `OTP` field registered above. Left visible, the walker listed them again
+                as a button "OTP digit 1" and a second field mislabelled with the "change phone
+                number" button text (both holding the same code). */}
+            <VoiceHidden>
             <Pressable style={styles.otpRow} onPress={refocusOtp}>
               {Array.from({ length: 6 }, (_, i) => (
                 <View
@@ -277,6 +307,7 @@ export default function Mobile() {
                 onChangeText={onOtpChange}
               />
             </Pressable>
+            </VoiceHidden>
 
             <Pressable style={{ alignSelf: 'center', marginTop: 14, flexDirection: 'row' }} onPress={resend}>
               <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>{t.otpResend}</Text>

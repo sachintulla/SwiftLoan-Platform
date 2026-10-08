@@ -5,7 +5,6 @@
 //
 // The app talks to the DEPLOYED backend so the installed APK works on a real
 // phone (localhost is unreachable there). Tracking already uses the same host.
-
 /**
  * Local-development override. Set back to '' to fall back to the deployed
  * dev API below.
@@ -18,6 +17,9 @@
  * Left empty so a standalone build talks to the real deployed dev API and
  * needs no cable/network match at all.
  */
+// Empty = use the DEPLOYED dev API (dev-api.swiftloan.ai) on every platform, so the app, Ello's
+// tools and the data all share the one dev database. To use a local server instead, set
+// 'http://localhost:4000/api' (Android, with `adb reverse tcp:4000 tcp:4000`) — and never commit it.
 const DEV_API_BASE = '';
 
 /**
@@ -36,6 +38,15 @@ const DEPLOYED_API_BASE: Record<'dev' | 'prod', string> = {
   prod: 'https://api.swiftloan.ai/api',
 };
 
+/**
+ * Which Upshot app a build reports to: the Demo app for every build that is NOT
+ * pointed at the production backend, the Production app otherwise. A TestFlight/APK
+ * build pointed at api.swiftloan.ai therefore reports to Production automatically.
+ */
+export function isUpshotDemo(apiBase: string): boolean {
+  return apiBase !== DEPLOYED_API_BASE.prod;
+}
+
 export const BUILD = {
   // Flipped between builds (generic -> false, context -> true).
   CONTEXT_ENABLED: true,
@@ -44,6 +55,8 @@ export const BUILD = {
   // Deployed API (all app API calls + context resolve go here).
   API_BASE: DEV_API_BASE || DEPLOYED_API_BASE[API_ENV],
 };
+
+export const UPSHOT_DEMO = isUpshotDemo(BUILD.API_BASE);
 
 // Point the api-client + tracking at the same backend.
 //

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import '@/app/theme.css'; // --sl-* tokens the legal-page stylesheet depends on
 import './compliance.css';
 
 export const metadata: Metadata = {

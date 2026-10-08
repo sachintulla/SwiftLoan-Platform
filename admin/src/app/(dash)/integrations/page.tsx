@@ -22,7 +22,7 @@ interface Integration {
  * provider ships is still editable under "Advanced", just out of the way. */
 const ESSENTIAL: Record<Provider, string[]> = {
   ello: ['baseUrl'],
-  upshot: ['baseUrl', 'appId'],
+  upshot: ['baseUrl', 'appId', 'accountId'],
   // sender and defaultTemplate are up front because a send fails without them,
   // and the failure ("no template") is far less obvious than a missing key.
   infobip: ['baseUrl', 'sender', 'defaultTemplate', 'defaultLanguage'],

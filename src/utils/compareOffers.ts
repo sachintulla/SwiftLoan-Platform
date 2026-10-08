@@ -177,3 +177,83 @@ export function formatApproval(hrs: number | null | undefined): string {
 export function defaultTenure(preferred?: number | null): number {
   return preferred && (TENURES as readonly number[]).includes(preferred) ? preferred : 24;
 }
+
+const WIN_PHRASE: Record<keyof CompareResult['winners'], string> = {
+  emi: 'lowest monthly EMI',
+  rate: 'lowest interest rate',
+  fee: 'lowest processing fee',
+  interest: 'least total interest',
+  cost: 'cheapest overall',
+  approval: 'fastest approval',
+};
+
+/**
+ * Everything the Compare screen shows, as plain data for the voice agent: the
+ * header figures, the tenure / ranking in force, every lender column with every row
+ * of the matrix (so nothing depends on the agent scraping a horizontally scrolling
+ * grid), which lender wins which row, what is recommended and what is selected.
+ * Money is whole rupees.
+ */
+export function summariseCompareForAgent(args: {
+  result: CompareResult;
+  tenure: number;
+  rankLabel: string;
+  rankOptions: string[];
+  selectedId: string | null;
+  pickedId: string | null;
+}) {
+  const { result, tenure, rankLabel, rankOptions, selectedId, pickedId } = args;
+  const rows = result.rows;
+  const pricedCount = rows.filter(r => !r.onApproval).length;
+  const r0 = (n: number | null) => (n == null ? null : Math.round(n));
+  const best = result.best;
+  const selected = rows.find(r => r.id === selectedId) ?? null;
+  return {
+    status: rows.length ? 'ready' : 'empty',
+    loan_amount_up_to: Math.max(0, ...rows.map(r => r.amount)),
+    offers_matched: rows.length,
+    tenure_months: tenure,
+    tenure_options_months: [...TENURES],
+    ranked_by: rankLabel,
+    rank_options: rankOptions,
+    best_overall: best
+      ? {
+          lender: best.lenderName,
+          wins_on: rankLabel,
+          monthly_emi: r0(best.emi),
+          interest_rate_percent: best.rate,
+          total_you_repay: r0(best.totalRepay),
+          approval_time: formatApproval(best.approvalHrs),
+        }
+      : rows.length
+        ? { none: 'These lenders confirm their rate only after approval, so they cannot be ranked yet.' }
+        : null,
+    selected_lender: selected?.lenderName ?? null,
+    user_chose_instead_of_recommended: !!(pickedId && best && selected && selected.id !== best.id),
+    lenders: rows.map(r => ({
+      lender: r.lenderName,
+      selected: r.id === selectedId,
+      recommended: r.id === best?.id,
+      rate_confirmed_only_on_approval: r.onApproval,
+      ...(r.onApproval
+        ? {}
+        : {
+            monthly_emi: r0(r.emi),
+            interest_rate_percent: r.rate,
+            total_interest: r0(r.totalInterest),
+            total_you_repay: r0(r.totalRepay),
+          }),
+      processing_fee_incl_gst: r0(r.fees),
+      eligible_amount: r0(r.amount),
+      tenure_months: r.tenure,
+      approval_time: formatApproval(r.approvalHrs),
+      best_in:
+        pricedCount > 1 && !r.onApproval
+          ? (Object.keys(result.winners) as Array<keyof CompareResult['winners']>)
+              .filter(k => result.winners[k] === r.id)
+              .map(k => WIN_PHRASE[k])
+          : [],
+    })),
+    note: 'EMIs are indicative; final terms are set by the lender.',
+  };
+}

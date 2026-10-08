@@ -1,24 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
-import { requestOtp } from '@/lib/session';
+import { fetchMe } from '@/lib/applyApi';
+import { bootstrapSession, requestOtp } from '@/lib/session';
 
 const PHONE_RE = /^[6-9]\d{9}$/;
 
 export default function ApplyPhonePage() {
   const router = useRouter();
-  const { setPhone } = useApply();
+  const { setPhone, setApplicationId } = useApply();
+  // True until we know whether a live login session already exists. Held so a
+  // signed-in visitor never sees the phone form flash before being redirected.
+  const [checking, setChecking] = useState(true);
   const [value, setValue] = useState('');
   // Must be an explicit opt-in, never pre-checked — same reasoning as the
   // Step 1 PAN-consent checkbox.
   const [terms, setTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Already signed in (the httpOnly refresh cookie is still valid)? Skip the
+  // phone + OTP gate entirely and go where a fresh login would have landed.
+  // `replace`, so Back from the dashboard doesn't bounce through this page.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (await bootstrapSession()) {
+          const body = await fetchMe();
+          if (cancelled) return;
+          setApplicationId(body.data.applicationId ?? null);
+          router.replace(body.data.hasApplication ? '/account' : '/apply/step-1');
+          return;
+        }
+      } catch {
+        /* session unusable — fall through to the normal phone form */
+      }
+      if (!cancelled) setChecking(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const valid = PHONE_RE.test(value) && terms;
 
@@ -36,6 +65,14 @@ export default function ApplyPhonePage() {
       setLoading(false);
     }
   };
+
+  if (checking) {
+    return (
+      <ApplyShell stepLabel="Get started" center>
+        <div className="text-muted-foreground py-16 text-center text-sm">Loading…</div>
+      </ApplyShell>
+    );
+  }
 
   return (
     <ApplyShell stepLabel="Get started" center>

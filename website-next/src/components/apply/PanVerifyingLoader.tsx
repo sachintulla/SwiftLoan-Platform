@@ -55,7 +55,12 @@ export function PanVerifyingLoader({ done = false, onFinished }: { done?: boolea
   const allDone = step >= STEPS.length;
 
   return (
-    <div role="status" aria-live="polite" aria-label="Verifying your PAN" className="animate-rise-in flex flex-col items-center gap-8 py-4">
+    // overflow-x-clip: PanScanHero's soft-ping ring scales up to 1.6x
+    // mid-pulse (w-56=224px base → ~358px), which pokes past the viewport
+    // on common narrow phones (confirmed: ~19px past each edge at 320px
+    // width, and essentially zero margin left at 360px) — same class of
+    // bug as the homepage lead-form card's ring, fixed the same way.
+    <div role="status" aria-live="polite" aria-label="Verifying your PAN" className="animate-rise-in flex flex-col items-center gap-8 overflow-x-clip py-4">
       <PanScanHero done={allDone} />
 
       <div className="text-center">

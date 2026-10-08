@@ -22,7 +22,7 @@ export default function Privacy() {
   const logoHandoff = useHandoffIn('logo');
 
   const onAccept = async () => {
-    await savePrivacyAccepted().catch(() => {});
+    await savePrivacyAccepted(PRIVACY_POLICY_VERSION).catch(() => {});
     set({ privacyAccepted: true });
     // Continue where the boot flow would have gone: straight to home if already
     // signed in, otherwise into language selection / onboarding.
@@ -37,7 +37,7 @@ export default function Privacy() {
         <View style={{ gap: 8 }}>
           <ConsentRow voiceId="Accept privacy policy" checked={agreed} onChange={setAgreed}>
             <Text style={[font(600), { color: colors.text }]}>I have read and accept the Privacy Policy.</Text>
-            {'\n'}I consent to SwiftLoan processing my data as described, and to sharing it with a Lending Partner only when I choose to apply.
+            {'\n'}I consent to SwiftLoan processing my data as described, and to sharing it with a Lending Partner only when I choose to apply, and with our messaging and analytics provider as described in section 6.
           </ConsentRow>
           <PrimaryButton label="Accept & Continue" icon={null} disabled={!agreed} onPress={onAccept} />
         </View>

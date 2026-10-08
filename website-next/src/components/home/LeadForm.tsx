@@ -1,4 +1,5 @@
 'use client';
+import { useEffect } from "react";
 import { ArrowRight, ArrowRightLeft, FileCheck, Landmark, LockKeyhole, ShieldCheck, QrCode } from "lucide-react";
 
 import { Reveal } from "@/components/site/Reveal";
@@ -9,6 +10,20 @@ import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, appStoreUrl } from
 import { Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 type LeadFormText = (typeof leadFormCopy)["en"];
+
+/**
+ * Imperative bridge for the voice agent (same pattern as window.__swiftloanCalc).
+ *
+ * The amount and loan type are React state behind a Radix slider and a hidden
+ * input. React never listens for change events on `type="hidden"` inputs, so the
+ * widget's generic "write the value + dispatch input" could not reach them —
+ * the slider stayed "untouched" and Apply now stayed disabled. Publishing a
+ * setter that calls the same handlers a drag would is the reliable route.
+ */
+export interface SwiftLoanLeadApi {
+  read: () => { amount: number | null; loanType: string; mobileFilled: boolean; canSubmit: boolean };
+  set: (v: { amount?: number; loanType?: string }) => { amount: number | null; loanType: string };
+}
 
 const assuranceIcons = [ShieldCheck, ArrowRightLeft, Landmark, FileCheck];
 
@@ -45,8 +60,44 @@ export function LeadForm() {
     handleFormChange,
   } = cap;
 
+  useEffect(() => {
+    const w = window as unknown as { __swiftloanLead?: SwiftLoanLeadApi };
+    const mobileFilled = () => {
+      const m = formRef.current?.querySelector<HTMLInputElement>('[name="mobile"]');
+      return !!m && /^[6-9]\d{9}$/.test(m.value);
+    };
+    w.__swiftloanLead = {
+      read: () => ({
+        amount: amountTouched ? amount : null,
+        loanType,
+        mobileFilled: mobileFilled(),
+        canSubmit: formValid && !isSubmitting,
+      }),
+      set: (v) => {
+        if (typeof v.amount === "number" && Number.isFinite(v.amount)) {
+          const snapped = Math.round(v.amount / AMOUNT_STEP) * AMOUNT_STEP;
+          handleAmountChange(Math.min(AMOUNT_MAX, Math.max(AMOUNT_MIN, snapped)));
+        }
+        if (v.loanType) handleLoanTypeChange(v.loanType);
+        return {
+          amount: typeof v.amount === "number" ? Math.min(AMOUNT_MAX, Math.max(AMOUNT_MIN, Math.round(v.amount / AMOUNT_STEP) * AMOUNT_STEP)) : amountTouched ? amount : null,
+          loanType: v.loanType ?? loanType,
+        };
+      },
+    };
+    return () => {
+      delete w.__swiftloanLead;
+    };
+  }, [amount, amountTouched, loanType, formValid, isSubmitting, handleAmountChange, handleLoanTypeChange, formRef]);
+
   return (
-    <section id="lead-form" className="shell scroll-mt-28 py-16 sm:py-24">
+    // overflow-x-clip: the card's soft-ping glow ring (below) scales up to
+    // 1.6x mid-pulse — on a mobile-width card that's most of the viewport,
+    // its peak size pokes past both screen edges, which was tripping real
+    // page-level horizontal overflow (confirmed: documentElement.scrollWidth
+    // > clientWidth). Matches the same overflow-x:clip fix already applied
+    // to <html> in design.css for this exact class of full-bleed overflow.
+    <section id="lead-form" className="shell scroll-mt-28 overflow-x-clip py-16 sm:py-24">
       <div className="grid items-center gap-12 sm:gap-14 md:grid-cols-[1fr_22rem] lg:grid-cols-[1fr_28rem]">
         {/* Left: copy + assurances */}
         <div className="flex flex-col gap-10">

@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from './Icon';
 import { colors, font } from '../theme/tokens';
 import { useT } from '../state/store';
-import { subscribeOfflineAttempts } from '../state/offlineBridge';
+import { subscribeOfflineAttempts, type NetworkIssue } from '../state/offlineBridge';
 
 // How long the banner stays up after one internet-dependent action fails.
 // Long enough to read and act on, short enough not to linger once the user
@@ -29,12 +29,14 @@ export default function OfflineNotice() {
   const t = useT();
   const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
+  const [issue, setIssue] = useState<NetworkIssue>('offline');
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(
     () =>
-      subscribeOfflineAttempts(() => {
+      subscribeOfflineAttempts((kind) => {
+        setIssue(kind);
         setVisible(true);
         if (flashTimer.current) clearTimeout(flashTimer.current);
         flashTimer.current = setTimeout(() => dismiss(), ATTEMPT_FLASH_MS);
@@ -76,9 +78,9 @@ export default function OfflineNotice() {
           <Icon name="error" size={17} color={colors.amber} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{t.networkOfflineTitle}</Text>
-          <Text style={styles.message} numberOfLines={2}>
-            {t.networkOfflineMessage}
+          <Text style={styles.title}>{issue === 'unreachable' ? t.networkUnreachableTitle : t.networkOfflineTitle}</Text>
+          <Text style={styles.message} numberOfLines={3}>
+            {issue === 'unreachable' ? t.networkUnreachableMessage : t.networkOfflineMessage}
           </Text>
         </View>
         <Pressable onPress={dismiss} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>

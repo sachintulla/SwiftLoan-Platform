@@ -9,6 +9,7 @@ import { ToolRegistry } from './registry';
 import { ElloSocket } from './transport/ws';
 import { createVoiceSession } from './transport/sessionApi';
 import { vlog } from './log';
+import { BUTTONS_ONLY_SCREENS, getCurrentScreen } from './actionRegistry';
 import { reportOfflineAttempt } from '../state/offlineBridge';
 import type {
   AgentEventMap,
@@ -39,6 +40,9 @@ const CONFIRM_TIMEOUT_MS = 45_000;
 // (profile's api.me() fetch), so a shorter window still let the immediate
 // call's own timer fire first, on stale/incomplete data.
 const PAGE_CONTEXT_DEBOUNCE_MS = 900;
+// Home's buttons arrive over ~2s as its data loads (offer cards, hero CTA swap); wait for them to
+// settle so the agent gets one update, not three.
+const BUTTONS_ONLY_DEBOUNCE_MS = 2500;
 // A short, SEPARATE debounce for the urgent path — not for politeness (the
 // point of urgent is still to interrupt fast), but to coalesce two urgent
 // calls that land within a few ms of each other (e.g. basicpan's PAN-save
@@ -48,6 +52,15 @@ const PAGE_CONTEXT_DEBOUNCE_MS = 900;
 // stale intermediate snapshot. Far shorter than PAGE_CONTEXT_DEBOUNCE_MS —
 // imperceptible to a listener, long enough to catch a same-tick pileup.
 const URGENT_COALESCE_MS = 120;
+
+/** A pause this long between audio chunks, after the previous line's text arrived, starts a new line. */
+const NEW_UTTERANCE_GAP_MS = 300;
+
+/** Screens before the dashboard: lines spoken here are the sign-in flow, not the introduction. */
+const ONBOARDING_SCREENS = new Set(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou']);
+
+/** Placeholder text for a silent agent turn, e.g. "(No speech)" or "<no speech>{pause}". */
+const NO_SPEECH_MARKER = /^[\s(<[{]*no[\s_-]*speech\b|\{\s*pause\s*\}/i;
 
 export class ElloAgent {
   conversationId: string | null = null;
@@ -61,9 +74,25 @@ export class ElloAgent {
   // Live) can fire several client-tool-call messages per turn; there is no
   // client-side batching, each is executed and answered independently.
   private inflight = new Map<string, AbortController>();
+  // Handlers run strictly one at a time, in arrival order. The model often fires
+  // e.g. select_option("English") and continue_next in the SAME millisecond; run in
+  // parallel, continue_next looked at the screen before select_option's state
+  // update rendered, got "Continue is disabled", and the agent then told the user
+  // the button was unavailable although the language was already selected. Queued,
+  // continue_next sees the screen select_option left behind (each handler waits for
+  // its own re-render before returning).
+  private toolQueue: Promise<unknown> = Promise.resolve();
   private pageContextFn: PageContextProvider | null = null;
   private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  // At most ONE deferred "flush once she stops speaking" listener at a time.
+  // Every deferred flush used to add its own statusChange listener, so N
+  // deferrals while she talked became N sends the instant she stopped.
+  private deferredFlushUnsub: (() => void) | null = null;
+  // Last page a client-tools-update was actually sent for — lets an unchanged,
+  // non-urgent repeat for the SAME page be dropped instead of sent as a bare
+  // marker that still reads server-side as a fresh turn.
+  private lastSentPage: string | null = null;
   // Full page_context already sent this session, keyed by screen — lets a
   // revisit with nothing changed (Home -> Profile -> Home -> Profile) send a
   // cheap page-marker instead of the whole object again. Reset per call in
@@ -80,6 +109,17 @@ export class ElloAgent {
   // a repeat send could actually refresh). Reset per call in start().
   private toolsSentThisSession = false;
   private audioOutCount = 0;
+  // Utterance boundaries. Ello streams the agent's audio faster than it plays, so a finished
+  // sentence can still have seconds of audio queued on the phone when the NEXT sentence
+  // arrives; waiting for it to drain made the new line late or (on Android) stuck. The agent's
+  // text for a line arrives once that line is complete, so "text received + a real pause since
+  // the last audio chunk" marks the start of a new line: drop the old line's unplayed rest.
+  private lastAudioChunkAt = 0;
+  // True once the agent has spoken a line on a signed-in screen this call — i.e. it has already
+  // introduced itself. Sent to the agent as `already_introduced` so that coming back to Home from
+  // another screen is not treated as a fresh opening ("Hi, I'm Ruby…" again).
+  private signedInLineSpoken = false;
+  private agentTextSinceAudio = false;
   // Fallback so the FAB never gets stuck on "speaking": if audio chunks stop
   // arriving and no 'voice-audio-stream-end' follows (server timing, or the
   // audio session getting reconfigured), drop back to "listening".
@@ -149,7 +189,18 @@ export class ElloAgent {
   // current truth, not twice with the first one already stale by the time it
   // sends. Use urgent sparingly regardless: every other caller should keep
   // using the plain (debounced, non-interrupting) form.
-  updatePageContext(opts?: { urgent?: boolean }): void {
+  //
+  // `immediate` is for a tool's own result (tools.ts settled()): flush on the
+  // next microtask, bypassing the debounce, so the update is delivered while the
+  // server still sees that tool call as pending and can merge the two into ONE
+  // turn. Going through the 900ms debounce instead sent it AFTER she had already
+  // answered the tool result, producing a second, standalone spoken turn.
+  updatePageContext(opts?: { urgent?: boolean; immediate?: boolean }): void {
+    if (opts?.immediate && !opts.urgent) {
+      if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
+      Promise.resolve().then(() => this.flushPageContext(false));
+      return;
+    }
     if (opts?.urgent) {
       // Cancel any pending routine flush — an urgent one supersedes it
       // outright, not just delays it.
@@ -168,7 +219,7 @@ export class ElloAgent {
     this.pageContextFlushTimer = setTimeout(() => {
       this.pageContextFlushTimer = null;
       this.flushPageContext(false);
-    }, PAGE_CONTEXT_DEBOUNCE_MS);
+    }, BUTTONS_ONLY_SCREENS.has(getCurrentScreen()) ? BUTTONS_ONLY_DEBOUNCE_MS : PAGE_CONTEXT_DEBOUNCE_MS);
   }
 
   private flushPageContext(urgent: boolean): void {
@@ -194,13 +245,19 @@ export class ElloAgent {
       // exactly the moment worth knowing about: an update queued because
       // she was mid-utterance, about to land the instant she stops.
       vlog('page_context deferred — agent is speaking, will flush once status leaves speaking');
+      if (this.deferredFlushUnsub) return; // already waiting; the flush reads live state anyway
       const unsubscribe = this.emitter.on('statusChange', next => {
-        if (next !== 'speaking') {
-          unsubscribe();
-          vlog('page_context flushing now — speaking ended (status ->', next, ')');
-          this.flushPageContext(false);
-        }
+        // Only 'listening' is a safe moment to send: 'executingTool' means a
+        // tool call is mid-flight (it would land inside it), and 'ended'/'idle'
+        // mean there is no one left to tell.
+        if (next === 'speaking' || next === 'executingTool' || next === 'connecting') return;
+        unsubscribe();
+        this.deferredFlushUnsub = null;
+        if (next !== 'listening') return;
+        vlog('page_context flushing now — speaking ended (status ->', next, ')');
+        this.flushPageContext(false);
       });
+      this.deferredFlushUnsub = unsubscribe;
       return;
     }
     // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
@@ -237,6 +294,15 @@ export class ElloAgent {
     // revisit this dedup exists to prevent. Drop empty-array values before
     // fingerprinting so that distinction can't register as a real change.
     const screenKey = String(ctx.page ?? '');
+    // A buttons-only screen (Home) the agent has already been told about: later changes there are
+    // just its offer cards and lender buttons arriving as data loads. They carry nothing the agent
+    // needs — it resolves controls live when it acts — but every send is a turn, and a turn right
+    // after it finished speaking made it say something again. Arriving on the screen, or an urgent
+    // update (login, a toast), still sends.
+    if (!urgent && BUTTONS_ONLY_SCREENS.has(screenKey) && this.lastSentPage === screenKey) {
+      vlog('page_context skipped — only button changes on', screenKey, 'which the agent already knows');
+      return;
+    }
     const fingerprintOf = (c: any): string => {
       const actions = Array.isArray(c.available_actions)
         ? [...c.available_actions].sort((a: any, b: any) => {
@@ -252,12 +318,27 @@ export class ElloAgent {
         );
         apiContext = Object.keys(meaningful).length ? meaningful : undefined;
       }
+      // `seconds_ago` on a toast ticks every second; it is not a content change.
+      if (apiContext && typeof apiContext === 'object' && (apiContext as any).lastToast) {
+        apiContext = { ...(apiContext as any), lastToast: { message: (apiContext as any).lastToast.message } };
+      }
       return JSON.stringify({ ...c, available_actions: actions, api_context: apiContext });
     };
     const fingerprint = fingerprintOf(ctx);
     const unchanged = this.lastSentPerScreen.get(screenKey) === fingerprint;
-    const payload = unchanged ? { page: ctx.page } : ctx;
+    // Non-urgent, nothing changed, and we already told the model about this very
+    // page: there is nothing to say, and even a bare marker can read as a new turn.
+    if (!urgent && unchanged && this.lastSentPage === screenKey) {
+      vlog('page_context skipped — nothing changed since the last send for', screenKey);
+      return;
+    }
+    // Always the full content. A bare {page} marker used to be sent on a revisit with
+    // nothing changed, relying on the model remembering an older snapshot of that
+    // screen — which it does not reliably do, so it described a revisited screen
+    // from memory. (An unchanged repeat for the SAME page is skipped above.)
+    const payload = ctx;
     if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
+    this.lastSentPage = screenKey;
 
     const includeTools = !this.toolsSentThisSession;
     this.toolsSentThisSession = true;
@@ -266,7 +347,7 @@ export class ElloAgent {
       ...(includeTools ? { tools: this.registry.toWire() } : {}),
       page_context: payload,
     });
-    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[unchanged, marker only] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
+    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[revisit, nothing changed] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
   }
 
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void {
@@ -275,6 +356,11 @@ export class ElloAgent {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+  }
+
+  /** Has the agent already spoken (introduced itself) on a signed-in screen during this call? */
+  hasIntroducedThisCall(): boolean {
+    return this.signedInLineSpoken;
   }
 
   getStatus(): AgentStatus {
@@ -299,7 +385,11 @@ export class ElloAgent {
     // otherwise the first chunk of a fresh call can print as "#450" purely by
     // landing on a stale %50 boundary, making response-time impossible to read.
     this.audioOutCount = 0;
+    this.lastAudioChunkAt = 0;
+    this.agentTextSinceAudio = false;
+    this.signedInLineSpoken = false;
     this.lastSentPerScreen.clear();
+    this.lastSentPage = null;
     this.toolsSentThisSession = false;
 
     this.setStatus('connecting');
@@ -362,50 +452,16 @@ export class ElloAgent {
 
       const tools = this.registry.toWire();
       const fullContext = this.pageContextFn?.() ?? {};
-      // Tried omitting page_context here and relying on the assistant's own
-      // dashboard system prompt to open the conversation — confirmed live (RECV
-      // conversation-text: "*stays quiet*") that its default is to wait silently
-      // for the user to speak first, not greet. A silent agent is a worse
-      // experience than the ~2-3s wait for a real greeting, so back to sending
-      // it ourselves. The initial payload keeps `page`/`interactionGuide` (the
-      // backend's speak-first path is gated on a non-empty `page`) but withholds
-      // the raw `screen_overview`/`available_actions` data — otherwise the
-      // model's very first turn (the greeting) has raw screen data sitting right
-      // next to the system prompt's greeting instructions and tends to lean on
-      // reciting the former instead of following the latter.
-      //
-      // Also withholds savedApplicantDraft/api_context — deliberate product
-      // decision: the very first turn of every call should be a generic
-      // greeting, never tailored to which screen the user's on or what's known
-      // about their account. `page` itself still goes through (has to, for the
-      // speak-first gate above), so the greeting isn't literally blind, just
-      // generic. Every send after this one is unaffected — a real navigation
-      // still delivers full context exactly as before.
-      //
-      // userContext itself is no longer part of page_context at all (removed
-      // from store.ts's builder — it's now only supplied via the get_user_context
-      // pre-call tool, which is both more reliable for shaping the opening line
-      // — guaranteed to resolve before the agent speaks, unlike this per-turn
-      // push racing the WebSocket handshake — and shares it with Ello once
-      // per call instead of continuously on every turn).
-      //
-      // No automatic full-context follow-up after this either (there used to be
-      // one, 500ms later) — by design by this same product decision: the whole
-      // starting screen is meant to be "generic" for this call, not just its
-      // opening line, so nothing here should quietly upgrade it moments later.
-      // Known, accepted consequence (confirmed true before, still true now):
-      // available_actions/screen_overview stay empty for as long as the user
-      // remains on the starting screen — Ruby can still navigate blind
-      // (navigate_screen doesn't need available_actions) but can't describe or
-      // tap anything specific there until an actual screen change delivers a
-      // real update. If that ever needs to change back, this is the exact spot.
-      const startPageContext = {
-        ...fullContext,
-        screen_overview: '',
-        available_actions: [],
-        savedApplicantDraft: undefined,
-        api_context: undefined,
-      };
+      // The start message carries the FULL page context: the screen overview, every control
+      // with its live state (selected language, typed values, ticked consents), the saved
+      // applicant draft and the api_context. A call often begins mid-step — the user may already
+      // have picked a language or typed their number before pressing the mic — and withholding
+      // this made the agent ask for things that were already done ("which language?" after
+      // English was picked). The prompt's "start from what is already done" rules tell the agent
+      // how to use it. (This used to blank screen_overview/available_actions/savedApplicantDraft/
+      // api_context on purpose to force a generic first greeting; see git history if that needs
+      // to come back.) `page` must stay non-empty: the backend's speak-first path is gated on it.
+      const startPageContext = fullContext;
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
@@ -439,16 +495,7 @@ export class ElloAgent {
       }
       vlog('mic.start() resolved — streaming audio');
       this.setStatus('listening');
-      // No automatic full-context follow-up here anymore — see the long
-      // comment above startPageContext for why this was deliberately removed
-      // (was: setTimeout(() => this.updatePageContext(), 500)). This exact
-      // removal was tried once before and reverted after it left the starting
-      // screen's available_actions/screen_overview/userContext empty for the
-      // whole call and produced a wrong/generic opening — that finding is
-      // still accurate, it's just now the intended behavior rather than a
-      // regression, per the same product decision. A real screen navigation
-      // still triggers a full update exactly as before; only this specific
-      // startup follow-up is gone.
+      // No follow-up send is needed: the start message above already carried the full context.
     } catch (e: any) {
       const message = e?.message || String(e);
       vlog('START FAILED:', message);
@@ -496,11 +543,21 @@ export class ElloAgent {
     if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
     if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
     if (this.urgentFlushTimer) { clearTimeout(this.urgentFlushTimer); this.urgentFlushTimer = null; }
+    if (this.deferredFlushUnsub) { this.deferredFlushUnsub(); this.deferredFlushUnsub = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;
     this.setStatus('idle');
   }
+
+  // NOTE (removed): an automatic "send the real screen once the greeting finishes"
+  // follow-up was tried here. Every client-tools-update is injected into the model
+  // as a reminder (see ELLO_VOICE_SDK_INTEGRATION_GUIDE.md), so a standalone one on
+  // the same page made the model run the screen's opening script AGAIN — observed
+  // live: "Which language would you like to continue in…" asked twice, 4.6s apart.
+  // The starting screen therefore stays generic by design; the prompt tells Ruby to
+  // call read_screen (a tool call, which does not cause an extra turn) before
+  // describing or acting on a screen whose available_actions are empty.
 
   private setStatus(status: AgentStatus): void {
     this.status = status;
@@ -518,7 +575,14 @@ export class ElloAgent {
       case 'session-established':
         this.setStatus('listening');
         break;
-      case 'voice-audio-output':
+      case 'voice-audio-output': {
+        const now = Date.now();
+        if (this.agentTextSinceAudio && this.lastAudioChunkAt > 0 && now - this.lastAudioChunkAt > NEW_UTTERANCE_GAP_MS) {
+          vlog('new agent line — dropping the unplayed rest of the previous one');
+          this.player.purge();
+        }
+        this.agentTextSinceAudio = false;
+        this.lastAudioChunkAt = now;
         this.audioOutCount++;
         if (this.audioOutCount <= 2 || this.audioOutCount % 50 === 0) {
           vlog('RECV voice-audio-output #', this.audioOutCount, 'fmt=', msg.format);
@@ -533,6 +597,7 @@ export class ElloAgent {
           if (this.status === 'speaking' && this.inflight.size === 0) this.setStatus('listening');
         }, 1200);
         break;
+      }
       case 'voice-audio-stream-end':
         if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
         if (this.inflight.size === 0) this.setStatus('listening');
@@ -548,6 +613,21 @@ export class ElloAgent {
         this.setStatus('listening');
         break;
       case 'conversation-text':
+        if (msg.data?.source === 'agent' && !msg.data?.is_interim) this.agentTextSinceAudio = true;
+        if (
+          msg.data?.source === 'agent' && !msg.data?.is_interim &&
+          String(msg.data?.text ?? '').trim() && !NO_SPEECH_MARKER.test(String(msg.data?.text ?? '')) &&
+          !ONBOARDING_SCREENS.has(getCurrentScreen())
+        ) {
+          this.signedInLineSpoken = true;
+        }
+        // Ello logs a turn the model chose to stay silent as "(No speech)" / "<no speech>{pause}", and
+        // the model has been heard SAYING those words aloud. The text arrives just after the audio,
+        // so drop whatever of that audio is still queued rather than let it play out.
+        if (msg.data?.source === 'agent' && NO_SPEECH_MARKER.test(String(msg.data?.text ?? ''))) {
+          vlog('agent turn was a no-speech marker — cutting its audio');
+          this.player.purge();
+        }
         // Server wraps payloads under "data"; is_interim is inverted from "final".
         this.emitter.emit('transcript', {
           role: msg.data?.source === 'agent' ? 'agent' : 'user',
@@ -628,11 +708,16 @@ export class ElloAgent {
 
     const timeoutMs = Math.min(tool.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
     try {
-      const result = await this.runWithTimeout(
-        Promise.resolve(tool.handler(args, { toolCallId, signal: controller.signal })),
-        timeoutMs,
-        controller.signal,
-      );
+      // The timeout clock starts when the handler starts, not while it waits its turn.
+      const run = () =>
+        this.runWithTimeout(
+          Promise.resolve(tool.handler(args, { toolCallId, signal: controller.signal })),
+          timeoutMs,
+          controller.signal,
+        );
+      const queued = this.toolQueue.then(run, run);
+      this.toolQueue = queued.catch(() => undefined);
+      const result = await queued;
       respond('ok', result);
     } catch (e: any) {
       fail('tool_handler_failed', e?.message || 'tool handler failed');
