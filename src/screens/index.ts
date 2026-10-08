@@ -22,6 +22,7 @@ import Handoff from './handoff';
 import LenderWeb from './lenderweb';
 // status.tsx (application/loan tracker) and repay are both re-enabled — the
 // drill-down tracking restored in develop's funnel reorder.
+import AltWeb from './altweb';
 import StatusScreen from './status';
 import Disbursed from './disbursed';
 import Repay from './repay';
@@ -51,6 +52,7 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   offers: Offers,
   handoff: Handoff,
   lenderweb: LenderWeb,
+  altweb: AltWeb,
   status: StatusScreen,
   disbursed: Disbursed,
   repay: Repay,

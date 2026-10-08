@@ -32,7 +32,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 export const SCREEN_NAMES = [
   'splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
   'home', 'loans', 'fare', 'help', 'profile',
-  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb',
+  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'status', 'disbursed', 'repay', 'calculator', 'compare',
 ] as const;
@@ -132,7 +132,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   prequalify: 'consent',
   // Fallback only — back() dynamically returns offers to its actual origin
   // (state.offersReturn); this parent is used if that's ever unset.
-  offers: 'home', handoff: 'offers', lenderweb: 'offers', status: 'home',
+  offers: 'home', handoff: 'offers', lenderweb: 'offers', altweb: 'fare', status: 'home',
   disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home',
   compare: 'fare',
@@ -213,6 +213,17 @@ export interface AppState {
   // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
   // user taps Continue on an offer that carries a lender deep link.
   webUrl: string; webTitle: string;
+  // Whether the alternative-offers facility (Yubi/YMPL) tile is available —
+  // fetched from /config/features on launch. Optimistically true so the tile
+  // shows immediately; only an explicit server `false` hides it.
+  altOffersEnabled: boolean;
+  // The funnel details we already hold (PAN, dob, address, income…), passed to
+  // the 'altweb' WebView to prefill YMPL's hosted journey so nothing is re-typed.
+  // Data-only — never used to accept consent or submit. Empty when unknown.
+  altPrefill: Record<string, string | number | null>;
+  // Offers already exist → the journey resumes straight to its offers page, so
+  // the WebView holds its loader over the intermediate screens until offers show.
+  altResumeToOffers: boolean;
   // A friendly, actionable note when prequalify returns no offers (e.g. lender
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
@@ -286,7 +297,7 @@ export const initialState: AppState = {
   userContext: null,
   savedApplicantDraft: null,
   introPitchHeard: false,
-  webUrl: '', webTitle: '',
+  webUrl: '', webTitle: '', altOffersEnabled: true, altPrefill: {}, altResumeToOffers: false,
   offersError: '',
   offersSummary: '',
   apiContext: {},
@@ -707,6 +718,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Privacy consent gate — loaded before any routing decision.
       const accepted = await loadPrivacyAccepted(PRIVACY_POLICY_VERSION);
       if (accepted) dispatch({ type: 'set', patch: { privacyAccepted: true } });
+
+      // Client feature flags (public). Drives whether the alternative-offers
+      // (Yubi/YMPL) tile is shown. Optimistic default is true, so we only act on
+      // an explicit server `false`; any failure leaves the tile enabled.
+      api.features()
+        .then(r => { if (r?.data && r.data.altOffers === false) dispatch({ type: 'set', patch: { altOffersEnabled: false } }); })
+        .catch(() => {});
 
       const tokens = await loadTokens();
       if (!tokens) return;
