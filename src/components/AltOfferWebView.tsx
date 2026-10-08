@@ -89,6 +89,19 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         el.__yubiBar=true;
       }
     }catch(e){} }
+    // Hide the partner's "Powered by Yubi markets" footer attribution — the
+    // embedded journey is presented as SwiftLoan's own "Explore lenders", so no
+    // aggregator name is surfaced. Targets only the small footer line (text
+    // begins with "powered by" and is short), never a content container.
+    function hideBranding(){ try{
+      var all=document.body?document.body.getElementsByTagName('*'):[];
+      for(var i=0;i<all.length;i++){ var el=all[i]; if(el.__yubiHidBrand)continue;
+        var t=norm(el.textContent);
+        if(t.length>40 || t.indexOf('poweredby')!==0) continue;   // footer line only
+        el.style.setProperty('display','none','important');
+        el.__yubiHidBrand=true;
+      }
+    }catch(e){} }
     var TEXT={text:1,email:1,tel:1,number:1,search:1,url:1,'':1};
     function norm(s){ return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]/g,''); }
     function setVal(el,val){
@@ -140,6 +153,7 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
     var prevDone=0;
     function run(){
       neutralizeBars();
+      hideBranding();
       for(var i=0;i<SPECS.length;i++){ var s=SPECS[i]; var val=DATA[s.key];
         if(val===null||val===undefined||val==='')continue;
         if(s.kind==='date')fillDate(s,val);
