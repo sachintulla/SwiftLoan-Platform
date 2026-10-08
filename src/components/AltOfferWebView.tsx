@@ -46,6 +46,18 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
     { key: 'employmentType', kind: 'choice', labels: ['employment type', 'employment'] },
     { key: 'companyName', kind: 'text', names: ['company_name', 'companyName', 'company', 'employer'], placeholders: ['name of company', 'company name'], labels: ['company name', 'company', 'employer'] },
     { key: 'monthlyIncome', kind: 'text', names: ['monthly_income', 'monthlyIncome', 'income'], placeholders: ['enter monthly income', 'monthly income'], labels: ['monthly income'] },
+    // Known-but-previously-unfilled params, so the post-selection detail steps
+    // (address/KYC/loan form shown after the user selects an offer and taps
+    // Proceed) auto-fill whatever we already have. Anything we don't know stays
+    // blank for the user to type. 'gender' is a radio/chip (choice); the rest are
+    // text/number or native <select> (handled by fillText). loanAmount is in
+    // rupees (application amount is stored in rupees, 25k–15L).
+    { key: 'gender', kind: 'choice', labels: ['gender'] },
+    { key: 'addressLine1', kind: 'text', names: ['address_line1', 'addressLine1', 'address1', 'addressLine', 'address'], placeholders: ['address line 1', 'house', 'flat', 'street', 'address'], labels: ['address line 1', 'address 1', 'current address', 'residential address', 'address'] },
+    { key: 'addressLine2', kind: 'text', names: ['address_line2', 'addressLine2', 'address2'], placeholders: ['address line 2', 'landmark', 'locality', 'area'], labels: ['address line 2', 'address 2'] },
+    { key: 'city', kind: 'text', names: ['city', 'town'], placeholders: ['city'], labels: ['city', 'town', 'district'] },
+    { key: 'state', kind: 'text', names: ['state'], placeholders: ['state'], labels: ['state'] },
+    { key: 'loanAmount', kind: 'text', names: ['loan_amount', 'loanAmount', 'requested_amount', 'requestedAmount', 'desired_amount'], placeholders: ['loan amount', 'amount you need', 'desired loan amount'], labels: ['loan amount', 'required loan amount', 'desired loan amount', 'requested loan amount', 'amount required'] },
   ];
   return `(function(){try{
     var DATA=${JSON.stringify(prefill)};
