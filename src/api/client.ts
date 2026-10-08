@@ -31,13 +31,18 @@ NetInfo.configure({
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
+// Applications whose alt-offer "applied" record has already been sent this
+// session — so a re-emitted Proceed (partner resume auto-advance) doesn't
+// re-POST or re-toast. Cleared on logout with the rest of the session.
+const _appliedAltOffers = new Set<string>();
+
 export function setTokens(access: string | null, refresh?: string | null) {
   accessToken = access;
   if (refresh !== undefined) refreshToken = refresh;
   // Persisted so a returning user stays logged in across app restarts, not
   // just within one in-memory session.
   if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
-  else if (!access) clearTokens();
+  else if (!access) { clearTokens(); _appliedAltOffers.clear(); }
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
@@ -616,8 +621,25 @@ export const api = {
 
   // Record that the applicant tapped "Proceed" on the Yubi/YMPL offers page, so
   // it surfaces in My Loans with its date/time. Fire-and-forget.
-  altOfferApplied: (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null }> =>
-    request('POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {}),
+  // Idempotent: the partner page re-emits "Proceed" on every resume (its own
+  // auto-advance programmatically clicks Proceed), so we record + let the caller
+  // toast only once per application per session. The server also stamps
+  // appliedAt only once, so a duplicate POST is harmless either way.
+  altOfferApplied: async (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null; alreadyApplied: boolean }> => {
+    if (_appliedAltOffers.has(applicationId)) {
+      return { applied: true, appliedAt: null, lender: lender ?? null, alreadyApplied: true };
+    }
+    _appliedAltOffers.add(applicationId);
+    try {
+      const r = await request<{ applied: boolean; appliedAt: string | null; lender: string | null }>(
+        'POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {},
+      );
+      return { ...r, alreadyApplied: false };
+    } catch (e) {
+      _appliedAltOffers.delete(applicationId); // let a later Proceed retry on failure
+      throw e;
+    }
+  },
 
   // Client feature flags (public). Fetched on launch to decide whether the
   // "Alternative offers" tile is shown at all.

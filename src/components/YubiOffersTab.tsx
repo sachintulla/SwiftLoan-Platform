@@ -50,8 +50,8 @@ export default function YubiOffersTab({ onApply }: { onApply: () => void }) {
     if (!appId) return;
     // Don't pass the button's own text ("proceed") as the lender — we don't
     // reliably know which lender they picked, so the card shows "Yubi Markets".
-    api.altOfferApplied(appId).catch(() => {});
-    showToast(t.altAddedToLoans);
+    // Idempotent: only toast the first time (the partner resume re-emits Proceed).
+    api.altOfferApplied(appId).then(r => { if (!r.alreadyApplied) showToast(t.altAddedToLoans); }).catch(() => {});
   };
 
   // No eligibility run yet → nothing to refer. Prompt to apply.
