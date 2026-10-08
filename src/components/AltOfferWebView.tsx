@@ -84,15 +84,8 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         var radius=parseFloat(cs.borderTopLeftRadius)||0;
         if(!sticky && radius>8) continue;                  // keep rounded cards
         if(!isWhiteBg(cs.backgroundColor)) continue;
-        // A sticky bar that holds the Proceed CTA stays OPAQUE, tinted to the
-        // app's mint background — so the button reads clearly and, on a short
-        // page, the offer card doesn't bleed through behind it (which made the
-        // grey/disabled Proceed look washed-out and half-hidden). All other
-        // full-bleed chrome (e.g. the top progress/"Offers" bar) goes transparent.
-        var holdsCta = (el.querySelector && el.querySelector('button,[role="button"]')) || /\\b(proceed|continue|submit|verify|next)\\b/.test(String(el.textContent||'').toLowerCase());
-        var bg = holdsCta ? '#FFFFFF' : 'transparent';
-        el.style.setProperty('background',bg,'important');
-        el.style.setProperty('background-color',bg,'important');
+        el.style.setProperty('background','transparent','important');
+        el.style.setProperty('background-color','transparent','important');
         el.__yubiBar=true;
       }
     }catch(e){} }
@@ -107,6 +100,31 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         if(t.length>40 || t.indexOf('poweredby')!==0) continue;   // footer line only
         el.style.setProperty('display','none','important');
         el.__yubiHidBrand=true;
+      }
+    }catch(e){} }
+    // Auto-select the offer ONLY when the page shows exactly one — so Proceed
+    // becomes enabled without the user having to tap the lone card. This never
+    // runs with multiple offers (we must not choose among alternatives for the
+    // user), and it only selects the offer — it never presses Proceed, Continue
+    // or any consent. Fires once.
+    function autoSelectSingleOffer(){ try{
+      if(window.__yubiAutoSel) return;
+      var bt=((document.body&&document.body.innerText)||'').toLowerCase();
+      if(!(/loan offers for you/.test(bt) || /offers\\s*\\(\\d/.test(bt))) return;   // offers page only
+      var m=bt.match(/offers\\s*\\((\\d+)\\)/);
+      if(m && m[1]!=='1') return;                                                   // exactly one offer
+      // Prefer a native radio: exactly one, unchecked → select it.
+      var radios=document.querySelectorAll('input[type="radio"]');
+      if(radios.length===1 && !radios[0].checked){ window.__yubiAutoSel=true; try{ radios[0].click(); }catch(e){} return; }
+      // Fallback: click the single offer card itself (the element holding the
+      // loan amount), not a link/button inside it (so we never hit View Document
+      // or Proceed). Keep it to a card-sized node, not a big page container.
+      var nodes=document.querySelectorAll('div,li,label');
+      for(var i=0;i<nodes.length;i++){ var el=nodes[i];
+        var t=norm(el.textContent);
+        if(t.indexOf('getloanupto')<0 || t.length>600) continue;
+        if(el.closest && el.closest('button,a,[role="button"]')) continue;
+        window.__yubiAutoSel=true; try{ el.click(); }catch(e){} return;
       }
     }catch(e){} }
     var TEXT={text:1,email:1,tel:1,number:1,search:1,url:1,'':1};
@@ -161,6 +179,7 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
     function run(){
       neutralizeBars();
       hideBranding();
+      autoSelectSingleOffer();
       for(var i=0;i<SPECS.length;i++){ var s=SPECS[i]; var val=DATA[s.key];
         if(val===null||val===undefined||val==='')continue;
         if(s.kind==='date')fillDate(s,val);
