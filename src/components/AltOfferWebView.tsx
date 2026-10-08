@@ -84,8 +84,15 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         var radius=parseFloat(cs.borderTopLeftRadius)||0;
         if(!sticky && radius>8) continue;                  // keep rounded cards
         if(!isWhiteBg(cs.backgroundColor)) continue;
-        el.style.setProperty('background','transparent','important');
-        el.style.setProperty('background-color','transparent','important');
+        // A sticky bar that holds the Proceed CTA stays OPAQUE, tinted to the
+        // app's mint background — so the button reads clearly and, on a short
+        // page, the offer card doesn't bleed through behind it (which made the
+        // grey/disabled Proceed look washed-out and half-hidden). All other
+        // full-bleed chrome (e.g. the top progress/"Offers" bar) goes transparent.
+        var holdsCta = (el.querySelector && el.querySelector('button,[role="button"]')) || /\\b(proceed|continue|submit|verify|next)\\b/.test(String(el.textContent||'').toLowerCase());
+        var bg = holdsCta ? '#FFFFFF' : 'transparent';
+        el.style.setProperty('background',bg,'important');
+        el.style.setProperty('background-color',bg,'important');
         el.__yubiBar=true;
       }
     }catch(e){} }
