@@ -10,6 +10,7 @@ import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/ses
 import { useOfferSelect, displayLenderName } from './offers';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import YubiOffersTab from '../components/YubiOffersTab';
+import { LogoLockup } from '../components/Logo';
 
 // Statuses whose applications still carry showable offers.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
@@ -107,12 +108,6 @@ export default function MyOffers() {
 
   useEffect(() => { hydrate(); }, [hydrate]);
 
-  // Refresh = start a fresh application flow (Verify PAN → details → …), all
-  // pre-filled with the user's saved info so they can change anything and get
-  // better offers. Completing it re-runs eligibility (→ Aurix); the new offers
-  // replace the saved ones on return (hydrate), otherwise the previous persist.
-  const refresh = () => startApply();
-
   // Retry: re-run eligibility (→ Aurix) through the same animated "finding
   // offers" loader as the first attempt. finding.tsx makes the prequalify call
   // and lands back here with the offers or the failure state.
@@ -135,12 +130,9 @@ export default function MyOffers() {
               : hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
           </Text>
         </View>
-        {tab === 'knight' && hasOffers && (
-          <Pressable onPress={refresh} accessibilityLabel={t.recheckOffers} style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}>
-            <Icon name="autorenew" size={19} color={colors.primary} />
-            <Text style={[font(700), styles.refreshLabel]}>{t.recheckOffers}</Text>
-          </Pressable>
-        )}
+        {/* SwiftLoan branding lockup — shown on both tabs in place of the old
+            "Recheck offers" action, so the marketplace always reads as ours. */}
+        <LogoLockup size={26} />
       </View>
       <View style={styles.tabsRow}>
         {(['knight', 'yubi'] as const).map(k => (
