@@ -20,6 +20,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     items: [
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
       { href: '/revasure', label: 'Revasure', icon: '⇄' },
+      { href: '/yubi', label: 'Yubi', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
       { href: '/referrals', label: 'Referrals', icon: '☺' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },

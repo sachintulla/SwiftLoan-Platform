@@ -515,6 +515,38 @@ adminRouter.get('/revasure/:id', ah(async (req, res) => {
   return ok(res, { lead }, 'Revasure lead');
 }));
 
+// ─────────────────────────── yubi (YMPL) referrals ───────────────────────────
+
+// GET /api/admin/yubi?applied=1&status=&page=&pageSize=
+// Yubi partner referrals. applied=1 (default) = only those the customer actually
+// proceeded with (appliedAt set) — the ones that count as an application. Joins
+// the customer so the operator can see who applied via Yubi.
+adminRouter.get('/yubi', ah(async (req, res) => {
+  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const appliedOnly = req.query.applied !== '0' && req.query.applied !== 'false';
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const where: Record<string, unknown> = {};
+  if (appliedOnly) where.appliedAt = { not: null };
+  if (status) where.lastStatus = status;
+
+  const [rows, total, byStatus] = await Promise.all([
+    prisma.partnerReferral.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take }),
+    prisma.partnerReferral.count({ where }),
+    prisma.partnerReferral.groupBy({ by: ['lastStatus'], where: { appliedAt: { not: null } }, _count: { _all: true } }),
+  ]);
+  // Attach the customer (plain-FK model, no relation).
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+    : [];
+  const byId = Object.fromEntries(users.map((u) => [u.id, u]));
+  const withUser = rows.map((r) => ({ ...r, user: byId[r.userId] || null }));
+  return ok(res, {
+    rows: withUser,
+    byStatus: byStatus.map((g) => ({ status: g.lastStatus || 'applied', count: g._count._all })),
+  }, 'Yubi referrals', paginate(page, pageSize, total));
+}));
+
 // ─────────────────────────── users ───────────────────────────
 
 // GET /api/admin/users?search=&page=&pageSize=
@@ -539,10 +571,19 @@ adminRouter.get('/users', ah(async (req, res) => {
   return ok(res, rows, 'Users', paginate(page, pageSize, total));
 }));
 
-// GET /api/admin/users/:id — full profile
+// GET /api/admin/users/:id — full profile + EVERY application the customer made
+// across all three lender groups, so an operator can see (and manually track)
+// exactly what a customer applied for:
+//   • Aurix (Knight Fintech) — LenderApplication rows (one per applied offer)
+//   • Yubi (YMPL)            — PartnerReferral rows that reached "applied"
+//   • Revasure               — RevasureLead rows (created leads)
+// PartnerReferral/RevasureLead are plain-FK models (no User relation), and
+// LenderApplication links via its parent application — so they're fetched by
+// userId separately and attached.
 adminRouter.get('/users/:id', ah(async (req, res) => {
+  const userId = req.params.id;
   const user = await prisma.user.findUnique({
-    where: { id: req.params.id },
+    where: { id: userId },
     include: {
       applications: { orderBy: { createdAt: 'desc' }, include: { loan: true } },
       loans: { orderBy: { disbursedAt: 'desc' } },
@@ -551,7 +592,51 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     },
   });
   if (!user) throw new HttpError(404, 'User not found');
-  return ok(res, user, 'User profile');
+
+  const [aurixApplications, partnerReferrals, revasureLeads] = await Promise.all([
+    // Aurix: per-lender applications (the actual "applied to this lender" records).
+    prisma.lenderApplication.findMany({
+      where: { application: { userId } },
+      orderBy: { appliedAt: 'desc' },
+      include: { offer: { select: { lenderName: true, apr: true, amount: true } } },
+    }),
+    // Yubi: referrals the customer actually proceeded with (appliedAt set).
+    prisma.partnerReferral.findMany({
+      where: { userId, appliedAt: { not: null } },
+      orderBy: { appliedAt: 'desc' },
+    }),
+    // Revasure: every lead created for this customer.
+    prisma.revasureLead.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' } }),
+  ]);
+
+  // Unified, lender-tagged list — the single source of truth for "what did this
+  // customer apply for". Real-time status may not exist for every lender, but the
+  // record of the application always does.
+  const lenderApplications = [
+    ...aurixApplications.map((a) => ({
+      lenderGroup: 'knight_fintech', provider: 'aurix',
+      lender: a.lenderName || a.offer?.lenderName || 'Knight Fintech partner',
+      amount: a.amount, apr: a.apr ?? a.offer?.apr ?? null,
+      status: a.status, appliedAt: a.appliedAt, ref: a.id,
+    })),
+    ...partnerReferrals.map((p) => ({
+      lenderGroup: 'yubi', provider: 'ympl',
+      lender: p.appliedLender || 'Yubi Markets partner',
+      amount: null, apr: null,
+      // The customer HAS applied (appliedAt is set), so surface the journey
+      // status if we have one, else "applied" — never the referral's internal
+      // registration status (e.g. "failed"/"pending_data"), which would wrongly
+      // read as if no application was made.
+      status: p.lastStatus || (p.appliedAt ? 'applied' : p.status), appliedAt: p.appliedAt, ref: p.id,
+    })),
+    ...revasureLeads.map((r) => ({
+      lenderGroup: 'revasure', provider: 'revasure',
+      lender: 'Revasure', amount: null, apr: null,
+      status: r.status, appliedAt: r.createdAt, ref: r.leadId || r.sourceLeadId,
+    })),
+  ].sort((a, b) => new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
+
+  return ok(res, { ...user, aurixApplications, partnerReferrals, revasureLeads, lenderApplications }, 'User profile');
 }));
 
 // ─────────────────────────── notifications ───────────────────────────
