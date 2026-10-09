@@ -317,3 +317,26 @@ GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
   `data-voice-sensitive`, and `aria-busy="true"` on loading placeholders. New gated buttons need the attribute.
 - A word the owner has asked not to use: Telugu "మొదలుపెడదాం" — keep it out of all copy.
 
+
+---
+
+## Install attribution + friend referrals
+
+Shareable link `GET /dl?ref=<referral code>` (`server/src/modules/referral.routes.ts`, pure logic in
+`lib/attribution.ts`, DB logic in `lib/referral.ts`). It logs an `AppClick` (IP/UA stored as keyed HMAC hashes only,
+purged after 48 h by the `click-purge` job) then redirects: Android → `ANDROID_STORE_URL` (a `play.google.com` URL gets
+the Play `referrer=click_id…` param), iOS → an interstitial that copies `swiftloan-ref:<token>` to the clipboard, then
+`IOS_STORE_URL` (TestFlight/App Store). **Both store URLs are DUMMY defaults until the real listings exist.**
+- First launch (`store.ts` boot effect, once per install via AsyncStorage `swiftloan.install.claimed`; already-signed-in
+  devices are skipped) reads the OS signal (`utils/installSignals.ts` → native `InstallReferrer` (Android, Play Install
+  Referrer API) / `Attribution` (iOS clipboard)) and calls `POST /api/attribution/claim`. Match order: Play referrer →
+  clipboard token → same-IP click inside `ATTRIBUTION_WINDOW_MIN` (only if exactly ONE candidate, OS version breaks ties).
+  Sideloaded APKs have no Play referrer, so they use the IP window. Replaces the old per-process `trackInstall`.
+- Friend referral: after OTP login the app redeems the stored code (`POST /api/referrals/redeem`). Rules: new account
+  (< `REFERRAL_ELIGIBLE_DAYS`), no self/mutual referral, one referrer per referee. `FriendReferral.status` advances
+  signed_up → applied (offer selected/applied) → disbursed via `advanceReferral()`. **Tracking only — `rewardStatus` stays
+  `none`; no reward policy is approved (needs compliance review before any money/rate benefit).**
+- App: `referral` screen (Profile → "Refer a friend", `GET /api/referrals/me`, native Share sheet). Admin: `/referrals`
+  page + Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` (additive).
+- Privacy to declare in store forms: IP address + device identifiers for app functionality/analytics; no ATT prompt
+  (nothing is shared with ad networks).

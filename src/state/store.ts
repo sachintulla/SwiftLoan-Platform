@@ -9,7 +9,7 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, trackInstall, fetchContext, setTokens, api,
+  trackLoanStep, claimInstall, fetchContext, setTokens, api,
   isAuthed, upshotOfferViewed, knownOfferInfo,
   type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill, fetchUserContext,
 } from '../api/client';
@@ -17,7 +17,9 @@ import {
   loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
   loadPrefillDraft, savePrefillDraft,
   loadIntroPitchHeard,
+  loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
 } from './session';
+import { readInstallSignals } from '../utils/installSignals';
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
@@ -34,7 +36,7 @@ export const SCREEN_NAMES = [
   'home', 'loans', 'fare', 'help', 'profile',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'status', 'disbursed', 'repay', 'calculator', 'compare',
+  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -52,6 +54,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
+  referral: 'referral', referrals: 'referral', referafriend: 'referral', invitefriends: 'referral', invite: 'referral',
   applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
 
@@ -136,6 +139,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home',
   compare: 'fare',
+  referral: 'profile',
 };
 
 export interface AppState {
@@ -393,7 +397,7 @@ const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
 };
 
-/** WS5: one install report per app process (see the boot effect below). */
+/** One install-attribution attempt per app process (see the boot effect below). */
 let installReported = false;
 
 // Exposed for unit tests.
@@ -1043,12 +1047,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       osVersion: String(Platform.Version),
       appVersion: '1.0',
     });
-    // WS5: report the install exactly once per device. AsyncStorage isn't a
-    // dependency here, so the flag lives on the module-level `installReported`
-    // guard — good enough because a reinstall genuinely is a new install.
+    // Install attribution: once per install (the flag lives in AsyncStorage, which a
+    // reinstall wipes), find out which /dl link brought this install and report it.
+    // Fire-and-forget; the flag is only set after the server answers, so a failed
+    // attempt is retried on the next launch.
     if (!installReported) {
       installReported = true;
-      trackInstall(Platform.OS, {});
+      (async () => {
+        if (await loadInstallClaimed()) return;
+        // An app update on a device that is already signed in is not a new install.
+        if (await loadTokens()) { await saveInstallClaimed(); return; }
+        const signals = await readInstallSignals();
+        const claim = await claimInstall(Platform.OS, signals);
+        if (!claim) return;
+        await saveInstallClaimed();
+        if (claim.referral) {
+          await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
+        }
+      })().catch(() => undefined);
       trackEvent('app_lifecycle', 'app_opened');
     }
 
@@ -1114,6 +1130,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(() => undefined);
   }, [state.authUser]);
+
+  // A friend's invite is redeemed once they have an account (OTP verified). Expected
+  // refusals (own code, already referred, not a new user) are silent; only a real
+  // success tells the user who invited them.
+  const referralRedeemed = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || referralRedeemed.current) return;
+    referralRedeemed.current = true;
+    (async () => {
+      const pending = await loadPendingReferral();
+      if (!pending) return;
+      const r: any = await api.redeemReferral(pending.code, pending.downloadId, pending.method).catch(() => null);
+      if (!r) return; // network error: keep it pending, retry next launch
+      await clearPendingReferral();
+      if (r?.data?.redeemed && r.data.referrer_name) {
+        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`);
+      }
+    })().catch(() => undefined);
+  }, [state.authUser, showToast]);
 
   // ── WS4: emit an event on every screen transition (fire-and-forget) ──
   useEffect(() => {

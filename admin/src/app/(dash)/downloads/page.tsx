@@ -8,7 +8,7 @@ import { DonutChart } from '@/components/charts';
 import AppBuilds from '@/components/AppBuilds';
 
 interface Payload {
-  rows: { id: string; platform: string; source: string; campaignId?: string; contextLoaded: boolean; installedAt: string }[];
+  rows: { id: string; platform: string; source: string; campaignId?: string; referrer?: string | null; matchMethod?: string | null; contextLoaded: boolean; installedAt: string }[];
   bySource: { source: string; count: number }[];
   byPlatform: { platform: string; count: number }[];
   contextInstalls: number; organicInstalls: number;
@@ -43,12 +43,14 @@ export default function DownloadsPage() {
       <Card title="Recent installs">
         {isLoading ? <TableSkeleton /> : !p || p.rows.length === 0 ? <Empty /> : (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>Platform</th><th>Source</th><th>Campaign</th><th>Context</th><th>Installed</th></tr></thead>
+            <thead><tr><th>Platform</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Matched by</th><th>Context</th><th>Installed</th></tr></thead>
             <tbody>{p.rows.map((r) => (
               <tr key={r.id}>
                 <td style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.platform}</td>
                 <td><span className="badge tone-grey">{r.source}</span></td>
                 <td className="mono muted">{r.campaignId || '—'}</td>
+                <td className="mono muted">{r.referrer || '—'}</td>
+                <td className="muted">{r.matchMethod ? r.matchMethod.replace('_', ' ') : '—'}</td>
                 <td>{r.contextLoaded ? <StatusBadge status="converted" label="Context" /> : <StatusBadge status="not_started" label="Organic" />}</td>
                 <td className="muted">{dateStr(r.installedAt)}</td>
               </tr>

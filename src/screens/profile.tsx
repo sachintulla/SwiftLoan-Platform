@@ -34,6 +34,7 @@ function formatDob(dob: string, notSetLabel: string): string {
 }
 
 const LINKS = [
+  { icon: 'group_add', key: 'linkRefer', refer: true },
   { icon: 'help', key: 'linkFaqs', help: true },
   { icon: 'shield_person', key: 'linkPrivacy' },
   { icon: 'description', key: 'linkTerms' },
@@ -448,7 +449,7 @@ export default function Profile() {
         {LINKS.map((l, i) => (
           <Pressable
             key={l.key}
-            onPress={() => (l.help ? go('help') : l.key === 'linkDelete' ? deleteAccount() : showToast(t.tSoon))}
+            onPress={() => (l.refer ? go('referral') : l.help ? go('help') : l.key === 'linkDelete' ? deleteAccount() : showToast(t.tSoon))}
             style={[styles.linkRow, i < LINKS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}
           >
             <Icon name={l.icon} size={20} color={colors.textMid} />

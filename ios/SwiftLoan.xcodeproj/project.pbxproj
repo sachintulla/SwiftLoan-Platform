@@ -22,6 +22,8 @@
 		F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0002 /* VoiceAudioModule.m */; };
 		F00DFACE00000000000B0003 /* UiSoundModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0003 /* UiSoundModule.swift */; };
 		F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0004 /* UiSoundModule.m */; };
+		F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0005 /* AttributionModule.swift */; };
+		F00DFACE00000000000B0006 /* AttributionModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0006 /* AttributionModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +46,8 @@
 		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = SwiftLoan/Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
 		F00DFACE00000000000A0003 /* UiSoundModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UiSoundModule.swift; path = SwiftLoan/UiSound/UiSoundModule.swift; sourceTree = "<group>"; };
 		F00DFACE00000000000A0004 /* UiSoundModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = UiSoundModule.m; path = SwiftLoan/UiSound/UiSoundModule.m; sourceTree = "<group>"; };
+		F00DFACE00000000000A0005 /* AttributionModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AttributionModule.swift; path = SwiftLoan/Attribution/AttributionModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0006 /* AttributionModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AttributionModule.m; path = SwiftLoan/Attribution/AttributionModule.m; sourceTree = "<group>"; };
 		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -71,6 +75,8 @@
 				F00DFACE00000000000A0002 /* VoiceAudioModule.m */,
 				F00DFACE00000000000A0003 /* UiSoundModule.swift */,
 				F00DFACE00000000000A0004 /* UiSoundModule.m */,
+				F00DFACE00000000000A0005 /* AttributionModule.swift */,
+				F00DFACE00000000000A0006 /* AttributionModule.m */,
 			);
 			name = SwiftLoan;
 			sourceTree = "<group>";
@@ -297,6 +303,8 @@
 				F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */,
 				F00DFACE00000000000B0003 /* UiSoundModule.swift in Sources */,
 				F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */,
+				F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */,
+				F00DFACE00000000000B0006 /* AttributionModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

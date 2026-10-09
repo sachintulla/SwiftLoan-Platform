@@ -11,6 +11,7 @@ import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { scoped } from '../lib/log.js';
+import { advanceReferral } from '../lib/referral.js';
 
 const log = scoped('applications');
 
@@ -435,6 +436,7 @@ applicationsRouter.post('/:id/offers/:offerId/select',
 
     const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true, ...tenureOverride } });
     await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+    void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
     // WS5: the real selection, with which offer — the screen-arrival proxy the
     // client used could not say which lender or rate was chosen.
@@ -529,6 +531,7 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   if (order.includes(app.status) && order.indexOf(app.status) < order.indexOf('handoff')) {
     await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } }).catch(() => {});
   }
+  void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
   trackJourney(
     { userId: req.user!.sub },
@@ -645,6 +648,7 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   });
   await prisma.repayment.createMany({ data: rows });
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'disbursed' } });
+  void advanceReferral(req.user!.sub, 'disbursed'); // friend-referral milestone (best-effort)
 
   // WS5: application submitted then disbursed. Approval/rejection arrives from
   // the lender API later (out of scope per the brief) — when it does, emit
