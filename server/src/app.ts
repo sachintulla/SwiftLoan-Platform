@@ -36,6 +36,7 @@ import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
 import { adminSupportRouter } from './modules/adminSupport.routes.js';
+import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
 import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
@@ -139,6 +140,10 @@ export function createApp() {
 
   // ── WS4: activity tracking + admin dashboard (additive) ──
   app.use('/api/track', trackLimiter, trackingRouter);
+  // ── Install attribution + friend referrals ──
+  // /claim is public (no account yet) and writes a row per call, so it shares the tracking bucket.
+  app.use('/api/attribution', trackLimiter, attributionRouter);
+  app.use('/api/referrals', referralRouter);
   app.use('/api/admin/auth', authLimiter, adminAuthRouter);
   // ── WS5: outbound calling + campaigns + provider webhooks ──
   // Mounted before the catch-all adminRouter so its requireAdmin/404 does not
@@ -151,6 +156,7 @@ export function createApp() {
   app.use('/api/admin/stall-rules', stallRulesRouter);
   app.use('/api/admin/ops', adminOpsRouter);
   app.use('/api/admin/support', adminSupportRouter);
+  app.use('/api/admin/referrals', adminReferralsRouter);
   app.use('/api/admin/conversations', adminConversationsRouter);
   app.use('/api/admin/customers', customersRouter);
   app.use('/api/admin/integrations', integrationsRouter);
@@ -188,6 +194,7 @@ export function createApp() {
   // User row and issues real app tokens, the wrong side effect here. Each
   // accepted OTP request can send a real SMS, so it shares the strictest bucket.
   app.use('/api/website', leadLimiter, websiteRouter);
+  app.use('/', limiter(60_000, 60, 'Too many download requests'), dlRouter); // /dl?ref= shareable download link
   app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
   app.use('/', preapprovedRouter); // /api/preapproved-plans + /api/admin/preapproved-plans
   app.use('/', prequalifyingRouter); // /api/prequalifying-offers + /api/admin/prequalifying-offers

@@ -142,6 +142,9 @@ dependencies {
     // OCR (PanOcrModule). Bundled model, no network / Play Services download.
     implementation("com.google.mlkit:text-recognition:16.0.1")
 
+    // Google Play Install Referrer — deterministic install attribution (InstallReferrerModule).
+    implementation("com.android.installreferrer:installreferrer:2.2")
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

@@ -7,6 +7,7 @@ import { leadAutoCaller } from '../lib/leadCaller.js';
 import { immediateCallback } from '../lib/immediateCallback.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
+import { purgeExpiredClicks } from '../lib/referral.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -159,6 +160,8 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   // ADM-016 — close calls whose terminal webhook never arrived, so a lost
   // callback cannot pin a contact in `queued` and stall the whole campaign.
   { name: 'call-reconcile', fn: async () => { await reconcileStaleCalls(); }, everyMs: 10 * 60_000 },
+  // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
+  { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
 ];
 
 let timers: NodeJS.Timeout[] = [];

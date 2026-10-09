@@ -26,6 +26,7 @@ export const SCREEN_INFO: Record<string, ScreenInfo> = {
   loans: { title: 'My Loans', purpose: "The user's loan applications and their status." },
   fare: { title: 'My Offers', purpose: 'Loan offers the user has received from lenders.' },
   help: { title: 'Help & Support', purpose: 'Help, FAQs and ways to contact support.' },
+  referral: { title: 'Refer a Friend', purpose: "The user's referral code and link to invite friends, and the friends who joined." },
   profile: { title: 'Profile', purpose: "The user's profile details, language and notification settings." },
   basicpan: { title: 'PAN Verification (Step 1 of 3)', purpose: 'First step of the loan application: enter and verify the PAN; details are pre-filled from it.' },
   basic: { title: 'Basic Details (Step 2 of 3)', purpose: 'Second step of the loan application: personal, employment and loan details.' },

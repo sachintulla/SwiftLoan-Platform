@@ -638,6 +638,10 @@ export const api = {
   nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
+  // Friend referrals — the signed-in user's own code + the people they invited.
+  referralMe: () => request('GET', '/referrals/me'),
+  redeemReferral: (code: string, downloadId?: string | null, matchMethod?: string | null) =>
+    request('POST', '/referrals/redeem', { code, download_id: downloadId ?? null, match_method: matchMethod ?? null }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>
     request('POST', '/support/tickets', { subject, type, body }),
 };
@@ -714,6 +718,33 @@ export function trackInstall(
     context_token: opts.contextToken,
     session_id: sessionId,
   });
+}
+
+export interface InstallClaim {
+  matched: boolean;
+  method: 'play_referrer' | 'clipboard' | 'ip_window' | null;
+  download_id: string;
+  source: string;
+  referral: { code: string; referrer_name: string } | null;
+}
+
+/**
+ * Install attribution: report the first launch and learn which link (if any) sent
+ * this install. Replaces trackInstall for new installs — the server records exactly
+ * one AppDownload per claim, matched or not. Resolves null on failure so the caller
+ * can leave the "claimed" flag unset and try again on the next launch.
+ */
+export async function claimInstall(
+  platform: string,
+  signals: { installReferrer?: string | null; clipboard?: string | null; osVersion?: string | null } = {},
+): Promise<InstallClaim | null> {
+  const r = await trackPost('/attribution/claim', {
+    platform,
+    install_referrer: signals.installReferrer ?? null,
+    clipboard: signals.clipboard ?? null,
+    os_version: signals.osVersion ?? null,
+  });
+  return r?.success && r.data ? (r.data as InstallClaim) : null;
 }
 
 export function trackEvent(
