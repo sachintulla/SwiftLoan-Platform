@@ -10,6 +10,7 @@ import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixT
 import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
+import { createRevasureLead } from '../lib/revasureLead.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('applications');
@@ -195,6 +196,14 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // a fresh URL anyway (the token is short-lived, ~90s).
   kickoffRedirect(app.id, req.user!.sub);
 
+  // Revasure (third lender group) — a single Create-Lead POST, fired in PARALLEL
+  // with the Aurix eligibility calls below. We DON'T await it here; we start the
+  // promise now and await it just before the response, so it overlaps the slow
+  // partner calls and adds little/no latency. Its result is recorded
+  // (RevasureLead → admin dashboard) and returned to the app for a debug alert.
+  const clientIp = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString();
+  const revasurePromise = createRevasureLead(app.id, req.user!.sub, clientIp);
+
   // Gather offers across partners. A provider whose single API call returns
   // many offers (Aurix → one per real lender) uses getOffers; others yield a
   // single offer. A partner that fails (provider down, no eligibility, a
@@ -329,9 +338,13 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   ).catch(() => {});
 
   log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers });
+  // Revasure lead result (started in parallel above) — await now so its outcome
+  // rides back in this response for the app's temporary debug alert.
+  const revasure = await revasurePromise.catch(() => null);
+
   // Raw Aurix eligible_offers response (request/success/no-offers/validation),
   // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
-  res.json({ offers: created, aurixResponse: aurixDebug });
+  res.json({ offers: created, aurixResponse: aurixDebug, revasure });
 }));
 
 /**
