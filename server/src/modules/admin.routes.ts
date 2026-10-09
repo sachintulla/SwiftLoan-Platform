@@ -486,6 +486,35 @@ adminRouter.get('/downloads', ah(async (req, res) => {
   }, 'Downloads', paginate(page, pageSize, total));
 }));
 
+// ─────────────────────────── revasure leads ───────────────────────────
+
+// GET /api/admin/revasure?status=&page=&pageSize=
+// Leads pushed to Revasure (third lender group, fired in parallel at prequalify)
+// with the recorded request/response. status: success|duplicate|ineligible|failed|pending
+adminRouter.get('/revasure', ah(async (req, res) => {
+  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const where: Record<string, unknown> = {};
+  if (status) where.status = status;
+
+  const [rows, total, byStatus] = await Promise.all([
+    prisma.revasureLead.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take }),
+    prisma.revasureLead.count({ where }),
+    prisma.revasureLead.groupBy({ by: ['status'], _count: { _all: true } }),
+  ]);
+  return ok(res, {
+    rows,
+    byStatus: byStatus.map((g) => ({ status: g.status, count: g._count._all })),
+  }, 'Revasure leads', paginate(page, pageSize, total));
+}));
+
+// GET /api/admin/revasure/:id — one lead's full request/response
+adminRouter.get('/revasure/:id', ah(async (req, res) => {
+  const lead = await prisma.revasureLead.findUnique({ where: { id: req.params.id } });
+  if (!lead) return res.status(404).json({ success: false, message: 'Not found' });
+  return ok(res, { lead }, 'Revasure lead');
+}));
+
 // ─────────────────────────── users ───────────────────────────
 
 // GET /api/admin/users?search=&page=&pageSize=

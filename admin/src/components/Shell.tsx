@@ -19,6 +19,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     section: 'Funnel',
     items: [
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
+      { href: '/revasure', label: 'Revasure', icon: '⇄' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
       { href: '/referrals', label: 'Referrals', icon: '☺' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },
