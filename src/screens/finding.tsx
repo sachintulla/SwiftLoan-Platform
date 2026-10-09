@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Easing, StyleSheet, Image } from 'react-native';
+import { View, Text, Animated, Easing, StyleSheet, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
@@ -77,10 +77,25 @@ export default function Finding() {
     if (state.applicationId) {
       api.prequalify(state.applicationId)
         .then((res: any) => {
-          const { offers, friendlyError } = res as any;
+          const { offers, friendlyError, revasure } = res as any;
           const list = offers || [];
           set({ offersError: friendlyError || '' });
           mergeApiContext({ prequalifyResult: { offers, friendlyError } });
+          // TEMPORARY debug alert for the Revasure lead result (parallel lender
+          // group) — surfaces whatever the backend got back. Remove before
+          // production. Only shown when the backend actually attempted Revasure.
+          if (revasure && revasure.status !== 'disabled') {
+            const ok = revasure.ok;
+            Alert.alert(
+              ok ? 'Revasure: Lead created' : 'Revasure: Not created',
+              [
+                `status: ${revasure.status}`,
+                revasure.httpStatus != null ? `http: ${revasure.httpStatus}` : null,
+                revasure.leadId ? `lead_id: ${revasure.leadId}` : null,
+                revasure.message ? `message: ${revasure.message}` : null,
+              ].filter(Boolean).join('\n'),
+            );
+          }
           if (list.length > 0) {
             // Cache so My Offers renders instantly (before its own re-fetch).
             saveOffersCache({ applicationId: state.applicationId!, savedAt: Date.now(), offers: list });

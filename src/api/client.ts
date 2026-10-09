@@ -299,6 +299,17 @@ export interface EmiOption {
   recommended: boolean;
 }
 
+// Result of the parallel Revasure "Create Lead" call, returned by prequalify so
+// the app can show a temporary debug alert (removed for production).
+export interface RevasureResult {
+  provider: 'revasure';
+  ok: boolean;
+  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled';
+  httpStatus: number | null;
+  leadId: string | null;
+  message: string | null;
+}
+
 export interface Offer {
   id: string;
   partner: { name: string; icon: string; logoUrl?: string | null; rating?: number | null; rbiApproved: boolean; features: string[]; disbursalTimeHrs?: number | null };
@@ -527,7 +538,7 @@ export const api = {
   prequalify: async (id: string) => {
     // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
     // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.
-    const res = await request<{ offers: unknown[]; aurixResponse?: any }>(
+    const res = await request<{ offers: unknown[]; aurixResponse?: any; revasure?: RevasureResult | null }>(
       'POST',
       `/applications/${id}/prequalify`,
       undefined,

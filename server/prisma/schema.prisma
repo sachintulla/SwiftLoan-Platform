@@ -469,6 +469,35 @@ model PartnerReferral {
   @@index([userId])
 }
 
+// Revasure "Create Lead" integration — a THIRD lender group, run in parallel to
+// Aurix (Knight Fintech) eligibility and Yubi (YMPL) at prequalify. A single
+// outbound POST creates a lead on Revasure; we record the request/response so
+// it shows in the admin dashboard, and surface the result to the app. Additive,
+// mirrors PartnerReferral (plain FKs, no relations).
+model RevasureLead {
+  id            String   @id @default(uuid())
+  applicationId String // parent LoanApplication
+  userId        String // SwiftLoan User.id
+  provider      String   @default("revasure")
+  // The source_lead_id we send (= application id) — Revasure dedupes on it, so
+  // it's our idempotent handle; unique here too.
+  sourceLeadId  String   @unique
+  basketId      String?
+  // pending | success | duplicate | ineligible | failed
+  status        String   @default("pending")
+  httpStatus    Int? // HTTP status from Revasure
+  leadId        String? // Revasure's own lead_id (from the 201 response)
+  message       String? // Revasure's response message (error or info)
+  requestBody   Json? // exactly what we POSTed (PAN/OTP masked by the lib)
+  responseBody  Json? // raw Revasure response
+  lastError     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([userId])
+}
+
 // One row per tenure choice offered for a given Offer — lets a single lender
 // offer present several EMI/tenure combinations (per the sample lender-API
 // response this mirrors) instead of the single flat tenure Offer itself has.
