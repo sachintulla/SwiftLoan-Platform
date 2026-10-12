@@ -30,20 +30,12 @@
 	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- No arbitrary/cleartext loads. All backends (dev + prod) are HTTPS;
+		     NSAllowsLocalNetworking only covers loopback for local development. -->
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>dev-api.swiftloan.ai</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<false/>
-			</dict>
-		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>SwiftLoan uses your camera to take a profile photo.</string>

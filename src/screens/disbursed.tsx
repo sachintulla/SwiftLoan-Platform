@@ -63,7 +63,7 @@ export default function Disbursed() {
         </Pressable>
         <VoiceHidden>
           <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, textAlign: 'center', marginTop: 14 }]}>
-            SwiftLoan is a regulated entity. Transaction processed via Secure Gateway. TransID: SL-9821-X.
+            SwiftLoan is a loan marketplace, not a lender. Your loan is disbursed by the RBI-regulated lending partner you chose.
           </Text>
         </VoiceHidden>
       </View>

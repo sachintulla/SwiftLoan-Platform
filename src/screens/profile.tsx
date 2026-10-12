@@ -449,7 +449,19 @@ export default function Profile() {
         {LINKS.map((l, i) => (
           <Pressable
             key={l.key}
-            onPress={() => (l.refer ? go('referral') : l.help ? go('help') : l.key === 'linkDelete' ? deleteAccount() : showToast(t.tSoon))}
+            onPress={() => {
+              if (l.refer) return go('referral');
+              if (l.help) return go('help');
+              if (l.key === 'linkDelete') return deleteAccount();
+              const doc =
+                l.key === 'linkPrivacy' ? 'privacy'
+                : l.key === 'linkTerms' ? 'terms'
+                : l.key === 'linkLending' ? 'lending'
+                : l.key === 'linkGrievance' ? 'grievance'
+                : null;
+              if (doc) { set({ legalDoc: doc }); return go('legal'); }
+              return showToast(t.tSoon);
+            }}
             style={[styles.linkRow, i < LINKS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.lineSoft }]}
           >
             <Icon name={l.icon} size={20} color={colors.textMid} />

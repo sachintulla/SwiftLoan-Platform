@@ -27,6 +27,7 @@ import Repay from './repay';
 import Profile from './profile';
 import Help from './help';
 import Referral from './referral';
+import Legal from './legal';
 
 // Screens are registered here as they are ported. Missing entries fall back to a
 // placeholder in the Router so the full navigation graph stays walkable end-to-end.
@@ -58,4 +59,5 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   profile: Profile,
   help: Help,
   referral: Referral,
+  legal: Legal,
 };
