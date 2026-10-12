@@ -37,6 +37,7 @@ export const SCREEN_INFO: Record<string, ScreenInfo> = {
   calculator: { title: 'EMI Calculator', purpose: 'Estimate the monthly EMI for a loan amount, rate and tenure.' },
   handoff: { title: 'Continue to Lender', purpose: 'Hands the user over to the chosen lender to complete the application.' },
   lenderweb: { title: 'Lender Application', purpose: "The lender's own application form, opened inside the app." },
+  altweb: { title: 'More Lender Offers', purpose: "Alternative lenders' offers, opened inside the app with the user's details prefilled." },
   status: { title: 'Application Status', purpose: "Progress of the user's application with the lender." },
   disbursed: { title: 'Loan Disbursed', purpose: 'Confirmation that the loan amount has been disbursed.' },
   repay: { title: 'Repayment', purpose: 'EMI schedule and repayments for an active loan.' },

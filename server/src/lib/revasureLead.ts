@@ -11,7 +11,8 @@
  *
  * The bearer token / basket id are SECRETS — env (REVASURE_TOKEN /
  * REVASURE_BASKET_ID), never the DB or app bundle, like the Aurix/Yubi secrets.
- * UAT values from the Create Lead API sheet are the hardcoded fallback.
+ * The UAT base URL / basket id are the fallback; the token has NO fallback
+ * (unset = integration disabled) so no credential lives in source.
  *
  * Fields Revasure needs that our offer funnel doesn't collect (title, occupation
  * code, is_mobile_verified, otp + its timestamp, consent, ip_address) are
@@ -27,12 +28,9 @@ const log = scoped('revasure');
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 
-// UAT defaults from the "API details" sheet. A real production launch sets the
-// REVASURE_* keys to prod values.
+// UAT defaults (non-secret). The bearer token is env-only: REVASURE_TOKEN.
 const UAT_BASE = 'http://13.126.208.232';
 const UAT_BASKET_ID = 'b_1t436is';
-const UAT_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkaXN0cmlidXRvcl9pZCI6ImRfNWwyZDZnNCIsInNvdXJjZV9pZCI6InNyY181cjlvcmF3IiwidHlwZSI6ImxlYWRfc291cmNlIiwiaWF0IjoxNzkxMjgwNjExLCJleHAiOjE4NTQzOTU4MTF9.uvvD4kRMUqgyGBOPGx7JQiBZkqYSOBsUGwpZAwZDWk0';
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -61,7 +59,7 @@ function transportAllowed(baseUrl: string): boolean {
 export function revasureConfig(): RevasureConfig {
   const baseUrl = (process.env.REVASURE_BASE_URL || UAT_BASE).replace(/\/+$/, '');
   const basketId = process.env.REVASURE_BASKET_ID || UAT_BASKET_ID;
-  const token = process.env.REVASURE_TOKEN || UAT_TOKEN;
+  const token = process.env.REVASURE_TOKEN || '';
   const product = process.env.REVASURE_PRODUCT || 'Personal Loan';
   const enabled =
     process.env.REVASURE_ENABLED !== 'false' && !!baseUrl && !!basketId && !!token && transportAllowed(baseUrl);
