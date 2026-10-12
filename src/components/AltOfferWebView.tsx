@@ -46,11 +46,17 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
     { key: 'employmentType', kind: 'choice', labels: ['employment type', 'employment'] },
     { key: 'companyName', kind: 'text', names: ['company_name', 'companyName', 'company', 'employer'], placeholders: ['name of company', 'company name'], labels: ['company name', 'company', 'employer'] },
     { key: 'monthlyIncome', kind: 'text', names: ['monthly_income', 'monthlyIncome', 'income'], placeholders: ['enter monthly income', 'monthly income'], labels: ['monthly income'] },
-    { key: 'loanAmount', kind: 'text', names: ['loan_amount', 'loanAmount', 'requested_amount'], placeholders: ['enter loan amount', 'loan amount'], labels: ['loan amount', 'requested loan amount'] },
-    { key: 'addressLine1', kind: 'text', names: ['address_line_1', 'addressLine1', 'address1', 'addr1'], placeholders: ['address line 1', 'address 1', 'flat', 'house no'], labels: ['address line 1', 'address 1'] },
-    { key: 'addressLine2', kind: 'text', names: ['address_line_2', 'addressLine2', 'address2', 'addr2'], placeholders: ['address line 2', 'address 2', 'street', 'locality', 'area'], labels: ['address line 2', 'address 2'] },
-    { key: 'city', kind: 'text', names: ['city', 'town', 'district'], placeholders: ['city', 'town'], labels: ['city', 'town'] },
-    // State is usually a MUI dropdown on YMPL (also handles a native <select>).
+    // Known params, so the post-selection detail steps (address/KYC/loan form shown after
+    // the user selects an offer and taps Proceed) auto-fill whatever we already have.
+    // Anything we don't know stays blank for the user to type. 'gender' is a radio/chip
+    // (choice); State is usually a MUI dropdown on YMPL (also handles a native <select>);
+    // the rest are text/number fields. loanAmount is in rupees (application amount is
+    // stored in rupees, 25k–15L). Union of the develop and main matchers.
+    { key: 'gender', kind: 'choice', labels: ['gender'] },
+    { key: 'loanAmount', kind: 'text', names: ['loan_amount', 'loanAmount', 'requested_amount', 'requestedAmount', 'desired_amount'], placeholders: ['enter loan amount', 'loan amount', 'amount you need', 'desired loan amount'], labels: ['loan amount', 'requested loan amount', 'required loan amount', 'desired loan amount', 'amount required'] },
+    { key: 'addressLine1', kind: 'text', names: ['address_line_1', 'address_line1', 'addressLine1', 'address1', 'addressLine', 'addr1', 'address'], placeholders: ['address line 1', 'address 1', 'flat', 'house no', 'house', 'street', 'address'], labels: ['address line 1', 'address 1', 'current address', 'residential address', 'address'] },
+    { key: 'addressLine2', kind: 'text', names: ['address_line_2', 'address_line2', 'addressLine2', 'address2', 'addr2'], placeholders: ['address line 2', 'address 2', 'street', 'locality', 'area', 'landmark'], labels: ['address line 2', 'address 2'] },
+    { key: 'city', kind: 'text', names: ['city', 'town', 'district'], placeholders: ['city', 'town'], labels: ['city', 'town', 'district'] },
     { key: 'state', kind: 'select', names: ['state'], placeholders: ['state'], labels: ['state'] },
   ];
   return `(function(){try{
@@ -93,6 +99,44 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         el.style.setProperty('background','transparent','important');
         el.style.setProperty('background-color','transparent','important');
         el.__yubiBar=true;
+      }
+    }catch(e){} }
+    // Hide the partner's "Powered by Yubi markets" footer attribution — the
+    // embedded journey is presented as SwiftLoan's own "Explore lenders", so no
+    // aggregator name is surfaced. Targets only the small footer line (text
+    // begins with "powered by" and is short), never a content container.
+    function hideBranding(){ try{
+      var all=document.body?document.body.getElementsByTagName('*'):[];
+      for(var i=0;i<all.length;i++){ var el=all[i]; if(el.__yubiHidBrand)continue;
+        var t=norm(el.textContent);
+        if(t.length>40 || t.indexOf('poweredby')!==0) continue;   // footer line only
+        el.style.setProperty('display','none','important');
+        el.__yubiHidBrand=true;
+      }
+    }catch(e){} }
+    // Auto-select the offer ONLY when the page shows exactly one — so Proceed
+    // becomes enabled without the user having to tap the lone card. This never
+    // runs with multiple offers (we must not choose among alternatives for the
+    // user), and it only selects the offer — it never presses Proceed, Continue
+    // or any consent. Fires once.
+    function autoSelectSingleOffer(){ try{
+      if(window.__yubiAutoSel) return;
+      var bt=((document.body&&document.body.innerText)||'').toLowerCase();
+      if(!(/loan offers for you/.test(bt) || /offers\\s*\\(\\d/.test(bt))) return;   // offers page only
+      var m=bt.match(/offers\\s*\\((\\d+)\\)/);
+      if(m && m[1]!=='1') return;                                                   // exactly one offer
+      // Prefer a native radio: exactly one, unchecked → select it.
+      var radios=document.querySelectorAll('input[type="radio"]');
+      if(radios.length===1 && !radios[0].checked){ window.__yubiAutoSel=true; try{ radios[0].click(); }catch(e){} return; }
+      // Fallback: click the single offer card itself (the element holding the
+      // loan amount), not a link/button inside it (so we never hit View Document
+      // or Proceed). Keep it to a card-sized node, not a big page container.
+      var nodes=document.querySelectorAll('div,li,label');
+      for(var i=0;i<nodes.length;i++){ var el=nodes[i];
+        var t=norm(el.textContent);
+        if(t.indexOf('getloanupto')<0 || t.length>600) continue;
+        if(el.closest && el.closest('button,a,[role="button"]')) continue;
+        window.__yubiAutoSel=true; try{ el.click(); }catch(e){} return;
       }
     }catch(e){} }
     var TEXT={text:1,email:1,tel:1,number:1,search:1,url:1,'':1};
@@ -180,6 +224,8 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
     var prevDone=0;
     function run(){
       neutralizeBars();
+      hideBranding();
+      autoSelectSingleOffer();
       for(var i=0;i<SPECS.length;i++){ var s=SPECS[i]; var val=DATA[s.key];
         if(val===null||val===undefined||val==='')continue;
         if(s.kind==='date')fillDate(s,val);
@@ -202,6 +248,17 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         if(/loan offers for you/i.test(bt) || /offers\\s*\\(\\d/i.test(bt) || /not eligible\\s*\\(\\d/i.test(bt)){
           window.__yubiOffersPosted=true;
           try{ window.ReactNativeWebView.postMessage(JSON.stringify({ type:'YUBI_OFFERS_READY' })); }catch(e){}
+        }
+      }
+      // Detect the partner's own in-page error ("Something went wrong …") — it's
+      // a 200 page, so the WebView's onError never fires. The first token/session
+      // occasionally lands here; the app silently re-mints once (same as the
+      // refresh icon), which reliably reaches offers.
+      if(!window.__yubiErrPosted){
+        var et=((document.body&&document.body.innerText)||'').toLowerCase();
+        if(/something went wrong|unexpected error occurred|return to your lender/.test(et)){
+          window.__yubiErrPosted=true;
+          try{ window.ReactNativeWebView.postMessage(JSON.stringify({ type:'YUBI_ERROR' })); }catch(e){}
         }
       }
     }
@@ -235,12 +292,16 @@ export default function AltOfferWebView({
   prefill,
   onProceed,
   onBack,
+  onPartnerError,
   waitForOffers = false,
 }: {
   url: string;
   prefill?: Record<string, string | number | null>;
   onProceed?: (label?: string) => void;
   onBack?: () => void;
+  // The partner page rendered its own "Something went wrong" error (a 200 page,
+  // so onError can't see it). The parent can silently re-mint once.
+  onPartnerError?: () => void;
   // When the referral already has offers, the journey resumes straight to its
   // offers page — hold the branded loader over the auto-advancing intermediate
   // screens (DOB etc.) until offers actually show, so none of them flash.
@@ -268,6 +329,8 @@ export default function AltOfferWebView({
     // other intermediate screens should stay hidden behind the loader).
     else if (msg?.type === 'YUBI_STEP_FILLED') { if (!waitForOffers) hideLoader(); }
     else if (msg?.type === 'YUBI_PROCEED') onProceed?.(msg.label);
+    // Keep the loader up (don't reveal the error) and let the parent re-mint.
+    else if (msg?.type === 'YUBI_ERROR') { setLoading(true); onPartnerError?.(); }
   };
 
   if (!url || failed) {

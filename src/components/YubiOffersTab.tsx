@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Pressable } from 'react-native';
 import Icon from './Icon';
 import { LogoMark } from './Logo';
@@ -25,8 +25,14 @@ export default function YubiOffersTab({ onApply }: { onApply: () => void }) {
   const [prefill, setPrefill] = useState<Record<string, string | number | null>>({});
   const [resumeToOffers, setResumeToOffers] = useState(false);
 
-  const load = useCallback(async () => {
+  // The partner's first token/session occasionally lands on its "Something went
+  // wrong" page; a fresh re-mint reliably reaches offers. Silently re-mint once
+  // per journey so the user never sees that error on the first open.
+  const retriedRef = useRef(false);
+
+  const load = useCallback(async (isRetry = false) => {
     if (!appId) { setPhase('error'); return; }
+    if (!isRetry) retriedRef.current = false;
     setPhase('loading');
     try {
       const r = await api.altOfferRedirect(appId);
@@ -50,8 +56,8 @@ export default function YubiOffersTab({ onApply }: { onApply: () => void }) {
     if (!appId) return;
     // Don't pass the button's own text ("proceed") as the lender — we don't
     // reliably know which lender they picked, so the card shows "Yubi Markets".
-    api.altOfferApplied(appId).catch(() => {});
-    showToast(t.altAddedToLoans);
+    // Idempotent: only toast the first time (the partner resume re-emits Proceed).
+    api.altOfferApplied(appId).then(r => { if (!r.alreadyApplied) showToast(t.altAddedToLoans); }).catch(() => {});
   };
 
   // No eligibility run yet → nothing to refer. Prompt to apply.
@@ -84,7 +90,7 @@ export default function YubiOffersTab({ onApply }: { onApply: () => void }) {
         <Icon name="public_off" size={38} color={colors.red} />
         <Text style={[font(700), styles.title]}>{t.altOffersErrorTitle}</Text>
         <Text style={[font(400), styles.sub]}>{t.altOffersErrorBody}</Text>
-        <Pressable style={styles.retry} onPress={load}>
+        <Pressable style={styles.retry} onPress={() => load()}>
           <Icon name="refresh" size={18} color="#fff" />
           <Text style={[font(700), { color: '#fff' }]}>{t.retryLabel}</Text>
         </Pressable>
@@ -92,7 +98,16 @@ export default function YubiOffersTab({ onApply }: { onApply: () => void }) {
     );
   }
 
-  return <AltOfferWebView url={url} prefill={prefill} onProceed={onProceed} onBack={load} waitForOffers={resumeToOffers} />;
+  return (
+    <AltOfferWebView
+      url={url}
+      prefill={prefill}
+      onProceed={onProceed}
+      onBack={() => load()}
+      onPartnerError={() => { if (!retriedRef.current) { retriedRef.current = true; load(true); } }}
+      waitForOffers={resumeToOffers}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
