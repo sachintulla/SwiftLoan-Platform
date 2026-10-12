@@ -20,7 +20,7 @@ export const SCREEN_INFO: Record<string, ScreenInfo> = {
   intro: { title: 'Get Started', purpose: 'Welcome page with the Get Started button, before sign-in.' },
   mobile: { title: 'Enter Mobile Number', purpose: 'The user enters their mobile number to receive an OTP.' },
   otp: { title: 'Verify OTP', purpose: 'The user enters the OTP sent by SMS to verify their number.' },
-  permissions: { title: 'Allow Permissions', purpose: 'Explains and asks for notification, camera and location permissions.' },
+  permissions: { title: 'Allow Permissions', purpose: 'Explains and asks for notification and camera permissions.' },
   aboutyou: { title: 'About You', purpose: 'Basic profile: name, date of birth, gender, email and pincode. Can be skipped.' },
   home: { title: 'Home', purpose: 'Dashboard with the Apply for Loan button, available lender offers and shortcuts.' },
   loans: { title: 'My Loans', purpose: "The user's loan applications and their status." },

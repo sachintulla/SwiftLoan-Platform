@@ -172,9 +172,7 @@ export const STR: Record<string, Record<string, string>> = {
         // permissions
         permTitle: 'Permissions', permSub: 'To assess your eligibility and complete KYC securely, SwiftLoan needs a few permissions.',
         permNotifDesc: 'Stay updated on your EMIs, offers and application status.',
-        permSms: 'SMS', permSmsDesc: 'We read transaction SMS from 6-digit sender IDs for credit-risk assessment. Collected one time only.',
         permCamera: 'Camera', permCameraDesc: 'To capture your selfie and documents for KYC and underwriting.',
-        permLocation: 'Location', permLocationDesc: 'For profile enrichment and fraud checks. Collected one time only.',
         permLockNote: 'Your data is encrypted and used only for your loan application. You can review or withdraw consent anytime in Profile.',
         permRequesting: 'Requesting…', permAllow: 'Allow permissions',
         // aboutyou
@@ -518,9 +516,7 @@ export const STR: Record<string, Record<string, string>> = {
         // permissions
         permTitle: 'परमिशन्स', permSub: 'आपकी एलिजिबिलिटी चेक करने और KYC सिक्योरली पूरा करने के लिए SwiftLoan को कुछ परमिशन्स चाहिए।',
         permNotifDesc: 'अपनी EMI, ऑफर्स और एप्लिकेशन स्टेटस पर अपडेटेड रहें।',
-        permSms: 'SMS', permSmsDesc: 'क्रेडिट-रिस्क असेसमेंट के लिए हम 6-digit सेंडर IDs से ट्रांज़ैक्शन SMS पढ़ते हैं। सिर्फ एक बार लिया जाता है।',
         permCamera: 'कैमरा', permCameraDesc: 'KYC और अंडरराइटिंग के लिए आपकी सेल्फी और डॉक्यूमेंट्स कैप्चर करने के लिए।',
-        permLocation: 'लोकेशन', permLocationDesc: 'प्रोफाइल एनरिचमेंट और फ्रॉड चेक्स के लिए। सिर्फ एक बार लिया जाता है।',
         permLockNote: 'आपका डेटा एन्क्रिप्टेड है और सिर्फ आपकी लोन एप्लिकेशन के लिए इस्तेमाल होता है। आप प्रोफाइल में कभी भी कंसेंट देख या विदड्रॉ कर सकते हैं।',
         permRequesting: 'रिक्वेस्ट हो रहा है…', permAllow: 'परमिशन्स अलाउ करें',
         // aboutyou
@@ -859,9 +855,7 @@ export const STR: Record<string, Record<string, string>> = {
         // permissions
         permTitle: 'పర్మిషన్స్', permSub: 'మీ ఎలిజిబిలిటీ చెక్ చేయడానికి, KYC ని సెక్యూర్‌లీ పూర్తి చేయడానికి SwiftLoan కి కొన్ని పర్మిషన్స్ అవసరం.',
         permNotifDesc: 'మీ EMIలు, ఆఫర్స్, అప్లికేషన్ స్టేటస్ పై అప్‌డేటెడ్ గా ఉండండి.',
-        permSms: 'SMS', permSmsDesc: 'క్రెడిట్-రిస్క్ అసెస్‌మెంట్ కోసం మేము 6-digit సెండర్ IDs నుంచి ట్రాన్సాక్షన్ SMS చదువుతాం. ఒక్కసారి మాత్రమే తీసుకుంటాం.',
         permCamera: 'కెమెరా', permCameraDesc: 'KYC, అండర్‌రైటింగ్ కోసం మీ సెల్ఫీ, డాక్యుమెంట్స్ క్యాప్చర్ చేయడానికి.',
-        permLocation: 'లొకేషన్', permLocationDesc: 'ప్రొఫైల్ ఎన్‌రిచ్‌మెంట్, ఫ్రాడ్ చెక్స్ కోసం. ఒక్కసారి మాత్రమే తీసుకుంటాం.',
         permLockNote: 'మీ డేటా ఎన్‌క్రిప్టెడ్ గా ఉంది, మీ లోన్ అప్లికేషన్ కోసం మాత్రమే యూజ్ అవుతుంది. మీరు ప్రొఫైల్ లో ఎప్పుడైనా కన్సెంట్ ని రివ్యూ చేయవచ్చు లేదా విత్‌డ్రా చేసుకోవచ్చు.',
         permRequesting: 'రిక్వెస్ట్ అవుతోంది…', permAllow: 'పర్మిషన్స్ అలో చేయండి',
         // aboutyou
