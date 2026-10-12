@@ -9,7 +9,23 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/altOffers', () => api);
 
-import { GetMoreOffers } from './GetMoreOffers';
+import { GetMoreOffers as Button } from './GetMoreOffers';
+import { AltOfferConfirm } from './AltOfferConfirm';
+import { useAltOffer } from '@/hooks/useAltOffer';
+import { PENDING_KEY, MIN_AWAY_MS } from '@/lib/altOfferLogic';
+
+/** Mirrors the offers page: ONE controller shared by every button, one confirmation dialog. */
+function GetMoreOffers({ applicationId, variant, count = 1 }: { applicationId: string | null; variant?: 'default' | 'empty'; count?: number }) {
+  const alt = useAltOffer(applicationId);
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <Button key={i} alt={alt} variant={variant} />
+      ))}
+      <AltOfferConfirm open={alt.asking} onAnswer={alt.answer} />
+    </>
+  );
+}
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -21,7 +37,7 @@ afterEach(() => {
   Object.values(api).forEach((m) => m.mockReset());
 });
 
-const card = () => screen.findByTestId('get-more-offers');
+const card = async () => (await screen.findAllByTestId('get-more-offers'))[0];
 
 describe('Get more offers button', () => {
   it('shows a "Get more offers" button when the flag is on and there is an application', async () => {
@@ -72,5 +88,30 @@ describe('Get more offers button', () => {
     render(<GetMoreOffers applicationId="app-1" />);
     fireEvent.click((await card()).querySelector('button')!);
     expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn't open partner offers/);
+  });
+
+  it('can appear at the top AND the bottom of the page: both work, and there is a single question', async () => {
+    render(<GetMoreOffers applicationId="app-1" count={2} />);
+    await screen.findAllByTestId('get-more-offers');
+    expect(screen.getAllByRole('button', { name: /Get more offers/ })).toHaveLength(2);
+
+    const assign = vi.fn();
+    const real = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...real, assign } });
+    try {
+      fireEvent.click(screen.getAllByRole('button', { name: /Get more offers/ })[0]);
+      await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+      // both buttons reflect that a visit is in progress
+      screen.getAllByRole('button', { name: /Get more offers|Taking you/ }).forEach((b) => expect(b.getAttribute('aria-busy')).toBe('true'));
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: real });
+    }
+  });
+
+  it('asks "did you proceed?" only once even with two buttons on the page', async () => {
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify({ applicationId: 'app-1', openedAt: Date.now() - MIN_AWAY_MS - 5000 }));
+    render(<GetMoreOffers applicationId="app-1" count={2} />);
+    await screen.findAllByTestId('get-more-offers');
+    expect(await screen.findAllByTestId('alt-confirm-yes')).toHaveLength(1);
   });
 });

@@ -3,24 +3,26 @@
 import { ChevronRight, Loader2, Sparkles } from 'lucide-react';
 import { useCopy } from '@/lib/i18n';
 import { altOffersCopy } from '@/i18n/apply-altoffers';
-import { useAltOffer } from '@/hooks/useAltOffer';
-import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
+import type { useAltOffer } from '@/hooks/useAltOffer';
 
 /**
  * "Get more offers" — the website twin of the app's alternative-offers tile.
  * `variant="default"` sits below the matched offers; `variant="empty"` replaces the
  * dead end when nothing matched. Clicking takes the visitor to the partner journey
  * in this tab. Renders nothing until the server flag is on and an application exists.
+ *
+ * Presentational: the page owns ONE `useAltOffer` and passes it to every button (top and
+ * bottom), so there is a single "did you proceed?" question and one set of listeners.
  */
 export function GetMoreOffers({
-  applicationId,
+  alt,
   variant = 'default',
 }: {
-  applicationId: string | null | undefined;
+  alt: ReturnType<typeof useAltOffer>;
   variant?: 'default' | 'empty';
 }) {
   const t = useCopy(altOffersCopy);
-  const { available, opening, error, asking, added, open, answer } = useAltOffer(applicationId);
+  const { available, opening, error, added, open } = alt;
   const empty = variant === 'empty';
 
   return (
@@ -63,7 +65,6 @@ export function GetMoreOffers({
           )}
         </div>
       )}
-      <AltOfferConfirm open={asking} onAnswer={answer} />
     </>
   );
 }

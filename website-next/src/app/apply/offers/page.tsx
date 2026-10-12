@@ -11,6 +11,8 @@ import { useAccountUser } from '@/hooks/useAccountUser';
 import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
 import { GetMoreOffers } from '@/components/apply/GetMoreOffers';
+import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
+import { useAltOffer } from '@/hooks/useAltOffer';
 import { ArrowRight, Lock, Scale, ShieldCheck } from 'lucide-react';
 import { useCopy } from '@/lib/i18n';
 import { applyOffersCopy } from '@/i18n/apply-offers';
@@ -32,6 +34,8 @@ export default function OffersPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const { apply: pickOffer, applyingId, error: applyError } = useApplyToOffer();
   const error = loadError ?? applyError;
+  // One partner-journey controller for every "Get more offers" button on the page.
+  const alt = useAltOffer(applicationId);
   const load = useCallback(() => {
     setLoading(true);
     setLoadError(null);
@@ -145,7 +149,7 @@ export default function OffersPage() {
                 </button>
               </div>
               <div className="mx-auto mt-6 max-w-xl text-left">
-                <GetMoreOffers applicationId={applicationId} variant="empty" />
+                <GetMoreOffers alt={alt} variant="empty" />
               </div>
             </div>
           ) : app?.status === 'failed' ? (
@@ -164,7 +168,7 @@ export default function OffersPage() {
                 </button>
               </div>
               <div className="mx-auto mt-6 max-w-xl text-left">
-                <GetMoreOffers applicationId={applicationId} variant="empty" />
+                <GetMoreOffers alt={alt} variant="empty" />
               </div>
             </div>
           ) : (
@@ -183,7 +187,7 @@ export default function OffersPage() {
                 </button>
               </div>
               <div className="mx-auto mt-6 max-w-xl text-left">
-                <GetMoreOffers applicationId={applicationId} variant="empty" />
+                <GetMoreOffers alt={alt} variant="empty" />
               </div>
             </div>
           )
@@ -195,7 +199,7 @@ export default function OffersPage() {
             </p>
             <PrimaryButton onClick={() => router.push(`/account/${applicationId}`)}>{t.goToApplications}</PrimaryButton>
             <div className="mx-auto mt-6 max-w-xl text-left">
-              <GetMoreOffers applicationId={applicationId} />
+              <GetMoreOffers alt={alt} />
             </div>
           </div>
         ) : (
@@ -228,6 +232,8 @@ export default function OffersPage() {
                 </p>
               )}
             </div>
+
+            <GetMoreOffers alt={alt} />
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,420px),1fr))] items-stretch gap-5">
             {offers.map((offer) => {
@@ -316,7 +322,7 @@ export default function OffersPage() {
             })}
             </div>
 
-            <GetMoreOffers applicationId={applicationId} />
+            <GetMoreOffers alt={alt} />
 
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-xs">
               <strong className="text-foreground">{t.validityLabel}</strong> {t.validityBody}
@@ -325,6 +331,7 @@ export default function OffersPage() {
         )}
         {error && <p className="text-danger text-xs font-semibold">{error}</p>}
       </div>
+      <AltOfferConfirm open={alt.asking} onAnswer={alt.answer} />
     </ApplyShell>
   );
 }
