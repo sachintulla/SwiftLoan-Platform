@@ -207,15 +207,14 @@ export default function CompliancePage() {
         <section className="block" id="contact">
           <h2><span className="msi">apartment</span> Entity &amp; contact</h2>
           <div className="contact-row"><span className="msi">business</span> <div><b>SwiftLoan.ai</b> (Lending Service Provider / Digital Lending App)</div></div>
-          <div className="contact-row"><span className="msi">domain</span> <div>SwiftLoan is a brand of <b>Purpletalk India Private Limited</b> · GSTIN: 36AAFCP5544A1ZO</div></div>
-          <div className="contact-row"><span className="msi">location_on</span> Registered office: [Address to be added], India</div>
+          <div className="contact-row"><span className="msi">domain</span> <div>SwiftLoan is a brand of <b>Purple Talk India Private Limited</b> · GSTIN: 36AAFCP5544A1ZO</div></div>
+          <div className="contact-row"><span className="msi">location_on</span> Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084</div>
           <div className="contact-row"><span className="msi">mail</span> <a href="mailto:support@swiftloan.ai">support@swiftloan.ai</a> · <a href="mailto:grievance@swiftloan.ai">grievance@swiftloan.ai</a></div>
-          <div className="callout">Placeholders such as CIN, GSTIN, registered address, officer name and toll-free number must be filled with the real entity&apos;s verified details before this site is used in production.</div>
         </section>
       </div>
 
       <footer className="f wrap">
-        <p>© <span>{year}</span> SwiftLoan.ai — SwiftLoan is a brand of Purpletalk India Private Limited (GSTIN: 36AAFCP5544A1ZO). SwiftLoan.ai is a Lending Service Provider and does not lend directly. Loans are provided by RBI-regulated banks and NBFCs at their sole discretion. Please read the Key Fact Statement and all loan documents before borrowing. This page does not constitute financial advice or a loan offer.</p>
+        <p>© <span>{year}</span> SwiftLoan.ai — SwiftLoan is a brand of Purple Talk India Private Limited (GSTIN: 36AAFCP5544A1ZO). SwiftLoan.ai is a Lending Service Provider and does not lend directly. Loans are provided by RBI-regulated banks and NBFCs at their sole discretion. Please read the Key Fact Statement and all loan documents before borrowing. This page does not constitute financial advice or a loan offer.</p>
         <p style={{ marginTop: 10 }}><Link href="/">← Back to SwiftLoan.ai</Link></p>
       </footer>
     </div>
