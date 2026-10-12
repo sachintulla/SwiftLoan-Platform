@@ -143,7 +143,18 @@ export default function BasicPan() {
       const result = await api.verifyPan(pan);
       mergeApiContext({ panValidationResult: { ok: result.verified, ...(result.verified ? {} : { error: result.message }) } });
       if (!result.verified) {
-        setAlert({ tone: 'error', message: result.message || t.panVerifyFail });
+        // The bureau returned no usable record for this PAN (e.g. "No record
+        // found for the given input"). Don't dead-end the funnel with a blocking
+        // error — carry the entered PAN forward and let the user fill in / confirm
+        // their details manually on the next step. We deliberately do NOT set
+        // panPrefill, so the details step shows the user's existing entries (from
+        // About You) or empty fields, and never a false "PAN verified" card.
+        set({ panNumber: pan });
+        if (state.applicationId) {
+          api.updateApplication(state.applicationId, { panNumber: pan }).catch(() => {});
+        }
+        showToast(t.panManualEntry);
+        go('basic');
         return;
       }
       set({ panNumber: pan, panPrefill: { pan, prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked ?? null } });
