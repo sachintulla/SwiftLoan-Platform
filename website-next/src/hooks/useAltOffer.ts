@@ -28,7 +28,7 @@ function writePending(p: PendingAltOffer | null) {
   }
 }
 
-/** Server flag (GET /config/features) — false until known, so the tile never flashes in then out. */
+/** Server flag (GET /config/features) — false until known, so the button never flashes in then out. */
 export function useAltOffersEnabled(): boolean {
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -42,15 +42,15 @@ export function useAltOffersEnabled(): boolean {
 }
 
 /**
- * Opens the partner (Yubi / YMPL) journey for an application and, when the
- * visitor comes back, asks whether they proceeded (the website can't see inside
- * the partner page the way the app's WebView does) → POST /alt-offer/applied.
+ * "Get more offers": takes the visitor to the partner (Yubi / YMPL) journey in
+ * THIS tab — a normal top-level navigation, which the partner allows (unlike
+ * framing it in an iframe, which it blocks) — and, when they come back, asks
+ * whether they proceeded (the website can't see inside the partner page the way
+ * the app's WebView does) → POST /alt-offer/applied.
  *
- * The journey opens in a NEW tab. The tab is opened synchronously inside the
- * click (before the async redirect-URL request) so popup blockers allow it; if
- * it is blocked anyway we continue in this tab. `sl_alt_pending` in
- * sessionStorage survives either path, so the question is asked wherever the
- * visitor lands next (offers page, My Applications, /partner/return).
+ * The partner sends the applicant back to /partner/return (server YUBI_RETURN_URL);
+ * `sl_alt_pending` in sessionStorage survives the round trip, so the question is
+ * asked wherever they land (that page, or the offers page via the browser's Back).
  */
 export function useAltOffer(applicationId: string | null | undefined) {
   const t = useCopy(altOffersCopy);
@@ -67,17 +67,22 @@ export function useAltOffer(applicationId: string | null | undefined) {
     if (shouldPromptAfterReturn(readPending(), Date.now(), applicationId)) setAsking(true);
   }, [applicationId]);
 
-  // Ask on arrival (same-tab flow) and whenever the tab becomes visible again (new-tab flow).
+  // Ask on arrival, and whenever the page becomes visible again (Back / bfcache restore, tab focus).
   useEffect(() => {
     check();
     const onVisible = () => {
       if (document.visibilityState === 'visible') check();
     };
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) check();
+    };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', check);
+    window.addEventListener('pageshow', onShow);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', check);
+      window.removeEventListener('pageshow', onShow);
     };
   }, [check]);
 
@@ -87,63 +92,33 @@ export function useAltOffer(applicationId: string | null | undefined) {
     setOpening(true);
     setError(null);
     setAdded(false);
-    // Must happen synchronously in the click handler or popup blockers refuse it.
-    let win: Window | null = null;
-    try {
-      win = window.open('', '_blank');
-      if (win) {
-        win.opener = null; // the partner page gets no handle back to us
-        win.document.title = 'SwiftLoan';
-        win.document.body.style.cssText = 'font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;color:#0A3F41';
-        win.document.body.textContent = tRef.current.openingTab;
-      }
-    } catch {
-      win = null;
-    }
     try {
       const alt = await requestAltOffer(applicationId);
       if (alt?.available && alt.redirectUrl) {
         writePending({ applicationId, openedAt: Date.now() });
-        if (win) win.location.href = alt.redirectUrl;
-        else window.location.assign(alt.redirectUrl); // popup blocked → continue here
-      } else {
-        win?.close();
-        setError(tRef.current.openFailed);
+        window.location.assign(alt.redirectUrl); // leaves the page — keep the button busy
+        return;
       }
-    } catch {
-      win?.close();
       setError(tRef.current.openFailed);
-    } finally {
-      setOpening(false);
-      busy.current = false;
+    } catch {
+      setError(tRef.current.openFailed);
     }
+    setOpening(false);
+    busy.current = false;
   }, [applicationId]);
 
-  const answer = useCallback(
-    async (proceeded: boolean) => {
-      const pending = readPending();
-      writePending(null);
-      setAsking(false);
-      if (!proceeded || !pending) return false;
-      try {
-        const r = await markAltOfferApplied(pending.applicationId);
-        setAdded(!!r.applied);
-        return !!r.applied;
-      } catch {
-        return false; // best-effort, like the app (fire-and-forget)
-      }
-    },
-    [],
-  );
-
-  /** The journey is on screen (embedded) — remember it so leaving / returning triggers the question. */
-  const markOpened = useCallback(() => {
-    if (applicationId) writePending({ applicationId, openedAt: Date.now() });
-  }, [applicationId]);
-
-  /** Ask now regardless of elapsed time (the embedded journey told us the visitor finished and came back). */
-  const askNow = useCallback(() => {
-    if (readPending()) setAsking(true);
+  const answer = useCallback(async (proceeded: boolean) => {
+    const pending = readPending();
+    writePending(null);
+    setAsking(false);
+    if (!proceeded || !pending) return false;
+    try {
+      const r = await markAltOfferApplied(pending.applicationId);
+      setAdded(!!r.applied);
+      return !!r.applied;
+    } catch {
+      return false; // best-effort, like the app (fire-and-forget)
+    }
   }, []);
 
   return {
@@ -154,8 +129,5 @@ export function useAltOffer(applicationId: string | null | undefined) {
     added,
     open,
     answer,
-    check,
-    markOpened,
-    askNow,
   };
 }

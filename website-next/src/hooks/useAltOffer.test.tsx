@@ -18,10 +18,8 @@ function Harness({ applicationId }: { applicationId: string | null }) {
   return (
     <div>
       <span data-testid="available">{String(alt.available)}</span>
+      <span data-testid="opening">{String(alt.opening)}</span>
       <button onClick={alt.open}>open</button>
-      <button onClick={alt.markOpened}>mark</button>
-      <button onClick={alt.askNow}>ask-now</button>
-      <button onClick={alt.check}>check</button>
       {alt.error && <p role="alert">{alt.error}</p>}
       {alt.added && <p role="status">added</p>}
       <AltOfferConfirm open={alt.asking} onAnswer={alt.answer} />
@@ -29,11 +27,16 @@ function Harness({ applicationId }: { applicationId: string | null }) {
   );
 }
 
-function fakeWindow() {
-  return { opener: 'x' as unknown, location: { href: '' }, close: vi.fn(), document: { title: '', body: { style: { cssText: '' }, textContent: '' } } };
-}
 const setPending = (ago: number, applicationId = 'app-1') =>
   sessionStorage.setItem(PENDING_KEY, JSON.stringify({ applicationId, openedAt: Date.now() - ago }));
+
+/** jsdom can't navigate; swap location for a recorder. */
+function stubLocation() {
+  const assign = vi.fn();
+  const real = window.location;
+  Object.defineProperty(window, 'location', { configurable: true, value: { ...real, assign } });
+  return { assign, restore: () => Object.defineProperty(window, 'location', { configurable: true, value: real }) };
+}
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -64,48 +67,43 @@ describe('availability (same rule as the app: server flag + an application)', ()
   });
 });
 
-describe('open in a new tab (used when the partner forbids framing)', () => {
-  it('opens the tab inside the click, then points it at the minted URL and remembers it', async () => {
-    const win = fakeWindow();
-    const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window);
-    render(<Harness applicationId="app-1" />);
-    fireEvent.click(screen.getByText('open'));
-    expect(open).toHaveBeenCalledWith('', '_blank'); // synchronous → popup blockers allow it
-    expect(win.opener).toBeNull();
-    await waitFor(() => expect(win.location.href).toBe('https://partner.test/j?t=1'));
-    expect(JSON.parse(sessionStorage.getItem(PENDING_KEY)!).applicationId).toBe('app-1');
-  });
-
-  it('continues in the same tab when the popup is blocked', async () => {
-    vi.spyOn(window, 'open').mockReturnValue(null);
-    const assign = vi.fn();
-    const real = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { ...real, assign } });
+describe('Get more offers → the partner journey in this tab', () => {
+  it('mints a fresh URL, remembers the visit, and navigates this tab (no popup, no iframe)', async () => {
+    const open = vi.spyOn(window, 'open');
+    const loc = stubLocation();
     try {
       render(<Harness applicationId="app-1" />);
       fireEvent.click(screen.getByText('open'));
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('https://partner.test/j?t=1'));
+      await waitFor(() => expect(loc.assign).toHaveBeenCalledWith('https://partner.test/j?t=1'));
+      expect(api.requestAltOffer).toHaveBeenCalledWith('app-1');
+      expect(open).not.toHaveBeenCalled();
+      expect(JSON.parse(sessionStorage.getItem(PENDING_KEY)!).applicationId).toBe('app-1');
+      // the page is being left — the button stays busy rather than flashing back to idle
+      expect(screen.getByTestId('opening').textContent).toBe('true');
     } finally {
-      Object.defineProperty(window, 'location', { configurable: true, value: real });
+      loc.restore();
     }
   });
 
   it.each([
     ['partner unavailable', () => api.requestAltOffer.mockResolvedValue({ available: false, redirectUrl: null })],
     ['request error', () => api.requestAltOffer.mockRejectedValue(new Error('401'))],
-  ])('closes the blank tab and reports %s', async (_n, arrange) => {
+  ])('stays on the page and reports %s', async (_n, arrange) => {
     arrange();
-    const win = fakeWindow();
-    vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window);
-    render(<Harness applicationId="app-1" />);
-    fireEvent.click(screen.getByText('open'));
-    expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn't open partner offers/);
-    expect(win.close).toHaveBeenCalled();
-    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+    const loc = stubLocation();
+    try {
+      render(<Harness applicationId="app-1" />);
+      fireEvent.click(screen.getByText('open'));
+      expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn't open partner offers/);
+      expect(loc.assign).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+      expect(screen.getByTestId('opening').textContent).toBe('false'); // can try again
+    } finally {
+      loc.restore();
+    }
   });
 
   it('ignores a second click while one is in flight', async () => {
-    vi.spyOn(window, 'open').mockReturnValue(fakeWindow() as unknown as Window);
     let release!: (v: unknown) => void;
     api.requestAltOffer.mockReturnValue(new Promise((r) => (release = r)));
     render(<Harness applicationId="app-1" />);
@@ -115,9 +113,15 @@ describe('open in a new tab (used when the partner forbids framing)', () => {
     release({ available: false, redirectUrl: null });
     await screen.findByRole('alert');
   });
+
+  it('does nothing without an application', async () => {
+    render(<Harness applicationId={null} />);
+    fireEvent.click(screen.getByText('open'));
+    expect(api.requestAltOffer).not.toHaveBeenCalled();
+  });
 });
 
-describe('"Did you proceed?" after the visitor was on the partner journey', () => {
+describe('"Did you proceed?" when the visitor is back from the partner journey', () => {
   it('asks on arrival after a real absence; Yes records the application', async () => {
     setPending(MIN_AWAY_MS + 5_000);
     render(<Harness applicationId="app-1" />);
@@ -158,24 +162,15 @@ describe('"Did you proceed?" after the visitor was on the partner journey', () =
     expect(await screen.findByTestId('alt-confirm-yes')).toBeTruthy();
   });
 
-  it('check() — used when leaving the Explore tab — asks only after enough time on the journey', async () => {
+  it("asks when the browser's Back restores this page from its cache (pageshow)", async () => {
     render(<Harness applicationId="app-1" />);
     await act(async () => {});
-    fireEvent.click(screen.getByText('mark')); // journey embedded just now
-    fireEvent.click(screen.getByText('check'));
-    expect(screen.queryByTestId('alt-confirm-yes')).toBeNull(); // too soon
-    setPending(MIN_AWAY_MS + 1);
-    fireEvent.click(screen.getByText('check'));
-    expect(await screen.findByTestId('alt-confirm-yes')).toBeTruthy();
-  });
-
-  it('askNow() — the embedded return page reported the visitor is back — asks immediately', async () => {
-    render(<Harness applicationId="app-1" />);
-    await act(async () => {});
-    fireEvent.click(screen.getByText('ask-now')); // nothing pending → nothing to ask
-    expect(screen.queryByTestId('alt-confirm-yes')).toBeNull();
-    fireEvent.click(screen.getByText('mark'));
-    fireEvent.click(screen.getByText('ask-now'));
+    setPending(MIN_AWAY_MS + 5_000);
+    await act(async () => {
+      const e = new Event('pageshow') as Event & { persisted: boolean };
+      e.persisted = true;
+      window.dispatchEvent(e);
+    });
     expect(await screen.findByTestId('alt-confirm-yes')).toBeTruthy();
   });
 

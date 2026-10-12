@@ -349,17 +349,15 @@ Same server endpoints as the app — nothing lender-specific is client-only.
 - **Revasure** needs no client code: the server fires its Create-Lead inside `POST /applications/:id/prequalify`, which the
   website's `/apply/finding` already calls. `REVASURE_TOKEN` is env-only (no fallback in source; unset = disabled), and a
   remote `http://` base needs `REVASURE_ALLOW_INSECURE=true`.
-- **Yubi / YMPL** on the website: `/apply/offers` has the same two tabs as the app's My Offers — **Instant offers | Explore lenders**
-  (`components/apply/ExploreLenders.tsx`, `hooks/useAltOffer.ts`, `lib/altOffers.ts`, pure rules in `lib/altOfferLogic.ts`). The bar
-  shows once an application exists and `GET /config/features` → `altOffers`. "Explore lenders" mints the journey
-  (`POST /alt-offer`) and shows it IN PLACE in an iframe — no navigation. **YMPL currently forbids framing** (`X-Frame-Options: DENY`,
-  `frame-ancestors none`; the app's WebView ignores that, a web page can't), so the server probes the partner's own headers
-  (`probeEmbeddable` in `lib/yubiReferral.ts`) and returns `altOffer.embeddable`; when false the tab shows a "continue in a new tab"
-  card instead of a blank frame. The day Yubi allows our origins (ask them to add the site to `frame-ancestors`), it embeds with no
-  code change. The website can't see the partner's "Proceed" tap, so it asks "Did you proceed?" when the visitor leaves the tab /
-  comes back / the framed `/partner/return` page posts `sl-alt-return` → `POST /alt-offer/applied`; applied referrals appear in
-  My Applications (`partnerReferrals`). `/partner/return` is where YMPL sends the user back (`YUBI_RETURN_URL=https://swiftloan.ai/partner/return`).
-  Voice: `data-voice-gate="explore-lenders"`.
+- **Yubi / YMPL** on the website: a **Get more offers** button (`components/apply/GetMoreOffers.tsx`, `hooks/useAltOffer.ts`,
+  `lib/altOffers.ts`, pure rules in `lib/altOfferLogic.ts`) on `/apply/offers` — below the offers, and as the "nothing matched"
+  variant in the empty states. Shown when `GET /config/features` → `altOffers` and an application exists. Click → `POST /alt-offer`
+  → the SAME tab navigates to the partner journey (a top-level navigation). **It cannot be shown in an iframe**: YMPL sends
+  `X-Frame-Options: DENY` + `frame-ancestors none` (the app's WebView isn't a frame, so it ignores that). Don't re-add an iframe/
+  proxy without Yubi allow-listing our origins. The website can't see the partner's "Proceed" tap, so it asks "Did you proceed?"
+  when the visitor is back (`sl_alt_pending` in sessionStorage; asked on arrival / Back / focus) → `POST /alt-offer/applied`;
+  applied referrals appear in My Applications (`partnerReferrals`). `/partner/return` is where YMPL sends the user back
+  (`YUBI_RETURN_URL=https://swiftloan.ai/partner/return`). Voice: `data-voice-gate="explore-lenders"`.
 - **Local dev behind a TLS-inspecting proxy:** `server/src/lib/devCa.ts` makes outbound `fetch` trust `NODE_EXTRA_CA_CERTS` from `.env`
   (Node only reads that variable at process start, so dotenv alone silently failed → Aurix/Yubi `SELF_SIGNED_CERT_IN_CHAIN`). No-op in production.
 - Website tests: `cd website-next && npm test` (vitest + jsdom); run in CI.

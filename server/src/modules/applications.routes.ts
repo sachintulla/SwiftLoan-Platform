@@ -9,7 +9,7 @@ import { makeRef } from '../utils/ref.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
-import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus, probeEmbeddable } from '../lib/yubiReferral.js';
+import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
 import { scoped } from '../lib/log.js';
 import { advanceReferral } from '../lib/referral.js';
@@ -396,14 +396,9 @@ applicationsRouter.post('/:id/alt-offer', ah(async (req, res) => {
   // so the app keeps its branded loader up until offers show, hiding the flash.
   const { journeyStatus } = await getReferralStatus(app.id, req.user!.sub).catch(() => ({ journeyStatus: null as string | null }));
   const resumeToOffers = /OFFER|APPROV|DISBURS|SANCTION|SELECT|COMPLETE/i.test(String(journeyStatus || ''));
-  // Whether the partner allows our website to frame its journey (the app's WebView
-  // doesn't care). Lets the website's "Explore lenders" tab embed it when possible
-  // and fall back to a new tab when not. Fails closed.
-  const embeddable = redirectUrl ? await probeEmbeddable(redirectUrl, (req.headers.origin as string | undefined) ?? null) : false;
   res.json({
     altOffer: {
       available: !!redirectUrl,
-      embeddable,
       provider: 'ympl',
       status,
       redirectUrl,

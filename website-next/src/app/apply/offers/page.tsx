@@ -10,10 +10,7 @@ import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
-import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
-import { ExploreLenders, OffersTabs, type ExploreTab } from '@/components/apply/ExploreLenders';
-import { useAltOffer } from '@/hooks/useAltOffer';
-import { altOffersCopy } from '@/i18n/apply-altoffers';
+import { GetMoreOffers } from '@/components/apply/GetMoreOffers';
 import { ArrowRight, Lock, Scale, ShieldCheck } from 'lucide-react';
 import { useCopy } from '@/lib/i18n';
 import { applyOffersCopy } from '@/i18n/apply-offers';
@@ -35,19 +32,6 @@ export default function OffersPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const { apply: pickOffer, applyingId, error: applyError } = useApplyToOffer();
   const error = loadError ?? applyError;
-  // Two sources of offers, as in the app's My Offers: matched "Instant offers" and the
-  // partner "Explore lenders" journey shown in place. The tab bar appears once an
-  // application exists and the partner facility is on (same rule as the app).
-  const alt = useAltOffer(applicationId);
-  const ta = useCopy(altOffersCopy);
-  const [tab, setTab] = useState<ExploreTab>('instant');
-  const showTabs = alt.available;
-  const exploring = showTabs && tab === 'explore';
-  const changeTab = (next: ExploreTab) => {
-    if (tab === 'explore' && next !== 'explore') alt.check(); // leaving the journey: ask if they proceeded
-    setTab(next);
-  };
-
   const load = useCallback(() => {
     setLoading(true);
     setLoadError(null);
@@ -138,16 +122,7 @@ export default function OffersPage() {
   return (
     <ApplyShell progressPct={100} accountUser={accountUser} wide>
       <div className="flex flex-col gap-5">
-        {showTabs && <OffersTabs tab={tab} onChange={changeTab} />}
-        {alt.added && (
-          <p className="text-mint text-xs font-semibold" role="status">{ta.added}</p>
-        )}
-        {exploring ? (
-          <div role="tabpanel" id="offers-panel-explore" aria-labelledby="offers-tab-explore">
-            <p className="text-muted-foreground mb-3 text-sm">{ta.exploreSub}</p>
-            <ExploreLenders applicationId={applicationId} alt={alt} />
-          </div>
-        ) : allOffers.length === 0 ? (
+        {allOffers.length === 0 ? (
           // Two real, different situations were showing the exact same copy:
           // a genuine "you don't qualify" decline from Aurix (status
           // 'rejected', with Aurix's own real reason) vs an actual technical
@@ -169,6 +144,9 @@ export default function OffersPage() {
                   {t.retry}
                 </button>
               </div>
+              <div className="mx-auto mt-6 max-w-xl text-left">
+                <GetMoreOffers applicationId={applicationId} variant="empty" />
+              </div>
             </div>
           ) : app?.status === 'failed' ? (
             <div className="py-10 text-center">
@@ -184,6 +162,9 @@ export default function OffersPage() {
                 >
                   {t.retry}
                 </button>
+              </div>
+              <div className="mx-auto mt-6 max-w-xl text-left">
+                <GetMoreOffers applicationId={applicationId} variant="empty" />
               </div>
             </div>
           ) : (
@@ -201,6 +182,9 @@ export default function OffersPage() {
                   {t.retry}
                 </button>
               </div>
+              <div className="mx-auto mt-6 max-w-xl text-left">
+                <GetMoreOffers applicationId={applicationId} variant="empty" />
+              </div>
             </div>
           )
         ) : appliedElsewhere ? (
@@ -210,6 +194,9 @@ export default function OffersPage() {
               {t.appliedBody}
             </p>
             <PrimaryButton onClick={() => router.push(`/account/${applicationId}`)}>{t.goToApplications}</PrimaryButton>
+            <div className="mx-auto mt-6 max-w-xl text-left">
+              <GetMoreOffers applicationId={applicationId} />
+            </div>
           </div>
         ) : (
           <>
@@ -329,6 +316,8 @@ export default function OffersPage() {
             })}
             </div>
 
+            <GetMoreOffers applicationId={applicationId} />
+
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-xs">
               <strong className="text-foreground">{t.validityLabel}</strong> {t.validityBody}
             </div>
@@ -336,7 +325,6 @@ export default function OffersPage() {
         )}
         {error && <p className="text-danger text-xs font-semibold">{error}</p>}
       </div>
-      <AltOfferConfirm open={alt.asking} onAnswer={alt.answer} />
     </ApplyShell>
   );
 }

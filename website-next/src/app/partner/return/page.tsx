@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton, SecondaryButton } from '@/components/apply/primitives';
@@ -23,19 +23,6 @@ export default function PartnerReturnPage() {
   const accountUser = useAccountUser();
   const { applicationId } = useApply();
   const [state, setState] = useState<'ask' | 'saving' | 'added'>('ask');
-  // Inside the "Explore lenders" tab's iframe: don't render a nested shell — tell the page
-  // that embeds us the visitor is back, and it asks "did you proceed?" in its own UI.
-  // 'unknown' until mounted, so the shell never flashes inside the frame before we know.
-  const [frame, setFrame] = useState<'unknown' | 'frame' | 'top'>('unknown');
-  useEffect(() => {
-    if (window.self !== window.top) {
-      setFrame('frame');
-      window.parent.postMessage({ type: 'sl-alt-return' }, window.location.origin);
-    } else {
-      setFrame('top');
-    }
-  }, []);
-
   const answer = async (proceeded: boolean) => {
     let pending = null;
     try {
@@ -54,14 +41,6 @@ export default function PartnerReturnPage() {
     setState(r?.applied ? 'added' : 'ask');
     if (!r?.applied) router.push('/account');
   };
-
-  if (frame !== 'top') {
-    return (
-      <div className="grid min-h-screen place-items-center p-6 text-center" aria-busy="true">
-        <p className="text-muted-foreground text-sm font-semibold">{frame === 'frame' ? t.returning : ''}</p>
-      </div>
-    );
-  }
 
   return (
     <ApplyShell center accountUser={accountUser}>
