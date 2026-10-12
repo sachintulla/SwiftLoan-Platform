@@ -11,6 +11,10 @@ import { fmtINR } from '@/lib/core';
 import { useStatusMeta } from '@/lib/statusMeta';
 import { useCopy } from '@/lib/i18n';
 import { accountCopy } from '@/i18n/account';
+import { altOffersCopy } from '@/i18n/apply-altoffers';
+import { AltOfferConfirm } from '@/components/apply/AltOfferCard';
+import { useAltOffer } from '@/hooks/useAltOffer';
+import { altStatusTone, appliedReferrals, type AppliedReferral } from '@/lib/altOfferLogic';
 
 export default function ApplicationsPage() {
   const { loading: accountLoading, user } = useAccount();
@@ -51,8 +55,13 @@ export default function ApplicationsPage() {
           </div>
         ) : (
           apps.flatMap((app) => {
+            // Partner (Yubi / YMPL) applications the applicant proceeded with — one row each,
+            // like the app's My Loans. Reopens the partner journey, which resumes at its offers.
+            const partnerRows = appliedReferrals(app).map((pr) => (
+              <PartnerReferralRow key={`pr-${pr.id}`} applicationId={app.id} referral={pr} amount={app.amount} />
+            ));
             const rows = (app.lenderApplications?.length ? app.lenderApplications : [{ id: app.id, lenderName: null, status: app.status, amount: app.amount, apr: null, emi: null, tenureMonths: app.tenureMonths, redirectionUrl: null, appliedAt: app.updatedAt }]);
-            return rows.map((la) => {
+            return [...rows.map((la) => {
               const meta = statusMeta(la.status);
               return (
                 <Link
@@ -77,10 +86,42 @@ export default function ApplicationsPage() {
                   <ChevronRight className="text-muted-foreground h-4 w-4 shrink-0" />
                 </Link>
               );
-            });
+            }), ...partnerRows];
           })
         )}
       </div>
     </AccountShell>
+  );
+}
+
+function PartnerReferralRow({ applicationId, referral, amount }: { applicationId: string; referral: AppliedReferral; amount: number }) {
+  const t = useCopy(altOffersCopy);
+  const { opening, error, asking, open, answer } = useAltOffer(applicationId);
+  const tone = altStatusTone(referral.lastStatus);
+  const label = tone === 'approved' ? t.statusApproved : tone === 'rejected' ? t.statusRejected : t.statusInProgress;
+  const badge = tone === 'approved' ? 'success' : tone === 'rejected' ? 'danger' : 'warning';
+  return (
+    <div data-testid="partner-referral-row">
+      <button
+        type="button"
+        onClick={open}
+        disabled={opening}
+        aria-label={t.reopen}
+        className="border-border bg-card flex w-full items-center gap-3.5 rounded-2xl border p-4 text-left"
+      >
+        <div className="bg-accent text-primary grid h-11 w-11 place-items-center rounded-xl text-sm font-extrabold">AL</div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-bold">{referral.appliedLender || t.rowTitle}</div>
+          <div className="text-muted-foreground text-xs">{t.rowLabel}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-extrabold">{fmtINR(amount)}</div>
+          <Badge tone={badge}>{label}</Badge>
+        </div>
+        <ChevronRight className="text-muted-foreground h-4 w-4 shrink-0" />
+      </button>
+      {error && <p className="text-danger mt-1 text-xs font-semibold" role="alert">{error}</p>}
+      <AltOfferConfirm open={asking} onAnswer={answer} />
+    </div>
   );
 }

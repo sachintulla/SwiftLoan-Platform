@@ -198,7 +198,7 @@ export function findOtpField(): HTMLInputElement | null {
 
 /**
  * The `data-voice-gate` marker of a button (or an ancestor): what the control commits the visitor
- * to, independent of the page language ("logout", "apply-offer", "confirm-loan", "verify-pan",
+ * to, independent of the page language ("logout", "apply-offer", "explore-lenders", "confirm-loan", "verify-pan",
  * "submit-ticket", "skip-step"). Matching English button text would silently stop gating the moment
  * a page is shown in Hindi or Telugu.
  */

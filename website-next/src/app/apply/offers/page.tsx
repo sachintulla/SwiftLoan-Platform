@@ -10,6 +10,7 @@ import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
+import { AltOfferCard } from '@/components/apply/AltOfferCard';
 import { ArrowRight, Lock, Scale, ShieldCheck } from 'lucide-react';
 import { useCopy } from '@/lib/i18n';
 import { applyOffersCopy } from '@/i18n/apply-offers';
@@ -144,6 +145,9 @@ export default function OffersPage() {
                   {t.retry}
                 </button>
               </div>
+              <div className="mx-auto mt-6 max-w-xl text-left">
+                <AltOfferCard applicationId={applicationId} variant="empty" />
+              </div>
             </div>
           ) : app?.status === 'failed' ? (
             <div className="py-10 text-center">
@@ -159,6 +163,9 @@ export default function OffersPage() {
                 >
                   {t.retry}
                 </button>
+              </div>
+              <div className="mx-auto mt-6 max-w-xl text-left">
+                <AltOfferCard applicationId={applicationId} variant="empty" />
               </div>
             </div>
           ) : (
@@ -176,6 +183,9 @@ export default function OffersPage() {
                   {t.retry}
                 </button>
               </div>
+              <div className="mx-auto mt-6 max-w-xl text-left">
+                <AltOfferCard applicationId={applicationId} variant="empty" />
+              </div>
             </div>
           )
         ) : appliedElsewhere ? (
@@ -185,6 +195,9 @@ export default function OffersPage() {
               {t.appliedBody}
             </p>
             <PrimaryButton onClick={() => router.push(`/account/${applicationId}`)}>{t.goToApplications}</PrimaryButton>
+            <div className="mx-auto mt-6 max-w-xl text-left">
+              <AltOfferCard applicationId={applicationId} />
+            </div>
           </div>
         ) : (
           <>
@@ -303,6 +316,8 @@ export default function OffersPage() {
               );
             })}
             </div>
+
+            <AltOfferCard applicationId={applicationId} />
 
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-xs">
               <strong className="text-foreground">{t.validityLabel}</strong> {t.validityBody}

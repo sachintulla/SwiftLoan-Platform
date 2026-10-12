@@ -10,7 +10,7 @@ import { usePathname } from 'next/navigation';
  */
 export function HideOnAppRoutes({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAppRoute = pathname?.startsWith('/apply') || pathname?.startsWith('/account');
+  const isAppRoute = pathname?.startsWith('/apply') || pathname?.startsWith('/account') || pathname?.startsWith('/partner');
   if (isAppRoute) return null;
   return <>{children}</>;
 }

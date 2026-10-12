@@ -272,6 +272,7 @@ function summariseAccount(user: Record<string, any> | null, apps: LoanApplicatio
 const GATE_ACTIONS: Record<string, string> = {
   logout: 'logging the visitor out',
   'apply-offer': 'sending their application to a lender',
+  'explore-lenders': "opening a partner lender's offers page in a new tab with their details prefilled",
   'confirm-loan': 'confirming the loan with the lender',
   'verify-pan': 'a soft credit check using their PAN',
   'submit-ticket': 'raising a support ticket',

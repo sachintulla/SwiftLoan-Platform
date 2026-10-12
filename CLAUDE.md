@@ -340,3 +340,21 @@ the Play `referrer=click_id…` param), iOS → an interstitial that copies `swi
   page + Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` (additive).
 - Privacy to declare in store forms: IP address + device identifiers for app functionality/analytics; no ATT prompt
   (nothing is shared with ad networks).
+
+---
+
+## Partner lenders on the website (Yubi alt-offers + Revasure)
+
+Same server endpoints as the app — nothing lender-specific is client-only.
+- **Revasure** needs no client code: the server fires its Create-Lead inside `POST /applications/:id/prequalify`, which the
+  website's `/apply/finding` already calls. `REVASURE_TOKEN` is env-only (no fallback in source; unset = disabled), and a
+  remote `http://` base needs `REVASURE_ALLOW_INSECURE=true`.
+- **Yubi / YMPL** on the website (`website-next/src/components/apply/AltOfferCard.tsx`, `hooks/useAltOffer.ts`,
+  `lib/altOffers.ts`, pure rules in `lib/altOfferLogic.ts`): a "More offers" tile on `/apply/offers` (below the offers; the
+  "Other offers" variant replaces the dead end when nothing matched), shown when `GET /config/features` → `altOffers` and an
+  application exists. It opens the partner journey in a NEW tab (opened synchronously in the click so popup blockers allow
+  it; same-tab fallback). The website can't see inside the partner page like the app's WebView, so it asks "Did you proceed?"
+  when the visitor returns (`sl_alt_pending` in sessionStorage) → `POST /alt-offer/applied`; applied referrals then appear in
+  My Applications (`partnerReferrals` on `GET /applications`). `/partner/return` is the page YMPL sends the user back to
+  (`YUBI_RETURN_URL=https://swiftloan.ai/partner/return`). Voice: `data-voice-gate="explore-lenders"`.
+- Website tests: `cd website-next && npm test` (vitest + jsdom); run in CI.
