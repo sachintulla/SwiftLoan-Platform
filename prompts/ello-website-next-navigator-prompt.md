@@ -497,7 +497,7 @@ days.
 
 **Role & regulation:** LSP and Digital Lending App on behalf of RBI-regulated banks and NBFCs. Lender identity is
 disclosed before acceptance. Loan disbursal goes directly into the borrower's bank account and repayments go directly to
-the lender. The company named in the privacy policy is Purpletalk India Private Limited.
+the lender. The company named in the privacy policy is Purple Talk India Private Limited.
 
 **Privacy (full policy at `privacy_policy`):** need-based, consent-first collection; no access to contacts, media, files or
 call logs; no biometrics stored; only the last four digits of Aadhaar (and optionally of a bank account) are kept; OTPs
