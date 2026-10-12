@@ -136,6 +136,16 @@ export function useAltOffer(applicationId: string | null | undefined) {
     [],
   );
 
+  /** The journey is on screen (embedded) — remember it so leaving / returning triggers the question. */
+  const markOpened = useCallback(() => {
+    if (applicationId) writePending({ applicationId, openedAt: Date.now() });
+  }, [applicationId]);
+
+  /** Ask now regardless of elapsed time (the embedded journey told us the visitor finished and came back). */
+  const askNow = useCallback(() => {
+    if (readPending()) setAsking(true);
+  }, []);
+
   return {
     available: altOfferAvailable(enabled, applicationId),
     opening,
@@ -144,5 +154,8 @@ export function useAltOffer(applicationId: string | null | undefined) {
     added,
     open,
     answer,
+    check,
+    markOpened,
+    askNow,
   };
 }

@@ -12,7 +12,7 @@ import { useStatusMeta } from '@/lib/statusMeta';
 import { useCopy } from '@/lib/i18n';
 import { accountCopy } from '@/i18n/account';
 import { altOffersCopy } from '@/i18n/apply-altoffers';
-import { AltOfferConfirm } from '@/components/apply/AltOfferCard';
+import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
 import { useAltOffer } from '@/hooks/useAltOffer';
 import { altStatusTone, appliedReferrals, type AppliedReferral } from '@/lib/altOfferLogic';
 

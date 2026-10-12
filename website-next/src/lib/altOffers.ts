@@ -14,6 +14,8 @@ export interface AltOfferResult {
   provider: string;
   status: string;
   redirectUrl: string | null;
+  /** The partner allows our site to frame its journey (server probes its X-Frame-Options / CSP). */
+  embeddable?: boolean;
   resumeToOffers?: boolean;
   journeyStatus?: string | null;
 }
