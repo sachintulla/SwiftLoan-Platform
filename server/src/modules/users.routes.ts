@@ -207,7 +207,15 @@ usersRouter.get('/me/credit-score', ah(async (req, res) => {
 /** Delete account (right to erasure). */
 usersRouter.delete('/me', ah(async (req, res) => {
   const userId = req.user!.sub;
-  await prisma.user.delete({ where: { id: userId } });
-  log.warn('account deleted', { userId });
+  // Right to erasure (DPDP): deleting the User cascades its relational children
+  // (applications → offers → lender applications, loans, kyc, consents, tokens).
+  // But the partner-lead models are plain-FK (no relation, no cascade), so they
+  // would be orphaned with PII still attached — delete them explicitly first.
+  await prisma.$transaction([
+    prisma.partnerReferral.deleteMany({ where: { userId } }), // Yubi
+    prisma.revasureLead.deleteMany({ where: { userId } }),    // Revasure
+    prisma.user.delete({ where: { id: userId } }),
+  ]);
+  log.warn('account deleted (incl. partner leads)', { userId });
   res.json({ ok: true });
 }));

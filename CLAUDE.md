@@ -294,3 +294,88 @@ GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
 - Controls (`Controls.tsx`) each call `useAgentFx(label, group)` and render `<AgentRing/>`.
 - Mic caveat: UI sounds play on the sonification stream at low volume; the agent's mic is open
   during a call, so keep new sounds short/quiet or they can be transcribed as stray user turns.
+- **Website parity (`website-next/src/feedback/`):** the website has the same system — `config/sounds.ts` (same two
+  switches), `sounds.ts` (WebAudio, lazy-loaded at call start), `agentFx.ts` (DOM: reveal, ring + ripple overlays, typing
+  ticks, slider detents, press dip), `manual.ts` (visitor cues, test mode only), wired into the tools in
+  `VoiceWidget.tsx`. `scripts/gen-sounds.js` writes both copies of `soundData.ts`. Keep the two policies identical.
+
+## Website language (`website-next/`)
+
+- Exactly three languages — English, Hindi, Telugu — in `src/lib/i18n.tsx` (`LANGS`, `defineCopy`, `useCopy`). The choice is
+  stored in `localStorage` (`sl_lang`) and restored after hydration. The switch is the header menu on marketing pages and
+  `components/site/LanguageSwitcher.tsx` inside the `/apply/*` and `/account/*` shells (the header is hidden there); the
+  voice assistant's `set_language` drives the same context.
+- Copy lives in `src/i18n/*.ts` (one module per area: `apply-shell`, `apply-flow`, `apply-details`, `apply-offers`,
+  `apply-compare`, `account`, `account-support`, `status`). The `en` entry is the source and must match the page
+  character-for-character. Option pills keep the English string as the VALUE (`ChipGroup renderLabel` translates only the
+  display). Brand/technical terms stay in Latin script (SwiftLoan, PAN, OTP, EMI, KFS, Aadhaar, APR, GST, UPI, eKYC, RBI, NBFC).
+  Status labels come from `useStatusMeta()`. Not translated (legal text, English on purpose): the privacy-policy body
+  (`src/content/privacyBody.ts`) and the compliance page.
+- **Voice must not depend on page wording.** Controls are found by their on-screen text, so in Hindi/Telugu the assistant
+  passes back the translated label it read. The things that must hold in every language are marked, not matched:
+  `data-voice-gate` (logout, apply-offer, confirm-loan, verify-pan, submit-ticket, skip-step), `data-voice-otp`,
+  `data-voice-sensitive`, and `aria-busy="true"` on loading placeholders. New gated buttons need the attribute.
+- A word the owner has asked not to use: Telugu "మొదలుపెడదాం" — keep it out of all copy.
+
+
+---
+
+## Install attribution + friend referrals
+
+Shareable link `GET /dl?ref=<referral code>` (`server/src/modules/referral.routes.ts`, pure logic in
+`lib/attribution.ts`, DB logic in `lib/referral.ts`). It logs an `AppClick` (IP/UA stored as keyed HMAC hashes only,
+purged after 48 h by the `click-purge` job) then redirects: Android → `ANDROID_STORE_URL` (a `play.google.com` URL gets
+the Play `referrer=click_id…` param), iOS → an interstitial that copies `swiftloan-ref:<token>` to the clipboard, then
+`IOS_STORE_URL` (TestFlight/App Store). **Both store URLs are DUMMY defaults until the real listings exist.**
+- First launch (`store.ts` boot effect, once per install via AsyncStorage `swiftloan.install.claimed`; already-signed-in
+  devices are skipped) reads the OS signal (`utils/installSignals.ts` → native `InstallReferrer` (Android, Play Install
+  Referrer API) / `Attribution` (iOS clipboard)) and calls `POST /api/attribution/claim`. Match order: Play referrer →
+  clipboard token → same-IP click inside `ATTRIBUTION_WINDOW_MIN` (only if exactly ONE candidate, OS version breaks ties).
+  Sideloaded APKs have no Play referrer, so they use the IP window. Replaces the old per-process `trackInstall`.
+- Friend referral: after OTP login the app redeems the stored code (`POST /api/referrals/redeem`). Rules: new account
+  (< `REFERRAL_ELIGIBLE_DAYS`), no self/mutual referral, one referrer per referee. `FriendReferral.status` advances
+  signed_up → applied (offer selected/applied) → disbursed via `advanceReferral()`. **Tracking only — `rewardStatus` stays
+  `none`; no reward policy is approved (needs compliance review before any money/rate benefit).**
+- App: `referral` screen (Profile → "Refer a friend", `GET /api/referrals/me`, native Share sheet). Admin: `/referrals`
+  page + Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` (additive).
+- Privacy to declare in store forms: IP address + device identifiers for app functionality/analytics; no ATT prompt
+  (nothing is shared with ad networks).
+
+---
+
+## Partner lenders on the website (Yubi alt-offers + Revasure)
+
+Same server endpoints as the app — nothing lender-specific is client-only.
+- **Revasure** needs no client code: the server fires its Create-Lead inside `POST /applications/:id/prequalify`, which the
+  website's `/apply/finding` already calls. `REVASURE_TOKEN` is env-only (no fallback in source; unset = disabled), and a
+  remote `http://` base needs `REVASURE_ALLOW_INSECURE=true`.
+- **Yubi / YMPL** on the website: a **Get more offers** button (`components/apply/GetMoreOffers.tsx`, `hooks/useAltOffer.ts`,
+  `lib/altOffers.ts`, pure rules in `lib/altOfferLogic.ts`) on `/apply/offers` — below the offers, and as the "nothing matched"
+  variant in the empty states. Shown when `GET /config/features` → `altOffers` and an application exists. Click → `POST /alt-offer`
+  → the SAME tab navigates to the partner journey (a top-level navigation). **It cannot be shown in an iframe**: YMPL sends
+  `X-Frame-Options: DENY` + `frame-ancestors none` (the app's WebView isn't a frame, so it ignores that). Don't re-add an iframe/
+  proxy without Yubi allow-listing our origins. The website can't see the partner's "Proceed" tap, so it asks "Did you proceed?"
+  when the visitor is back (`sl_alt_pending` in sessionStorage; asked on arrival / Back / focus) → `POST /alt-offer/applied`;
+  applied referrals appear in My Applications (`partnerReferrals`). `/partner/return` is where YMPL sends the user back
+  (`YUBI_RETURN_URL=https://swiftloan.ai/partner/return`). Voice: `data-voice-gate="explore-lenders"`.
+- **Local dev behind a TLS-inspecting proxy:** `server/src/lib/devCa.ts` makes outbound `fetch` trust `NODE_EXTRA_CA_CERTS` from `.env`
+  (Node only reads that variable at process start, so dotenv alone silently failed → Aurix/Yubi `SELF_SIGNED_CERT_IN_CHAIN`). No-op in production.
+- Website tests: `cd website-next && npm test` (vitest + jsdom); run in CI.
+
+## Partner-call limits (prequalify)
+
+- **Revasure — one lead per phone number, ever.** `createRevasureLead` checks-and-claims under a per-number advisory lock
+  (`server/src/lib/revasureLead.ts`): if a lead Revasure decided on (`success` / `duplicate` / `ineligible`) already exists for the
+  user or that number (matched on the stored request's `mobile_number`), or one is in flight, it returns `status: 'skipped'` and sends
+  nothing. A *failed* attempt (bad token, outage) does not block, so it can be retried once fixed. If it cannot check/record, it
+  does not send (fails closed).
+- **Aurix — only re-fetch offers when the applicant's details changed.** `lib/offersReuse.ts` fingerprints exactly the
+  profile + application fields the eligible_offers request is built from and stores it on `LoanApplication.offersSignature`
+  with `offersFetchedAt`. Prequalify reuses stored offers (this application's own, or copies from the user's recent application
+  with the same fingerprint — `lib/offersReuseDb.ts`) and skips the lender call; any change to those details (income, PAN,
+  address, amount, tenure, …) triggers a fresh call. Technical failures are never remembered, so they stay retryable. Reuse
+  window `OFFERS_REUSE_HOURS` (default 24, matching the "valid for 24 hours" promise; `0` = never expires). A cached Aurix
+  token that is rejected (401) is replaced and retried once.
+- **Yubi is deliberately untouched** (its pre-warm still runs on every prequalify; the partner handles its own limits).
+- Terminology: a `LoanApplication` is created when the applicant submits their details (before offers); fetching offers
+  (prequalify) fills it with `Offer` rows; a `LenderApplication` is created only when they apply to a specific lender's offer.

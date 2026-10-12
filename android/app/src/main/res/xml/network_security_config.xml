@@ -1,17 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The dev API (dev-api.swiftloan.ai) has no TLS certificate yet — only plain
-  HTTP on port 80. Android release builds block cleartext traffic by default;
-  rather than disabling that protection for the whole app, this allows it only
-  for known dev hosts. Remove the dev-api exception once it has a real
-  certificate. localhost/127.0.0.1 is for local-server iteration only (see
-  src/config/build.ts's DEV_API_BASE + `adb reverse`) — safe to leave
-  permanently since it only ever reaches the device's own loopback.
+  Release builds block cleartext (HTTP) traffic by default and we keep it that
+  way: all backends (dev-api.swiftloan.ai + prod) are HTTPS, so no public host
+  needs a cleartext exception. Only loopback is allowed, for local-server
+  iteration (see src/config/build.ts's DEV_API_BASE + `adb reverse`) — safe
+  permanently since it never leaves the device.
 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">dev-api.swiftloan.ai</domain>
-    </domain-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">127.0.0.1</domain>

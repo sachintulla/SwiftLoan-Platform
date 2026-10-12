@@ -6,6 +6,8 @@ import { LockKeyhole, ShieldCheck } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { useApply } from '@/lib/applyContext';
 import { prequalify } from '@/lib/applyApi';
+import { useCopy } from '@/lib/i18n';
+import { applyFlowCopy } from '@/i18n/apply-flow';
 
 const MIN_DISPLAY_MS = 2600;
 
@@ -17,6 +19,7 @@ const MIN_DISPLAY_MS = 2600;
  */
 export default function FindingPage() {
   const router = useRouter();
+  const t = useCopy(applyFlowCopy).finding;
   const { applicationId, sessionReady } = useApply();
   const [error, setError] = useState<string | null>(null);
   const [fillWidth, setFillWidth] = useState('6%');
@@ -69,7 +72,7 @@ export default function FindingPage() {
   }, [sessionReady, applicationId, router]);
 
   return (
-    <ApplyShell stepLabel="Finding your offers…" center>
+    <ApplyShell stepLabel={t.stepLabel} center>
       <div className="flex flex-col items-center gap-6">
         <div className="relative flex h-[220px] w-[220px] items-center justify-center">
           <svg viewBox="0 0 260 260" className="animate-spin-slow absolute inset-0 h-full w-full">
@@ -89,8 +92,8 @@ export default function FindingPage() {
         </div>
 
         <div>
-          <h1 className="text-2xl font-extrabold">Finding your personalised offers…</h1>
-          <p className="text-muted-foreground mt-2 text-sm">Connecting to bureaus securely</p>
+          <h1 className="text-2xl font-extrabold">{t.title}</h1>
+          <p className="text-muted-foreground mt-2 text-sm">{t.subtitle}</p>
         </div>
 
         <div className="bg-border h-2 w-[86%] max-w-xs overflow-hidden rounded-full">
@@ -101,7 +104,7 @@ export default function FindingPage() {
           <span className="bg-mint grid h-7 w-7 place-items-center rounded-full text-white">
             <ShieldCheck className="h-4 w-4" />
           </span>
-          <span className="text-sm font-bold">Checking your eligibility</span>
+          <span className="text-sm font-bold">{t.checking}</span>
         </div>
 
         {error && <p className="text-danger text-xs font-semibold">{error}</p>}
@@ -111,8 +114,8 @@ export default function FindingPage() {
             <LockKeyhole className="text-primary h-4 w-4" />
           </span>
           <div>
-            <div className="text-sm font-bold">Your data is safe with us</div>
-            <div className="text-muted-foreground text-xs">We run a soft enquiry only · does not affect your credit score</div>
+            <div className="text-sm font-bold">{t.safeTitle}</div>
+            <div className="text-muted-foreground text-xs">{t.safeBody}</div>
           </div>
         </div>
       </div>

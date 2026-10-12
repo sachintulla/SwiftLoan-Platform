@@ -1,13 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Check, MoreHorizontal, CircleCheckBig, Wallet, AlertCircle, XCircle, ShieldCheck, RefreshCw, type LucideIcon } from 'lucide-react';
 import { AccountShell } from '@/components/apply/AccountShell';
 import { Badge } from '@/components/apply/primitives';
 import { getApplication, refreshApplicationStatus, type LoanApplication } from '@/lib/applyApi';
 import { fmtINR } from '@/lib/core';
-import { statusMeta } from '@/lib/statusMeta';
+import { useStatusMeta } from '@/lib/statusMeta';
+import { useCopy } from '@/lib/i18n';
+import { accountCopy } from '@/i18n/account';
+
+type Copy = (typeof accountCopy)['en'];
 
 const STAGE_ORDER = ['applied', 'under_review', 'approved', 'disbursed'];
 
@@ -25,20 +29,20 @@ const STAGE_ICON: Record<string, LucideIcon> = {
 type Step = { key: string; title: string; desc: string; state: 'done' | 'active' | 'pending'; danger?: boolean };
 
 /** Mirrors status.tsx's buildSteps — same 4-stage timeline, same terminal handling. */
-function buildSteps(status: string): Step[] {
+function buildSteps(status: string, t: Copy): Step[] {
   const base = [
-    { key: 'applied', title: 'Applied', desc: 'Your application was submitted to the lender.' },
-    { key: 'under_review', title: 'Under review', desc: 'The lender is verifying your details. This usually takes 2–3 business days.' },
-    { key: 'approved', title: 'Approved', desc: 'Your loan has been approved by the lender.' },
-    { key: 'disbursed', title: 'Disbursed', desc: 'Funds are credited to your linked bank account.' },
+    { key: 'applied', ...t.steps.applied },
+    { key: 'under_review', ...t.steps.under_review },
+    { key: 'approved', ...t.steps.approved },
+    { key: 'disbursed', ...t.steps.disbursed },
   ];
   if (status === 'rejected' || status === 'failed') {
     const isFail = status === 'failed';
     return [
       { ...base[0]!, state: 'done' },
       isFail
-        ? { key: 'failed', title: 'Failed', desc: "We couldn't complete this application due to a technical issue. Please try again or choose another lender.", state: 'active', danger: true }
-        : { key: 'rejected', title: 'Rejected', desc: 'Unfortunately your application was not approved this time.', state: 'active', danger: true },
+        ? { key: 'failed', ...t.steps.failed, state: 'active', danger: true }
+        : { key: 'rejected', ...t.steps.rejected, state: 'active', danger: true },
     ];
   }
   const mapped = status === 'handoff' ? 'applied' : status;
@@ -51,6 +55,11 @@ function buildSteps(status: string): Step[] {
 
 export default function ApplicationStatusPage() {
   const params = useParams<{ id: string }>();
+  const t = useCopy(accountCopy);
+  // Read inside `load` so a language switch doesn't change its identity (and refetch the application).
+  const tRef = useRef(t);
+  tRef.current = t;
+  const statusMeta = useStatusMeta();
   const [app, setApp] = useState<LoanApplication | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,7 +69,7 @@ export default function ApplicationStatusPage() {
     setLoading(true);
     getApplication(params.id)
       .then(setApp)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Could not load this application.'))
+      .catch((e) => setError(e instanceof Error ? e.message : tRef.current.errLoad))
       .finally(() => setLoading(false));
   }, [params.id]);
 
@@ -77,9 +86,9 @@ export default function ApplicationStatusPage() {
       // The lender's own API can be temporarily unreachable — the endpoint
       // still returns 200 with the last-known status in that case, so this
       // reads as a soft "couldn't get the latest" notice, not a broken page.
-      if (refreshError) setError("Couldn't reach the lender for the latest update — showing the last known status.");
+      if (refreshError) setError(t.errLenderUnreachable);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not refresh status right now.');
+      setError(e instanceof Error ? e.message : t.errRefresh);
     } finally {
       setRefreshing(false);
     }
@@ -87,14 +96,14 @@ export default function ApplicationStatusPage() {
 
   if (loading) {
     return (
-      <AccountShell backHref="/account" backLabel="Your applications">
-        <p className="text-muted-foreground text-sm">Loading your application…</p>
+      <AccountShell backHref="/account" backLabel={t.backToApplications}>
+        <p className="text-muted-foreground text-sm" aria-busy="true">{t.loadingApplication}</p>
       </AccountShell>
     );
   }
   if (error && !app) {
     return (
-      <AccountShell backHref="/account" backLabel="Your applications">
+      <AccountShell backHref="/account" backLabel={t.backToApplications}>
         <p className="text-danger text-sm font-semibold">{error}</p>
       </AccountShell>
     );
@@ -107,28 +116,28 @@ export default function ApplicationStatusPage() {
   const apr = la?.apr;
   const emi = la?.emi;
   const status = la?.status ?? app.status;
-  const steps = buildSteps(status);
+  const steps = buildSteps(status, t);
 
   return (
-    <AccountShell backHref="/account" backLabel="Your applications" title="Application status">
+    <AccountShell backHref="/account" backLabel={t.backToApplications} title={t.statusTitle}>
       <div className="flex flex-col gap-5">
-        <span className="text-primary text-xs font-bold tracking-wide">LOAN REFERENCE: {app.ref}</span>
+        <span className="text-primary text-xs font-bold tracking-wide">{t.loanReference} {app.ref}</span>
 
         <div className="flex items-center gap-3">
           <div className="bg-accent text-primary grid h-12 w-12 place-items-center rounded-xl text-sm font-extrabold">
             {(lenderName || 'Personal Loan').slice(0, 2).toUpperCase()}
           </div>
           <div className="flex-1">
-            <div className="text-lg font-extrabold">{lenderName || 'Personal Loan'}</div>
-            {lenderName && <div className="text-muted-foreground text-xs">Personal Loan</div>}
+            <div className="text-lg font-extrabold">{lenderName || t.personalLoan}</div>
+            {lenderName && <div className="text-muted-foreground text-xs">{t.personalLoan}</div>}
           </div>
           <Badge tone={statusMeta(status).tone}>{statusMeta(status).label}</Badge>
         </div>
 
         <div className="border-border flex divide-x rounded-2xl border bg-card p-4">
-          <Cell k="Amount" v={fmtINR(amount)} />
-          <Cell k="Interest" v={apr != null ? `${apr}% p.a.` : '—'} />
-          <Cell k={emi ? 'Monthly EMI' : 'Tenure'} v={emi ? fmtINR(emi) : `${app.tenureMonths} mo`} />
+          <Cell k={t.amount} v={fmtINR(amount)} />
+          <Cell k={t.interest} v={apr != null ? t.aprPa(apr) : '—'} />
+          <Cell k={emi ? t.monthlyEmi : t.tenure} v={emi ? fmtINR(emi) : t.months(app.tenureMonths)} />
         </div>
 
         <div className="flex flex-col">
@@ -162,7 +171,7 @@ export default function ApplicationStatusPage() {
         <div className="bg-muted flex items-start gap-2 rounded-xl p-3 text-xs">
           <ShieldCheck className="text-mint mt-0.5 h-4 w-4 shrink-0" />
           <span className="text-muted-foreground">
-            Status updates come directly from the lender. We&apos;ll notify you here of any required documents or next steps.
+            {t.statusNote}
           </span>
         </div>
 
@@ -174,10 +183,10 @@ export default function ApplicationStatusPage() {
           className="border-border inline-flex w-full items-center justify-center gap-1.5 rounded-full border py-3 text-sm font-bold"
         >
           {refreshing ? (
-            'Checking…'
+            t.checking
           ) : (
             <>
-              <RefreshCw className="h-4 w-4" /> Refresh status
+              <RefreshCw className="h-4 w-4" /> {t.refreshStatus}
             </>
           )}
         </button>

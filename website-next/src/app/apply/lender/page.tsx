@@ -6,11 +6,14 @@ import { ShieldCheck } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
+import { useCopy } from '@/lib/i18n';
+import { applyFlowCopy } from '@/i18n/apply-flow';
 
 const LOAD_TIMEOUT_MS = 6000;
 
 export default function LenderFramePage() {
   const router = useRouter();
+  const t = useCopy(applyFlowCopy).lender;
   const { selectedOffer, sessionReady } = useApply();
   const accountUser = useAccountUser();
   const [loaded, setLoaded] = useState(false);
@@ -33,7 +36,7 @@ export default function LenderFramePage() {
 
   if (!selectedOffer?.redirectionUrl) return null;
 
-  const lenderName = selectedOffer.lenderName || 'the lender';
+  const lenderName = selectedOffer.lenderName || t.lenderFallback;
   const url = selectedOffer.redirectionUrl;
 
   const onFrameLoad = () => {
@@ -42,27 +45,26 @@ export default function LenderFramePage() {
   };
 
   return (
-    <ApplyShell backHref="/apply/offers" backLabel="Cancel & return to offers" stepLabel="Completing your application" accountUser={accountUser} wide>
+    <ApplyShell backHref="/apply/offers" backLabel={t.backLabel} stepLabel={t.stepLabel} accountUser={accountUser} wide>
       <div className="flex flex-col gap-3">
         <div>
-          <h1 className="text-xl font-extrabold sm:text-2xl">Finish up with {lenderName}</h1>
+          <h1 className="text-xl font-extrabold sm:text-2xl">{t.title(lenderName)}</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            A few final identity and e-sign steps, shown right here — no need to go anywhere else. Your status updates
-            automatically once you&apos;re done.
+            {t.subtitle}
           </p>
         </div>
 
         {/* Fills the screen: viewport minus the shell header, title and the note below. */}
         <div className="border-border relative h-[calc(100dvh-220px)] min-h-[480px] overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)]">
           {!loaded && !blocked && (
-            <div className="bg-card absolute inset-0 grid place-items-center gap-3 text-center">
+            <div className="bg-card absolute inset-0 grid place-items-center gap-3 text-center" aria-busy="true">
               <div className="bg-accent grid h-16 w-16 place-items-center rounded-2xl text-lg font-extrabold">
                 {lenderName.slice(0, 2).toUpperCase()}
               </div>
               <div>
-                <div className="text-sm font-bold">Loading your application form…</div>
+                <div className="text-sm font-bold">{t.loadingTitle}</div>
                 <div className="text-muted-foreground mt-1 max-w-xs text-xs">
-                  Securely provided by {lenderName} as part of your SwiftLoan application.
+                  {t.loadingBody(lenderName)}
                 </div>
               </div>
             </div>
@@ -70,8 +72,8 @@ export default function LenderFramePage() {
           {blocked && (
             <div className="bg-card absolute inset-0 grid place-items-center gap-3 p-8 text-center">
               <div>
-                <div className="text-sm font-bold">This form can&apos;t be shown here</div>
-                <div className="text-muted-foreground mt-1 text-xs">Open it in a new tab to continue — we&apos;ll keep tracking your status either way.</div>
+                <div className="text-sm font-bold">{t.blockedTitle}</div>
+                <div className="text-muted-foreground mt-1 text-xs">{t.blockedBody}</div>
               </div>
               <a
                 href={url}
@@ -79,13 +81,13 @@ export default function LenderFramePage() {
                 rel="noopener noreferrer"
                 className="bg-brand-gradient text-primary-foreground rounded-full px-5 py-2.5 text-sm font-bold"
               >
-                Continue with {lenderName} ↗
+                {t.continueWith(lenderName)}
               </a>
             </div>
           )}
           <iframe
             src={url}
-            title={`${lenderName} application`}
+            title={t.frameTitle(lenderName)}
             onLoad={onFrameLoad}
             className={`h-full w-full ${loaded ? '' : 'invisible'}`}
             // Without this, the browser's Permissions Policy blocks the
@@ -102,12 +104,11 @@ export default function LenderFramePage() {
         <div className="bg-muted text-muted-foreground flex items-start gap-2 rounded-xl p-3 text-xs">
           <ShieldCheck className="text-mint mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            SwiftLoan can&apos;t see anything you enter above — it&apos;s handled directly and securely by {lenderName}. Trouble
-            loading?{' '}
+            {t.noteA(lenderName)}
             <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary font-semibold underline">
-              Continue here instead
+              {t.noteLink}
             </a>
-            .
+            {t.noteEnd}
           </span>
         </div>
       </div>

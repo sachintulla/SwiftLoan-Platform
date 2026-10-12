@@ -6,17 +6,19 @@ import { AccountShell } from '@/components/apply/AccountShell';
 import { Card, SectionLabel, TextInput } from '@/components/apply/primitives';
 import { useAccount } from '@/lib/accountContext';
 import { patchProfile, patchNotifications } from '@/lib/applyApi';
-
-const LINKS = [
-  { label: 'FAQs', href: '/account/faqs' },
-  { label: 'Privacy Policy', href: '/account/privacy' },
-  { label: 'Terms of Service', href: '#' },
-  { label: 'Lending Partners', href: '/account/partners' },
-  { label: 'Grievance Redressal', href: '/account/support' },
-];
+import { useCopy } from '@/lib/i18n';
+import { accountCopy } from '@/i18n/account';
 
 export default function ProfilePage() {
   const { user, refresh } = useAccount();
+  const t = useCopy(accountCopy);
+  const LINKS = [
+    { label: t.linkFaqs, href: '/account/faqs' },
+    { label: t.linkPrivacy, href: '/account/privacy' },
+    { label: t.linkTerms, href: '#' },
+    { label: t.linkPartners, href: '/account/partners' },
+    { label: t.linkGrievance, href: '/account/support' },
+  ];
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState((user?.fullName as string) || '');
   const [email, setEmail] = useState((user?.email as string) || '');
@@ -62,15 +64,15 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <AccountShell>
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm" aria-busy="true">{t.loading}</p>
       </AccountShell>
     );
   }
 
   return (
     <AccountShell>
-      <h1 className="text-2xl font-extrabold">My profile</h1>
-      <p className="text-muted-foreground mt-1 mb-6 text-sm">Manage your details, language and notification preferences.</p>
+      <h1 className="text-2xl font-extrabold">{t.profileTitle}</h1>
+      <p className="text-muted-foreground mt-1 mb-6 text-sm">{t.profileSub}</p>
 
       <div className="flex flex-col gap-5">
         <Card className="flex items-center gap-4">
@@ -78,49 +80,49 @@ export default function ProfilePage() {
             {((user.fullName as string) || 'U').slice(0, 2).toUpperCase()}
           </div>
           <div className="flex-1">
-            <div className="font-extrabold">{(user.fullName as string) || 'Add your name'}</div>
+            <div className="font-extrabold">{(user.fullName as string) || t.addYourName}</div>
             <div className="text-muted-foreground text-xs">
-              Member since {user.createdAt ? new Date(user.createdAt as string).getFullYear() : '—'}
+              {t.memberSince(user.createdAt ? new Date(user.createdAt as string).getFullYear() : '—')}
             </div>
           </div>
         </Card>
 
         <Card>
           <div className="mb-3 flex items-center justify-between">
-            <SectionLabel>Personal details</SectionLabel>
+            <SectionLabel>{t.personalDetails}</SectionLabel>
             {!editing && (
               <button onClick={() => setEditing(true)} className="text-primary -my-2 -mr-3 rounded-full px-3 py-2 text-xs font-bold">
-                Edit
+                {t.edit}
               </button>
             )}
           </div>
           {editing ? (
             <div className="flex flex-col gap-3">
-              <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" />
-              <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" />
+              <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t.fullNamePlaceholder} />
+              <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t.emailPlaceholder} type="email" />
               <div className="flex gap-2">
                 <button onClick={save} disabled={saving} className="bg-brand-gradient text-primary-foreground flex-1 rounded-full py-2.5 text-sm font-bold">
-                  {saving ? 'Saving…' : 'Save changes'}
+                  {saving ? t.saving : t.saveChanges}
                 </button>
                 <button onClick={() => setEditing(false)} className="border-border flex-1 rounded-full border py-2.5 text-sm font-bold">
-                  Cancel
+                  {t.cancel}
                 </button>
               </div>
             </div>
           ) : (
             <div className="flex flex-col">
-              <Row k="Full name" v={(user.fullName as string) || '—'} />
-              <Row k="Email" v={(user.email as string) || '—'} />
-              <Row k="Mobile" v={`+91 ${user.phone}`} last />
+              <Row k={t.rowFullName} v={(user.fullName as string) || '—'} />
+              <Row k={t.rowEmail} v={(user.email as string) || '—'} />
+              <Row k={t.rowMobile} v={`+91 ${user.phone}`} last />
             </div>
           )}
         </Card>
 
         <Card>
-          <SectionLabel>Notifications</SectionLabel>
-          <ToggleRow label="Loan updates" sub="Status changes on your applications" on={notif.loanUpdates} onToggle={() => toggle('loanUpdates')} />
-          <ToggleRow label="Security alerts" sub="New logins & account changes" on={notif.securityAlerts} onToggle={() => toggle('securityAlerts')} />
-          <ToggleRow label="Promotional offers" sub="New lender deals & discounts" on={notif.promoOffers} onToggle={() => toggle('promoOffers')} last />
+          <SectionLabel>{t.notifications}</SectionLabel>
+          <ToggleRow label={t.notifLoanUpdates} sub={t.notifLoanUpdatesSub} on={notif.loanUpdates} onToggle={() => toggle('loanUpdates')} />
+          <ToggleRow label={t.notifSecurity} sub={t.notifSecuritySub} on={notif.securityAlerts} onToggle={() => toggle('securityAlerts')} />
+          <ToggleRow label={t.notifPromo} sub={t.notifPromoSub} on={notif.promoOffers} onToggle={() => toggle('promoOffers')} last />
         </Card>
 
         <Card className="p-1.5">

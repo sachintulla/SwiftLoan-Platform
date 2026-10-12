@@ -1,15 +1,15 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import '@/app/theme.css'; // --sl-* tokens the legal-page stylesheet depends on
-import './privacypolicy.css';
+import '../privacypolicy/privacypolicy.css';
 import { PRIVACY_BODY as BODY } from '@/content/privacyBody';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy — SwiftLoan.ai',
   description:
-    'SwiftLoan Privacy Policy: how Purpletalk India Private Limited collects, uses, stores, shares and protects your personal data, aligned with the DPDP Act 2023, the IT Act/SPDI Rules and the RBI Digital Lending Guidelines.',
+    'SwiftLoan Privacy Policy: how Purple Talk India Private Limited (operating under the brand name "SwiftLoan") collects, uses, stores, shares and protects your personal data, aligned with the DPDP Act 2023, the IT Act/SPDI Rules and the RBI Digital Lending Guidelines.',
+  alternates: { canonical: 'https://swiftloan.ai/privacy-policy' },
 };
-
 
 export default function PrivacyPolicyPage() {
   const year = new Date().getFullYear();
@@ -42,15 +42,15 @@ export default function PrivacyPolicyPage() {
         <div className="wrap">
           <span className="eyebrow">Legal</span>
           <h1>Privacy Policy</h1>
-          <p>How Purpletalk India Private Limited (&ldquo;SwiftLoan&rdquo;) collects, uses, stores, shares and protects your personal information across the SwiftLoan Platform &mdash; and how you stay in control of it.</p>
-          <div className="updated">Effective date: 25 August 2026 · Last updated: 6 October 2026 · Version 1.1</div>
+          <p>How Purple Talk India Private Limited (&ldquo;SwiftLoan&rdquo;) collects, uses, stores, shares and protects your personal information across the SwiftLoan Platform &mdash; and how you stay in control of it.</p>
+          <div className="updated">Effective date: 5 September 2026 · Last updated: 5 September 2026 · Version 1.0</div>
         </div>
       </div>
 
       <div className="wrap" dangerouslySetInnerHTML={{ __html: BODY }} />
 
       <footer className="f wrap">
-        <p>&copy; {year} Purpletalk India Private Limited. SwiftLoan is a loan-comparison and referral platform and Lending Service Provider &mdash; not a lender. Loans are provided by RBI-regulated banks and NBFCs; approval, amount, interest rate, and terms are at the lender&rsquo;s sole discretion, subject to eligibility, KYC, and documentation. Please borrow responsibly. Terms &amp; Conditions apply.</p>
+        <p>&copy; {year} Purple Talk India Private Limited. SwiftLoan is a brand of Purple Talk India Private Limited (GSTIN: 36AAFCP5544A1ZO). SwiftLoan is a loan-comparison and referral platform and Lending Service Provider &mdash; not a lender. Loans are provided by RBI-regulated banks and NBFCs; approval, amount, interest rate, and terms are at the lender&rsquo;s sole discretion, subject to eligibility, KYC, and documentation. Please borrow responsibly. Terms &amp; Conditions apply.</p>
         <p style={{ marginTop: 10 }}><Link href="/">&larr; Back to SwiftLoan.ai</Link></p>
       </footer>
     </div>

@@ -34,6 +34,7 @@ import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
+import { advanceReferral } from '../lib/referral.js';
 
 const log = scoped('aurix-webhook');
 
@@ -332,6 +333,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   }
 
   await prisma.loanApplication.update({ where: { id: application.id }, data: { status: mapped } });
+  if (mapped === 'disbursed') void advanceReferral(application.userId, 'disbursed'); // friend-referral milestone (best-effort)
 
   // Keep the Loan row (if any) in step so My Loans + Repay screens agree.
   if (mapped === 'disbursed' || mapped === 'closed') {

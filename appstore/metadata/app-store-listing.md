@@ -16,7 +16,7 @@ business/legal decision before you submit.
 | **Primary category** | Finance | — |
 | **Secondary category** | (none / Utilities) | — |
 | **Primary language** | English (India) | — |
-| **Copyright** | `© 2026 Purpletalk India Private Limited` **[confirm legal entity]** | — |
+| **Copyright** | `© 2026 Purple Talk India Private Limited` **[confirm legal entity]** | — |
 
 ## Version metadata (v1.1.6, build 7)
 

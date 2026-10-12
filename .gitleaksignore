@@ -1,0 +1,5 @@
+# Revasure UAT bearer token, hardcoded in the original commit and removed in the
+# follow-up (the token is now env-only: REVASURE_TOKEN). It remains in git
+# history, so the token must be rotated with Revasure; this entry only stops the
+# history scan from re-flagging the already-remediated commit.
+b68061e40ce05e8505cdef08c6319ccdb56f2aa2:server/src/lib/revasureLead.ts:jwt:35

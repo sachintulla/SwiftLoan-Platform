@@ -14,7 +14,7 @@ const TOPICS = [
 
 export default function Help() {
   const t = useT();
-  const { showToast } = useStore();
+  const { showToast, set, go } = useStore();
   return (
     <Screen scroll bottomNav padded>
       <View style={{ marginTop: 8 }}>
@@ -63,7 +63,7 @@ export default function Help() {
           <Text style={[font(500), { fontSize: 12, color: colors.textSoft }]}>{t.turnaround}</Text>
           <Text style={[font(700), { fontSize: 12.5, color: colors.text }]}>{t.turnaroundVal}</Text>
         </View>
-        <Pressable style={styles.grievanceBtn} onPress={() => showToast(t.tGrievance)}>
+        <Pressable style={styles.grievanceBtn} onPress={() => { set({ legalDoc: 'grievance' }); go('legal'); }}>
           <Text style={[font(700), { fontSize: 14, color: colors.primary }]}>{t.fileGrievance}</Text>
         </Pressable>
       </View>

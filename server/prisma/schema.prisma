@@ -240,6 +240,12 @@ model LoanApplication {
   residenceType ResidenceType?
   panNumber     String?
 
+  // Fingerprint of the details the lender was asked about, and when the offers were
+  // fetched. Prequalify calls the lender again only when this changes (or the stored
+  // offers are older than OFFERS_REUSE_HOURS) — see lib/offersReuse.ts.
+  offersSignature String?
+  offersFetchedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -250,6 +256,7 @@ model LoanApplication {
 
   @@index([userId, status])
   @@index([leadId])
+  @@index([userId, offersSignature])
 }
 
 model LenderPartner {
@@ -464,6 +471,35 @@ model PartnerReferral {
   lastStatus           String? // latest journeyStatus from Get Status (NEW_LEAD…)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([userId])
+}
+
+// Revasure "Create Lead" integration — a THIRD lender group, run in parallel to
+// Aurix (Knight Fintech) eligibility and Yubi (YMPL) at prequalify. A single
+// outbound POST creates a lead on Revasure; we record the request/response so
+// it shows in the admin dashboard, and surface the result to the app. Additive,
+// mirrors PartnerReferral (plain FKs, no relations).
+model RevasureLead {
+  id            String   @id @default(uuid())
+  applicationId String // parent LoanApplication
+  userId        String // SwiftLoan User.id
+  provider      String   @default("revasure")
+  // The source_lead_id we send (= application id) — Revasure dedupes on it, so
+  // it's our idempotent handle; unique here too.
+  sourceLeadId  String   @unique
+  basketId      String?
+  // pending | success | duplicate | ineligible | failed
+  status        String   @default("pending")
+  httpStatus    Int? // HTTP status from Revasure
+  leadId        String? // Revasure's own lead_id (from the 201 response)
+  message       String? // Revasure's response message (error or info)
+  requestBody   Json? // exactly what we POSTed (PAN/OTP masked by the lib)
+  responseBody  Json? // raw Revasure response
+  lastError     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([applicationId])
   @@index([userId])
@@ -747,6 +783,8 @@ model AppDownload {
   referrer      String?
   matchedUserId String? // filled when the install is attributed to a user
   contextLoaded Boolean  @default(false) // deferred deep-link context resolved on first open
+  clickId       String? // AppClick this install was attributed to
+  matchMethod   String? // play_referrer | clipboard | ip_window
   installedAt   DateTime @default(now())
 
   @@index([source])
@@ -1532,4 +1570,58 @@ model PanRecord {
   updatedAt         DateTime  @updatedAt
 
   @@index([ownerUserId, lastAurixCallAt])
+}
+
+// ─────────────────────── Install attribution + friend referrals ───────────────────────
+
+// One row per tap on a /dl link. Short-lived by design (purged after
+// ATTRIBUTION_CLICK_TTL_HOURS): it exists only so the first launch of the app
+// can find the click that sent it to the store. IP and user agent are stored as
+// keyed hashes, never raw.
+model AppClick {
+  id         String    @id @default(uuid())
+  token      String    @unique // opaque click id — travels in the Play referrer / clipboard
+  ref        String? // referral code, or a campaign slug
+  kind       String    @default("direct") // referral | campaign | direct
+  campaignId String?
+  platform   String // android | ios | web
+  ipHash     String
+  uaHash     String
+  osVersion  String? // "17.5" parsed from the click's user agent, used only to break IP ties
+  status     String    @default("pending") // pending | matched | expired
+  matchedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+
+  @@index([ipHash, status, createdAt])
+  @@index([expiresAt])
+  @@index([ref])
+}
+
+// A user's shareable referral code. Separate table so User stays untouched.
+model ReferralCode {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// "Priya invited Rahul". One row per referee — a person can only ever be
+// referred once. Tracking only for now: rewardStatus stays "none" until a
+// reward policy is approved.
+model FriendReferral {
+  id           String    @id @default(uuid())
+  referrerId   String
+  refereeId    String    @unique
+  code         String
+  clickId      String?
+  matchMethod  String? // play_referrer | clipboard | ip_window | manual
+  status       String    @default("signed_up") // signed_up | applied | disbursed
+  appliedAt    DateTime?
+  disbursedAt  DateTime?
+  rewardStatus String    @default("none") // none | pending | granted
+  createdAt    DateTime  @default(now())
+
+  @@index([referrerId, createdAt])
+  @@index([status])
 }

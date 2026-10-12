@@ -127,16 +127,19 @@ describe('UC-N11 forward navigation follows the new order', () => {
     unmount();
   });
 
-  it("BasicPan: a PAN the API rejects shows the API's own message and stays on step 1", async () => {
+  it('BasicPan: a PAN with no bureau record continues to manual entry on the details step', async () => {
     setTokens('fake-access-token');
     jest.spyOn(api, 'me').mockResolvedValue({ user: {} } as any);
     jest.spyOn(api, 'verifyPan').mockResolvedValue({ ...VERIFIED, status: 'invalid', verified: false, prefill: {}, message: 'No record found for the given PAN.' } as any);
-    const { getByText, getByTestId, unmount } = renderWithProviders(
+    const { getByText, getByTestId, queryByText, unmount } = renderWithProviders(
       <Harness seed={{ panNumber: 'AAAPL1234C', panConsent: true }}><BasicPan /></Harness>,
     );
     fireEvent.press(getByText('Verify PAN & continue'));
-    await waitFor(() => expect(getByText('No record found for the given PAN.')).toBeTruthy());
-    expect(currentScreen(getByTestId)).not.toBe('basic');
+    // No blocking "no record" dialog — the funnel advances to the details step so
+    // the user can fill in their details by hand (see basicpan.tsx continueManually).
+    await waitFor(() => expect(currentScreen(getByTestId)).toBe('basic'));
+    // No false "PAN verified" prefill / error dialog left behind.
+    expect(queryByText('No record found for the given PAN.')).toBeNull();
     unmount();
   });
 

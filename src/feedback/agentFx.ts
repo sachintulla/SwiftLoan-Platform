@@ -41,7 +41,9 @@ export const sleep = (ms: number): Promise<void> =>
 
 /* ── Events (agent → control) ───────────────────────────────────────────── */
 
-export type FxKind = 'focus' | 'press' | 'done';
+// 'cursor' asks a text field to focus its input (caret + keyboard), without
+// touching the ring — handled by Field, ignored by useAgentFx's ring loop.
+export type FxKind = 'focus' | 'press' | 'done' | 'cursor';
 export interface FxEvent {
   kind: FxKind;
   /** normalised `label|group` of the control the agent is acting on */

@@ -2,7 +2,7 @@
 
 _Last updated: 2026-09-21_
 
-> Use this for the WhatsApp Business / Meta application, and as the source of truth for your privacy policy. Category to register: **Financial Services**. Register the account under your **exact legal registered entity name** (PURPLETALK INDIA PRIVATE LIMITED); the public display name is **SwiftLoan**.
+> Use this for the WhatsApp Business / Meta application, and as the source of truth for your privacy policy. Category to register: **Financial Services**. Register the account under your **exact legal registered entity name** (PURPLE TALK INDIA PRIVATE LIMITED); the public display name is **SwiftLoan**.
 
 ## Positioning — the one line that answers "are you a lender?"
 
@@ -29,7 +29,7 @@ SwiftLoan is a loan-marketplace and does not lend money. Loans are provided sole
 _This is drafting copy to hand to legal, not a substitute for legal review. Host it at a public URL (https://swiftloan.ai/privacy) — that URL is required by WhatsApp, the App Store, and the Play Store._
 
 ### 1. Who we are
-SwiftLoan ("we", "us") is operated by PURPLETALK INDIA PRIVATE LIMITED, [CIN / registration no.], [registered address]. We are a loan-marketplace and lead-generation platform, not a lender.
+SwiftLoan ("we", "us") is operated by PURPLE TALK INDIA PRIVATE LIMITED, [CIN / registration no.], [registered address]. We are a loan-marketplace and lead-generation platform, not a lender.
 
 ### 2. Information we collect
 - **Identity & contact:** name, mobile number, email.

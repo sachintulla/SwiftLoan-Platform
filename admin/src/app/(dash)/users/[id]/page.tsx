@@ -2,8 +2,14 @@
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { Card, StatCard, StatusBadge, TableSkeleton } from '@/components/ui';
-import { inr, dateStr, humanStatus } from '@/lib/format';
+import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
+import { inr, dateStr, humanStatus, timeAgo } from '@/lib/format';
+
+const LENDER_GROUP_LABEL: Record<string, string> = {
+  knight_fintech: 'Knight Fintech',
+  yubi: 'Yubi',
+  revasure: 'Revasure',
+};
 
 export default function UserProfile() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +30,25 @@ export default function UserProfile() {
         <StatCard label="Monthly Income" value={u.monthlyIncome ? inr(u.monthlyIncome) : '—'} tone="teal" />
         <StatCard label="Applications" value={u.applications?.length ?? 0} tone="blue" />
         <StatCard label="Loans" value={u.loans?.length ?? 0} tone="grey" />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+      <Card title="Applications across lenders">
+        {(u.lenderApplications ?? []).length === 0 ? <Empty /> : (
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>Lender group</th><th>Lender</th><th>Amount</th><th>Status</th><th>Applied</th></tr></thead>
+            <tbody>{u.lenderApplications.map((a: any, i: number) => (
+              <tr key={a.ref || i}>
+                <td>{LENDER_GROUP_LABEL[a.lenderGroup] || humanStatus(a.lenderGroup)}</td>
+                <td>{a.lender || '—'}</td>
+                <td className="mono">{a.amount != null ? inr(a.amount) : '—'}</td>
+                <td><StatusBadge status={a.status} /></td>
+                <td className="muted" title={dateStr(a.appliedAt)}>{timeAgo(a.appliedAt)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+      </Card>
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16, alignItems: 'start' }}>

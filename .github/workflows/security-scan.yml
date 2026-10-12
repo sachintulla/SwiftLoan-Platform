@@ -6,6 +6,10 @@ name: Security Scan
 # SOC 2 CC7.1 (vulnerability detection), CC8.1.
 on:
   workflow_dispatch:
+  # PR-only: the merge gate runs once on the PR. No push trigger, so merging to
+  # main/develop doesn't re-run it (Deploy Dev is the only push-to-develop workflow).
+  pull_request:
+    branches: [main, develop]
 
 permissions:
   contents: read

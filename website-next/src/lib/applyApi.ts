@@ -60,6 +60,14 @@ export interface LoanApplication {
     redirectionUrl: string | null;
     appliedAt: string;
   }[];
+  /** Partner (Yubi / YMPL) referrals the applicant proceeded with — each is a row in My Applications. */
+  partnerReferrals?: {
+    id: string;
+    applicationId: string;
+    appliedAt: string | null;
+    appliedLender: string | null;
+    lastStatus: string | null;
+  }[];
 }
 
 export async function fetchMe() {
