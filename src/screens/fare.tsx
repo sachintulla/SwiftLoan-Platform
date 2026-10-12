@@ -123,7 +123,21 @@ export default function MyOffers() {
 
   const hasOffers = offers.length > 0;
 
-  // Title + two-source tab bar, shared by both tab layouts.
+  // Show the "Explore lenders" tab only once the user has actually applied and
+  // has a result to build on (an eligibility run exists → applicationId set).
+  // Before that, the Yubi tab has nothing to refer and would just repeat the
+  // "Apply for a loan" CTA that Instant offers already shows — a confusing
+  // duplicate. So first-timers see a single, tab-less Instant-offers screen;
+  // the tab bar appears after the first apply, positive or negative.
+  const showTabs = state.altOffersEnabled && !!state.applicationId;
+
+  // If the tabs disappear (e.g. after a logout/reset clears applicationId while
+  // parked on the Yubi tab), fall back to the Instant-offers view.
+  useEffect(() => {
+    if (!showTabs && tab === 'yubi') setTab('knight');
+  }, [showTabs, tab]);
+
+  // Title + (conditional) two-source tab bar, shared by both tab layouts.
   const header = (
     <>
       <View style={styles.header}>
@@ -142,21 +156,23 @@ export default function MyOffers() {
           </Pressable>
         )}
       </View>
-      <View style={styles.tabsRow}>
-        {(['knight', 'yubi'] as const).map(k => (
-          <Pressable key={k} onPress={() => setTab(k)} accessibilityRole="tab" style={styles.tabBtn}>
-            <View style={styles.tabLabelRow}>
-              {/* Sparkle marks the lender marketplace tab as the richer, exciting
-                  destination — not a secondary "more" option. */}
-              {k === 'yubi' ? <Icon name="auto_awesome" size={15} color={tab === k ? colors.primary : colors.textSoft} /> : null}
-              <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
-                {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
-              </Text>
-            </View>
-            <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
-          </Pressable>
-        ))}
-      </View>
+      {showTabs && (
+        <View style={styles.tabsRow}>
+          {(['knight', 'yubi'] as const).map(k => (
+            <Pressable key={k} onPress={() => setTab(k)} accessibilityRole="tab" style={styles.tabBtn}>
+              <View style={styles.tabLabelRow}>
+                {/* Sparkle marks the lender marketplace tab as the richer, exciting
+                    destination — not a secondary "more" option. */}
+                {k === 'yubi' ? <Icon name="auto_awesome" size={15} color={tab === k ? colors.primary : colors.textSoft} /> : null}
+                <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
+                  {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
+                </Text>
+              </View>
+              <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
+            </Pressable>
+          ))}
+        </View>
+      )}
     </>
   );
 

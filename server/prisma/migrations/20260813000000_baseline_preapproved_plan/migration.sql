@@ -1,10 +1,10 @@
--- Baseline only: PreApprovedPlan already exists in the live database (created
--- outside migration history, likely via `prisma db push` before migrations
--- were adopted). This file's DDL matches the live table exactly (verified via
--- pg_dump) purely so Prisma's drift detector has an accurate reference to diff
--- against — it is applied via `prisma migrate resolve --applied`, never run.
+-- Baseline: PreApprovedPlan predates the migration history (created via
+-- `prisma db push`). Live databases mark this migration applied with
+-- `prisma migrate resolve --applied`. IF NOT EXISTS also makes it safe on a
+-- fresh database, where 20260812161005_aurix_offers_and_applicant_fields has
+-- already created the table (CI "Migrations apply cleanly").
 
-CREATE TABLE "PreApprovedPlan" (
+CREATE TABLE IF NOT EXISTS "PreApprovedPlan" (
     id text NOT NULL,
     "lenderName" text NOT NULL,
     "logoUrl" text,
@@ -27,4 +27,4 @@ CREATE TABLE "PreApprovedPlan" (
     CONSTRAINT "PreApprovedPlan_pkey" PRIMARY KEY (id)
 );
 
-CREATE INDEX "PreApprovedPlan_active_displayOrder_idx" ON "PreApprovedPlan" USING btree (active, "displayOrder");
+CREATE INDEX IF NOT EXISTS "PreApprovedPlan_active_displayOrder_idx" ON "PreApprovedPlan" USING btree (active, "displayOrder");

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform, PermissionsAndroid } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
@@ -8,34 +8,39 @@ import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { registerUpshotPush } from '../analytics/upshot';
 
+// Only the permissions the app genuinely uses are shown — and tapping Agree
+// actually requests them, then the funnel moves on (in sync with the flow):
+//   • Notifications — loan-status updates (registerUpshotPush).
+//   • Camera — PAN scan + profile photo.
+// Microphone is NOT shown here: it's requested in context only if the user opens
+// the optional voice assistant. SMS and Location are not used at all (both are
+// restricted for personal-loan apps on Play), so neither is shown or requested.
 const PERMS = [
   { icon: 'notifications', titleKey: 'notifications', descKey: 'permNotifDesc' },
-  { icon: 'sms', titleKey: 'permSms', descKey: 'permSmsDesc' },
   { icon: 'photo_camera', titleKey: 'permCamera', descKey: 'permCameraDesc' },
-  { icon: 'location_on', titleKey: 'permLocation', descKey: 'permLocationDesc' },
 ];
-
-/**
- * "Allow permissions" asks for notifications (registerUpshotPush) on BOTH platforms, nothing else up
- * front. Camera is asked by the OS the first time it is used (PAN scan, profile photo), the same on
- * Android and iOS. Android used to also pop camera + location prompts here while iOS asked for
- * neither; nothing in the app reads location, so that asymmetry only added a prompt Play review
- * could question. SMS is deliberately not requested either (READ_SMS is restricted on Play and
- * nothing reads SMS content).
- */
 
 export default function Permissions() {
   const { go } = useStore();
   const t = useT();
   const [busy, setBusy] = useState(false);
 
+  // Agree = grant the required permissions, then continue. Each request is
+  // best-effort: a denial never blocks the funnel (the feature re-asks in
+  // context later), so the user always moves forward.
   const allow = async () => {
     setBusy(true);
-    // Notification permission is requested here (not at app boot) — this is the screen that explains
-    // why we need it. Same on Android and iOS.
-    registerUpshotPush();
-    setBusy(false);
-    go('aboutyou');
+    try {
+      registerUpshotPush(); // notifications (both platforms)
+      if (Platform.OS === 'android') {
+        // Android needs an explicit runtime grant; iOS prompts for camera in
+        // context (the PAN scanner / photo picker) per iOS best practice.
+        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA).catch(() => {});
+      }
+    } finally {
+      setBusy(false);
+      go('aboutyou');
+    }
   };
 
   return (

@@ -4,6 +4,8 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
@@ -45,8 +47,6 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>SwiftLoan uses your camera to take a profile photo.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>SwiftLoan uses your location for profile enrichment and fraud checks.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SwiftLoan uses your microphone so you can navigate the app and fill in forms by voice.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
