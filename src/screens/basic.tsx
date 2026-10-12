@@ -3,7 +3,8 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
-import { Field, Chips, Slider, HeaderCta, StepBadge } from '../components/Controls';
+import { Field, Chips, Slider, HeaderCta, StepBadge, Select } from '../components/Controls';
+import { INDIAN_STATES, INDIAN_CITIES } from '../utils/indiaLocations';
 import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
@@ -197,13 +198,14 @@ export default function Basic() {
     'salary mode': t.basicSalaryModeLabel, 'address line 1': t.basicAddr1Label, city: t.basicCity,
     state: t.basicState, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
   };
-  // Text-input fields jump the caret (keyboard cursor) onto the field itself; the
-  // rest (chip groups, date picker) get a brief ring hugging just the control.
+  // Text-input fields jump the caret (keyboard cursor) onto the field itself.
   const TEXT_FIELD: Record<string, string> = {
     'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, email: t.basicEmailLabel,
-    'address line 1': t.basicAddr1Label, city: t.basicCity, state: t.basicState,
-    pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+    'address line 1': t.basicAddr1Label, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
   };
+  // Dropdowns (City, State) register under their label like a Field but have no
+  // caret — scroll to them and ring the control, no cursor.
+  const SELECT_FIELD: Record<string, string> = { city: t.basicCity, state: t.basicState };
 
   // Continue with empty required fields → jump to the first one (caret for a text
   // field, a short ring for a chip/date control) and name what's left in a short
@@ -219,6 +221,7 @@ export default function Basic() {
     set({ voiceFabUnlocked: true, voiceNudge: { id: Date.now(), labels: [t.basicMissingNudge.replace('{fields}', shown)], reason: 'missing_fields' } });
 
     const textLabel = TEXT_FIELD[first];
+    const selectLabel = SELECT_FIELD[first];
     if (textLabel) {
       // Scroll it in, drop the caret on it (native focus border + keyboard), and
       // give its own tight ring a brief pulse — no whole-section highlight.
@@ -226,6 +229,12 @@ export default function Basic() {
         emitFx('focus', textLabel);
         emitFx('cursor', textLabel);
         setTimeout(() => emitFx('done', textLabel), 1600);
+      }).catch(() => {});
+    } else if (selectLabel) {
+      // Dropdown: scroll in + a short ring around the selector (no caret).
+      revealTarget('basic', selectLabel).then(() => {
+        emitFx('focus', selectLabel);
+        setTimeout(() => emitFx('done', selectLabel), 1600);
       }).catch(() => {});
     } else {
       // Chip group / date picker: scroll in + a short ring around just the control.
@@ -479,8 +488,12 @@ export default function Basic() {
           <Field required label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
           <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} maxLength={ADDR_MAX} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}><Field required label={t.basicCity} placeholder={t.basicCity} maxLength={MID_MAX} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
-            <View style={{ flex: 1 }}><Field required label={t.basicState} placeholder={t.basicState} maxLength={MID_MAX} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
+            <View style={{ flex: 1 }}>
+              <Select required label={t.basicCity} placeholder={t.basicCity} value={state.optCity} onChange={v => set({ optCity: v })} options={INDIAN_CITIES} allowCustom />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Select required label={t.basicState} placeholder={t.basicState} value={state.optState} onChange={v => set({ optState: v })} options={INDIAN_STATES} />
+            </View>
           </View>
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicResLabel} required />
