@@ -5,12 +5,15 @@ import { useCopy } from "@/lib/i18n";
 import { siteFooterCopy } from "@/i18n/site-footer";
 
 /** Routes per column item, matched by index (null = non-navigating label). */
-type FooterRoute = "/" | "/faqs" | "/account" | null;
+type FooterRoute = "/" | "/faqs" | "/account" | "/privacy-policy" | null;
 const companyRoutes: readonly FooterRoute[] = [null, null, null, "/faqs"];
 // "Track application" is the last item in the Products column — it used to
 // render as inert text like its siblings; it's the one item there that
 // actually has somewhere real to go.
 const productsRoutes: readonly FooterRoute[] = [null, null, null, "/account"];
+// Legal column: "Privacy & Data Protection" (5th, in every language) opens the one
+// public Privacy Policy page.
+const legalRoutes: readonly FooterRoute[] = [null, null, null, null, "/privacy-policy"];
 
 export function SiteFooter() {
   const t = useCopy(siteFooterCopy);
@@ -47,7 +50,7 @@ export function SiteFooter() {
 
           <FooterCol title={t.columns.products} items={t.products} routes={productsRoutes} />
           <FooterCol title={t.columns.company} items={t.company} routes={companyRoutes} />
-          <FooterCol title={t.columns.legal} items={t.legal} />
+          <FooterCol title={t.columns.legal} items={t.legal} routes={legalRoutes} />
         </div>
 
         <div className="bg-accent mt-12 flex flex-col items-center justify-between gap-4 rounded-3xl border border-border p-6 text-center sm:mt-14 sm:flex-row sm:text-left">

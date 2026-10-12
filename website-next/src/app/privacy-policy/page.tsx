@@ -50,7 +50,7 @@ export default function PrivacyPolicyPage() {
       <div className="wrap" dangerouslySetInnerHTML={{ __html: BODY }} />
 
       <footer className="f wrap">
-        <p>&copy; {year} Purpletalk India Private Limited. SwiftLoan is a loan-comparison and referral platform and Lending Service Provider &mdash; not a lender. Loans are provided by RBI-regulated banks and NBFCs; approval, amount, interest rate, and terms are at the lender&rsquo;s sole discretion, subject to eligibility, KYC, and documentation. Please borrow responsibly. Terms &amp; Conditions apply.</p>
+        <p>&copy; {year} Purpletalk India Private Limited. SwiftLoan is a brand of Purpletalk India Private Limited (GSTIN: 36AAFCP5544A1ZO). SwiftLoan is a loan-comparison and referral platform and Lending Service Provider &mdash; not a lender. Loans are provided by RBI-regulated banks and NBFCs; approval, amount, interest rate, and terms are at the lender&rsquo;s sole discretion, subject to eligibility, KYC, and documentation. Please borrow responsibly. Terms &amp; Conditions apply.</p>
         <p style={{ marginTop: 10 }}><Link href="/">&larr; Back to SwiftLoan.ai</Link></p>
       </footer>
     </div>
