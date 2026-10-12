@@ -299,7 +299,7 @@ export interface EmiOption {
 export interface RevasureResult {
   provider: 'revasure';
   ok: boolean;
-  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled';
+  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled' | 'skipped';
   httpStatus: number | null;
   leadId: string | null;
   message: string | null;

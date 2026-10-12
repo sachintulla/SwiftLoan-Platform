@@ -624,24 +624,37 @@ class AurixOfferProvider implements LenderOfferProvider {
     console.log(`[aurix-req] POST ${cfg.offersBaseUrl}/api/eligible_offers user=${application.userId} app=${application.id} payload=${maskedPayload}`);
     // eligible_offers is a real bureau/BRE call and can be slow — allow 30s
     // rather than the default 15s so a legitimately slow decision doesn't time out.
-    const result = await httpJson(
-      `${cfg.offersBaseUrl}/api/eligible_offers`,
-      'POST',
-      // v1.2 headers: K-Aurix-Token + K-Aurix-PartnerCustomerId. X-Aurix-Token
-      // kept for backward-compat with the currently-deployed UAT gateway.
-      // K-Aurix-Version MUST be v3 to match the token minted by generate_token —
-      // v1 here caused eligible_offers to reject the (valid) token with HTTP 401
-      // (confirmed against Aurix's own Postman collection).
-      {
-        Accept: 'application/json',
-        'K-Aurix-Version': 'v3',
-        'K-Aurix-Token': token,
-        'X-Aurix-Token': token,
-        'K-Aurix-PartnerCustomerId': application.userId,
-      },
-      payload,
-      30_000,
-    );
+    const callEligibleOffers = (tok: string) =>
+      httpJson(
+        `${cfg.offersBaseUrl}/api/eligible_offers`,
+        'POST',
+        // v1.2 headers: K-Aurix-Token + K-Aurix-PartnerCustomerId. X-Aurix-Token
+        // kept for backward-compat with the currently-deployed UAT gateway.
+        // K-Aurix-Version MUST be v3 to match the token minted by generate_token —
+        // v1 here caused eligible_offers to reject the (valid) token with HTTP 401
+        // (confirmed against Aurix's own Postman collection).
+        {
+          Accept: 'application/json',
+          'K-Aurix-Version': 'v3',
+          'K-Aurix-Token': tok,
+          'X-Aurix-Token': tok,
+          'K-Aurix-PartnerCustomerId': application.userId,
+        },
+        payload,
+        // eligible_offers is a real bureau/BRE call and can be slow — allow 30s
+        // rather than the default 15s so a legitimately slow decision doesn't time out.
+        30_000,
+      );
+    let result = await callEligibleOffers(token);
+    // A cached token can be rejected (401) well before our assumed 30-minute expiry — seen
+    // when offers are re-fetched after the applicant edits their details. Mint a fresh one and
+    // retry ONCE, so a legitimate "details changed" re-fetch doesn't surface as a failure.
+    if (result.status === 401) {
+      console.log('[aurix] cached token rejected (401) — minting a fresh one and retrying once');
+      const fresh = await generateAurixToken(cfg, user.id, user.phone);
+      await prisma.user.update({ where: { id: user.id }, data: { aurixToken: fresh, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) } }).catch(() => {});
+      result = await callEligibleOffers(fresh);
+    }
     console.log(`[aurix-res] HTTP ${result.status} body=${JSON.stringify(result.body)}`);
     // Stash the raw Aurix response so the app can surface it (debug alert).
     aurixDebugByApp.set(application.id, { httpStatus: result.status, response: result.body });

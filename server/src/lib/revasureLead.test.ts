@@ -5,12 +5,19 @@ const db = vi.hoisted(() => ({
   user: { id: 'user-1', fullName: 'Asha Rao', phone: '9876543210', email: 'a@b.co' } as any,
   upsert: vi.fn().mockResolvedValue({}),
   update: vi.fn().mockResolvedValue({}),
+  findFirst: vi.fn().mockResolvedValue(null), // an earlier lead for this number (null = none)
+  tx: { fail: false },
 }));
 vi.mock('./prisma.js', () => ({
   prisma: {
     loanApplication: { findUnique: vi.fn(async () => db.app) },
     user: { findUnique: vi.fn(async () => db.user) },
     revasureLead: { upsert: db.upsert, update: db.update },
+    // check-and-claim runs in a transaction under a per-number advisory lock
+    $transaction: async (fn: (tx: any) => unknown) => {
+      if (db.tx.fail) throw new Error('db down');
+      return fn({ $executeRaw: async () => 1, revasureLead: { findFirst: db.findFirst, upsert: db.upsert } });
+    },
   },
 }));
 const { buildRevasureBody, createRevasureLead, maskedRevasureBody, revasureConfig, revasureEnabled } = await import('./revasureLead.js');
@@ -149,6 +156,8 @@ describe('createRevasureLead — outcomes (what the website prequalify returns, 
     vi.unstubAllGlobals();
     db.upsert.mockClear();
     db.update.mockClear();
+    db.findFirst.mockReset().mockResolvedValue(null);
+    db.tx.fail = false;
   });
 
   it('201 → success with the lead id; posts the bearer token to /api/inbound/leads', async () => {
@@ -222,5 +231,87 @@ describe('request/response logging never exposes personal data or the token', ()
     expect(out).not.toContain('ABCPA1234A');
     spy.mockRestore();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('one Revasure lead per phone number', () => {
+  const on = () => setEnv({ REVASURE_TOKEN: 'secret-token', REVASURE_BASE_URL: 'https://revasure.example' });
+  const spyFetch = () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ lead_id: 'L-1' }) });
+    vi.stubGlobal('fetch', f);
+    return f;
+  };
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    db.upsert.mockClear();
+    db.update.mockClear();
+    db.findFirst.mockReset().mockResolvedValue(null);
+    db.tx.fail = false;
+  });
+
+  it('first time for a number → sends', async () => {
+    on();
+    const f = spyFetch();
+    expect(await createRevasureLead('app-1', 'user-1')).toMatchObject({ ok: true, status: 'success' });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['success', 'duplicate', 'ineligible'])('a lead already %s for this number → NOT sent again', async (status) => {
+    on();
+    db.findFirst.mockResolvedValue({ sourceLeadId: 'app-0', status, httpStatus: status === 'success' ? 201 : 409, leadId: 'L-0' });
+    const f = spyFetch();
+    const r = await createRevasureLead('app-2', 'user-1');
+    expect(r).toMatchObject({ ok: true, status: 'skipped', leadId: 'L-0' });
+    expect(f).not.toHaveBeenCalled();
+    expect(db.upsert).not.toHaveBeenCalled(); // no new lead row either
+  });
+
+  it('looks the number up across accounts by the phone in the stored request, and by user', async () => {
+    on();
+    spyFetch();
+    await createRevasureLead('app-1', 'user-1');
+    const where = db.findFirst.mock.calls[0][0].where;
+    const text = JSON.stringify(where);
+    expect(text).toContain('"success"'); expect(text).toContain('"duplicate"'); expect(text).toContain('"ineligible"');
+    expect(text).toContain('mobile_number'); expect(text).toContain('9876543210');
+    expect(text).toContain('user-1');
+  });
+
+  it('a failed earlier attempt does not block (so a fixed token can retry)', async () => {
+    on();
+    // the query only asks for decided outcomes (or a fresh in-flight claim) — a 401/5xx row is not among them
+    const f = spyFetch();
+    await createRevasureLead('app-1', 'user-1');
+    const statuses = JSON.stringify(db.findFirst.mock.calls[0][0].where);
+    expect(statuses).not.toContain('"failed"');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('an in-flight claim (two prequalify runs at once) also blocks the second', async () => {
+    on();
+    db.findFirst.mockResolvedValue({ sourceLeadId: 'app-1', status: 'pending', httpStatus: null, leadId: null });
+    const f = spyFetch();
+    expect((await createRevasureLead('app-1', 'user-1')).status).toBe('skipped');
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("fails closed: if it can't check/record, it does not send", async () => {
+    on();
+    db.tx.fail = true;
+    const f = spyFetch();
+    const r = await createRevasureLead('app-1', 'user-1');
+    expect(r).toMatchObject({ ok: false, status: 'failed' });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('the skipped log never contains the phone number', async () => {
+    on();
+    db.findFirst.mockResolvedValue({ sourceLeadId: 'app-0', status: 'success', httpStatus: 201, leadId: 'L-0' });
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await createRevasureLead('app-2', 'user-1');
+    const out = spy.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(out).toMatch(/skipped/);
+    expect(out).not.toContain('9876543210');
+    spy.mockRestore();
   });
 });

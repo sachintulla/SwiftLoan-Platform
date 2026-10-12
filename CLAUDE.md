@@ -361,3 +361,21 @@ Same server endpoints as the app — nothing lender-specific is client-only.
 - **Local dev behind a TLS-inspecting proxy:** `server/src/lib/devCa.ts` makes outbound `fetch` trust `NODE_EXTRA_CA_CERTS` from `.env`
   (Node only reads that variable at process start, so dotenv alone silently failed → Aurix/Yubi `SELF_SIGNED_CERT_IN_CHAIN`). No-op in production.
 - Website tests: `cd website-next && npm test` (vitest + jsdom); run in CI.
+
+## Partner-call limits (prequalify)
+
+- **Revasure — one lead per phone number, ever.** `createRevasureLead` checks-and-claims under a per-number advisory lock
+  (`server/src/lib/revasureLead.ts`): if a lead Revasure decided on (`success` / `duplicate` / `ineligible`) already exists for the
+  user or that number (matched on the stored request's `mobile_number`), or one is in flight, it returns `status: 'skipped'` and sends
+  nothing. A *failed* attempt (bad token, outage) does not block, so it can be retried once fixed. If it cannot check/record, it
+  does not send (fails closed).
+- **Aurix — only re-fetch offers when the applicant's details changed.** `lib/offersReuse.ts` fingerprints exactly the
+  profile + application fields the eligible_offers request is built from and stores it on `LoanApplication.offersSignature`
+  with `offersFetchedAt`. Prequalify reuses stored offers (this application's own, or copies from the user's recent application
+  with the same fingerprint — `lib/offersReuseDb.ts`) and skips the lender call; any change to those details (income, PAN,
+  address, amount, tenure, …) triggers a fresh call. Technical failures are never remembered, so they stay retryable. Reuse
+  window `OFFERS_REUSE_HOURS` (default 24, matching the "valid for 24 hours" promise; `0` = never expires). A cached Aurix
+  token that is rejected (401) is replaced and retried once.
+- **Yubi is deliberately untouched** (its pre-warm still runs on every prequalify; the partner handles its own limits).
+- Terminology: a `LoanApplication` is created when the applicant submits their details (before offers); fetching offers
+  (prequalify) fills it with `Offer` rows; a `LenderApplication` is created only when they apply to a specific lender's offer.

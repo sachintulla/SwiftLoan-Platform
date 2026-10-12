@@ -11,6 +11,8 @@ import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
+import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offersReuse.js';
+import { copyOffersFrom, storedOffers } from '../lib/offersReuseDb.js';
 import { scoped } from '../lib/log.js';
 import { advanceReferral } from '../lib/referral.js';
 
@@ -205,6 +207,34 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const clientIp = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString();
   const revasurePromise = createRevasureLead(app.id, req.user!.sub, clientIp);
 
+  // Only ask the lender again when the applicant has CHANGED something. Identical
+  // details → identical offers, so reuse what we already hold (this application's own,
+  // or a recent one of the same user's fetched with the same details) and skip the
+  // paid lender call. A technical failure is never stored, so it can always be retried.
+  const profile = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+  const signature = offersInputSignature(profile, app);
+  const siblings = await prisma.loanApplication.findMany({
+    where: { userId: req.user!.sub, offersSignature: signature },
+    select: { id: true, offersSignature: true, offersFetchedAt: true },
+    orderBy: { offersFetchedAt: 'desc' },
+    take: 10,
+  });
+  const reusable = pickReusable(siblings, app.id, signature, Date.now(), reuseWindowMs());
+  if (reusable) {
+    const offers = reusable.id === app.id ? await storedOffers(app.id) : await copyOffersFrom(app, reusable.id);
+    if (offers) {
+      if (reusable.id === app.id && offers.length > 0 && ['draft', 'pan_pending', 'prequalifying'].includes(app.status)) {
+        await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'offers_ready', prequalifyReason: null } });
+      }
+      log.info('prequalify reused stored offers — details unchanged, lender not called', {
+        applicationId: app.id, from: reusable.id, offerCount: offers.length,
+      });
+      const revasureReused = await revasurePromise.catch(() => null);
+      res.json({ offers, aurixResponse: null, revasure: revasureReused, reused: true });
+      return;
+    }
+  }
+
   // Gather offers across partners. A provider whose single API call returns
   // many offers (Aurix → one per real lender) uses getOffers; others yield a
   // single offer. A partner that fails (provider down, no eligibility, a
@@ -323,7 +353,13 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
         : "We couldn't reach our lending partners just now. Please try again in a moment.";
   await prisma.loanApplication.update({
     where: { id: app.id },
-    data: { status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed', prequalifyReason },
+    data: {
+      status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed',
+      prequalifyReason,
+      // Remember what the lender was asked, so the same details don't trigger another call.
+      // A technical failure ('failed') is NOT remembered — it must stay retryable.
+      ...(created.length > 0 || aurixSucceededWithNoOffers ? { offersSignature: signature, offersFetchedAt: new Date() } : {}),
+    },
   });
 
   // WS5: eligibility genuinely finished here (server-side truth). The client

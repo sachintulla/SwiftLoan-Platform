@@ -75,8 +75,9 @@ export interface RevasureResult {
   provider: 'revasure';
   ok: boolean;
   // success = 201 created; duplicate = 409 already-received (benign);
-  // ineligible = 409 business decline; failed = validation/auth/server/network.
-  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled';
+  // ineligible = 409 business decline; failed = validation/auth/server/network;
+  // skipped = a lead was already sent for this number, so we did not send another.
+  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled' | 'skipped';
   httpStatus: number | null;
   leadId: string | null;
   message: string | null;
@@ -199,10 +200,15 @@ export function buildRevasureBody(
   };
 }
 
+/** Outcomes Revasure itself decided on — once one exists for a number, we never send another. */
+export const REVASURE_SENT = ['success', 'duplicate', 'ineligible'] as const;
+/** A 'pending' claim older than this is treated as abandoned (the process died mid-call). */
+const PENDING_STALE_MS = 2 * 60_000;
+
 /**
- * Create (or re-record) the Revasure lead for an application. Upserts a
- * RevasureLead row keyed on source_lead_id (= app.id), so re-runs update the
- * same record and a Revasure "duplicate" (409) is treated as a benign success.
+ * Create the Revasure lead for an application — at most ONCE per phone number (see the
+ * check-and-claim below). A Revasure "duplicate" (409) is treated as a benign success.
+ * The lead row is keyed on source_lead_id (= app.id).
  * Never throws — returns a RevasureResult the caller attaches to its response.
  */
 export async function createRevasureLead(
@@ -228,11 +234,46 @@ export async function createRevasureLead(
     // Masked copy for storage — never persist the real PAN / OTP.
     const storedBody = { ...body, pancard: maskPan(String(body.pancard)), otp: '******' };
 
-    await prisma.revasureLead.upsert({
-      where: { sourceLeadId: app.id },
-      update: { status: 'pending', basketId: cfg.basketId, requestBody: storedBody, lastError: null },
-      create: { applicationId: app.id, userId, sourceLeadId: app.id, basketId: cfg.basketId, status: 'pending', requestBody: storedBody },
-    }).catch(() => {});
+    // ONE lead per phone number, ever. Check-and-claim happens under a per-number lock so two
+    // prequalify runs at the same moment (double click, retry, two tabs) cannot both send.
+    // Only a lead Revasure actually decided on (created / duplicate / ineligible) blocks a new one;
+    // a failed attempt (bad token, outage) may be retried once it is fixed.
+    const mobile = String(body.mobile_number);
+    let existing: { sourceLeadId: string; status: string; httpStatus: number | null; leadId: string | null } | null;
+    try {
+      existing = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'revasure:' + mobile}))`;
+        const prior = await tx.revasureLead.findFirst({
+          where: {
+            OR: [
+              { status: { in: [...REVASURE_SENT] } },
+              { status: 'pending', updatedAt: { gt: new Date(Date.now() - PENDING_STALE_MS) } }, // one in flight right now
+            ],
+            AND: [{ OR: [{ userId }, { requestBody: { path: ['mobile_number'], equals: mobile } }] }],
+          },
+          orderBy: { createdAt: 'asc' },
+          select: { sourceLeadId: true, status: true, httpStatus: true, leadId: true },
+        });
+        if (prior) return prior;
+        await tx.revasureLead.upsert({
+          where: { sourceLeadId: app.id },
+          update: { status: 'pending', basketId: cfg.basketId, requestBody: storedBody, lastError: null },
+          create: { applicationId: app.id, userId, sourceLeadId: app.id, basketId: cfg.basketId, status: 'pending', requestBody: storedBody },
+        });
+        return null;
+      });
+    } catch (e: any) {
+      // Can't prove we haven't already sent one (or can't record this one) → don't send.
+      log.warn('not sent — could not check/record the lead', { applicationId, error: e?.message });
+      return { provider: 'revasure', ok: false, status: 'failed', httpStatus: null, leadId: null, message: 'could not record lead; not sent' };
+    }
+    if (existing) {
+      log.info('skipped — a lead was already sent for this number', { applicationId, previous: existing.sourceLeadId, previousStatus: existing.status });
+      return {
+        provider: 'revasure', ok: true, status: 'skipped', httpStatus: existing.httpStatus, leadId: existing.leadId,
+        message: 'already sent for this number; not sent again',
+      };
+    }
 
     console.log(`[revasure-req] POST ${cfg.baseUrl}/api/inbound/leads app=${app.id} body=${JSON.stringify(maskedRevasureBody(body))}`);
     const res = await postLead(cfg, body);
