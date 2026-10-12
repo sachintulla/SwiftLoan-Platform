@@ -46,6 +46,12 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
     { key: 'employmentType', kind: 'choice', labels: ['employment type', 'employment'] },
     { key: 'companyName', kind: 'text', names: ['company_name', 'companyName', 'company', 'employer'], placeholders: ['name of company', 'company name'], labels: ['company name', 'company', 'employer'] },
     { key: 'monthlyIncome', kind: 'text', names: ['monthly_income', 'monthlyIncome', 'income'], placeholders: ['enter monthly income', 'monthly income'], labels: ['monthly income'] },
+    { key: 'loanAmount', kind: 'text', names: ['loan_amount', 'loanAmount', 'requested_amount'], placeholders: ['enter loan amount', 'loan amount'], labels: ['loan amount', 'requested loan amount'] },
+    { key: 'addressLine1', kind: 'text', names: ['address_line_1', 'addressLine1', 'address1', 'addr1'], placeholders: ['address line 1', 'address 1', 'flat', 'house no'], labels: ['address line 1', 'address 1'] },
+    { key: 'addressLine2', kind: 'text', names: ['address_line_2', 'addressLine2', 'address2', 'addr2'], placeholders: ['address line 2', 'address 2', 'street', 'locality', 'area'], labels: ['address line 2', 'address 2'] },
+    { key: 'city', kind: 'text', names: ['city', 'town', 'district'], placeholders: ['city', 'town'], labels: ['city', 'town'] },
+    // State is usually a MUI dropdown on YMPL (also handles a native <select>).
+    { key: 'state', kind: 'select', names: ['state'], placeholders: ['state'], labels: ['state'] },
   ];
   return `(function(){try{
     var DATA=${JSON.stringify(prefill)};
@@ -125,6 +131,40 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
       setVal(el, m[3]+'/'+m[2]+'/'+m[1]);
       if(el.value&&/\\d/.test(el.value)) done.dob=true;
     }
+    // Finds a MUI Select trigger sitting near a label that matches s.labels.
+    function findSelectTrigger(s){
+      var labs=document.querySelectorAll('label');
+      for(var i=0;i<labs.length;i++){ var t=norm(labs[i].textContent); if(!t)continue;
+        for(var j=0;j<(s.labels||[]).length;j++){ if(t.indexOf(norm(s.labels[j]))>=0){
+          var scope=(labs[i].closest&&labs[i].closest('.MuiFormControl-root'))||labs[i].parentElement;
+          var trg=scope&&scope.querySelector('[role="combobox"],[role="button"][aria-haspopup="listbox"],[aria-haspopup="listbox"],.MuiSelect-select');
+          if(trg)return trg;
+        } } }
+      return null;
+    }
+    // State etc.: a native <select> is set directly; a MUI dropdown is opened and
+    // the matching option clicked (its list renders in a portal on <body>). The
+    // 'busy' guard stops the 150ms poll re-opening the menu mid-pick.
+    function fillSelect(s,val){
+      if(done[s.key]||window['__selbusy'+s.key])return;
+      var want=norm(val); if(!want)return;
+      var native=find(s);
+      if(native&&native.tagName==='SELECT'){ if(native.value){done[s.key]=true;return;} setSelect(native,val); done[s.key]=true; return; }
+      var trg=findSelectTrigger(s); if(!trg)return;
+      var cur=norm(trg.textContent||''); if(cur&&cur.indexOf(want)>=0){done[s.key]=true;return;}
+      window['__selbusy'+s.key]=true;
+      try{ trg.click(); }catch(e){}
+      setTimeout(function(){
+        try{
+          var opts=document.querySelectorAll('li[role="option"],[role="option"],ul[role="listbox"] li,.MuiMenuItem-root');
+          var hit=false;
+          for(var i=0;i<opts.length;i++){ var ot=norm(opts[i].textContent); if(!ot)continue;
+            if(ot===want||ot.indexOf(want)>=0){ try{opts[i].click();}catch(e){} hit=true; done[s.key]=true; break; } }
+          if(!hit){ try{document.body.click();}catch(e){} } // close the menu we opened
+        }catch(e){}
+        window['__selbusy'+s.key]=false;
+      },150);
+    }
     function fillChoice(s,val){
       if(done[s.key])return;
       var want=norm(val); if(!want)return;
@@ -144,6 +184,7 @@ function prefillScript(prefill: Record<string, string | number | null>): string 
         if(val===null||val===undefined||val==='')continue;
         if(s.kind==='date')fillDate(s,val);
         else if(s.kind==='choice')fillChoice(s,val);
+        else if(s.kind==='select')fillSelect(s,val);
         else fillText(s,val);
       }
       // Signal the app the moment this step's fields are filled/ready, so the
