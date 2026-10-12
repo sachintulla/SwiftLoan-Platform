@@ -13,7 +13,7 @@ vi.mock('./prisma.js', () => ({
     revasureLead: { upsert: db.upsert, update: db.update },
   },
 }));
-const { buildRevasureBody, createRevasureLead, revasureConfig, revasureEnabled } = await import('./revasureLead.js');
+const { buildRevasureBody, createRevasureLead, maskedRevasureBody, revasureConfig, revasureEnabled } = await import('./revasureLead.js');
 
 const ENV_KEYS = ['REVASURE_TOKEN', 'REVASURE_BASE_URL', 'REVASURE_BASKET_ID', 'REVASURE_ENABLED', 'REVASURE_ALLOW_INSECURE', 'REVASURE_PRODUCT'];
 function setEnv(env: Record<string, string>) {
@@ -190,5 +190,37 @@ describe('createRevasureLead — outcomes (what the website prequalify returns, 
     expect(await createRevasureLead('app-1', 'user-1')).toMatchObject({ ok: false, status: 'failed', httpStatus: 401 });
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
     expect(await createRevasureLead('app-1', 'user-1')).toMatchObject({ ok: false, status: 'failed', httpStatus: null });
+  });
+});
+
+describe('request/response logging never exposes personal data or the token', () => {
+  it('maskedRevasureBody hides PAN, OTP, phone, email, name and birth date', () => {
+    const cfg = { enabled: true, baseUrl: 'https://r.example', basketId: 'b', token: 'secret-token', product: 'Personal Loan' };
+    const full = buildRevasureBody(
+      { id: 'a', amount: 100000, panNumber: 'ABCPA1234A' } as any,
+      { fullName: 'Ravi Kumar', phone: '9876543210', email: 'ravi@example.com', dob: new Date('1991-03-04T00:00:00Z') } as any,
+      '49.1.1.1',
+      cfg,
+    );
+    const m = maskedRevasureBody(full);
+    expect(m).toMatchObject({ pancard: 'ABCPA****A', otp: '******', mobile_number: '******3210', email_id: 'r***@example.com', full_name: 'R. K.', date_of_birth: '1991-**-**' });
+    const text = JSON.stringify(m);
+    for (const secret of ['ABCPA1234A', '9876543210', 'ravi@example.com', 'Ravi', 'Kumar', '1991-03-04']) expect(text).not.toContain(secret);
+    expect(m.source_lead_id).toBe('a'); // the non-personal fields stay readable
+    expect(m.loan_amount).toBe(100000);
+  });
+
+  it('logs the call and the response when a lead is sent', async () => {
+    setEnv({ REVASURE_TOKEN: 'secret-token', REVASURE_BASE_URL: 'https://revasure.example' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify({ lead_id: 'L-7', message: 'created' }) }));
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await createRevasureLead('app-1', 'user-1', '49.1.2.3');
+    const out = spy.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(out).toMatch(/\[revasure-req\] POST https:\/\/revasure\.example\/api\/inbound\/leads app=app-1/);
+    expect(out).toMatch(/\[revasure-res\] HTTP 201 .*L-7/);
+    expect(out).not.toContain('secret-token');
+    expect(out).not.toContain('ABCPA1234A');
+    spy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
