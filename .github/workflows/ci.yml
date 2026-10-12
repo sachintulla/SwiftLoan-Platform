@@ -2,9 +2,9 @@ name: CI
 
 on:
   workflow_dispatch:
+  # PR-only: the merge gate runs once on the PR. No push trigger, so merging to
+  # main/develop doesn't re-run it (Deploy Dev is the only push-to-develop workflow).
   pull_request:
-    branches: [main, develop]
-  push:
     branches: [main, develop]
 
 # A newer push supersedes an in-flight run for the same ref.
