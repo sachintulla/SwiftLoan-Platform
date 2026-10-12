@@ -541,11 +541,17 @@ function RequiredBlock({
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
+  // Scroll anchor + a tight highlight ring over the control. box-none keeps the
+  // wrapper from ever swallowing a tap, and the ring sits in its own
+  // pointer-transparent overlay, so neither can intercept taps meant for the
+  // chips / date picker underneath.
   const fx = useAgentFx(`req:${fkey}`);
   return (
-    <View ref={fx.ref} collapsable={false} style={style}>
+    <View ref={fx.ref} collapsable={false} style={style} pointerEvents="box-none">
       {children}
-      <AgentRing fx={fx} radius={12} inset={-4} />
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <AgentRing fx={fx} radius={12} inset={-4} />
+      </View>
     </View>
   );
 }

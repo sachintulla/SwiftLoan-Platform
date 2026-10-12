@@ -165,7 +165,7 @@ export default function Step1PanPage() {
             <Lock className="text-primary mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span className="text-muted-foreground">
               {t.consentA}<strong className="text-foreground">{t.consentStrong}</strong>{t.consentB}
-              <a href="/privacypolicy" className="text-primary font-semibold underline">{t.consentLink}</a>{t.consentEnd}
+              <a href="/privacy-policy" className="text-primary font-semibold underline">{t.consentLink}</a>{t.consentEnd}
             </span>
           </span>
         </label>

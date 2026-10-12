@@ -128,7 +128,7 @@ const PAGES: Record<string, PageDef> = {
   // the home page), so "go to FAQs" must navigate rather than scroll.
   faqs: { path: '/faqs', label: 'FAQs', aliases: ['faq', 'faqs', 'questions', 'frequently asked', 'help'] },
   compliance: { path: '/compliance', label: 'Compliance & policies', aliases: ['compliance', 'compliance page', 'policies', 'legal', 'rbi disclosures'] },
-  privacy_policy: { path: '/privacypolicy', label: 'Privacy policy', aliases: ['privacy', 'privacy policy', 'data policy', 'privacypolicy'] },
+  privacy_policy: { path: '/privacy-policy', label: 'Privacy policy', aliases: ['privacy', 'privacy policy', 'data policy', 'privacypolicy'] },
   brand: { path: '/brand', label: 'Brand showcase', aliases: ['brand', 'brand page', 'brand identity', 'brand guidelines'] },
   logo: { path: '/logo', label: 'Logo assets', aliases: ['logo', 'logo page', 'logo assets'] },
   apply: { path: '/apply', label: 'Apply / sign in', aliases: ['apply', 'sign in', 'login', 'log in', 'start application', 'get started', 'apply now'] },
@@ -144,7 +144,7 @@ const ROUTES: Array<{ test: RegExp; key: string; label: string; purpose: string 
   { test: /^\/$/, key: 'home', label: 'Home', purpose: 'Marketing page: products, how it works, rate form, EMI calculator.' },
   { test: /^\/faqs/, key: 'faqs', label: 'FAQs', purpose: 'Seven common questions.' },
   { test: /^\/compliance/, key: 'compliance', label: 'Compliance', purpose: 'RBI Digital Lending disclosures.' },
-  { test: /^\/privacypolicy/, key: 'privacy_policy', label: 'Privacy policy', purpose: 'Full privacy policy, 18 sections.' },
+  { test: /^\/privacy-?policy/, key: 'privacy_policy', label: 'Privacy policy', purpose: 'Full privacy policy, 18 sections.' },
   { test: /^\/brand/, key: 'brand', label: 'Brand', purpose: 'Brand identity showcase.' },
   { test: /^\/logo/, key: 'logo', label: 'Logo', purpose: 'Logo concepts.' },
   { test: /^\/apply\/?$/, key: 'apply', label: 'Sign in', purpose: 'Enter mobile number and agree to terms to get a 6-digit code.' },
@@ -174,7 +174,7 @@ function routeInfo(path: string) {
 /** Sections of /privacypolicy (and /account/privacy), ids as rendered. */
 const PRIVACY_SECTIONS: SectionDef[] = [
   { id: 'intro', label: 'Introduction and scope', aliases: ['introduction', 'scope', 'intro'] },
-  { id: 'who', label: 'Who we are', aliases: ['who we are', 'about'] },
+  { id: 'about', label: 'About SwiftLoan', aliases: ['about', 'who we are', 'about swiftloan'] },
   { id: 'defs', label: 'Definitions', aliases: ['definitions'] },
   { id: 'collect', label: 'Information we collect', aliases: ['collect', 'what we collect', 'information collected'] },
   { id: 'use', label: 'How we use your information', aliases: ['use', 'how we use'] },
@@ -187,9 +187,11 @@ const PRIVACY_SECTIONS: SectionDef[] = [
   { id: 'grievance', label: 'Grievance officer / DPO', aliases: ['grievance', 'dpo', 'complaint', 'data protection officer'] },
   { id: 'children', label: 'Children', aliases: ['children', 'minors', 'age'] },
   { id: 'localization', label: 'Data localization and cross-border transfers', aliases: ['localization', 'localisation', 'cross border', 'data in india', 'transfers'] },
-  { id: 'thirdparty', label: 'Third-party links and services', aliases: ['third party', 'third-party', 'links'] },
+  { id: 'thirdparty', label: 'Third-party websites and services', aliases: ['third party', 'third-party', 'links'] },
+  { id: 'cookies', label: 'Cookies and similar technologies', aliases: ['cookies', 'tracking technologies'] },
   { id: 'changes', label: 'Changes to this policy', aliases: ['changes', 'updates'] },
   { id: 'contact', label: 'Contact us', aliases: ['contact', 'contact us'] },
+  { id: 'misc', label: 'Miscellaneous', aliases: ['miscellaneous', 'governing law', 'severability'] },
   { id: 'precedence', label: 'Precedence', aliases: ['precedence'] },
 ];
 
@@ -462,7 +464,7 @@ export default function VoiceWidget() {
     const sectionsForCurrentPage = () => {
       const p = pathRef.current;
       if (p === '/compliance') return COMPLIANCE_SECTIONS;
-      if (p === '/privacypolicy' || p === '/account/privacy') return PRIVACY_SECTIONS;
+      if (p === '/privacy-policy' || p === '/privacypolicy' || p === '/account/privacy') return PRIVACY_SECTIONS;
       return isHome() ? HOME_SECTIONS : [];
     };
 

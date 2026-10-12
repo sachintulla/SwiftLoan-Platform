@@ -1,15 +1,15 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import '@/app/theme.css'; // --sl-* tokens the legal-page stylesheet depends on
-import './privacypolicy.css';
+import '../privacypolicy/privacypolicy.css';
 import { PRIVACY_BODY as BODY } from '@/content/privacyBody';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy — SwiftLoan.ai',
   description:
-    'SwiftLoan Privacy Policy: how Purpletalk India Private Limited collects, uses, stores, shares and protects your personal data, aligned with the DPDP Act 2023, the IT Act/SPDI Rules and the RBI Digital Lending Guidelines.',
+    'SwiftLoan Privacy Policy: how Purpletalk India Private Limited (operating under the brand name "SwiftLoan") collects, uses, stores, shares and protects your personal data, aligned with the DPDP Act 2023, the IT Act/SPDI Rules and the RBI Digital Lending Guidelines.',
+  alternates: { canonical: 'https://swiftloan.ai/privacy-policy' },
 };
-
 
 export default function PrivacyPolicyPage() {
   const year = new Date().getFullYear();
@@ -43,7 +43,7 @@ export default function PrivacyPolicyPage() {
           <span className="eyebrow">Legal</span>
           <h1>Privacy Policy</h1>
           <p>How Purpletalk India Private Limited (&ldquo;SwiftLoan&rdquo;) collects, uses, stores, shares and protects your personal information across the SwiftLoan Platform &mdash; and how you stay in control of it.</p>
-          <div className="updated">Effective date: 25 August 2026 · Last updated: 6 October 2026 · Version 1.1</div>
+          <div className="updated">Effective date: 5 September 2026 · Last updated: 5 September 2026 · Version 1.0</div>
         </div>
       </div>
 

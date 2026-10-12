@@ -110,7 +110,7 @@ export default function ApplyPhonePage() {
             <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required className="accent-primary mt-0.5 h-5 w-5 shrink-0" />
             <span className="text-muted-foreground">
               {t.termsA}<a className="text-primary font-semibold underline">{t.termsLink}</a>{t.termsAnd}
-              <a href="/privacypolicy" className="text-primary font-semibold underline">{t.privacyLink}</a>{t.termsB}
+              <a href="/privacy-policy" className="text-primary font-semibold underline">{t.privacyLink}</a>{t.termsB}
             </span>
           </label>
 

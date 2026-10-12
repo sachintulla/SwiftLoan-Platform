@@ -33,7 +33,7 @@ import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 // navigate_screen tool can validate an incoming screen name at runtime.
 export const SCREEN_NAMES = [
   'splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
-  'home', 'loans', 'fare', 'help', 'profile',
+  'home', 'loans', 'fare', 'help', 'profile', 'legal',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
   'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral',
@@ -140,6 +140,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   loans: 'home', fare: 'home', calculator: 'home',
   compare: 'fare',
   referral: 'profile',
+  legal: 'profile',
 };
 
 export interface AppState {
@@ -244,6 +245,8 @@ export interface AppState {
   // The screen the user opened `offers` from, so its back button returns there.
   // (Kept for compatibility; back navigation now uses the real `history` stack.)
   offersReturn: Screen;
+  // Which legal document the `legal` viewer shows (privacy | terms | lending | grievance).
+  legalDoc: string;
   // Voice assistant FAB is hidden by default; unlocked via a hidden gesture
   // (tap the Personal details header 5× in a row on Profile) or the dashboard's
   // "Ask Ruby" affordance.
@@ -306,6 +309,7 @@ export const initialState: AppState = {
   offersSummary: '',
   apiContext: {},
   offersReturn: 'home',
+  legalDoc: 'privacy',
   voiceFabUnlocked: false,
   voiceTrigger: 0,
   voiceNudge: null,
