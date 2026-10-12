@@ -240,6 +240,12 @@ model LoanApplication {
   residenceType ResidenceType?
   panNumber     String?
 
+  // Fingerprint of the details the lender was asked about, and when the offers were
+  // fetched. Prequalify calls the lender again only when this changes (or the stored
+  // offers are older than OFFERS_REUSE_HOURS) — see lib/offersReuse.ts.
+  offersSignature String?
+  offersFetchedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -250,6 +256,7 @@ model LoanApplication {
 
   @@index([userId, status])
   @@index([leadId])
+  @@index([userId, offersSignature])
 }
 
 model LenderPartner {
