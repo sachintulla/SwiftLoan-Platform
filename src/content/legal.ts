@@ -20,6 +20,12 @@ export interface LegalDoc {
 export const GRIEVANCE_EMAIL = 'grievance@swiftloan.ai';
 export const SUPPORT_EMAIL = 'support@swiftloan.ai';
 
+// The hosted Privacy Policy webpage (website-next → swiftloan.ai/privacy-policy).
+// The in-app `legal` viewer loads this for the Privacy Policy so the app and the
+// website always show the same, latest policy; the built-in `privacy` doc below
+// is the offline fallback if the page can't be reached.
+export const PRIVACY_POLICY_URL = 'https://swiftloan.ai/privacy-policy';
+
 const TERMS: LegalDoc = {
   title: 'Terms of Service',
   subtitle: 'Please read these terms before using SwiftLoan',
