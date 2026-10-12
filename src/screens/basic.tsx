@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Chips, Slider, HeaderCta, StepBadge } from '../components/Controls';
@@ -10,6 +11,8 @@ import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
 import { missingBasicRequired } from '../utils/basicRequired';
+import { revealTarget, emitFx } from '../feedback/agentFx';
+import { useAgentFx, AgentRing } from '../feedback/useAgentFx';
 import {
   NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
   PINCODE_RE, sanitizeNameInput, cleanName,
@@ -186,31 +189,66 @@ export default function Basic() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingKey]);
 
+  // Display label for each required-field key (for the toast + nudge text).
+  const FIELD_LABEL: Record<string, string> = {
+    'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, 'date of birth': t.dobLabel,
+    gender: t.genderLabel, email: t.basicEmailLabel, 'loan purpose': t.basicPurposeLabel,
+    qualification: t.basicQualLabel, 'residence type': t.basicResLabel, 'employment type': t.basicEmpLabel,
+    'salary mode': t.basicSalaryModeLabel, 'address line 1': t.basicAddr1Label, city: t.basicCity,
+    state: t.basicState, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+  };
+  // Text-input fields jump the caret (keyboard cursor) onto the field itself; the
+  // rest (chip groups, date picker) get a brief ring hugging just the control.
+  const TEXT_FIELD: Record<string, string> = {
+    'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, email: t.basicEmailLabel,
+    'address line 1': t.basicAddr1Label, city: t.basicCity, state: t.basicState,
+    pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+  };
+
+  // Continue with empty required fields → jump to the first one (caret for a text
+  // field, a short ring for a chip/date control) and name what's left in a short
+  // Ruby nudge (+ a toast).
+  const flagMissing = () => {
+    if (!missingRequired.length) return;
+    const first = missingRequired[0];
+    // Short bubble text: first field + "+N" so it fits the small nudge design.
+    const firstName = FIELD_LABEL[first] ?? first;
+    const extra = missingRequired.length - 1;
+    const shown = extra > 0 ? `${firstName} +${extra}` : firstName;
+    showToast(t.basicMissingToast.replace('{field}', firstName));
+    set({ voiceFabUnlocked: true, voiceNudge: { id: Date.now(), labels: [t.basicMissingNudge.replace('{fields}', shown)], reason: 'missing_fields' } });
+
+    const textLabel = TEXT_FIELD[first];
+    if (textLabel) {
+      // Scroll it in, drop the caret on it (native focus border + keyboard), and
+      // give its own tight ring a brief pulse — no whole-section highlight.
+      revealTarget('basic', textLabel).then(() => {
+        emitFx('focus', textLabel);
+        emitFx('cursor', textLabel);
+        setTimeout(() => emitFx('done', textLabel), 1600);
+      }).catch(() => {});
+    } else {
+      // Chip group / date picker: scroll in + a short ring around just the control.
+      revealTarget('basic', `req:${first}`).then(() => {
+        emitFx('focus', `req:${first}`);
+        setTimeout(() => emitFx('done', `req:${first}`), 1600);
+      }).catch(() => {});
+    }
+  };
+
   const onContinue = async () => {
     // Already saving: a second tap (or a voice retry) must not create a second application.
     if (busy) return;
     // PAN comes first now — without a verified one, start from Step 1.
     if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
-    if (!state.basicFirst.trim() || !state.basicLast.trim()) { showToast(t.basicValName); return; }
-    if (!dob) { showToast(t.basicValDob); return; }
-    // Belt-and-suspenders: the calendar/voice paths already refuse to set an
-    // under-18 date, but this re-checks the final value rather than trusting
-    // it could only ever have arrived here through one of those.
-    if (!isAtLeastAge(dob)) { showToast(t.basicValAge); return; }
-    if (!state.aboutGender) { showToast(t.basicValGender); return; }
-    if (!/^\S+@\S+\.\S+$/.test(state.basicEmail.trim())) { showToast(t.basicValEmail); return; }
-    if (!state.basicLoanPurpose) { showToast(t.basicValPurpose); return; }
-    if (!state.basicQualification) { showToast(t.basicValQual); return; }
-    if (!state.basicRes) { showToast(t.basicValRes); return; }
-    if (!state.basicEmp) { showToast(t.basicValEmp); return; }
-    if (!state.optSalaryMode) { showToast(t.basicValSalary); return; }
-    if (!state.optAddr1.trim() || !state.optCity.trim() || !state.optState.trim()) { showToast(t.basicValAddr); return; }
-    if (!PINCODE_RE.test(state.basicPin)) { showToast(t.basicValPin); return; }
+    // Every required-empty / malformed field in one place: scroll to the first
+    // one, pulse a ring around it, and name what's left in a Ruby nudge — instead
+    // of a one-at-a-time toast. (missingRequired already drives the voice hint.)
+    if (missingRequired.length) { flagMissing(); return; }
+    // dob is guaranteed set here (it's in missingRequired when empty); still
+    // reject an under-18 date that slipped past the calendar/voice guards.
+    if (dob && !isAtLeastAge(dob)) { showToast(t.basicValAge); return; }
     const incomeCheck = parseInt(state.basicIncome, 10);
-    if (!state.basicIncome || !Number.isFinite(incomeCheck) || incomeCheck < MONTHLY_INCOME_MIN) {
-      showToast(t.basicValIncome);
-      return;
-    }
     // The last successful pincode lookup is the one source of truth for what
     // city/state that pincode actually belongs to — if the user has since
     // hand-edited either away from it, stop rather than save a mismatched
@@ -377,12 +415,14 @@ export default function Basic() {
         {/* Loan purpose (required by lender) */}
         <View style={{ gap: 8, marginTop: 18 }}>
           <FieldLabel text={t.basicPurposeLabel} required />
-          <Chips
-            group={t.basicPurposeLabel}
-            value={state.basicLoanPurpose}
-            onChange={v => set({ basicLoanPurpose: v })}
-            options={PURPOSE_OPTS}
-          />
+          <RequiredBlock fkey="loan purpose">
+            <Chips
+              group={t.basicPurposeLabel}
+              value={state.basicLoanPurpose}
+              onChange={v => set({ basicLoanPurpose: v })}
+              options={PURPOSE_OPTS}
+            />
+          </RequiredBlock>
         </View>
 
         {/* Personal details */}
@@ -398,57 +438,73 @@ export default function Basic() {
 
         <View style={{ gap: 6, marginTop: 16 }}>
           <FieldLabel text={t.dobLabel} required />
-          <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
-            <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>{dob ? formatDob(dob.y, dob.m, dob.d) : t.selectDate}</Text>
-            <Icon name="calendar_month" size={20} color={colors.textSoft} />
-          </Pressable>
-          {state.dobOpen ? (
-            <Calendar year={dob?.y ?? state.calY} month={dob?.m ?? state.calM} selectedDay={dob?.d} onSelect={(y, m, d) => { setDob({ y, m, d }); set({ dobOpen: false }); }} />
-          ) : null}
+          <RequiredBlock fkey="date of birth" style={{ gap: 6 }}>
+            <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
+              <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>{dob ? formatDob(dob.y, dob.m, dob.d) : t.selectDate}</Text>
+              <Icon name="calendar_month" size={20} color={colors.textSoft} />
+            </Pressable>
+            {state.dobOpen ? (
+              <Calendar year={dob?.y ?? state.calY} month={dob?.m ?? state.calM} selectedDay={dob?.d} onSelect={(y, m, d) => { setDob({ y, m, d }); set({ dobOpen: false }); }} />
+            ) : null}
+          </RequiredBlock>
         </View>
 
         <View style={{ gap: 8, marginTop: 16 }}>
           <FieldLabel text={t.genderLabel} required />
-          <Chips group={t.genderLabel} value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={GENDER_OPTS} />
+          <RequiredBlock fkey="gender">
+            <Chips group={t.genderLabel} value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={GENDER_OPTS} />
+          </RequiredBlock>
         </View>
 
         <View style={{ gap: 8, marginTop: 16 }}>
           <FieldLabel text={t.basicQualLabel} required />
-          <Chips
-            group={t.basicQualLabel}
-            value={state.basicQualification}
-            onChange={v => set({ basicQualification: v })}
-            options={QUAL_OPTS}
-          />
+          <RequiredBlock fkey="qualification">
+            <Chips
+              group={t.basicQualLabel}
+              value={state.basicQualification}
+              onChange={v => set({ basicQualification: v })}
+              options={QUAL_OPTS}
+            />
+          </RequiredBlock>
         </View>
 
         {/* Contact & address */}
         <SectionLabel text={t.basicContactSection} />
         <View style={{ gap: 16 }}>
-          <Field label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
-          <Field required label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
-          {pinError ? <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: -10 }]}>{pinError}</Text> : null}
-          <Field label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field required label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
+          <View>
+            <Field required label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+            {pinError ? <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: 6 }]}>{pinError}</Text> : null}
+          </View>
+          <Field required label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
           <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} maxLength={ADDR_MAX} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1 }}><Field label={t.basicCity} placeholder={t.basicCity} maxLength={MID_MAX} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
-            <View style={{ flex: 1 }}><Field label={t.basicState} placeholder={t.basicState} maxLength={MID_MAX} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
+            <View style={{ flex: 1 }}><Field required label={t.basicCity} placeholder={t.basicCity} maxLength={MID_MAX} value={state.optCity} onChangeText={v => set({ optCity: v })} /></View>
+            <View style={{ flex: 1 }}><Field required label={t.basicState} placeholder={t.basicState} maxLength={MID_MAX} value={state.optState} onChangeText={v => set({ optState: v })} /></View>
           </View>
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicResLabel} required />
-            <Chips group={t.basicResLabel} value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: RES_LABELS[r], value: r }))} />
+            <RequiredBlock fkey="residence type">
+              <Chips group={t.basicResLabel} value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: RES_LABELS[r], value: r }))} />
+            </RequiredBlock>
           </View>
         </View>
 
         {/* Work & income */}
         <SectionLabel text={t.basicWorkSection} />
         <View style={{ gap: 12 }}>
-          <FieldLabel text={t.basicEmpLabel} required />
-          <Chips group={t.basicEmpLabel} value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
+          <View style={{ gap: 12 }}>
+            <FieldLabel text={t.basicEmpLabel} required />
+            <RequiredBlock fkey="employment type">
+              <Chips group={t.basicEmpLabel} value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
+            </RequiredBlock>
+          </View>
           <Field required label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
           <View style={{ gap: 8 }}>
             <FieldLabel text={t.basicSalaryModeLabel} required />
-            <Chips group={t.basicSalaryModeLabel} value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
+            <RequiredBlock fkey="salary mode">
+              <Chips group={t.basicSalaryModeLabel} value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
+            </RequiredBlock>
           </View>
           <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
@@ -456,6 +512,28 @@ export default function Basic() {
         <View style={{ height: 8 }} />
       </View>
     </Screen>
+  );
+}
+
+/** Wraps a required field so Continue can scroll to it and pulse a ring around
+ *  the whole block when it's still empty. Registered under `req:<key>` (distinct
+ *  from the inner control's own voice label) so revealTarget / emitFx target the
+ *  block, uniformly for text fields, chip groups and the date picker alike. */
+function RequiredBlock({
+  fkey,
+  children,
+  style,
+}: {
+  fkey: string;
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const fx = useAgentFx(`req:${fkey}`);
+  return (
+    <View ref={fx.ref} collapsable={false} style={style}>
+      {children}
+      <AgentRing fx={fx} radius={12} inset={-4} />
+    </View>
   );
 }
 

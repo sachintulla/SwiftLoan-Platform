@@ -122,6 +122,32 @@ const OFFERS_TIPS: Record<NudgeLang, string[]> = {
     'ఈ ఆఫర్ల గురించి ఏదైనా ప్రశ్న ఉందా?',
   ],
 };
+// Applied, but this run returned no matched offers — point to what's next
+// (re-check, change details, or explore more lenders) instead of "pick an offer".
+const NO_OFFERS_TIPS: Record<NudgeLang, string[]> = {
+  en: [
+    'No offers this time — I can help you re-check.',
+    'Want to tweak your details for better offers?',
+    'I can show you more lenders to explore.',
+  ],
+  hi: [
+    'इस बार कोई ऑफ़र नहीं — मैं दोबारा जाँचने में मदद करूँगी।',
+    'बेहतर ऑफ़र के लिए अपनी जानकारी बदलें?',
+    'मैं और लेंडर दिखा सकती हूँ जिन्हें आप देख सकते हैं।',
+  ],
+  te: [
+    'ఈసారి ఆఫర్లు లేవు — మళ్ళీ చెక్ చేయడంలో సహాయం చేస్తాను.',
+    'మంచి ఆఫర్ల కోసం మీ వివరాలు మార్చాలా?',
+    'మరిన్ని లెండర్లను చూపించగలను.',
+  ],
+};
+
+/** Extra signals from the live screen that make a tip fit the actual situation
+ *  (e.g. "applied but no offers") rather than a generic screen-level tip. */
+export interface NudgeContext {
+  /** On an offers surface, the last eligibility run returned nothing to show. */
+  noOffers?: boolean;
+}
 
 /** Tips for a screen in the user's language, or null when nudging is off / the
  *  screen gets none. */
@@ -130,12 +156,18 @@ export function nudgeFor(
   timers: NudgeTimers = DEFAULT_TIMERS,
   loggedIn = false,
   lang: string | null = null,
+  ctx: NudgeContext = {},
 ): NudgeConfig | null {
   if (!timers.enabled) return null;
   if (screen === 'splash' || screen === 'privacy') return null;
   const l = nudgeLang(lang);
   if (FUNNEL.has(screen)) return { reason: 'dropoff_apply', labels: FUNNEL_TIPS[l] };
-  if (OFFERS.has(screen)) return { reason: 'eligible_no_apply', labels: OFFERS_TIPS[l] };
+  if (OFFERS.has(screen)) {
+    // Applied-but-empty gets its own, more useful set of tips.
+    return ctx.noOffers
+      ? { reason: 'eligible_no_offers', labels: NO_OFFERS_TIPS[l] }
+      : { reason: 'eligible_no_apply', labels: OFFERS_TIPS[l] };
+  }
   if (!loggedIn && PRE_LOGIN.has(screen)) return { reason: 'idle_prelogin', labels: GENERAL_TIPS[l] };
   // Every other screen is after login (including permissions, which follows OTP).
   if (loggedIn) return { reason: 'idle', labels: GENERAL_TIPS[l] };

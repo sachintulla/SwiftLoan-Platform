@@ -135,8 +135,10 @@ describe('UC-N11 forward navigation follows the new order', () => {
       <Harness seed={{ panNumber: 'AAAPL1234C', panConsent: true }}><BasicPan /></Harness>,
     );
     fireEvent.press(getByText('Verify PAN & continue'));
+    // No blocking "no record" dialog — the funnel advances to the details step so
+    // the user can fill in their details by hand (see basicpan.tsx continueManually).
     await waitFor(() => expect(currentScreen(getByTestId)).toBe('basic'));
-    // No blocking error dialog, and no false "PAN verified" prefill.
+    // No false "PAN verified" prefill / error dialog left behind.
     expect(queryByText('No record found for the given PAN.')).toBeNull();
     unmount();
   });

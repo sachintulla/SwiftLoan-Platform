@@ -72,10 +72,12 @@ export function useAgentFx(label?: string, group?: string): AgentFx {
           ]),
           Animated.timing(ripple, { toValue: 1, duration: 480, easing: Easing.out(Easing.quad), useNativeDriver: true }),
         ]).start();
-      } else {
+      } else if (e.kind === 'done') {
         stopLoop();
         Animated.timing(glow, { toValue: 0, duration: 420, useNativeDriver: true }).start();
       }
+      // 'cursor' is handled by the field itself (focus caret) — ignore it here so
+      // it never cancels an in-flight ring.
     });
     return () => {
       unsub();

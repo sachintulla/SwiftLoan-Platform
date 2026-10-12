@@ -20,6 +20,7 @@ import { registerTarget, requestContextRefresh } from '../voice/actionRegistry';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { isSensitiveField } from '../voice/sensitive';
 import { AgentRing, useAgentFx } from '../feedback/useAgentFx';
+import { subscribeFx, fxKey } from '../feedback/agentFx';
 import { isAgentActive, playManualSound, playManualTypingTick } from '../feedback/sounds';
 
 /* Card — white rounded surface with soft border + shadow. */
@@ -370,6 +371,14 @@ export function Field({
 } & React.ComponentProps<typeof TextInput>) {
   const id = voiceId || label || hint;
   const fx = useAgentFx(id);
+  // A 'cursor' fx event (e.g. Continue flagging this as a missing required field)
+  // focuses the input so the caret + keyboard land right on it.
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (!id) return undefined;
+    const key = fxKey(id);
+    return subscribeFx(e => { if (e.key === key && e.kind === 'cursor') inputRef.current?.focus(); });
+  }, [id]);
   // Registered via useVoiceTarget (like Slider below), NOT a hand-rolled
   // registerTarget call — Field is the one Controls.tsx primitive whose own
   // call site passes onChangeText directly (`<Field ... onChangeText={...}/>`
@@ -416,6 +425,7 @@ export function Field({
       ) : null}
       <View>
         <TextInput
+          ref={inputRef}
           placeholderTextColor={colors.muted}
           style={[styles.input, font(500), style as StyleProp<TextStyle>]}
           {...props}
