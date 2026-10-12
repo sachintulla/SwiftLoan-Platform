@@ -13,7 +13,7 @@ import { api, ApiError, isAuthed } from '../api/client';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
 import { missingBasicRequired } from '../utils/basicRequired';
 import { revealTarget, emitFx } from '../feedback/agentFx';
-import { useAgentFx } from '../feedback/useAgentFx';
+import { useAgentFx, AgentRing } from '../feedback/useAgentFx';
 import {
   NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
   PINCODE_RE, sanitizeNameInput, cleanName,
@@ -541,15 +541,17 @@ function RequiredBlock({
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
-  // Ref-only scroll anchor: NO absolute overlay. An AgentRing overlaying a chip
-  // group corrupted touch hit-testing (taps on the chips landed on fields far
-  // below), so the missing-field highlight for chip groups / the date picker is
-  // the scroll-into-view + the Ruby nudge only — no ring over the control. Text
-  // fields still get their own caret + tight ring (that path is unaffected).
+  // Scroll anchor + a tight highlight ring over the control. box-none keeps the
+  // wrapper from ever swallowing a tap, and the ring sits in its own
+  // pointer-transparent overlay, so neither can intercept taps meant for the
+  // chips / date picker underneath.
   const fx = useAgentFx(`req:${fkey}`);
   return (
-    <View ref={fx.ref} collapsable={false} style={style}>
+    <View ref={fx.ref} collapsable={false} style={style} pointerEvents="box-none">
       {children}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <AgentRing fx={fx} radius={12} inset={-4} />
+      </View>
     </View>
   );
 }
