@@ -15,6 +15,7 @@ import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offers
 import { copyOffersFrom, storedOffers } from '../lib/offersReuseDb.js';
 import { scoped } from '../lib/log.js';
 import { advanceReferral } from '../lib/referral.js';
+import { isReviewPhone, reviewOffers } from '../lib/reviewLogin.js';
 
 const log = scoped('applications');
 
@@ -197,7 +198,9 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // redirect URL so the "Alternative offers" tile opens instantly. Fire-and-
   // forget — independent of the Aurix result below; the on-tap endpoint re-mints
   // a fresh URL anyway (the token is short-lived, ~90s).
-  kickoffRedirect(app.id, req.user!.sub);
+  // App-store reviewer account is sandboxed: sample offers, no partner call of any kind.
+  const reviewer = isReviewPhone((await prisma.user.findUnique({ where: { id: req.user!.sub }, select: { phone: true } }))?.phone ?? '');
+  if (!reviewer) kickoffRedirect(app.id, req.user!.sub);
 
   // Revasure (third lender group) — a single Create-Lead POST, fired in PARALLEL
   // with the Aurix eligibility calls below. We DON'T await it here; we start the
@@ -205,7 +208,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // partner calls and adds little/no latency. Its result is recorded
   // (RevasureLead → admin dashboard) and returned to the app for a debug alert.
   const clientIp = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString();
-  const revasurePromise = createRevasureLead(app.id, req.user!.sub, clientIp);
+  const revasurePromise = reviewer ? Promise.resolve(null) : createRevasureLead(app.id, req.user!.sub, clientIp);
 
   // Only ask the lender again when the applicant has CHANGED something. Identical
   // details → identical offers, so reuse what we already hold (this application's own,
@@ -219,7 +222,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     orderBy: { offersFetchedAt: 'desc' },
     take: 10,
   });
-  const reusable = pickReusable(siblings, app.id, signature, Date.now(), reuseWindowMs());
+  const reusable = reviewer ? null : pickReusable(siblings, app.id, signature, Date.now(), reuseWindowMs());
   if (reusable) {
     const offers = reusable.id === app.id ? await storedOffers(app.id) : await copyOffersFrom(app, reusable.id);
     if (offers) {
@@ -242,7 +245,10 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // whole run — we saw exactly this from Aurix's UAT ("No data found", "PAN
   // verification failed", etc.).
   const pending: Array<{ partner: (typeof partners)[number]; raw: RawLenderOffer }> = [];
-  for (const p of partners) {
+  if (reviewer) {
+    reviewOffers(app.amount, app.tenureMonths).forEach((raw, i) => pending.push({ partner: partners[i % partners.length], raw }));
+  }
+  for (const p of reviewer ? [] : partners) {
     try {
       const provider = getLenderOfferProvider(p);
       const list = provider.getOffers ? await provider.getOffers(p, app) : [await provider.getOffer(p, app)];

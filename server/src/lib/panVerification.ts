@@ -32,6 +32,7 @@ import { callAurixPanComprehensive } from './lenderOffers.js';
 import { panHash, normalisePan, encryptJson, decryptJson, PII_KEY_VERSION } from './pii.js';
 import { HttpError } from '../middleware/error.js';
 import { scoped } from './log.js';
+import { isReviewPhone, REVIEW_PAN_PREFILL } from './reviewLogin.js';
 
 const log = scoped('pan');
 
@@ -291,6 +292,16 @@ function fromRecord(rec: { category: string | null; aadhaarLinked: boolean | nul
 export async function verifyPan(user: User, rawPan: string): Promise<PanVerifyResult> {
   const pan = normalisePan(rawPan);
   if (!isValidPanFormat(pan)) throw new HttpError(400, 'Please enter a valid PAN (e.g. ABCPE1234F).');
+
+  // App-store reviewer account: sample pre-fill, no Aurix call, nothing cached.
+  if (isReviewPhone(user.phone)) {
+    log.info('pan verify answered with review sample data', { userId: user.id });
+    await attachPanToUser(user, pan);
+    return {
+      status: 'verified', verified: true, category: 'Individual', aadhaarLinked: true,
+      verifiedAt: new Date().toISOString(), prefill: REVIEW_PAN_PREFILL, source: 'cache',
+    };
+  }
   const hash = panHash(pan);
 
   const found = await prisma.panRecord.findUnique({ where: { panHash: hash } });
