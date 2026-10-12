@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   View,
@@ -11,15 +11,18 @@ import {
   ViewStyle,
   StyleProp,
   TextStyle,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from './Icon';
 import { colors, font, navGradient } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { registerTarget, requestContextRefresh } from '../voice/actionRegistry';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { isSensitiveField } from '../voice/sensitive';
 import { AgentRing, useAgentFx } from '../feedback/useAgentFx';
+import { subscribeFx, fxKey } from '../feedback/agentFx';
 import { isAgentActive, playManualSound, playManualTypingTick } from '../feedback/sounds';
 
 /* Card — white rounded surface with soft border + shadow. */
@@ -370,6 +373,14 @@ export function Field({
 } & React.ComponentProps<typeof TextInput>) {
   const id = voiceId || label || hint;
   const fx = useAgentFx(id);
+  // A 'cursor' fx event (e.g. Continue flagging this as a missing required field)
+  // focuses the input so the caret + keyboard land right on it.
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (!id) return undefined;
+    const key = fxKey(id);
+    return subscribeFx(e => { if (e.key === key && e.kind === 'cursor') inputRef.current?.focus(); });
+  }, [id]);
   // Registered via useVoiceTarget (like Slider below), NOT a hand-rolled
   // registerTarget call — Field is the one Controls.tsx primitive whose own
   // call site passes onChangeText directly (`<Field ... onChangeText={...}/>`
@@ -416,6 +427,7 @@ export function Field({
       ) : null}
       <View>
         <TextInput
+          ref={inputRef}
           placeholderTextColor={colors.muted}
           style={[styles.input, font(500), style as StyleProp<TextStyle>]}
           {...props}
@@ -431,6 +443,117 @@ export function Field({
         <AgentRing fx={fx} radius={12} />
       </View>
       {hint ? <Text style={[font(400), { color: colors.muted, fontSize: 11.5 }]}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * Searchable dropdown — a Field-shaped closed selector that opens a bottom-sheet
+ * list (pre-loaded options). `searchable` adds a filter box; `allowCustom` lets
+ * the user commit a typed value that isn't in the list (used for City, where the
+ * bundled list can't cover every town and the pincode auto-fill may land on one
+ * that isn't listed). Registered like a Field (voice target + reveal + ring) so
+ * the agent and the missing-field prompt can target it.
+ */
+export function Select({
+  label,
+  required,
+  value,
+  placeholder,
+  options,
+  onChange,
+  searchable = true,
+  allowCustom = false,
+  voiceId,
+}: {
+  label?: string;
+  required?: boolean;
+  value: string;
+  placeholder?: string;
+  options: string[];
+  onChange: (v: string) => void;
+  searchable?: boolean;
+  allowCustom?: boolean;
+  voiceId?: string;
+}) {
+  const t = useT();
+  const id = voiceId || label;
+  const fx = useAgentFx(id);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+
+  useVoiceTarget(
+    id,
+    { kind: 'field', getValue: () => value, setValue: v => onChange(String(v)) },
+    [value, onChange],
+  );
+
+  const filtered = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    const base = n ? options.filter(o => o.toLowerCase().includes(n)) : options;
+    // Keep the current value pinned to the top even if it isn't in the (filtered) list.
+    const withCurrent = value && !base.some(o => o.toLowerCase() === value.toLowerCase()) && (!n || value.toLowerCase().includes(n))
+      ? [value, ...base]
+      : base;
+    return withCurrent.slice(0, 120);
+  }, [q, options, value]);
+
+  const showCustom =
+    allowCustom && !!q.trim() && !options.some(o => o.toLowerCase() === q.trim().toLowerCase());
+
+  const pick = (v: string) => { onChange(v); setOpen(false); setQ(''); };
+
+  return (
+    <View ref={fx.ref} collapsable={false} style={{ gap: 6 }}>
+      {label ? (
+        <Text style={[font(600), styles.fieldLabel]}>
+          {label}
+          {required ? <Text style={{ color: colors.red }}> *</Text> : null}
+        </Text>
+      ) : null}
+      <View>
+        <Pressable style={[styles.input, styles.selectRow]} onPress={() => { playManualSound('select'); setOpen(true); }}>
+          <Text style={[font(500), { fontSize: 15, color: value ? colors.text : colors.muted, flex: 1 }]} numberOfLines={1}>
+            {value || placeholder || t.selectPlaceholder}
+          </Text>
+          <Icon name="expand_more" size={20} color={colors.textSoft} />
+        </Pressable>
+        <AgentRing fx={fx} radius={12} />
+      </View>
+
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.selectBackdrop} onPress={() => setOpen(false)} />
+        <View style={styles.selectSheet}>
+          <View style={styles.selectHandle} />
+          {label ? <Text style={[font(800), { fontSize: 16, color: colors.text, marginBottom: 10 }]}>{label}</Text> : null}
+          {searchable ? (
+            <TextInput
+              autoFocus
+              value={q}
+              onChangeText={setQ}
+              placeholder={t.selectSearchPlaceholder}
+              placeholderTextColor={colors.muted}
+              style={[styles.input, font(500)]}
+            />
+          ) : null}
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 340, marginTop: 10 }}>
+            {filtered.map(o => (
+              <Pressable key={o} onPress={() => pick(o)} style={styles.selectOption}>
+                <Text style={[font(value === o ? 700 : 500), { fontSize: 15, color: value === o ? colors.primary : colors.text, flex: 1 }]}>{o}</Text>
+                {value === o ? <Icon name="check" size={18} color={colors.primary} /> : null}
+              </Pressable>
+            ))}
+            {showCustom ? (
+              <Pressable onPress={() => pick(q.trim())} style={styles.selectOption}>
+                <Text style={[font(600), { fontSize: 15, color: colors.primary }]}>{t.selectUseCustom.replace('{q}', q.trim())}</Text>
+              </Pressable>
+            ) : null}
+            {filtered.length === 0 && !showCustom ? (
+              <Text style={[font(500), { color: colors.muted, padding: 14, fontSize: 14 }]}>{t.selectNoMatches}</Text>
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -663,6 +786,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text,
     backgroundColor: 'rgba(255,255,255,0.7)',
+  },
+  selectRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  selectBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(10,63,65,0.35)' },
+  selectSheet: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingHorizontal: 18, paddingTop: 10, paddingBottom: 28,
+    shadowColor: '#0A3F41', shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -6 }, elevation: 12,
+  },
+  selectHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.line, marginBottom: 12 },
+  selectOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 13, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.lineSoft,
   },
   sliderHit: { height: 34, justifyContent: 'center' },
   sliderTrack: { height: 6, borderRadius: 3, backgroundColor: 'rgba(120,150,148,0.22)', overflow: 'hidden' },

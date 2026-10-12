@@ -75,6 +75,10 @@ function AppShell() {
   const tipLang = screen === 'language' && !state.selectedLang ? null : state.lang;
   const langRef = useRef(tipLang); langRef.current = tipLang;
   const nudgeRef = useRef(state.voiceNudge); nudgeRef.current = state.voiceNudge;
+  // "Applied but no offers" — a finding run that returned nothing leaves
+  // offersError set; the offers-surface tip then points to re-check/explore
+  // instead of "pick an offer". Kept in a ref so the fire() closure reads it live.
+  const noOffersRef = useRef(false); noOffersRef.current = !!state.offersError;
   // Admin on/off switch (from the backend); timing itself is hard-coded.
   const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
 
@@ -106,7 +110,7 @@ function AppShell() {
       // call that ends on this same screen still gets its tip.
       const status = agent.getStatus();
       if (status !== 'idle' && status !== 'ended') { timer = setTimeout(fire, 3000); return; }
-      const cfg = nudgeFor(screen, timersRef.current, isAuthed(), langRef.current);
+      const cfg = nudgeFor(screen, timersRef.current, isAuthed(), langRef.current, { noOffers: noOffersRef.current });
       if (!cfg) return;
       nudgeIdRef.current += 1;
       setRef.current({ voiceFabUnlocked: true, voiceNudge: { id: nudgeIdRef.current, labels: cfg.labels, reason: cfg.reason } });
@@ -123,7 +127,7 @@ function AppShell() {
   useEffect(() => {
     const cur = nudgeRef.current;
     if (!cur) return;
-    const cfg = nudgeFor(screen, timersRef.current, isAuthed(), tipLang);
+    const cfg = nudgeFor(screen, timersRef.current, isAuthed(), tipLang, { noOffers: noOffersRef.current });
     if (cfg && cfg.reason === cur.reason && cfg.labels[0] !== cur.labels[0]) {
       setRef.current({ voiceNudge: { ...cur, labels: cfg.labels } });
     }
