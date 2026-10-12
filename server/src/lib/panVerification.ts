@@ -38,6 +38,10 @@ const log = scoped('pan');
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const PAN_HOLDER_CODES = 'ABCFGHJLPT';
 const DAILY_WINDOW_MS = 24 * 60 * 60_000;
+// Per-user cap on paid Aurix PAN lookups per 24h. Default 5 in production.
+// Set PAN_DAILY_LIMIT=0 (or any value <= 0) to DISABLE the cap entirely — used
+// on the UAT box so repeated test lookups never hit "too many PAN checks today".
+// Same env-gated convention as DEV_MASTER_OTP: absent in prod ⇒ the cap applies.
 const dailyLimit = () => parseInt(process.env.PAN_DAILY_LIMIT || '5', 10);
 const sharedPolicy = () => (process.env.PAN_SHARED_POLICY === 'block' ? 'block' : 'allow');
 
@@ -325,6 +329,8 @@ function windowExpired(startedAt: Date | null | undefined): boolean {
 }
 
 async function ensureUnderDailyLimit(user: User): Promise<void> {
+  // PAN_DAILY_LIMIT <= 0 disables the daily cap (UAT). No DB read, no gate.
+  if (dailyLimit() <= 0) return;
   const fresh = await prisma.user.findUnique({ where: { id: user.id }, select: { panVerifyAttempts: true, panVerifyWindowStartAt: true } });
   const used = windowExpired(fresh?.panVerifyWindowStartAt) ? 0 : fresh!.panVerifyAttempts;
   if (used >= dailyLimit()) {
