@@ -6,6 +6,10 @@ name: Security Scan
 # SOC 2 CC7.1 (vulnerability detection), CC8.1.
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
 
 permissions:
   contents: read

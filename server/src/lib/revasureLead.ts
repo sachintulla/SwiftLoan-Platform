@@ -46,12 +46,25 @@ export interface RevasureConfig {
   product: string;
 }
 
+// We POST PII (PAN, DOB, income…) to Revasure, so plaintext HTTP to a REMOTE
+// host is refused — otherwise that data crosses the network unencrypted (a
+// DPDP safeguards + SOC 2 confidentiality failure). HTTPS is always allowed;
+// a loopback host (local mock) is allowed; a remote http:// base is allowed
+// ONLY with an explicit REVASURE_ALLOW_INSECURE=true opt-in (the vendor's UAT
+// box is http-only — set it for UAT, never in production).
+function transportAllowed(baseUrl: string): boolean {
+  if (/^https:\/\//i.test(baseUrl)) return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(\/|$)/i.test(baseUrl)) return true;
+  return process.env.REVASURE_ALLOW_INSECURE === 'true';
+}
+
 export function revasureConfig(): RevasureConfig {
   const baseUrl = (process.env.REVASURE_BASE_URL || UAT_BASE).replace(/\/+$/, '');
   const basketId = process.env.REVASURE_BASKET_ID || UAT_BASKET_ID;
   const token = process.env.REVASURE_TOKEN || UAT_TOKEN;
   const product = process.env.REVASURE_PRODUCT || 'Personal Loan';
-  const enabled = process.env.REVASURE_ENABLED !== 'false' && !!baseUrl && !!basketId && !!token;
+  const enabled =
+    process.env.REVASURE_ENABLED !== 'false' && !!baseUrl && !!basketId && !!token && transportAllowed(baseUrl);
   return { enabled, baseUrl, basketId, token, product };
 }
 
@@ -174,7 +187,13 @@ export async function createRevasureLead(
   ip?: string,
 ): Promise<RevasureResult> {
   const cfg = revasureConfig();
-  if (!cfg.enabled) return { provider: 'revasure', ok: false, status: 'disabled', httpStatus: null, leadId: null, message: 'disabled' };
+  if (!cfg.enabled) {
+    // Call out the most important disable reason: a remote http:// base means PII
+    // would go in plaintext, so we refuse to send it (set a https base for prod).
+    const insecure = !!cfg.baseUrl && !transportAllowed(cfg.baseUrl);
+    if (insecure) log.warn('disabled: refusing to send PII over plaintext HTTP to a remote host', { baseUrl: cfg.baseUrl });
+    return { provider: 'revasure', ok: false, status: 'disabled', httpStatus: null, leadId: null, message: insecure ? 'disabled: insecure transport (http)' : 'disabled' };
+  }
 
   try {
     const app = await prisma.loanApplication.findUnique({ where: { id: applicationId } });

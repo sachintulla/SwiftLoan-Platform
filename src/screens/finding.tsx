@@ -81,10 +81,11 @@ export default function Finding() {
           const list = offers || [];
           set({ offersError: friendlyError || '' });
           mergeApiContext({ prequalifyResult: { offers, friendlyError } });
-          // TEMPORARY debug alert for the Revasure lead result (parallel lender
-          // group) — surfaces whatever the backend got back. Remove before
-          // production. Only shown when the backend actually attempted Revasure.
-          if (revasure && revasure.status !== 'disabled') {
+          // Debug alert for the Revasure lead result (parallel lender group) —
+          // surfaces whatever the backend got back. DEV builds only: __DEV__ is
+          // false in release, so it never reaches production users. Only shown
+          // when the backend actually attempted Revasure.
+          if (__DEV__ && revasure && revasure.status !== 'disabled') {
             const ok = revasure.ok;
             Alert.alert(
               ok ? 'Revasure: Lead created' : 'Revasure: Not created',
