@@ -141,6 +141,32 @@ function maskPan(pan: string): string {
   return pan.length === 10 ? `${pan.slice(0, 5)}****${pan.slice(-1)}` : '****';
 }
 
+function maskTail(v: unknown, keep = 4): string {
+  const t = String(v ?? '');
+  return t.length <= keep ? '*'.repeat(t.length) : `${'*'.repeat(t.length - keep)}${t.slice(-keep)}`;
+}
+function maskEmail(v: unknown): string {
+  const m = /^(.)[^@]*(@.+)$/.exec(String(v ?? ''));
+  return m ? `${m[1]}***${m[2]}` : '';
+}
+
+/**
+ * Body as it is safe to LOG (and what the existing DB copy mirrors): no PAN, OTP,
+ * full phone, email or name — see lib/log.ts (logs are kept in plaintext).
+ */
+export function maskedRevasureBody(body: Record<string, unknown>): Record<string, unknown> {
+  const name = String(body.full_name ?? '').trim().split(/\s+/).map((w) => `${w[0] ?? ''}.`).join(' ');
+  return {
+    ...body,
+    full_name: name,
+    mobile_number: maskTail(body.mobile_number),
+    email_id: maskEmail(body.email_id),
+    pancard: maskPan(String(body.pancard)),
+    otp: '******',
+    date_of_birth: String(body.date_of_birth ?? '').slice(0, 4) + '-**-**',
+  };
+}
+
 /** Build the flat Create-Lead body. Required fields are always present/valid. */
 export function buildRevasureBody(
   app: LoanApplication,
@@ -208,7 +234,9 @@ export async function createRevasureLead(
       create: { applicationId: app.id, userId, sourceLeadId: app.id, basketId: cfg.basketId, status: 'pending', requestBody: storedBody },
     }).catch(() => {});
 
+    console.log(`[revasure-req] POST ${cfg.baseUrl}/api/inbound/leads app=${app.id} body=${JSON.stringify(maskedRevasureBody(body))}`);
     const res = await postLead(cfg, body);
+    console.log(`[revasure-res] HTTP ${res.status}${res.error ? ` error=${res.error}` : ''} body=${JSON.stringify(res.body)?.slice(0, 600)}`);
     const msg: string | null = (res.body && typeof res.body === 'object' && (res.body.message || res.body.error)) || res.error || null;
     const leadId: string | null = res.body && typeof res.body === 'object' && res.body.lead_id != null ? String(res.body.lead_id) : null;
     // 201 = created. 409 is overloaded: a "duplicate" (we already sent this

@@ -340,3 +340,24 @@ the Play `referrer=click_id…` param), iOS → an interstitial that copies `swi
   page + Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` (additive).
 - Privacy to declare in store forms: IP address + device identifiers for app functionality/analytics; no ATT prompt
   (nothing is shared with ad networks).
+
+---
+
+## Partner lenders on the website (Yubi alt-offers + Revasure)
+
+Same server endpoints as the app — nothing lender-specific is client-only.
+- **Revasure** needs no client code: the server fires its Create-Lead inside `POST /applications/:id/prequalify`, which the
+  website's `/apply/finding` already calls. `REVASURE_TOKEN` is env-only (no fallback in source; unset = disabled), and a
+  remote `http://` base needs `REVASURE_ALLOW_INSECURE=true`.
+- **Yubi / YMPL** on the website: a **Get more offers** button (`components/apply/GetMoreOffers.tsx`, `hooks/useAltOffer.ts`,
+  `lib/altOffers.ts`, pure rules in `lib/altOfferLogic.ts`) on `/apply/offers` — below the offers, and as the "nothing matched"
+  variant in the empty states. Shown when `GET /config/features` → `altOffers` and an application exists. Click → `POST /alt-offer`
+  → the SAME tab navigates to the partner journey (a top-level navigation). **It cannot be shown in an iframe**: YMPL sends
+  `X-Frame-Options: DENY` + `frame-ancestors none` (the app's WebView isn't a frame, so it ignores that). Don't re-add an iframe/
+  proxy without Yubi allow-listing our origins. The website can't see the partner's "Proceed" tap, so it asks "Did you proceed?"
+  when the visitor is back (`sl_alt_pending` in sessionStorage; asked on arrival / Back / focus) → `POST /alt-offer/applied`;
+  applied referrals appear in My Applications (`partnerReferrals`). `/partner/return` is where YMPL sends the user back
+  (`YUBI_RETURN_URL=https://swiftloan.ai/partner/return`). Voice: `data-voice-gate="explore-lenders"`.
+- **Local dev behind a TLS-inspecting proxy:** `server/src/lib/devCa.ts` makes outbound `fetch` trust `NODE_EXTRA_CA_CERTS` from `.env`
+  (Node only reads that variable at process start, so dotenv alone silently failed → Aurix/Yubi `SELF_SIGNED_CERT_IN_CHAIN`). No-op in production.
+- Website tests: `cd website-next && npm test` (vitest + jsdom); run in CI.
