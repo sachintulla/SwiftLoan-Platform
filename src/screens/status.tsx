@@ -54,7 +54,7 @@ function buildSteps(app: any): Step[] {
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  offers_ready: { label: 'Offers Ready', color: colors.amber },
+  offers_ready: { label: 'In Progress', color: colors.amber },
   handoff: { label: 'Applied', color: colors.blue },
   under_review: { label: 'Under Review', color: colors.amber },
   approved: { label: 'Approved', color: colors.green },
@@ -111,12 +111,12 @@ export default function Status() {
   const effStatus = la?.status ?? sel?.lenderStatus ?? app?.status;
   const meta = app ? STATUS_LABEL[effStatus] || { label: effStatus, color: colors.muted } : null;
 
-  // "Did not reach KFT": no lender webhook has ever advanced this application
-  // (status is still 'handoff'), so the user applied but the application never
-  // registered with the KFT/lender side. Offer a Re-Apply CTA that reopens the
-  // lender web UI to continue the SAME application (not a new one).
+  // "Did not reach KFT": the lender hasn't confirmed this application — its status is still
+  // 'offers_ready' (the user tapped Apply; our own record) or 'handoff' (the lender reported the
+  // journey started, nothing more). 'handoff' is only ever set from the lender's report, never by
+  // us. Offer a Re-Apply CTA that reopens the lender web UI to continue the SAME application.
   const redirectionUrl = la?.redirectionUrl ?? sel?.redirectionUrl ?? null;
-  const canReapply = !!redirectionUrl && effStatus === 'handoff';
+  const canReapply = !!redirectionUrl && (effStatus === 'handoff' || effStatus === 'offers_ready');
   const reapply = () => {
     set({
       selectedOfferId: la?.offerId ?? sel?.id ?? state.selectedOfferId,
@@ -247,7 +247,7 @@ export default function Status() {
             </View>
 
             {/* Actions (bottom): Re-Apply shows only when the application never
-                reached KFT (no webhook, status still 'handoff'); Refresh status
+                reached KFT (no lender webhook beyond 'handoff'/'offers_ready'); Refresh status
                 is on every tracker to pull the latest lender status. */}
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 24, marginBottom: 8 }}>
               {canReapply ? (

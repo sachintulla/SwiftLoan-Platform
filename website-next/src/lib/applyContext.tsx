@@ -52,6 +52,15 @@ function writeStored(patch: Partial<ApplyState>) {
   }
 }
 
+/**
+ * Re-open a lender hand-off from outside the /apply flow (My Applications). The
+ * /apply layout's provider restores these from sessionStorage when it mounts,
+ * so `/apply/lender` finds the offer it should show.
+ */
+export function stashLenderResume(applicationId: string, offer: SelectedOffer) {
+  writeStored({ applicationId, selectedOffer: offer });
+}
+
 export function ApplyProvider({ children }: { children: React.ReactNode }) {
   // SSR-safe defaults (never read sessionStorage during render — a lazy
   // useState(() => readStored()...) initializer used to do that, and it ran

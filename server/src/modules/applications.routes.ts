@@ -6,8 +6,9 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
+import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
-import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
+import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
@@ -15,6 +16,7 @@ import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offers
 import { copyOffersFrom, storedOffers } from '../lib/offersReuseDb.js';
 import { scoped } from '../lib/log.js';
 import { advanceReferral } from '../lib/referral.js';
+import { isReviewPhone, reviewOffers } from '../lib/reviewLogin.js';
 
 const log = scoped('applications');
 
@@ -157,8 +159,14 @@ applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
       await prisma.offer.update({ where: { id: offer.id }, data: { lenderStatus: mappedStatus } });
     }
     if (la && advancesStatus(la.status, mappedStatus)) {
-      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus } });
+      // Keep the app-side badge in step with what the lender now reports (see internalStatusFor).
+      const internal = la.internalStatus === 'just_applied' ? internalStatusFor(mappedStatus) : null;
+      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus, ...(internal ? { internalStatus: internal } : {}) } });
     }
+  }
+  // Status already moved on earlier but the badge never followed — heal it.
+  if (la && la.internalStatus === 'just_applied' && internalStatusFor(la.status) && !(mappedStatus && advancesStatus(la.status, mappedStatus))) {
+    await prisma.lenderApplication.update({ where: { id: la.id }, data: { internalStatus: internalStatusFor(la.status)! } });
   }
 
   const refreshed = await prisma.loanApplication.findUnique({
@@ -197,7 +205,9 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // redirect URL so the "Alternative offers" tile opens instantly. Fire-and-
   // forget — independent of the Aurix result below; the on-tap endpoint re-mints
   // a fresh URL anyway (the token is short-lived, ~90s).
-  kickoffRedirect(app.id, req.user!.sub);
+  // App-store reviewer account is sandboxed: sample offers, no partner call of any kind.
+  const reviewer = isReviewPhone((await prisma.user.findUnique({ where: { id: req.user!.sub }, select: { phone: true } }))?.phone ?? '');
+  if (!reviewer) kickoffRedirect(app.id, req.user!.sub);
 
   // Revasure (third lender group) — a single Create-Lead POST, fired in PARALLEL
   // with the Aurix eligibility calls below. We DON'T await it here; we start the
@@ -205,7 +215,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // partner calls and adds little/no latency. Its result is recorded
   // (RevasureLead → admin dashboard) and returned to the app for a debug alert.
   const clientIp = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString();
-  const revasurePromise = createRevasureLead(app.id, req.user!.sub, clientIp);
+  const revasurePromise = reviewer ? Promise.resolve(null) : createRevasureLead(app.id, req.user!.sub, clientIp);
 
   // Only ask the lender again when the applicant has CHANGED something. Identical
   // details → identical offers, so reuse what we already hold (this application's own,
@@ -219,7 +229,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     orderBy: { offersFetchedAt: 'desc' },
     take: 10,
   });
-  const reusable = pickReusable(siblings, app.id, signature, Date.now(), reuseWindowMs());
+  const reusable = reviewer ? null : pickReusable(siblings, app.id, signature, Date.now(), reuseWindowMs());
   if (reusable) {
     const offers = reusable.id === app.id ? await storedOffers(app.id) : await copyOffersFrom(app, reusable.id);
     if (offers) {
@@ -230,7 +240,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
         applicationId: app.id, from: reusable.id, offerCount: offers.length,
       });
       const revasureReused = await revasurePromise.catch(() => null);
-      res.json({ offers, aurixResponse: null, revasure: revasureReused, reused: true });
+      res.json({ offers, reason: offers.length === 0 ? (app.prequalifyReason ?? 'not_eligible') : null, revasure: revasureReused, reused: true });
       return;
     }
   }
@@ -242,7 +252,10 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // whole run — we saw exactly this from Aurix's UAT ("No data found", "PAN
   // verification failed", etc.).
   const pending: Array<{ partner: (typeof partners)[number]; raw: RawLenderOffer }> = [];
-  for (const p of partners) {
+  if (reviewer) {
+    reviewOffers(app.amount, app.tenureMonths).forEach((raw, i) => pending.push({ partner: partners[i % partners.length], raw }));
+  }
+  for (const p of reviewer ? [] : partners) {
     try {
       const provider = getLenderOfferProvider(p);
       const list = provider.getOffers ? await provider.getOffers(p, app) : [await provider.getOffer(p, app)];
@@ -336,29 +349,21 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // thrown error (network/HTTP failure, missing config) should read as
   // 'failed'; a clean success with zero offers reads as 'rejected'.
   const aurixDebug = takeAurixDebug(app.id) as { httpStatus?: number; response?: any } | null;
-  const aurixSucceededWithNoOffers =
-    created.length === 0 && (aurixDebug?.response?.Result?.Meta?.Success ?? aurixDebug?.response?.Meta?.Success) === true;
-  // The applicant-facing reason for zero offers. For a genuine decline this
-  // is Aurix's own message — real, informative, safe to show as-is. For a
-  // technical failure this is deliberately a generic retry prompt, never the
-  // raw exception text ("timed out after 30000ms (HTTP 0)") — that's for the
-  // server log above (partner produced no offers), not the applicant.
-  const aurixMessage: string | undefined =
-    aurixDebug?.response?.Result?.Meta?.Message ?? aurixDebug?.response?.Meta?.Message;
-  const prequalifyReason =
-    created.length > 0
-      ? null
-      : aurixSucceededWithNoOffers
-        ? (aurixMessage ?? "You don't currently meet the eligibility criteria of our lending partners.")
-        : "We couldn't reach our lending partners just now. Please try again in a moment.";
+  // What the zero-offer reply means (lib/aurixOutcome.ts). The applicant only ever gets a reason CODE
+  // (the website renders our own copy for it) — the lender's wording goes to the log, never the UI.
+  // A real refusal is 'rejected'; a duplicate number is not a decline ('failed'); a technical fault
+  // is 'failed' with the generic retry prompt.
+  const outcome = created.length === 0 ? classifyAurixOutcome(aurixDebug) : null;
+  const aurixSucceededWithNoOffers = outcome?.kind === 'decision';
+  const prequalifyReason = outcome ? outcome.reason : null;
   await prisma.loanApplication.update({
     where: { id: app.id },
     data: {
-      status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed',
+      status: created.length > 0 ? 'offers_ready' : outcome?.kind === 'decision' ? 'rejected' : 'failed',
       prequalifyReason,
       // Remember what the lender was asked, so the same details don't trigger another call.
-      // A technical failure ('failed') is NOT remembered — it must stay retryable.
-      ...(created.length > 0 || aurixSucceededWithNoOffers ? { offersSignature: signature, offersFetchedAt: new Date() } : {}),
+      // Anything but a definite decline stays retryable and is NOT remembered.
+      ...(created.length > 0 || (outcome?.kind === 'decision' && outcome.remember) ? { offersSignature: signature, offersFetchedAt: new Date() } : {}),
     },
   });
 
@@ -374,14 +379,15 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     },
   ).catch(() => {});
 
-  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers });
+  if (outcome?.lenderMessage) log.info('prequalify lender message (not shown to applicant)', { applicationId: app.id, reason: outcome.reason, lenderMessage: outcome.lenderMessage });
+  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers, outcome: outcome?.kind ?? 'offers' });
   // Revasure lead result (started in parallel above) — await now so its outcome
   // rides back in this response for the app's temporary debug alert.
   const revasure = await revasurePromise.catch(() => null);
 
-  // Raw Aurix eligible_offers response (request/success/no-offers/validation),
-  // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
-  res.json({ offers: created, aurixResponse: aurixDebug, revasure });
+  // `reason` is a code ('not_eligible' | 'duplicate' | 'technical'), never lender wording — the clients
+  // render their own copy for it. The raw lender response stays on the server.
+  res.json({ offers: created, reason: outcome?.reason ?? null, revasure });
 }));
 
 /**
@@ -484,7 +490,8 @@ applicationsRouter.post('/:id/offers/:offerId/select',
     }
 
     const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true, ...tenureOverride } });
-    await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+    // NOTE: we do NOT move the application to 'handoff' here. 'handoff' is a lender-reported
+    // stage (Aurix webhook), not something a tap on our side can claim.
     void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
     // WS5: the real selection, with which offer — the screen-arrival proxy the
@@ -562,7 +569,9 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
       tenureMonths: existing.tenureMonths,
       processingFeeAmount: existing.processingFeeAmount ?? 0,
       redirectionUrl: existing.redirectionUrl,
-      status: 'handoff',
+      // Tapped Apply — the lender hasn't reported anything yet. 'handoff' is reserved for the
+      // lender's own report (webhook), so this stays 'offers_ready' ("in progress") until then.
+      status: 'offers_ready',
     },
   });
 
@@ -571,15 +580,10 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
   await prisma.offer.update({
     where: { id: existing.id },
-    data: { selected: true, applied: true, appliedAt: existing.appliedAt ?? new Date(), lenderStatus: existing.lenderStatus ?? 'handoff' },
+    data: { selected: true, applied: true, appliedAt: existing.appliedAt ?? new Date(), lenderStatus: existing.lenderStatus ?? 'offers_ready' },
   }).catch(() => {});
 
-  // Nudge the parent application forward to handoff (it may go further via
-  // webhooks); never regress a further status.
-  const order = ['draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handoff'];
-  if (order.includes(app.status) && order.indexOf(app.status) < order.indexOf('handoff')) {
-    await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } }).catch(() => {});
-  }
+  // The parent application is NOT nudged to 'handoff' here: only the lender's webhook advances it.
   void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
   trackJourney(

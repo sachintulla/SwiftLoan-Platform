@@ -9,6 +9,7 @@ import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, isAuthed } from '../api/client';
 import { displayLenderName } from './offers';
+import { timeAgo } from '../utils/timeAgo';
 
 const TYPE_ICON: Record<string, string> = {
   personal: 'bolt', business: 'business_center', home: 'home', education: 'school', vehicle: 'directions_car',
@@ -41,16 +42,6 @@ const STATUS_META: Record<string, { key: string; color: string }> = {
   failed: { key: 'statusFailed', color: colors.red },
   closed: { key: 'statusClosed', color: colors.muted },
 };
-
-/** "25 Aug 2026 at 2:44 PM" — the application's most recent update. */
-function formatDateTime(iso?: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const date = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  const time = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
-  return `${date} at ${time}`;
-}
 
 export default function Loans() {
   const { set, mergeApiContext, go, showToast } = useStore();
@@ -185,7 +176,7 @@ export default function Loans() {
             internalLabel={statusLabel(internal.key, la.internalStatus)}
             internalColor={internal.color}
             logoUrl={la.lenderLogoUrl}
-            updated={formatDateTime(la.updatedAt || la.appliedAt)}
+            updated={timeAgo(la.updatedAt || la.appliedAt, t)}
             updatedPrefix={t.updatedPrefix}
             metrics={[
               { label: t.metricAmount, value: rupee(la.amount ?? app.amount) },
@@ -197,7 +188,7 @@ export default function Loans() {
       });
     }
 
-    const updated = formatDateTime(app.updatedAt);
+    const updated = timeAgo(app.updatedAt, t);
 
     // Legacy safety net: pre-LenderApplication data — an applied offer with no
     // LenderApplication row. Show one card per applied offer so old data keeps
@@ -205,7 +196,7 @@ export default function Loans() {
     const appliedOffers = (app.offers || []).filter((o: any) => o.applied);
     if (appliedOffers.length > 0) {
       return appliedOffers.map((o: any) => {
-        const st = o.lenderStatus || 'handoff';
+        const st = o.lenderStatus || 'offers_ready';
         const meta = STATUS_META[st];
         const statusText = meta ? statusLabel(meta.key, st) : st;
         const statusColor = meta?.color || colors.muted;
@@ -284,7 +275,7 @@ export default function Loans() {
           typeLabel={t.altOffersPartnerLabel}
           status={st.text}
           statusColor={st.color}
-          updated={formatDateTime(pr.appliedAt)}
+          updated={timeAgo(pr.appliedAt, t)}
           updatedPrefix={t.appliedPrefix}
           metrics={[
             { label: t.metricAmount, value: rupee(app.amount) },

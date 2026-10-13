@@ -7,6 +7,7 @@ import { HttpError } from '../middleware/error.js';
 import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from './journey.js';
 import { generateAurixTokenFromEnv } from './lenderOffers.js';
 import { scoped } from './log.js';
+import { isReviewPhone, isReviewOtp } from './reviewLogin.js';
 
 const log = scoped('authSession');
 
@@ -41,6 +42,10 @@ export function assertOtpDelivered(delivered: boolean, phone: string): void {
  * loudly instead of claiming success.
  */
 export async function createOtp(phone: string, userId?: string): Promise<{ devOtp: string | undefined; delivered: boolean }> {
+  // The store-reviewer number signs in with its fixed code (see reviewLogin.ts):
+  // no OTP row, and no SMS to a number nobody can read.
+  if (isReviewPhone(phone)) return { devOtp: undefined, delivered: true };
+
   const code = genOtp();
   await prisma.otpToken.updateMany({ where: { phone, consumed: false }, data: { consumed: true } });
   await prisma.otpToken.create({
@@ -89,7 +94,8 @@ export async function verifyOtpAndLogin(params: {
   const { phone, code, sessionId, refreshTtlMs, source } = params;
 
   const masterOtp = process.env.DEV_MASTER_OTP;
-  const isMaster = !!masterOtp && code === masterOtp;
+  const isReview = isReviewOtp(phone, code);
+  const isMaster = isReview || (!!masterOtp && code === masterOtp);
   const otp = await prisma.otpToken.findFirst({
     where: { phone, consumed: false, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
@@ -101,19 +107,22 @@ export async function verifyOtpAndLogin(params: {
   if (otp) await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
   const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
   const tokens = await issueTokens(user.id, user.phone, refreshTtlMs);
-  log.info('otp verified — logged in', { phone, userId: user.id, viaMasterOtp: isMaster, source });
+  log.info('otp verified — logged in', { phone, userId: user.id, viaMasterOtp: isMaster, viaReviewLogin: isReview, source });
 
   // Pre-generate + cache the Aurix (Knight Fintech) X-Aurix-Token now, keyed by
   // this user.id, so the eligible_offers call after PAN reuses it instead of
   // paying a cold token round-trip. Fire-and-forget: never blocks or fails login.
-  void generateAurixTokenFromEnv(user.id, user.phone)
-    .then((token) =>
-      prisma.user.update({
-        where: { id: user.id },
-        data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 20 * 864e5) },
-      }),
-    )
-    .catch(() => {});
+  // (Skipped for the app-store reviewer account — it never calls a lender.)
+  if (!isReview) {
+    void generateAurixTokenFromEnv(user.id, user.phone)
+      .then((token) =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 20 * 864e5) },
+        }),
+      )
+      .catch(() => {});
+  }
 
   // Website inquiries made under this phone number before this login (either
   // a marketing-site lead captured earlier, or — now that the website itself

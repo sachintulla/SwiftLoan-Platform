@@ -9,7 +9,8 @@ import { useAccount } from '@/lib/accountContext';
 import { listApplications, type LoanApplication } from '@/lib/applyApi';
 import { fmtINR } from '@/lib/core';
 import { useStatusMeta } from '@/lib/statusMeta';
-import { useCopy } from '@/lib/i18n';
+import { useCopy, useLang } from '@/lib/i18n';
+import { timeAgo } from '@/lib/timeAgo';
 import { accountCopy } from '@/i18n/account';
 import { altOffersCopy } from '@/i18n/apply-altoffers';
 import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
@@ -19,6 +20,7 @@ import { altStatusTone, appliedReferrals, type AppliedReferral } from '@/lib/alt
 export default function ApplicationsPage() {
   const { loading: accountLoading, user } = useAccount();
   const t = useCopy(accountCopy);
+  const { lang } = useLang();
   const statusMeta = useStatusMeta();
   const [apps, setApps] = useState<LoanApplication[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,7 +68,7 @@ export default function ApplicationsPage() {
               return (
                 <Link
                   key={la.id}
-                  href={`/account/${app.id}`}
+                  href={la.id === app.id ? `/account/${app.id}` : `/account/${app.id}?la=${la.id}`}
                   className="border-border flex items-center gap-3.5 rounded-2xl border bg-card p-4"
                 >
                   <div className="bg-accent text-primary grid h-11 w-11 place-items-center rounded-xl text-sm font-extrabold">
@@ -77,7 +79,9 @@ export default function ApplicationsPage() {
                       {la.lenderName || t.personalLoan}
                       {la.lenderName && <span className="text-muted-foreground font-medium"> · {t.personalLoan}</span>}
                     </div>
-                    <div className="text-muted-foreground text-xs">{t.ref(app.ref)}</div>
+                    <div className="text-muted-foreground text-xs">
+                      {[t.ref(app.ref), timeAgo(('updatedAt' in la ? la.updatedAt : undefined) ?? la.appliedAt, lang)].filter(Boolean).join(' · ')}
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-extrabold">{fmtINR(la.amount)}</div>

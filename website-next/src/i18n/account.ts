@@ -41,6 +41,8 @@ export const accountCopy = defineCopy({
     statusNote: "Status updates come directly from the lender. We'll notify you here of any required documents or next steps.",
     checking: "Checking…",
     refreshStatus: "Refresh status",
+    continueApplication: "Continue application",
+    continueHint: "This application hasn't reached the lender yet. Pick up where you left off.",
     steps: {
       applied: { title: "Applied", desc: "Your application was submitted to the lender." },
       under_review: { title: "Under review", desc: "The lender is verifying your details. This usually takes 2–3 business days." },
@@ -124,6 +126,8 @@ export const accountCopy = defineCopy({
     statusNote: "स्थिति के अपडेट सीधे लेंडर से आते हैं। किसी भी ज़रूरी दस्तावेज़ या अगले कदम की सूचना हम आपको यहीं देंगे।",
     checking: "जांच हो रही है…",
     refreshStatus: "स्थिति रीफ़्रेश करें",
+    continueApplication: "आवेदन जारी रखें",
+    continueHint: "यह आवेदन अभी लेंडर तक नहीं पहुंचा है। जहां छोड़ा था, वहीं से आगे बढ़ें।",
     steps: {
       applied: { title: "आवेदन किया गया", desc: "आपका आवेदन लेंडर को सबमिट कर दिया गया है।" },
       under_review: {
@@ -208,6 +212,8 @@ export const accountCopy = defineCopy({
     statusNote: "స్థితి అప్‌డేట్‌లు నేరుగా రుణదాత నుండి వస్తాయి. అవసరమైన పత్రాలు లేదా తదుపరి దశల గురించి మేము మీకు ఇక్కడే తెలియజేస్తాము.",
     checking: "తనిఖీ చేస్తున్నాము…",
     refreshStatus: "స్థితిని రిఫ్రెష్ చేయండి",
+    continueApplication: "దరఖాస్తును కొనసాగించండి",
+    continueHint: "ఈ దరఖాస్తు ఇంకా రుణదాతను చేరలేదు. ఆపిన చోటు నుండే కొనసాగించండి.",
     steps: {
       applied: { title: "దరఖాస్తు చేశారు", desc: "మీ దరఖాస్తు రుణదాతకు సమర్పించబడింది." },
       under_review: {

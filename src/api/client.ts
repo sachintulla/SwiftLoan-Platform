@@ -31,13 +31,18 @@ NetInfo.configure({
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
+// Applications whose alt-offer "applied" record has already been sent this
+// session — so a re-emitted Proceed (partner resume auto-advance) doesn't
+// re-POST or re-toast. Cleared on logout with the rest of the session.
+const _appliedAltOffers = new Set<string>();
+
 export function setTokens(access: string | null, refresh?: string | null) {
   accessToken = access;
   if (refresh !== undefined) refreshToken = refresh;
   // Persisted so a returning user stays logged in across app restarts, not
   // just within one in-memory session.
   if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
-  else if (!access) clearTokens();
+  else if (!access) { clearTokens(); _appliedAltOffers.clear(); sessionId = null; }
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
@@ -363,31 +368,14 @@ export interface LenderApplication {
 }
 
 /**
- * Surface the offer API's OWN message when a prequalify run returns no offers,
- * shown to the user verbatim (no hardcoded rephrasing) so testers/users see
- * exactly what the lender (Aurix) API responded with. Returns '' when offers
- * exist, or when there's genuinely no message/error to show (the offers screen
- * then falls back to its generic "no offers" empty state).
- * `aurixResponse` shape: { httpStatus, response: { Meta, Data } | { Result: { Meta } } }.
+ * Why a prequalify run returned no offers — a reason CODE from the server, never lender wording.
+ * The screens turn it into our own translated copy (see finding.tsx); the lender's text stays on the
+ * server. '' when offers exist or no reason was given (the offers screen shows its generic empty state).
  */
-export function friendlyAurixError(aurixResponse: any, offerCount: number): string {
+export type PrequalifyReason = 'not_eligible' | 'duplicate' | 'technical';
+export function prequalifyReasonCode(reason: unknown, offerCount: number): PrequalifyReason | '' {
   if (offerCount > 0) return '';
-  const r = aurixResponse?.response ?? {};
-  const meta = r.Meta ?? r.Result?.Meta ?? {};
-  // The API's own message, verbatim.
-  const msg = String(meta.Message ?? meta.message ?? r.Message ?? r.message ?? r.error ?? '').trim();
-  if (msg) return msg;
-  // No message but the call failed — surface why. httpStatus 0 is a
-  // client-side timeout/network failure (confirmed live: a 30s Aurix
-  // timeout), not an HTTP response at all, so it needs its own check —
-  // 0 is not >= 400, and without this it silently fell through to the
-  // empty-string return below, indistinguishable from a genuine "no offers
-  // matched" decision and telling a timed-out user to change their loan
-  // amount instead of just retrying.
-  const http = aurixResponse?.httpStatus;
-  if (http === 0) return 'We’re having trouble reaching our lending partners right now. Please try again in a moment.';
-  if (typeof http === 'number' && http >= 400) return `Offers request failed (HTTP ${http}).`;
-  return '';
+  return reason === 'not_eligible' || reason === 'duplicate' || reason === 'technical' ? reason : '';
 }
 
 export interface NudgeConfigDTO {
@@ -533,7 +521,7 @@ export const api = {
   prequalify: async (id: string) => {
     // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
     // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.
-    const res = await request<{ offers: unknown[]; aurixResponse?: any; revasure?: RevasureResult | null }>(
+    const res = await request<{ offers: unknown[]; reason?: string | null; revasure?: RevasureResult | null }>(
       'POST',
       `/applications/${id}/prequalify`,
       undefined,
@@ -562,9 +550,8 @@ export const api = {
         });
       }
     }
-    // Turn any lender-side rejection into a clear, actionable note for the user
-    // (surfaced on the offers screen), instead of a raw debug dump.
-    return { ...res, friendlyError: friendlyAurixError(res?.aurixResponse, (res?.offers ?? []).length) };
+    // Zero offers: hand the screen the reason code so it shows our own copy, not lender text.
+    return { ...res, reason: prequalifyReasonCode(res?.reason, (res?.offers ?? []).length) };
   },
   selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
     request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),
@@ -627,8 +614,25 @@ export const api = {
 
   // Record that the applicant tapped "Proceed" on the Yubi/YMPL offers page, so
   // it surfaces in My Loans with its date/time. Fire-and-forget.
-  altOfferApplied: (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null }> =>
-    request('POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {}),
+  // Idempotent: the partner page re-emits "Proceed" on every resume (its own
+  // auto-advance programmatically clicks Proceed), so we record + let the caller
+  // toast only once per application per session. The server also stamps
+  // appliedAt only once, so a duplicate POST is harmless either way.
+  altOfferApplied: async (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null; alreadyApplied: boolean }> => {
+    if (_appliedAltOffers.has(applicationId)) {
+      return { applied: true, appliedAt: null, lender: lender ?? null, alreadyApplied: true };
+    }
+    _appliedAltOffers.add(applicationId);
+    try {
+      const r = await request<{ applied: boolean; appliedAt: string | null; lender: string | null }>(
+        'POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {},
+      );
+      return { ...r, alreadyApplied: false };
+    } catch (e) {
+      _appliedAltOffers.delete(applicationId); // let a later Proceed retry on failure
+      throw e;
+    }
+  },
 
   // Client feature flags (public). Fetched on launch to decide whether the
   // "Alternative offers" tile is shown at all.
@@ -674,6 +678,9 @@ export const getSessionId = () => sessionId;
 
 // Low-level fire-and-forget POST. Short timeout; errors are silently ignored.
 function trackPost(path: string, body: Record<string, unknown>): Promise<any> {
+  // Activity is only tracked for a signed-in user (the server drops it otherwise, so
+  // don't even send it). Install attribution is the one anonymous call.
+  if (!accessToken && path !== '/track/install') return Promise.resolve({});
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
   return fetch(TRACK_BASE + path, {

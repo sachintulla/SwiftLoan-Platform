@@ -164,8 +164,19 @@ describe('UC-V3 varied control types across screens', () => {
 
   it('discovers controls on a slider screen (fare)', () => {
     AUTHED();
-    renderAt('fare', <Fare />);
-    expect(listTargets('fare').length).toBeGreaterThan(0);
+    // The Instant offers | Explore lenders tab bar only exists once an application exists
+    // (and the partner facility is on), so seed that — otherwise this screen has no controls
+    // for the agent to find.
+    function SeedApplication({ children }: { children: React.ReactNode }) {
+      const { state, set } = useStore();
+      useEffect(() => {
+        if (!state.applicationId) set({ applicationId: 'app-1', altOffersEnabled: true });
+      }, [state.applicationId, set]);
+      return <>{state.applicationId ? children : null}</>;
+    }
+    renderAt('fare', <SeedApplication><Fare /></SeedApplication>);
+    const labels = listTargets('fare').map(t => t.label);
+    expect(labels).toEqual(expect.arrayContaining(['Instant offers', 'Explore lenders']));
   });
 });
 

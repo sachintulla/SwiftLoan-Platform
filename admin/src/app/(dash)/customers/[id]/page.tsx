@@ -13,10 +13,12 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, Stat, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout } from '@/components/ui';
 import { JourneyTracker, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
+import { ApplicationOffers } from '@/components/ApplicationOffers';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
 import { ActivityFeed, buildActivityHighlights } from '@/components/activityFeed';
 import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
+import { NUDGES_DISABLED, withoutNudgeEvents } from '@/lib/flags';
 
 interface Customer {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
@@ -205,7 +207,7 @@ export default function CustomerDetail() {
 
   // d.timeline is chronological (asc); the activity highlights below are
   // derived from it. The full, filterable log lives on /customers/:id/activity.
-  const tl = asArray<TimelineEntry>(d.timeline);
+  const tl = withoutNudgeEvents(asArray<TimelineEntry>(d.timeline), (e) => e.name);
 
   // Cross-channel conversation history is keyed on the phone number, not the
   // customer id — that is what stitches website, phone and app together. A 404
@@ -318,6 +320,7 @@ export default function CustomerDetail() {
   // any) — everything else that only got to offers_ready was abandoned when
   // the person restarted the funnel, not still in progress.
   const submittedAppId = tl.find((e) => e.name === 'application_submitted')?.metadata?.applicationId as string | undefined;
+  const totalOffers = applications.reduce((n, a) => n + (a.offers ?? []).length, 0);
   const appliedLenderCount = applications.reduce((n, a) => n + (a.offers ?? []).filter((o) => o.applied).length, 0);
 
   const activityHighlights = buildActivityHighlights({
@@ -331,6 +334,7 @@ export default function CustomerDetail() {
   const tabs: { key: string; label: string; count?: number }[] = [
     { key: 'journey', label: 'Journey' },
     ...(applications.length ? [{ key: 'applications', label: 'Applications', count: applications.length }] : []),
+    ...(totalOffers ? [{ key: 'offers', label: 'Offers', count: totalOffers }] : []),
     { key: 'conversations', label: 'Conversations', count: convMissing ? 0 : convCount },
     { key: 'calls', label: 'Calls', count: calls.length },
     { key: 'enquiries', label: 'Website enquiries', count: leads.length },
@@ -496,10 +500,12 @@ export default function CustomerDetail() {
             foot={applications.length ? `${submittedAppId ? 1 : 0} submitted, ${applications.length - (submittedAppId ? 1 : 0)} abandoned` : 'none yet'} />
           <Stat label="Lender offers" value={appliedLenderCount} tone={appliedLenderCount ? undefined : 'text-faint'}
             foot={appliedLenderCount ? 'applied to' : 'no lender applied to'} />
+          {!NUDGES_DISABLED && (
           <Stat label="Nudges delivered"
             value={nudgeSummary ? `${nudgeSummary.delivered}/${nudgeSummary.total}` : '—'}
             tone={!nudgeSummary || nudgeSummary.total === 0 ? 'text-faint' : nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : undefined}
             foot={!nudgeSummary || nudgeSummary.total === 0 ? 'none sent' : nudgeSummary.failed === nudgeSummary.total ? 'all dispatches failed' : nudgeSummary.failed > 0 ? `${nudgeSummary.failed} failed` : 'all delivered'} />
+          )}
         </div>
       </Card>
 
@@ -611,6 +617,11 @@ export default function CustomerDetail() {
           </div>
         );
       })()}
+
+      {/* ── every offer returned, per application ─────────────────────── */}
+      {activeTab === 'offers' && totalOffers > 0 && (
+        <div style={{ marginTop: 18 }}><ApplicationOffers applications={applications} /></div>
+      )}
 
       {/* ── what has been said ─────────────────────────────────────────── */}
       {activeTab === 'conversations' && (
@@ -786,6 +797,7 @@ export default function CustomerDetail() {
           ))}
         </Card>
 
+        {!NUDGES_DISABLED && (
         <Card title="Send nudge" sub="Re-engage this customer through Upshot">
           {nudgeSummary && nudgeSummary.total > 0 && (
             <Callout tone={nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : 'blue'}>
@@ -808,6 +820,7 @@ export default function CustomerDetail() {
             {nudgeResult && <span style={{ fontSize: 12.5, color: nudgeResult.ok ? 'var(--green)' : 'var(--red)' }}>{nudgeResult.text}</span>}
           </div>
         </Card>
+        )}
       </div>
       )}
 
