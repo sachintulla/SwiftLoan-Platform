@@ -42,7 +42,7 @@ export function setTokens(access: string | null, refresh?: string | null) {
   // Persisted so a returning user stays logged in across app restarts, not
   // just within one in-memory session.
   if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
-  else if (!access) { clearTokens(); _appliedAltOffers.clear(); }
+  else if (!access) { clearTokens(); _appliedAltOffers.clear(); sessionId = null; }
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
@@ -696,6 +696,9 @@ export const getSessionId = () => sessionId;
 
 // Low-level fire-and-forget POST. Short timeout; errors are silently ignored.
 function trackPost(path: string, body: Record<string, unknown>): Promise<any> {
+  // Activity is only tracked for a signed-in user (the server drops it otherwise, so
+  // don't even send it). Install attribution is the one anonymous call.
+  if (!accessToken && path !== '/track/install') return Promise.resolve({});
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
   return fetch(TRACK_BASE + path, {

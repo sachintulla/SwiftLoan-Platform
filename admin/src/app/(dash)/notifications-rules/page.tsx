@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
 import { timeAgo, num, StatusTone } from '@/lib/format';
+import { NUDGES_DISABLED } from '@/lib/flags';
 
 type Channel = 'push' | 'whatsapp' | 'sms' | 'email' | 'voice';
 
@@ -70,7 +71,7 @@ const BLANK: FormState = {
   upshotEvent: '', channel: 'push', cooldownMinutes: '1440', enabled: true,
 };
 
-export default function StallRulesPage() {
+function StallRulesView() {
   const { data, error, isLoading, mutate } = useSWR('/api/admin/stall-rules', swrFetcher);
   const queue = useSWR(QUEUE_KEY, swrFetcher);
 
@@ -577,4 +578,15 @@ function QueuePanel() {
       </div>
     </>
   );
+}
+
+export default function StallRulesPage() {
+  if (NUDGES_DISABLED) {
+    return (
+      <Card title="Notification rules disabled">
+        <Empty label="Outbound nudges are turned off for this environment." />
+      </Card>
+    );
+  }
+  return <StallRulesView />;
 }

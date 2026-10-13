@@ -164,11 +164,19 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
 ];
 
+// Kill switch for every outbound-nudge path: the stall detectors that create
+// nudges and the workers that drain the dispatch queue. Admin-alert-only jobs
+// (idle / loan-stale / onboarding-stale) keep running.
+const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender']);
+export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '');
+
 let timers: NodeJS.Timeout[] = [];
 
 // Start the maintenance jobs. Uses BullMQ if REDIS_URL is set, otherwise a simple
 // setInterval scheduler in-process (fine for a single API node / dev).
 export async function startJobs() {
+  const jobs = nudgesDisabled() ? JOBS.filter((j) => !NUDGE_JOBS.has(j.name)) : JOBS;
+  if (nudgesDisabled()) console.log('[jobs] NUDGES_DISABLED — stall detectors and dispatch worker are off');
   // Install the starter stall rules once, so a fresh database has working
   // drop-off detection instead of an empty table nobody thinks to populate.
   await seedStallRules()
@@ -184,24 +192,24 @@ export async function startJobs() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { Queue, Worker }: any = await import(/* @vite-ignore */ specifier);
       const connection = { url: redisUrl };
-      for (const job of JOBS) {
+      for (const job of jobs) {
         const q = new Queue(job.name, { connection });
         await q.add(job.name, {}, { repeat: { every: job.everyMs }, removeOnComplete: true, removeOnFail: true });
         new Worker(job.name, async () => { await job.fn().catch(() => {}); }, { connection });
       }
-      console.log(`[jobs] BullMQ scheduler started (${JOBS.length} jobs) on Redis`);
+      console.log(`[jobs] BullMQ scheduler started (${jobs.length} jobs) on Redis`);
       return;
     } catch (e) {
       console.warn('[jobs] Redis/BullMQ unavailable, falling back to in-process scheduler:', (e as Error).message);
     }
   }
   // Fallback: in-process interval scheduler.
-  timers = JOBS.map((job) => {
+  timers = jobs.map((job) => {
     // Run once shortly after boot, then on the interval.
     setTimeout(() => { job.fn().catch(() => {}); }, 10_000);
     return setInterval(() => { job.fn().catch(() => {}); }, job.everyMs);
   });
-  console.log(`[jobs] in-process scheduler started (${JOBS.length} jobs, no Redis)`);
+  console.log(`[jobs] in-process scheduler started (${jobs.length} jobs, no Redis)`);
 }
 
 export function stopJobs() {

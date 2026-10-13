@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
-  trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
+  trackSessionStart, trackSessionEnd, getSessionId, trackEvent, trackOnboardingStep,
   trackLoanStep, claimInstall, fetchContext, setTokens, api,
   isAuthed, upshotOfferViewed, knownOfferInfo,
   type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill, fetchUserContext,
@@ -1089,6 +1089,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
+
+  // Activity is only recorded for a signed-in user, so the session starts when one
+  // appears (OTP verify, or a restored login on launch) — not at boot.
+  useEffect(() => {
+    if (!state.authUser?.id || getSessionId()) return;
+    trackSessionStart({ platform: Platform.OS, osVersion: String(Platform.Version), appVersion: '1.0' });
+  }, [state.authUser?.id]);
 
   // WS8's cross-channel userContext fetch (GET /api/context/me) — the
   // *once-at-login* copy of it — was removed from here: its "application in

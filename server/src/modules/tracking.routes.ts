@@ -11,10 +11,11 @@ import { scoped } from '../lib/log.js';
 
 const log = scoped('tracking');
 
-// Public tracking endpoints. The mobile app calls these fire-and-forget, so they
-// must be cheap, tolerant of missing fields, and never throw back something the
-// app would surface. An optional Bearer user token is read if present but not
-// required (anonymous sessions are first-class).
+// Tracking endpoints. The mobile app calls these fire-and-forget, so they must be
+// cheap, tolerant of missing fields, and never throw back something the app would
+// surface. Activity is only RECORDED for a signed-in user (valid Bearer token):
+// without one the call is acknowledged but nothing is saved. The one exception is
+// /install, which is install attribution rather than user activity.
 export const trackingRouter = Router();
 
 /**
@@ -41,9 +42,14 @@ function softUserId(req: { headers: Record<string, unknown> }): string | null {
   }
 }
 
+/** Acknowledge a tracking call that was deliberately not stored (nobody signed in). */
+const notRecorded = (res: Parameters<typeof ok>[0], what: string) =>
+  ok(res, { skipped: 'not_signed_in' }, `${what} not recorded — user is not signed in`);
+
 // POST /api/track/session/start  { device_info }
 trackingRouter.post('/session/start', ah(async (req, res) => {
-  const userId = softUserId(req) ?? (req.body?.user_id ?? null);
+  const userId = softUserId(req);
+  if (!userId) return notRecorded(res, 'Session');
   const session = await prisma.session.create({
     data: { userId, deviceInfo: req.body?.device_info ?? req.body?.deviceInfo ?? undefined },
   });
@@ -74,7 +80,8 @@ trackingRouter.post('/event', ah(async (req, res) => {
   const b = req.body ?? {};
   const eventName = b.event_name ?? b.eventName;
   if (!eventName) return fail(res, 400, 'event_name required');
-  const userId = softUserId(req) ?? (b.user_id ?? null);
+  const userId = softUserId(req);
+  if (!userId) return notRecorded(res, 'Event');
   const data = {
     sessionId: b.session_id ?? b.sessionId ?? null,
     userId,
@@ -149,7 +156,8 @@ trackingRouter.post('/onboarding/step', ah(async (req, res) => {
   const b = req.body ?? {};
   const stepName = b.step_name ?? b.stepName;
   if (stepName == null) return fail(res, 400, 'step_name required');
-  const userId = softUserId(req) ?? (b.user_id ?? null);
+  const userId = softUserId(req);
+  if (!userId) return notRecorded(res, 'Onboarding step');
   const ofData = {
     userId,
     sessionId: b.session_id ?? b.sessionId ?? null,
@@ -179,7 +187,8 @@ trackingRouter.post('/loan/step', ah(async (req, res) => {
   const b = req.body ?? {};
   const stepName = b.step_name ?? b.stepName;
   if (!stepName) return fail(res, 400, 'step_name required');
-  const userId = softUserId(req) ?? (b.user_id ?? null);
+  const userId = softUserId(req);
+  if (!userId) return notRecorded(res, 'Loan step');
   const event = await prisma.activityEvent.create({
     data: {
       userId,

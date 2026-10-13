@@ -197,7 +197,9 @@ adminRouter.get('/active-users', ah(async (req, res) => {
   const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit ?? '15'), 10) || 15));
   // Pull a generous window of recent sessions, then keep the newest one per user
   // so a chatty user does not crowd out everyone else.
+  // Only signed-in users: activity without a login is not shown (nor stored any more).
   const sessions = await prisma.session.findMany({
+    where: { userId: { not: null } },
     orderBy: { startedAt: 'desc' },
     take: limit * 8,
     select: { id: true, userId: true, deviceInfo: true, startedAt: true, endedAt: true, pagesVisited: true },

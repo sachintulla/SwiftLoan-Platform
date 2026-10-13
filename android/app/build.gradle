@@ -89,11 +89,11 @@ android {
 
     namespace "com.swiftloan"
     defaultConfig {
-        applicationId "com.swiftloan.ai"
+        applicationId "ai.swiftloan.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 23
-        versionName "1.1.8"
+        versionName "1.0.2"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.

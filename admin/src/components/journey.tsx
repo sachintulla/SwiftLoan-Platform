@@ -194,6 +194,10 @@ export interface LenderOffer {
   tenureMonths?: number | null;
   processingFee?: number | null;
   netDisbursalAmount?: number | null;
+  recommended?: boolean;
+  selected?: boolean;
+  offerType?: string | null;
+  createdAt?: string | null;
   // Per-stage timestamps (canonical order)
   appliedAt?: string | null;
   underReviewAt?: string | null;

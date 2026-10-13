@@ -3,7 +3,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { StatCard, Card, TableSkeleton, FilterChips } from '@/components/ui';
-import { FunnelChart, PipelineBar, LiveFeed, ActiveUsers, FunnelStage, FeedEvent, ActiveUser } from '@/components/viz';
+import { FunnelChart, PipelineBar, ActiveUsers, FunnelStage, ActiveUser } from '@/components/viz';
 import { TrendArea, CategoryBar, DonutChart } from '@/components/charts';
 import { inrCompact, num, pct } from '@/lib/format';
 
@@ -23,7 +23,6 @@ interface Charts {
 export default function OverviewPage() {
   const [days, setDays] = useState('14');
   const { data, isLoading } = useSWR('/api/admin/dashboard/overview', swrFetcher, { refreshInterval: 15000 });
-  const { data: feed } = useSWR('/api/admin/live-feed?limit=40', swrFetcher, { refreshInterval: 8000 });
   const { data: activeRes } = useSWR('/api/admin/active-users?limit=15', swrFetcher, { refreshInterval: 10000 });
   // Trends are a separate, slower query — it takes a day range and must not be
   // dragged into the 15s live-refresh above.
@@ -32,7 +31,6 @@ export default function OverviewPage() {
 
   const o = data?.data as Overview | undefined;
   const c = chartsRes?.data as Charts | undefined;
-  const events = (feed?.data ?? []) as FeedEvent[];
   const activeUsers = (activeRes?.data ?? []) as ActiveUser[];
 
   return (
@@ -60,12 +58,9 @@ export default function OverviewPage() {
         </Card>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr', marginTop: 16, alignItems: 'start' }}>
+      <div style={{ marginTop: 16 }}>
         <Card title="Conversion funnel" sub="8-stage journey from first session to disbursal">
           {!o ? <TableSkeleton rows={8} cols={3} /> : <FunnelChart stages={o.funnel} />}
-        </Card>
-        <Card title="Recent activity" sub="Newest first, grouped by day — tap any event for details" right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
-          <div style={{ maxHeight: 440, overflowY: 'auto' }}><LiveFeed events={events} /></div>
         </Card>
       </div>
 
