@@ -51,6 +51,7 @@ export interface LoanApplication {
   loan?: { id: string } | null;
   lenderApplications?: {
     id: string;
+    offerId?: string;
     status: string;
     lenderName: string | null;
     amount: number;
@@ -147,8 +148,13 @@ export async function patchNotifications(patch: { loanUpdates?: boolean; securit
   return body.user;
 }
 
-export async function refreshApplicationStatus(applicationId: string) {
-  const body = await authFetch(`/api/applications/${applicationId}/refresh-status`, { method: 'POST' });
+export async function refreshApplicationStatus(applicationId: string, lenderApplicationId?: string | null) {
+  // One LoanApplication can hold several lender applications (a different offer each) —
+  // the server needs to know WHICH one, or it always queries the lender with no offer code.
+  const body = await authFetch(`/api/applications/${applicationId}/refresh-status`, {
+    method: 'POST',
+    body: JSON.stringify({ lenderApplicationId: lenderApplicationId ?? undefined }),
+  });
   // A failed lender call degrades server-side to "return what we already
   // knew" (see applications.routes.ts) rather than a thrown error — surface
   // that as a soft warning, not a broken page.

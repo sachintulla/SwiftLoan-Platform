@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Check, MoreHorizontal, CircleCheckBig, Wallet, AlertCircle, XCircle, ShieldCheck, RefreshCw, type LucideIcon } from 'lucide-react';
 import { AccountShell } from '@/components/apply/AccountShell';
 import { Badge } from '@/components/apply/primitives';
 import { getApplication, refreshApplicationStatus, type LoanApplication } from '@/lib/applyApi';
 import { fmtINR } from '@/lib/core';
+import { stashLenderResume } from '@/lib/applyContext';
 import { useStatusMeta } from '@/lib/statusMeta';
 import { useCopy } from '@/lib/i18n';
 import { accountCopy } from '@/i18n/account';
@@ -55,6 +56,9 @@ function buildSteps(status: string, t: Copy): Step[] {
 
 export default function ApplicationStatusPage() {
   const params = useParams<{ id: string }>();
+  // Which lender application (row) the applicant opened — an application can have several.
+  const laId = useSearchParams().get('la');
+  const router = useRouter();
   const t = useCopy(accountCopy);
   // Read inside `load` so a language switch doesn't change its identity (and refetch the application).
   const tRef = useRef(t);
@@ -81,7 +85,7 @@ export default function ApplicationStatusPage() {
     setRefreshing(true);
     setError(null);
     try {
-      const { application, refreshError } = await refreshApplicationStatus(params.id);
+      const { application, refreshError } = await refreshApplicationStatus(params.id, laId);
       setApp(application);
       // The lender's own API can be temporarily unreachable — the endpoint
       // still returns 200 with the last-known status in that case, so this
@@ -92,6 +96,25 @@ export default function ApplicationStatusPage() {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  // Applied but the lender never confirmed it (still 'handoff') — reopen the lender's own page
+  // for the SAME application, like the app's Re-Apply. Once the lender reports progress the
+  // button goes away.
+  const continueApplication = () => {
+    if (!app) return;
+    const l = app.lenderApplications?.find((x) => x.id === laId) ?? app.lenderApplications?.[0];
+    if (!l?.redirectionUrl) return;
+    stashLenderResume(app.id, {
+      id: l.offerId ?? l.id,
+      lenderName: l.lenderName,
+      redirectionUrl: l.redirectionUrl,
+      amount: l.amount,
+      apr: l.apr ?? 0,
+      emi: l.emi ?? 0,
+      tenureMonths: l.tenureMonths ?? app.tenureMonths,
+    });
+    router.push('/apply/lender');
   };
 
   if (loading) {
@@ -110,13 +133,14 @@ export default function ApplicationStatusPage() {
   }
   if (!app) return null;
 
-  const la = app.lenderApplications?.[0];
+  const la = app.lenderApplications?.find((x) => x.id === laId) ?? app.lenderApplications?.[0];
   const lenderName = la?.lenderName || null;
   const amount = la?.amount ?? app.amount;
   const apr = la?.apr;
   const emi = la?.emi;
   const status = la?.status ?? app.status;
   const steps = buildSteps(status, t);
+  const canContinue = !!la?.redirectionUrl && status === 'handoff';
 
   return (
     <AccountShell backHref="/account" backLabel={t.backToApplications} title={t.statusTitle}>
@@ -176,6 +200,19 @@ export default function ApplicationStatusPage() {
         </div>
 
         {error && <p className="text-danger text-xs font-semibold">{error}</p>}
+
+        {canContinue && (
+          <div className="flex flex-col gap-2">
+            <p className="text-muted-foreground text-xs">{t.continueHint}</p>
+            <button
+              onClick={continueApplication}
+              data-voice-gate="apply-offer"
+              className="bg-brand-gradient text-primary-foreground inline-flex w-full items-center justify-center rounded-full py-3 text-sm font-bold"
+            >
+              {t.continueApplication}
+            </button>
+          </div>
+        )}
 
         <button
           onClick={refresh}

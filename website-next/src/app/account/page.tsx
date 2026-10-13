@@ -66,7 +66,7 @@ export default function ApplicationsPage() {
               return (
                 <Link
                   key={la.id}
-                  href={`/account/${app.id}`}
+                  href={la.id === app.id ? `/account/${app.id}` : `/account/${app.id}?la=${la.id}`}
                   className="border-border flex items-center gap-3.5 rounded-2xl border bg-card p-4"
                 >
                   <div className="bg-accent text-primary grid h-11 w-11 place-items-center rounded-xl text-sm font-extrabold">
