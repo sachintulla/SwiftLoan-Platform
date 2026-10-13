@@ -104,7 +104,12 @@ export default function YubiOffersTab({ onApply }: { onApply: () => void }) {
       prefill={prefill}
       onProceed={onProceed}
       onBack={() => load()}
-      onPartnerError={() => { if (!retriedRef.current) { retriedRef.current = true; load(true); } }}
+      onPartnerError={() => {
+        if (retriedRef.current) return false;
+        retriedRef.current = true;
+        load(true);
+        return true;
+      }}
       waitForOffers={resumeToOffers}
     />
   );
