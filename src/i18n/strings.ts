@@ -338,6 +338,9 @@ export const STR: Record<string, Record<string, string>> = {
         benefitFast: 'Real offers in ~2 minutes', benefitSoftCheck: 'Soft check — no impact on your credit score',
         benefitCompare: 'Compare multiple partners in one place',
         agoJustNow: 'just now', agoMinutesTemplate: '{n}m ago', agoHoursTemplate: '{n}h ago',
+        agoMinuteOne: '{n} minute ago', agoMinuteMany: '{n} minutes ago', agoHourOne: '{n} hour ago', agoHourMany: '{n} hours ago',
+        agoDayOne: '{n} day ago', agoDayMany: '{n} days ago', agoMonthOne: '{n} month ago', agoMonthMany: '{n} months ago',
+        agoYearOne: '{n} year ago', agoYearMany: '{n} years ago',
         // Profile — confirmations & toasts
         notSet: 'Not set', memberSinceTemplate: 'Member since {n}', voiceUnlocked: 'Voice assistant unlocked',
         couldNotLoadProfile: 'Could not load your profile.', couldNotSaveRetry: 'Could not save. Please try again.',
@@ -682,6 +685,9 @@ export const STR: Record<string, Record<string, string>> = {
         benefitFast: '~2 मिनट में रियल ऑफर्स', benefitSoftCheck: 'सॉफ्ट चेक — आपके क्रेडिट स्कोर पर कोई असर नहीं',
         benefitCompare: 'एक ही जगह कई पार्टनर्स कम्पेयर करें',
         agoJustNow: 'अभी अभी', agoMinutesTemplate: '{n} मिनट पहले', agoHoursTemplate: '{n} घंटे पहले',
+        agoMinuteOne: '{n} मिनट पहले', agoMinuteMany: '{n} मिनट पहले', agoHourOne: '{n} घंटा पहले', agoHourMany: '{n} घंटे पहले',
+        agoDayOne: '{n} दिन पहले', agoDayMany: '{n} दिन पहले', agoMonthOne: '{n} महीना पहले', agoMonthMany: '{n} महीने पहले',
+        agoYearOne: '{n} साल पहले', agoYearMany: '{n} साल पहले',
         // Profile — confirmations & toasts
         notSet: 'सेट नहीं है', memberSinceTemplate: '{n} से मेंबर', voiceUnlocked: 'वॉइस असिस्टेंट अनलॉक हो गया',
         couldNotLoadProfile: 'आपकी प्रोफाइल लोड नहीं हो सकी।', couldNotSaveRetry: 'सेव नहीं हो सका। कृपया फिर से कोशिश करें।',
@@ -1026,6 +1032,9 @@ export const STR: Record<string, Record<string, string>> = {
         benefitFast: '~2 నిమిషాల్లో రియల్ ఆఫర్స్', benefitSoftCheck: 'సాఫ్ట్ చెక్ — మీ క్రెడిట్ స్కోర్‌పై ప్రభావం ఉండదు',
         benefitCompare: 'ఒకే చోట అనేక పార్టనర్స్‌ని కంపేర్ చేయండి',
         agoJustNow: 'ఇప్పుడే', agoMinutesTemplate: '{n} నిమిషాల క్రితం', agoHoursTemplate: '{n} గంటల క్రితం',
+        agoMinuteOne: '{n} నిమిషం క్రితం', agoMinuteMany: '{n} నిమిషాల క్రితం', agoHourOne: '{n} గంట క్రితం', agoHourMany: '{n} గంటల క్రితం',
+        agoDayOne: '{n} రోజు క్రితం', agoDayMany: '{n} రోజుల క్రితం', agoMonthOne: '{n} నెల క్రితం', agoMonthMany: '{n} నెలల క్రితం',
+        agoYearOne: '{n} సంవత్సరం క్రితం', agoYearMany: '{n} సంవత్సరాల క్రితం',
         // Profile — confirmations & toasts
         notSet: 'సెట్ చేయలేదు', memberSinceTemplate: '{n} నుండి మెంబర్', voiceUnlocked: 'వాయిస్ అసిస్టెంట్ అన్‌లాక్ అయింది',
         couldNotLoadProfile: 'మీ ప్రొఫైల్ లోడ్ చేయలేకపోయాం.', couldNotSaveRetry: 'సేవ్ చేయలేకపోయాం. దయచేసి మళ్ళీ ప్రయత్నించండి.',

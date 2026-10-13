@@ -165,7 +165,7 @@ export default function Offers() {
   useEffect(() => { load(); }, [load]);
 
   const select = useOfferSelect(id =>
-    setOffers(prev => prev.map(o => (o.id === id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'handoff' } : o))),
+    setOffers(prev => prev.map(o => (o.id === id ? { ...o, applied: true, lenderStatus: o.lenderStatus || 'offers_ready' } : o))),
   );
 
   // Retry: re-run eligibility (→ Aurix) through the same animated "finding
@@ -278,6 +278,7 @@ export default function Offers() {
 // Friendly label key for an applied lender's tracked status (shown on the
 // tile) — resolved against the current language at render time.
 const LENDER_STATUS_KEY: Record<string, string> = {
+  offers_ready: 'statusInProgress', // tapped Apply; the lender hasn't confirmed anything yet
   handoff: 'lenderStatusApplied',
   under_review: 'lenderStatusUnderReview',
   approved: 'statusApproved',
@@ -340,7 +341,7 @@ export function OfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer:
 
   const tt: Record<string, string> = t as any;
   const badgeText = offer.badgeText || (offer.recommended ? t.recommendedBadge : null);
-  const appliedLabel = offer.applied ? (tt[LENDER_STATUS_KEY[offer.lenderStatus || 'handoff']] || t.lenderStatusApplied) : null;
+  const appliedLabel = offer.applied ? (tt[LENDER_STATUS_KEY[offer.lenderStatus || 'offers_ready']] || t.lenderStatusApplied) : null;
 
   return (
     <View style={[styles.card, offer.recommended && styles.cardRecommended]}>

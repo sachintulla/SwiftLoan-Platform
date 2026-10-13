@@ -8,7 +8,7 @@ import { LenderLogo, prettyLenderName } from '@/components/apply/LenderLogo';
 import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
-import { getApplication, listApplications, type LoanApplication } from '@/lib/applyApi';
+import { getApplication, listApplications, offerNeedsReapply, type LoanApplication, type Offer } from '@/lib/applyApi';
 import { useApplyToOffer } from '@/hooks/useApplyToOffer';
 import { GetMoreOffers } from '@/components/apply/GetMoreOffers';
 import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
@@ -27,7 +27,7 @@ export default function OffersPage() {
   // Read inside load() without making a language switch re-fetch the offers.
   const tRef = useRef(t);
   tRef.current = t;
-  const { applicationId, sessionReady, setApplicationId } = useApply();
+  const { applicationId, sessionReady, setApplicationId, setSelectedOffer } = useApply();
   const accountUser = useAccountUser();
   const [app, setApp] = useState<LoanApplication | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,9 +117,25 @@ export default function OffersPage() {
   // Once you've applied to an offer, it's committed — it moves to My
   // Applications and drops out of this list so it can't be applied to again
   // from here. Offers you haven't applied to yet stay, so you can still
-  // compare and apply to a different lender.
+  // compare and apply to a different lender. The exception: an offer you
+  // started but the lender never confirmed (you left their page before the
+  // OTP) stays, with a Re-apply button that reopens that same lender page.
   const allOffers = app?.offers ?? [];
-  const offers = allOffers.filter((o) => !o.applied);
+  const offers = allOffers.filter((o) => !o.applied || offerNeedsReapply(o));
+  const resumeLender = (offer: Offer) => {
+    // Same as a fresh Apply (useApplyToOffer) minus the apply call: the lender
+    // application already exists, so reopening it must not create another.
+    setSelectedOffer({
+      id: offer.id,
+      lenderName: offer.lenderName ?? offer.partner?.name ?? null,
+      redirectionUrl: offer.redirectionUrl,
+      amount: offer.amount,
+      apr: offer.apr,
+      emi: offer.emi,
+      tenureMonths: offer.tenureMonths,
+    });
+    router.push('/apply/lender');
+  };
   const appliedElsewhere = allOffers.length > 0 && offers.length === 0;
   const lowestApr = Math.min(...offers.filter((o) => o.apr > 0).map((o) => o.apr));
 
@@ -211,6 +227,7 @@ export default function OffersPage() {
                     {offers.length === 1 ? t.oneOffer : t.manyOffers(offers.length)}
                   </h1>
                   <p className="text-muted-foreground mt-2 text-sm">{t.compareSubtitle}</p>
+                  <p className="text-muted-foreground mt-1 text-xs">{t.indicativeNote}</p>
                 </div>
                 {offers.length >= 2 && (
                   <button
@@ -243,6 +260,7 @@ export default function OffersPage() {
               const rateOnApproval = !(offer.apr > 0);
               const hasEmi = !rateOnApproval && (!!offer.emiOptions?.length || offer.emi > 0);
               const applying = applyingId === offer.id;
+              const reapply = offerNeedsReapply(offer);
               // Real signals from the lender/partner feed — mirrors
               // offers.tsx's OfferCard exactly.
               const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
@@ -273,14 +291,14 @@ export default function OffersPage() {
                   <div className="border-border bg-muted/50 grid grid-cols-3 divide-x divide-border border-y">
                     {hasEmi ? (
                       <>
-                        <Stat k={t.loanAmount} v={fmtINR(offer.amount)} sub={t.overMonths(offer.tenureMonths)} />
-                        <Stat k={t.monthlyEmi} v={fmtINR(offer.emi)} accent />
-                        <Stat k={t.interestRate} v={`${offer.apr}%`} sub={t.perAnnum} />
+                        <Stat k={t.loanAmount} v={t.upTo(fmtINR(offer.amount))} sub={t.overMonths(offer.tenureMonths)} />
+                        <Stat k={t.monthlyEmi} v={t.approx(fmtINR(offer.emi))} accent />
+                        <Stat k={t.interestRate} v={t.upTo(`${offer.apr}%`)} sub={t.perAnnum} />
                       </>
                     ) : (
                       <>
-                        <Stat k={t.eligibleAmount} v={fmtINR(offer.amount)} />
-                        <Stat k={t.interestRate} v={rateOnApproval ? t.onApproval : `${offer.apr}%`} sub={rateOnApproval ? undefined : t.perAnnum} />
+                        <Stat k={t.eligibleAmount} v={t.upTo(fmtINR(offer.amount))} />
+                        <Stat k={t.interestRate} v={rateOnApproval ? t.onApproval : t.upTo(`${offer.apr}%`)} sub={rateOnApproval ? undefined : t.perAnnum} />
                         <Stat k={t.disbursal} v={t.disbursalTime} />
                       </>
                     )}
@@ -291,24 +309,27 @@ export default function OffersPage() {
                       <dl className="text-muted-foreground mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
                         <div className="flex gap-1.5">
                           <dt>{t.processingFee}</dt>
-                          <dd className="text-foreground font-bold">{fmtINR(offer.processingFeeAmount)}</dd>
+                          <dd className="text-foreground font-bold">{t.upTo(fmtINR(offer.processingFeeAmount))}</dd>
                         </div>
                         {offer.netDisbursalAmount != null && (
                           <div className="flex gap-1.5">
                             <dt>{t.youReceive}</dt>
-                            <dd className="text-foreground font-bold">{fmtINR(offer.netDisbursalAmount)}</dd>
+                            <dd className="text-foreground font-bold">{t.approx(fmtINR(offer.netDisbursalAmount))}</dd>
                           </div>
                         )}
                       </dl>
                     )}
 
+                    {reapply && (
+                      <p className="text-muted-foreground mb-3 text-xs">{t.reapplyHint}</p>
+                    )}
                     <button
-                      onClick={() => pickOffer(offer)}
+                      onClick={() => (reapply ? resumeLender(offer) : pickOffer(offer))}
                       disabled={!!applyingId}
                       data-voice-gate="apply-offer"
                       className={`bg-brand-gradient text-primary-foreground mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5 active:scale-[0.98] ${applyingId && !applying ? 'opacity-50' : ''}`}
                     >
-                      {applying ? t.applying : offer.redirectionUrl ? t.applyNow : t.selectOffer}
+                      {applying ? t.applying : reapply ? t.reapply : offer.redirectionUrl ? t.applyNow : t.selectOffer}
                       {!applying && <ArrowRight className="h-4 w-4" />}
                     </button>
                     {offer.redirectionUrl && (
@@ -340,7 +361,7 @@ function Stat({ k, v, sub, accent }: { k: string; v: string; sub?: string; accen
   return (
     <div className="min-w-0 px-3 py-3.5 sm:px-4">
       <div className="text-muted-foreground text-[10px] font-bold tracking-wide uppercase">{k}</div>
-      <div className={`mt-1 text-[13px] font-extrabold whitespace-nowrap sm:text-[15px] ${accent ? 'text-primary' : 'text-foreground'}`}>{v}</div>
+      <div className={`mt-1 text-[13px] font-extrabold sm:text-[15px] sm:whitespace-nowrap ${accent ? 'text-primary' : 'text-foreground'}`}>{v}</div>
       {sub && <div className="text-muted-foreground mt-0.5 text-[11px]">{sub}</div>}
     </div>
   );

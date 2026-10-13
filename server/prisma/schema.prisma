@@ -197,7 +197,7 @@ enum ApplicationStatus {
   pan_pending // Step 2
   prequalifying // "finding offers"
   offers_ready // Step 3
-  handoff // Step 4 secure handoff
+  handoff // lender-reported: the journey started (set ONLY from the lender's webhook — never by our own Apply tap)
   under_review // submitted to lender
   approved
   rejected

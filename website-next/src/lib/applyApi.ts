@@ -36,6 +36,27 @@ export interface Offer {
   emiOptions?: { id: string; tenureMonths: number; monthlyEmi: number }[];
 }
 
+/**
+ * Lender-application statuses that mean "the lender has not confirmed the submission yet":
+ * 'offers_ready' (the applicant tapped Apply — our own record, nothing reported by the lender)
+ * and 'handoff' (the lender reports the journey started). 'handoff' is only ever set from the
+ * lender's own report; our server never writes it. From 'under_review' on the lender has it.
+ */
+export const LENDER_PENDING_STATUSES = ['offers_ready', 'handoff'];
+export function isLenderPending(status: string | null | undefined): boolean {
+  return !!status && LENDER_PENDING_STATUSES.includes(status);
+}
+
+/**
+ * The applicant tapped Apply (the offer is `applied`) but the lender has not confirmed it —
+ * they opened the lender's page and came back without finishing (e.g. never entered the OTP).
+ * They can resume the SAME lender page, so the offers list keeps these and shows "Re-apply".
+ * Once the lender reports progress this turns false and the offer leaves the list as committed.
+ */
+export function offerNeedsReapply(o: Pick<Offer, 'applied' | 'lenderStatus' | 'redirectionUrl'>): boolean {
+  return !!o.applied && isLenderPending(o.lenderStatus) && !!o.redirectionUrl;
+}
+
 export interface LoanApplication {
   id: string;
   ref: string;
@@ -60,6 +81,7 @@ export interface LoanApplication {
     tenureMonths: number | null;
     redirectionUrl: string | null;
     appliedAt: string;
+    updatedAt?: string;
   }[];
   /** Partner (Yubi / YMPL) referrals the applicant proceeded with — each is a row in My Applications. */
   partnerReferrals?: {

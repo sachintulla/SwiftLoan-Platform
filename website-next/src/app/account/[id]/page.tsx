@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Check, MoreHorizontal, CircleCheckBig, Wallet, AlertCircle, XCircle, ShieldCheck, RefreshCw, type LucideIcon } from 'lucide-react';
 import { AccountShell } from '@/components/apply/AccountShell';
 import { Badge } from '@/components/apply/primitives';
-import { getApplication, refreshApplicationStatus, type LoanApplication } from '@/lib/applyApi';
+import { getApplication, refreshApplicationStatus, isLenderPending, type LoanApplication } from '@/lib/applyApi';
 import { fmtINR } from '@/lib/core';
 import { stashLenderResume } from '@/lib/applyContext';
 import { useStatusMeta } from '@/lib/statusMeta';
@@ -98,7 +98,7 @@ export default function ApplicationStatusPage() {
     }
   };
 
-  // Applied but the lender never confirmed it (still 'handoff') — reopen the lender's own page
+  // Applied but the lender never confirmed it (still pending: 'offers_ready'/'handoff') — reopen the lender's own page
   // for the SAME application, like the app's Re-Apply. Once the lender reports progress the
   // button goes away.
   const continueApplication = () => {
@@ -140,7 +140,7 @@ export default function ApplicationStatusPage() {
   const emi = la?.emi;
   const status = la?.status ?? app.status;
   const steps = buildSteps(status, t);
-  const canContinue = !!la?.redirectionUrl && status === 'handoff';
+  const canContinue = !!la?.redirectionUrl && isLenderPending(status);
 
   return (
     <AccountShell backHref="/account" backLabel={t.backToApplications} title={t.statusTitle}>

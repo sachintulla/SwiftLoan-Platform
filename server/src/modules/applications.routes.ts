@@ -7,7 +7,7 @@ import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
-import { mapFlatStatus, advancesStatus } from './aurixWebhook.routes.js';
+import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
@@ -158,8 +158,14 @@ applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
       await prisma.offer.update({ where: { id: offer.id }, data: { lenderStatus: mappedStatus } });
     }
     if (la && advancesStatus(la.status, mappedStatus)) {
-      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus } });
+      // Keep the app-side badge in step with what the lender now reports (see internalStatusFor).
+      const internal = la.internalStatus === 'just_applied' ? internalStatusFor(mappedStatus) : null;
+      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus, ...(internal ? { internalStatus: internal } : {}) } });
     }
+  }
+  // Status already moved on earlier but the badge never followed — heal it.
+  if (la && la.internalStatus === 'just_applied' && internalStatusFor(la.status) && !(mappedStatus && advancesStatus(la.status, mappedStatus))) {
+    await prisma.lenderApplication.update({ where: { id: la.id }, data: { internalStatus: internalStatusFor(la.status)! } });
   }
 
   const refreshed = await prisma.loanApplication.findUnique({
@@ -490,7 +496,8 @@ applicationsRouter.post('/:id/offers/:offerId/select',
     }
 
     const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true, ...tenureOverride } });
-    await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+    // NOTE: we do NOT move the application to 'handoff' here. 'handoff' is a lender-reported
+    // stage (Aurix webhook), not something a tap on our side can claim.
     void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
     // WS5: the real selection, with which offer — the screen-arrival proxy the
@@ -568,7 +575,9 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
       tenureMonths: existing.tenureMonths,
       processingFeeAmount: existing.processingFeeAmount ?? 0,
       redirectionUrl: existing.redirectionUrl,
-      status: 'handoff',
+      // Tapped Apply — the lender hasn't reported anything yet. 'handoff' is reserved for the
+      // lender's own report (webhook), so this stays 'offers_ready' ("in progress") until then.
+      status: 'offers_ready',
     },
   });
 
@@ -577,15 +586,10 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
   await prisma.offer.update({
     where: { id: existing.id },
-    data: { selected: true, applied: true, appliedAt: existing.appliedAt ?? new Date(), lenderStatus: existing.lenderStatus ?? 'handoff' },
+    data: { selected: true, applied: true, appliedAt: existing.appliedAt ?? new Date(), lenderStatus: existing.lenderStatus ?? 'offers_ready' },
   }).catch(() => {});
 
-  // Nudge the parent application forward to handoff (it may go further via
-  // webhooks); never regress a further status.
-  const order = ['draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handoff'];
-  if (order.includes(app.status) && order.indexOf(app.status) < order.indexOf('handoff')) {
-    await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } }).catch(() => {});
-  }
+  // The parent application is NOT nudged to 'handoff' here: only the lender's webhook advances it.
   void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
   trackJourney(

@@ -52,6 +52,13 @@ export const applyOffersCopy = defineCopy({
     continuesOn: (lender: string) => `Continues on ${lender}'s secure application page`,
     validityLabel: 'Offer validity —',
     validityBody: 'these offers are valid for 24 hours and are based on a soft credit check that does not affect your credit score.',
+    // Figures are indicative — the lender confirms the final terms.
+    upTo: (v: string) => `Up to ${v}`,
+    approx: (v: string) => `~${v}`,
+    indicativeNote:
+      'Amounts, rates, EMIs and fees shown are indicative. The lender confirms the final terms when you apply.',
+    reapply: 'Re-apply',
+    reapplyHint: "You started this application but didn't finish on the lender's page. Re-apply to continue.",
     lenderFallback: 'Lender',
   },
   hi: {
@@ -99,6 +106,12 @@ export const applyOffersCopy = defineCopy({
     continuesOn: (lender: string) => `${lender} के सुरक्षित आवेदन पेज पर जारी रहेगा`,
     validityLabel: 'ऑफ़र की वैधता —',
     validityBody: 'ये ऑफ़र 24 घंटे के लिए मान्य हैं और एक सॉफ्ट क्रेडिट चेक पर आधारित हैं, जिसका आपके क्रेडिट स्कोर पर कोई असर नहीं पड़ता।',
+    upTo: (v: string) => `${v} तक`,
+    approx: (v: string) => `लगभग ${v}`,
+    indicativeNote:
+      'दिखाई गई राशि, ब्याज दर, EMI और फ़ीस सांकेतिक हैं। आवेदन करने पर अंतिम शर्तें लेंडर तय करता है।',
+    reapply: 'फिर से आवेदन करें',
+    reapplyHint: 'आपने यह आवेदन शुरू किया था लेकिन लेंडर के पेज पर पूरा नहीं किया। जारी रखने के लिए फिर से आवेदन करें।',
     lenderFallback: 'लेंडर',
   },
   te: {
@@ -146,6 +159,12 @@ export const applyOffersCopy = defineCopy({
     continuesOn: (lender: string) => `${lender} యొక్క సురక్షిత దరఖాస్తు పేజీలో కొనసాగుతుంది`,
     validityLabel: 'ఆఫర్ చెల్లుబాటు —',
     validityBody: 'ఈ ఆఫర్లు 24 గంటల పాటు చెల్లుతాయి మరియు మీ క్రెడిట్ స్కోర్‌పై ప్రభావం చూపని సాఫ్ట్ క్రెడిట్ చెక్ ఆధారంగా ఉంటాయి.',
+    upTo: (v: string) => `${v} వరకు`,
+    approx: (v: string) => `సుమారు ${v}`,
+    indicativeNote:
+      'చూపిన మొత్తాలు, వడ్డీ రేట్లు, EMIలు మరియు ఫీజులు సూచనాత్మకమైనవి. మీరు దరఖాస్తు చేసినప్పుడు తుది నిబంధనలను లెండర్ నిర్ధారిస్తారు.',
+    reapply: 'మళ్లీ దరఖాస్తు చేయండి',
+    reapplyHint: 'మీరు ఈ దరఖాస్తును ప్రారంభించారు కానీ లెండర్ పేజీలో పూర్తి చేయలేదు. కొనసాగించడానికి మళ్లీ దరఖాస్తు చేయండి.',
     lenderFallback: 'లెండర్',
   },
 });
