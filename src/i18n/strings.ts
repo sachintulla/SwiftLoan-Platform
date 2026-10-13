@@ -270,7 +270,9 @@ export const STR: Record<string, Record<string, string>> = {
         findingSub: 'Connecting to bureaus securely', findingStep: 'Checking your eligibility',
         findingSafeBody: 'We run a soft enquiry only · does not affect your credit score',
         findingErrNetwork: "We couldn't reach our lending partners just now. Please check your connection and try again.",
-        // My Loans
+        findingErrTechnical: "We couldn't reach our lending partners just now. Please try again in a moment.",
+        findingErrNotEligible: "You don't currently meet the eligibility criteria of our lending partners.",
+        findingErrDuplicate: 'We already have an application on file for this mobile number. You can explore more offers instead.',        // My Loans
         loansTitle: 'My Loans', loansSub: 'Track your applications and manage active loans.',
         loansYourApps: 'Your applications', loansLoading: 'Loading your loans…', loansErrLoad: 'Could not load your loans.',
         loanInternalJustApplied: 'Just applied', loanInternalSuccess: 'Application success',
@@ -621,7 +623,9 @@ export const STR: Record<string, Record<string, string>> = {
         findingSub: 'ब्यूरो से सिक्योरली कनेक्ट हो रहे हैं', findingStep: 'आपकी एलिजिबिलिटी चेक हो रही है',
         findingSafeBody: 'हम सिर्फ एक सॉफ्ट इंक्वायरी करते हैं · इससे आपके क्रेडिट स्कोर पर कोई असर नहीं पड़ता',
         findingErrNetwork: 'अभी हम अपने लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया अपना कनेक्शन चेक करके फिर से कोशिश करें।',
-        // My Loans
+        findingErrTechnical: 'हम अभी हमारे लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया थोड़ी देर में फिर से प्रयास करें।',
+        findingErrNotEligible: 'आप फ़िलहाल हमारे लेंडिंग पार्टनर्स के पात्रता मानदंड पूरे नहीं करते।',
+        findingErrDuplicate: 'इस मोबाइल नंबर के लिए हमारे पास पहले से एक आवेदन मौजूद है। आप इसके बजाय और ऑफ़र देख सकते हैं।',        // My Loans
         loansTitle: 'माय लोन्स', loansSub: 'अपनी एप्लिकेशंस ट्रैक करें और एक्टिव लोन्स मैनेज करें।',
         loansYourApps: 'आपकी एप्लिकेशंस', loansLoading: 'आपके लोन्स लोड हो रहे हैं…', loansErrLoad: 'आपके लोन्स लोड नहीं हो सके।',
         loanInternalJustApplied: 'अभी अप्लाई किया', loanInternalSuccess: 'एप्लिकेशन सक्सेसफुल',
@@ -989,7 +993,9 @@ export const STR: Record<string, Record<string, string>> = {
         findingSub: 'బ్యూరోలకు సెక్యూర్‌గా కనెక్ట్ అవుతున్నాం', findingStep: 'మీ ఎలిజిబిలిటీ చెక్ చేస్తున్నాం',
         findingSafeBody: 'మేము కేవలం సాఫ్ట్ ఎంక్వైరీ మాత్రమే చేస్తాం · ఇది మీ క్రెడిట్ స్కోర్ ని ఏమాత్రం ప్రభావితం చేయదు',
         findingErrNetwork: 'ప్రస్తుతం మా లెండింగ్ పార్టనర్స్ ని రీచ్ అవ్వలేకపోయాం. దయచేసి మీ కనెక్షన్ చెక్ చేసి మళ్ళీ ప్రయత్నించండి.',
-        // My Loans
+        findingErrTechnical: 'ఇప్పుడు మేము మా లెండింగ్ భాగస్వాములను చేరుకోలేకపోయాము. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+        findingErrNotEligible: 'ప్రస్తుతం మీరు మా లెండింగ్ భాగస్వాముల అర్హత ప్రమాణాలను అందుకోవడం లేదు.',
+        findingErrDuplicate: 'ఈ మొబైల్ నంబర్‌కు సంబంధించిన దరఖాస్తు ఇప్పటికే మా వద్ద ఉంది. బదులుగా మరిన్ని ఆఫర్లను చూడవచ్చు.',        // My Loans
         loansTitle: 'మై లోన్స్', loansSub: 'మీ అప్లికేషన్స్ ట్రాక్ చేయండి, యాక్టివ్ లోన్స్ మేనేజ్ చేయండి.',
         loansYourApps: 'మీ అప్లికేషన్స్', loansLoading: 'మీ లోన్స్ లోడ్ అవుతున్నాయి…', loansErrLoad: 'మీ లోన్స్ లోడ్ చేయలేకపోయాం.',
         loanInternalJustApplied: 'ఇప్పుడే అప్లై చేశారు', loanInternalSuccess: 'అప్లికేషన్ సక్సెస్',

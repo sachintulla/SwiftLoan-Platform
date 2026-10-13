@@ -61,9 +61,9 @@ export interface LoanApplication {
   id: string;
   ref: string;
   status: string;
-  // Why prequalify landed on zero offers — Aurix's own decline message when
-  // status is 'rejected', or a generic retry prompt when status is 'failed'.
-  // Null otherwise (offers exist, or prequalify hasn't run yet).
+  // Why prequalify landed on zero offers — a reason CODE ('not_eligible' | 'duplicate' |
+  // 'technical'), never lender-written text; the offers page maps it to our own copy. Older rows may
+  // hold a sentence, which is ignored. Null otherwise (offers exist, or prequalify hasn't run yet).
   prequalifyReason?: string | null;
   amount: number;
   tenureMonths: number;

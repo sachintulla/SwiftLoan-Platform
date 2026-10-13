@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
+import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
@@ -239,7 +240,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
         applicationId: app.id, from: reusable.id, offerCount: offers.length,
       });
       const revasureReused = await revasurePromise.catch(() => null);
-      res.json({ offers, aurixResponse: null, revasure: revasureReused, reused: true });
+      res.json({ offers, reason: offers.length === 0 ? (app.prequalifyReason ?? 'not_eligible') : null, revasure: revasureReused, reused: true });
       return;
     }
   }
@@ -348,29 +349,21 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // thrown error (network/HTTP failure, missing config) should read as
   // 'failed'; a clean success with zero offers reads as 'rejected'.
   const aurixDebug = takeAurixDebug(app.id) as { httpStatus?: number; response?: any } | null;
-  const aurixSucceededWithNoOffers =
-    created.length === 0 && (aurixDebug?.response?.Result?.Meta?.Success ?? aurixDebug?.response?.Meta?.Success) === true;
-  // The applicant-facing reason for zero offers. For a genuine decline this
-  // is Aurix's own message — real, informative, safe to show as-is. For a
-  // technical failure this is deliberately a generic retry prompt, never the
-  // raw exception text ("timed out after 30000ms (HTTP 0)") — that's for the
-  // server log above (partner produced no offers), not the applicant.
-  const aurixMessage: string | undefined =
-    aurixDebug?.response?.Result?.Meta?.Message ?? aurixDebug?.response?.Meta?.Message;
-  const prequalifyReason =
-    created.length > 0
-      ? null
-      : aurixSucceededWithNoOffers
-        ? (aurixMessage ?? "You don't currently meet the eligibility criteria of our lending partners.")
-        : "We couldn't reach our lending partners just now. Please try again in a moment.";
+  // What the zero-offer reply means (lib/aurixOutcome.ts). The applicant only ever gets a reason CODE
+  // (the website renders our own copy for it) — the lender's wording goes to the log, never the UI.
+  // A real refusal is 'rejected'; a duplicate number is not a decline ('failed'); a technical fault
+  // is 'failed' with the generic retry prompt.
+  const outcome = created.length === 0 ? classifyAurixOutcome(aurixDebug) : null;
+  const aurixSucceededWithNoOffers = outcome?.kind === 'decision';
+  const prequalifyReason = outcome ? outcome.reason : null;
   await prisma.loanApplication.update({
     where: { id: app.id },
     data: {
-      status: created.length > 0 ? 'offers_ready' : aurixSucceededWithNoOffers ? 'rejected' : 'failed',
+      status: created.length > 0 ? 'offers_ready' : outcome?.kind === 'decision' ? 'rejected' : 'failed',
       prequalifyReason,
       // Remember what the lender was asked, so the same details don't trigger another call.
-      // A technical failure ('failed') is NOT remembered — it must stay retryable.
-      ...(created.length > 0 || aurixSucceededWithNoOffers ? { offersSignature: signature, offersFetchedAt: new Date() } : {}),
+      // Anything but a definite decline stays retryable and is NOT remembered.
+      ...(created.length > 0 || (outcome?.kind === 'decision' && outcome.remember) ? { offersSignature: signature, offersFetchedAt: new Date() } : {}),
     },
   });
 
@@ -386,14 +379,15 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     },
   ).catch(() => {});
 
-  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers });
+  if (outcome?.lenderMessage) log.info('prequalify lender message (not shown to applicant)', { applicationId: app.id, reason: outcome.reason, lenderMessage: outcome.lenderMessage });
+  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers, outcome: outcome?.kind ?? 'offers' });
   // Revasure lead result (started in parallel above) — await now so its outcome
   // rides back in this response for the app's temporary debug alert.
   const revasure = await revasurePromise.catch(() => null);
 
-  // Raw Aurix eligible_offers response (request/success/no-offers/validation),
-  // surfaced so the app can show it in a debug alert. Null when Aurix wasn't hit.
-  res.json({ offers: created, aurixResponse: aurixDebug, revasure });
+  // `reason` is a code ('not_eligible' | 'duplicate' | 'technical'), never lender wording — the clients
+  // render their own copy for it. The raw lender response stays on the server.
+  res.json({ offers: created, reason: outcome?.reason ?? null, revasure });
 }));
 
 /**

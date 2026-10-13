@@ -16,6 +16,7 @@ export const applyOffersCopy = defineCopy({
     // failed
     failedTitle: 'Something went wrong',
     failedFallback: "We couldn't reach our lending partners just now. Please try again in a moment.",
+    duplicateBody: 'We already have an application on file for this mobile number. You can explore more offers instead.',
     // none
     noOffersTitle: 'No offers yet',
     noOffersBody:
@@ -73,6 +74,7 @@ export const applyOffersCopy = defineCopy({
     notEligibleFallback: 'आप फ़िलहाल हमारे लेंडिंग पार्टनर्स के पात्रता मानदंड पूरे नहीं करते।',
     failedTitle: 'कुछ गड़बड़ हो गई',
     failedFallback: 'हम अभी हमारे लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया थोड़ी देर में फिर से प्रयास करें।',
+    duplicateBody: 'इस मोबाइल नंबर के लिए हमारे पास पहले से एक आवेदन मौजूद है। आप इसके बजाय और ऑफ़र देख सकते हैं।',
     noOffersTitle: 'अभी कोई ऑफ़र नहीं',
     noOffersBody:
       'हमें अभी कोई मेल खाता ऑफ़र नहीं मिला — अपने आवेदन में कुछ अपडेट करें, या बस जांच फिर से चलाएं।',
@@ -126,6 +128,7 @@ export const applyOffersCopy = defineCopy({
     notEligibleFallback: 'ప్రస్తుతం మీరు మా లెండింగ్ భాగస్వాముల అర్హత ప్రమాణాలను అందుకోవడం లేదు.',
     failedTitle: 'ఏదో తప్పు జరిగింది',
     failedFallback: 'ఇప్పుడు మేము మా లెండింగ్ భాగస్వాములను చేరుకోలేకపోయాము. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+    duplicateBody: 'ఈ మొబైల్ నంబర్‌కు సంబంధించిన దరఖాస్తు ఇప్పటికే మా వద్ద ఉంది. బదులుగా మరిన్ని ఆఫర్లను చూడవచ్చు.',
     noOffersTitle: 'ఇంకా ఆఫర్లు లేవు',
     noOffersBody:
       'ప్రస్తుతం సరిపోయే ఆఫర్ మాకు కనిపించలేదు — మీ దరఖాస్తులో ఏదైనా అప్‌డేట్ చేయండి, లేదా చెక్‌ను మళ్లీ ప్రయత్నించండి.',

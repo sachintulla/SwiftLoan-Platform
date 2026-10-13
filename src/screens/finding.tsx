@@ -77,9 +77,14 @@ export default function Finding() {
     if (state.applicationId) {
       api.prequalify(state.applicationId)
         .then((res: any) => {
-          const { offers, friendlyError, revasure } = res as any;
+          const { offers, reason, revasure } = res as any;
           const list = offers || [];
-          set({ offersError: friendlyError || '' });
+          // Our own copy for the reason code — never the lender's wording.
+          const friendlyError = reason === 'not_eligible' ? t.findingErrNotEligible
+            : reason === 'duplicate' ? t.findingErrDuplicate
+            : reason === 'technical' ? t.findingErrTechnical
+            : '';
+          set({ offersError: friendlyError });
           mergeApiContext({ prequalifyResult: { offers, friendlyError } });
           // Debug alert for the Revasure lead result (parallel lender group) —
           // surfaces whatever the backend got back. DEV builds only: __DEV__ is

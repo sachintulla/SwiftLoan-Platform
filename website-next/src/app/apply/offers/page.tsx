@@ -145,7 +145,7 @@ export default function OffersPage() {
         {allOffers.length === 0 ? (
           // Two real, different situations were showing the exact same copy:
           // a genuine "you don't qualify" decline from Aurix (status
-          // 'rejected', with Aurix's own real reason) vs an actual technical
+          // 'rejected') vs an actual technical
           // failure (status 'failed', where retrying is likely to work).
           // Older applications from before prequalifyReason existed fall
           // through to the original generic copy.
@@ -153,7 +153,7 @@ export default function OffersPage() {
             <div className="py-10 text-center">
               <h1 className="text-xl font-extrabold">{t.notEligibleTitle}</h1>
               <p className="text-muted-foreground mt-2 mb-6 text-sm">
-                {app.prequalifyReason ?? t.notEligibleFallback}
+                {t.notEligibleFallback}
               </p>
               <div className="flex justify-center gap-3">
                 <SecondaryButton onClick={() => router.push('/apply/step-1')}>{t.updateDetails}</SecondaryButton>
@@ -172,7 +172,7 @@ export default function OffersPage() {
             <div className="py-10 text-center">
               <h1 className="text-xl font-extrabold">{t.failedTitle}</h1>
               <p className="text-muted-foreground mt-2 mb-6 text-sm">
-                {app.prequalifyReason ?? t.failedFallback}
+                {app.prequalifyReason === 'duplicate' ? t.duplicateBody : t.failedFallback}
               </p>
               <div className="flex justify-center gap-3">
                 <SecondaryButton onClick={() => router.push('/apply/step-1')}>{t.updateDetails}</SecondaryButton>
@@ -342,8 +342,6 @@ export default function OffersPage() {
               );
             })}
             </div>
-
-            <GetMoreOffers alt={alt} />
 
             <div className="bg-muted text-muted-foreground rounded-2xl p-4 text-xs">
               <strong className="text-foreground">{t.validityLabel}</strong> {t.validityBody}
