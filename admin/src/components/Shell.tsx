@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
+import { NUDGES_DISABLED } from '@/lib/flags';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
 
@@ -43,7 +44,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     items: [
       { href: '/integrations', label: 'Configs', icon: '⚙' },
       { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
-      { href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' },
+      ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
     ],

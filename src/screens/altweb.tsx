@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { View, StyleSheet, Pressable, Linking } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import { Icon } from '../components/Icon';
@@ -15,10 +15,23 @@ import AltOfferWebView from '../components/AltOfferWebView';
  * the application (POST …/alt-offer/applied) so it appears in My Loans.
  */
 export default function AltWeb() {
-  const { state, back } = useStore();
+  const { state, back, set } = useStore();
   const t = useT();
   const url = state.webUrl;
   const title = state.webTitle || t.altOffersTitle;
+  const retriedRef = useRef(false);
+
+  // The partner's first token occasionally lands on its "Something went wrong"
+  // page (tokens are also only valid ~90s); a fresh re-mint reaches offers. Re-mint
+  // once — same as the My Offers "Yubi" tab — instead of spinning forever.
+  const onPartnerError = () => {
+    if (retriedRef.current || !state.applicationId) return false;
+    retriedRef.current = true;
+    api.altOfferRedirect(state.applicationId)
+      .then(r => set({ webUrl: r?.altOffer?.available && r.altOffer.redirectUrl ? r.altOffer.redirectUrl : '' }))
+      .catch(() => set({ webUrl: '' }));
+    return true;
+  };
 
   const onProceed = () => {
     // The Proceed button's own text isn't a lender name — record without it so
@@ -40,7 +53,7 @@ export default function AltWeb() {
         }
       />
       <View style={styles.body}>
-        <AltOfferWebView url={url} prefill={state.altPrefill} onProceed={onProceed} onBack={back} waitForOffers={state.altResumeToOffers} />
+        <AltOfferWebView url={url} prefill={state.altPrefill} onProceed={onProceed} onBack={back} onPartnerError={onPartnerError} waitForOffers={state.altResumeToOffers} />
       </View>
     </Screen>
   );

@@ -270,7 +270,9 @@ export const STR: Record<string, Record<string, string>> = {
         findingSub: 'Connecting to bureaus securely', findingStep: 'Checking your eligibility',
         findingSafeBody: 'We run a soft enquiry only · does not affect your credit score',
         findingErrNetwork: "We couldn't reach our lending partners just now. Please check your connection and try again.",
-        // My Loans
+        findingErrTechnical: "We couldn't reach our lending partners just now. Please try again in a moment.",
+        findingErrNotEligible: "You don't currently meet the eligibility criteria of our lending partners.",
+        findingErrDuplicate: 'We already have an application on file for this mobile number. You can explore more offers instead.',        // My Loans
         loansTitle: 'My Loans', loansSub: 'Track your applications and manage active loans.',
         loansYourApps: 'Your applications', loansLoading: 'Loading your loans…', loansErrLoad: 'Could not load your loans.',
         loanInternalJustApplied: 'Just applied', loanInternalSuccess: 'Application success',
@@ -338,6 +340,9 @@ export const STR: Record<string, Record<string, string>> = {
         benefitFast: 'Real offers in ~2 minutes', benefitSoftCheck: 'Soft check — no impact on your credit score',
         benefitCompare: 'Compare multiple partners in one place',
         agoJustNow: 'just now', agoMinutesTemplate: '{n}m ago', agoHoursTemplate: '{n}h ago',
+        agoMinuteOne: '{n} minute ago', agoMinuteMany: '{n} minutes ago', agoHourOne: '{n} hour ago', agoHourMany: '{n} hours ago',
+        agoDayOne: '{n} day ago', agoDayMany: '{n} days ago', agoMonthOne: '{n} month ago', agoMonthMany: '{n} months ago',
+        agoYearOne: '{n} year ago', agoYearMany: '{n} years ago',
         // Profile — confirmations & toasts
         notSet: 'Not set', memberSinceTemplate: 'Member since {n}', voiceUnlocked: 'Voice assistant unlocked',
         couldNotLoadProfile: 'Could not load your profile.', couldNotSaveRetry: 'Could not save. Please try again.',
@@ -618,7 +623,9 @@ export const STR: Record<string, Record<string, string>> = {
         findingSub: 'ब्यूरो से सिक्योरली कनेक्ट हो रहे हैं', findingStep: 'आपकी एलिजिबिलिटी चेक हो रही है',
         findingSafeBody: 'हम सिर्फ एक सॉफ्ट इंक्वायरी करते हैं · इससे आपके क्रेडिट स्कोर पर कोई असर नहीं पड़ता',
         findingErrNetwork: 'अभी हम अपने लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया अपना कनेक्शन चेक करके फिर से कोशिश करें।',
-        // My Loans
+        findingErrTechnical: 'हम अभी हमारे लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया थोड़ी देर में फिर से प्रयास करें।',
+        findingErrNotEligible: 'आप फ़िलहाल हमारे लेंडिंग पार्टनर्स के पात्रता मानदंड पूरे नहीं करते।',
+        findingErrDuplicate: 'इस मोबाइल नंबर के लिए हमारे पास पहले से एक आवेदन मौजूद है। आप इसके बजाय और ऑफ़र देख सकते हैं।',        // My Loans
         loansTitle: 'माय लोन्स', loansSub: 'अपनी एप्लिकेशंस ट्रैक करें और एक्टिव लोन्स मैनेज करें।',
         loansYourApps: 'आपकी एप्लिकेशंस', loansLoading: 'आपके लोन्स लोड हो रहे हैं…', loansErrLoad: 'आपके लोन्स लोड नहीं हो सके।',
         loanInternalJustApplied: 'अभी अप्लाई किया', loanInternalSuccess: 'एप्लिकेशन सक्सेसफुल',
@@ -682,6 +689,9 @@ export const STR: Record<string, Record<string, string>> = {
         benefitFast: '~2 मिनट में रियल ऑफर्स', benefitSoftCheck: 'सॉफ्ट चेक — आपके क्रेडिट स्कोर पर कोई असर नहीं',
         benefitCompare: 'एक ही जगह कई पार्टनर्स कम्पेयर करें',
         agoJustNow: 'अभी अभी', agoMinutesTemplate: '{n} मिनट पहले', agoHoursTemplate: '{n} घंटे पहले',
+        agoMinuteOne: '{n} मिनट पहले', agoMinuteMany: '{n} मिनट पहले', agoHourOne: '{n} घंटा पहले', agoHourMany: '{n} घंटे पहले',
+        agoDayOne: '{n} दिन पहले', agoDayMany: '{n} दिन पहले', agoMonthOne: '{n} महीना पहले', agoMonthMany: '{n} महीने पहले',
+        agoYearOne: '{n} साल पहले', agoYearMany: '{n} साल पहले',
         // Profile — confirmations & toasts
         notSet: 'सेट नहीं है', memberSinceTemplate: '{n} से मेंबर', voiceUnlocked: 'वॉइस असिस्टेंट अनलॉक हो गया',
         couldNotLoadProfile: 'आपकी प्रोफाइल लोड नहीं हो सकी।', couldNotSaveRetry: 'सेव नहीं हो सका। कृपया फिर से कोशिश करें।',
@@ -983,7 +993,9 @@ export const STR: Record<string, Record<string, string>> = {
         findingSub: 'బ్యూరోలకు సెక్యూర్‌గా కనెక్ట్ అవుతున్నాం', findingStep: 'మీ ఎలిజిబిలిటీ చెక్ చేస్తున్నాం',
         findingSafeBody: 'మేము కేవలం సాఫ్ట్ ఎంక్వైరీ మాత్రమే చేస్తాం · ఇది మీ క్రెడిట్ స్కోర్ ని ఏమాత్రం ప్రభావితం చేయదు',
         findingErrNetwork: 'ప్రస్తుతం మా లెండింగ్ పార్టనర్స్ ని రీచ్ అవ్వలేకపోయాం. దయచేసి మీ కనెక్షన్ చెక్ చేసి మళ్ళీ ప్రయత్నించండి.',
-        // My Loans
+        findingErrTechnical: 'ఇప్పుడు మేము మా లెండింగ్ భాగస్వాములను చేరుకోలేకపోయాము. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+        findingErrNotEligible: 'ప్రస్తుతం మీరు మా లెండింగ్ భాగస్వాముల అర్హత ప్రమాణాలను అందుకోవడం లేదు.',
+        findingErrDuplicate: 'ఈ మొబైల్ నంబర్‌కు సంబంధించిన దరఖాస్తు ఇప్పటికే మా వద్ద ఉంది. బదులుగా మరిన్ని ఆఫర్లను చూడవచ్చు.',        // My Loans
         loansTitle: 'మై లోన్స్', loansSub: 'మీ అప్లికేషన్స్ ట్రాక్ చేయండి, యాక్టివ్ లోన్స్ మేనేజ్ చేయండి.',
         loansYourApps: 'మీ అప్లికేషన్స్', loansLoading: 'మీ లోన్స్ లోడ్ అవుతున్నాయి…', loansErrLoad: 'మీ లోన్స్ లోడ్ చేయలేకపోయాం.',
         loanInternalJustApplied: 'ఇప్పుడే అప్లై చేశారు', loanInternalSuccess: 'అప్లికేషన్ సక్సెస్',
@@ -1026,6 +1038,9 @@ export const STR: Record<string, Record<string, string>> = {
         benefitFast: '~2 నిమిషాల్లో రియల్ ఆఫర్స్', benefitSoftCheck: 'సాఫ్ట్ చెక్ — మీ క్రెడిట్ స్కోర్‌పై ప్రభావం ఉండదు',
         benefitCompare: 'ఒకే చోట అనేక పార్టనర్స్‌ని కంపేర్ చేయండి',
         agoJustNow: 'ఇప్పుడే', agoMinutesTemplate: '{n} నిమిషాల క్రితం', agoHoursTemplate: '{n} గంటల క్రితం',
+        agoMinuteOne: '{n} నిమిషం క్రితం', agoMinuteMany: '{n} నిమిషాల క్రితం', agoHourOne: '{n} గంట క్రితం', agoHourMany: '{n} గంటల క్రితం',
+        agoDayOne: '{n} రోజు క్రితం', agoDayMany: '{n} రోజుల క్రితం', agoMonthOne: '{n} నెల క్రితం', agoMonthMany: '{n} నెలల క్రితం',
+        agoYearOne: '{n} సంవత్సరం క్రితం', agoYearMany: '{n} సంవత్సరాల క్రితం',
         // Profile — confirmations & toasts
         notSet: 'సెట్ చేయలేదు', memberSinceTemplate: '{n} నుండి మెంబర్', voiceUnlocked: 'వాయిస్ అసిస్టెంట్ అన్‌లాక్ అయింది',
         couldNotLoadProfile: 'మీ ప్రొఫైల్ లోడ్ చేయలేకపోయాం.', couldNotSaveRetry: 'సేవ్ చేయలేకపోయాం. దయచేసి మళ్ళీ ప్రయత్నించండి.',

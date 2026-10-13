@@ -300,8 +300,9 @@ export default function AltOfferWebView({
   onProceed?: (label?: string) => void;
   onBack?: () => void;
   // The partner page rendered its own "Something went wrong" error (a 200 page,
-  // so onError can't see it). The parent can silently re-mint once.
-  onPartnerError?: () => void;
+  // so onError can't see it). The parent can silently re-mint once: return true
+  // when a re-mint was started (loader stays), false/void to show the error state.
+  onPartnerError?: () => boolean | void;
   // When the referral already has offers, the journey resumes straight to its
   // offers page — hold the branded loader over the auto-advancing intermediate
   // screens (DOB etc.) until offers actually show, so none of them flash.
@@ -330,7 +331,12 @@ export default function AltOfferWebView({
     else if (msg?.type === 'YUBI_STEP_FILLED') { if (!waitForOffers) hideLoader(); }
     else if (msg?.type === 'YUBI_PROCEED') onProceed?.(msg.label);
     // Keep the loader up (don't reveal the error) and let the parent re-mint.
-    else if (msg?.type === 'YUBI_ERROR') { setLoading(true); onPartnerError?.(); }
+    // If nobody can re-mint (no handler, or its one retry is spent) show the error
+    // state — never leave the loader up forever.
+    else if (msg?.type === 'YUBI_ERROR') {
+      if (onPartnerError?.() === true) setLoading(true);
+      else { hideLoader(); setFailed(true); }
+    }
   };
 
   if (!url || failed) {
