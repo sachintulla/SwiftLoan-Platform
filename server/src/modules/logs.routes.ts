@@ -7,23 +7,38 @@
  * Optional gate: set LOGS_ACCESS_TOKEN and callers must pass ?key=<token>.
  * Bodies are already redacted for sensitive keys (see lib/apiLog.ts).
  */
+import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import { ah } from '../middleware/error.js';
 import { listApiLogs } from '../lib/apiLog.js';
 
 export const logsRouter = Router();
 
+// Fail closed: the log table holds request/response bodies, so in production the
+// viewer is only reachable when LOGS_ACCESS_TOKEN is set. Outside production an
+// unset token leaves it open for local development.
 const TOKEN = process.env.LOGS_ACCESS_TOKEN || '';
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+function keyMatches(given: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 logsRouter.use((req, res, next) => {
-  if (!TOKEN) return next();
-  const key = (req.query.key as string) || req.get('x-logs-key') || '';
-  if (key !== TOKEN) return res.status(401).type('text/plain').send('Unauthorized — append ?key=<token>');
+  if (!TOKEN) {
+    if (IS_PROD) return res.status(404).type('text/plain').send('Not found');
+    return next();
+  }
+  const key = (typeof req.query.key === 'string' ? req.query.key : '') || req.get('x-logs-key') || '';
+  if (!keyMatches(key)) return res.status(401).type('text/plain').send('Unauthorized — append ?key=<token>');
   next();
 });
 
 logsRouter.get('/data', ah(async (req, res) => {
   const rows = await listApiLogs({
-    limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 200,
+    limit: parseInt(String(req.query.limit ?? ''), 10) || 200,
     direction: (req.query.direction as any) || undefined,
     target: (req.query.target as string) || undefined,
     q: (req.query.q as string) || undefined,
@@ -79,7 +94,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
 </tr></thead><tbody id="rows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table></div>
 <script>
   var key = new URLSearchParams(location.search).get('key');
-  function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function fmtTime(t){var d=new Date(t);return d.toLocaleTimeString('en-GB')+'.'+String(d.getMilliseconds()).padStart(3,'0');}
   function statusCls(s){if(s==null)return 'status0';return 'status'+String(s)[0];}
   function payload(label,val){if(!val)return '';return '<details><summary>'+label+'</summary><pre>'+esc(val)+'</pre></details>';}
@@ -90,7 +105,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
     var q=document.getElementById('q').value.trim(); if(q)p.set('q',q);
     p.set('limit','300'); if(key)p.set('key',key);
     try{
-      var r=await fetch('data?'+p.toString()); var j=await r.json();
+      var base=location.pathname.replace(/\\/+$/,'');var r=await fetch(base+'/data?'+p.toString()); var j=await r.json();
       var rows=(j.logs||[]);
       var tb=document.getElementById('rows');
       if(!rows.length){tb.innerHTML='<tr><td colspan="8" class="empty">No logs yet.</td></tr>';return;}

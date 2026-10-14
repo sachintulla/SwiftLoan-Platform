@@ -24,6 +24,10 @@ const SENSITIVE_KEYS = new Set([
   'password', 'passwordhash', 'otp', 'otpcode', 'code', 'codehash',
   'token', 'accesstoken', 'refreshtoken', 'idtoken', 'secret', 'apikey',
   'api_key', 'cvv', 'pin', 'authorization', 'prefill', 'maskedaadhaar',
+  // Personal data + short-lived partner credentials
+  'phone', 'mobile', 'mobilenumber', 'email', 'dob', 'dateofbirth', 'fullname',
+  'firstname', 'middlename', 'lastname', 'addressline1', 'addressline2',
+  'redirecturl', 'redirectionurl', 'rawauth', 'rawcreate', 'x-api-key',
 ]);
 
 function redact(value: unknown): unknown {
