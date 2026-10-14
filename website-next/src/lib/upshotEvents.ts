@@ -24,8 +24,6 @@ export type UpshotEventDef = {
 /** Attributes attached to every event, so campaigns can segment consistently. */
 export const COMMON_ATTRIBUTES = {
   platform: 'Web' as string,
-  appVersion: '1.0',
-  source: 'website' as string,
 };
 
 export const UPSHOT_EVENTS: UpshotEventDef[] = [
@@ -33,8 +31,8 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
   {
     name: 'website_visit',
     source: 'website',
-    description: 'Visitor landed on the marketing site.',
-    attributes: { page: '/', referrer: 'google', utmSource: 'google', utmCampaign: 'diwali' },
+    description: 'First page of a browser session on the website (once per session).',
+    attributes: { page: '/', referrer: 'google.com', utmSource: 'google', utmMedium: 'cpc', utmCampaign: 'diwali' },
   },
   {
     name: 'website_form_started',
@@ -78,39 +76,55 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
   },
   {
     name: 'language_selected',
-    source: 'mobile',
+    source: 'both',
     description: 'Chose an app language.',
     attributes: { language: 'en', label: 'English' },
   },
   {
     name: 'otp_requested',
-    source: 'mobile',
+    source: 'both',
     description: 'Requested a login OTP.',
     attributes: { screen: 'mobile' },
   },
   {
     name: 'otp_verified',
-    source: 'mobile',
+    source: 'both',
     description: 'Verified the OTP — the registration event.',
     attributes: { priorInquiryCount: 1 },
   },
 
   // ── loan funnel ──
+  // The website runs the same funnel as the app, so the events below are emitted
+  // by both surfaces (src/lib/upshot.ts hooks them in the API layer, like the app).
+  // The Web SDK strips spaces from event names, so the two legacy spaced names are
+  // PAN_Verified / Offers_Got here (the app still sends 'PAN Verified' / 'Offers Got').
+  {
+    name: 'PAN_Verified',
+    source: 'both',
+    description: 'PAN verified (Step 1). Never carries the PAN itself.',
+    attributes: { source: 'aurix', aadhaarLinked: true },
+  },
+  {
+    name: 'Offers_Got',
+    source: 'both',
+    description: 'Lender offers returned for the application.',
+    attributes: { offerCount: 4, bestApr: 10.49, maxAmount: 500000, lenders: 'Aditya Finance, Axis Finance', topLender: 'Aditya Finance' },
+  },
   {
     name: 'eligibility_completed',
-    source: 'mobile',
+    source: 'both',
     description: 'Eligibility check finished and offers generated.',
     attributes: { offerCount: 4 },
   },
   {
     name: 'offer_viewed',
-    source: 'mobile',
+    source: 'both',
     description: 'Viewed matched offers.',
     attributes: { offerCount: 4, bestApr: 10.49 },
   },
   {
     name: 'offer_selected',
-    source: 'mobile',
+    source: 'both',
     description: 'Chose a specific offer.',
     attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance' },
   },
@@ -128,7 +142,7 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
   },
   {
     name: 'application_submitted',
-    source: 'mobile',
+    source: 'both',
     description: 'Loan application submitted.',
     attributes: { amount: 500000, product: 'Personal Loan' },
   },

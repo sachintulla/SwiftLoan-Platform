@@ -5,9 +5,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { upshotEvent } from "./upshot";
 
 export const LANGS = ["en", "hi", "te"] as const;
 export type Lang = (typeof LANGS)[number];
@@ -17,6 +19,9 @@ export const languageOptions = [
   { code: "hi", short: "हि", label: "हिन्दी · Hindi" },
   { code: "te", short: "తె", label: "తెలుగు · Telugu" },
 ] as const satisfies ReadonlyArray<{ code: Lang; short: string; label: string }>;
+
+/** English names for the Upshot `language_selected` event (mobile sends the same labels). */
+const UPSHOT_LANG_LABELS: Record<Lang, string> = { en: "English", hi: "Hindi", te: "Telugu" };
 
 /** Voice-agent control surface for the language switcher. */
 export interface SwiftLoanLangApi {
@@ -36,9 +41,15 @@ const STORAGE_KEY = "sl_lang";
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>("en");
+  const currentLang = useRef<Lang>("en");
 
   /** Every way of changing language (both menus, the voice assistant) goes through here, so it is remembered. */
   const setLang = useCallback((next: Lang) => {
+    // Upshot: an actual choice (not the post-hydration restore, which uses setLangState).
+    if (next !== currentLang.current) {
+      upshotEvent("language_selected", { language: next, label: UPSHOT_LANG_LABELS[next] });
+    }
+    currentLang.current = next;
     setLangState(next);
     try {
       localStorage.setItem(STORAGE_KEY, next);
@@ -52,7 +63,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       const match = LANGS.find((l) => l === saved);
-      if (match) setLangState(match);
+      if (match) {
+        currentLang.current = match;
+        setLangState(match);
+      }
     } catch {
       /* storage blocked */
     }

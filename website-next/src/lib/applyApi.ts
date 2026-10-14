@@ -6,6 +6,13 @@
  * attaches the website's access token and silently refreshes it on expiry.
  */
 import { authFetch } from './session';
+import {
+  rememberOffers,
+  upshotIdentifyServerUser,
+  upshotOfferSelected,
+  upshotOffersFetched,
+  upshotPanVerified,
+} from './upshot';
 
 export interface Offer {
   id: string;
@@ -94,12 +101,17 @@ export interface LoanApplication {
 }
 
 export async function fetchMe() {
-  return authFetch('/api/website/auth/me');
+  const res = await authFetch('/api/website/auth/me');
+  // A returning visitor (session restored from the cookie) never goes through OTP again.
+  upshotIdentifyServerUser(res?.data?.user);
+  return res;
 }
 
 /** PATCH /api/users/me — the exact field set mobile's basic/moredetails/basicpan screens save. */
 export async function patchProfile(patch: Record<string, unknown>) {
   const body = await authFetch('/api/users/me', { method: 'PATCH', body: JSON.stringify(patch) });
+  // Name / email are only known after the About You step — push them so the Upshot profile isn't blank.
+  upshotIdentifyServerUser(body.user);
   return body.user;
 }
 
@@ -122,6 +134,7 @@ export async function patchApplication(id: string, patch: { amount?: number; ten
 
 export async function getApplication(id: string) {
   const body = await authFetch(`/api/applications/${id}`);
+  rememberOffers(body.application?.offers);
   return body.application as LoanApplication;
 }
 
@@ -132,6 +145,7 @@ export async function listApplications() {
 
 export async function prequalify(id: string) {
   const body = await authFetch(`/api/applications/${id}/prequalify`, { method: 'POST' });
+  upshotOffersFetched(body.offers);
   return body.offers as Offer[];
 }
 
@@ -143,6 +157,8 @@ export async function prequalify(id: string) {
  */
 export async function applyOffer(applicationId: string, offerId: string) {
   const body = await authFetch(`/api/applications/${applicationId}/offers/${offerId}/apply`, { method: 'POST' });
+  // A repeat apply for the same lender+amount isn't a new selection.
+  if (!body?.duplicate) upshotOfferSelected(offerId);
   return body as { lenderApplicationId?: string; duplicate?: boolean };
 }
 
@@ -219,6 +235,8 @@ export interface PanVerifyResult {
  */
 export async function verifyPan(pan: string) {
   const body = await authFetch('/api/kyc/pan/verify', { method: 'POST', body: JSON.stringify({ pan }) });
+  // Never the PAN itself — only that it verified.
+  upshotPanVerified(body.data);
   return body.data as PanVerifyResult;
 }
 

@@ -107,6 +107,15 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
    *  verify click. */
   const amountNeedsCorrection = useRef(false);
 
+  /** Upshot: the visitor engaged with the form — once per form instance, not once per field. */
+  const formStartedSent = useRef(false);
+  useEffect(() => {
+    if (!focusedField || formStartedSent.current) return;
+    formStartedSent.current = true;
+    upshotEvent("website_form_started", { product: loanType });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedField]);
+
   /** The slider itself dispatches no native form event, so dragging it must
    *  explicitly re-run validity (handleFormChange only fires from the
    *  mobile input's own change event). */
