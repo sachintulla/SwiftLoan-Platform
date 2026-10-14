@@ -9,6 +9,23 @@ import { colors, font, navGradient } from '../../theme/tokens';
 import { useStore, useT, SCREENS_WITH_FOOTER_CTA } from '../../state/store';
 import { loadVoiceFabSide, saveVoiceFabSide, markIntroPitchHeard } from '../../state/session';
 import { agent } from '../index';
+
+// Keep-awake is an OPTIONAL native module (@sayem314/react-native-keep-awake)
+// that stops the screen sleeping mid-call. It may be absent from a given binary
+// (e.g. an older build whose pods predate it, or a stripped build) — in which
+// case referencing it throws a TurboModule "could not be found" error. Load it
+// lazily and swallow that, so activating the voice agent never crashes over a
+// non-critical feature; the call just runs without the stay-awake guarantee.
+function keepAwake(on: boolean) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ka = require('@sayem314/react-native-keep-awake');
+    if (on) ka.activateKeepAwake?.();
+    else ka.deactivateKeepAwake?.();
+  } catch {
+    /* native module not in this binary — skip keep-awake */
+  }
+}
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
 import { NUDGE_ROTATE_MS, snoozeNudges } from '../nudges';
@@ -337,8 +354,7 @@ export default function VoiceWidget() {
     // The screen locking mid-call kills the mic/socket on most OEMs — a call
     // needs the same "stay awake" guarantee a phone call gets, for its whole
     // lifetime (connecting through executingTool), not just while speaking.
-    if (live) activateKeepAwake();
-    else deactivateKeepAwake();
+    keepAwake(live);
     if (!live) {
       // Every call starts collapsed and unmuted — don't carry either state
       // over into the next session.

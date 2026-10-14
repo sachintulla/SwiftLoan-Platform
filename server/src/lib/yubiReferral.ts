@@ -31,11 +31,11 @@ const log = scoped('yubi');
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-// UAT defaults from the Postman collection. Overridable per-env; a real
-// production launch sets all four YUBI_* keys to the prod values.
-const UAT_BASE = 'https://api-uat.yubimarkets.in/api/v1';
-const UAT_API_KEY = 'ref_uat_a7870ea9961a4d0e8de57ce42ee04a7f';
-const UAT_REFERRER_ID = 'd17d647b-02e8-4400-b348-3d8c2797fd9f';
+// Credentials and base URL come from env ONLY — there is deliberately no
+// fallback in source (the UAT key from the Postman collection must not live in
+// git, and a missing prod value must not silently send applicant data to UAT).
+// Unset = the facility is disabled. Set YUBI_BASE_URL, YUBI_API_KEY and
+// YUBI_REFERRER_ID (UAT or prod values) to enable it.
 
 // YMPL format-validates these (and 400s otherwise). An Indian PIN never starts
 // with 0. The email fallback domain is used only when the applicant has no
@@ -54,11 +54,11 @@ export interface YubiConfig {
 }
 
 export function yubiConfig(): YubiConfig {
-  const baseUrl = (process.env.YUBI_BASE_URL || UAT_BASE).replace(/\/+$/, '');
-  const apiKey = process.env.YUBI_API_KEY || UAT_API_KEY;
-  const referrerId = process.env.YUBI_REFERRER_ID || UAT_REFERRER_ID;
-  // Enabled by default when we have config; an operator can hard-disable with
-  // YUBI_ENABLED=false (e.g. if the partner contract lapses).
+  const baseUrl = (process.env.YUBI_BASE_URL || '').replace(/\/+$/, '');
+  const apiKey = process.env.YUBI_API_KEY || '';
+  const referrerId = process.env.YUBI_REFERRER_ID || '';
+  // Enabled only when all three are configured; an operator can also hard-disable
+  // with YUBI_ENABLED=false (e.g. if the partner contract lapses).
   const enabled = process.env.YUBI_ENABLED !== 'false' && !!baseUrl && !!apiKey && !!referrerId;
   const returnRedirectionUrl = process.env.YUBI_RETURN_URL || 'https://swiftloan.ai/partner/return';
   return { enabled, baseUrl, apiKey, referrerId, returnRedirectionUrl };

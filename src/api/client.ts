@@ -124,11 +124,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
     // user-facing screen (OTP, application, offers, loans…) goes through, so
     // catching "no signal" here means those screens fail fast with a clear
     // reason instead of sitting on a spinner for the full request timeout.
-    // Only a phone with NO connection at all is refused up front. `isInternetReachable`
-    // is NOT used here: it comes from probing our own /health endpoint, so on a
-    // network that blocks or re-signs HTTPS (office Wi-Fi with TLS inspection) it reads
-    // "unreachable" and would make the app refuse every request as "no internet".
-    // In that case we simply attempt the real request and report what actually happens.
+    // Only a phone with NO connection at all is refused up front (isConnected ===
+    // false). `isInternetReachable` is NOT used here: it comes from probing our own
+    // /health endpoint, so it is unreliable — on the iOS Simulator it reports
+    // false/null even when the Mac is online, and on a network that blocks or
+    // re-signs HTTPS (office Wi-Fi with TLS inspection) it reads "unreachable" —
+    // and would make the app refuse every request as "no internet". In those cases
+    // we attempt the real request and report what actually happens.
     const netState = await NetInfo.fetch();
     if (netState.isConnected === false) {
       throw new TypeError('offline: no internet connection');

@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 import { assertPiiKeyConfigured } from './lib/pii.js';
 import { startJobs, stopJobs } from './jobs/tracking.jobs.js';
+import { startApiLogRetention, stopApiLogRetention } from './lib/apiLog.js';
 import { trustExtraCaForFetch } from './lib/devCa.js';
 
 // Dev only (no-op in production): honour NODE_EXTRA_CA_CERTS from .env for outbound fetch.
@@ -16,6 +17,8 @@ const server = app.listen(env.port, () => {
   console.log(`[swiftloan-api] listening on http://localhost:${env.port}  (${env.nodeEnv})`);
   // WS4 maintenance jobs (idle sessions, stale loans/onboarding, notifications).
   startJobs().catch((e) => console.warn('[jobs] failed to start:', e?.message));
+  // Prune the API log table to the last 24h, now and hourly.
+  startApiLogRetention();
 });
 
 /** Hard deadline for a clean stop before we give up and exit anyway. */
@@ -28,6 +31,7 @@ async function shutdown(sig: string) {
   shuttingDown = true;
   console.log(`\n[swiftloan-api] ${sig} received, shutting down…`);
   stopJobs();
+  stopApiLogRetention();
 
   // Without a deadline, one lingering keep-alive connection means server.close()
   // never fires its callback, the process hangs, and the orchestrator SIGKILLs
