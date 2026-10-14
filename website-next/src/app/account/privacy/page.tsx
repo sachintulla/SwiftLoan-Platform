@@ -14,7 +14,7 @@ export default function AccountPrivacyPage() {
     <AccountShell backHref="/account/profile" backLabel={t.profileBack} title={t.legalPill} wide>
       <LegalPage
         title="Privacy Policy"
-        intro="How Purple Talk India Private Limited (“SwiftLoan”) collects, uses, stores, shares and protects your personal information across the SwiftLoan Platform — and how you stay in control of it."
+        intro="How Purpletalk India Private Limited (“SwiftLoan”) collects, uses, stores, shares and protects your personal information across the SwiftLoan Platform — and how you stay in control of it."
         updated="Effective date: 25 August 2026 · Last updated: 18 August 2026 · Version 1.0"
       >
         <div dangerouslySetInnerHTML={{ __html: PRIVACY_BODY }} />
