@@ -86,6 +86,15 @@ Purposes used below (all map to Play's list): **App functionality**, **Account m
 > User ID + device details + push/notification identifier (FCM) → Upshot & FCM
 > (processors). Not shared for third-party use.
 
+> **Advertising ID:** the app does not use it. Firebase's measurement library used to merge
+> `com.google.android.gms.permission.AD_ID` (+ `ACCESS_ADSERVICES_AD_ID/ATTRIBUTION`) into the
+> manifest, which made Play flag "Device or other IDs not declared" on version code 23. From
+> versionCode 25 these are removed in `AndroidManifest.xml` (`tools:node="remove"`). In Play
+> Console → App content → **Advertising ID**, answer **No** ("app does not use advertising ID").
+> The "Device or other IDs" row above must still be filled in (install/user ID, FCM token).
+> **Account deletion URL** (Data safety form): the website FAQ "How do I delete my SwiftLoan
+> account and data?" at https://swiftloan.ai/faqs once deployed.
+
 ### NOT collected — leave entirely unticked
 - **Location** (approximate or precise) — removed from the app; the stray
   `ACCESS_FINE_LOCATION` permission has now been removed from the manifest so the APK
