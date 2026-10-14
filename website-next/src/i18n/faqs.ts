@@ -38,6 +38,10 @@ export const faqsCopy = defineCopy({
         a: "Yes. We use 256-bit bank-grade encryption, collect only need-based data with your explicit consent, and store it in India. We take no access to your contacts, media or files and store no biometrics. You can review, revoke consent or request deletion at any time.",
       },
       {
+        q: "How do I delete my SwiftLoan account and data?",
+        a: "You delete your account yourself inside the SwiftLoan app on iOS or Android. You must be logged in to the mobile app (with your mobile number and OTP) — account deletion cannot be done from the website or by an anonymous visitor. Steps: (1) Open the SwiftLoan app and log in with your mobile number and OTP. (2) Tap the Profile tab. (3) Scroll down and tap Account Deletion. (4) Read the warning and tap Delete to confirm. Your account is deleted immediately and you are signed out. Deleting removes your profile, loan applications, offers, loans and KYC records, and any lead details we had shared with partner lenders from our systems. This cannot be undone. Lenders you already applied to may have to keep their own records for legal and regulatory reasons under their own policies. If you can no longer access the app, raise a request from the Support page or write to our grievance contact in the Privacy Policy.",
+      },
+      {
         q: "What if I have a low credit score?",
         a: "You can still apply. Our AI ranks offers by your genuine likelihood of approval, and several of our partners assess cash-flow, GST and banking behaviour alongside your bureau score. Since it's a soft check, exploring your options costs you nothing.",
       },
@@ -81,6 +85,10 @@ export const faqsCopy = defineCopy({
         a: "हां। हम 256-बिट बैंक-ग्रेड एन्क्रिप्शन का उपयोग करते हैं, केवल आपकी स्पष्ट सहमति से आवश्यकता-आधारित डेटा एकत्र करते हैं, और इसे भारत में संग्रहीत करते हैं। हम आपके संपर्कों, मीडिया या फ़ाइलों तक कोई पहुंच नहीं लेते और कोई बायोमेट्रिक्स संग्रहीत नहीं करते। आप कभी भी समीक्षा, सहमति रद्द या डिलीशन का अनुरोध कर सकते हैं।",
       },
       {
+        q: "मैं अपना SwiftLoan अकाउंट और डेटा कैसे डिलीट करूँ?",
+        a: "आप अपना अकाउंट iOS या Android पर SwiftLoan ऐप के अंदर से खुद डिलीट कर सकते हैं। इसके लिए आपको मोबाइल ऐप में अपने मोबाइल नंबर और OTP से लॉग इन होना ज़रूरी है — अकाउंट डिलीट वेबसाइट से या बिना लॉग इन किए नहीं हो सकता। तरीका: (1) SwiftLoan ऐप खोलें और मोबाइल नंबर व OTP से लॉग इन करें। (2) प्रोफाइल टैब पर टैप करें। (3) नीचे स्क्रॉल करके अकाउंट डिलीट करें पर टैप करें। (4) चेतावनी पढ़ें और पुष्टि के लिए डिलीट करें पर टैप करें। आपका अकाउंट तुरंत डिलीट हो जाता है और आप साइन आउट हो जाते हैं। इससे आपकी प्रोफाइल, लोन आवेदन, ऑफ़र, लोन और KYC रिकॉर्ड, तथा पार्टनर लेंडर्स के साथ साझा की गई लीड की जानकारी हमारे सिस्टम से हट जाती है। इसे वापस नहीं किया जा सकता। जिन लेंडर्स के पास आप पहले आवेदन कर चुके हैं, उन्हें कानूनी और नियामक कारणों से अपनी नीतियों के अनुसार अपने रिकॉर्ड रखने पड़ सकते हैं। अगर आप ऐप तक नहीं पहुँच पा रहे हैं, तो सपोर्ट पेज से अनुरोध करें या प्राइवेसी पॉलिसी में दिए शिकायत संपर्क पर लिखें।",
+      },
+      {
         q: "अगर मेरा क्रेडिट स्कोर कम है तो क्या होगा?",
         a: "आप फिर भी आवेदन कर सकते हैं। हमारा AI आपकी वास्तविक अप्रूवल संभावना के आधार पर ऑफ़र्स को रैंक करता है, और हमारे कई पार्टनर आपके ब्यूरो स्कोर के साथ-साथ कैश-फ्लो, GST और बैंकिंग व्यवहार का भी आकलन करते हैं। चूंकि यह एक सॉफ्ट चेक है, अपने विकल्प तलाशने में आपको कुछ भी खर्च नहीं होता।",
       },
@@ -122,6 +130,10 @@ export const faqsCopy = defineCopy({
       {
         q: "నా వ్యక్తిగత డేటా సురక్షితంగా ఉందా?",
         a: "అవును. మేము 256-బిట్ బ్యాంక్-గ్రేడ్ ఎన్‌క్రిప్షన్‌ను ఉపయోగిస్తాము, మీ స్పష్టమైన అనుమతితో అవసరం-ఆధారిత డేటాను మాత్రమే సేకరిస్తాము, మరియు దానిని భారతదేశంలో నిల్వ చేస్తాము. మేము మీ కాంటాక్ట్‌లు, మీడియా లేదా ఫైళ్లకు యాక్సెస్ తీసుకోము మరియు బయోమెట్రిక్‌లను నిల్వ చేయము. మీరు ఎప్పుడైనా సమీక్షించవచ్చు, అనుమతిని రద్దు చేయవచ్చు లేదా తొలగింపు అభ్యర్థించవచ్చు.",
+      },
+      {
+        q: "నా SwiftLoan అకౌంట్ మరియు డేటాను ఎలా డిలీట్ చేయాలి?",
+        a: "మీరు iOS లేదా Androidలోని SwiftLoan యాప్ లోపల నుండే మీ అకౌంట్‌ను మీరే డిలీట్ చేయవచ్చు. దీనికి మీరు మొబైల్ యాప్‌లో మీ మొబైల్ నంబర్ మరియు OTPతో లాగిన్ అయి ఉండాలి — అకౌంట్ డిలీట్ వెబ్‌సైట్ నుండి లేదా లాగిన్ కాకుండా సాధ్యం కాదు. దశలు: (1) SwiftLoan యాప్ తెరిచి మొబైల్ నంబర్ మరియు OTPతో లాగిన్ అవ్వండి. (2) ప్రొఫైల్ ట్యాబ్‌పై ట్యాప్ చేయండి. (3) కిందికి స్క్రోల్ చేసి అకౌంట్ డిలీట్ చేయండి పై ట్యాప్ చేయండి. (4) హెచ్చరికను చదివి, నిర్ధారించడానికి డిలీట్ పై ట్యాప్ చేయండి. మీ అకౌంట్ వెంటనే డిలీట్ అవుతుంది మరియు మీరు సైన్ అవుట్ అవుతారు. దీనివల్ల మీ ప్రొఫైల్, రుణ దరఖాస్తులు, ఆఫర్లు, రుణాలు మరియు KYC రికార్డులు, అలాగే భాగస్వామి రుణదాతలతో పంచుకున్న లీడ్ వివరాలు మా సిస్టమ్‌ల నుండి తొలగించబడతాయి. దీన్ని వెనక్కి తీసుకోలేరు. మీరు ఇప్పటికే దరఖాస్తు చేసిన రుణదాతలు చట్టపరమైన మరియు నియంత్రణ కారణాల వల్ల తమ విధానాల ప్రకారం తమ రికార్డులను ఉంచుకోవలసి రావచ్చు. మీరు యాప్‌ను యాక్సెస్ చేయలేకపోతే, సపోర్ట్ పేజీ నుండి అభ్యర్థన పంపండి లేదా ప్రైవసీ పాలసీలోని ఫిర్యాదు సంప్రదింపుకు రాయండి.",
       },
       {
         q: "నా క్రెడిట్ స్కోర్ తక్కువగా ఉంటే ఏమవుతుంది?",

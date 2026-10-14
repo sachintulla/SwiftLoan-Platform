@@ -96,20 +96,65 @@ Wired in:
 Left off deliberately: `EnableLocation` and `ExternalStorage`. Both trigger extra
 permission prompts a lending app has no reason to ask for.
 
-## 5. Web — `website-next/src/components/UpshotWeb.tsx`
+## 5. Web — `website-next/src/lib/upshot.ts` + `components/UpshotWeb.tsx`
 
-CDN script (`https://cdn.goupshot.com/UpshotWebSDK/v1.4/upshot.min.js`) loaded
-and initialised via `upshot.init(params, callback)`, mounted in `layout.tsx`.
+The website is **its own Upshot app** (separate from the mobile Swiftloan / Swiftloan_prod apps),
+in the same account. Identifiers live in `website-next/src/config/upshot.ts` (public client IDs,
+overridable with `NEXT_PUBLIC_UPSHOT_*`):
 
-- Page views on every client-side route change
-- `upshotIdentify()` + `website_lead_submitted` (with UTM attribution) on lead
-  form submit
-- Guards against double-injection under React strict mode
-- Dev-only on-page notice when the env vars are missing — a silent no-op is
-  exactly how the Ello voice widget went unnoticed for a whole session
+| Upshot console | Used as |
+|---|---|
+| App SDK ID `18a089e8-0a20-4510-bb98-2fdb49b7e271` | `UpshotApplicationID` |
+| Account ID `6cfe2c70-4130-46d5-9202-54252d38e57f` | `UpshotApplicationOwnerID` (same account as mobile) |
+| Enterprise ID `029baddc-eed8-4099-9d51-b4e243fed4d1` | **not an SDK value** — Enterprise Access (server-side REST) only |
 
-`subscribePush: false` and `UpshotFetchLocation: false` on purpose: both fire a
-browser permission prompt on first page load otherwise.
+**The real Web SDK API** (checked against the official docs, https://www.upshot.ai/documentation/sdk/web/,
+and the v1.4 bundle's `window.upshot`; the older code was wrong):
+`createEvent('UpshotEventPageView', pageName)`, `createEventByName(name, payload, timed)`,
+`updateUserProfile(profile, cb)`, `createAttributionEvent({...})`, `disableUser()`. There is **no**
+`createCustomEvent` / `createPageViewEvent` / `setUserProfile` / `userLogout`; the previous web code
+called those through `?.` and silently sent nothing. Profile keys are matched exactly and
+case-sensitively: `appuid`, `firstName`, `lastName`, `userName`, `email`, `phone` (`+digits`), `city`,
+`location: { city, country }`; anything else (e.g. `Platform`) is a custom attribute.
+
+**Logout** is `updateUserProfile({ appuid: '' })` (documented; verified: Upshot clears the user's external id).
+`disableUser()` is a permanent privacy opt-out (deletes the user's data and disables Upshot for them) and is
+never called on sign-out.
+
+**Event names / attribute keys:** the SDK keeps letters, digits and `_` and silently strips the rest, so
+`PAN Verified` would be stored as `PANVerified`. The website therefore sends `PAN_Verified` and `Offers_Got`
+(the app still sends the spaced forms). Keys must start with a letter; payload max 2048 bytes.
+
+**Parity with the mobile app** (same event names, attribute names/types, and screen labels; hooked in
+the API layer like mobile's `client.ts`, so no page markup changed):
+
+| Moment | Where | Event |
+|---|---|---|
+| Landing | `UpshotWeb` | `website_visit` (+ UTM, `createAttributionEvent`) — once per session |
+| Every route | `UpshotWeb` | page view (documented `createEvent`), named like mobile (`PAN Verification Step 1`, `My Offers`, `My Loans`…) |
+| Lead form | `useLeadCapture`, `SiteScripts` | `website_form_started`, `website_lead_submitted` (+identify) |
+| EMI calculator | `SiteScripts` | `emi_calculated` (debounced) |
+| Language | `i18n.tsx` | `language_selected` |
+| OTP | `session.ts` | `otp_requested`; `otp_verified` + identify (appuid = server user id, same as mobile) |
+| Returning visitor | `applyApi.fetchMe` | identify (deduped) |
+| Sign-out | `session.logout` | `appuid: ''` |
+| About You | `applyApi.patchProfile` | identify (name/email) |
+| PAN | `applyApi.verifyPan` | `PAN_Verified` (never the PAN) |
+| Offers | `applyApi.prequalify` | `eligibility_completed`, `Offers_Got` |
+| Offers page | route | `offer_viewed` |
+| Apply to an offer | `applyApi.applyOffer` | `offer_selected` |
+| Success page | route | `application_submitted` (once per application) |
+
+Not sent from the website: `loan_approved` / `loan_rejected` / `loan_disbursed` / KYC events (lender-side,
+not observable in the browser; the server's stall rules cover them), and PAN / DOB / address / city / credit
+data (the privacy policy does not cover those going to Upshot).
+
+Calls made before the SDK finishes loading are queued (max 50) and flushed on ready. Everything is
+fire-and-forget. Unit tests: `website-next/src/lib/upshot.test.ts`.
+
+**Verified 2026-10-14 against the live SDK** with the IDs above: `init.json` → 200 `appStatus:true`
+(`api.in.goupshot.com`), profile `updateInfo.json` → 200 with `appuid`/`firstName`/`lastName`/`name` mapped
+as fields and `Platform` custom, events → `events.in.goupshot.com` `success`, page views carry the page name.
 
 ## 6. One thing to keep consistent: the identity key
 
@@ -122,8 +167,8 @@ profiles for the same person and campaign targeting silently misses.
 1. **`AppId` / `OwnerId`** from the Upshot dashboard:
    - mobile → `voiceCredentials.local.js`: `global.SWIFTLOAN_UPSHOT_APP_ID`,
      `global.SWIFTLOAN_UPSHOT_OWNER_ID`
-   - web → `website-next/.env.local`: `NEXT_PUBLIC_UPSHOT_APP_ID`,
-     `NEXT_PUBLIC_UPSHOT_OWNER_ID`
+   - web → built-in defaults in `website-next/src/config/upshot.ts` (nothing to set); override with
+     `NEXT_PUBLIC_UPSHOT_APP_ID` / `_OWNER_ID` only for a different app
    - server → `server/.env`: `UPSHOT_APP_ID`, `UPSHOT_ACCOUNT_ID`,
      `UPSHOT_API_KEY`, and the **India region host** `UPSHOT_BASE_URL`
 2. **Push**: `google-services.json` into `android/app/`, plus the Firebase

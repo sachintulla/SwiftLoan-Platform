@@ -319,6 +319,13 @@ export default function AltOfferWebView({
   const clearFallback = () => { if (fallbackRef.current) { clearTimeout(fallbackRef.current); fallbackRef.current = null; } };
   useEffect(() => clearFallback, []);
   const hideLoader = () => { clearFallback(); setLoading(false); };
+  // Safety net so the branded loader can never hang. Longer when resuming to offers
+  // (bureau + auto-advance can take several seconds); short otherwise so a plain
+  // form reveals fast.
+  const armFallback = () => {
+    clearFallback();
+    fallbackRef.current = setTimeout(() => setLoading(false), waitForOffers ? 14000 : 1400);
+  };
 
   const onMessage = (e: WebViewMessageEvent) => {
     let msg: any;
@@ -365,13 +372,13 @@ export default function AltOfferWebView({
         ref={webRef}
         source={{ uri: url }}
         onMessage={onMessage}
-        onLoadStart={() => { clearFallback(); setLoading(true); }}
+        // Android also fires onLoadStart for in-page (history API) route changes —
+        // e.g. YMPL's step 1 → OTP step — but never a matching onLoadEnd, so arm the
+        // safety net here too or the loader would cover that step forever.
+        onLoadStart={() => { setLoading(true); armFallback(); }}
         onLoadEnd={() => {
           if (inject) webRef.current?.injectJavaScript(inject);
-          clearFallback();
-          // Longer safety net when resuming to offers (bureau + auto-advance can
-          // take several seconds); short otherwise so a plain form reveals fast.
-          fallbackRef.current = setTimeout(() => setLoading(false), waitForOffers ? 14000 : 1400);
+          armFallback();
         }}
         startInLoadingState={false}
         injectedJavaScript={inject}

@@ -10,6 +10,7 @@
  * to trade the cookie for a fresh access token before any authenticated call.
  */
 import { apiBase } from './leads';
+import { upshotEvent, upshotIdentifyServerUser, upshotLogout } from './upshot';
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
@@ -85,6 +86,7 @@ export async function requestOtp(phone: string): Promise<{ otpSent: boolean; dev
   });
   const body = await parseJson(res);
   if (!res.ok) throw new Error(body?.error || 'Could not send OTP');
+  upshotEvent('otp_requested', { screen: 'apply' });
   return body.data;
 }
 
@@ -98,12 +100,16 @@ export async function verifyOtp(phone: string, code: string): Promise<OtpVerifyR
   const body = await parseJson(res);
   if (!res.ok) throw new Error(body?.error || 'Invalid or expired code');
   setAccessToken(body.data.accessToken);
+  // Upshot: key the profile on the server user id (same as the mobile app), then record the registration.
+  upshotIdentifyServerUser(body.data.user);
+  upshotEvent('otp_verified');
   return { user: body.data.user, hasApplication: body.data.hasApplication, applicationId: body.data.applicationId };
 }
 
 export async function logout(): Promise<void> {
   await fetch(`${apiBase()}/api/website/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
   setAccessToken(null);
+  upshotLogout();
 }
 
 /**
