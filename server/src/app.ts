@@ -43,6 +43,7 @@ import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
 import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
+import { yubiWebhookRouter } from './modules/yubiWebhook.routes.js';
 import { websiteRouter } from './modules/website.routes.js';
 import { websiteAuthRouter } from './modules/websiteAuth.routes.js';
 
@@ -171,6 +172,7 @@ export function createApp() {
   app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
   app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix/KFT posts loan status here
   app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
+  app.use('/api/webhooks/yubi', webhookLimiter, yubiWebhookRouter); // PUBLIC — Yubi/YMPL posts referral status here
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
   app.use('/api/admin', adminRouter);
