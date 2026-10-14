@@ -291,7 +291,15 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // application: exactly 5 offers survive now, not 10.
   const created = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "LoanApplication" WHERE id = ${app.id} FOR UPDATE`;
-    await tx.offer.deleteMany({ where: { applicationId: app.id } });
+    // Refresh the offer set, but PRESERVE any offer the user has already applied
+    // to. Mirrors the KFT Offers-API contract: once an offer is selected it stops
+    // being returned on later calls, so a re-fetch must not wipe it —
+    // `Offer.lenderApplications` is onDelete: Cascade, so deleting an applied
+    // offer would silently drop the user's My Loans tracking. Only offers that
+    // were never applied to are cleared.
+    await tx.offer.deleteMany({
+      where: { applicationId: app.id, applied: false, lenderApplications: { none: {} } },
+    });
     const rows = [];
     for (const [i, { partner: p, raw }] of pending.entries()) {
       // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of

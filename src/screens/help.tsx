@@ -94,6 +94,24 @@ export default function Help() {
         </View>
       </View>
 
+      {/* How to delete your account */}
+      <View style={styles.card}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={styles.gavelIcon}><Icon name="delete" size={20} color={colors.primary} /></View>
+          <Text style={[font(800), { fontSize: 16, color: colors.text, flex: 1 }]}>{t.helpDelTitle}</Text>
+        </View>
+        <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: colors.textSoft, marginTop: 10 }]}>{t.helpDelIntro}</Text>
+        <View style={{ gap: 8, marginTop: 12 }}>
+          {[t.helpDelStep1, t.helpDelStep2, t.helpDelStep3, t.helpDelStep4].map((s: string, i: number) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+              <Text style={[font(800), { fontSize: 12.5, color: colors.primary, width: 16 }]}>{i + 1}.</Text>
+              <Text style={[font(500), { fontSize: 12.5, lineHeight: 18, color: colors.text, flex: 1 }]}>{s}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={[font(400), { fontSize: 11.5, lineHeight: 17, color: colors.textSoft, marginTop: 12 }]}>{t.helpDelNote}</Text>
+      </View>
+
       {/* Contact */}
       <Text style={[font(800), { fontSize: 16, color: colors.text, marginTop: 24, marginBottom: 12 }]}>{t.contactTitle}</Text>
       <View style={{ gap: 10 }}>

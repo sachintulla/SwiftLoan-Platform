@@ -20,6 +20,13 @@
          shown. Runtime-requested; harmless on older versions. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- The app does not use the advertising ID (no ad network, no ad attribution).
+         Firebase's measurement library merges these in; remove them so the Play Data
+         Safety form and the privacy policy match the binary. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"

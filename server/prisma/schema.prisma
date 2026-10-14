@@ -1625,3 +1625,32 @@ model FriendReferral {
   @@index([referrerId, createdAt])
   @@index([status])
 }
+
+// ─────────────────────────── API traffic log ───────────────────────────
+// Records every request/response between the app and this API (inbound) and
+// between this API and Aurix/KFT (outbound), for the internal /logs page.
+// Retention: pruned to the last 24 hours (see lib/apiLog.ts).
+enum ApiLogDirection {
+  inbound
+  outbound
+}
+
+model ApiLog {
+  id           String          @id @default(uuid())
+  createdAt    DateTime        @default(now())
+  direction    ApiLogDirection
+  source       String          // caller, e.g. "app" or "swiftloan-api"
+  target       String          // callee, e.g. "swiftloan-api" or "aurix"
+  method       String
+  url          String
+  status       Int?            // HTTP status; null if the request errored before a response
+  durationMs   Int?
+  requestBody  String?         @db.Text
+  responseBody String?         @db.Text
+  error        String?
+  meta         Json?
+
+  @@index([createdAt])
+  @@index([target, createdAt])
+  @@index([direction, createdAt])
+}

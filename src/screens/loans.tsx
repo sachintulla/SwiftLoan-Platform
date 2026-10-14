@@ -93,7 +93,9 @@ export default function Loans() {
   }, [load]);
 
   // Open the drill-down tracker for a card: an active/disbursed loan goes to
-  // its repayment view, anything still in flight to the application-status timeline.
+  // its repayment view, anything still in flight to the application-status
+  // timeline (status.tsx, which gates its Re-Apply/Refresh actions via
+  // selectedLenderApplicationId).
   const open = (app: any, opts?: { offer?: any; lenderApp?: any }) => {
     set({
       applicationId: app.id,

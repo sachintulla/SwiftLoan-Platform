@@ -202,6 +202,25 @@ export default function SiteScripts() {
       }
     };
     [amount, rate, tenure].forEach((elx) => elx && on(elx, 'input', calcEMI));
+    // Upshot: one `emi_calculated` once the visitor settles on a figure (not one per slider tick).
+    let emiTimer: ReturnType<typeof setTimeout> | undefined;
+    [amount, rate, tenure].forEach(
+      (elx) =>
+        elx &&
+        on(elx, 'input', () => {
+          clearTimeout(emiTimer);
+          emiTimer = setTimeout(() => {
+            const b = emiBreakdown(+amount!.value, +rate!.value, +tenure!.value);
+            upshotEvent('emi_calculated', {
+              amount: +amount!.value,
+              rate: +rate!.value,
+              tenureMonths: +tenure!.value,
+              emi: Math.round(b.emi),
+            });
+          }, 1500);
+        }),
+    );
+    cleanups.push(() => clearTimeout(emiTimer));
     if (amount && donut) {
       donut.style.strokeDasharray = '0 ' + CIRC;
       calcEMI();
@@ -417,6 +436,13 @@ export default function SiteScripts() {
     }
 
     if (leadForm) {
+      // Upshot: the visitor engaged with the lead form — once, not per field.
+      let formStarted = false;
+      on(leadForm, 'focusin', () => {
+        if (formStarted) return;
+        formStarted = true;
+        upshotEvent('website_form_started', { product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan' });
+      });
       FIELD_NAMES.forEach((name) => {
         const f = $<HTMLInputElement | HTMLSelectElement>('#' + name);
         if (!f) return;

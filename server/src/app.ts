@@ -8,6 +8,8 @@ import { env } from './config/env.js';
 import { notFound, errorHandler } from './middleware/error.js';
 import { prisma } from './lib/prisma.js';
 import { debugHttpLog } from './lib/debugHttpLog.js';
+import { apiLogMiddleware } from './lib/apiLog.js';
+import { logsRouter } from './modules/logs.routes.js';
 
 import { authRouter } from './modules/auth.routes.js';
 import { usersRouter } from './modules/users.routes.js';
@@ -43,6 +45,7 @@ import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
 import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
+import { yubiWebhookRouter } from './modules/yubiWebhook.routes.js';
 import { websiteRouter } from './modules/website.routes.js';
 import { websiteAuthRouter } from './modules/websiteAuth.routes.js';
 
@@ -81,6 +84,9 @@ export function createApp() {
   // Opt-in full request/response body logging — see debugHttpLog.ts for why
   // this is off unless DEBUG_HTTP_LOGS=true is explicitly set.
   if (env.debugHttpLogs) app.use(debugHttpLog());
+  // Persist every inbound request/response to the ApiLog table (24h retention)
+  // for the internal /logs page. Redacted + fire-and-forget — see lib/apiLog.ts.
+  app.use(apiLogMiddleware());
 
   // ── Rate limiting ──
   // Previously only the two auth routes were throttled, which left every public
@@ -171,6 +177,7 @@ export function createApp() {
   app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
   app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix/KFT posts loan status here
   app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
+  app.use('/api/webhooks/yubi', webhookLimiter, yubiWebhookRouter); // PUBLIC — Yubi/YMPL posts referral status here
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
   app.use('/api/admin', adminRouter);
@@ -185,6 +192,12 @@ export function createApp() {
   app.use('/api/context/save', limiter(60_000, 120, 'Too many context save requests'), contextSaveRouter);
   app.use('/api/context', leadLimiter, contextRouter);
   app.use('/api/config', configRouter); // PUBLIC — app fetches admin-tuned config
+
+  // Internal API-traffic viewer (last 24h of app↔API and API↔Aurix). Mounted
+  // at both /logs and /api/logs so it's reachable however the edge proxies it.
+  // Optionally gated by LOGS_ACCESS_TOKEN (?key=…).
+  app.use('/logs', logsRouter);
+  app.use('/api/logs', logsRouter);
   // The website's OWN login (real User + a short, sliding session cookie) —
   // mounted before the lead-only /api/website line below so it isn't shadowed.
   // Distinct from /api/auth/otp/*: same login, shorter cookie-based session.
