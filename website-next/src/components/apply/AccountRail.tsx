@@ -5,17 +5,20 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutList, Tag, User, MessageCircle, LogOut, Menu, X } from 'lucide-react';
 import { logout as logoutSession } from '@/lib/session';
+import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
 
 const NAV = [
-  { href: '/account', label: 'My Applications', icon: LayoutList },
+  { href: '/account', labelKey: 'navApplications', icon: LayoutList },
   // Mirrors the app's own "My Offers" bottom-nav tab (fare.tsx) — a
   // persistent destination for your current eligible offers, not just a
   // mid-funnel step. /apply/offers already renders correctly with this same
   // account sidebar; it just needed a way in from outside the apply funnel.
-  { href: '/apply/offers', label: 'My Offers', icon: Tag },
-  { href: '/account/profile', label: 'Profile', icon: User },
-  { href: '/account/support', label: 'Support', icon: MessageCircle },
-];
+  { href: '/apply/offers', labelKey: 'navOffers', icon: Tag },
+  { href: '/account/profile', labelKey: 'navProfile', icon: User },
+  { href: '/account/support', labelKey: 'navSupport', icon: MessageCircle },
+] as const;
 
 function initials(name?: string) {
   if (!name) return 'U';
@@ -40,7 +43,8 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
-  const name = user?.fullName || user?.firstName || 'there';
+  const t = useCopy(applyShellCopy);
+  const name = user?.fullName || user?.firstName || t.guestName;
 
   return (
     <>
@@ -61,7 +65,7 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
           </div>
         </div>
         <nav className="flex flex-col gap-1">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {NAV.map(({ href, labelKey, icon: Icon }) => {
             const active = pathname === href;
             return (
               <Link
@@ -72,16 +76,17 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
                 }`}
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {t[labelKey]}
               </Link>
             );
           })}
           <button
             onClick={() => setConfirmingLogout(true)}
+            data-voice-gate="logout"
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white/75"
           >
             <LogOut className="h-4 w-4" />
-            Log out
+            {t.logOut}
           </button>
         </nav>
       </aside>
@@ -110,7 +115,8 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
-  const name = user?.fullName || user?.firstName || 'there';
+  const t = useCopy(applyShellCopy);
+  const name = user?.fullName || user?.firstName || t.guestName;
 
   return (
     <div className="lg:hidden">
@@ -119,16 +125,19 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
           <span className="bg-brand-gradient grid h-7 w-7 place-items-center rounded-lg text-xs text-white">S</span>
           SwiftLoan
         </div>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher />
         {user && (
           <button
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-label={open ? t.closeMenu : t.openMenu}
             className="border-border bg-card grid h-10 w-10 place-items-center rounded-full border"
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         )}
+        </div>
       </div>
 
       {user && open && (
@@ -147,7 +156,7 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
                 {user.phone && <div className="text-xs text-white/60">+91 {user.phone}</div>}
               </div>
             </div>
-            {NAV.map(({ href, label, icon: Icon }) => (
+            {NAV.map(({ href, labelKey, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
@@ -155,15 +164,16 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
                 className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold ${pathname === href ? 'bg-white/12 text-white' : 'text-white/80'}`}
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {t[labelKey]}
               </Link>
             ))}
             <button
               onClick={() => { setOpen(false); setConfirmingLogout(true); }}
+              data-voice-gate="logout"
               className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-white/80"
             >
               <LogOut className="h-4 w-4" />
-              Log out
+              {t.logOut}
             </button>
           </nav>
         </div>
@@ -183,6 +193,7 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
 }
 
 function LogoutModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => Promise<void> }) {
+  const t = useCopy(applyShellCopy);
   const [loading, setLoading] = useState(false);
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-6" onClick={onClose}>
@@ -194,12 +205,12 @@ function LogoutModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
           <LogOut className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-lg font-extrabold">Log out?</h2>
-          <p className="text-muted-foreground mt-1.5 text-sm">You&apos;ll need to verify your mobile number again to sign back in.</p>
+          <h2 className="text-lg font-extrabold">{t.logoutTitle}</h2>
+          <p className="text-muted-foreground mt-1.5 text-sm">{t.logoutBody}</p>
         </div>
         <div className="flex w-full gap-3">
           <button onClick={onClose} className="border-border flex-1 rounded-full border py-2.5 text-sm font-bold">
-            Cancel
+            {t.cancel}
           </button>
           <button
             onClick={async () => {
@@ -207,9 +218,10 @@ function LogoutModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
               await onConfirm();
             }}
             disabled={loading}
+            data-voice-gate="logout"
             className="bg-danger flex-1 rounded-full py-2.5 text-sm font-bold text-white"
           >
-            {loading ? 'Logging out…' : 'Log out'}
+            {loading ? t.loggingOut : t.logOut}
           </button>
         </div>
       </div>

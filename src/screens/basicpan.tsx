@@ -134,6 +134,21 @@ export default function BasicPan() {
       go('mobile');
       return;
     }
+    // Pass-through for cases where PAN auto-verification can't help but must NOT
+    // block the funnel (and the business): carry the entered PAN forward and send
+    // the user to the details step for manual entry. We deliberately do NOT set
+    // panPrefill, so that step shows the user's existing entries (from About You)
+    // or empty fields, and never a false "PAN verified" card. No further Aurix
+    // lookups are triggered by continuing.
+    const continueManually = () => {
+      set({ panNumber: pan });
+      if (state.applicationId) {
+        api.updateApplication(state.applicationId, { panNumber: pan }).catch(() => {});
+      }
+      showToast(t.panManualEntry);
+      go('basic');
+    };
+
     setBusy(true);
     setVerified(false);
     let succeeded = false;
@@ -143,7 +158,9 @@ export default function BasicPan() {
       const result = await api.verifyPan(pan);
       mergeApiContext({ panValidationResult: { ok: result.verified, ...(result.verified ? {} : { error: result.message }) } });
       if (!result.verified) {
-        setAlert({ tone: 'error', message: result.message || t.panVerifyFail });
+        // The bureau returned no usable record for this PAN (e.g. "No record
+        // found for the given input"). Continue to manual entry rather than block.
+        continueManually();
         return;
       }
       set({ panNumber: pan, panPrefill: { pan, prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked ?? null } });
@@ -156,10 +173,17 @@ export default function BasicPan() {
     } catch (e) {
       const status = e instanceof ApiError ? e.status : 0;
       const message = e instanceof ApiError && e.message ? e.message : t.panVerifyFail;
-      setAlert({ tone: status === 400 || status === 409 ? 'error' : 'warning', message });
+      mergeApiContext({ panValidationResult: { ok: false, error: message } });
+      if (status === 429) {
+        // Daily PAN-check cap reached. Blocking here would stall a real applicant
+        // for up to a day — bad for the business — and manual entry needs no
+        // further lookup. So continue to the details step instead of dead-ending.
+        continueManually();
+        return;
+      }
       // A real async failure needs to reach api_context, and urgently: Ruby
       // may still be mid "let me verify that" when it lands.
-      mergeApiContext({ panValidationResult: { ok: false, error: message } });
+      setAlert({ tone: status === 400 || status === 409 ? 'error' : 'warning', message });
       markUrgentContext();
     } finally {
       // On success the loader stays up until it hands off to the details step.

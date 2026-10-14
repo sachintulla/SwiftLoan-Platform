@@ -6,6 +6,8 @@ import { LegalPage } from '@/components/account/LegalHero';
 import { prettyLenderName } from '@/components/apply/LenderLogo';
 import { useAccount } from '@/lib/accountContext';
 import { listApplications } from '@/lib/applyApi';
+import { useCopy } from '@/lib/i18n';
+import { accountCopy } from '@/i18n/account';
 
 interface Partner {
   name: string;
@@ -14,6 +16,7 @@ interface Partner {
 
 export default function LendingPartnersPage() {
   const { loading: accountLoading } = useAccount();
+  const t = useCopy(accountCopy);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -37,25 +40,24 @@ export default function LendingPartnersPage() {
   }, [accountLoading]);
 
   return (
-    <AccountShell backHref="/account/profile" backLabel="Profile" title="Legal" wide>
+    <AccountShell backHref="/account/profile" backLabel={t.profileBack} title={t.legalPill} wide>
       <LegalPage
-        title="Lending Partners"
-        intro="SwiftLoan is a loan-comparison and referral platform — not a lender. Loans are provided by RBI-regulated banks and NBFCs, each lending under its own credit policy and Fair Practices Code."
+        title={t.partnersTitle}
+        intro={t.partnersIntro}
       >
         {/* Same section markup/classes as the website's compliance page "partners" block. */}
         <section className="block" id="partners">
           <h2>
-            <span className="msi">diversity_3</span> Lenders matched to you
+            <span className="msi">diversity_3</span> {t.partnersHeading}
           </h2>
           <p className="sublead">
-            These RBI-regulated partners have made you an offer. The specific lender for your loan is disclosed in your Key Fact
-            Statement.
+            {t.partnersLead}
           </p>
           {loading || accountLoading ? (
-            <p className="fine">Loading…</p>
+            <p className="fine" aria-busy="true">{t.loading}</p>
           ) : partners.length === 0 ? (
             <div className="callout">
-              <b>No lender offers yet.</b> Apply for a loan and the lenders matched to you will be listed here.
+              <b>{t.partnersEmptyBold}</b>{t.partnersEmptyRest}
             </div>
           ) : (
             <div className="grid2">
@@ -80,8 +82,7 @@ export default function LendingPartnersPage() {
             </div>
           )}
           <p className="fine">
-            Each partner is registered with the RBI and lends under its own credit policy and Fair Practices Code. SwiftLoan does
-            not sanction, underwrite, price or disburse any loan.
+            {t.partnersFine}
           </p>
         </section>
       </LegalPage>

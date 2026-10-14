@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
+import { NUDGES_DISABLED } from '@/lib/flags';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
 
@@ -19,7 +20,10 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     section: 'Funnel',
     items: [
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
+      { href: '/revasure', label: 'Revasure', icon: '⇄' },
+      { href: '/yubi', label: 'Yubi', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
+      { href: '/referrals', label: 'Referrals', icon: '☺' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },
       { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
       { href: '/prequalifying', label: 'Pre-Qualifying Offers', icon: '★' },
@@ -40,7 +44,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     items: [
       { href: '/integrations', label: 'Configs', icon: '⚙' },
       { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
-      { href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' },
+      ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
     ],
@@ -49,7 +53,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
-  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
+  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
   '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.

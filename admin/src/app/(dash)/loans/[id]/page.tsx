@@ -5,6 +5,8 @@ import { swrFetcher } from '@/lib/api';
 import { Card, StatusBadge, LoanStatusBadge, StatCard, TableSkeleton } from '@/components/ui';
 import { inrRupees, dateStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
 import { LenderTrack, LenderRollup } from '@/components/journey';
+import { withoutNudgeEvents } from '@/lib/flags';
+import { ActivityTimeline } from '@/components/ActivityTimeline';
 
 // Shared trunk: the stages every application goes through before it fans out to
 // individual lenders (ending at "submitted to lenders" = handoff).
@@ -15,7 +17,7 @@ export default function LoanDetail() {
   const router = useRouter();
   const { data, isLoading } = useSWR(`/api/admin/loans/${id}`, swrFetcher);
   const app = (data?.data as { application?: any; timeline?: any[] })?.application;
-  const timeline = (data?.data as { timeline?: any[] })?.timeline ?? [];
+  const timeline = withoutNudgeEvents((data?.data as { timeline?: any[] })?.timeline ?? [], (e: any) => e.eventName);
 
   if (isLoading || !app) return <div className="page"><TableSkeleton rows={8} /></div>;
 
@@ -50,7 +52,8 @@ export default function LoanDetail() {
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', marginTop: 16 }}>
+      <div className="stack">
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
         <StatCard label="Amount" value={inrRupees(app.amount)} tone="blue" />
         <StatCard label="Type" value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{app.loanType}</span>} tone="teal" />
         <StatCard label="Tenure" value={`${app.tenureMonths} mo`} tone="grey" />
@@ -80,7 +83,7 @@ export default function LoanDetail() {
         </Card>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16, alignItems: 'start' }}>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(460px,1fr))' }}>
         <Card title="Offers">
           {(app.offers ?? []).length === 0 ? <div className="empty">No offers generated</div> : (
             <div className="table-wrap"><table className="data">
@@ -114,19 +117,10 @@ export default function LoanDetail() {
         </Card>
       </div>
 
-      <Card title="Activity timeline" className="" >
-        {timeline.length === 0 ? <div className="empty">No tracked events for this applicant</div> : (
-          <div style={{ display: 'grid', gap: 2 }}>
-            {timeline.map((e: any) => (
-              <div key={e.id} className="row" style={{ gap: 10, padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 3, background: 'var(--teal)' }} />
-                <span style={{ fontSize: 13 }}>{humanStatus(e.eventName)}</span>
-                <span className="spacer" /><span className="muted" style={{ fontSize: 11.5 }}>{timeAgo(e.ts)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+      <Card title="Activity timeline" sub={`${timeline.length} tracked event${timeline.length === 1 ? '' : 's'}`}>
+        <ActivityTimeline events={timeline} />
       </Card>
+      </div>
     </div>
   );
 }

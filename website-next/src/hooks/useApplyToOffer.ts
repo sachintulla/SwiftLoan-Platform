@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApply } from '@/lib/applyContext';
 import { applyOffer, type Offer } from '@/lib/applyApi';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
 
 /**
  * Apply to one of the application's offers — the single path both the
@@ -13,6 +15,7 @@ import { applyOffer, type Offer } from '@/lib/applyApi';
  */
 export function useApplyToOffer() {
   const router = useRouter();
+  const t = useCopy(applyShellCopy);
   const { applicationId, setSelectedOffer } = useApply();
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +37,7 @@ export function useApplyToOffer() {
       });
       router.push(offer.redirectionUrl ? '/apply/lender' : '/apply/confirm');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not apply to this offer. Please try again.');
+      setError(e instanceof Error ? e.message : t.applyFailed);
       setApplyingId(null);
     }
   };

@@ -11,6 +11,7 @@ import { swrFetcher } from '@/lib/api';
 import { Card, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
 import { ChannelBadge, stageLabel } from '@/components/journey';
 import { humanStatus, dayLabel, timeStr, timeAgo, dateStr } from '@/lib/format';
+import { withoutNudgeEvents } from '@/lib/flags';
 
 interface Ev {
   id: string; channel: string; name: string; stage?: string | null; stageLabel?: string | null;
@@ -30,7 +31,7 @@ export default function CustomerActivity() {
   const { data: cust } = useSWR(`/api/admin/customers/${id}`, swrFetcher);
 
   const payload = data?.data as { events?: Ev[]; channels?: { channel: string; count: number }[] } | undefined;
-  const events = payload?.events ?? [];
+  const events = withoutNudgeEvents(payload?.events ?? [], (e) => e.name);
   const channels = payload?.channels ?? [];
   const pg = data?.pagination;
   const who = (cust?.data as { customer?: { name?: string; phone?: string } })?.customer;

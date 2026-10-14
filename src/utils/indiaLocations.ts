@@ -1,0 +1,80 @@
+/**
+ * Pre-loaded India state / city lists for the City & State dropdowns on the
+ * "Tell us about yourself" step. State is a closed set (28 states + 8 UTs, names
+ * matching what the India Post pincode API returns, so a pincode auto-fill lands
+ * on an exact list entry). The city list covers the major cities/districts; it is
+ * NOT exhaustive, so the city picker is searchable AND allows a custom value for
+ * anything not listed (the pincode auto-fill also sets the exact district).
+ */
+
+export const INDIAN_STATES: string[] = [
+  'Andaman and Nicobar Islands',
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chandigarh',
+  'Chhattisgarh',
+  'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jammu and Kashmir',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Ladakh',
+  'Lakshadweep',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Puducherry',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+];
+
+export const INDIAN_CITIES: string[] = [
+  // Metros + major cities
+  'Mumbai', 'Delhi', 'New Delhi', 'Bengaluru', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad', 'Surat',
+  'Jaipur', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Thane', 'Bhopal', 'Visakhapatnam', 'Patna', 'Vadodara',
+  'Ghaziabad', 'Ludhiana', 'Agra', 'Nashik', 'Faridabad', 'Meerut', 'Rajkot', 'Varanasi', 'Srinagar', 'Aurangabad',
+  'Dhanbad', 'Amritsar', 'Navi Mumbai', 'Allahabad', 'Prayagraj', 'Ranchi', 'Howrah', 'Coimbatore', 'Jabalpur', 'Gwalior',
+  'Vijayawada', 'Jodhpur', 'Madurai', 'Raipur', 'Kota', 'Guwahati', 'Chandigarh', 'Solapur', 'Hubli', 'Dharwad',
+  'Bareilly', 'Moradabad', 'Mysuru', 'Mysore', 'Gurugram', 'Gurgaon', 'Aligarh', 'Jalandhar', 'Tiruchirappalli', 'Bhubaneswar',
+  'Salem', 'Warangal', 'Guntur', 'Bhiwandi', 'Saharanpur', 'Gorakhpur', 'Bikaner', 'Amravati', 'Noida', 'Jamshedpur',
+  'Bhilai', 'Cuttack', 'Firozabad', 'Kochi', 'Cochin', 'Nellore', 'Bhavnagar', 'Dehradun', 'Durgapur', 'Asansol',
+  'Rourkela', 'Nanded', 'Kolhapur', 'Ajmer', 'Akola', 'Gulbarga', 'Kalaburagi', 'Jamnagar', 'Ujjain', 'Loni',
+  'Siliguri', 'Jhansi', 'Ulhasnagar', 'Jammu', 'Sangli', 'Mangaluru', 'Mangalore', 'Erode', 'Belagavi', 'Belgaum',
+  'Ambattur', 'Tirunelveli', 'Malegaon', 'Gaya', 'Jalgaon', 'Udaipur', 'Maheshtala', 'Davanagere', 'Kozhikode', 'Kurnool',
+  'Rajpur Sonarpur', 'Bokaro', 'South Dumdum', 'Bellary', 'Patiala', 'Gopalpur', 'Agartala', 'Bhagalpur', 'Muzaffarnagar', 'Bhatpara',
+  'Panihati', 'Latur', 'Dhule', 'Rohtak', 'Korba', 'Bhilwara', 'Berhampur', 'Muzaffarpur', 'Ahmednagar', 'Mathura',
+  'Kollam', 'Avadi', 'Kadapa', 'Kamarhati', 'Sambalpur', 'Bilaspur', 'Shahjahanpur', 'Satara', 'Bijapur', 'Vijayapura',
+  'Rampur', 'Shivamogga', 'Shimoga', 'Chandrapur', 'Junagadh', 'Thrissur', 'Alwar', 'Bardhaman', 'Kulti', 'Nizamabad',
+  'Parbhani', 'Tumkur', 'Tumakuru', 'Khammam', 'Ozhukarai', 'Bihar Sharif', 'Panipat', 'Darbhanga', 'Bally', 'Aizawl',
+  'Dewas', 'Ichalkaranji', 'Karnal', 'Bathinda', 'Jalna', 'Eluru', 'Kirari Suleman Nagar', 'Barabanki', 'Purnia', 'Satna',
+  'Mau', 'Sonipat', 'Farrukhabad', 'Sagar', 'Durg', 'Imphal', 'Ratlam', 'Hapur', 'Arrah', 'Anantapur',
+  'Karimnagar', 'Etawah', 'Ambernath', 'North Dumdum', 'Bharatpur', 'Begusarai', 'New Delhi', 'Gandhidham', 'Baranagar', 'Tiruvottiyur',
+  'Puducherry', 'Sikar', 'Thoothukudi', 'Rewa', 'Mirzapur', 'Raichur', 'Pali', 'Ramagundam', 'Haridwar', 'Vijayanagaram',
+  'Katihar', 'Nagercoil', 'Sri Ganganagar', 'Karawal Nagar', 'Mango', 'Thanjavur', 'Bulandshahr', 'Uluberia', 'Katni', 'Sambhal',
+  'Singrauli', 'Nadiad', 'Secunderabad', 'Naihati', 'Yamunanagar', 'Bidhannagar', 'Pallavaram', 'Bidar', 'Munger', 'Panchkula',
+  'Burhanpur', 'Raurkela', 'Kharagpur', 'Dindigul', 'Gandhinagar', 'Hospet', 'Nangloi Jat', 'Malda', 'Ongole', 'Deoghar',
+  'Chapra', 'Haldia', 'Khandwa', 'Nandyal', 'Morena', 'Amroha', 'Anand', 'Bhind', 'Bhalswa Jahangir Pur', 'Madhyamgram',
+  'Ambala', 'Morbi', 'Fatehpur', 'Raebareli', 'Mahaboobnagar', 'Mahbubnagar', 'Chittoor', 'Bhusawal', 'Orai', 'Bahraich',
+  'Vellore', 'Mehsana', 'Raiganj', 'Sirsa', 'Danapur', 'Serampore', 'Sultan Pur Majra', 'Guna', 'Jaunpur', 'Panvel',
+  'Shivpuri', 'Surendranagar Dudhrej', 'Unnao', 'Hugli-Chinsurah', 'Alappuzha', 'Kottayam', 'Machilipatnam', 'Shimla', 'Adoni', 'Udupi',
+  'Tenali', 'Proddatur', 'Saharsa', 'Hindupur', 'Sasaram', 'Hajipur', 'Bhimavaram', 'Kumbakonam', 'Dehri', 'Madanapalle',
+  'Siwan', 'Bettiah', 'Guntakal', 'Srikakulam', 'Motihari', 'Dharmavaram', 'Gudivada', 'Narasaraopet', 'Bagaha', 'Miryalaguda',
+];

@@ -34,6 +34,7 @@ import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
+import { advanceReferral } from '../lib/referral.js';
 
 const log = scoped('aurix-webhook');
 
@@ -97,6 +98,18 @@ export function advancesStatus(from: ApplicationStatus | null, to: ApplicationSt
   const regress = !TERMINAL.has(to) && t <= f;
   const backTerminal = !!from && TERMINAL.has(from) && !(to === 'disbursed' && from === 'approved');
   return !(regress || backTerminal);
+}
+
+/**
+ * The app-side `internalStatus` a lender-reported status implies. A lender that has
+ * confirmed submission (under_review and beyond, including a later decline) means the
+ * web flow was completed → 'success'; a technical 'failed' means it dead-ended →
+ * 'failed'. Earlier stages say nothing, so the badge stays 'just_applied'.
+ */
+export function internalStatusFor(status: ApplicationStatus | string | null | undefined): 'success' | 'failed' | null {
+  if (!status) return null;
+  if (status === 'failed') return 'failed';
+  return (RANK[status] ?? 0) >= RANK.under_review ? 'success' : null;
 }
 
 /** Map a KFT journey (state, status, reason) onto our ApplicationStatus. */
@@ -314,10 +327,14 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
         if (mapped === 'approved' && !laTarget.approvedAt) laStamp.approvedAt = now;
         if ((mapped === 'rejected' || mapped === 'failed') && !laTarget.rejectedAt) laStamp.rejectedAt = now;
         if (mapped === 'disbursed' && !laTarget.disbursedAt) laStamp.disbursedAt = now;
+        const internal = laTarget.internalStatus === 'just_applied' ? internalStatusFor(mapped) : null;
         await prisma.lenderApplication.update({
           where: { id: laTarget.id },
-          data: { status: mapped, ...laStamp, ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}) },
+          data: { status: mapped, ...(internal ? { internalStatus: internal } : {}), ...laStamp, ...(data.application_id != null ? { kftApplicationId: String(data.application_id) } : {}) },
         });
+      } else if (laTarget && laTarget.internalStatus === 'just_applied' && internalStatusFor(laTarget.status)) {
+        // Status already moved on (before this fix existed) but the badge never followed — heal it.
+        await prisma.lenderApplication.update({ where: { id: laTarget.id }, data: { internalStatus: internalStatusFor(laTarget.status)! } });
       }
     }
   }
@@ -332,6 +349,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   }
 
   await prisma.loanApplication.update({ where: { id: application.id }, data: { status: mapped } });
+  if (mapped === 'disbursed') void advanceReferral(application.userId, 'disbursed'); // friend-referral milestone (best-effort)
 
   // Keep the Loan row (if any) in step so My Loans + Repay screens agree.
   if (mapped === 'disbursed' || mapped === 'closed') {

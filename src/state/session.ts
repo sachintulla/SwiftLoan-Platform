@@ -7,6 +7,8 @@ const VOICE_FAB_SIDE_KEY = 'swiftloan.session.voiceFabSide';
 const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
 const PREFILL_DRAFT_KEY = 'swiftloan.applicant.prefillDraft';
 const INTRO_PITCH_HEARD_KEY = 'swiftloan.voice.introPitchHeard';
+const INSTALL_CLAIMED_KEY = 'swiftloan.install.claimed';
+const PENDING_REFERRAL_KEY = 'swiftloan.referral.pending';
 
 export interface StoredTokens {
   accessToken: string;
@@ -217,4 +219,42 @@ export async function loadNudgeTimers<T>(): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Install attribution runs once per install. AsyncStorage is wiped on uninstall, so
+ * a reinstall correctly counts as a new install.
+ */
+export async function loadInstallClaimed(): Promise<boolean> {
+  return (await AsyncStorage.getItem(INSTALL_CLAIMED_KEY).catch(() => null)) === '1';
+}
+
+export async function saveInstallClaimed(): Promise<void> {
+  await AsyncStorage.setItem(INSTALL_CLAIMED_KEY, '1').catch(() => {});
+}
+
+/** A friend's referral code waiting for the user to sign in, so it can be redeemed. */
+export interface PendingReferral {
+  code: string;
+  downloadId: string | null;
+  method: string | null;
+}
+
+export async function savePendingReferral(p: PendingReferral): Promise<void> {
+  await AsyncStorage.setItem(PENDING_REFERRAL_KEY, JSON.stringify(p)).catch(() => {});
+}
+
+export async function loadPendingReferral(): Promise<PendingReferral | null> {
+  const raw = await AsyncStorage.getItem(PENDING_REFERRAL_KEY).catch(() => null);
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as PendingReferral;
+    return p && typeof p.code === 'string' ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingReferral(): Promise<void> {
+  await AsyncStorage.removeItem(PENDING_REFERRAL_KEY).catch(() => {});
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, ScrollView } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
@@ -10,6 +10,7 @@ import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/ses
 import { useOfferSelect, displayLenderName } from './offers';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import YubiOffersTab from '../components/YubiOffersTab';
+import { LogoLockup } from '../components/Logo';
 
 // Statuses whose applications still carry showable offers.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
@@ -41,6 +42,14 @@ export default function MyOffers() {
   // Two sources of offers: 'knight' = our matched (Aurix/Knight Fintech) offers;
   // 'yubi' = the Yubi Markets web journey hosted inline in its own tab.
   const [tab, setTab] = useState<'knight' | 'yubi'>('knight');
+  // Explore-lenders webview is lazily mounted on first visit, then kept alive
+  // (hidden) across tab switches so the partner journey keeps its place instead
+  // of reloading every time. Bumping `yubiKey` remounts it — a fresh start from
+  // the refresh icon beside the tab label.
+  const [yubiMounted, setYubiMounted] = useState(false);
+  const [yubiKey, setYubiKey] = useState(0);
+  const openYubi = () => { setYubiMounted(true); setTab('yubi'); };
+  const refreshYubi = () => { setYubiMounted(true); setTab('yubi'); setYubiKey(k => k + 1); };
 
   // Apply from My Offers → back from the offers result returns here (not into
   // the funnel). See back() in store.ts.
@@ -107,14 +116,6 @@ export default function MyOffers() {
 
   useEffect(() => { hydrate(); }, [hydrate]);
 
-  // Recheck offers = run the WHOLE funnel again, every time: details (Continue)
-  // → optional (Continue/Skip) → Verify PAN → eligibility. Clearing
-  // applicationId starts a brand-new application (basic.tsx creates it), so a
-  // fresh eligibility run's offers replace the saved ones on return (hydrate)
-  // while any existing My Loans applications stay intact. Same entry as
-  // startApply — the funnel now begins at the details step.
-  const refresh = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basic'); };
-
   // Retry: re-run eligibility (→ Aurix) through the same animated "finding
   // offers" loader as the first attempt. finding.tsx makes the prequalify call
   // and lands back here with the offers or the failure state.
@@ -125,101 +126,133 @@ export default function MyOffers() {
 
   const hasOffers = offers.length > 0;
 
-  // Title + two-source tab bar, shared by both tab layouts.
+  // Show the "Explore lenders" tab only once the user has actually applied and
+  // has a result to build on (an eligibility run exists → applicationId set).
+  // Before that, the Yubi tab has nothing to refer and would just repeat the
+  // "Apply for a loan" CTA that Instant offers already shows — a confusing
+  // duplicate. So first-timers see a single, tab-less Instant-offers screen;
+  // the tab bar appears after the first apply, positive or negative.
+  const showTabs = state.altOffersEnabled && !!state.applicationId;
+
+  // If the tabs disappear (e.g. after a logout/reset clears applicationId while
+  // parked on the Yubi tab), fall back to the Instant-offers view.
+  useEffect(() => {
+    if (!showTabs && tab === 'yubi') setTab('knight');
+  }, [showTabs, tab]);
+
+  // Title + (conditional) two-source tab bar, shared by both tab layouts.
   const header = (
     <>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={[font(800), styles.title]}>{t.myOffersTitle}</Text>
-          <Text style={[font(400), styles.sub]}>
+          <Text style={[font(400), styles.sub]} numberOfLines={2}>
             {tab === 'yubi'
               ? t.offersTabYubiSub
               : hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
           </Text>
         </View>
-        {tab === 'knight' && hasOffers && (
-          <Pressable onPress={refresh} accessibilityLabel={t.recheckOffers} style={({ pressed }) => [styles.refreshBtn, pressed && { opacity: 0.7 }]}>
-            <Icon name="autorenew" size={19} color={colors.primary} />
-            <Text style={[font(700), styles.refreshLabel]}>{t.recheckOffers}</Text>
-          </Pressable>
-        )}
+        {/* SwiftLoan branding lockup — shown on both tabs in place of the old
+            "Recheck offers" action, so the marketplace always reads as ours. */}
+        <LogoLockup size={26} />
       </View>
-      <View style={styles.tabsRow}>
-        {(['knight', 'yubi'] as const).map(k => (
-          <Pressable key={k} onPress={() => setTab(k)} accessibilityRole="tab" style={styles.tabBtn}>
-            <View style={styles.tabLabelRow}>
-              {/* Sparkle marks the lender marketplace tab as the richer, exciting
-                  destination — not a secondary "more" option. */}
-              {k === 'yubi' ? <Icon name="auto_awesome" size={15} color={tab === k ? colors.primary : colors.textSoft} /> : null}
-              <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
-                {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
-              </Text>
-            </View>
-            <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
-          </Pressable>
-        ))}
-      </View>
+      {/* Tab bar only once an application exists (develop) — each tab opens/refreshes the
+          partner journey as on main: Explore lenders reopens it, the refresh icon restarts it. */}
+      {showTabs && (
+        <View style={styles.tabsRow}>
+          {(['knight', 'yubi'] as const).map(k => (
+            <Pressable key={k} onPress={() => (k === 'yubi' ? openYubi() : setTab(k))} accessibilityRole="tab" style={styles.tabBtn}>
+              <View style={styles.tabLabelRow}>
+                {/* Sparkle marks the lender marketplace tab as the richer, exciting
+                    destination — not a secondary "more" option. */}
+                {k === 'yubi' ? <Icon name="auto_awesome" size={15} color={tab === k ? colors.primary : colors.textSoft} /> : null}
+                <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
+                  {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
+                </Text>
+                {/* Refresh beside the active Explore-lenders label: restart the
+                    partner journey from the beginning (the tab otherwise keeps its
+                    state across switches). */}
+                {k === 'yubi' && tab === 'yubi' ? (
+                  <Pressable onPress={refreshYubi} hitSlop={10} accessibilityRole="button" accessibilityLabel={t.recheckOffers}>
+                    <Icon name="refresh" size={16} color={colors.primary} />
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
+            </Pressable>
+          ))}
+        </View>
+      )}
     </>
   );
 
-  // Yubi tab: the hosted journey fills the screen (non-scrolling), full-width.
-  if (tab === 'yubi') {
-    return (
-      <Screen scroll={false} bottomNav padded={false}>
-        <View style={{ paddingHorizontal: 18 }}>{header}</View>
-        <View style={{ flex: 1, marginTop: 8 }}>
-          <YubiOffersTab onApply={startApply} />
-        </View>
-      </Screen>
-    );
-  }
-
-  // Knight (matched) tab: the existing scrollable offers list / empty state.
+  // One stable layout for both tabs: the <Screen> wrapper, the branding header
+  // and the tab bar stay mounted across switches — only the body below swaps.
+  // Previously each tab returned its own <Screen> (scroll vs non-scroll), so
+  // switching remounted the whole screen and the header/tabs visibly jumped.
   return (
-    <Screen scroll bottomNav padded contentStyle={{ paddingBottom: 120 }}>
-      {header}
-      {loading ? (
-        <View style={{ paddingTop: 60, alignItems: 'center' }}>
-          <ActivityIndicator color={colors.primary} />
+    <Screen scroll={false} bottomNav padded={false}>
+      <View style={{ paddingHorizontal: 18 }}>{header}</View>
+      {/* Explore lenders: lazily mounted on first visit, then kept alive but
+          hidden on other tabs so the partner journey doesn't reload on every
+          switch (its place is preserved). `yubiKey` remounts it on refresh. */}
+      {yubiMounted ? (
+        <View style={[{ flex: 1, marginTop: 8 }, tab !== 'yubi' && styles.hidden]} pointerEvents={tab === 'yubi' ? 'auto' : 'none'}>
+          <YubiOffersTab key={yubiKey} onApply={startApply} />
         </View>
-      ) : hasOffers ? (
-        <>
-          {offers.length >= 2 ? (
-            <Pressable
-              onPress={() => go('compare')}
-              accessibilityRole="button"
-              accessibilityLabel={t.compareAllOffersTemplate.replace('{n}', String(offers.length))}
-              style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
-            >
-              <View style={styles.compareIcon}>
-                <Icon name="balance" size={20} color={colors.primary} />
+      ) : null}
+      {tab === 'knight' ? (
+        // Instant offers: the matched offers list / empty state, scrolling
+        // inside the stable frame.
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {loading ? (
+            <View style={{ paddingTop: 60, alignItems: 'center' }}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : hasOffers ? (
+            <>
+              {offers.length >= 2 ? (
+                <Pressable
+                  onPress={() => go('compare')}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.compareAllOffersTemplate.replace('{n}', String(offers.length))}
+                  style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
+                >
+                  <View style={styles.compareIcon}>
+                    <Icon name="balance" size={20} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[font(700), styles.compareLabel]}>{t.compareAllOffersTemplate.replace('{n}', String(offers.length))}</Text>
+                    <Text style={[font(500), styles.compareSub]}>{t.compareOffersSub}</Text>
+                  </View>
+                  <Icon name="chevron_right" size={22} color={colors.primary} />
+                </Pressable>
+              ) : null}
+              <View style={{ gap: 14 }}>
+                {offers.map(o => (
+                  <MyOfferCard key={o.id} offer={o} onSelect={select} />
+                ))}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[font(700), styles.compareLabel]}>{t.compareAllOffersTemplate.replace('{n}', String(offers.length))}</Text>
-                <Text style={[font(500), styles.compareSub]}>{t.compareOffersSub}</Text>
-              </View>
-              <Icon name="chevron_right" size={22} color={colors.primary} />
-            </Pressable>
-          ) : null}
-          <View style={{ gap: 14 }}>
-            {offers.map(o => (
-              <MyOfferCard key={o.id} offer={o} onSelect={select} />
-            ))}
-          </View>
-          {/* More lender options live in the "Yubi" tab above. */}
-          <Pressable onPress={() => setTab('yubi')} style={styles.moreRow} accessibilityRole="button">
-            <Icon name="storefront" size={15} color={colors.primary} />
-            <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
-          </Pressable>
-        </>
-      ) : (
-        <EmptyOffers
-          onApply={startApply}
-          onRetry={retryEligibility}
-          offersError={state.offersError}
-          onSeeYubi={() => setTab('yubi')}
-        />
-      )}
+              {/* More lender options live in the "Explore lenders" tab above. */}
+              <Pressable onPress={openYubi} style={styles.moreRow} accessibilityRole="button">
+                <Icon name="storefront" size={15} color={colors.primary} />
+                <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <EmptyOffers
+              onApply={startApply}
+              onRetry={retryEligibility}
+              offersError={state.offersError}
+              onSeeYubi={openYubi}
+            />
+          )}
+        </ScrollView>
+      ) : null}
     </Screen>
   );
 }
@@ -399,7 +432,9 @@ function Benefit({ icon, text }: { icon: string; text: string }) {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8, marginBottom: 18 },
   title: { fontSize: 26, letterSpacing: -0.5, color: colors.text },
-  sub: { fontSize: 13.5, color: colors.textSoft, marginTop: 4 },
+  // Fixed 2-line height so the tab bar below never shifts when the subtitle
+  // text differs per tab (1 line on Instant offers, 2 on Explore lenders).
+  sub: { fontSize: 13.5, lineHeight: 18, color: colors.textSoft, marginTop: 4, minHeight: 36 },
   refreshBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: colors.chip, borderRadius: 20, borderWidth: 1, borderColor: colors.line,
@@ -449,6 +484,7 @@ const styles = StyleSheet.create({
   moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18, paddingHorizontal: 20 },
   // Two-source tab bar (Knight Fintech | Yubi)
   tabsRow: { flexDirection: 'row', marginTop: 4, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
+  hidden: { display: 'none' },
   tabBtn: { flex: 1, alignItems: 'center', paddingBottom: 0 },
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tabTxt: { fontSize: 14.5, color: colors.textSoft, paddingVertical: 10 },

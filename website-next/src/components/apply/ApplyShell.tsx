@@ -3,12 +3,11 @@
 import Link from 'next/link';
 import { ShieldCheck, FileCheck, Clock3, ChevronLeft, Lock, Check } from 'lucide-react';
 import { AccountRail, MobileTopBar, type AccountRailUser } from './AccountRail';
+import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
 
-const BRAND_POINTS = [
-  { icon: ShieldCheck, text: 'Bank-grade 256-bit encryption on every step' },
-  { icon: FileCheck, text: '100% digital — no physical paperwork' },
-  { icon: Clock3, text: 'Most applicants get offers in under 5 minutes' },
-];
+const BRAND_ICONS = [ShieldCheck, FileCheck, Clock3];
 
 /**
  * The persistent split-screen frame for the whole /apply funnel — a left
@@ -23,7 +22,7 @@ const BRAND_POINTS = [
 export function ApplyShell({
   children,
   backHref,
-  backLabel = 'Back',
+  backLabel,
   stepLabel,
   progressPct,
   center = false,
@@ -40,6 +39,7 @@ export function ApplyShell({
   wide?: boolean;
   accountUser?: AccountRailUser | null;
 }) {
+  const t = useCopy(applyShellCopy);
   return (
     <div className="bg-background flex min-h-screen w-full">
       {accountUser ? (
@@ -52,23 +52,26 @@ export function ApplyShell({
             SwiftLoan
           </div>
           <div className="relative z-10">
-            <h2 className="text-2xl leading-tight font-extrabold">Smarter borrowing starts here</h2>
+            <h2 className="text-2xl leading-tight font-extrabold">{t.brandHeading}</h2>
             <p className="mt-2 text-sm leading-relaxed text-white/70">
-              We compare offers from 12+ RBI-registered lending partners to find your best rate — no paperwork, no branch visits.
+              {t.brandBody}
             </p>
           </div>
           <ul className="relative z-10 flex flex-col gap-3.5">
-            {BRAND_POINTS.map(({ icon: Icon, text }) => (
+            {t.brandPoints.map((text, i) => {
+              const Icon = BRAND_ICONS[i];
+              return (
               <li key={text} className="flex items-start gap-3 text-sm text-white/85">
                 <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/10">
                   <Icon className="h-3.5 w-3.5" />
                 </span>
                 {text}
               </li>
-            ))}
+              );
+            })}
           </ul>
           <span className="relative z-10 mt-auto inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-2 text-xs text-white/90">
-            <Lock className="h-3.5 w-3.5" /> Trusted by 50,000+ borrowers across India
+            <Lock className="h-3.5 w-3.5" /> {t.brandPill}
           </span>
         </aside>
       )}
@@ -80,28 +83,32 @@ export function ApplyShell({
             <div className="bg-brand-gradient h-full transition-[width] duration-500" style={{ width: `${progressPct}%` }} />
           </div>
         )}
-        {(backHref || stepLabel) && (
-          <div className={`flex items-center justify-between gap-3 pt-5 sm:px-10 ${wide ? 'px-4' : 'px-6'}`}>
+        {/* Always rendered on desktop so the language switch has a home on every step; phones have it in the top bar. */}
+        <div className={`${backHref || stepLabel ? 'flex' : 'hidden lg:flex'} items-center justify-between gap-3 pt-5 sm:px-10 ${wide ? 'px-4' : 'px-6'}`}>
             {backHref ? (
               <Link
                 href={backHref}
                 className="border-border inline-flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-2 text-sm font-semibold whitespace-nowrap text-muted-foreground"
               >
                 <ChevronLeft className="h-4 w-4" />
-                {backLabel}
+                {backLabel ?? t.back}
               </Link>
             ) : (
               <span />
             )}
-            {stepLabel && (
-              // Phones: with a back link beside it there's no room for both,
-              // and the stepper / page title already say where you are.
-              <span className={`bg-accent text-accent-foreground rounded-full px-3 py-1.5 text-xs font-bold whitespace-nowrap ${backHref ? 'hidden sm:inline-block' : ''}`}>
-                {stepLabel}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {stepLabel && (
+                // Phones: with a back link beside it there's no room for both,
+                // and the stepper / page title already say where you are.
+                <span className={`bg-accent text-accent-foreground rounded-full px-3 py-1.5 text-xs font-bold whitespace-nowrap ${backHref ? 'hidden sm:inline-block' : ''}`}>
+                  {stepLabel}
+                </span>
+              )}
+              <div className="hidden lg:block">
+                <LanguageSwitcher />
+              </div>
+            </div>
           </div>
-        )}
         <div className={`flex-1 sm:px-10 ${wide ? 'px-4 pt-4 pb-6' : 'px-6 pt-6 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
           <div className={center ? 'w-full max-w-md' : wide ? 'w-full' : 'mx-auto w-full max-w-2xl'}>{children}</div>
         </div>
@@ -111,10 +118,11 @@ export function ApplyShell({
 }
 
 export function Stepper({ step }: { step: 1 | 2 | 3 }) {
+  const t = useCopy(applyShellCopy);
   const items = [
-    { n: 1, label: 'PAN & consent' },
-    { n: 2, label: 'Basics' },
-    { n: 3, label: 'More details' },
+    { n: 1, label: t.stepper[0] },
+    { n: 2, label: t.stepper[1] },
+    { n: 3, label: t.stepper[2] },
   ];
   return (
     <div className="mb-6 flex items-center">

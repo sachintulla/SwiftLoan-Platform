@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Easing, StyleSheet, Image } from 'react-native';
+import { View, Text, Animated, Easing, StyleSheet, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
@@ -77,10 +77,31 @@ export default function Finding() {
     if (state.applicationId) {
       api.prequalify(state.applicationId)
         .then((res: any) => {
-          const { offers, friendlyError } = res as any;
+          const { offers, reason, revasure } = res as any;
           const list = offers || [];
-          set({ offersError: friendlyError || '' });
+          // Our own copy for the reason code — never the lender's wording.
+          const friendlyError = reason === 'not_eligible' ? t.findingErrNotEligible
+            : reason === 'duplicate' ? t.findingErrDuplicate
+            : reason === 'technical' ? t.findingErrTechnical
+            : '';
+          set({ offersError: friendlyError });
           mergeApiContext({ prequalifyResult: { offers, friendlyError } });
+          // Debug alert for the Revasure lead result (parallel lender group) —
+          // surfaces whatever the backend got back. DEV builds only: __DEV__ is
+          // false in release, so it never reaches production users. Only shown
+          // when the backend actually attempted Revasure.
+          if (__DEV__ && revasure && revasure.status !== 'disabled') {
+            const ok = revasure.ok;
+            Alert.alert(
+              ok ? 'Revasure: Lead created' : 'Revasure: Not created',
+              [
+                `status: ${revasure.status}`,
+                revasure.httpStatus != null ? `http: ${revasure.httpStatus}` : null,
+                revasure.leadId ? `lead_id: ${revasure.leadId}` : null,
+                revasure.message ? `message: ${revasure.message}` : null,
+              ].filter(Boolean).join('\n'),
+            );
+          }
           if (list.length > 0) {
             // Cache so My Offers renders instantly (before its own re-fetch).
             saveOffersCache({ applicationId: state.applicationId!, savedAt: Date.now(), offers: list });

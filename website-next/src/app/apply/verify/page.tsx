@@ -6,11 +6,14 @@ import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
 import { requestOtp, verifyOtp } from '@/lib/session';
+import { useCopy } from '@/lib/i18n';
+import { applyFlowCopy } from '@/i18n/apply-flow';
 
 const RESEND_SECONDS = 29;
 
 export default function VerifyOtpPage() {
   const router = useRouter();
+  const t = useCopy(applyFlowCopy).verify;
   const { phone, sessionReady, setApplicationId } = useApply();
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +94,7 @@ export default function VerifyOtpPage() {
       // landed a just-verified visitor straight back on the OTP entry form.
       router.replace(result.hasApplication ? '/account' : '/apply/step-1');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Invalid or expired code.');
+      setError(e instanceof Error ? e.message : t.invalidCode);
       setDigits(['', '', '', '', '', '']);
       inputs.current[0]?.focus();
     } finally {
@@ -117,17 +120,17 @@ export default function VerifyOtpPage() {
     try {
       await requestOtp(phone);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not resend OTP.');
+      setError(e instanceof Error ? e.message : t.resendFailed);
     }
   };
 
   return (
-    <ApplyShell backHref="/apply" backLabel="Edit number" stepLabel="Verify OTP" progressPct={12} center>
+    <ApplyShell backHref="/apply" backLabel={t.backLabel} stepLabel={t.stepLabel} progressPct={12} center>
       <div className="flex flex-col items-center gap-6">
         <div>
-          <h1 className="text-2xl font-extrabold">Verify your number</h1>
+          <h1 className="text-2xl font-extrabold">{t.title}</h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            We&apos;ve sent a 6-digit code to <strong className="text-foreground">+91 {phone}</strong>
+            {t.sentA}<strong className="text-foreground">+91 {phone}</strong>{t.sentB}
           </p>
         </div>
 
@@ -146,7 +149,8 @@ export default function VerifyOtpPage() {
               // Box 1 carries the one-time-code hint so the OS offers the SMS
               // code; no hard 1-char limit, or an autofilled code would be cut.
               autoComplete={i === 0 ? 'one-time-code' : 'off'}
-              aria-label={`Digit ${i + 1} of 6`}
+              aria-label={t.digitLabel(i + 1)}
+              data-voice-otp="true"
               className={`input-interactive field-input h-14 w-12 rounded-xl text-center text-xl font-bold ${d ? 'border-primary bg-accent' : ''}`}
             />
           ))}
@@ -155,14 +159,14 @@ export default function VerifyOtpPage() {
         {error && <p className="text-danger text-xs font-semibold">{error}</p>}
 
         <span className="bg-warning-soft text-warning rounded-full px-3 py-1.5 text-xs font-bold">
-          {seconds > 0 ? `⏱ Resend OTP in 0:${String(seconds).padStart(2, '0')}` : (
-            <button onClick={resend} className="underline">Resend OTP</button>
+          {seconds > 0 ? t.resendIn(`0:${String(seconds).padStart(2, '0')}`) : (
+            <button onClick={resend} className="underline">{t.resend}</button>
           )}
         </span>
 
         <div className="w-full max-w-xs">
           <PrimaryButton onClick={submit} disabled={code.length !== 6} loading={loading}>
-            Verify &amp; Continue
+            {t.verifyContinue}
           </PrimaryButton>
         </div>
       </div>

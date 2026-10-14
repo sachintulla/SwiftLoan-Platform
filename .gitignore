@@ -61,6 +61,11 @@ android/local.properties
 *.keystore
 !debug.keystore
 *.jks
+# Play upload-signing certificate exports — keep out of the repo
+android/app/upload_cert.der
+android/app/upload_certificate.pem
+*.der
+upload_certificate.pem
 
 # Metro
 .metro-health-check*

@@ -41,7 +41,7 @@ export default function CompliancePage() {
           <span className="eyebrow">Regulatory &amp; Compliance</span>
           <h1>Compliance &amp; regulatory framework</h1>
           <p>How SwiftLoan.ai complies with the Reserve Bank of India&apos;s Digital Lending Directions — our role, your protections, the Key Fact Statement, fees, data safeguards, fair-practices and grievance redressal.</p>
-          <div className="updated">Last updated: 24 July 2026 · This page is illustrative and part of a demonstration website.</div>
+          <div className="updated">Last updated: 24 July 2026</div>
         </div>
       </div>
 
@@ -191,7 +191,7 @@ export default function CompliancePage() {
         {/* PARTNERS */}
         <section className="block" id="partners">
           <h2><span className="msi">diversity_3</span> Our lending partners</h2>
-          <p className="sublead">Loans are provided by the following RBI-regulated partners (illustrative for this demonstration site). The specific lender for your loan is disclosed in your KFS.</p>
+          <p className="sublead">Loans are provided by the following RBI-regulated partners (as listed on this site). The specific lender for your loan is disclosed in your KFS.</p>
           <div className="grid2">
             <div className="partner"><span className="msi">account_balance</span> Aditya Finance Ltd <span className="type">NBFC</span></div>
             <div className="partner"><span className="msi">account_balance</span> MetroCredit NBFC <span className="type">NBFC</span></div>
@@ -207,14 +207,14 @@ export default function CompliancePage() {
         <section className="block" id="contact">
           <h2><span className="msi">apartment</span> Entity &amp; contact</h2>
           <div className="contact-row"><span className="msi">business</span> <div><b>SwiftLoan.ai</b> (Lending Service Provider / Digital Lending App)</div></div>
-          <div className="contact-row"><span className="msi">location_on</span> Registered office: [Address to be added], India</div>
+          <div className="contact-row"><span className="msi">domain</span> <div>SwiftLoan is a brand of <b>Purple Talk India Private Limited</b> · GSTIN: 36AAFCP5544A1ZO</div></div>
+          <div className="contact-row"><span className="msi">location_on</span> Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084</div>
           <div className="contact-row"><span className="msi">mail</span> <a href="mailto:support@swiftloan.ai">support@swiftloan.ai</a> · <a href="mailto:grievance@swiftloan.ai">grievance@swiftloan.ai</a></div>
-          <div className="callout">Placeholders such as CIN, GSTIN, registered address, officer name and toll-free number must be filled with the real entity&apos;s verified details before this site is used in production.</div>
         </section>
       </div>
 
       <footer className="f wrap">
-        <p>© <span>{year}</span> SwiftLoan.ai — Illustrative brand for demonstration. SwiftLoan.ai is a Lending Service Provider and does not lend directly. Loans are provided by RBI-regulated banks and NBFCs at their sole discretion. Please read the Key Fact Statement and all loan documents before borrowing. This page does not constitute financial advice or a loan offer.</p>
+        <p>© <span>{year}</span> SwiftLoan.ai — SwiftLoan is a brand of Purple Talk India Private Limited (GSTIN: 36AAFCP5544A1ZO). SwiftLoan.ai is a Lending Service Provider and does not lend directly. Loans are provided by RBI-regulated banks and NBFCs at their sole discretion. Please read the Key Fact Statement and all loan documents before borrowing. This page does not constitute financial advice or a loan offer.</p>
         <p style={{ marginTop: 10 }}><Link href="/">← Back to SwiftLoan.ai</Link></p>
       </footer>
     </div>

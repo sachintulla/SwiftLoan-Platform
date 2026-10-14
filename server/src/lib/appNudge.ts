@@ -29,6 +29,7 @@ export async function handleAppNudge(
   screen: string | null,
   label?: string,
 ): Promise<void> {
+  if (/^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '')) return;
   try {
     // 1) Admin alert (one open notification per user at a time).
     const open = await prisma.notification.findFirst({ where: { type: 'app_nudge', entityId: userId, read: false } });

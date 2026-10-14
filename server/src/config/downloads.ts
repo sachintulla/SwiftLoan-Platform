@@ -28,6 +28,18 @@ export const downloads = {
   },
 };
 
+// Where /dl sends a visitor. DUMMY defaults until the real listings exist:
+//  - android: the hosted test APK (a sideload — no Play Install Referrer, so those
+//    installs are matched by IP window; a play.google.com URL here switches /dl
+//    to the deterministic referrer automatically).
+//  - ios: a placeholder TestFlight public link. Replace with the real
+//    https://testflight.apple.com/join/<code> (or the App Store URL) via IOS_STORE_URL.
+export const stores = {
+  android: process.env.ANDROID_STORE_URL ?? downloads.builds.generic.url,
+  ios: process.env.IOS_STORE_URL ?? 'https://testflight.apple.com/join/SWIFTLOAN-DUMMY',
+  web: process.env.WEBSITE_URL ?? 'https://swiftloan-website.onrender.com',
+};
+
 // Build the links a captured lead needs to continue in-app.
 export function contextLinks(token: string) {
   return {

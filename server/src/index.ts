@@ -4,6 +4,10 @@ import { prisma } from './lib/prisma.js';
 import { assertPiiKeyConfigured } from './lib/pii.js';
 import { startJobs, stopJobs } from './jobs/tracking.jobs.js';
 import { startApiLogRetention, stopApiLogRetention } from './lib/apiLog.js';
+import { trustExtraCaForFetch } from './lib/devCa.js';
+
+// Dev only (no-op in production): honour NODE_EXTRA_CA_CERTS from .env for outbound fetch.
+await trustExtraCaForFetch();
 
 const app = createApp();
 // Refuse to boot in production without a real PII key (PAN records are encrypted with it).

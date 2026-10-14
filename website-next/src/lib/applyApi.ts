@@ -36,13 +36,34 @@ export interface Offer {
   emiOptions?: { id: string; tenureMonths: number; monthlyEmi: number }[];
 }
 
+/**
+ * Lender-application statuses that mean "the lender has not confirmed the submission yet":
+ * 'offers_ready' (the applicant tapped Apply — our own record, nothing reported by the lender)
+ * and 'handoff' (the lender reports the journey started). 'handoff' is only ever set from the
+ * lender's own report; our server never writes it. From 'under_review' on the lender has it.
+ */
+export const LENDER_PENDING_STATUSES = ['offers_ready', 'handoff'];
+export function isLenderPending(status: string | null | undefined): boolean {
+  return !!status && LENDER_PENDING_STATUSES.includes(status);
+}
+
+/**
+ * The applicant tapped Apply (the offer is `applied`) but the lender has not confirmed it —
+ * they opened the lender's page and came back without finishing (e.g. never entered the OTP).
+ * They can resume the SAME lender page, so the offers list keeps these and shows "Re-apply".
+ * Once the lender reports progress this turns false and the offer leaves the list as committed.
+ */
+export function offerNeedsReapply(o: Pick<Offer, 'applied' | 'lenderStatus' | 'redirectionUrl'>): boolean {
+  return !!o.applied && isLenderPending(o.lenderStatus) && !!o.redirectionUrl;
+}
+
 export interface LoanApplication {
   id: string;
   ref: string;
   status: string;
-  // Why prequalify landed on zero offers — Aurix's own decline message when
-  // status is 'rejected', or a generic retry prompt when status is 'failed'.
-  // Null otherwise (offers exist, or prequalify hasn't run yet).
+  // Why prequalify landed on zero offers — a reason CODE ('not_eligible' | 'duplicate' |
+  // 'technical'), never lender-written text; the offers page maps it to our own copy. Older rows may
+  // hold a sentence, which is ignored. Null otherwise (offers exist, or prequalify hasn't run yet).
   prequalifyReason?: string | null;
   amount: number;
   tenureMonths: number;
@@ -51,6 +72,7 @@ export interface LoanApplication {
   loan?: { id: string } | null;
   lenderApplications?: {
     id: string;
+    offerId?: string;
     status: string;
     lenderName: string | null;
     amount: number;
@@ -59,6 +81,15 @@ export interface LoanApplication {
     tenureMonths: number | null;
     redirectionUrl: string | null;
     appliedAt: string;
+    updatedAt?: string;
+  }[];
+  /** Partner (Yubi / YMPL) referrals the applicant proceeded with — each is a row in My Applications. */
+  partnerReferrals?: {
+    id: string;
+    applicationId: string;
+    appliedAt: string | null;
+    appliedLender: string | null;
+    lastStatus: string | null;
   }[];
 }
 
@@ -139,8 +170,13 @@ export async function patchNotifications(patch: { loanUpdates?: boolean; securit
   return body.user;
 }
 
-export async function refreshApplicationStatus(applicationId: string) {
-  const body = await authFetch(`/api/applications/${applicationId}/refresh-status`, { method: 'POST' });
+export async function refreshApplicationStatus(applicationId: string, lenderApplicationId?: string | null) {
+  // One LoanApplication can hold several lender applications (a different offer each) —
+  // the server needs to know WHICH one, or it always queries the lender with no offer code.
+  const body = await authFetch(`/api/applications/${applicationId}/refresh-status`, {
+    method: 'POST',
+    body: JSON.stringify({ lenderApplicationId: lenderApplicationId ?? undefined }),
+  });
   // A failed lender call degrades server-side to "return what we already
   // knew" (see applications.routes.ts) rather than a thrown error — surface
   // that as a soft warning, not a broken page.

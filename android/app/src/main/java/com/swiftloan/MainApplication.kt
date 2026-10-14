@@ -8,6 +8,7 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.swiftloan.voice.VoiceAudioPackage
 import com.swiftloan.panocr.PanOcrPackage
 import com.swiftloan.uisound.UiSoundPackage
+import com.swiftloan.attribution.InstallReferrerPackage
 import com.upshotreactlibrary.UpshotApplication
 
 /**
@@ -32,6 +33,7 @@ class MainApplication : UpshotApplication(), ReactApplication {
           add(VoiceAudioPackage())
           add(PanOcrPackage())
           add(UiSoundPackage())
+          add(InstallReferrerPackage())
         },
     )
   }

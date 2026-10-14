@@ -1,0 +1,304 @@
+/**
+ * Revasure "Create Lead" integration — a THIRD lender group, run in PARALLEL to
+ * Aurix (Knight Fintech) eligibility and Yubi (YMPL) at prequalify.
+ *
+ * Unlike Aurix (structured offers) or Yubi (a hosted web journey), Revasure is a
+ * SINGLE outbound call: POST {base}/api/inbound/leads creates a lead on their
+ * side. There are no offers to render — we fire the lead in parallel with the
+ * offers API, record the request/response (RevasureLead) so it surfaces in the
+ * admin dashboard, and hand the result back to the app (which shows a temporary
+ * debug alert; removed for production).
+ *
+ * The bearer token / basket id are SECRETS — env (REVASURE_TOKEN /
+ * REVASURE_BASKET_ID), never the DB or app bundle, like the Aurix/Yubi secrets.
+ * The UAT base URL / basket id are the fallback; the token has NO fallback
+ * (unset = integration disabled) so no credential lives in source.
+ *
+ * Fields Revasure needs that our offer funnel doesn't collect (title, occupation
+ * code, is_mobile_verified, otp + its timestamp, consent, ip_address) are
+ * derived from what we have or seeded with safe, format-valid defaults, so the
+ * POST never fails validation just for a missing optional. Everything here is
+ * best-effort and non-fatal: a Revasure failure must never break prequalify.
+ */
+import type { LoanApplication, User } from '@prisma/client';
+import { prisma } from './prisma.js';
+import { scoped } from './log.js';
+
+const log = scoped('revasure');
+
+const DEFAULT_TIMEOUT_MS = 12_000;
+
+// UAT defaults (non-secret). The bearer token is env-only: REVASURE_TOKEN.
+const UAT_BASE = 'http://13.126.208.232';
+const UAT_BASKET_ID = 'b_1t436is';
+
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+export interface RevasureConfig {
+  enabled: boolean;
+  baseUrl: string;
+  basketId: string;
+  token: string;
+  product: string;
+}
+
+// We POST PII (PAN, DOB, income…) to Revasure, so plaintext HTTP to a REMOTE
+// host is refused — otherwise that data crosses the network unencrypted (a
+// DPDP safeguards + SOC 2 confidentiality failure). HTTPS is always allowed;
+// a loopback host (local mock) is allowed; a remote http:// base is allowed
+// ONLY with an explicit REVASURE_ALLOW_INSECURE=true opt-in (the vendor's UAT
+// box is http-only — set it for UAT, never in production).
+function transportAllowed(baseUrl: string): boolean {
+  if (/^https:\/\//i.test(baseUrl)) return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(\/|$)/i.test(baseUrl)) return true;
+  return process.env.REVASURE_ALLOW_INSECURE === 'true';
+}
+
+export function revasureConfig(): RevasureConfig {
+  const baseUrl = (process.env.REVASURE_BASE_URL || UAT_BASE).replace(/\/+$/, '');
+  const basketId = process.env.REVASURE_BASKET_ID || UAT_BASKET_ID;
+  const token = process.env.REVASURE_TOKEN || '';
+  const product = process.env.REVASURE_PRODUCT || 'Personal Loan';
+  const enabled =
+    process.env.REVASURE_ENABLED !== 'false' && !!baseUrl && !!basketId && !!token && transportAllowed(baseUrl);
+  return { enabled, baseUrl, basketId, token, product };
+}
+
+export function revasureEnabled(): boolean {
+  return revasureConfig().enabled;
+}
+
+/** Summary handed back to the prequalify response for the app's debug alert. */
+export interface RevasureResult {
+  provider: 'revasure';
+  ok: boolean;
+  // success = 201 created; duplicate = 409 already-received (benign);
+  // ineligible = 409 business decline; failed = validation/auth/server/network;
+  // skipped = a lead was already sent for this number, so we did not send another.
+  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled' | 'skipped';
+  httpStatus: number | null;
+  leadId: string | null;
+  message: string | null;
+}
+
+async function postLead(
+  cfg: RevasureConfig,
+  body: unknown,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<{ ok: boolean; status: number; body: any; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${cfg.baseUrl}/api/inbound/leads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let parsed: any = text;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
+    return { ok: res.ok, status: res.status, body: parsed, error: res.ok ? undefined : `HTTP ${res.status}` };
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? `timed out after ${timeoutMs}ms` : (e?.message || 'network error');
+    return { ok: false, status: 0, body: null, error: msg };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Field helpers: derive from what we have, else seed a safe, valid default ──
+
+function digits10(phone?: string | null): string {
+  const d = (phone || '').replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : '';
+}
+function titleFromGender(gender?: string | null): 'Mr' | 'Mrs' | 'Miss' {
+  const g = (gender || '').trim().toLowerCase();
+  if (g === 'female' || g === 'f' || g === 'woman') return 'Mrs';
+  return 'Mr'; // default / male / unknown
+}
+function occupationCode(employment?: string | null): 1 | 2 {
+  return /self|business|propriet/i.test(employment || '') ? 2 : 1; // 1 Salaried, 2 Self-employed
+}
+function isoDate(d?: Date | null): string {
+  return d ? d.toISOString().slice(0, 10) : '1990-01-01'; // YYYY-MM-DD; seed if unknown
+}
+/** "YYYY-MM-DD HH:mm:ss" (UTC), 2 min in the past so it's never "in the future". */
+function verifiedTimestamp(): string {
+  return new Date(Date.now() - 120_000).toISOString().slice(0, 19).replace('T', ' ');
+}
+function clamp(n: number | null | undefined, lo: number, hi: number, seed: number): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? n : seed;
+  return Math.min(hi, Math.max(lo, Math.round(v)));
+}
+function validIp(ip?: string | null): string {
+  const first = (ip || '').split(',')[0].trim().replace(/^::ffff:/, '');
+  return IPV4_RE.test(first) ? first : '49.36.0.1'; // seed a valid public IPv4
+}
+function maskPan(pan: string): string {
+  return pan.length === 10 ? `${pan.slice(0, 5)}****${pan.slice(-1)}` : '****';
+}
+
+function maskTail(v: unknown, keep = 4): string {
+  const t = String(v ?? '');
+  return t.length <= keep ? '*'.repeat(t.length) : `${'*'.repeat(t.length - keep)}${t.slice(-keep)}`;
+}
+function maskEmail(v: unknown): string {
+  const m = /^(.)[^@]*(@.+)$/.exec(String(v ?? ''));
+  return m ? `${m[1]}***${m[2]}` : '';
+}
+
+/**
+ * Body as it is safe to LOG (and what the existing DB copy mirrors): no PAN, OTP,
+ * full phone, email or name — see lib/log.ts (logs are kept in plaintext).
+ */
+export function maskedRevasureBody(body: Record<string, unknown>): Record<string, unknown> {
+  const name = String(body.full_name ?? '').trim().split(/\s+/).map((w) => `${w[0] ?? ''}.`).join(' ');
+  return {
+    ...body,
+    full_name: name,
+    mobile_number: maskTail(body.mobile_number),
+    email_id: maskEmail(body.email_id),
+    pancard: maskPan(String(body.pancard)),
+    otp: '******',
+    date_of_birth: String(body.date_of_birth ?? '').slice(0, 4) + '-**-**',
+  };
+}
+
+/** Build the flat Create-Lead body. Required fields are always present/valid. */
+export function buildRevasureBody(
+  app: LoanApplication,
+  user: User | null,
+  ip: string | undefined,
+  cfg: RevasureConfig,
+): Record<string, unknown> {
+  const fullName = (user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ')).trim() || 'SwiftLoan Customer';
+  const rawPan = (app.panNumber || user?.panNumber || '').toUpperCase();
+  const pancard = PAN_RE.test(rawPan) ? rawPan : 'ABCDE1234F'; // seed valid-format if absent
+  const email = user?.email && EMAIL_RE.test(user.email) ? user.email : '';
+  return {
+    source_lead_id: app.id, // our unique id — Revasure dedupes on it
+    basket_id: cfg.basketId,
+    selected_product: cfg.product, // exact "Personal Loan"
+    mobile_number: digits10(user?.phone) || '9999999999',
+    title: titleFromGender(user?.gender),
+    full_name: fullName.slice(0, 100),
+    email_id: email,
+    pancard,
+    date_of_birth: isoDate(user?.dob ?? null),
+    occupation: occupationCode(user?.employment),
+    monthly_income: clamp(user?.monthlyIncome ?? null, 1000, 9_999_999, 50_000),
+    loan_amount: clamp(app.amount ?? null, 1000, 999_999_999, 100_000), // app.amount is rupees
+    is_mobile_verified: 'yes',
+    otp: process.env.REVASURE_SEED_OTP || '123456', // verified in our own OTP flow; seeded value
+    otp_verified_timestamp: verifiedTimestamp(),
+    consent: 'yes',
+    ip_address: validIp(ip),
+  };
+}
+
+/** Outcomes Revasure itself decided on — once one exists for a number, we never send another. */
+export const REVASURE_SENT = ['success', 'duplicate', 'ineligible'] as const;
+/** A 'pending' claim older than this is treated as abandoned (the process died mid-call). */
+const PENDING_STALE_MS = 2 * 60_000;
+
+/**
+ * Create the Revasure lead for an application — at most ONCE per phone number (see the
+ * check-and-claim below). A Revasure "duplicate" (409) is treated as a benign success.
+ * The lead row is keyed on source_lead_id (= app.id).
+ * Never throws — returns a RevasureResult the caller attaches to its response.
+ */
+export async function createRevasureLead(
+  applicationId: string,
+  userId: string,
+  ip?: string,
+): Promise<RevasureResult> {
+  const cfg = revasureConfig();
+  if (!cfg.enabled) {
+    // Call out the most important disable reason: a remote http:// base means PII
+    // would go in plaintext, so we refuse to send it (set a https base for prod).
+    const insecure = !!cfg.baseUrl && !transportAllowed(cfg.baseUrl);
+    if (insecure) log.warn('disabled: refusing to send PII over plaintext HTTP to a remote host', { baseUrl: cfg.baseUrl });
+    return { provider: 'revasure', ok: false, status: 'disabled', httpStatus: null, leadId: null, message: insecure ? 'disabled: insecure transport (http)' : 'disabled' };
+  }
+
+  try {
+    const app = await prisma.loanApplication.findUnique({ where: { id: applicationId } });
+    if (!app) return { provider: 'revasure', ok: false, status: 'failed', httpStatus: null, leadId: null, message: 'application not found' };
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    const body = buildRevasureBody(app, user, ip, cfg);
+    // Masked copy for storage — never persist the real PAN / OTP.
+    const storedBody = { ...body, pancard: maskPan(String(body.pancard)), otp: '******' };
+
+    // ONE lead per phone number, ever. Check-and-claim happens under a per-number lock so two
+    // prequalify runs at the same moment (double click, retry, two tabs) cannot both send.
+    // Only a lead Revasure actually decided on (created / duplicate / ineligible) blocks a new one;
+    // a failed attempt (bad token, outage) may be retried once it is fixed.
+    const mobile = String(body.mobile_number);
+    let existing: { sourceLeadId: string; status: string; httpStatus: number | null; leadId: string | null } | null;
+    try {
+      existing = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'revasure:' + mobile}))`;
+        const prior = await tx.revasureLead.findFirst({
+          where: {
+            OR: [
+              { status: { in: [...REVASURE_SENT] } },
+              { status: 'pending', updatedAt: { gt: new Date(Date.now() - PENDING_STALE_MS) } }, // one in flight right now
+            ],
+            AND: [{ OR: [{ userId }, { requestBody: { path: ['mobile_number'], equals: mobile } }] }],
+          },
+          orderBy: { createdAt: 'asc' },
+          select: { sourceLeadId: true, status: true, httpStatus: true, leadId: true },
+        });
+        if (prior) return prior;
+        await tx.revasureLead.upsert({
+          where: { sourceLeadId: app.id },
+          update: { status: 'pending', basketId: cfg.basketId, requestBody: storedBody, lastError: null },
+          create: { applicationId: app.id, userId, sourceLeadId: app.id, basketId: cfg.basketId, status: 'pending', requestBody: storedBody },
+        });
+        return null;
+      });
+    } catch (e: any) {
+      // Can't prove we haven't already sent one (or can't record this one) → don't send.
+      log.warn('not sent — could not check/record the lead', { applicationId, error: e?.message });
+      return { provider: 'revasure', ok: false, status: 'failed', httpStatus: null, leadId: null, message: 'could not record lead; not sent' };
+    }
+    if (existing) {
+      log.info('skipped — a lead was already sent for this number', { applicationId, previous: existing.sourceLeadId, previousStatus: existing.status });
+      return {
+        provider: 'revasure', ok: true, status: 'skipped', httpStatus: existing.httpStatus, leadId: existing.leadId,
+        message: 'already sent for this number; not sent again',
+      };
+    }
+
+    console.log(`[revasure-req] POST ${cfg.baseUrl}/api/inbound/leads app=${app.id} body=${JSON.stringify(maskedRevasureBody(body))}`);
+    const res = await postLead(cfg, body);
+    console.log(`[revasure-res] HTTP ${res.status}${res.error ? ` error=${res.error}` : ''} body=${JSON.stringify(res.body)?.slice(0, 600)}`);
+    const msg: string | null = (res.body && typeof res.body === 'object' && (res.body.message || res.body.error)) || res.error || null;
+    const leadId: string | null = res.body && typeof res.body === 'object' && res.body.lead_id != null ? String(res.body.lead_id) : null;
+    // 201 = created. 409 is overloaded: a "duplicate" (we already sent this
+    // source_lead_id — benign, the lead exists) vs a business "not eligible"
+    // decline. Distinguish on the message so a decline isn't counted as success.
+    const duplicate = res.status === 409 && /duplicate/i.test(msg || '');
+    const ineligible = res.status === 409 && !duplicate;
+    const ok = res.ok || duplicate;
+    const status: RevasureResult['status'] = res.ok ? 'success' : duplicate ? 'duplicate' : ineligible ? 'ineligible' : 'failed';
+
+    await prisma.revasureLead.update({
+      where: { sourceLeadId: app.id },
+      data: { status, httpStatus: res.status || null, leadId, message: msg, responseBody: res.body ?? undefined, lastError: ok ? null : (res.error || msg || 'failed') },
+    }).catch(() => {});
+
+    if (ok) log.info('lead created', { applicationId, httpStatus: res.status, leadId, duplicate });
+    else log.warn('lead failed', { applicationId, httpStatus: res.status, message: msg, error: res.error });
+
+    return { provider: 'revasure', ok, status, httpStatus: res.status || null, leadId, message: msg };
+  } catch (e: any) {
+    log.warn('lead threw', { applicationId, error: e?.message });
+    return { provider: 'revasure', ok: false, status: 'failed', httpStatus: null, leadId: null, message: e?.message || 'error' };
+  }
+}

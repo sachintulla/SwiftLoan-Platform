@@ -18,7 +18,7 @@ business/legal decision before you submit.
 | **Primary category** | Finance | — |
 | **Secondary category** | (none) | — |
 | **Primary language** | English (India) | — |
-| **Copyright** | `© 2026 Purple Talk India Private Limited` **[confirm exact registered name — "Purple Talk" vs "Purpletalk"]** | — |
+| **Copyright** | `© 2026 Purple Talk India Private Limited` **[confirm legal entity]** | — |
 
 Subtitle alternatives (same limit, pick one): `Compare loans in your language` (30),
 `Real offers, by voice` (21), `Voice loan compare + EMI` (24).

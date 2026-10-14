@@ -12,6 +12,8 @@ import { useAccountUser } from '@/hooks/useAccountUser';
 import { patchProfile, createApplication, fetchMe, getApplication, patchApplication, type PanPrefill } from '@/lib/applyApi';
 import { loadDraft, saveDraft } from '@/lib/applyDraft';
 import { loadPanHandoff, type PanHandoff } from '@/lib/panPrefill';
+import { useCopy } from '@/lib/i18n';
+import { applyDetailsCopy } from '@/i18n/apply-details';
 
 const PURPOSES = ['Personal use', 'Working capital', 'Medical', 'Education', 'Home renovation', 'Travel', 'Other'];
 const GENDERS = ['Male', 'Female', 'Other'];
@@ -30,6 +32,7 @@ function unslug(options: string[], value: string | null | undefined): string | n
 
 export default function Step2BasicsPage() {
   const router = useRouter();
+  const t = useCopy(applyDetailsCopy);
   const accountUser = useAccountUser();
   const { phone, applicationId, setApplicationId } = useApply();
   // Plain SSR-safe defaults — matches what the server renders. localStorage
@@ -195,15 +198,15 @@ export default function Step2BasicsPage() {
   }, [pincode]);
 
   const missing: string[] = [];
-  if (!firstName.trim()) missing.push('First name');
-  if (!lastName.trim()) missing.push('Last name');
-  if (!dob) missing.push('Date of birth');
-  if (!/^\S+@\S+\.\S+$/.test(email)) missing.push('a valid email');
-  if (!/^\d{6}$/.test(pincode)) missing.push('a 6-digit pincode');
-  if (!addr1.trim()) missing.push('Address line 1');
-  if (!city.trim()) missing.push('City');
-  if (!state.trim()) missing.push('State');
-  if (!/^\d+$/.test(income)) missing.push('Monthly income');
+  if (!firstName.trim()) missing.push(t.missing.firstName);
+  if (!lastName.trim()) missing.push(t.missing.lastName);
+  if (!dob) missing.push(t.missing.dob);
+  if (!/^\S+@\S+\.\S+$/.test(email)) missing.push(t.missing.email);
+  if (!/^\d{6}$/.test(pincode)) missing.push(t.missing.pincode);
+  if (!addr1.trim()) missing.push(t.missing.addr1);
+  if (!city.trim()) missing.push(t.missing.city);
+  if (!state.trim()) missing.push(t.missing.state);
+  if (!/^\d+$/.test(income)) missing.push(t.missing.income);
   const valid = missing.length === 0;
 
   const submit = async () => {
@@ -249,89 +252,89 @@ export default function Step2BasicsPage() {
       }
       router.push('/apply/step-3');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save your details. Please try again.');
+      setError(e instanceof Error ? e.message : t.saveFailed);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ApplyShell backHref="/apply/step-1" stepLabel="Step 2 of 3" progressPct={52} accountUser={accountUser}>
+    <ApplyShell backHref="/apply/step-1" stepLabel={t.stepLabel} progressPct={52} accountUser={accountUser}>
       <Stepper step={2} />
-      <h1 className="text-2xl font-extrabold">Tell us about your loan</h1>
+      <h1 className="text-2xl font-extrabold">{t.title}</h1>
       <p className="text-muted-foreground mt-2 mb-6 text-sm">
-        This helps us match you with lenders offering the best rate. Takes about 2 minutes.
+        {t.subtitle}
       </p>
       {panInfo && <PanConfirmation info={panInfo} prefilled={fromPan} />}
 
       <div className="flex flex-col gap-5">
         <Card className="sm:p-7">
-          <SectionHead icon={Wallet} label="Loan amount" />
+          <SectionHead icon={Wallet} label={t.secLoanAmount} />
           <div className="bg-accent rounded-2xl p-5">
             <div className="text-primary text-3xl font-extrabold">{fmtINR(amount)}</div>
-            <Slider className="mt-4" aria-label="Loan amount" min={25000} max={1500000} step={25000} value={[amount]} onValueChange={([v]) => v != null && setAmount(v)} />
+            <Slider className="mt-4" aria-label={t.loanAmountAria} min={25000} max={1500000} step={25000} value={[amount]} onValueChange={([v]) => v != null && setAmount(v)} />
             <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
               <span>{fmtINR(25000)}</span>
               <span>{fmtINR(1500000)}</span>
             </div>
           </div>
-          <p className="text-foreground mt-5 mb-3 text-sm font-semibold">What&apos;s this loan for?</p>
-          <ChipGroup label="What's this loan for?" options={PURPOSES} value={purpose} onChange={setPurpose} />
+          <p className="text-foreground mt-5 mb-3 text-sm font-semibold">{t.purposeQuestion}</p>
+          <ChipGroup label={t.purposeQuestion} options={PURPOSES} value={purpose} renderLabel={(o) => t.options[o] ?? o} onChange={setPurpose} />
         </Card>
 
         <Card className="sm:p-7">
-          <SectionHead icon={User} label="About you" />
+          <SectionHead icon={User} label={t.secAboutYou} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="First name" required><TextInput value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" /></Field>
-            <Field label="Last name" required><TextInput value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" /></Field>
-            <Field label="Date of birth" required><TextInput type="date" value={dob} onChange={(e) => setDob(e.target.value)} autoComplete="bday" /></Field>
-            <Field label="Gender"><ChipGroup options={GENDERS} value={gender} onChange={setGender} /></Field>
+            <Field label={t.firstName} required><TextInput value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" /></Field>
+            <Field label={t.lastName} required><TextInput value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" /></Field>
+            <Field label={t.dob} required><TextInput type="date" value={dob} onChange={(e) => setDob(e.target.value)} autoComplete="bday" /></Field>
+            <Field label={t.gender}><ChipGroup options={GENDERS} value={gender} renderLabel={(o) => t.options[o] ?? o} onChange={setGender} /></Field>
           </div>
           <div className="mt-4">
-            <Field label="Qualification"><ChipGroup options={QUALIFICATIONS} value={qualification} onChange={setQualification} /></Field>
+            <Field label={t.qualification}><ChipGroup options={QUALIFICATIONS} value={qualification} renderLabel={(o) => t.options[o] ?? o} onChange={setQualification} /></Field>
           </div>
         </Card>
 
         <Card className="sm:p-7">
-          <SectionHead icon={MapPin} label="Contact & address" />
+          <SectionHead icon={MapPin} label={t.secContact} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Email" required><TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></Field>
-            <Field label="Pincode" required><TextInput inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} autoComplete="postal-code" /></Field>
+            <Field label={t.email} required><TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></Field>
+            <Field label={t.pincode} required><TextInput inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} autoComplete="postal-code" /></Field>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Address line 1" required><TextInput value={addr1} onChange={(e) => setAddr1(e.target.value)} autoComplete="address-line1" /></Field>
-            <Field label="Address line 2"><TextInput value={addr2} onChange={(e) => setAddr2(e.target.value)} autoComplete="address-line2" placeholder="Optional" /></Field>
+            <Field label={t.addr1} required><TextInput value={addr1} onChange={(e) => setAddr1(e.target.value)} autoComplete="address-line1" /></Field>
+            <Field label={t.addr2}><TextInput value={addr2} onChange={(e) => setAddr2(e.target.value)} autoComplete="address-line2" placeholder={t.optional} /></Field>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="City" required><TextInput value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" /></Field>
-            <Field label="State" required><TextInput value={state} onChange={(e) => setState(e.target.value)} autoComplete="address-level1" /></Field>
+            <Field label={t.city} required><TextInput value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" /></Field>
+            <Field label={t.state} required><TextInput value={state} onChange={(e) => setState(e.target.value)} autoComplete="address-level1" /></Field>
           </div>
           <div className="mt-4">
-            <Field label="Residence type"><ChipGroup options={RESIDENCE} value={residence} onChange={setResidence} /></Field>
+            <Field label={t.residenceType}><ChipGroup options={RESIDENCE} value={residence} renderLabel={(o) => t.options[o] ?? o} onChange={setResidence} /></Field>
           </div>
         </Card>
 
         <Card className="sm:p-7">
-          <SectionHead icon={Briefcase} label="Employment & income" />
-          <Field label="Employment type"><ChipGroup options={EMPLOYMENT} value={employment} onChange={setEmployment} /></Field>
+          <SectionHead icon={Briefcase} label={t.secEmployment} />
+          <Field label={t.employmentType}><ChipGroup options={EMPLOYMENT} value={employment} renderLabel={(o) => t.options[o] ?? o} onChange={setEmployment} /></Field>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Monthly income (₹)" required><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
-            <Field label="Company name"><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
+            <Field label={t.monthlyIncome} required><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
+            <Field label={t.company}><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
           </div>
           <div className="mt-4">
-            <Field label="Salary mode"><ChipGroup options={SALARY_MODE} value={salaryMode} onChange={setSalaryMode} /></Field>
+            <Field label={t.salaryMode}><ChipGroup options={SALARY_MODE} value={salaryMode} renderLabel={(o) => t.options[o] ?? o} onChange={setSalaryMode} /></Field>
           </div>
         </Card>
 
         {error && <p className="text-danger text-sm font-semibold">{error}</p>}
         {!valid && !error && (
           <p className="text-muted-foreground text-xs">
-            <span className="text-danger font-semibold">Required to continue:</span> {missing.join(', ')}.
+            <span className="text-danger font-semibold">{t.requiredToContinue}</span> {missing.join(', ')}{t.sentenceEnd}
           </p>
         )}
       </div>
 
-      <BottomBar meta="Step 2 of 3 · ~2 min left">
+      <BottomBar meta={t.meta}>
         <button
           onClick={submit}
           disabled={!valid || loading}
@@ -341,7 +344,7 @@ export default function Step2BasicsPage() {
               : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5'
           }`}
         >
-          {loading ? 'Saving…' : 'Continue →'}
+          {loading ? t.saving : t.continue}
         </button>
       </BottomBar>
     </ApplyShell>
@@ -355,6 +358,7 @@ function formatMaskedAadhaar(m: string) {
 
 /** Confirmation of what the PAN lookup returned, shown at the top of Step 2. */
 function PanConfirmation({ info, prefilled }: { info: PanHandoff; prefilled: boolean }) {
+  const t = useCopy(applyDetailsCopy);
   const name = info.prefill.fullName;
   const masked = info.prefill.maskedAadhaar;
   const panMasked = `${info.pan.slice(0, 2)}XXXX${info.pan.slice(-4)}`;
@@ -365,7 +369,7 @@ function PanConfirmation({ info, prefilled }: { info: PanHandoff; prefilled: boo
           <BadgeCheck className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-foreground text-sm font-extrabold">PAN verified</p>
+          <p className="text-foreground text-sm font-extrabold">{t.panVerified}</p>
           {name && <p className="text-foreground mt-0.5 truncate text-sm font-semibold">{name}</p>}
           <p className="text-muted-foreground mt-0.5 font-mono text-xs tracking-wider">{panMasked}</p>
         </div>
@@ -379,19 +383,19 @@ function PanConfirmation({ info, prefilled }: { info: PanHandoff; prefilled: boo
               }`}
             >
               <ShieldCheck className="h-3.5 w-3.5" />
-              {info.aadhaarLinked ? 'Aadhaar linked' : 'Aadhaar not linked'}
+              {info.aadhaarLinked ? t.aadhaarLinked : t.aadhaarNotLinked}
             </span>
           )}
           {masked && (
             <span className="bg-card border-border text-foreground inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-xs font-semibold tracking-wider">
-              Aadhaar {formatMaskedAadhaar(masked)}
+              {t.aadhaarPrefix} {formatMaskedAadhaar(masked)}
             </span>
           )}
         </div>
       )}
       {prefilled && (
         <p className="text-muted-foreground mt-3 text-xs">
-          We&apos;ve filled in your details from your PAN — please check them and edit anything that&apos;s changed.
+          {t.panFilled}
         </p>
       )}
     </div>

@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -42,6 +43,15 @@
           <action android:name="com.google.firebase.MESSAGING_EVENT" />
         </intent-filter>
       </service>
+
+      <!-- react-native-webrtc ships a screen-capture foreground service
+           (mediaProjection). SwiftLoan only uses WebRTC for the voice agent's
+           audio, never screen capture, so strip it from the merged manifest —
+           a mediaProjection foreground service is an unnecessary Play review
+           trigger for a lending app. -->
+      <service
+        android:name="com.oney.WebRTCModule.MediaProjectionService"
+        tools:node="remove" />
 
       <!-- Small icon for the notification tray. Without it Android draws a grey
            square from API 21 onwards. Reusing the launcher icon for now; swap for

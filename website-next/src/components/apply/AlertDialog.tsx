@@ -3,6 +3,8 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useRef } from 'react';
 import { AlertCircle, AlertTriangle, Clock } from 'lucide-react';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
 
 export type AlertTone = 'error' | 'warning' | 'info';
 
@@ -30,6 +32,7 @@ const TONE = {
  */
 export function AlertDialog({ open, content, onClose }: { open: boolean; content: AlertContent | null; onClose: () => void }) {
   const okRef = useRef<HTMLButtonElement>(null);
+  const copy = useCopy(applyShellCopy);
 
   useEffect(() => {
     if (!open) return;
@@ -88,7 +91,7 @@ export function AlertDialog({ open, content, onClose }: { open: boolean; content
           onClick={onClose}
           className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
         >
-          {content.okLabel ?? 'OK'}
+          {content.okLabel ?? copy.ok}
         </button>
       </div>
     </div>,

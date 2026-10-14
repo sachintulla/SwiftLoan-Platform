@@ -38,7 +38,7 @@ partner set, these appear (verify legal names before submitting):
 
 ## 4. Required documents to upload
 Google asks for proof of the lending relationship. Prepare:
-- **Declaration letter** (on Purpletalk India Private Limited letterhead) stating SwiftLoan
+- **Declaration letter** (on Purple Talk India Private Limited letterhead) stating SwiftLoan
   is an LSP/DLA facilitating loans only for the named RBI-regulated partners, signed by an
   authorised signatory. **[you must produce & sign]**
 - **Partnership / agreement evidence** with each Lending Partner (or the aggregator's
@@ -47,7 +47,7 @@ Google asks for proof of the lending relationship. Prepare:
   (already live at https://swiftloan.ai/privacypolicy).
 
 ## 5. Company / developer details
-- Legal entity: **Purpletalk India Private Limited** **[confirm this is the Play developer account holder — must match]**
+- Legal entity: **Purple Talk India Private Limited** **[confirm this is the Play developer account holder — must match]**
 - Registered country: **India**
 - Website: **https://swiftloan.ai**
 - Support email: **support@swiftloan.ai** **[confirm]**
@@ -79,5 +79,5 @@ Confirm these are present (they are, per the app + privacy policy):
 ### What only you can complete
 - The exact **legal names + RBI CoR/registration numbers** of every lending partner (#3).
 - The signed **declaration letter** and **partner agreements** (#4).
-- Confirm the **Play developer account** is Purpletalk India Private Limited (#5) — Google
+- Confirm the **Play developer account** is Purple Talk India Private Limited (#5) — Google
   cross-checks the declared entity against the account holder.

@@ -20,14 +20,14 @@ import Finding from './finding';
 import Offers from './offers';
 import Handoff from './handoff';
 import LenderWeb from './lenderweb';
-// status.tsx (application/loan tracker) and repay are both re-enabled — the
-// drill-down tracking restored in develop's funnel reorder.
 import AltWeb from './altweb';
 import StatusScreen from './status';
 import Disbursed from './disbursed';
 import Repay from './repay';
 import Profile from './profile';
 import Help from './help';
+import Referral from './referral';
+import Legal from './legal';
 
 // Screens are registered here as they are ported. Missing entries fall back to a
 // placeholder in the Router so the full navigation graph stays walkable end-to-end.
@@ -58,4 +58,6 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   repay: Repay,
   profile: Profile,
   help: Help,
+  referral: Referral,
+  legal: Legal,
 };
