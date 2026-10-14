@@ -64,7 +64,7 @@ screens, flows, comparison logic and backend are our own. [CONFIRM: ownership/re
 Ello if asked — it is the voice-agent platform, not another consumer app.]
 
 **9. Built for a client/third party? (4.2.6)**
-No. SwiftLoan is our own brand and product, operated by Purple Talk India Private Limited, which
+No. SwiftLoan is our own brand and product, operated by Purpletalk India Private Limited, which
 owns this developer account. It is custom-built (React Native app + our own Node/PostgreSQL
 backend), not from a template or app-generation service, and not submitted on anyone's behalf.
 
