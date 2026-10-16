@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { InstallButtons } from './InstallButtons';
 
 export const metadata: Metadata = {
   title: 'Install SwiftLoan — Internal Beta',
@@ -7,12 +8,6 @@ export const metadata: Metadata = {
   alternates: { canonical: 'https://www.swiftloan.ai/applink' },
   robots: { index: false, follow: false }, // internal beta — keep out of search
 };
-
-// The backend /dl link detects the platform (iOS → TestFlight interstitial,
-// Android → test APK) and records install attribution. We route all installs
-// through it rather than hardcoding store URLs here.
-const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE || 'https://api.swiftloan.ai/api').replace(/\/api\/?$/, '');
-const INSTALL = `${API_ORIGIN}/dl?ref=beta-internal`;
 
 const css = `
 :root{--teal:#079FA0;--mint:#2FB183;--ink:#0A3F41;--ink-deep:#07201F}
@@ -48,13 +43,9 @@ export default function AppLinkPage() {
         <h1>Install SwiftLoan</h1>
         <p className="sub">Compare real loan offers from multiple RBI-regulated lenders — one soft check, no hit to your credit score.</p>
 
-        <a className="cta" href={INSTALL}>Install the app &rarr;</a>
-        <div className="plat">
-          <a href={INSTALL}>iOS · TestFlight</a>
-          <a href={INSTALL}>Android · APK</a>
-        </div>
+        <InstallButtons />
 
-        <p className="note">Tap <b>Install the app</b> — it opens the right build for your phone. Then sign in with your mobile number. Questions? <a className="link" href="mailto:support@swiftloan.ai">support@swiftloan.ai</a></p>
+        <p className="note">We pick the right build for your phone automatically — or tap your platform above. iPhone installs via <b>TestFlight</b> (install Apple&rsquo;s TestFlight app first); Android via <b>Google Play testing</b>. Then sign in with your mobile number. Questions? <a className="link" href="mailto:support@swiftloan.ai">support@swiftloan.ai</a></p>
 
         <p className="fine">Internal beta for employee testing only — not a public offering. SwiftLoan is a loan-comparison &amp; referral platform (a Lending Service Provider), not a lender; loans are provided by RBI-regulated banks and NBFCs. Built by Purpletalk India Private Limited.</p>
       </div>
