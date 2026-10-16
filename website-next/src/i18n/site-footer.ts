@@ -30,7 +30,7 @@ export const siteFooterCopy = defineCopy({
     disclaimerTitle: "Disclaimer",
     disclaimer:
       "All loans are provided by RBI-registered lending partners at their sole discretion, subject to their credit policies, terms and conditions. Loan approval, sanctioned amount, interest rate, fees, penal charges and disbursal are determined solely by the lender and are set out in the Key Fact Statement (KFS) provided before you accept any offer. Interest rates shown on this site are indicative starting/representative rates; your actual Annual Percentage Rate (APR) depends on your credit profile and the lender's assessment and ranges from 10.49% to 28% p.a. Please read the KFS and all loan documents carefully before signing. This website is for informational purposes and does not constitute financial advice or a loan offer. For grievances, write to grievance@swiftloan.ai; unresolved complaints may be escalated to the RBI under the Integrated Ombudsman Scheme at cms.rbi.org.in.",
-    copyright: "© 2026 SwiftLoan.ai — All rights reserved. SwiftLoan is a brand of Purple Talk India Private Limited. GSTIN: 36AAFCP5544A1ZO. Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084.",
+    copyright: "© 2026 SwiftLoan.ai — All rights reserved. SwiftLoan is a brand of Purpletalk India Private Limited. GSTIN: 36AAFCP5544A1ZO. Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084.",
   },
   hi: {
     tagline:
@@ -62,7 +62,7 @@ export const siteFooterCopy = defineCopy({
     disclaimer:
       "सभी लोन RBI-रजिस्टर्ड लेंडिंग पार्टनर्स द्वारा उनके विवेक पर, उनकी क्रेडिट नीतियों और शर्तों के अधीन दिए जाते हैं। लोन स्वीकृति, स्वीकृत राशि, ब्याज दर, शुल्क, दंड शुल्क और वितरण पूर्णतः लेंडर द्वारा तय होते हैं और ऑफ़र स्वीकार करने से पहले दिए जाने वाले मुख्य तथ्य विवरण (KFS) में बताए जाते हैं। इस साइट पर दिखाई गई ब्याज दरें संकेतात्मक शुरुआती दरें हैं; आपकी वास्तविक वार्षिक प्रतिशत दर (APR) आपकी क्रेडिट प्रोफ़ाइल और लेंडर के आकलन पर निर्भर करती है और 10.49% से 28% प्रति वर्ष तक होती है। हस्ताक्षर से पहले KFS और सभी दस्तावेज़ ध्यान से पढ़ें। यह वेबसाइट केवल जानकारी के लिए है और वित्तीय सलाह या लोन ऑफ़र नहीं है। शिकायतों के लिए grievance@swiftloan.ai पर लिखें; अनसुलझी शिकायतें इंटीग्रेटेड ओम्बड्समैन स्कीम के अंतर्गत cms.rbi.org.in पर RBI को भेजी जा सकती हैं।",
     copyright:
-      "© 2026 SwiftLoan.ai — सर्वाधिकार सुरक्षित। SwiftLoan, Purple Talk India Private Limited का एक ब्रांड है। GSTIN: 36AAFCP5544A1ZO। Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084।",
+      "© 2026 SwiftLoan.ai — सर्वाधिकार सुरक्षित। SwiftLoan, Purpletalk India Private Limited का एक ब्रांड है। GSTIN: 36AAFCP5544A1ZO। Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084।",
   },
   te: {
     tagline:
@@ -94,6 +94,6 @@ export const siteFooterCopy = defineCopy({
     disclaimer:
       "అన్ని రుణాలు RBI-రిజిస్టర్డ్ లెండింగ్ భాగస్వాములు తమ విచక్షణతో, తమ క్రెడిట్ విధానాలు మరియు నిబంధనల ప్రకారం అందిస్తారు. రుణ ఆమోదం, మంజూరు మొత్తం, వడ్డీ రేటు, రుసుములు, పెనాల్టీ ఛార్జీలు మరియు పంపిణీ పూర్తిగా లెండర్ నిర్ణయిస్తారు; ఇవి ఆఫర్ అంగీకరించే ముందు ఇచ్చే కీ ఫ్యాక్ట్ స్టేట్‌మెంట్ (KFS)లో ఉంటాయి. ఈ సైట్‌లో చూపిన వడ్డీ రేట్లు సూచనాత్మక ప్రారంభ రేట్లు; మీ వాస్తవ వార్షిక శాత రేటు (APR) మీ క్రెడిట్ ప్రొఫైల్ మరియు లెండర్ అంచనాపై ఆధారపడి సంవత్సరానికి 10.49% నుండి 28% వరకు ఉంటుంది. సంతకం చేసే ముందు KFS మరియు అన్ని పత్రాలను జాగ్రత్తగా చదవండి. ఈ వెబ్‌సైట్ సమాచార ప్రయోజనాల కోసం మాత్రమే; ఇది ఆర్థిక సలహా లేదా రుణ ఆఫర్ కాదు. ఫిర్యాదుల కోసం grievance@swiftloan.ai కు రాయండి; పరిష్కారం కాని ఫిర్యాదులను ఇంటిగ్రేటెడ్ ఒంబుడ్స్‌మన్ స్కీమ్ కింద cms.rbi.org.in లో RBIకి తెలియజేయవచ్చు.",
     copyright:
-      "© 2026 SwiftLoan.ai — సర్వ హక్కులు కలిగినవి. SwiftLoan అనేది Purple Talk India Private Limited యొక్క బ్రాండ్. GSTIN: 36AAFCP5544A1ZO. Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084.",
+      "© 2026 SwiftLoan.ai — సర్వ హక్కులు కలిగినవి. SwiftLoan అనేది Purpletalk India Private Limited యొక్క బ్రాండ్. GSTIN: 36AAFCP5544A1ZO. Registered office: 12th Floor, Plot No 11, The Watermark, Technopark, Survey No. 9, Kondapur, Hyderabad, Telangana 500084.",
   },
 });
