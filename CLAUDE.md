@@ -379,3 +379,37 @@ Same server endpoints as the app — nothing lender-specific is client-only.
 - **Yubi is deliberately untouched** (its pre-warm still runs on every prequalify; the partner handles its own limits).
 - Terminology: a `LoanApplication` is created when the applicant submits their details (before offers); fetching offers
   (prequalify) fills it with `Offer` rows; a `LenderApplication` is created only when they apply to a specific lender's offer.
+
+---
+
+## WhatsApp via Voxvalley (replaced Infobip)
+
+- Provider key `voxvalley` (Admin → Configs → WhatsApp). `server/src/lib/whatsapp.ts` posts to
+  `{baseUrl}/api/v1/whatsapp/send` with `Authorization: Bearer <project authToken>` + `projectid` in the body. A 200 only
+  means **queued**; failures are HTTP 400 or `status: "FAILED"`. Secret is `authToken`; settings: `projectId`, `sender`
+  (active WABA number), `defaultTemplate`, `messageCategory`, `callbackUrl`, `siteUrl`, `stallTemplates`.
+- **Stuck-stage nudges** (`lib/stallWhatsapp.ts`, called from `evaluateRule`): a `whatsapp`-channel stall rule sends the
+  approved template mapped to its trigger stage in `settings.stallTemplates` (`{name}/{ref}/{offerCount}/{siteUrl}` tokens;
+  a customer missing a value is skipped, never sent a blank). Stage with no mapping, or integration off → falls back to the
+  Upshot event as before. Guards: calling hours, 1 per customer per `STALL_WA_COOLDOWN_HOURS` (24), `STALL_WA_MAX_PER_CUSTOMER`
+  (3) lifetime, only stalls newer than `STALL_WA_MAX_AGE_HOURS` (24) so enabling a rule never messages the backlog, do-not-contact
+  skipped, `OutboundRequest` row claimed before sending, failures not retried. New seeded `WHATSAPP — …` rules start **disabled**
+  and all use a **30-minute** stall delay. Shipped `stallTemplates` defaults are merged UNDER what the dashboard saved (saved
+  entry wins; blank `template` = back to Upshot), so new stages reach environments that already saved the form.
+  Seeding only inserts missing rules — an existing rule's delay is edited on the Notifications rules page, not by the seed.
+- **WhatsApp send is blocked on Vox's side (as of 2026-10-16):** `POST https://cpaas.voxdigitals.com/api/v1/whatsapp/send` (and `/api/v2/…`)
+  return nginx `405` even from Vox's own docs "Test API" tab — the real host/path must come from Vox support. Set it via the card's
+  Advanced `baseUrl`/`sendPath`. A direct **Meta Cloud API** backend also exists (`meta_whatsapp` integration: `phoneNumberId` +
+  `accessToken`); when it is enabled it is used instead of Voxvalley. No live WhatsApp send has been verified yet.
+- **SMS works and is the live stuck-stage channel:** `lib/voxSms.ts` posts to `settings.smsUrl`
+  (`https://cpaas.voxdigitals.com/sms-customer-apis/sms/v2/send`) with the project token IN THE BODY as `authtoken`, plus
+  `projectid`, `from` (`smsSender`, DLT sender ID), `to` (`+91…`), `template_id` and `body`. India SMS is DLT-regulated: the body
+  must match the registered template (`smsTemplateId`/`smsBody`) exactly — the admin form uses a textarea so its line break
+  survives. `lib/stallSms.ts` is called from `evaluateRule` for `sms`-channel rules (8 seeded `SMS — …` rules, one per funnel
+  step, **30-minute** delay, enabled; per-stage text via `settings.smsTemplates[triggerEvent]`). Same guards as WhatsApp
+  (calling hours, 1 per `STALL_SMS_COOLDOWN_HOURS`=24, `STALL_SMS_MAX_PER_CUSTOMER`=3, only stalls < `STALL_SMS_MAX_AGE_HOURS`=24,
+  DNC skipped, key claimed before sending, failures not retried). Nothing sends until the Voxvalley integration is enabled with a
+  token. Verified: a real SMS to the owner's number, and a full fake-stall → rule → SMS run locally.
+- Templates live in the Voxvalley portal (WhatsApp → My Templates): application_received, document_request, emi_reminder,
+  kyc_completed, loan_disbursed, marketing_check_rate, offers_ready, otp_verification. Placeholder counts must match exactly.
+- Not built yet: delivery-status webhook (`callbackUrl`) and inbound "STOP" opt-out handling.

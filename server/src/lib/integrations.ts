@@ -17,7 +17,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 /* ────────────────────────────── config ────────────────────────────── */
 
-export type ProviderName = 'ello' | 'upshot' | 'infobip';
+export type ProviderName = 'ello' | 'upshot' | 'voxvalley' | 'meta_whatsapp';
 
 export interface ProviderConfig {
   enabled: boolean;
@@ -131,31 +131,74 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     /** Event name used when no stage-specific mapping exists. */
     defaultEventName: 'swiftloan_journey_nudge',
   },
-  // Infobip — WhatsApp Business. https://www.infobip.com/docs/api
-  // Auth is `Authorization: App {apiKey}` (verified: `App` returns 403 on an
-  // unpermitted endpoint while Bearer/none return 401 — i.e. `App` is the scheme
-  // that actually authenticates).
-  infobip: {
-    /**
-     * Region-specific host — Infobip issues one per account and a wrong host
-     * simply will not authenticate. India: jrv2lk.api-in.infobip.com
-     */
-    baseUrl: 'https://jrv2lk.api-in.infobip.com',
-    /** Business-initiated messages. Requires a pre-approved template. */
-    templatePath: '/whatsapp/1/message/template',
-    /**
-     * Free-form text. Only valid INSIDE the 24-hour customer service window —
-     * i.e. after the customer messaged us. Outside it WhatsApp rejects the
-     * message, so anything we initiate must go through templatePath.
-     */
-    textPath: '/whatsapp/1/message/text',
-    /** Registered WhatsApp sender number (E.164, no +). Set in the dashboard. */
+  // Meta WhatsApp Cloud API — direct send, used INSTEAD of Voxvalley when enabled.
+  // https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
+  // POST {baseUrl}/{apiVersion}/{phoneNumberId}/messages, `Authorization: Bearer <accessToken>`.
+  // The accessToken must carry whatsapp_business_messaging and have access to the WABA that owns the number.
+  meta_whatsapp: {
+    baseUrl: 'https://graph.facebook.com',
+    apiVersion: 'v21.0',
+    /** Meta's id for the sending number (not the phone number itself). */
+    phoneNumberId: '',
+    /** Default approved template + its registered language code. */
+    defaultTemplate: '',
+    defaultLanguage: 'en',
+  },
+  // Voxvalley — WhatsApp Business (VOX DIGITALS CPaaS).
+  // https://cpaas.voxdigitals.com/docs/api-docs/whatsapp
+  // One endpoint for text and templates: POST {baseUrl}{sendPath}, auth is
+  // `Authorization: Bearer <project authToken>`, and the body carries `projectid`.
+  voxvalley: {
+    baseUrl: 'https://cpaas.voxdigitals.com',
+    sendPath: '/api/v1/whatsapp/send',
+    /** Project the authToken belongs to (e.g. PRJ100…). Required in every body. */
+    projectId: '',
+    /** Registered ACTIVE WABA sender number (E.164, no +). Set in the dashboard. */
     sender: '',
     /** Default approved template + its registered language code. */
     defaultTemplate: '',
     defaultLanguage: 'en',
-    /** Where Infobip POSTs delivery reports, if configured. */
-    notifyUrl: '',
+    /** UTILITY | MARKETING | AUTHENTICATION — affects Meta's per-message pricing. */
+    messageCategory: 'UTILITY',
+    /** Where Voxvalley POSTs delivery status for each message, if set. */
+    callbackUrl: '',
+    /** Vox SMS gateway (token goes in the body). Sender ID, template id and body must match the DLT registration. */
+    smsUrl: 'https://cpaas.voxdigitals.com/sms-customer-apis/sms/v2/send',
+    smsSender: 'PTSLA',
+    smsTemplateId: '1277178738168111452',
+    smsBody: 'Dear Customer , your SwiftLoan loan application is incomplete at the Customer step. Please open the SwiftLoan app to continue where you left off. Team SwiftLoan\n-PurpleTalk IPL',
+    /** Send the recipient as +91XXXXXXXXXX (false = 91XXXXXXXXXX, as in Vox's docs). */
+    recipientPlus: true,
+    /** Public site, used to build the links inside templates. */
+    siteUrl: 'https://www.swiftloan.ai',
+    /**
+     * Stuck-stage nudges: journey event the customer got stuck AT -> the approved
+     * template to send and the values for its {{1}}, {{2}}… in order. `{name}`,
+     * `{ref}`, `{offerCount}` and `{siteUrl}` are filled per customer; a customer
+     * missing one (e.g. no application yet) is skipped rather than sent a blank.
+     * A stage with no entry here keeps going through Upshot.
+     */
+    stallTemplates: {
+      // Website lead who never installed the app.
+      lead_captured: { template: 'marketing_check_rate', language: 'en', placeholders: ['{name}'] },
+      // Signed in (OTP verified) but never started an application.
+      otp_verified: { template: 'marketing_check_rate', language: 'en', placeholders: ['{name}'] },
+      // Finished the eligibility check but never opened their offers.
+      eligibility_completed: {
+        template: 'offers_ready', language: 'en',
+        placeholders: ['{name}', '{offerCount}', '{ref}', '{siteUrl}/apply/offers'],
+      },
+      // Saw offers, picked none.
+      offer_viewed: {
+        template: 'offers_ready', language: 'en',
+        placeholders: ['{name}', '{offerCount}', '{ref}', '{siteUrl}/apply/offers'],
+      },
+      // Started eKYC and stopped.
+      kyc_started: {
+        template: 'document_request', language: 'en',
+        placeholders: ['{name}', '{ref}', 'your KYC details (PAN and Aadhaar eKYC)', '{siteUrl}/apply'],
+      },
+    },
   },
 };
 
