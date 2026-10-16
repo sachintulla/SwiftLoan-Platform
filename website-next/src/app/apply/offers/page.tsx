@@ -326,6 +326,8 @@ export default function OffersPage() {
                     <button
                       onClick={() => (reapply ? resumeLender(offer) : pickOffer(offer))}
                       disabled={!!applyingId}
+                      aria-busy={applying || undefined}
+                      data-voice-disabled-reason={applyingId ? (applying ? 'this lender application is being sent right now' : 'another lender application is being sent right now, so the other buttons wait until it finishes') : undefined}
                       data-voice-gate="apply-offer"
                       className={`bg-brand-gradient text-primary-foreground mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5 active:scale-[0.98] ${applyingId && !applying ? 'opacity-50' : ''}`}
                     >

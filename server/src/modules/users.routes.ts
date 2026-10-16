@@ -8,6 +8,9 @@ import { publicUser } from './auth.routes.js';
 import { presignAvatarUpload, s3Configured } from '../lib/s3.js';
 import { scoped } from '../lib/log.js';
 import { isAdult } from '../lib/age.js';
+import { fail } from '../lib/http.js';
+import { userPanData } from '../lib/storedPan.js';
+import { parseDeletionFeedback } from '../lib/accountDeletion.js';
 
 const log = scoped('users');
 
@@ -100,6 +103,9 @@ const profilePatch = z.object({
 usersRouter.patch('/me', validate(profilePatch), ah(async (req, res) => {
   const data: any = { ...req.body };
   if (data.dob) data.dob = new Date(data.dob);
+  // The PAN is never stored as sent: it goes into the encrypted column (lib/storedPan.ts).
+  if (data.panNumber) Object.assign(data, userPanData(data.panNumber));
+  delete data.panNumber;
   try {
     const user = await prisma.user.update({ where: { id: req.user!.sub }, data });
     res.json({ user: publicUser(user) });
@@ -204,18 +210,39 @@ usersRouter.get('/me/credit-score', ah(async (req, res) => {
   res.json({ score, band: scoreBand(score) });
 }));
 
-/** Delete account (right to erasure). */
+/**
+ * Delete account (right to erasure).
+ *
+ * Body (all optional for the shipped app, REQUIRED reason for the website — see lib/accountDeletion.ts):
+ *   { reason, details?, source? }
+ * The reason is stored anonymously (AccountDeletionFeedback has no user id or phone) so it
+ * survives the erasure as product feedback only.
+ */
 usersRouter.delete('/me', ah(async (req, res) => {
   const userId = req.user!.sub;
+  const parsed = parseDeletionFeedback(req.body);
+  if (!parsed.ok) return fail(res, 400, parsed.message);
+
+  // Read these BEFORE the delete — they are gone afterwards.
+  const [application, activeLoan] = await Promise.all([
+    prisma.loanApplication.findFirst({ where: { userId }, select: { id: true } }),
+    prisma.loan.findFirst({ where: { userId, status: { not: 'closed' } }, select: { id: true } }), // active or defaulted
+  ]);
+
   // Right to erasure (DPDP): deleting the User cascades its relational children
   // (applications → offers → lender applications, loans, kyc, consents, tokens).
   // But the partner-lead models are plain-FK (no relation, no cascade), so they
   // would be orphaned with PII still attached — delete them explicitly first.
   await prisma.$transaction([
+    ...(parsed.value
+      ? [prisma.accountDeletionFeedback.create({
+          data: { ...parsed.value, hadApplication: !!application, hadActiveLoan: !!activeLoan },
+        })]
+      : []),
     prisma.partnerReferral.deleteMany({ where: { userId } }), // Yubi
     prisma.revasureLead.deleteMany({ where: { userId } }),    // Revasure
     prisma.user.delete({ where: { id: userId } }),
   ]);
-  log.warn('account deleted (incl. partner leads)', { userId });
+  log.warn('account deleted (incl. partner leads)', { userId, reason: parsed.value?.reasonCode ?? null, source: parsed.value?.source ?? 'app' });
   res.json({ ok: true });
 }));

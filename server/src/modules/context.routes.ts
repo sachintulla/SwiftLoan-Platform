@@ -11,6 +11,7 @@ import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
 import { parseAgentPhone } from '../lib/agentPhone.js';
+import { resolveLookupAccess, signLookupGrant, LOOKUP_GRANT_TTL_SEC, NOT_VERIFIED_RESULT } from '../lib/lookupGrant.js';
 import { scoped } from '../lib/log.js';
 import { isAdult } from '../lib/age.js';
 
@@ -167,6 +168,19 @@ function buildGreeting(s: { name: string | null; productInterest: string | null;
  * string. Accepting a phone parameter here would turn this into an open lookup
  * of anyone's loan history by number.
  */
+/**
+ * GET /api/context/lookup-grant
+ *
+ * A short-lived token proving "this browser session is signed in as <phone>", for the
+ * website voice agent to send back with its get_user_context / get_customer_history tool
+ * calls (see lib/lookupGrant.ts). Authenticated: the phone comes from the access token.
+ */
+contextRouter.get('/lookup-grant', requireAuth, ah(async (req, res) => {
+  const phone = req.user?.phone;
+  if (!phone || !req.user?.sub) return fail(res, 401, 'No phone on the session');
+  return ok(res, { grant: signLookupGrant({ sub: req.user.sub, phone }), expiresIn: LOOKUP_GRANT_TTL_SEC }, 'Lookup grant');
+}));
+
 contextRouter.get('/me', requireAuth, ah(async (req, res) => {
   const phone = req.user?.phone;
   if (!phone) return fail(res, 401, 'No phone on the session');
@@ -228,6 +242,16 @@ export const contextLookupRouter = Router();
 contextLookupRouter.post('/', ah(async (req, res) => {
   const auth = await checkEloApiKey(req);
   if (!auth.ok) return fail(res, auth.status, auth.message);
+
+  // Verified-visitor gate (lib/lookupGrant.ts). A grant, minted after a real OTP sign-in,
+  // pins the lookup to the signed-in user's OWN phone — a number the visitor merely says
+  // is never used. A grant-required agent (`x-agent-role: website`) with no valid grant
+  // gets "nothing known", exactly like a brand-new visitor.
+  const access = resolveLookupAccess(req.headers, req.body);
+  if (access.kind === 'denied') return ok(res, NOT_VERIFIED_RESULT, 'Not verified');
+  if (access.kind === 'granted') {
+    return ok(res, await buildUserContext(access.phone, access.userId), 'Context found');
+  }
 
   // Accept either key: Ello resolves a tool's request-body property by
   // matching its NAME against its own context variables (confirmed live —
@@ -329,13 +353,18 @@ contextSaveRouter.post('/', ah(async (req, res) => {
   const auth = await checkEloApiKey(req);
   if (!auth.ok) return fail(res, auth.status, auth.message);
 
-  const rawPhone = req.body?.phone ?? req.body?.phone_number ?? '';
+  // Same verified-visitor gate as /lookup, and more important here: this WRITES to an
+  // account chosen by phone. A grant-required agent may only write to the signed-in user.
+  const access = resolveLookupAccess(req.headers, req.body);
+  if (access.kind === 'denied') return fail(res, 403, 'Mobile number not verified — nothing was saved');
+
+  const rawPhone = access.kind === 'granted' ? access.phone : (req.body?.phone ?? req.body?.phone_number ?? '');
   const phone = String(rawPhone).replace(/\D/g, '').slice(-10);
   if (phone.length !== 10) return fail(res, 400, 'phone_number is required');
 
   // phone/phone_number are the lookup key, not a field this schema owns —
   // strip them before validating so their presence doesn't trip `.strict()`.
-  const { phone: _p, phone_number: _pn, ...fields } = req.body ?? {};
+  const { phone: _p, phone_number: _pn, lookup_grant: _lg, lookupGrant: _lg2, ...fields } = req.body ?? {};
   const parsed = contextSaveFields.safeParse(fields);
   if (!parsed.success) return fail(res, 400, parsed.error.issues[0]?.message ?? 'Invalid field value');
 

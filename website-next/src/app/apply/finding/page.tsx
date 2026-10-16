@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LockKeyhole, ShieldCheck } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
+import { useAccountUser } from '@/hooks/useAccountUser';
 import { useApply } from '@/lib/applyContext';
 import { prequalify } from '@/lib/applyApi';
 import { useCopy } from '@/lib/i18n';
@@ -21,6 +22,8 @@ export default function FindingPage() {
   const router = useRouter();
   const t = useCopy(applyFlowCopy).finding;
   const { applicationId, sessionReady } = useApply();
+  // Same account sidebar as every other signed-in step; without it the loader swapped it for the brand pitch.
+  const accountUser = useAccountUser();
   const [error, setError] = useState<string | null>(null);
   const [fillWidth, setFillWidth] = useState('6%');
   // The prequalify() call for this visit, shared across effect re-runs.
@@ -72,7 +75,7 @@ export default function FindingPage() {
   }, [sessionReady, applicationId, router]);
 
   return (
-    <ApplyShell stepLabel={t.stepLabel} center>
+    <ApplyShell stepLabel={t.stepLabel} center accountUser={accountUser}>
       <div className="flex flex-col items-center gap-6">
         <div className="relative flex h-[220px] w-[220px] items-center justify-center">
           <svg viewBox="0 0 260 260" className="animate-spin-slow absolute inset-0 h-full w-full">

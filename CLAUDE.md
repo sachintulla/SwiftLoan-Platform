@@ -382,6 +382,41 @@ Same server endpoints as the app — nothing lender-specific is client-only.
 
 ---
 
+## PAN handling (never stored in the clear)
+
+- A PAN is **never** stored, returned or logged in plaintext. Where it is genuinely needed (the lender eligibility call and
+  the Revasure lead are made server-side, after the user typed it) it lives in `User.panEnc` / `LoanApplication.panEnc`,
+  AES-256-GCM encrypted with the env-only `PII_ENCRYPTION_KEY` (`server/src/lib/pii.ts`; production refuses to boot without
+  it; never rotate by just changing the value).
+- `server/src/lib/storedPan.ts` is the **only** reader/writer. `lib/prisma.ts` omits `panNumber`/`panEnc` from every query by
+  default, so a plain `findUnique`/`include`/`res.json(row)` cannot leak one; use `loadPan(userId, applicationId?)` and decrypt
+  in memory for that one call. APIs expose only `User.panOnFile` (boolean). The offers fingerprint uses a keyed hash, not the PAN.
+- The legacy plaintext `panNumber` columns are deprecated and never written. Run `cd server && npm run pan:encrypt` (after the
+  `20261015120000_encrypted_pan` migration, same `PII_ENCRYPTION_KEY` as the API) to encrypt existing values and null the
+  plaintext; once `SELECT count(*) … WHERE "panNumber" IS NOT NULL` is 0 in User and LoanApplication, drop the columns.
+- Clients never pre-fill the PAN field and never keep the PAN: the website's Step-1→2 hand-off holds only a masked form
+  (`XXXXXX234A`), and Step 2 asks the server to attach the user's own PAN (`PATCH /applications/:id {usePanOnFile:true}`).
+- `PanRecord.dataEnc` (encrypted PAN-verification cache: PAN, prefill, raw response) uses the same key.
+
+---
+
+## Meta (Facebook) ads measurement — app SDK + website Pixel + Conversions API
+
+Full detail in `docs/META_SDK_INTEGRATION.md`. Everything is **off until credentials exist**.
+- Reports ONLY a few coarse funnel moments, no parameters: `Lead` (website lead form), `CompleteRegistration` (`otp_verified`),
+  `IdentityVerified` (PAN step, no PAN), `EligibilityCompleted`, `OffersReceived`, `ViewContent` (offers page),
+  `InitiateCheckout` (`offer_selected`), `SubmitApplication`, and app-only `LoanDisbursed`. Never amounts/APR/lender/the PAN.
+  `LoanDisbursed` is policy-sensitive (financial status) — one line in `META_APP_EVENT_FOR` to drop. Repeatable steps fire once per session.
+  Hooked as one line inside each Upshot `upshotEvent` (`metaTrackFromAppEvent` / `metaTrackFromWebEvent`) — no screen edits.
+- App (`src/analytics/meta.ts`, `react-native-fbsdk-next`): no advertising ID (AD_ID stays stripped), no ATT prompt, no
+  native auto-init; needs `META_CLIENT_TOKEN`; demo builds excluded unless `SWIFTLOAN_META_ALLOW_DEMO`.
+- Website: Pixel loads only after the visitor accepts the consent banner (`MetaPixel.tsx`); `NEXT_PUBLIC_META_PIXEL_ID`.
+- Server: `POST /api/meta/event` relays to the Conversions API (`lib/metaCapi.ts`), hashes ids, dedups via shared `eventID`;
+  needs `META_PIXEL_ID` + `META_CAPI_TOKEN`.
+- Don't ship in a store build until the privacy policy / Data Safety / App Store labels are updated (see §6 of the doc).
+
+---
+
 ## WhatsApp via Voxvalley (replaced Infobip)
 
 - Provider key `voxvalley` (Admin → Configs → WhatsApp). `server/src/lib/whatsapp.ts` posts to

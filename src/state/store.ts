@@ -22,6 +22,7 @@ import {
 import { readInstallSignals } from '../utils/installSignals';
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
+import { initMeta } from '../analytics/meta';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -1074,6 +1075,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // Upshot: boot once per process. No-ops entirely unless the SDK is
     // installed AND credentials are set, so this is safe on every build.
+    // Meta (ads attribution): same idea — no-op unless the SDK is linked and a client token is set.
+    initMeta();
     if (initUpshot()) {
       upshotEvent('app_opened', { platform: UPSHOT_PLATFORM });
       // Demo/test builds only (pointed at a dev or local backend): ask for push

@@ -274,7 +274,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           pincode: user.pincode,
           employment: user.employment,
           monthlyIncome: user.monthlyIncome ?? null,
-          panOnFile: !!user.panNumber,
+          panOnFile: !!user.panOnFile,
         }
       : null,
     applicantDraft: user

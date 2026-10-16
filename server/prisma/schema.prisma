@@ -59,7 +59,13 @@ model User {
   employment     EmploymentType?
   monthlyIncome  Int?
   company        String?
+  /// DEPRECATED plaintext PAN — never written any more; `npm run pan:encrypt` moves existing values into panEnc and
+  /// nulls this, after which the column can be dropped. Omitted from every query by the client (lib/prisma.ts).
   panNumber      String?
+  /// The PAN, AES-256-GCM encrypted with the env-only PII_ENCRYPTION_KEY (lib/storedPan.ts). Never returned by an API.
+  panEnc         String?
+  /// Plain flag the UI/API can show instead of the PAN itself.
+  panOnFile      Boolean         @default(false)
   aadhaarLast4   String?
   avatarUrl      String?
 
@@ -238,7 +244,10 @@ model LoanApplication {
   employment    EmploymentType?
   monthlyIncome Int?
   residenceType ResidenceType?
+  /// DEPRECATED plaintext PAN — see User.panNumber.
   panNumber     String?
+  /// Encrypted PAN snapshot for this application (env-only key). Never returned by an API.
+  panEnc        String?
 
   // Fingerprint of the details the lender was asked about, and when the offers were
   // fetched. Prequalify calls the lender again only when this changes (or the stored
@@ -1653,4 +1662,21 @@ model ApiLog {
   @@index([createdAt])
   @@index([target, createdAt])
   @@index([direction, createdAt])
+}
+
+// Why someone deleted their account. Deliberately NOT linked to User (no FK, no user id,
+// no phone): the account and everything tied to it is erased, and this record must survive
+// as anonymous product feedback only. `details` is free text the person typed; the form tells
+// them not to put personal details in it.
+model AccountDeletionFeedback {
+  id             String   @id @default(uuid())
+  reasonCode     String   // see lib/accountDeletion.ts DELETION_REASONS
+  details        String?  // max 500 chars
+  source         String   @default("app") // app | website
+  hadApplication Boolean  @default(false)
+  hadActiveLoan  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([reasonCode])
 }

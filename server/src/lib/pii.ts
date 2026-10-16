@@ -69,3 +69,7 @@ export function decryptJson<T = unknown>(blob: string): T {
 }
 
 export const PII_KEY_VERSION = KEY_VERSION;
+
+/** The PAN, encrypted for storage. Decrypts only with the env-only PII_ENCRYPTION_KEY. */
+export const encryptPan = (pan: string): string => encryptJson(normalisePan(pan));
+export const decryptPan = (blob: string): string => decryptJson<string>(blob);

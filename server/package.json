@@ -15,6 +15,7 @@
     "seed:integrations": "tsx prisma/seed.integrations.ts",
     "seed:preapproved": "tsx prisma/seed.preapproved.ts",
     "smoke": "tsx src/smoke.ts",
+    "pan:encrypt": "tsx scripts/encrypt-existing-pan.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:status": "prisma migrate status",

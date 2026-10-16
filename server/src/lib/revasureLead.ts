@@ -20,7 +20,7 @@
  * POST never fails validation just for a missing optional. Everything here is
  * best-effort and non-fatal: a Revasure failure must never break prequalify.
  */
-import type { LoanApplication, User } from '@prisma/client';
+import { loadPan, type SafeApplication, type SafeUser } from './storedPan.js';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
 
@@ -170,13 +170,14 @@ export function maskedRevasureBody(body: Record<string, unknown>): Record<string
 
 /** Build the flat Create-Lead body. Required fields are always present/valid. */
 export function buildRevasureBody(
-  app: LoanApplication,
-  user: User | null,
+  app: SafeApplication,
+  user: SafeUser | null,
   ip: string | undefined,
   cfg: RevasureConfig,
+  pan = '',
 ): Record<string, unknown> {
   const fullName = (user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ')).trim() || 'SwiftLoan Customer';
-  const rawPan = (app.panNumber || user?.panNumber || '').toUpperCase();
+  const rawPan = pan.toUpperCase(); // decrypted in memory by the caller (lib/storedPan.ts); never stored in the clear
   const pancard = PAN_RE.test(rawPan) ? rawPan : 'ABCDE1234F'; // seed valid-format if absent
   const email = user?.email && EMAIL_RE.test(user.email) ? user.email : '';
   return {
@@ -230,7 +231,7 @@ export async function createRevasureLead(
     if (!app) return { provider: 'revasure', ok: false, status: 'failed', httpStatus: null, leadId: null, message: 'application not found' };
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
-    const body = buildRevasureBody(app, user, ip, cfg);
+    const body = buildRevasureBody(app, user, ip, cfg, await loadPan(userId, applicationId));
     // Masked copy for storage — never persist the real PAN / OTP.
     const storedBody = { ...body, pancard: maskPan(String(body.pancard)), otp: '******' };
 

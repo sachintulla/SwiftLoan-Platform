@@ -21,6 +21,8 @@
  * Logout is `updateUserProfile({ appuid: '' })` — see `upshotLogout`.
  */
 
+import { metaTrackFromWebEvent } from '@/lib/meta';
+
 declare global {
   interface Window {
     upshot?: UpshotWebSdk;
@@ -162,6 +164,8 @@ export function upshotPageView(pathname: string): void {
 const COMMON = { platform: 'Web' } as const;
 
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
+  // Meta Pixel / Conversions API: the three funnel moments only, consent-gated, no attributes.
+  metaTrackFromWebEvent(name);
   // Drop undefined values: the SDK would turn them into nulls and Upshot would
   // then infer the attribute's type from a null.
   const clean: Record<string, unknown> = { ...COMMON };
