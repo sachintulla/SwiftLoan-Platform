@@ -23,6 +23,7 @@ import {
 } from '../lib/integrations.js';
 import { sendWhatsAppTemplate } from '../lib/whatsapp.js';
 import { scoped } from '../lib/log.js';
+import { sendVoxSms } from '../lib/voxSms.js';
 
 const log = scoped('integrations');
 
@@ -33,7 +34,7 @@ integrationsRouter.use(auditAdmin);
 
 
 
-const PROVIDERS: ProviderName[] = ['ello', 'upshot', 'infobip'];
+const PROVIDERS: ProviderName[] = ['ello', 'upshot', 'voxvalley', 'meta_whatsapp'];
 
 function providerParam(value: string): ProviderName {
   if (!PROVIDERS.includes(value as ProviderName)) throw new HttpError(400, `Unknown provider — expected one of ${PROVIDERS.join(', ')}`);
@@ -88,6 +89,10 @@ integrationsRouter.put('/:provider', requireRole(...CAN_ADMINISTER), validate(pu
 const testSchema = z.object({
   /** Ello only: place a real call to this number. Requires confirm:true. */
   testPhone: z.string().min(6).optional(),
+  /** WhatsApp test only: values for the template's {{1}}, {{2}}… */
+  placeholders: z.array(z.string()).optional(),
+  /** Voxvalley test only: 'sms' sends the registered text message instead of WhatsApp. */
+  channel: z.enum(['whatsapp', 'sms']).optional(),
   confirm: z.boolean().optional(),
   testUserId: z.string().min(1).optional(),
 });
@@ -138,11 +143,17 @@ integrationsRouter.post('/:provider/test', requireRole(...CAN_ADMINISTER), valid
     }, result.ok ? 'Test call placed' : 'Test call failed');
   }
 
-  if (provider === 'infobip') {
+  if (provider === 'voxvalley' || provider === 'meta_whatsapp') {
     if (!cfg.settings.baseUrl) missing.push('settings.baseUrl');
-    if (!cfg.settings.sender) missing.push('settings.sender');
     if (!cfg.settings.defaultTemplate) missing.push('settings.defaultTemplate');
-    if (!(cfg.secrets.apiKey ?? cfg.secrets.api_key)) missing.push('secrets.apiKey');
+    if (provider === 'voxvalley') {
+      if (!cfg.settings.projectId) missing.push('settings.projectId');
+      if (!cfg.settings.sender) missing.push('settings.sender');
+      if (!(cfg.secrets.authToken ?? cfg.secrets.apiKey)) missing.push('secrets.authToken');
+    } else {
+      if (!cfg.settings.phoneNumberId) missing.push('settings.phoneNumberId');
+      if (!(cfg.secrets.accessToken ?? cfg.secrets.apiKey)) missing.push('secrets.accessToken');
+    }
 
     // Dry run by default, for the same reason as Ello: a "test connection"
     // button must not message a real customer's WhatsApp without being asked.
@@ -156,7 +167,21 @@ integrationsRouter.post('/:provider/test', requireRole(...CAN_ADMINISTER), valid
       }, missing.length === 0 ? 'Configuration looks complete' : 'Configuration incomplete');
     }
 
-    const result = await sendWhatsAppTemplate({ phone: body.testPhone });
+    if (provider === 'voxvalley' && body.channel === 'sms') {
+      const sms = await sendVoxSms({ phone: body.testPhone });
+      log.info('test sms sent', { phone: body.testPhone, ok: sms.ok, status: sms.status, error: sms.error ?? null });
+      return ok(res, {
+        provider, performed: 'live_sms', ready: true, missing: [],
+        ok: sms.ok, status: sms.status, error: sms.error ?? null, messageId: sms.messageId ?? null, body: sms.body,
+      }, sms.ok ? 'Test SMS sent' : 'Test SMS failed');
+    }
+
+    // Approved templates have fixed variable counts, so a test needs values too.
+    // Default is one placeholder (the greeting name), matching marketing_check_rate.
+    const result = await sendWhatsAppTemplate({
+      phone: body.testPhone,
+      placeholders: Array.isArray(body.placeholders) ? body.placeholders.map(String) : ['there'],
+    });
     log.info('test whatsapp sent', { phone: body.testPhone, ok: result.ok, status: result.status, error: result.error ?? null });
     return ok(res, {
       provider,

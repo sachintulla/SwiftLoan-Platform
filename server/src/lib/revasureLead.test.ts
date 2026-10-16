@@ -98,7 +98,7 @@ describe('buildRevasureBody — what the website funnel (same as the app) suppli
   };
 
   it('maps a fully-populated applicant', () => {
-    const b = buildRevasureBody(app, user, '49.205.10.20', cfg);
+    const b = buildRevasureBody(app, user, '49.205.10.20', cfg, 'abcpa1234a');
     expect(b).toMatchObject({
       source_lead_id: 'app-uuid', // Revasure dedupes on this
       basket_id: 'b_1',
@@ -131,7 +131,7 @@ describe('buildRevasureBody — what the website funnel (same as the app) suppli
   });
 
   it('rejects a malformed PAN / email / IP rather than forwarding them', () => {
-    const b = buildRevasureBody({ ...app, panNumber: 'NOT-A-PAN' }, { ...user, email: 'not-an-email' }, 'garbage', cfg);
+    const b = buildRevasureBody(app, { ...user, email: 'not-an-email' }, 'garbage', cfg, 'NOT-A-PAN');
     expect(b.pancard).toBe('ABCDE1234F');
     expect(b.email_id).toBe('');
     expect(b.ip_address).toBe('49.36.0.1');
@@ -210,6 +210,7 @@ describe('request/response logging never exposes personal data or the token', ()
       { fullName: 'Ravi Kumar', phone: '9876543210', email: 'ravi@example.com', dob: new Date('1991-03-04T00:00:00Z') } as any,
       '49.1.1.1',
       cfg,
+      'ABCPA1234A',
     );
     const m = maskedRevasureBody(full);
     expect(m).toMatchObject({ pancard: 'ABCPA****A', otp: '******', mobile_number: '******3210', email_id: 'r***@example.com', full_name: 'R. K.', date_of_birth: '1991-**-**' });

@@ -71,7 +71,9 @@ export async function issueTokens(userId: string, phone: string, refreshTtlMs: n
 export function publicUser(u: any) {
   // Never leak secrets to the client: the password hash, and the server-side
   // Aurix token (kept out of the app bundle/network by design).
-  const { passwordHash, aurixToken, aurixTokenExpiresAt, ...rest } = u;
+  // The PAN columns are also stripped explicitly (they are omitted from queries by lib/prisma.ts, but a row
+  // built elsewhere must never carry one out). `panOnFile` is the flag the UI may show instead.
+  const { passwordHash, aurixToken, aurixTokenExpiresAt, panNumber, panEnc, ...rest } = u;
   return rest;
 }
 

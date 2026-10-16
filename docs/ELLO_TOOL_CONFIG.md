@@ -282,6 +282,27 @@ only what was actually gathered this call): `fullName`, `email`, `dob`,
 
 ---
 
+# 3a. Website agent — customer lookups need a verified visitor (REQUIRED if it has any lookup/save tool)
+
+A visitor can say any number. So a lookup tool on the website agent must **prove the OTP sign-in**, not trust a spoken
+phone (`server/src/lib/lookupGrant.ts`). For every tool that hits `/api/context/lookup`, `/api/context/save` or
+`/api/conversations/context` on this agent:
+
+1. **Header:** add `x-agent-role: website` (next to `x-api-key`). Grant-required roles are the env
+   `LOOKUP_GRANT_REQUIRED_ROLES` (default `website`). Without a valid grant these return "nothing known" (save → 403).
+2. **Request body:** add a string property named exactly **`lookup_grant`** (description: "Verification proof from the
+   page context; leave to the system"). The website widget sends it in page context as `lookup_grant` once the visitor
+   has signed in with the OTP (`GET /api/context/lookup-grant`, valid 10 min, refreshed on each navigation).
+3. With a grant the server uses the **grant's phone** and ignores any `phone_number` — so even a tool still sending a
+   spoken number can only ever read the signed-in user's own data.
+
+Other agents (outbound dialer, in-app) send no `x-agent-role` and behave exactly as before.
+**Verify after wiring:** signed out, give a number → tool returns `verified:false`; signed in → full context.
+If Ello does not fill `lookup_grant` from page context, detach the lookup tools from the website agent (the widget's
+`account` summary already covers a signed-in visitor).
+
+---
+
 # 3. Website companion app — `6a7197ff89c98da763e29b23`
 
 Skip if you have decided to. If you want the conversation retained, add only this:

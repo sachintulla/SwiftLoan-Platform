@@ -7,12 +7,15 @@ import { agentApproach, agentPress, agentSettle, slideTo, typeText } from '@/fee
 import { installManualSounds } from '@/feedback/manual';
 import { initSounds, playSound } from '@/feedback/sounds';
 import { faqsCopy } from '@/i18n/faqs';
+import { voiceWidgetCopy, type VoiceWidgetCopy } from '@/i18n/voice-widget';
+import type { Lang } from '@/lib/i18n';
 import { bootstrapSession, getAccessToken, subscribeSession } from '@/lib/session';
-import { fetchMe, listApplications, type LoanApplication } from '@/lib/applyApi';
+import { fetchMe, fetchLookupGrant, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { statusMeta } from '@/lib/statusMeta';
 import type { SwiftLoanLeadApi } from '@/components/home/LeadForm';
 import {
   activeDialog,
+  dialogText,
   collectCards,
   collectControls,
   collectMessages,
@@ -544,18 +547,52 @@ export default function VoiceWidget() {
     // finding out whether a session exists costs a refresh request, and plain
     // browsing should not pay it.
     let introduced = false;
+    // ── Confirmation handshake (structural, not just a prompt rule) ─────────────────────────────────────────────
+    // A gated action (apply to a lender, log out, verify PAN, submit a ticket, send the code…) must never run on the
+    // model's say-so alone: `user_confirmed:true` is only a flag the model sets. Live testing showed it pressing
+    // "Apply now" with user_confirmed:true on the visitor's FIRST sentence, creating a lender application.
+    // So the press only goes through when the conversation has the shape of a real confirmation:
+    //   visitor spoke  →  the assistant spoke (the question)  →  the visitor spoke again (the answer)
+    // judged from the microphone (visitor sound frames) and the assistant's speaking turns, and each question can
+    // unlock one action only. The model cannot skip the question; it never has to ask twice when it did ask.
+    let agentTurnsEnded = 0;
+    let soundAtAgentEnd = 0; // visitor sound frames when the assistant last stopped speaking
+    let soundAtPrevAgentEnd = 0; // ...and when it stopped the time before
+    let lastGateTurn = 0; // the assistant turn whose question already unlocked an action
+    let lastGateKey = ''; // which action that was, and when — its own follow-up press (a confirm dialog) needs no new question
+    let lastGateAt = 0;
+    let prevAgentStatus = 'idle';
+    const confirmHandshake = (key: string, confirmed: boolean | undefined): boolean => {
+      if (confirmed && key === lastGateKey && Date.now() - lastGateAt < 60_000) return true;
+      const frames = agent.stats.micSoundFrames;
+      const spokeBeforeQuestion = soundAtAgentEnd - soundAtPrevAgentEnd >= 3;
+      const answeredAfterQuestion = frames - soundAtAgentEnd >= 3;
+      if (confirmed && agentTurnsEnded > lastGateTurn && spokeBeforeQuestion && answeredAfterQuestion) {
+        lastGateTurn = agentTurnsEnded;
+        lastGateKey = key;
+        lastGateAt = Date.now();
+        return true;
+      }
+      return false;
+    };
     let account: AccountSummary = signedOutSummary();
+    // Proof of a completed OTP sign-in, sent back by the agent's customer-lookup tools. Only ever
+    // set for a signed-in session — a number the visitor merely says never produces one.
+    let lookupGrant: string | null = null;
     async function refreshAccount() {
       try {
         const ok = getAccessToken() ? true : await bootstrapSession();
         if (!ok) {
           account = signedOutSummary();
+          lookupGrant = null;
           return;
         }
-        const [me, apps] = await Promise.all([fetchMe(), listApplications()]);
+        const [me, apps, grant] = await Promise.all([fetchMe(), listApplications(), fetchLookupGrant()]);
         account = summariseAccount(me?.data?.user ?? null, apps ?? []);
+        lookupGrant = grant;
       } catch {
         account = { ...signedOutSummary(), signedIn: !!getAccessToken() };
+        lookupGrant = null;
       }
     }
 
@@ -563,7 +600,10 @@ export default function VoiceWidget() {
     // Logging out clears the token but nothing else would clear what we told the agent
     // the visitor is — the next update would still say signed in, with their name.
     const unsubscribeSession = subscribeSession(() => {
-      if (!getAccessToken()) account = signedOutSummary();
+      if (!getAccessToken()) {
+        account = signedOutSummary();
+        lookupGrant = null;
+      }
     });
 
     const toastText = (): string | null => {
@@ -578,6 +618,7 @@ export default function VoiceWidget() {
       const dialog = activeDialog();
       const onHome = isHome();
       lastSig = screenSignature();
+      lastFormSig = formSignature();
       return {
         // Required by the backend's greeting path: a non-empty top-level `page`
         // string is what puts it on the prompt-driven greeting flow at all —
@@ -589,6 +630,8 @@ export default function VoiceWidget() {
         // The screen language ('en' | 'hi' | 'te'). Distinct from the language the
         // visitor is speaking: the voice follows the visitor, this is the page text.
         siteLanguage: langApi()?.get() ?? 'en',
+        // The language to SPEAK by default: the page language, unless the visitor clearly speaks another.
+        speakLanguage: ({ en: 'English', hi: 'Hindi', te: 'Telugu' } as Record<string, string>)[langApi()?.get() ?? 'en'] ?? 'English',
         pages: Object.entries(PAGES).map(([key, p]) => ({ key, path: p.path, label: p.label, needsSignIn: !!p.needsSignIn })),
         // The section the visitor is looking at is left out — it changes with every scroll
         // and a scroll must not become a turn; read_screen reports it on demand.
@@ -601,6 +644,9 @@ export default function VoiceWidget() {
         // Account state, so the opening and every later turn can be personal
         // without asking the visitor for what the site already knows.
         account,
+        // Verification proof for the customer-lookup tools (null until the visitor has signed in
+        // with the OTP). Never spoken; the tools read it by this name.
+        lookup_grant: lookupGrant,
         // Home: what the visitor already typed, so the agent never re-asks.
         alreadyFilled: onHome ? readLeadForm() : null,
         calculator: onHome ? readCalculator() : null,
@@ -613,6 +659,7 @@ export default function VoiceWidget() {
                 heading: pageHeading(),
                 step: stepMarker(),
                 dialogOpen: !!dialog,
+                dialogText: dialogText(),
                 // The mandatory fields still empty, in page order. Ask for each until this is empty;
                 // only then is it right to offer to go ahead. (`missingForVisitor` are mandatory fields
                 // the assistant cannot enter itself, e.g. the PAN.)
@@ -718,6 +765,7 @@ export default function VoiceWidget() {
         heading: pageHeading(),
         step: stepMarker(),
         dialogOpen: !!activeDialog(),
+        dialogText: dialogText(),
         currentSection: (() => {
           const id = currentSectionId();
           const sec = sectionsForCurrentPage().find((x) => x.id === id);
@@ -852,6 +900,12 @@ export default function VoiceWidget() {
         }
         const btn = document.querySelector<HTMLButtonElement>('#lead-form button[type="submit"]');
         if (!btn) return fail('submit_button_not_found');
+        if (!confirmHandshake('submit_application', true)) {
+          return fail('needs_confirmation', {
+            action: 'sending a 6-digit code to the visitor\'s mobile number',
+            note: 'Not done yet. Ask whether it is okay to send the code, stop speaking, wait for their spoken yes, then call again.',
+          });
+        }
         await agentApproach(btn);
         await agentPress(btn, 'tap');
         btn.click();
@@ -1166,11 +1220,25 @@ export default function VoiceWidget() {
         const node = m.el;
         const label = labelOf(node);
         const gate = needsConfirmation(node, label, pathRef.current);
-        if (gate && !a.user_confirmed) {
-          return fail('needs_confirmation', { action: gate, note: 'Ask the visitor out loud, wait for a clear yes, then call again with user_confirmed:true.' });
+        if (gate && !confirmHandshake(gate, a.user_confirmed)) {
+          return fail('needs_confirmation', {
+            action: gate,
+            note: 'Not done yet. Ask the visitor out loud whether to go ahead with exactly this, stop speaking, wait for their spoken yes, then call again with user_confirmed:true. This only goes through after you have asked and they have answered.',
+          });
         }
         if ((node as HTMLButtonElement).disabled || node.getAttribute('aria-disabled') === 'true') {
-          return fail('disabled', { reason_shown: collectMessages()[0] ?? null, ...collectMissingRequired() });
+          // Why it cannot be pressed: what the page says, else the button's own reason (set where the page knows it,
+          // e.g. another lender application is in flight), else a busy button elsewhere on the screen. Always
+          // returned as something to TELL the visitor — never a cue to keep retrying.
+          const shown = collectMessages()[0] ?? null;
+          const own = node.getAttribute('data-voice-disabled-reason');
+          const busy = Array.from(document.querySelectorAll('[aria-busy="true"]')).find((b) => b !== node && isVisible(b));
+          return fail('disabled', {
+            reason_shown: shown,
+            why_disabled: own ?? (busy ? 'the page is still working on a request (a button is showing it is busy)' : null),
+            note: 'This button cannot be pressed right now. Tell the visitor plainly that it is not clickable and why (from reason_shown / why_disabled / missingRequired). If the reason is unknown, say you cannot tell and suggest waiting a moment. Do not press it again.',
+            ...collectMissingRequired(),
+          });
         }
         const before = pathRef.current;
         // Light it up, dip and click — then the press goes through. Menu links get the navigation cue.
@@ -1191,6 +1259,8 @@ export default function VoiceWidget() {
           navigated: pathRef.current !== before,
           heading: pageHeading(),
           messages,
+          // A blocking popup (PAN not found, too many checks…) — its text is the reason the step did not go on.
+          ...(activeDialog() ? { dialogOpen: true, dialogText: dialogText() } : {}),
           ...(toastText() ? { message_shown_to_user: toastText() } : {}),
         };
       },
@@ -1328,7 +1398,7 @@ export default function VoiceWidget() {
       'filter:drop-shadow(0 7px 9px rgba(0,0,0,.28))" />' +
       '<span class="sl-voice-idle" style="display:flex;align-items:center;gap:10px">' +
       '<span class="sl-voice-text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.15">' +
-      '<span style="font-size:14px;font-weight:800">Talk to Ruby</span>' +
+      '<span class="sl-voice-talk" style="font-size:14px;font-weight:800">Talk to Ruby</span>' +
       '<span class="voice-label" style="font-size:11px;font-weight:500;opacity:.9">SwiftLoan assistant</span>' +
       '</span>' +
       '<span aria-hidden="true" style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;' +
@@ -1358,24 +1428,28 @@ export default function VoiceWidget() {
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
     errBox.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
 
-    const LABELS: Record<string, string> = {
-      idle: 'SwiftLoan assistant',
-      connecting: 'Connecting…',
-      listening: 'Listening…',
-      speaking: 'Speaking…',
-      executingTool: 'Working on it…',
-      ended: 'SwiftLoan assistant',
-    };
+    // The launcher's own words follow the site language (the page text), not the language being spoken.
+    let L: VoiceWidgetCopy = voiceWidgetCopy[(langApi()?.get() ?? 'en') as Lang] ?? voiceWidgetCopy.en;
+    let curStatus = 'idle';
+    const statusLabel = (s: string): string =>
+      ({ idle: L.assistant, connecting: L.connecting, listening: L.listening, speaking: L.speaking, executingTool: L.working, ended: L.assistant } as Record<string, string>)[s] ?? L.connecting;
     const idleEl = btn.querySelector('.sl-voice-idle') as HTMLElement;
     const callEl = btn.querySelector('.sl-voice-call') as HTMLElement;
     const muteBtn = btn.querySelector('.sl-voice-mute') as HTMLButtonElement;
     const endBtn = btn.querySelector('.sl-fab-end') as HTMLButtonElement;
 
     agent.on('statusChange', (s: string) => {
+      if (prevAgentStatus === 'speaking' && s !== 'speaking') {
+        agentTurnsEnded++;
+        soundAtPrevAgentEnd = soundAtAgentEnd;
+        soundAtAgentEnd = agent.stats.micSoundFrames;
+      }
+      prevAgentStatus = s;
       const active = s !== 'idle' && s !== 'ended';
       btn.dataset.active = active ? '1' : '0';
+      curStatus = s;
       const label = btn.querySelector('.voice-label') as HTMLElement | null;
-      if (label) label.textContent = LABELS[s] || 'SwiftLoan assistant';
+      if (label) label.textContent = statusLabel(s);
       // Ruby's own ring signals listening/thinking now, so the pill no longer
       // turns alarm-red mid-conversation — that read as an error state.
       btn.style.background = active
@@ -1386,7 +1460,7 @@ export default function VoiceWidget() {
       idleEl.style.display = active ? 'none' : 'flex';
       callEl.style.display = active ? 'flex' : 'none';
       if (!active) btn.dataset.muted = '0';
-      btn.setAttribute('aria-label', active ? 'In a call with SwiftLoan — click to end' : 'Talk to SwiftLoan — voice guide');
+      btn.setAttribute('aria-label', active ? L.inCallAria : L.launcherAria);
       // (No context send here: a status change is not a change to the page, and every
       // send is a turn the agent answers.)
       if (s === 'connecting') initSounds(); // the mic tap is the user gesture browsers require for audio
@@ -1395,7 +1469,7 @@ export default function VoiceWidget() {
     });
     agent.on('muteChange', (m: boolean) => {
       btn.dataset.muted = m ? '1' : '0';
-      muteBtn.setAttribute('aria-label', m ? 'Unmute microphone' : 'Mute microphone');
+      muteBtn.setAttribute('aria-label', m ? L.unmute : L.mute);
     });
     agent.on('error', (e: { message: string }) => {
       errBox.textContent = e.message;
@@ -1439,6 +1513,16 @@ export default function VoiceWidget() {
     // about actually differs from what it was last told. There is deliberately NO scroll
     // listener any more — every send is a turn, and scrolling is not news.
     let lastSig = '';
+    let lastFormSig = '';
+    // Which fields are filled (never their values) — so a field the visitor fills BY HAND reaches the agent too.
+    const formSignature = (): string => {
+      if (isHome()) return '';
+      return JSON.stringify(
+        collectControls(scopeRoot())
+          .filter((c) => c.kind === 'text' || c.kind === 'date' || c.kind === 'select')
+          .map((c) => [c.label, c.filled ? 1 : 0]),
+      );
+    };
     const screenSignature = (): string => {
       const dlg = activeDialog();
       // Home is long and busy, and the agent drives it through tools whose results
@@ -1457,7 +1541,11 @@ export default function VoiceWidget() {
         s: stepMarker(),
         d: !!dlg,
         c: collectControls(scopeRoot()).map((c) =>
-          [c.kind, c.group ?? '', c.label, c.enabled ? 1 : 0].join('|'),
+          // A ticking countdown ("Resend in 27s", "27 సెకన్లలో మళ్లీ పంపండి") rewrites its label every second or two; as-is every tick
+          // would look like news, and every send is a turn — the agent re-asked for the code over and over. Digits in a
+          // label are ignored for this comparison, in any script, so no language's countdown can trigger it (a real
+          // change in options, cards, messages or enabled state still does).
+          [c.kind, c.group ?? '', c.label.replace(/\p{Nd}+/gu, '#'), c.enabled ? 1 : 0].join('|'),
         ),
         m: collectMessages().filter((x) => !/^required to continue/i.test(x)),
         k: collectCards().map((x) => x.title),
@@ -1476,6 +1564,20 @@ export default function VoiceWidget() {
         if (screenSignature() !== lastSig) agent.updatePageContext({ immediate: true });
       }, Date.now() - moStarted > 2500 ? 0 : 500);
     };
+    // Typing and edits are not DOM mutations, so the observer above never sees a visitor fill a field. Watch real
+    // (trusted) input events: once they stop for a moment, tell the agent if the set of filled fields changed.
+    // Synthetic events (the assistant's own typing) are ignored — its tool results already carry that.
+    let formTimer: ReturnType<typeof setTimeout> | null = null;
+    const onFormInput = (e: Event) => {
+      if (!e.isTrusted || !agent.conversationId) return;
+      if (formTimer) clearTimeout(formTimer);
+      formTimer = setTimeout(() => {
+        formTimer = null;
+        if (formSignature() !== lastFormSig) agent.updatePageContext({ immediate: true });
+      }, 1300);
+    };
+    document.addEventListener('input', onFormInput, true);
+    document.addEventListener('change', onFormInput, true);
     // Test mode only (src/config/sounds.ts): the visitor's own clicks/typing/scrolling make the same cues.
     const removeManualSounds = installManualSounds();
     const observer = new MutationObserver(onMutations);
@@ -1547,7 +1649,7 @@ export default function VoiceWidget() {
     const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     const setExpanded = (v: boolean) => {
       fab.dataset.expanded = v ? '1' : '0';
-      fabBtn.setAttribute('aria-label', fab.dataset.active === '1' ? (v ? 'Hide call controls' : 'Show call controls') : 'Talk to Ruby, the SwiftLoan assistant');
+      fabBtn.setAttribute('aria-label', fab.dataset.active === '1' ? (v ? L.hideControls : L.showControls) : L.talkAria);
     };
     fabBtn.addEventListener('click', () => {
       if (fab.dataset.active === '1') setExpanded(fab.dataset.expanded !== '1');
@@ -1557,14 +1659,14 @@ export default function VoiceWidget() {
     fabMute.addEventListener('click', () => agent.setMuted(!agent.isMuted()));
     agent.on('muteChange', (m: boolean) => {
       fab.dataset.muted = m ? '1' : '0';
-      fabMute.setAttribute('aria-label', m ? 'Unmute microphone' : 'Mute microphone');
+      fabMute.setAttribute('aria-label', m ? L.unmute : L.mute);
     });
     agent.on('statusChange', (s: string) => {
       const active = s !== 'idle' && s !== 'ended';
       const wasActive = fab.dataset.active === '1';
       fab.dataset.active = active ? '1' : '0';
       fab.dataset.status = s;
-      fabStatus.textContent = LABELS[s] || 'Connecting…';
+      fabStatus.textContent = statusLabel(s);
       if (active && !wasActive) {
         // Call just started: open the controls and start the clock.
         const started = Date.now();
@@ -1585,7 +1687,36 @@ export default function VoiceWidget() {
       }
     });
 
+    // Re-word the launcher whenever the site language changes (LanguageProvider announces it), and once now:
+    // the saved language is restored after hydration, which can land after this widget has mounted.
+    const applyWidgetLang = (code: string) => {
+      L = voiceWidgetCopy[code as Lang] ?? voiceWidgetCopy.en;
+      const set = (el: Element | null, text: string) => { if (el) el.textContent = text; };
+      set(btn.querySelector('.sl-voice-talk'), L.talk);
+      set(btn.querySelector('.voice-label'), statusLabel(curStatus));
+      set(fabStatus, statusLabel(curStatus));
+      const active = fab.dataset.active === '1';
+      btn.setAttribute('aria-label', active ? L.inCallAria : L.launcherAria);
+      btn.querySelector('.sl-voice-call')?.setAttribute('aria-label', L.callControls);
+      fab.querySelector('.sl-fab-panel')?.setAttribute('aria-label', L.callControls);
+      const muted = fab.dataset.muted === '1';
+      for (const m of [muteBtn, fabMute]) m.setAttribute('aria-label', muted ? L.unmute : L.mute);
+      for (const e of [endBtn, fab.querySelector('.sl-fab-end')]) e?.setAttribute('aria-label', L.endCall);
+      setExpanded(fab.dataset.expanded === '1');
+    };
+    const onLangChange = (e: Event) => {
+      applyWidgetLang(String((e as CustomEvent).detail ?? 'en'));
+      // Mid-call switch: the agent is told the new page language straight away, so it speaks it from the next turn.
+      if (agent.conversationId) setTimeout(() => agent.updatePageContext({ immediate: true }), 150);
+    };
+    window.addEventListener('swiftloan:lang', onLangChange);
+    applyWidgetLang(langApi()?.get() ?? 'en');
+
     return () => {
+      window.removeEventListener('swiftloan:lang', onLangChange);
+      document.removeEventListener('input', onFormInput, true);
+      document.removeEventListener('change', onFormInput, true);
+      if (formTimer) clearTimeout(formTimer);
       observer.disconnect();
       removeManualSounds();
       unsubscribeSession();

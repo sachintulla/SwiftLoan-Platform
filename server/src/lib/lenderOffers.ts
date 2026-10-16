@@ -11,6 +11,7 @@
  * rewrite of `/prequalify`.
  */
 import type { LenderPartner, LoanApplication, User } from '@prisma/client';
+import { loadPan, type SafeApplication, type SafeUser } from './storedPan.js';
 import { emi } from '../utils/emi.js';
 import { pick } from './integrations.js';
 import { prisma } from './prisma.js';
@@ -87,13 +88,13 @@ export interface RawLenderOffer {
 }
 
 interface LenderOfferProvider {
-  getOffer(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer>;
+  getOffer(partner: LenderPartner, application: SafeApplication): Promise<RawLenderOffer>;
   /**
    * Providers whose single API call returns MANY offers (e.g. Aurix returns one
    * per real lender) implement this. Callers should prefer it when present and
    * fall back to `[getOffer(...)]` otherwise.
    */
-  getOffers?(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer[]>;
+  getOffers?(partner: LenderPartner, application: SafeApplication): Promise<RawLenderOffer[]>;
 }
 
 // Standard GST rate on loan processing fees in India.
@@ -107,7 +108,7 @@ function tenureCandidates(requestedMonths: number): number[] {
 }
 
 class MockLenderOfferProvider implements LenderOfferProvider {
-  async getOffer(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer> {
+  async getOffer(partner: LenderPartner, application: SafeApplication): Promise<RawLenderOffer> {
     const amount = Math.min(
       Math.max(application.amount, partner.minAmount ?? application.amount),
       partner.maxAmount ?? application.amount,
@@ -419,11 +420,11 @@ function ageFromDob(dob: Date | null): number {
 
 /** Build the eligible_offers request body from the applicant + application. */
 function buildEligibleOffersPayload(
-  user: User,
-  application: LoanApplication,
+  user: SafeUser,
+  application: SafeApplication,
+  pan: string,
   panVerification: PanVerificationForOffers | null = null,
 ): Record<string, unknown> {
-  const pan = application.panNumber || user.panNumber || '';
   const first = user.firstName || (user.fullName ? user.fullName.trim().split(/\s+/)[0] : '') || '';
   const last = user.lastName || (user.fullName ? user.fullName.trim().split(/\s+/).slice(-1)[0] : '') || '';
   const monthly = user.monthlyIncome ?? application.monthlyIncome ?? 0;
@@ -605,7 +606,7 @@ export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
 
 class AurixOfferProvider implements LenderOfferProvider {
   /** Single Aurix call returns MANY offers (one per real lender). */
-  async getOffers(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer[]> {
+  async getOffers(partner: LenderPartner, application: SafeApplication): Promise<RawLenderOffer[]> {
     // No mock/sample short-circuit and no offer caching: every prequalify makes a
     // fresh eligible_offers call to Aurix (the prequalify route also deletes the
     // application's prior offers before this runs, so nothing stale is reused).
@@ -627,9 +628,10 @@ class AurixOfferProvider implements LenderOfferProvider {
 
     // Real PanVerificationDTO from the PAN Comprehensive result (DB only —
     // never re-calls the paid PAN API here).
-    const pan = application.panNumber || user.panNumber || '';
+    // The PAN is decrypted here, in memory, only for this call (lib/storedPan.ts).
+    const pan = await loadPan(application.userId, application.id);
     const panVerification = pan ? await getPanVerificationForOffers(pan) : null;
-    const payload = buildEligibleOffersPayload(user, application, panVerification);
+    const payload = buildEligibleOffersPayload(user, application, pan, panVerification);
     // Full request/response logging for integration analysis (PAN masked).
     const maskedPayload = JSON.stringify(payload).replace(/("Pan(?:Number)?":")[A-Z0-9]{6}/g, '$1******');
     console.log(`[aurix-req] POST ${cfg.offersBaseUrl}/api/eligible_offers user=${application.userId} app=${application.id} payload=${maskedPayload}`);
@@ -689,7 +691,7 @@ class AurixOfferProvider implements LenderOfferProvider {
   }
 
   /** Interface fallback: first offer only (callers should prefer getOffers). */
-  async getOffer(partner: LenderPartner, application: LoanApplication): Promise<RawLenderOffer> {
+  async getOffer(partner: LenderPartner, application: SafeApplication): Promise<RawLenderOffer> {
     const list = await this.getOffers(partner, application);
     if (list.length === 0) throw new Error('Aurix returned no eligible offers');
     return list[0];

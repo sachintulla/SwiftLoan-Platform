@@ -9,7 +9,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
 import { Card, StatusBadge, TableSkeleton, Empty, FilterChips } from '@/components/ui';
 
-type Provider = 'ello' | 'upshot' | 'infobip';
+type Provider = 'ello' | 'upshot' | 'voxvalley';
 
 interface Integration {
   provider: Provider;
@@ -25,13 +25,13 @@ const ESSENTIAL: Record<Provider, string[]> = {
   upshot: ['baseUrl', 'appId', 'accountId'],
   // sender and defaultTemplate are up front because a send fails without them,
   // and the failure ("no template") is far less obvious than a missing key.
-  infobip: ['baseUrl', 'sender', 'defaultTemplate', 'defaultLanguage'],
+  voxvalley: ['projectId', 'sender', 'defaultTemplate', 'defaultLanguage'],
 };
 
 const META: Record<Provider, { title: string; sub: string; icon: string; requiredSecrets: string[] }> = {
   ello: { title: 'Voice calling (Ello)', sub: 'Places the outbound calls and powers the mic widgets.', icon: '☎', requiredSecrets: ['apiKey'] },
   upshot: { title: 'Messaging (Upshot)', sub: 'Sends push, WhatsApp, SMS and email nudges.', icon: '✉', requiredSecrets: ['apiKey'] },
-  infobip: { title: 'WhatsApp (Infobip)', sub: 'Sends WhatsApp messages to customers from the dashboard.', icon: '💬', requiredSecrets: ['apiKey'] },
+  voxvalley: { title: 'WhatsApp (Voxvalley)', sub: 'Sends WhatsApp templates to customers from the dashboard and when they get stuck.', icon: '💬', requiredSecrets: ['authToken'] },
 };
 
 function labelFor(key: string) {
@@ -45,7 +45,7 @@ const SUB_TABS = [
   { key: 'ello', label: '☎  Voice calling' },
   { key: 'agents', label: '🗣  Voice agents' },
   { key: 'upshot', label: '✉  Messaging' },
-  { key: 'infobip', label: '💬  WhatsApp' },
+  { key: 'voxvalley', label: '💬  WhatsApp' },
   { key: 'api-keys', label: '🔑  API keys' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['key'];
@@ -107,11 +107,11 @@ export default function ConfigsPage() {
               onSaved={() => mutate()}
             />
           )}
-          {tab === 'infobip' && (
+          {tab === 'voxvalley' && (
             <ProviderCard
-              provider="infobip"
-              integration={list.find((i) => i.provider === 'infobip')}
-              defaults={(defaults.infobip ?? {}) as Record<string, unknown>}
+              provider="voxvalley"
+              integration={list.find((i) => i.provider === 'voxvalley')}
+              defaults={(defaults.voxvalley ?? {}) as Record<string, unknown>}
               onSaved={() => mutate()}
             />
           )}
@@ -255,7 +255,7 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
 
         <div>
           <div className="row between">
-            <label style={{ fontSize: 12.5, fontWeight: 600 }}>API key</label>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>{provider === 'voxvalley' ? 'Auth token' : 'API key'}</label>
             {secretStored && (
               <button className="btn" style={{ padding: '3px 9px', fontSize: 11.5 }} onClick={() => setReplacingSecret((v) => !v)}>
                 {replacingSecret ? 'Cancel' : 'Replace'}
@@ -272,7 +272,7 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
               style={{ marginTop: 6 }}
               value={secret}
               onChange={(e) => { setSecret(e.target.value); setSaveMsg(null); }}
-              placeholder="Paste the key"
+              placeholder={provider === 'voxvalley' ? 'Paste the project auth token' : 'Paste the key'}
             />
           )}
         </div>
@@ -291,6 +291,15 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
                     <textarea
                       className="input mono"
                       style={{ marginTop: 6, minHeight: 80, resize: 'vertical', fontSize: 11.5 }}
+                      value={values[k] ?? ''}
+                      onChange={(e) => setField(k, e.target.value)}
+                    />
+                  ) : /Body$/.test(k) || (values[k] ?? '').includes('\n') ? (
+                    // An SMS body must match its DLT registration character for
+                    // character; a one-line input would silently drop the line break.
+                    <textarea
+                      className="input"
+                      style={{ marginTop: 6, minHeight: 90, resize: 'vertical' }}
                       value={values[k] ?? ''}
                       onChange={(e) => setField(k, e.target.value)}
                     />

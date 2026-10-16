@@ -5,7 +5,7 @@
  * for login (see session.ts). Every call goes through authFetch, which
  * attaches the website's access token and silently refreshes it on expiry.
  */
-import { authFetch } from './session';
+import { authFetch, logout } from './session';
 import {
   rememberOffers,
   upshotIdentifyServerUser,
@@ -107,6 +107,29 @@ export async function fetchMe() {
   return res;
 }
 
+/**
+ * Short-lived proof that this browser session is signed in (i.e. passed the OTP), for the voice
+ * agent to send back with its customer-lookup tools. Null when signed out or on any failure.
+ */
+export async function fetchLookupGrant(): Promise<string | null> {
+  try {
+    const res = await authFetch('/api/context/lookup-grant');
+    const grant = res?.data?.grant;
+    return typeof grant === 'string' && grant ? grant : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * DELETE /api/users/me — permanently erase the account. The reason is mandatory from the website and is
+ * stored anonymously server-side. On success the local session is cleared too.
+ */
+export async function deleteAccount(input: { reason: string; details?: string }) {
+  await authFetch('/api/users/me', { method: 'DELETE', body: JSON.stringify({ ...input, source: 'website' }) });
+  await logout();
+}
+
 /** PATCH /api/users/me — the exact field set mobile's basic/moredetails/basicpan screens save. */
 export async function patchProfile(patch: Record<string, unknown>) {
   const body = await authFetch('/api/users/me', { method: 'PATCH', body: JSON.stringify(patch) });
@@ -127,7 +150,7 @@ export async function createApplication(payload: {
   return body.application as LoanApplication;
 }
 
-export async function patchApplication(id: string, patch: { amount?: number; tenureMonths?: number; panNumber?: string }) {
+export async function patchApplication(id: string, patch: { amount?: number; tenureMonths?: number; usePanOnFile?: boolean }) {
   const body = await authFetch(`/api/applications/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   return body.application as LoanApplication;
 }

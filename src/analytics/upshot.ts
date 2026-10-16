@@ -16,6 +16,7 @@
 
 import { NativeModules, Platform } from 'react-native';
 import { UPSHOT_DEMO } from '../config/build';
+import { metaTrackFromAppEvent } from './meta';
 
 /** Upshot's platform label for this build — never hard-code it: iPhones were being
  *  profiled as Android. */
@@ -216,6 +217,8 @@ export function upshotScreen(screen: string): void {
 }
 
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
+  // Meta ads: the two funnel moments only, no attributes (see src/analytics/meta.ts).
+  metaTrackFromAppEvent(name);
   if (!started) return;
   devLog('event ->', name, attrs);
   safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false, __DEV__ ? accepted(`event:${name}`) : noop));

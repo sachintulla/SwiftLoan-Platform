@@ -11,6 +11,7 @@
  */
 import { apiBase } from './leads';
 import { upshotEvent, upshotIdentifyServerUser, upshotLogout } from './upshot';
+import { clearCachedAccountUser } from './accountUserCache';
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
@@ -109,6 +110,7 @@ export async function verifyOtp(phone: string, code: string): Promise<OtpVerifyR
 export async function logout(): Promise<void> {
   await fetch(`${apiBase()}/api/website/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
   setAccessToken(null);
+  clearCachedAccountUser();
   upshotLogout();
 }
 

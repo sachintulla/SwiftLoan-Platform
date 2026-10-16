@@ -19,6 +19,8 @@ import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from './callContext.js';
 import { agentIdFor } from './agents.js';
+import { directWhatsAppConfig, templateFor, sendStallWhatsApp, STALL_WA_MAX_AGE_HOURS } from './stallWhatsapp.js';
+import { directSmsConfig, smsFor, sendStallSms, STALL_SMS_MAX_AGE_HOURS } from './stallSms.js';
 
 /** Scanned per rule per tick — bounds the blast radius of a bad rule. */
 const MAX_PER_RULE = 200;
@@ -83,9 +85,142 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'Website lead never installed the app',
     triggerEvent: JOURNEY_EVENTS.LEAD_CAPTURED,
     expectedEvent: JOURNEY_EVENTS.APP_INSTALLED,
-    delayMinutes: 60,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_lead_no_install',
     channel: 'whatsapp',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+
+  // ── channel 'whatsapp' = approved Voxvalley template (see stallWhatsapp.ts) ──
+  //
+  // Seeded DISABLED: these message real customers, so switch each on from the
+  // dashboard once the Voxvalley integration has had a test send. The template
+  // for each stage lives in the Voxvalley integration's `stallTemplates`.
+  {
+    name: 'WHATSAPP — eligibility done but offers not opened',
+    triggerEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_VIEWED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_offers_not_viewed_wa',
+    channel: 'whatsapp',
+    cooldownMinutes: 1440,
+    enabled: false,
+  },
+  {
+    name: 'WHATSAPP — saw offers but chose none',
+    triggerEvent: JOURNEY_EVENTS.OFFER_VIEWED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_offer_not_selected_wa',
+    channel: 'whatsapp',
+    cooldownMinutes: 1440,
+    enabled: false,
+  },
+  {
+    name: 'WHATSAPP — signed in but never started an application',
+    triggerEvent: JOURNEY_EVENTS.OTP_VERIFIED,
+    expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_no_application_wa',
+    channel: 'whatsapp',
+    cooldownMinutes: 1440,
+    enabled: false,
+  },
+  {
+    name: 'WHATSAPP — KYC started but not completed',
+    triggerEvent: JOURNEY_EVENTS.KYC_STARTED,
+    expectedEvent: JOURNEY_EVENTS.KYC_COMPLETED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_kyc_incomplete_wa',
+    channel: 'whatsapp',
+    cooldownMinutes: 1440,
+    enabled: false,
+  },
+
+  // ── channel 'sms' = the DLT-registered Vox text (see stallSms.ts) ───────────
+  //
+  // One rule per funnel step, each after 30 minutes with no progress. Enabled:
+  // nothing is sent until the Voxvalley integration is switched on with its token
+  // (otherwise these quietly fall back to an Upshot event nobody listens for), and
+  // it only ever reaches people who stalled in the last 24 hours.
+  {
+    name: 'SMS — OTP requested but not verified',
+    triggerEvent: JOURNEY_EVENTS.OTP_REQUESTED,
+    expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_otp_not_verified_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — installed but never signed in',
+    triggerEvent: JOURNEY_EVENTS.APP_INSTALLED,
+    expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_install_not_registered_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — signed in but never started an application',
+    triggerEvent: JOURNEY_EVENTS.OTP_VERIFIED,
+    expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_no_application_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — application started but not finished',
+    triggerEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
+    expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_eligibility_incomplete_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — eligibility done but offers not opened',
+    triggerEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_VIEWED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_offers_not_viewed_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — saw offers but chose none',
+    triggerEvent: JOURNEY_EVENTS.OFFER_VIEWED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_offer_not_selected_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — chose an offer but did not start KYC',
+    triggerEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    expectedEvent: JOURNEY_EVENTS.KYC_STARTED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_kyc_not_started_sms',
+    channel: 'sms',
+    cooldownMinutes: 1440,
+    enabled: true,
+  },
+  {
+    name: 'SMS — KYC started but not completed',
+    triggerEvent: JOURNEY_EVENTS.KYC_STARTED,
+    expectedEvent: JOURNEY_EVENTS.KYC_COMPLETED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_kyc_incomplete_sms',
+    channel: 'sms',
     cooldownMinutes: 1440,
     enabled: true,
   },
@@ -213,8 +348,26 @@ export async function evaluateRule(rule: StallRule, now: Date = new Date()): Pro
   if (!rule.enabled) return 0;
   const cutoff = new Date(now.getTime() - rule.delayMinutes * 60_000);
 
+  // A whatsapp rule sends its approved template straight through Voxvalley when
+  // that integration is on and this stage has a template mapped; otherwise it
+  // keeps firing its Upshot event as before.
+  const direct = rule.channel === 'whatsapp' ? await directWhatsAppConfig() : null;
+  const waTemplate = direct ? templateFor(direct.map, rule.triggerEvent) : null;
+
+  // An sms rule texts the registered Vox SMS template when that gateway is on.
+  const directSms = rule.channel === 'sms' ? await directSmsConfig() : null;
+  const smsTemplate = directSms ? smsFor(directSms.settings, rule.triggerEvent) : null;
+  const maxAgeHours = waTemplate ? STALL_WA_MAX_AGE_HOURS : smsTemplate ? STALL_SMS_MAX_AGE_HOURS : null;
+
   const triggers = await prisma.journeyEvent.findMany({
-    where: { name: rule.triggerEvent, occurredAt: { lte: cutoff } },
+    where: {
+      name: rule.triggerEvent,
+      // Direct WhatsApp only reaches people who stalled recently — see
+      // STALL_WA_MAX_AGE_HOURS — so enabling a rule never messages the backlog.
+      occurredAt: maxAgeHours
+        ? { lte: cutoff, gte: new Date(cutoff.getTime() - maxAgeHours * 3_600_000) }
+        : { lte: cutoff },
+    },
     orderBy: { occurredAt: 'desc' },
     take: MAX_PER_RULE,
     include: { customer: true },
@@ -259,6 +412,18 @@ export async function evaluateRule(rule: StallRule, now: Date = new Date()): Pro
     if (rule.channel === 'voice') {
       const placed = await placeStallCall(rule, customer, minutesStuck, idempotencyKey, now);
       if (placed) fired++;
+      continue;
+    }
+
+    if (directSms && smsTemplate) {
+      const sent = await sendStallSms(rule, customer, smsTemplate, minutesStuck, idempotencyKey, now);
+      if (sent) fired++;
+      continue;
+    }
+
+    if (direct && waTemplate) {
+      const sent = await sendStallWhatsApp(rule, customer, waTemplate, direct.siteUrl, minutesStuck, idempotencyKey, now);
+      if (sent) fired++;
       continue;
     }
 

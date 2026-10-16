@@ -85,6 +85,7 @@ jobs:
             --build-arg NEXT_PUBLIC_UPSHOT_APP_ID="$WEBSITE_NEXT_PUBLIC_UPSHOT_APP_ID" \
             --build-arg NEXT_PUBLIC_UPSHOT_OWNER_ID="$WEBSITE_NEXT_PUBLIC_UPSHOT_OWNER_ID" \
             --build-arg NEXT_PUBLIC_UPSHOT_DATA_REGION="$WEBSITE_NEXT_PUBLIC_UPSHOT_DATA_REGION" \
+            --build-arg NEXT_PUBLIC_META_PIXEL_ID="$WEBSITE_NEXT_PUBLIC_META_PIXEL_ID" \
             -t swiftloan-website .
           docker stop swiftloan-website || true
           docker rm swiftloan-website || true

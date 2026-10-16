@@ -379,3 +379,72 @@ Same server endpoints as the app — nothing lender-specific is client-only.
 - **Yubi is deliberately untouched** (its pre-warm still runs on every prequalify; the partner handles its own limits).
 - Terminology: a `LoanApplication` is created when the applicant submits their details (before offers); fetching offers
   (prequalify) fills it with `Offer` rows; a `LenderApplication` is created only when they apply to a specific lender's offer.
+
+---
+
+## PAN handling (never stored in the clear)
+
+- A PAN is **never** stored, returned or logged in plaintext. Where it is genuinely needed (the lender eligibility call and
+  the Revasure lead are made server-side, after the user typed it) it lives in `User.panEnc` / `LoanApplication.panEnc`,
+  AES-256-GCM encrypted with the env-only `PII_ENCRYPTION_KEY` (`server/src/lib/pii.ts`; production refuses to boot without
+  it; never rotate by just changing the value).
+- `server/src/lib/storedPan.ts` is the **only** reader/writer. `lib/prisma.ts` omits `panNumber`/`panEnc` from every query by
+  default, so a plain `findUnique`/`include`/`res.json(row)` cannot leak one; use `loadPan(userId, applicationId?)` and decrypt
+  in memory for that one call. APIs expose only `User.panOnFile` (boolean). The offers fingerprint uses a keyed hash, not the PAN.
+- The legacy plaintext `panNumber` columns are deprecated and never written. Run `cd server && npm run pan:encrypt` (after the
+  `20261015120000_encrypted_pan` migration, same `PII_ENCRYPTION_KEY` as the API) to encrypt existing values and null the
+  plaintext; once `SELECT count(*) … WHERE "panNumber" IS NOT NULL` is 0 in User and LoanApplication, drop the columns.
+- Clients never pre-fill the PAN field and never keep the PAN: the website's Step-1→2 hand-off holds only a masked form
+  (`XXXXXX234A`), and Step 2 asks the server to attach the user's own PAN (`PATCH /applications/:id {usePanOnFile:true}`).
+- `PanRecord.dataEnc` (encrypted PAN-verification cache: PAN, prefill, raw response) uses the same key.
+
+---
+
+## Meta (Facebook) ads measurement — app SDK + website Pixel + Conversions API
+
+Full detail in `docs/META_SDK_INTEGRATION.md`. Everything is **off until credentials exist**.
+- Reports ONLY a few coarse funnel moments, no parameters: `Lead` (website lead form), `CompleteRegistration` (`otp_verified`),
+  `IdentityVerified` (PAN step, no PAN), `EligibilityCompleted`, `OffersReceived`, `ViewContent` (offers page),
+  `InitiateCheckout` (`offer_selected`), `SubmitApplication`, and app-only `LoanDisbursed`. Never amounts/APR/lender/the PAN.
+  `LoanDisbursed` is policy-sensitive (financial status) — one line in `META_APP_EVENT_FOR` to drop. Repeatable steps fire once per session.
+  Hooked as one line inside each Upshot `upshotEvent` (`metaTrackFromAppEvent` / `metaTrackFromWebEvent`) — no screen edits.
+- App (`src/analytics/meta.ts`, `react-native-fbsdk-next`): no advertising ID (AD_ID stays stripped), no ATT prompt, no
+  native auto-init; needs `META_CLIENT_TOKEN`; demo builds excluded unless `SWIFTLOAN_META_ALLOW_DEMO`.
+- Website: Pixel loads only after the visitor accepts the consent banner (`MetaPixel.tsx`); `NEXT_PUBLIC_META_PIXEL_ID`.
+- Server: `POST /api/meta/event` relays to the Conversions API (`lib/metaCapi.ts`), hashes ids, dedups via shared `eventID`;
+  needs `META_PIXEL_ID` + `META_CAPI_TOKEN`.
+- Don't ship in a store build until the privacy policy / Data Safety / App Store labels are updated (see §6 of the doc).
+
+---
+
+## WhatsApp via Voxvalley (replaced Infobip)
+
+- Provider key `voxvalley` (Admin → Configs → WhatsApp). `server/src/lib/whatsapp.ts` posts to
+  `{baseUrl}/api/v1/whatsapp/send` with `Authorization: Bearer <project authToken>` + `projectid` in the body. A 200 only
+  means **queued**; failures are HTTP 400 or `status: "FAILED"`. Secret is `authToken`; settings: `projectId`, `sender`
+  (active WABA number), `defaultTemplate`, `messageCategory`, `callbackUrl`, `siteUrl`, `stallTemplates`.
+- **Stuck-stage nudges** (`lib/stallWhatsapp.ts`, called from `evaluateRule`): a `whatsapp`-channel stall rule sends the
+  approved template mapped to its trigger stage in `settings.stallTemplates` (`{name}/{ref}/{offerCount}/{siteUrl}` tokens;
+  a customer missing a value is skipped, never sent a blank). Stage with no mapping, or integration off → falls back to the
+  Upshot event as before. Guards: calling hours, 1 per customer per `STALL_WA_COOLDOWN_HOURS` (24), `STALL_WA_MAX_PER_CUSTOMER`
+  (3) lifetime, only stalls newer than `STALL_WA_MAX_AGE_HOURS` (24) so enabling a rule never messages the backlog, do-not-contact
+  skipped, `OutboundRequest` row claimed before sending, failures not retried. New seeded `WHATSAPP — …` rules start **disabled**
+  and all use a **30-minute** stall delay. Shipped `stallTemplates` defaults are merged UNDER what the dashboard saved (saved
+  entry wins; blank `template` = back to Upshot), so new stages reach environments that already saved the form.
+  Seeding only inserts missing rules — an existing rule's delay is edited on the Notifications rules page, not by the seed.
+- **WhatsApp send is blocked on Vox's side (as of 2026-10-16):** `POST https://cpaas.voxdigitals.com/api/v1/whatsapp/send` (and `/api/v2/…`)
+  return nginx `405` even from Vox's own docs "Test API" tab — the real host/path must come from Vox support. Set it via the card's
+  Advanced `baseUrl`/`sendPath`. A direct **Meta Cloud API** backend also exists (`meta_whatsapp` integration: `phoneNumberId` +
+  `accessToken`); when it is enabled it is used instead of Voxvalley. No live WhatsApp send has been verified yet.
+- **SMS works and is the live stuck-stage channel:** `lib/voxSms.ts` posts to `settings.smsUrl`
+  (`https://cpaas.voxdigitals.com/sms-customer-apis/sms/v2/send`) with the project token IN THE BODY as `authtoken`, plus
+  `projectid`, `from` (`smsSender`, DLT sender ID), `to` (`+91…`), `template_id` and `body`. India SMS is DLT-regulated: the body
+  must match the registered template (`smsTemplateId`/`smsBody`) exactly — the admin form uses a textarea so its line break
+  survives. `lib/stallSms.ts` is called from `evaluateRule` for `sms`-channel rules (8 seeded `SMS — …` rules, one per funnel
+  step, **30-minute** delay, enabled; per-stage text via `settings.smsTemplates[triggerEvent]`). Same guards as WhatsApp
+  (calling hours, 1 per `STALL_SMS_COOLDOWN_HOURS`=24, `STALL_SMS_MAX_PER_CUSTOMER`=3, only stalls < `STALL_SMS_MAX_AGE_HOURS`=24,
+  DNC skipped, key claimed before sending, failures not retried). Nothing sends until the Voxvalley integration is enabled with a
+  token. Verified: a real SMS to the owner's number, and a full fake-stall → rule → SMS run locally.
+- Templates live in the Voxvalley portal (WhatsApp → My Templates): application_received, document_request, emi_reminder,
+  kyc_completed, loan_disbursed, marketing_check_rate, offers_ready, otp_verification. Placeholder counts must match exactly.
+- Not built yet: delivery-status webhook (`callbackUrl`) and inbound "STOP" opt-out handling.
