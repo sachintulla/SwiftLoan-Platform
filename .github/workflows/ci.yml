@@ -17,7 +17,7 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # gitleaks needs history to scan past commits
       - name: gitleaks
@@ -32,7 +32,7 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -53,7 +53,7 @@ jobs:
     name: Mobile — typecheck + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -73,7 +73,7 @@ jobs:
       run:
         working-directory: admin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -90,7 +90,7 @@ jobs:
       run:
         working-directory: website-next
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -118,7 +118,7 @@ jobs:
           --health-cmd pg_isready --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
