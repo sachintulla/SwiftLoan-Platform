@@ -39,6 +39,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>SwiftLoan uses your camera to take a profile photo.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SwiftLoan does not collect or use your location. This permission appears only because a bundled component includes location capability that SwiftLoan never calls, and the app will not request your location.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SwiftLoan uses your microphone so you can navigate the app and fill in forms by voice.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
