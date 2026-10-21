@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 // Real internal-beta install links.
 const IOS = 'https://testflight.apple.com/join/Bc429VvP';
-const ANDROID = 'https://play.google.com/apps/testing/ai.swiftloan.app';
+const ANDROID = 'https://play.google.com/store/apps/details?id=ai.swiftloan.app';
 
 type Platform = 'ios' | 'android' | 'other';
 
