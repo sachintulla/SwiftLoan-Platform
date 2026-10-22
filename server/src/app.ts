@@ -32,6 +32,8 @@ import { integrationsRouter } from './modules/integrations.routes.js';
 import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
+import { adminMessagesRouter } from './modules/adminMessages.routes.js';
+import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
 import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
@@ -48,6 +50,8 @@ import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
 import { yubiWebhookRouter } from './modules/yubiWebhook.routes.js';
 import { websiteRouter } from './modules/website.routes.js';
 import { websiteAuthRouter } from './modules/websiteAuth.routes.js';
+import { websiteActivityRouter } from './modules/websiteActivity.routes.js';
+import { journeyRouter } from './modules/journey.routes.js';
 import { metaRouter } from './modules/meta.routes.js';
 
 export function createApp() {
@@ -149,6 +153,8 @@ export function createApp() {
   app.use('/api/track', trackLimiter, trackingRouter);
   // ── Install attribution + friend referrals ──
   // /claim is public (no account yet) and writes a row per call, so it shares the tracking bucket.
+  // Returns a phone number and first name for a link's reference ID, so far stricter than the other tracking routes.
+  app.use('/api/attribution/resume', limiter(60_000, 20, 'Too many attempts, try again shortly'));
   app.use('/api/attribution', trackLimiter, attributionRouter);
   // Website Meta Conversions API relay (consent-gated, small event allow-list).
   app.use('/api/meta', limiter(60_000, 60, 'Too many events'), metaRouter);
@@ -159,6 +165,7 @@ export function createApp() {
   // swallow these paths.
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
+  app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
   app.use('/api/admin/campaigns', campaignsRouter);
   app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
@@ -177,6 +184,7 @@ export function createApp() {
   app.use('/api/conversations', limiter(60_000, 120, 'Too many conversation API requests'), conversationsRouter);
   // PUBLIC — an Upshot journey posts here to place a call. Every guard
   // (calling hours, cooldown, do-not-call) is enforced server-side.
+  app.use('/api/webhooks/whatsapp', webhookLimiter, whatsappStatusRouter); // PUBLIC — the WhatsApp gateway posts delivery status here
   app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
   app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix/KFT posts loan status here
   app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
@@ -205,6 +213,11 @@ export function createApp() {
   // mounted before the lead-only /api/website line below so it isn't shadowed.
   // Distinct from /api/auth/otp/*: same login, shorter cookie-based session.
   app.use('/api/website/auth', authLimiter, websiteAuthRouter);
+  // The website tab's activity ping (install-reminder idle clock). Its own, roomier bucket; before
+  // the lead-only /api/website line below so it isn't shadowed.
+  app.use('/api/website/activity', trackLimiter, websiteActivityRouter);
+  // The signed-in app user's unfinished website visit (resume offer after login).
+  app.use('/api/journey', journeyRouter);
   // PUBLIC — post-lead-capture phone verification (OTP) + callback consent for
   // the marketing site. Separate from /api/auth/otp/*: that flow creates a
   // User row and issues real app tokens, the wrong side effect here. Each

@@ -17,6 +17,8 @@
  * arrives later on a webhook. Neither backend is told about that webhook here.
  */
 import { getProviderConfig } from './integrations.js';
+import { defaultCallbackUrl } from './messageCallback.js';
+import { recordSend } from './messageDelivery.js';
 
 export interface WhatsAppResult {
   ok: boolean;
@@ -73,7 +75,7 @@ function voxEnvelope(r: Backend, phone: string, referenceId?: string) {
     // docs' examples omit the '+', so `recipientPlus: false` restores that form.
     to: `${r.settings.recipientPlus === false ? '' : '+'}${toMsisdn(phone)}`,
     ...(r.settings.messageCategory ? { messageCategory: String(r.settings.messageCategory) } : {}),
-    ...(r.settings.callbackUrl ? { callbackUrl: String(r.settings.callbackUrl) } : {}),
+    ...(((r.settings.callbackUrl as string) || defaultCallbackUrl()) ? { callbackUrl: String((r.settings.callbackUrl as string) || defaultCallbackUrl()) } : {}),
     ...(referenceId ? { referenceId } : {}),
   };
 }
@@ -137,6 +139,33 @@ async function post(r: Backend, payload: unknown): Promise<WhatsAppResult> {
   return { ok: true, status: res.status, messageId, providerStatus, body: json };
 }
 
+/** What a send is for, so the delivery list can say why a message went out. */
+export interface SendTrack {
+  /** install_reminder | stall | admin | test | other */
+  kind?: string;
+  customerId?: string | null;
+}
+
+/** Remember the send (accepted or refused) so its delivery status can be followed. Never changes the result. */
+async function tracked(
+  result: WhatsAppResult,
+  info: { phone: string; template?: string | null; referenceId?: string; track?: SendTrack },
+): Promise<WhatsAppResult> {
+  await recordSend({
+    channel: 'whatsapp',
+    providerRef: result.ok ? result.messageId ?? null : null,
+    gtrid: result.ok ? (result.body?.gtrid ?? null) : null,
+    referenceId: info.referenceId ?? null,
+    phone: info.phone,
+    template: info.template ?? null,
+    kind: info.track?.kind ?? 'other',
+    customerId: info.track?.customerId ?? null,
+    ok: result.ok,
+    error: result.error ?? null,
+  });
+  return result;
+}
+
 /* ───────────────────────────────── public API ───────────────────────────────── */
 
 /**
@@ -151,6 +180,8 @@ export async function sendWhatsAppTemplate(opts: {
   placeholders?: string[];
   /** Client correlation id, echoed back on the delivery callback. */
   referenceId?: string;
+  /** What this send is for (delivery tracking). */
+  track?: SendTrack;
 }): Promise<WhatsAppResult> {
   const r = await ready();
   if (typeof r === 'string') return { ok: false, status: 0, error: r };
@@ -169,19 +200,19 @@ export async function sendWhatsAppTemplate(opts: {
   };
 
   const envelope = r.kind === 'meta' ? metaEnvelope(opts.phone, opts.referenceId) : voxEnvelope(r, opts.phone, opts.referenceId);
-  return post(r, { ...envelope, type: 'template', template });
+  return tracked(await post(r, { ...envelope, type: 'template', template }), { phone: opts.phone, template: templateName, referenceId: opts.referenceId, track: opts.track });
 }
 
 /**
  * Free-form text. ONLY valid inside the 24-hour customer service window; use
  * sendWhatsAppTemplate for anything we initiate.
  */
-export async function sendWhatsAppText(opts: { phone: string; text: string; referenceId?: string }): Promise<WhatsAppResult> {
+export async function sendWhatsAppText(opts: { phone: string; text: string; referenceId?: string; track?: SendTrack }): Promise<WhatsAppResult> {
   const r = await ready();
   if (typeof r === 'string') return { ok: false, status: 0, error: r };
 
   const envelope = r.kind === 'meta' ? metaEnvelope(opts.phone, opts.referenceId) : voxEnvelope(r, opts.phone, opts.referenceId);
-  return post(r, { ...envelope, type: 'text', text: { body: opts.text } });
+  return tracked(await post(r, { ...envelope, type: 'text', text: { body: opts.text } }), { phone: opts.phone, template: null, referenceId: opts.referenceId, track: opts.track });
 }
 
 /** True when a provider is configured well enough to attempt a send. */

@@ -12,6 +12,7 @@ import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
+import ResumePrompt from './src/components/ResumePrompt';
 import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, NUDGE_START_MS, nudgeSnoozeRemaining, onNudgeWake } from './src/voice/nudges';
 import { trackEvent, api, isAuthed, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
@@ -143,6 +144,7 @@ function AppShell() {
       <BottomNav />
       <VoiceFabGate />
       <ConfirmationSheet />
+      <ResumePrompt />
       <OfflineNotice />
       <BackHandlerBridge />
     </View>

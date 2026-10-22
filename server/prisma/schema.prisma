@@ -137,6 +137,7 @@ model User {
   otps         OtpToken[]
   tickets      SupportTicket[]
   sessions     RefreshToken[]
+  journeyReminders JourneyReminder[]
 
   @@index([createdAt])
 }
@@ -1679,4 +1680,85 @@ model AccountDeletionFeedback {
 
   @@index([createdAt])
   @@index([reasonCode])
+}
+
+// Website drop-off recovery: one row per visitor who verified their phone on the website. It remembers
+// the last step they reached and runs the install-link reminder schedule (lib/reminderSchedule.ts):
+// SMS then WhatsApp, up to 7 days, until the app is installed or the person logs in to it.
+// Holds no PAN: only the first name (from the PAN check) and the last completed step.
+model JourneyReminder {
+  id         String    @id @default(uuid())
+  userId     String
+  customerId String?
+  phone      String
+  /// Reference ID carried in the app link (/dl?ref=<token>); ties an install back to this visitor.
+  token      String    @unique
+  firstName  String?
+  /// otp_only | pan_done | application_started
+  lastStep   String    @default("otp_only")
+  /// active | stopped | completed
+  status     String    @default("active")
+  /// installed | app_login | application_finished | do_not_contact | returned
+  stopReason String?
+  /// 1 for the first run; a visitor who returns and goes idle again starts the next cycle.
+  cycle      Int       @default(1)
+  /// The schedule's offsets are counted from here.
+  startAt    DateTime
+  /// Last time the website tab pinged us.
+  lastSeenAt DateTime  @default(now())
+  /// Set once the visitor has been idle long enough that we saved "dropped off at lastStep".
+  droppedAt  DateTime?
+  /// How many schedule steps have been handled (sent, logged, or skipped).
+  stepsSent  Int       @default(0)
+  lastSentAt DateTime?
+  /// When this row next needs attention (a step due, or the idle check). The job only picks up rows that are due.
+  nextCheckAt DateTime @default(now())
+  /// One entry per handled step: { step, channel, at, outcome: logged|sent|failed|skipped, reason? }.
+  history    Json      @default("[]")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, startAt])
+  @@index([status, nextCheckAt])
+  @@index([userId])
+  @@index([phone])
+}
+
+// Delivery tracking for outbound WhatsApp (and SMS) messages: one row per message the provider accepted, updated as
+// its status callbacks arrive (queued → sent → delivered → read, or failed with the provider's reason). A 200 from the
+// send API only means "queued", so without this a message that never reaches the phone looks identical to one that did.
+model MessageDelivery {
+  id            String    @id @default(uuid())
+  /// whatsapp | sms
+  channel       String
+  /// The provider's message id (Voxvalley `id`, Meta `wamid…`). Null only for a send the provider rejected outright.
+  providerRef   String?   @unique
+  gtrid         String?
+  /// Our own correlation id, echoed back on the callback.
+  referenceId   String?
+  phone         String?
+  customerId    String?
+  template      String?
+  /// install_reminder | stall | admin | test | other
+  kind          String    @default("other")
+  /// queued | sent | delivered | read | failed
+  status        String    @default("queued")
+  failureCode   String?
+  failureReason String?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  failedAt      DateTime?
+  lastEventAt   DateTime?
+  /// Every status callback received, newest last, capped: { at, status, raw status, code?, reason? }.
+  events        Json      @default("[]")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([channel, createdAt])
+  @@index([status, createdAt])
+  @@index([phone])
+  @@index([referenceId])
 }

@@ -9,6 +9,7 @@ import { requireAdmin, requireActiveAdmin } from '../middleware/adminAuth.js';
 import { downloads, stores } from '../config/downloads.js';
 import { detectPlatform, formatClipboard, parseClipboard, parsePlayReferrer, storeUrl, maskName } from '../lib/attribution.js';
 import { claimInstall, recordClick, redeemReferral, referralSummary, shareLinkFor } from '../lib/referral.js';
+import { resumeForToken, resumeToWire } from '../lib/journeyResume.js';
 
 const esc = (s: string) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -84,13 +85,31 @@ attributionRouter.post(
       via: play.clickId ? 'play_referrer' : 'clipboard',
       osVersion: b.os_version ?? null,
     });
+    // A website visitor who followed their own link: hand the app what it needs to offer "continue where you
+    // left off". Only for a DETERMINISTIC match (Play referrer / clipboard token): a same-IP guess could be a
+    // different person, and this carries a phone number and a name.
+    const resume = result.method === 'play_referrer' || result.method === 'clipboard' ? await resumeForToken(result.clickRef) : null;
     return ok(res, {
       matched: result.matched,
       method: result.method,
       download_id: result.downloadId,
       source: result.source,
       referral: result.referral && { code: result.referral.code, referrer_name: result.referral.referrerName },
+      resume: resumeToWire(resume),
     }, result.matched ? 'Install attributed' : 'Install recorded');
+  }),
+);
+
+// ── POST /api/attribution/resume — the app was opened from the visitor's own link ───
+// swiftloan://onboard?token=<the link's reference ID>. Public (nobody is signed in yet); the reference ID is
+// the capability, the same one the /dl link and the Play referrer carry. Always 200 with the same shape, so
+// an unknown or stale ID cannot be told apart from "nothing to resume". Rate-limited per IP in app.ts.
+attributionRouter.post(
+  '/resume',
+  validate(z.object({ token: z.string().min(6).max(12) })),
+  ah(async (req, res) => {
+    const resume = await resumeForToken(req.body.token);
+    return ok(res, { resume: resumeToWire(resume) }, resume ? 'Journey found' : 'Nothing to resume');
   }),
 );
 

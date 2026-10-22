@@ -448,6 +448,21 @@ async function attachPanToUser(user: User, pan: string) {
   });
 }
 
+/**
+ * The pre-fill for the PAN this user already verified, WITHOUT the PAN and without any Aurix call (cache
+ * only). Lets the app resume at step 2 after the visitor did step 1 on the website: it gets a masked PAN
+ * to show and the details to fill in, never the number itself. Null when there is no stored PAN or no
+ * verified record for it (the caller then sends the user back to step 1).
+ */
+export async function cachedPanForUser(userId: string): Promise<{ maskedPan: string; result: PanVerifyResult } | null> {
+  const pan = await loadPan(userId);
+  if (!pan) return null;
+  const found = await prisma.panRecord.findUnique({ where: { panHash: panHash(pan) } });
+  const cached = found ? await remapFromRaw(found) : null;
+  if (!cached || cached.status !== 'verified') return null;
+  return { maskedPan: `XXXXXX${pan.slice(6)}`, result: fromRecord(cached) };
+}
+
 /** eligible_offers' PanVerificationDTO source — DB only, never calls Aurix. */
 export async function getPanVerificationForOffers(pan: string): Promise<PanVerificationForOffers | null> {
   if (!isValidPanFormat(pan)) return null;

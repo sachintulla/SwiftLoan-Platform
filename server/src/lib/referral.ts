@@ -86,6 +86,8 @@ export interface ClaimResult {
   method: MatchMethod | null;
   downloadId: string;
   clickId: string | null;
+  /** The link's `ref` (a referral code, a campaign, or a website visitor's reference ID). */
+  clickRef: string | null;
   source: string;
   referral: { code: string; referrerName: string } | null;
 }
@@ -155,7 +157,7 @@ export async function claimInstall(input: ClaimInput): Promise<ClaimResult> {
   }
 
   log.info('install claimed', { platform: input.platform, matched: !!click, method, source });
-  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, source, referral };
+  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, clickRef: click?.ref ?? null, source, referral };
 }
 
 // ── Redeem (after the friend has an account) ────────────────────────────────
