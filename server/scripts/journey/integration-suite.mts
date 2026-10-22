@@ -627,7 +627,7 @@ await t('S87', 'send', 'SMS text with name, step and link: the gateway receives 
     await tickAll(OPEN);
     const sms = hitsFor('/sms'); assert.equal(sms.length, 1);
     assert.equal(sms[0].body.template_id, '555');
-    assert.equal(sms[0].body.body, `Dear Charan , your SwiftLoan loan application is incomplete at Pan verification. Please open the SwiftLoan app to continue where you left off :${downloads.publicBase}/dl?ref=${w.reminder!.token}. Team SwiftLoan\n-PurpleTalk IPL`);
+    assert.equal(sms[0].body.body, `Dear Charan , your SwiftLoan loan application is incomplete at Basic details. Please open the SwiftLoan app to continue where you left off :${downloads.publicBase}/dl?ref=${w.reminder!.token}. Team SwiftLoan\n-PurpleTalk IPL`);
     assert.ok(!/[{}]/.test(sms[0].body.body), 'no placeholder left in the text that is sent');
   } finally { sendMode(false); await upsertProviderConfig('voxvalley', { settings: { installSmsTemplateId: '999', installSmsBody: 'Continue your SwiftLoan application: {link} -PurpleTalk' } }); }
 });
@@ -643,7 +643,7 @@ await t('S88', 'send', 'the step named in the SMS follows where the visitor got 
     const w2 = await webLogin(); await giveVerifiedPan(w2.user.id, 'ASHA'); await rem.markPanVerified(w2.user.id, 'ASHA');
     await prisma.journeyReminder.update({ where: { id: w2.reminder!.id }, data: { startAt: OPEN } });
     await tickAll(OPEN);
-    assert.ok(hitsFor('/sms')[0].body.body.startsWith('At Pan verification: '), 'default label for a visitor past PAN');
+    assert.ok(hitsFor('/sms')[0].body.body.startsWith('At Basic details: '), 'default label for a visitor past PAN');
   } finally { sendMode(false); await upsertProviderConfig('voxvalley', { settings: { installSmsTemplateId: '999', installSmsBody: 'Continue your SwiftLoan application: {link} -PurpleTalk', installStepLabels: {} } }); }
 });
 
@@ -658,7 +658,7 @@ await t('S89', 'send', 'WhatsApp with the step: `install_app_resume_step` gets n
     const wa = hitsFor('/api/v1/whatsapp'); assert.equal(wa.length, 1);
     const b = wa[0].body; assert.equal(b.template.name, 'install_app_resume_step');
     const params = b.template.components[0].parameters.map((x: any) => x.text);
-    assert.deepEqual(params, ['Charan', 'Pan verification', `${downloads.publicBase}/dl?ref=${w.reminder!.token}`]);
+    assert.deepEqual(params, ['Charan', 'Basic details', `${downloads.publicBase}/dl?ref=${w.reminder!.token}`]);
   } finally { sendMode(false); await upsertProviderConfig('voxvalley', { settings: { installWhatsapp: { template: 'install_link', language: 'en', placeholders: ['{name}', '{link}'] } } }); }
 });
 

@@ -150,11 +150,18 @@ export function buildInstallLink(publicBase: string, token: string): string {
   return `${publicBase.replace(/\/$/, '')}/dl?ref=${encodeURIComponent(token)}`;
 }
 
-/** What the SMS calls the step the visitor stopped at (an operator setting `installStepLabels` can override any of these). */
+/**
+ * What the message calls the step the visitor is STUCK ON: the sentence reads "incomplete at <step>", so each label is
+ * the next website step they have not finished, not the one they just completed (an operator setting `installStepLabels`
+ * can override any of these). The website's steps: 1 PAN verification, 2 Basic details, 3 Finding offers.
+ *   otp_only            mobile verified, PAN not done      → step 1
+ *   pan_done            PAN done, details not submitted    → step 2
+ *   application_started details submitted (application row) → step 3
+ */
 export const DEFAULT_STEP_LABELS: Readonly<Record<LastStep, string>> = Object.freeze({
-  otp_only: 'Mobile verification',
-  pan_done: 'Pan verification',
-  application_started: 'Application',
+  otp_only: 'PAN verification',
+  pan_done: 'Basic details',
+  application_started: 'Finding offers',
 });
 
 /** A DLT variable is capped (30 characters is common): keep the whole name if it fits, else its first word. */

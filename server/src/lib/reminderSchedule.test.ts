@@ -183,7 +183,9 @@ describe('renderSmsBody', () => {
   });
   it('has a label for every step', () => {
     expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'otp_only', 'pan_done']);
-    expect(DEFAULT_STEP_LABELS.pan_done).toBe('Pan verification');
+  });
+  it('names the step they are stuck on: 1 PAN verification, 2 Basic details, 3 Finding offers', () => {
+    expect(DEFAULT_STEP_LABELS).toEqual({ otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers' });
   });
 });
 

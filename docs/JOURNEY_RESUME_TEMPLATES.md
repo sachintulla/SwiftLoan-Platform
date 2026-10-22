@@ -31,7 +31,7 @@ Dear {#alphanumeric#} , your SwiftLoan loan application is incomplete at {#alpha
 |---|---|
 | `installSmsTemplateId` | the template ID DLT gives you |
 | `installSmsBody` | the same text with `{name}`, `{step}` and `{link}` in place of the three variables |
-| `installStepLabels` (optional) | rename the steps, e.g. `{"pan_done":"Pan verification"}`; defaults: otp_only = "Mobile verification", pan_done = "Pan verification", application_started = "Application" |
+| `installStepLabels` (optional) | rename the steps, e.g. `{"pan_done":"Basic details"}`; defaults name the step they are stuck on: otp_only = "PAN verification" (step 1), pan_done = "Basic details" (step 2), application_started = "Finding offers" (step 3) |
 
 `{name}` is the first name from the PAN check (the whole name if it fits 30 characters, else its first word), or `Customer`
 when unknown. `{step}` is where the visitor stopped. `{link}` is the personal link and is required.

@@ -562,4 +562,5 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
   `install.allowedNumbers` test list). Templates: `appliedWhatsapp` (default `loan_applied_install_app`, **awaiting Meta approval**), `appliedSmsTemplateId` +
   `appliedSmsBody` (blank until the DLT template exists); texts in `docs/JOURNEY_RESUME_TEMPLATES.md` §5. Sends are recorded as kind `applied_nudge` (Admin → Messages).
 - Tests: `lenderNudgeRules.test.ts` (pure) and integration S115–S141 (arming, sending against fake providers, multi-lender gap, stops, safety, handover).
+- **Step names in the install messages** (`DEFAULT_STEP_LABELS`) name the step they are STUCK ON, since the sentence reads "incomplete at <step>": mobile verified → "PAN verification" (website step 1), PAN done → "Basic details" (step 2), application row exists → "Finding offers" (step 3). They used to name the last step FINISHED ("Mobile verification" / "Pan verification" / "Application"), which read one step behind. Prod can override with `installStepLabels` in Configs → Voxvalley without a deploy.
 
