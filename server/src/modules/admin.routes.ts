@@ -20,9 +20,23 @@ adminRouter.use(auditAdmin);
 
 // ─────────────────────────── helpers ───────────────────────────
 
+// Parse ?from=&to= (ISO instants) into a Prisma date filter, or undefined.
+function dateRange(q: Record<string, unknown>): { gte?: Date; lte?: Date } | undefined {
+  const r: { gte?: Date; lte?: Date } = {};
+  const f = typeof q.from === 'string' ? new Date(q.from) : null;
+  const t = typeof q.to === 'string' ? new Date(q.to) : null;
+  if (f && !Number.isNaN(f.getTime())) r.gte = f;
+  if (t && !Number.isNaN(t.getTime())) r.lte = t;
+  return Object.keys(r).length ? r : undefined;
+}
+
 // The 8-stage business funnel (WS4). Each stage is derived from existing data so
 // the dashboard shows real numbers without needing the app to be instrumented first.
-async function buildFunnel() {
+// An optional date range scopes every stage to records created in that window
+// (Session by startedAt, everything else by createdAt).
+async function buildFunnel(range?: { gte?: Date; lte?: Date }) {
+  const cr = range ? { createdAt: range } : {};
+  const sr = range ? { startedAt: range } : {};
   // Two populations, split at "Application submitted": the stages up to and
   // including submission count unique CUSTOMERS/applications, but once a
   // customer applies to several lenders the downstream stages count PER-LENDER
@@ -30,14 +44,14 @@ async function buildFunnel() {
   // and rejected by a third, so approved/disbursed here are lender-application
   // counts, deliberately not customer counts.
   const [sessions, leads, qualifiedLeads, apps, kyc, submittedToLenders, lenderApproved, lenderDisbursed] = await Promise.all([
-    prisma.session.count(),
-    prisma.lead.count(),
-    prisma.lead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
-    prisma.loanApplication.count(),
-    prisma.loanApplication.count({ where: { status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
-    prisma.offer.count({ where: { applied: true } }),
-    prisma.offer.count({ where: { applied: true, lenderStatus: { in: ['approved', 'disbursed', 'closed'] } } }),
-    prisma.offer.count({ where: { applied: true, lenderStatus: { in: ['disbursed', 'closed'] } } }),
+    prisma.session.count({ where: sr }),
+    prisma.lead.count({ where: cr }),
+    prisma.lead.count({ where: { ...cr, status: { in: ['qualified', 'converted'] } } }),
+    prisma.loanApplication.count({ where: cr }),
+    prisma.loanApplication.count({ where: { ...cr, status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { ...cr, applied: true } }),
+    prisma.offer.count({ where: { ...cr, applied: true, lenderStatus: { in: ['approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { ...cr, applied: true, lenderStatus: { in: ['disbursed', 'closed'] } } }),
   ]);
 
   const stages = [
@@ -74,19 +88,24 @@ const APP_STATUSES = [
 // ─────────────────────────── dashboard ───────────────────────────
 
 // GET /api/admin/dashboard/overview
-adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
+adminRouter.get('/dashboard/overview', ah(async (req, res) => {
+  // Optional ?from=&to= scopes every metric to its window. Date field per model:
+  // User/LoanApplication/Lead/Offer by createdAt, Loan by disbursedAt,
+  // AppDownload by installedAt.
+  const range = dateRange(req.query as Record<string, unknown>);
+  const cr = range ? { createdAt: range } : {};
   const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
-    prisma.user.count(),
-    prisma.loanApplication.count(),
-    prisma.loan.count(),
-    prisma.lead.count(),
-    prisma.appDownload.count(),
-    prisma.loan.aggregate({ _sum: { principal: true, outstanding: true } }),
-    buildFunnel(),
-    prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.user.count({ where: cr }),
+    prisma.loanApplication.count({ where: cr }),
+    prisma.loan.count({ where: range ? { disbursedAt: range } : {} }),
+    prisma.lead.count({ where: cr }),
+    prisma.appDownload.count({ where: range ? { installedAt: range } : {} }),
+    prisma.loan.aggregate({ _sum: { principal: true, outstanding: true }, where: range ? { disbursedAt: range } : {} }),
+    buildFunnel(range),
+    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true } }),
     // Per-lender application pipeline: one applied offer = one lender application,
     // bucketed by that lender's own status (matches the app's My Loans).
-    prisma.offer.groupBy({ by: ['lenderStatus'], where: { applied: true }, _count: { _all: true } }),
+    prisma.offer.groupBy({ by: ['lenderStatus'], where: { ...cr, applied: true }, _count: { _all: true } }),
   ]);
 
   const byStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));

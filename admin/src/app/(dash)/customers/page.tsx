@@ -6,9 +6,10 @@ import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile } from '@/lib/api';
-import { Card, Stat, Select, StatusBadge, SearchBox, Pagination, TableSkeleton } from '@/components/ui';
+import { Card, Stat, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo, num, inrRupees } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
+import { PERIODS, computeRange, type Period } from '@/lib/period';
 
 const SOURCES = [
   { key: '', label: 'All sources' }, { key: 'website', label: 'Website' }, { key: 'campaign', label: 'Campaign' },
@@ -48,12 +49,17 @@ export default function CustomersPage() {
   const [source, setSource] = useState('');
   const [campaignId, setCampaignId] = useState('');
   const [search, setSearch] = useState('');
+  const [period, setPeriod] = useState<Period>('all');
+  const [cFrom, setCFrom] = useState('');
+  const [cTo, setCTo] = useState('');
   const [page, setPage] = useState(1);
 
+  const range = useMemo(() => computeRange(period, cFrom, cTo), [period, cFrom, cTo]);
   const qs = new URLSearchParams({
     page: String(page), pageSize: '25',
     ...(stage ? { stage } : {}), ...(source ? { source } : {}),
     ...(campaignId ? { campaignId } : {}), ...(search ? { search } : {}),
+    ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}),
   });
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers?${qs.toString()}`, swrFetcher);
   const rows = asArray<CustomerRow>(data?.data);
@@ -64,7 +70,7 @@ export default function CustomersPage() {
   const campaigns = asArray<{ id: string; name: string; code: string }>(campRes?.data);
   const campaignName = useMemo(() => new Map(campaigns.map((x) => [x.id, x.name])), [campaigns]);
 
-  const reset = () => { setStage(''); setSource(''); setCampaignId(''); setSearch(''); setPage(1); };
+  const reset = () => { setStage(''); setSource(''); setCampaignId(''); setSearch(''); setPeriod('all'); setCFrom(''); setCTo(''); setPage(1); };
 
   // Page-scoped roll-ups — the labels say "of the N shown" so a total that only
   // covers this page is never read as a total across every customer.
@@ -91,7 +97,7 @@ export default function CustomersPage() {
     }
   }
 
-  const filtered = Boolean(stage || source || campaignId || search);
+  const filtered = Boolean(stage || source || campaignId || search || period !== 'all');
 
   return (
     <div className="page">
@@ -128,6 +134,22 @@ export default function CustomersPage() {
 
       <div style={{ marginTop: 16 }}>
       <Card>
+        {/* Joined date-range filter */}
+        <div style={{ marginBottom: 12 }}>
+          <div className="muted" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Joined</div>
+          <FilterChips options={PERIODS} value={period} onChange={(v) => { setPeriod(v); setPage(1); }} />
+          {period === 'custom' && (
+            <div className="row wrap" style={{ gap: 12, marginTop: 10, alignItems: 'center' }}>
+              <label className="muted" style={{ fontSize: 13 }}>From&nbsp;
+                <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => { setCFrom(e.target.value); setPage(1); }} className="input" />
+              </label>
+              <label className="muted" style={{ fontSize: 13 }}>To&nbsp;
+                <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => { setCTo(e.target.value); setPage(1); }} className="input" />
+              </label>
+            </div>
+          )}
+        </div>
+
         {/* one toolbar: search first (what people reach for), then the three
             narrowing filters, then a reset that only exists when it can do
             something. The inactivity chips lived here and are gone. */}

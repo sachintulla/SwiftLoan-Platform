@@ -48,6 +48,13 @@ customersRouter.get('/', ah(async (req, res) => {
   if (q.stage && ALL_STAGES.includes(q.stage)) where.currentStage = q.stage as JourneyStage;
   if (q.source) where.firstSource = q.source;
   if (q.campaignId) where.campaignId = q.campaignId;
+  // Joined-date range (ISO instants from the client, in the viewer's timezone).
+  const from = q.from ? new Date(q.from) : null;
+  const to = q.to ? new Date(q.to) : null;
+  const createdAt: { gte?: Date; lte?: Date } = {};
+  if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
+  if (to && !Number.isNaN(to.getTime())) createdAt.lte = to;
+  if (Object.keys(createdAt).length) where.createdAt = createdAt;
   if (q.search) {
     const s = q.search.trim();
     where.OR = [
