@@ -650,7 +650,7 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     // Customer links to a User).
     prisma.customer.findFirst({
       where: { OR: [{ userId }, ...(user.phone ? [{ phone: user.phone }] : [])] },
-      select: { id: true, currentStage: true, stageEnteredAt: true, lastActivityAt: true, source: true, campaignId: true },
+      select: { id: true, currentStage: true, stageEnteredAt: true, lastActivityAt: true },
     }),
   ]);
 
