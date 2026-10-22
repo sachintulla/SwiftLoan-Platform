@@ -13,7 +13,7 @@ jobs:
     # kept as a belt-and-braces safety check.
     runs-on: [self-hosted, dev]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Two self-hosted runners share the generic `self-hosted` label, so
       # GitHub picks whichever is free. Only ip-10-10-1-233 is DNS/nginx-mapped
