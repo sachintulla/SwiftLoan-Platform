@@ -1742,8 +1742,10 @@ model JourneyReminder {
   /// Reference ID carried in the app link (/dl?ref=<token>); ties an install back to this visitor.
   token      String    @unique
   firstName  String?
-  /// otp_only | pan_done | application_started
+  /// otp_requested | otp_only | pan_done | application_started
   lastStep   String    @default("otp_only")
+  /// True for someone who asked for an OTP on the website but never entered it (a short sequence; the number is unproven).
+  unverified Boolean   @default(false)
   /// active | stopped | completed
   status     String    @default("active")
   /// installed | app_login | application_finished | do_not_contact | returned

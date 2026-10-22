@@ -30,6 +30,7 @@ const TABS: Tab[] = [
     sections: [
       { title: 'Sending', keys: ['install.sendEnabled', 'install.allowedNumbers'] },
       { title: 'When to remind', keys: ['install.idleMinutes', 'install.schedule', 'install.minGapMinutes', 'install.maxLateHours', 'install.maxCycles'] },
+      { title: 'Asked for an OTP but never entered it', keys: ['install.unverifiedEnabled', 'install.unverifiedSchedule'] },
       { title: 'After they apply to a lender', keys: ['applied.sendEnabled', 'applied.schedule', 'applied.minGapMinutes', 'applied.maxLateHours', 'applied.maxAgeHours'] },
       { title: 'Behind the scenes', keys: ['install.recheckMinutes', 'install.jobEveryMinutes', 'install.resumeMaxAgeDays', 'website.pingEverySeconds'] },
     ],

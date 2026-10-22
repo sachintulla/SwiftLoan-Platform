@@ -8,27 +8,33 @@ const H = 3_600_000;
 const MIN = 60_000;
 const start = new Date('2026-10-19T10:00:00Z');
 const at = (ms: number) => new Date(start.getTime() + ms);
-const base = { startAt: start, stepsHandled: 0, lastSentAt: null as Date | null, inCallingWindow: true };
+// The rules (waiting, quiet hours, the gap, "too late") are tested against the ORIGINAL 20-message pattern, which is no
+// longer the default but exercises every branch (an SMS and a WhatsApp 30 min apart, then long gaps).
+const LEGACY_ROWS = [0, 4 * 60, 8 * 60, 24 * 60, 48 * 60, 72 * 60, 96 * 60, 120 * 60, 144 * 60, 168 * 60].flatMap((m) => [
+  { channel: 'sms' as const, afterMinutes: m },
+  { channel: 'whatsapp' as const, afterMinutes: m + 30 },
+]);
+const LEGACY_CFG: ScheduleConfig = { ...DEFAULT_SCHEDULE_CONFIG, steps: stepsFromRows(LEGACY_ROWS) };
+const base = { cfg: LEGACY_CFG, startAt: start, stepsHandled: 0, lastSentAt: null as Date | null, inCallingWindow: true };
 
-describe('schedule shape', () => {
-  it('is 20 messages: SMS then WhatsApp 30 minutes later, ten points', () => {
-    expect(SCHEDULE_STEPS).toHaveLength(20);
-    SCHEDULE_STEPS.forEach((s, i) => {
-      expect(s.channel).toBe(i % 2 === 0 ? 'sms' : 'whatsapp');
-      if (i % 2 === 1) expect(s.offsetMs - SCHEDULE_STEPS[i - 1].offsetMs).toBe(30 * MIN);
-    });
+describe('schedule shape (the default)', () => {
+  it('is 5 messages over a week, alternating WhatsApp and SMS: 10 min, 4 h, 1 day, 3 days, 7 days', () => {
+    expect(SCHEDULE_STEPS.map((s) => [s.channel, s.offsetMs / MIN])).toEqual([
+      ['whatsapp', 10], ['sms', 240], ['whatsapp', 1440], ['sms', 4320], ['whatsapp', 10080],
+    ]);
   });
-  it('runs start, +4h, +8h, then every day for 7 days', () => {
-    const smsOffsets = SCHEDULE_STEPS.filter((s) => s.channel === 'sms').map((s) => s.offsetMs / H);
-    expect(smsOffsets).toEqual([0, 4, 8, 24, 48, 72, 96, 120, 144, 168]);
-  });
-  it('is strictly ordered in time', () => {
+  it('is strictly ordered in time, and no two messages are less than 3 hours apart', () => {
     for (let i = 1; i < SCHEDULE_STEPS.length; i++) {
-      expect(SCHEDULE_STEPS[i].offsetMs).toBeGreaterThan(SCHEDULE_STEPS[i - 1].offsetMs);
+      expect(SCHEDULE_STEPS[i].offsetMs - SCHEDULE_STEPS[i - 1].offsetMs).toBeGreaterThanOrEqual(3 * H);
     }
   });
-  it('ends one week after the start (plus the last WhatsApp gap)', () => {
-    expect(stepDueAt(start, SCHEDULE_STEPS[19]).getTime() - start.getTime()).toBe(7 * 24 * H + 30 * MIN);
+  it('sends at most two messages on the first day, and the last one a week after they left', () => {
+    expect(SCHEDULE_STEPS.filter((s) => s.offsetMs < 24 * H)).toHaveLength(2);
+    expect(stepDueAt(start, SCHEDULE_STEPS[SCHEDULE_STEPS.length - 1]).getTime() - start.getTime()).toBe(7 * 24 * H + 0);
+  });
+  it('the original 20-message pattern is still valid input for the editor', () => {
+    expect(stepsFromRows(LEGACY_ROWS)).toHaveLength(20);
+    expect(stepDueAt(start, stepsFromRows(LEGACY_ROWS)[19]).getTime() - start.getTime()).toBe(7 * 24 * H + 30 * MIN);
   });
 });
 
@@ -75,6 +81,11 @@ describe('deriveLastStep', () => {
     expect(deriveLastStep({ panOnFile: true, hasApplication: false })).toBe('pan_done');
     expect(deriveLastStep({ panOnFile: true, hasApplication: true })).toBe('application_started');
   });
+  it('someone who asked for an OTP but never entered it is stuck on the OTP, whatever else the server knows', () => {
+    expect(deriveLastStep({ panOnFile: false, hasApplication: false, unverified: true })).toBe('otp_requested');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true, unverified: true })).toBe('otp_requested');
+    expect(deriveLastStep({ panOnFile: false, hasApplication: false, unverified: false })).toBe('otp_only');
+  });
 });
 
 describe('isIdle', () => {
@@ -115,7 +126,7 @@ import { nextCheckTime, QUIET_RECHECK_MS } from './reminderSchedule.js';
 
 describe('nextCheckTime', () => {
   const now = new Date('2026-10-20T05:30:00Z');
-  const base = { now, startAt: now, stepsHandled: 1, lastSentAt: now, lastSeenAt: now, dropped: false };
+  const base = { cfg: LEGACY_CFG, now, startAt: now, stepsHandled: 1, lastSentAt: now, lastSeenAt: now, dropped: false };
   it('is the idle check when it comes before the next step', () => {
     expect(nextCheckTime(base).getTime()).toBe(now.getTime() + 5 * 60_000);
   });
@@ -145,7 +156,7 @@ describe('nextCheckTime', () => {
 
 describe('nextCheckTime before the visitor has dropped off', () => {
   const now = new Date('2026-10-20T05:30:00Z');
-  const base = { now, startAt: new Date(now.getTime() - 3_600_000), stepsHandled: 0, lastSentAt: null as Date | null, lastSeenAt: now, dropped: false };
+  const base = { cfg: LEGACY_CFG, now, startAt: new Date(now.getTime() - 3_600_000), stepsHandled: 0, lastSentAt: null as Date | null, lastSeenAt: now, dropped: false };
   it('ignores an overdue step: only the idle check can happen, so nothing is sent while they are on the site', () => {
     expect(nextCheckTime(base).getTime()).toBe(now.getTime() + 5 * 60_000);
   });
@@ -182,10 +193,10 @@ describe('renderSmsBody', () => {
     expect(renderSmsBody('Continue: {link} -X', { name: 'Asha', step: 'S', link: 'L' })).toBe('Continue: L -X');
   });
   it('has a label for every step', () => {
-    expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'otp_only', 'pan_done']);
+    expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'otp_only', 'otp_requested', 'pan_done']);
   });
-  it('names the step they are stuck on: 1 PAN verification, 2 Basic details, 3 Finding offers', () => {
-    expect(DEFAULT_STEP_LABELS).toEqual({ otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers' });
+  it('names the step they are stuck on: OTP verification, then 1 PAN verification, 2 Basic details, 3 Finding offers', () => {
+    expect(DEFAULT_STEP_LABELS).toEqual({ otp_requested: 'OTP verification', otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers' });
   });
 });
 
@@ -257,7 +268,8 @@ describe('nextAction and nextCheckTime with custom settings', () => {
     const t = nextCheckTime({ cfg, now, startAt: start, stepsHandled: 0, lastSentAt: null, lastSeenAt: start, dropped: true });
     expect(t.getTime()).toBe(now.getTime() + 3 * MIN);
   });
-  it('without a config it behaves exactly as before', () => {
-    expect(nextAction({ startAt: start, stepsHandled: 0, lastSentAt: null, now: at(0), inCallingWindow: true })).toMatchObject({ kind: 'send', step: { index: 0, channel: 'sms' } });
+  it('without a config it uses the default schedule: nothing at the start, WhatsApp at 10 minutes', () => {
+    expect(nextAction({ startAt: start, stepsHandled: 0, lastSentAt: null, now: at(0), inCallingWindow: true })).toMatchObject({ kind: 'wait', reason: 'not_due' });
+    expect(nextAction({ startAt: start, stepsHandled: 0, lastSentAt: null, now: at(10 * MIN), inCallingWindow: true })).toMatchObject({ kind: 'send', step: { index: 0, channel: 'whatsapp' } });
   });
 });

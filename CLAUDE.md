@@ -563,4 +563,15 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
   `appliedSmsBody` (blank until the DLT template exists); texts in `docs/JOURNEY_RESUME_TEMPLATES.md` §5. Sends are recorded as kind `applied_nudge` (Admin → Messages).
 - Tests: `lenderNudgeRules.test.ts` (pure) and integration S115–S141 (arming, sending against fake providers, multi-lender gap, stops, safety, handover).
 - **Step names in the install messages** (`DEFAULT_STEP_LABELS`) name the step they are STUCK ON, since the sentence reads "incomplete at <step>": mobile verified → "PAN verification" (website step 1), PAN done → "Basic details" (step 2), application row exists → "Finding offers" (step 3). They used to name the last step FINISHED ("Mobile verification" / "Pan verification" / "Application"), which read one step behind. Prod can override with `installStepLabels` in Configs → Voxvalley without a deploy.
+- **Lean default schedules (DPDP / TRAI-DLT: contact proportionate to the purpose).** The install reminder is now 5 messages over a week (WhatsApp 10 min,
+  SMS 4 h, WhatsApp 1 day, SMS 3 days, WhatsApp 7 days; never more than 2 on the first day), 2 runs per visitor (was 20 messages, 3 runs). "You applied with
+  <lender>" is 2 WhatsApp messages (10 min, next day) per lender. All editable in Admin → Timings; a value already saved in `PlatformSetting` (e.g. prod's old
+  20-message schedule) overrides the new default until reset. `reminderSchedule.test.ts` and integration S01-S89 pin the ORIGINAL 20-message pattern on purpose
+  (it exercises every rule branch); S90+ run on the real defaults.
+- **Asked for an OTP but never entered it** (`armUnverifiedReminder`, called from the website `/otp/request` only; the app's own OTP never arms it).
+  `JourneyReminder.unverified` (migration `20261023130000_journey_reminder_unverified`), step `otp_requested` → label "OTP verification", name "there". Its own
+  short schedule (`install.unverifiedSchedule`: WhatsApp 10 min, SMS 1 day), switch `install.unverifiedEnabled`, ONCE per number ever (a number that already has any
+  reminder is skipped) because the number is unproven: anyone can type any number. Entering the code later stops it (`verified`) and starts the normal run with the
+  SAME cycle number. Still gated by `install.sendEnabled` and the test-number list. **Not built yet (needed before a wide rollout): STOP/opt-out handling for
+  WhatsApp and SMS replies, and an NCPR/DND scrub for SMS.**
 

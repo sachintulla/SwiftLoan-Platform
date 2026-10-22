@@ -94,6 +94,13 @@ await prisma.appClick.deleteMany({ where: { token: { startsWith: 'TST' } } });
 await prisma.referralCode.deleteMany({ where: { code: 'FRIENDK7' } });
 await prisma.panRecord.deleteMany({ where: { panHash: panHash(PAN) } });
 
+const TM = await import(`${ROOT}/lib/timings.js`);
+// Sections S01-S89 test the reminder RULES against the ORIGINAL 20-message schedule (SMS then WhatsApp 30 min later, ten points
+// over a week, 3 runs per visitor). That is no longer the default (the default is now 5 messages and 2 runs; see S90+), but it
+// exercises every branch, so it is pinned here in memory. S90's first line clears it and the defaults take over.
+const LEGACY_ROWS = [0, 240, 480, 1440, 2880, 4320, 5760, 7200, 8640, 10080].flatMap((m) => [{ channel: 'sms', afterMinutes: m }, { channel: 'whatsapp', afterMinutes: m + 30 }]);
+TM.setOverrides(new Map<string, unknown>([['install.schedule', LEGACY_ROWS], ['install.maxCycles', 3]]));
+
 /* ───────────── S: arming and pings ───────────── */
 await t('S01', 'arming', 'website OTP verify arms a reminder (cycle 1, 8-char token, otp_only)', async () => {
   const w = await webLogin(); const r = w.reminder!;
@@ -365,7 +372,7 @@ await t('S37', 'resume', 'GET /api/journey/resume: needs auth, returns only the 
   const a = await webLogin(); const b = await webLogin();
   const ra = await get('/api/journey/resume', a.token); const rb = await get('/api/journey/resume', b.token);
   assert.equal(ra.body.data.resume.phone, a.phone); assert.equal(rb.body.data.resume.phone, b.phone); assert.notEqual(ra.body.data.resume.token, rb.body.data.resume.token);
-  await prisma.journeyReminder.update({ where: { id: a.reminder!.id }, data: { createdAt: new Date(Date.now() - 30 * 86_400_000) } });
+  await prisma.journeyReminder.updateMany({ where: { userId: a.user.id }, data: { createdAt: new Date(Date.now() - 30 * 86_400_000) } }); // the whole visit is old (it has an "OTP requested" row and the verified one)
   assert.equal((await get('/api/journey/resume', a.token)).body.data.resume, null);
   const none = await prisma.user.create({ data: { phone: newPhone(), phoneVerified: true } }); const { signAccess } = await import(`${ROOT}/lib/jwt.js`);
   assert.equal((await get('/api/journey/resume', signAccess({ sub: none.id, phone: none.phone }))).body.data.resume, null);
@@ -452,7 +459,7 @@ await t('S50', 'send', 'flipping log-only → send with a backlog: at most one m
     await tickAll(OPEN);
     const perPhone = new Map<string, number>(); for (const h of hits) { const to = String(h.body?.to ?? ''); perPhone.set(to, (perPhone.get(to) ?? 0) + 1); }
     for (const [to, n] of perPhone) assert.ok(n <= 1, `${to} got ${n} messages in one tick`);
-    for (const id of ids) { const r = await reminderById(id); const last = (r.history as any[]).at(-1); if (last && last.outcome === 'sent') assert.ok(new Date(last.at).getTime() - sched.stepDueAt(r.startAt, sched.SCHEDULE_STEPS[last.step]).getTime() <= sched.MAX_LATE_MS, 'a stale step was sent'); }
+    for (const id of ids) { const r = await reminderById(id); const last = (r.history as any[]).at(-1); if (last && last.outcome === 'sent') assert.ok(new Date(last.at).getTime() - sched.stepDueAt(r.startAt, sched.stepsFromRows(LEGACY_ROWS)[last.step]).getTime() <= sched.MAX_LATE_MS, 'a stale step was sent'); }
   } finally { sendMode(false); }
 });
 await t('S51', 'send', 'send mode: two workers at the same moment produce one provider call per step', async () => {
@@ -823,7 +830,6 @@ await t('S78', 'privacy', 'deleting an account also deletes that number\'s deliv
 });
 
 /* ───────────── S: admin Timings (every timing and limit that can be changed without a deploy) ───────────── */
-const TM = await import(`${ROOT}/lib/timings.js`);
 const TS = await import(`${ROOT}/lib/timingsStore.js`);
 const clearTimings = async () => { await prisma.platformSetting.deleteMany(); TM.setOverrides(new Map()); };
 const adminTok = async (role: 'admin' | 'super_admin') => {
@@ -1020,7 +1026,7 @@ await t('S106', 'timings:effect', 'the admin on/off switch and the test-number l
   await isolate(); hits.length = 0; smsMode = 'ok'; delete process.env.INSTALL_REMINDER_SEND;
   const a = await webLogin(); const b = await webLogin();
   for (const w of [a, b]) await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN } });
-  await TS.saveTimings({ 'install.sendEnabled': true, 'install.allowedNumbers': [a.phone] }, 't');
+  await TS.saveTimings({ 'install.sendEnabled': true, 'install.allowedNumbers': [a.phone], 'install.schedule': [{ channel: 'sms', afterMinutes: 0 }, { channel: 'whatsapp', afterMinutes: 30 }] }, 't');
   try {
     await tickAll(OPEN); await tickAll(new Date(OPEN.getTime() + 31 * MIN_MS));
     const ha = (await reminderById(a.reminder!.id)).history as any[]; const hb = (await reminderById(b.reminder!.id)).history as any[];
@@ -1154,8 +1160,8 @@ await t('S116', 'applied', 'arming is idempotent: ticking again, or two workers 
 
 await t('S117', 'applied', 'switch off (the default): the schedule runs but only LOGS, nothing is sent', async () => {
   await isolateN(); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank');
-  await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
-  const [n] = await nudgesFor(w.user.id); assert.deepEqual((n.history as any[]).map((h) => h.outcome), ['logged', 'logged']);
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(24 * 60));
+  const [n] = await nudgesFor(w.user.id); assert.deepEqual((n.history as any[]).map((h) => h.channel), ['whatsapp', 'whatsapp']); assert.deepEqual((n.history as any[]).map((h) => h.outcome), ['logged', 'logged']);
   assert.equal(hits.length, 0, 'nothing leaves the building');
 });
 
@@ -1171,12 +1177,12 @@ await t('S118', 'applied', 'WhatsApp goes out at the scheduled time with the per
 });
 
 await t('S119', 'applied', 'SMS step: skipped with a reason until its template is registered, then carries the template id, name, lender and link', async () => {
-  await isolateN(); await appliedOn(); const w = await webLogin(); await applyTo(w.user.id, 'Hero FinCorp');
+  await isolateN(); await appliedOn(true, { 'applied.schedule': [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 40 }] }); const w = await webLogin(); await applyTo(w.user.id, 'Hero FinCorp');
   await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
   let [n] = await nudgesFor(w.user.id); const h = n.history as any[]; assert.equal(h[1].outcome, 'skipped'); assert.equal(h[1].reason, 'sms template not configured'); assert.equal(hitsFor('/sms').length, 0);
   await upsertProviderConfig('voxvalley', { settings: { appliedSmsTemplateId: '777', appliedSmsBody: 'Dear {name} , you applied with {lender}. Track it in the app :{link}. Team SwiftLoan' } });
   try {
-    await isolateN(); await appliedOn(); const w2 = await webLogin(); await applyTo(w2.user.id, 'Hero FinCorp');
+    await isolateN(); await appliedOn(true, { 'applied.schedule': [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 40 }] }); const w2 = await webLogin(); await applyTo(w2.user.id, 'Hero FinCorp');
     await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
     const sms = hitsFor('/sms'); assert.equal(sms.length, 1); assert.equal(sms[0].body.template_id, '777'); assert.equal(sms[0].body.to, `+91${w2.phone}`);
     assert.ok(sms[0].body.body.includes('Dear Customer') && sms[0].body.body.includes('Hero FinCorp') && sms[0].body.body.includes(`/dl?ref=${w2.reminder!.token}`), sms[0].body.body);
@@ -1323,7 +1329,7 @@ await t('S140', 'applied:admin', 'the new settings are in the admin Timings list
   await isolateN(); const sup = await adminTok('super_admin'); const g = await getTimings(sup);
   const want: Record<string, unknown> = { 'applied.sendEnabled': false, 'applied.minGapMinutes': 60, 'applied.maxLateHours': 12, 'applied.maxAgeHours': 24 };
   for (const [k, v] of Object.entries(want)) { const it = itemOf(g, k); assert.ok(it, k); assert.equal(it.effective, v, k); assert.equal(it.group, 'install'); }
-  assert.deepEqual(itemOf(g, 'applied.schedule').effective, [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 40 }, { channel: 'whatsapp', afterMinutes: 1440 }]);
+  assert.deepEqual(itemOf(g, 'applied.schedule').effective, [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'whatsapp', afterMinutes: 1440 }]);
   assert.equal((await putTimings({ 'applied.minGapMinutes': 30, 'applied.schedule': [{ channel: 'sms', afterMinutes: 5 }] }, sup)).status, 200);
   assert.equal(itemOf(await getTimings(sup), 'applied.minGapMinutes').effective, 30);
   assert.equal((await putTimings({ 'applied.minGapMinutes': 99999 }, sup)).status, 400);
@@ -1336,6 +1342,122 @@ await t('S141', 'applied:job', 'the scheduler job runs no more often than "Remin
   await clearTimings(); const T = Date.now(); ln.resetLenderNudgeThrottle();
   assert.ok(await ln.lenderNudgeTickThrottled(T)); assert.equal(await ln.lenderNudgeTickThrottled(T + 30_000), null); assert.ok(await ln.lenderNudgeTickThrottled(T + 61_000));
   ln.resetLenderNudgeThrottle();
+});
+
+/* ───────────── S: asked for an OTP but never entered it (a short sequence), and the lean default schedule ───────────── */
+async function otpRequestOnly(phone = newPhone()) {
+  const rq = await post('/api/website/auth/otp/request', { phone }); assert.equal(rq.status, 200, 'otp request');
+  await sleep(400); // arming is fire-and-forget
+  const user = await prisma.user.findUniqueOrThrow({ where: { phone } });
+  return { phone, user, devOtp: rq.body.data.devOtp as string };
+}
+const rowsOf = (userId: string) => prisma.journeyReminder.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } });
+const verifyOtp = async (phone: string, code: string) => { const vf = await post('/api/website/auth/otp/verify', { phone, code }); await sleep(400); return vf; };
+const sendOn = (extra: Record<string, unknown> = {}) => TS.saveTimings({ 'install.sendEnabled': true, ...extra }, 't');
+
+await t('S142', 'unverified', 'asking for an OTP arms one short "OTP verification" reminder; asking again, or for a number that already has one, adds nothing', async () => {
+  await isolateN(); const o = await otpRequestOnly(); const [r] = await rowsOf(o.user.id);
+  assert.ok(r); assert.equal(r.unverified, true); assert.equal(r.lastStep, 'otp_requested'); assert.equal(r.status, 'active'); assert.equal(r.cycle, 1); assert.equal(r.token.length, 8); assert.equal(r.firstName, null);
+  await post('/api/website/auth/otp/request', { phone: o.phone }); await sleep(300); assert.equal((await rowsOf(o.user.id)).length, 1, 'a resend does not add a second one');
+});
+
+await t('S143', 'unverified', 'the default is two messages: WhatsApp 10 min after they stop, SMS a day later, naming "OTP verification" with "there" for the name; nothing after that', async () => {
+  await isolateN(); await sendOn(); hits.length = 0; smsMode = 'ok';
+  await upsertProviderConfig('voxvalley', { settings: { installWhatsapp: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] }, installSmsBody: 'At {step}: {link}' } });
+  try {
+    const o = await otpRequestOnly(); const [r] = await rowsOf(o.user.id); await prisma.journeyReminder.update({ where: { id: r.id }, data: { startAt: OPEN } });
+    await tickAll(OPEN); await tickAll(MINUTES(9)); assert.equal(hits.length, 0, 'not before 10 minutes');
+    await tickAll(MINUTES(10)); const wa = hitsFor('/api/v1/whatsapp'); assert.equal(wa.length, 1);
+    const params = wa[0].body.template.components[0].parameters.map((x: any) => x.text); assert.deepEqual(params, ['there', 'OTP verification', `${(await import(`${ROOT}/config/downloads.js`)).downloads.publicBase}/dl?ref=${r.token}`]);
+    await tickAll(MINUTES(24 * 60 + 5)); const sms = hitsFor('/sms'); assert.equal(sms.length, 1); assert.ok(sms[0].body.body.startsWith('At OTP verification: '), sms[0].body.body);
+    await tickAll(MINUTES(5 * 24 * 60)); assert.equal(hits.length, 2, 'only two messages ever'); assert.equal((await rowsOf(o.user.id))[0].status, 'completed');
+  } finally { await upsertProviderConfig('voxvalley', { settings: { installWhatsapp: { template: 'install_link', language: 'en', placeholders: ['{name}', '{link}'] }, installSmsBody: 'Continue your SwiftLoan application: {link} -PurpleTalk' } }); await clearTimings(); }
+});
+
+await t('S144', 'unverified', 'entering the code afterwards ends the short run and starts the normal one (same run number), with the right step', async () => {
+  await isolateN(); const o = await otpRequestOnly(); const vf = await verifyOtp(o.phone, o.devOtp); assert.equal(vf.status, 200);
+  const rows = await rowsOf(o.user.id); assert.equal(rows.length, 2);
+  assert.equal(rows[0].status, 'stopped'); assert.equal(rows[0].stopReason, 'verified'); assert.equal(rows[0].unverified, true);
+  assert.equal(rows[1].status, 'active'); assert.equal(rows[1].unverified, false); assert.equal(rows[1].cycle, 1, 'does not use up one of the visitor\'s runs'); assert.equal(rows[1].lastStep, 'otp_only');
+});
+
+await t('S145', 'unverified', 'entering the code AFTER the first message went out still hands over cleanly: the normal run starts from zero', async () => {
+  await isolateN(); await sendOn(); hits.length = 0;
+  try {
+    const o = await otpRequestOnly(); const [r] = await rowsOf(o.user.id); await prisma.journeyReminder.update({ where: { id: r.id }, data: { startAt: OPEN } });
+    await tickAll(OPEN); await tickAll(MINUTES(10)); assert.equal((await rowsOf(o.user.id))[0].stepsSent, 1);
+    await verifyOtp(o.phone, o.devOtp); const rows = await rowsOf(o.user.id);
+    assert.equal(rows[0].stopReason, 'verified'); assert.equal(rows[1].stepsSent, 0); assert.equal(rows[1].status, 'active'); assert.equal(rows[1].droppedAt, null, 'they are on the site right now');
+  } finally { await clearTimings(); }
+});
+
+await t('S146', 'unverified', 'someone whose short run already finished still gets the normal reminders once they verify (the "full week already ran" rule ignores it)', async () => {
+  await isolateN(); const o = await otpRequestOnly(); await prisma.journeyReminder.updateMany({ where: { userId: o.user.id }, data: { status: 'completed' } });
+  await verifyOtp(o.phone, o.devOtp); const rows = await rowsOf(o.user.id);
+  assert.equal(rows.length, 2); assert.equal(rows[1].status, 'active'); assert.equal(rows[1].unverified, false);
+});
+
+await t('S147', 'unverified', 'never armed when switched off, for a number that already had a reminder, for someone already in the app, or the review phone', async () => {
+  await isolateN();
+  await TS.saveTimings({ 'install.unverifiedEnabled': false }, 't'); const off = await otpRequestOnly(); assert.equal((await rowsOf(off.user.id)).length, 0, 'switched off'); await clearTimings();
+  const known = await webLogin(); const before = (await rowsOf(known.user.id)).length; await post('/api/website/auth/otp/request', { phone: known.phone }); await sleep(300);
+  assert.equal((await rowsOf(known.user.id)).length, before, 'a verified visitor asking for a new code is not "unverified"');
+  const inApp = newPhone(); const u = await prisma.user.create({ data: { phone: inApp } }); const c = await prisma.customer.upsert({ where: { phone: inApp }, update: {}, create: { phone: inApp, userId: u.id } });
+  await prisma.journeyEvent.create({ data: { customerId: c.id, channel: 'app', name: 'otp_verified', occurredAt: new Date(OPEN.getTime() - 86_400_000) } });
+  await post('/api/website/auth/otp/request', { phone: inApp }); await sleep(400); assert.equal((await rowsOf(u.id)).length, 0, 'already in the app');
+});
+
+await t('S148', 'unverified', 'it stops when they install the app through the link, or are marked do-not-contact', async () => {
+  await isolateN(); await sendOn(); hits.length = 0;
+  try {
+    const a = await otpRequestOnly(); const [ra] = await rowsOf(a.user.id);
+    await prisma.appClick.create({ data: { token: 'TSTUNVER001', ref: ra.token, kind: 'campaign', platform: 'android', ipHash: 'x', uaHash: 'y', status: 'matched', matchedAt: new Date(), expiresAt: new Date(Date.now() + 3_600_000) } });
+    const b = await otpRequestOnly(); await prisma.customer.upsert({ where: { phone: b.phone }, update: { currentStage: 'lost' }, create: { phone: b.phone, userId: b.user.id, currentStage: 'lost' } });
+    for (const x of [a, b]) { const [r] = await rowsOf(x.user.id); await prisma.journeyReminder.update({ where: { id: r.id }, data: { startAt: OPEN } }); }
+    await tickAll(OPEN); await tickAll(MINUTES(10));
+    assert.equal((await rowsOf(a.user.id))[0].stopReason, 'installed'); assert.equal((await rowsOf(b.user.id))[0].stopReason, 'do_not_contact'); assert.equal(hits.length, 0);
+  } finally { await clearTimings(); }
+});
+
+await t('S149', 'unverified', 'switch off (the default): only logs; with a test list, others are skipped and never messaged', async () => {
+  await isolateN(); hits.length = 0; const a = await otpRequestOnly(); const b = await otpRequestOnly();
+  for (const x of [a, b]) { const [r] = await rowsOf(x.user.id); await prisma.journeyReminder.update({ where: { id: r.id }, data: { startAt: OPEN } }); }
+  await tickAll(OPEN); await tickAll(MINUTES(10)); assert.equal(hits.length, 0); assert.equal(((await rowsOf(a.user.id))[0].history as any[])[0].outcome, 'logged');
+  await prisma.journeyReminder.updateMany({ where: { unverified: true }, data: { stepsSent: 0, history: [] as any, lastSentAt: null, nextCheckAt: new Date(0) } });
+  await sendOn({ 'install.allowedNumbers': [a.phone] }); await tickAll(MINUTES(10));
+  assert.equal(((await rowsOf(a.user.id))[0].history as any[])[0].outcome, 'sent'); const hb = ((await rowsOf(b.user.id))[0].history as any[])[0];
+  assert.equal(hb.outcome, 'skipped'); assert.equal(hb.reason, 'not on the test-number list'); assert.ok(!hits.some((h) => JSON.stringify(h.body).includes(b.phone)));
+  await clearTimings();
+});
+
+await t('S150', 'unverified', 'the short schedule is editable in Admin → Timings (and validated)', async () => {
+  await isolateN(); const sup = await adminTok('super_admin'); const g = await getTimings(sup);
+  assert.deepEqual(itemOf(g, 'install.unverifiedSchedule').effective, [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 1440 }]); assert.equal(itemOf(g, 'install.unverifiedEnabled').effective, true);
+  assert.equal((await putTimings({ 'install.unverifiedSchedule': [{ channel: 'whatsapp', afterMinutes: 30 }] }, sup)).status, 200);
+  assert.deepEqual(itemOf(await getTimings(sup), 'install.unverifiedSchedule').effective, [{ channel: 'whatsapp', afterMinutes: 30 }]);
+  assert.equal((await putTimings({ 'install.unverifiedSchedule': Array.from({ length: 6 }, () => ({ channel: 'sms', afterMinutes: 5 })) }, sup)).status, 400, 'at most 5 messages for an unproven number');
+  await clearTimings();
+});
+
+await t('S151', 'schedule:default', 'the lean default for a verified drop-off: 5 messages, WhatsApp 10 min, SMS 4 h, WhatsApp 1 day, SMS 3 days, WhatsApp 7 days, then done', async () => {
+  await isolateN(); await sendOn();
+  await upsertProviderConfig('voxvalley', { settings: { installWhatsapp: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] } } });
+  try {
+    const w = await webLogin(); const id = w.reminder!.id; await prisma.journeyReminder.update({ where: { id }, data: { startAt: OPEN } });
+    for (const m of [0, 9, 10, 239, 240, 1439, 1440, 4319, 4320, 10079, 10080, 10090]) await tickAll(MINUTES(m));
+    const r = await reminderById(id); const h = r.history as any[];
+    assert.deepEqual(h.map((x) => x.channel), ['whatsapp', 'sms', 'whatsapp', 'sms', 'whatsapp']); assert.deepEqual(h.map((x) => x.outcome), ['sent', 'sent', 'sent', 'sent', 'sent']);
+    assert.deepEqual(h.map((x) => Math.round((new Date(x.at).getTime() - OPEN.getTime()) / MIN_MS)), [10, 240, 1440, 4320, 10080]); assert.equal(r.status, 'completed');
+    assert.equal(hitsFor('/api/v1/whatsapp').length, 3); assert.equal(hitsFor('/sms').length, 2);
+  } finally { await upsertProviderConfig('voxvalley', { settings: { installWhatsapp: { template: 'install_link', language: 'en', placeholders: ['{name}', '{link}'] } } }); await clearTimings(); }
+});
+
+await t('S152', 'schedule:default', 'a visitor gets at most 2 runs by default (not 3)', async () => {
+  await isolateN(); const w = await webLogin();
+  await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { droppedAt: new Date(OPEN.getTime() - 60_000) } }); await rem.pingInstallReminder(w.user, OPEN);
+  const c2 = await prisma.journeyReminder.findFirstOrThrow({ where: { userId: w.user.id, status: 'active' } }); assert.equal(c2.cycle, 2);
+  await prisma.journeyReminder.update({ where: { id: c2.id }, data: { droppedAt: new Date(OPEN.getTime() - 60_000) } }); await rem.pingInstallReminder(w.user, OPEN);
+  assert.equal(await prisma.journeyReminder.count({ where: { userId: w.user.id, status: 'active' } }), 0, 'no third run');
 });
 
 await isolateN(); await prisma.lenderPartner.deleteMany({ where: { name: { in: ['IDFC FIRST Bank', 'Hero FinCorp'] } } }).catch(() => undefined);

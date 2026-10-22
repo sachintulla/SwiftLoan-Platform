@@ -144,3 +144,14 @@ the three variables (line break included). Until both are set, SMS steps are ski
 Own switch, **off by default** (it has its own templates): "Send the 'you applied' messages for real". It shares the test-number list with the install
 reminders. Defaults: WhatsApp 10 min after applying, SMS at 40 min, WhatsApp the next day; a message about the next lender waits 60 minutes after the
 previous lender's; a message more than 12 h late is skipped; only applications from the last 24 h are ever nudged. All editable there.
+
+### 5d. The lean default schedules (after the 20-message first version)
+
+| Sequence | Default |
+|---|---|
+| Left the website (verified) | WhatsApp 10 min, SMS 4 h, WhatsApp 1 day, SMS 3 days, WhatsApp 7 days (5 messages), up to 2 runs |
+| Asked for an OTP, never entered it | WhatsApp 10 min, SMS 1 day (2 messages, once per number); the step reads "OTP verification" |
+| Applied to a lender | WhatsApp 10 min, WhatsApp next day (2 per lender), 60 min between different lenders |
+
+Always inside 09:00-21:00 IST. Change any of them in Admin → Timings; a schedule already saved there overrides these defaults until you press Reset.
+

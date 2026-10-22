@@ -83,9 +83,9 @@ describe('lender nudge: several lenders, one person', () => {
 
 describe('lender nudge: settings in the registry', () => {
   const byKey = (k: string) => TIMINGS.find((t) => t.key === k)!;
-  it('defaults: off, WhatsApp at 10 min, SMS at 40 min, WhatsApp next day, 60 min between messages', () => {
+  it('defaults: off, two WhatsApp messages (10 min and next day), 60 min between different lenders', () => {
     expect(byKey('applied.sendEnabled').def).toBe(false);
-    expect(byKey('applied.schedule').def).toEqual([{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 40 }, { channel: 'whatsapp', afterMinutes: 1440 }]);
+    expect(byKey('applied.schedule').def).toEqual([{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'whatsapp', afterMinutes: 1440 }]);
     expect(byKey('applied.minGapMinutes').def).toBe(60);
     expect(byKey('applied.maxLateHours').def).toBe(12);
     expect(byKey('applied.maxAgeHours').def).toBe(24);

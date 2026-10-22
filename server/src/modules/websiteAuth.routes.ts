@@ -11,7 +11,7 @@ import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
-import { armInstallReminder } from '../lib/installReminder.js';
+import { armInstallReminder, armUnverifiedReminder } from '../lib/installReminder.js';
 
 const log = scoped('websiteAuth');
 
@@ -62,6 +62,7 @@ websiteAuthRouter.post(
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) user = await prisma.user.create({ data: { phone } });
     const { devOtp, delivered } = await createOtp(phone, user.id);
+    armUnverifiedReminder(user).catch((e) => log.warn('unverified reminder not armed', { error: (e as Error).message })); // fire-and-forget
 
     trackJourney(
       { phone, userId: user.id, source: 'website' },

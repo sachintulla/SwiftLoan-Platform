@@ -18,7 +18,7 @@ describe('registry', () => {
   });
   it('keeps today\'s defaults (nothing changes until someone edits a value)', () => {
     const want: Record<string, unknown> = {
-      'install.idleMinutes': 5, 'install.minGapMinutes': 30, 'install.maxLateHours': 14, 'install.maxCycles': 3, 'install.recheckMinutes': 15,
+      'install.idleMinutes': 5, 'install.minGapMinutes': 30, 'install.maxLateHours': 14, 'install.maxCycles': 2, 'install.recheckMinutes': 15,
       'install.resumeMaxAgeDays': 14, 'website.pingEverySeconds': 60, 'calling.windowStart': 540, 'calling.windowEnd': 1260,
       'calls.firstDelaySeconds': 20, 'calls.retryMinutes': 60, 'calls.maxAttempts': 3, 'calls.declineFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25,
       'auth.otpValidityMinutes': 5, 'auth.otpResendWindowMinutes': 10, 'auth.accessTokenMinutes': 15, 'auth.refreshTokenDays': 30, 'auth.websiteSessionMinutes': 120, 'auth.adminIdleMinutes': 30,
@@ -27,14 +27,16 @@ describe('registry', () => {
     };
     for (const [k, v] of Object.entries(want)) expect(defOf(k).def, k).toBe(v);
   });
-  it('the default schedule is the 20 messages we have today: SMS then WhatsApp +30 min at 0, +4h, +8h, then days 1-7', () => {
-    expect(DEFAULT_SCHEDULE).toHaveLength(20);
-    const sms = DEFAULT_SCHEDULE.filter((r) => r.channel === 'sms').map((r) => r.afterMinutes / 60);
-    expect(sms).toEqual([0, 4, 8, 24, 48, 72, 96, 120, 144, 168]);
-    DEFAULT_SCHEDULE.forEach((r, i) => {
-      expect(r.channel).toBe(i % 2 === 0 ? 'sms' : 'whatsapp');
-      if (i % 2 === 1) expect(r.afterMinutes - DEFAULT_SCHEDULE[i - 1].afterMinutes).toBe(30);
-    });
+  it('the default schedule is lean: 5 messages over a week (WhatsApp 10 min, SMS 4 h, WhatsApp 1 day, SMS 3 days, WhatsApp 7 days)', () => {
+    expect(DEFAULT_SCHEDULE).toEqual([
+      { channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 240 }, { channel: 'whatsapp', afterMinutes: 1440 },
+      { channel: 'sms', afterMinutes: 4320 }, { channel: 'whatsapp', afterMinutes: 10080 },
+    ]);
+  });
+  it('the OTP-never-entered default is just two messages, and it is on by default (sending itself is still off)', () => {
+    expect(defOf('install.unverifiedSchedule').def).toEqual([{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 1440 }]);
+    expect(defOf('install.unverifiedEnabled').def).toBe(true);
+    expect(defOf('install.sendEnabled').def).toBe(false);
   });
   it('knows which keys exist', () => {
     expect(isTimingKey('install.idleMinutes')).toBe(true);
