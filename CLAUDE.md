@@ -448,3 +448,69 @@ Full detail in `docs/META_SDK_INTEGRATION.md`. Everything is **off until credent
 - Templates live in the Voxvalley portal (WhatsApp → My Templates): application_received, document_request, emi_reminder,
   kyc_completed, loan_disbursed, marketing_check_rate, offers_ready, otp_verification. Placeholder counts must match exactly.
 - Not built yet: delivery-status webhook (`callbackUrl`) and inbound "STOP" opt-out handling.
+
+---
+
+## Website drop-off recovery: install-link reminders (phases 1-2 built; sending is log-only)
+
+Plan + sign-off: `docs/JOURNEY_RESUME_PLAN.md` / `.docx` / `JOURNEY_RESUME_ONE_PAGE.docx`. Built: phase 1 (server + website) and phase 2 (app
+resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin view.
+- `JourneyReminder` (migration `20261019120000_journey_reminders`, additive; **not applied to the hosted DB yet**) is armed when a visitor
+  verifies their OTP on the website (`websiteAuth.routes.ts` → `armInstallReminder`). It holds the last step (`otp_only | pan_done |
+  application_started`), first name from the PAN check (`kyc.routes.ts` → `markPanVerified`), and a reference token used as `/dl?ref=<token>`.
+- Website tab pings `POST /api/website/activity` (`website-next/src/lib/activityPing.ts`, mounted by `ActivityPing` in the apply/account layouts).
+  5 minutes without a ping = "dropped off at <lastStep>". **The schedule starts at that moment** (`startAt` is reset to the drop time; nothing is sent while the visitor is still active — the first version sent the first message at login, caught on a real run).
+- Rules are pure and tested in `server/src/lib/reminderSchedule.ts`: SMS then WhatsApp +30 min at start, +4 h, +8 h, then days 1-7 (20 messages),
+  calling hours only, a step far too late is skipped, never two messages < 30 min apart. Stops on install (matched `AppClick` with this ref), app
+  login, application at the lender or beyond, do-not-contact (`Customer.currentStage = 'lost'`), or a return to the website (next cycle, max 3).
+- Job `install-reminder` (every minute, in `NUDGE_JOBS`) in `lib/installReminder.ts`. **Log-only unless `INSTALL_REMINDER_SEND=true`**: it records
+  what it would send in `JourneyReminder.history`. Real sends need Voxvalley settings `installSmsTemplateId` + `installSmsBody` (must contain `{link}`; may also use `{name}` and `{step}`, with `installStepLabels` renaming the steps)
+  and `installWhatsapp` `{template, language, placeholders: ['{name}','{link}']}` (`{step}` is also available; `install_app_resume_step` takes name, step, link) (a registered DLT template / approved WhatsApp template).
+- `stallSms` / `stallWhatsapp` stand down for anyone with an active reminder (`lib/installReminderGuard.ts`), so no two sequences overlap.
+- **App resume (phase 2).** `POST /attribution/claim` returns a `resume` block ONLY for a deterministic match (Play referrer / clipboard token; never
+  a same-IP guess): reference token, first name, phone, last step (`lib/journeyResume.ts`). `src/components/ResumePrompt.tsx` (mounted in `App.tsx`)
+  shows "Okay, continue" / "Take help from agent"; both open `mobile` with the number pre-filled and the consent box UNTICKED (the agent asks before
+  ticking it). After OTP, `screens/mobile.tsx` asks `GET /journey/resume` (the authority; the link's hint is used only for the same number) and routes by
+  `utils/resume.ts`: `pan_done` → `basic` (step 2) using `GET /kyc/pan/on-file` (masked PAN + prefill, never the PAN; `basic.tsx` then saves with
+  `usePanOnFile`); `otp_only` → Home + "Start application?" pop-up; anything else → the normal flow. permissions/About You are skipped for a resumed visitor.
+  **Already-installed app, opened from the visitor's link** (`swiftloan://onboard?token=<link reference ID>`): `store.ts` first tries the old lead/agent
+  context for that token; if there is none it asks `POST /api/attribution/resume` (public, throttled to 20/min per IP because it returns a phone number +
+  first name; same payload as the claim/login) and, if a fresh journey exists and nobody is signed in, shows the same pre-login pop-up ("Okay, continue"
+  opens the login with the number filled in, consent unticked). Nothing generates such a link yet: SMS/WhatsApp carry the https `/dl` link.
+  The voice agent gets `page_context.journey_resume` (`stage`, `first_name`, `last_step`; no phone). Prompt: section F + a Name Rule exception in
+  `prompts/ello-inapp-copilot-prompt.md` (edited locally; paste into Ello by hand).
+- **Job scheduling (`nextCheckAt`).** Each `JourneyReminder` row says when it next needs attention (next step due, or the 5-minute idle check);
+  `installReminderTick` reads only rows that are due, page by page (migration `20261019130000_journey_reminder_next_check`). The first version read
+  the 200 oldest active rows, so newer visitors starved once more than 200 were active.
+- **Tests.** Server integration suite: `cd server && bash scripts/journey/run.sh` (89 checks against a throwaway DB and fake providers, nothing real is sent;
+  it blanks the Aurix secret because a website login otherwise calls the lender UAT). Simulator seeds + inspector helper: `server/scripts/journey/`.
+  Full report: `docs/JOURNEY_RESUME_TEST_REPORT.md`. Two lessons from it: `trackPost()` used to drop the anonymous `/attribution/claim` (install attribution
+  never worked on a fresh install), and both resume endpoints must go through `resumeToWire()` (the app parses snake_case).
+
+---
+
+## Message delivery tracking (WhatsApp / SMS status → admin "Messages")
+
+A gateway 200 only means "queued", so every send is recorded and the provider's later reports are matched to it.
+- `MessageDelivery` (migration `20261019140000_message_delivery`, additive; **apply with `prisma migrate deploy` on the hosted DB**). One row per
+  provider message id: channel, status (`queued < sent < delivered < read`, or `failed`), phone key, kind (`install_reminder | stall | test | admin`),
+  error code/text, and the raw reports received. Pure rules in `lib/messageStatus.ts` (tested): failure words win over success words, `failed` beats
+  queued/sent but never delivered/read, a late delivery supersedes an early failure, queued/sent for > 15 min = "stuck". DB side: `lib/messageDelivery.ts`
+  (`recordSend`, `applyStatusEvents`, `recordUnparsed`). `whatsapp.ts` / `voxSms.ts` record every send (SMS has no reports: stays `sent`).
+- Public webhook `GET/POST /api/webhooks/whatsapp` (`modules/whatsappStatus.routes.ts`): Meta-style `entry[].changes[].value.statuses[]` and flat shapes.
+  Auth is the dedicated `WHATSAPP_WEBHOOK_KEY` (query `?key=` or header `x-webhook-secret`; 503 if unset, 401 if wrong). Unreadable or unmatched bodies
+  are stored raw and still answered 200, so the first real callback shows what shape the gateway really sends and the parser can be adjusted.
+- Callback URL given to the gateway per send: `<PUBLIC_BASE_URL>/api/webhooks/whatsapp?key=<WHATSAPP_WEBHOOK_KEY>` (https only; the Voxvalley
+  `callbackUrl` setting overrides it). Without a public https URL no reports can arrive; the admin page says so.
+- Admin: `/messages` (`admin/src/app/(dash)/messages`, API `modules/adminMessages.routes.ts`): tiles, filters, stuck/missing-callback callouts, detail panel.
+  Account deletion also removes the person's `MessageDelivery` rows. Demo data for screenshots: `server/scripts/journey/messages-demo-seed.mts` (throwaway DB only).
+
+### Local phone test (iPhone on the same Wi-Fi as the Mac; nothing committed, nothing deployed)
+- `src/config/build.ts` `DEV_API_BASE = 'http://<Mac LAN IP>:4000/api'` (covers API + tracking; iOS allows it via `NSAllowsLocalNetworking`).
+  **Set back to `''` and never commit it.** `server/.env` `PUBLIC_BASE_URL=http://<same IP>:4000` makes the reminder link (`/dl?ref=`) reachable from
+  the phone; remove it after (an https value is needed for the WhatsApp delivery callback). The Mac's IP: `ipconfig getifaddr en0`; it changes with the network.
+- Journey: verify the number + PAN on the local website (`website-next`, :4002, talks to :4000), stop for 5 minutes, then open
+  `http://<IP>:4000/dl?ref=<token from JourneyReminder>` in Safari on the phone (copies the clipboard token, goes to TestFlight), delete any installed copy
+  first (the install claim runs once per install), then launch the dev build from Xcode: pop-up → OTP → step 2. Templates to register for real sends:
+  `docs/JOURNEY_RESUME_TEMPLATES.md`.
+
