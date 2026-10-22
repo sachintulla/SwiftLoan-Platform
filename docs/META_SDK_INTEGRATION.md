@@ -18,15 +18,15 @@ user data (Meta's restricted-data policy forbids financial details):
 |---|---|---|---|
 | `website_lead_submitted` | `Lead` | – | Pixel + CAPI |
 | `otp_verified` | `CompleteRegistration` | `fb_mobile_complete_registration` | Pixel + CAPI |
-| `PAN_Verified` / `PAN Verified` | `IdentityVerified` (custom) | `IdentityVerified` | Pixel + CAPI |
+| `pan_verified` | `IdentityVerified` (custom) | `IdentityVerified` | Pixel + CAPI |
 | `eligibility_completed` | `EligibilityCompleted` (custom) | `EligibilityCompleted` | Pixel + CAPI |
-| `Offers_Got` / `Offers Got` | `OffersReceived` (custom) | `OffersReceived` | Pixel + CAPI |
+| `offers_got` | `OffersReceived` (custom) | `OffersReceived` | Pixel + CAPI |
 | `offer_viewed` (offers page) | `ViewContent` | `fb_mobile_content_view` | Pixel + CAPI |
 | `offer_selected` | `InitiateCheckout` | `fb_mobile_initiated_checkout` | Pixel + CAPI |
 | `application_submitted` | `SubmitApplication` | `SubmitApplication` | Pixel + CAPI |
 | `loan_disbursed` | `LoanDisbursed` (custom) | `LoanDisbursed` | – (not observable in a browser) |
 
-`PAN_Verified`, `eligibility_completed`, `Offers_Got`, `offer_viewed` (and, in the app, `loan_disbursed`) can repeat on
+`pan_verified`, `eligibility_completed`, `offers_got`, `offer_viewed` (and, in the app, `loan_disbursed`) can repeat on
 re-fetches and revisits, so each is reported **once per app launch / page session**; the others every time. A disbursal
 is therefore counted once per launch of the app that sees it, not once per loan — a server-side event from the lender
 status webhook would be exact if Ads Manager needs precise disbursal counts. `InitiateCheckout` is Meta's closest standard event for "chose an
@@ -34,7 +34,7 @@ offer to apply" — there is no payment; it just gives Ads Manager a mid-funnel 
 
 Plus, in the app only, Meta's automatic install / app-activation event (what ad attribution needs).
 Still **not** sent: approval / rejection, amounts, APRs, lender names, the PAN itself. Added at the owner's request after
-an earlier "leave out" call: `PAN_Verified` (sent as `IdentityVerified`, no PAN), `Offers_Got`, and `loan_disbursed`.
+an earlier "leave out" call: `pan_verified` (sent as `IdentityVerified`, no PAN), `offers_got`, and `loan_disbursed`.
 **Compliance note:** `LoanDisbursed` is the one event whose name itself reveals financial status, which Meta's
 restricted-data policy is strictest about for lending advertisers. It is a single line in `META_APP_EVENT_FOR`
 (`src/analytics/meta.ts`) to remove if review objects. Eight events now reach the website relay's allow-list. The fan-out is one line in each Upshot wrapper (`upshotEvent` → `metaTrackFromAppEvent` /

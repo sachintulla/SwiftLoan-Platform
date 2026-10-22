@@ -501,7 +501,7 @@ export const api = {
     const result = (await request<{ data: PanVerifyResult }>('POST', '/kyc/pan/verify', { pan }, false, 30000)).data;
     // Never send the PAN itself to analytics — only that it verified.
     if (result?.verified) {
-      upshotEvent('PAN Verified', {
+      upshotEvent('pan_verified', {
         source: result.source,
         ...(typeof result.aadhaarLinked === 'boolean' ? { aadhaarLinked: result.aadhaarLinked } : {}),
       });
@@ -543,7 +543,7 @@ export const api = {
         const lenders = [...new Set(got.map((o) => offerPartner(o)).filter((n): n is string => !!n))];
         const best = aprs.length ? got.filter((o) => o?.apr === Math.min(...aprs))[0] : undefined;
         const topLender = best ? offerPartner(best) : undefined;
-        upshotEvent('Offers Got', {
+        upshotEvent('offers_got', {
           offerCount: got.length,
           ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}),
           ...(amounts.length ? { maxAmount: Math.max(...amounts) } : {}),

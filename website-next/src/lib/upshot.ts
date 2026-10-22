@@ -91,6 +91,8 @@ export function __resetUpshotForTests(): void {
   offers.clear();
   offerViewPending = false;
   lastIdentified = '';
+  currentStage = null;
+  identifiedUser = false;
 }
 
 /* ─────────────────────────── screens ─────────────────────────── */
@@ -128,6 +130,73 @@ export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
   '/partner/return': 'Partner Return',
 };
 
+/* ───────────────────────────── stage ─────────────────────────────
+ * `stage` = the user's PRESENT step in the journey, as a Title Case phrase ("Pan Verification").
+ * It rides on every event AND is kept on the user's profile (updated whenever it changes), so a
+ * campaign can target "everyone currently at Pan Verification". Pages outside the loan journey
+ * (home, FAQs, account…) leave it unchanged: it stays the last journey step the user reached.
+ * The vocabulary is shared with the app (src/analytics/upshot.ts) and enforced by
+ * __tests__/upshotEventParity.test.ts — add a step in both places and in docs/UPSHOT_EVENTS.md.
+ */
+export const UPSHOT_STAGES = [
+  'Language Selection',
+  'Get Started',
+  'Mobile Number',
+  'Otp Verification',
+  'Permissions',
+  'About You',
+  'Pan Verification',
+  'Basic Details',
+  'More Details',
+  'Finding Offers',
+  'Offers',
+  'Compare Offers',
+  'Lender Application',
+  'Application Submitted',
+  'Loan Disbursed',
+  'Repayment',
+] as const;
+
+export const UPSHOT_STAGE_FOR_ROUTE: Record<string, string> = {
+  '/apply': 'Mobile Number',
+  '/apply/verify': 'Otp Verification',
+  '/apply/step-1': 'Pan Verification',
+  '/apply/step-2': 'Basic Details',
+  '/apply/step-3': 'More Details',
+  '/apply/finding': 'Finding Offers',
+  '/apply/offers': 'Offers',
+  '/apply/compare': 'Compare Offers',
+  '/apply/lender': 'Lender Application',
+  '/apply/confirm': 'Lender Application',
+  '/apply/success': 'Application Submitted',
+};
+
+/** An event that itself moves the user to the next step (the step has no route of its own). */
+const STAGE_AFTER_EVENT: Record<string, string> = { otp_requested: 'Otp Verification' };
+
+let currentStage: string | null = null;
+/** True once the visitor has a profile to attach the stage to (an anonymous visitor has none). */
+let identifiedUser = false;
+
+export function currentUpshotStage(): string | null {
+  return currentStage;
+}
+
+function pushStageToProfile(): void {
+  const stage = currentStage;
+  if (!stage || !identifiedUser) return;
+  run(() => {
+    sdk()?.updateUserProfile?.({ stage }, () => {});
+  });
+}
+
+function setStage(stage: string | null | undefined): void {
+  if (!stage || stage === currentStage) return;
+  currentStage = stage;
+  devLog('stage ->', stage);
+  pushStageToProfile();
+}
+
 /** Route -> label. `/account/<id>` is the loan detail page; everything else falls back to the path. */
 export function upshotScreenLabel(pathname: string): string {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
@@ -143,6 +212,8 @@ const SKIPPED_ROUTES = [/^\/dev(\/|$)/, /^\/brand(\/|$)/, /^\/logo(\/|$)/];
 export function upshotPageView(pathname: string): void {
   if (SKIPPED_ROUTES.some((re) => re.test(pathname))) return;
   const label = upshotScreenLabel(pathname);
+  // Before the event below is queued: whatever fires next on this page carries this stage.
+  setStage(UPSHOT_STAGE_FOR_ROUTE[pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname]);
   devLog('screen ->', label);
   // Exactly as documented: createEvent('UpshotEventPageView', pageName). The SDK times the
   // view and sends the previous one when the next is created.
@@ -154,10 +225,13 @@ export function upshotPageView(pathname: string): void {
 /* ─────────────────────────── events ─────────────────────────── */
 
 /**
- * Event NAMES and attribute KEYS: the SDK keeps letters, digits and underscores and
- * silently strips everything else, so "PAN Verified" is stored as "PANVerified". Names
- * here are written the way Upshot will store them (the app's two legacy spaced names
- * become PAN_Verified / Offers_Got on web) so what we send is what the dashboard shows.
+ * Event NAMES: one canonical spelling, lowercase snake_case, shared with the mobile app
+ * (src/analytics/upshot.ts). Contract: `docs/UPSHOT_EVENTS.md`, enforced by
+ * `__tests__/upshotEventParity.test.ts` at the repo root.
+ *
+ * Why so strict: Upshot keeps a separate event for every distinct spelling, and the web SDK
+ * silently strips spaces (and keeps case), so "PAN Verified", "PANVerified", "PAN_Verified" and
+ * "pan_verified" were four different events. Letters, digits and `_` only; never invent a variant.
  */
 
 /** Attributes on every web event, so a campaign can segment web vs app consistently. */
@@ -168,12 +242,44 @@ export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): 
   metaTrackFromWebEvent(name);
   // Drop undefined values: the SDK would turn them into nulls and Upshot would
   // then infer the attribute's type from a null.
-  const clean: Record<string, unknown> = { ...COMMON };
+  const clean: Record<string, unknown> = { ...COMMON, ...(currentStage ? { stage: currentStage } : {}) };
   for (const [k, v] of Object.entries(attrs)) if (v !== undefined) clean[k] = v;
   devLog('event ->', name, clean);
   run(() => {
     sdk()?.createEventByName?.(name, clean, false);
   });
+  // After the event: it happened AT the previous step; the user is now at the next one.
+  setStage(STAGE_AFTER_EVENT[name]);
+}
+
+/**
+ * Campaign attribution as Upshot attributes: camelCase keys, the same spelling `website_visit`
+ * uses, so one concept is one attribute in every event. The raw attribution object keeps its
+ * snake_case `utm_*` keys for the server; only this Upshot copy is renamed. Left out on
+ * purpose: ad click ids (gclid / fbclid), which Upshot has no use for, and the full referrer
+ * URL (host only, like `website_visit`).
+ */
+const ATTRIBUTION_TO_UPSHOT: Record<string, string> = {
+  utm_source: 'utmSource',
+  utm_medium: 'utmMedium',
+  utm_campaign: 'utmCampaign',
+  utm_term: 'utmTerm',
+  utm_content: 'utmContent',
+  campaignId: 'campaignId',
+};
+
+export function toUpshotAttribution(raw: Record<string, string> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw) return out;
+  for (const [from, to] of Object.entries(ATTRIBUTION_TO_UPSHOT)) if (raw[from]) out[to] = raw[from]!;
+  if (raw.referrer) {
+    try {
+      out.referrer = new URL(raw.referrer).host;
+    } catch {
+      /* not a URL — leave it out rather than send junk */
+    }
+  }
+  return out;
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -241,6 +347,9 @@ export function upshotIdentify(user: UpshotUser): void {
   run(() => {
     sdk()?.updateUserProfile?.(profile, () => {});
   });
+  // Now there is a profile: attach the step the user is on (and keep it current from here).
+  identifiedUser = true;
+  pushStageToProfile();
 }
 
 /**
@@ -251,6 +360,8 @@ export function upshotIdentify(user: UpshotUser): void {
  */
 export function upshotLogout(): void {
   lastIdentified = ''; // the same person logging straight back in must be re-identified
+  identifiedUser = false;
+  currentStage = null; // the next person on this browser starts from no step
   devLog('logout');
   run(() => {
     sdk()?.updateUserProfile?.({ appuid: '' }, () => {});
@@ -322,7 +433,7 @@ export function knownOfferInfo(id: string | null | undefined): { amount?: number
 /** Funnel events that come from API results. PAN/DOB/address/bureau data is never sent. */
 export function upshotPanVerified(result: { verified?: boolean; source?: string; aadhaarLinked?: boolean | null }): void {
   if (!result?.verified) return;
-  upshotEvent('PAN_Verified', {
+  upshotEvent('pan_verified', {
     source: result.source,
     ...(typeof result.aadhaarLinked === 'boolean' ? { aadhaarLinked: result.aadhaarLinked } : {}),
   });
@@ -338,7 +449,7 @@ export function upshotOffersFetched(list: unknown): void {
   const lenders = [...new Set(got.map(partnerOf).filter((n): n is string => !!n))];
   const best = aprs.length ? got.find((o) => o?.apr === Math.min(...aprs)) : undefined;
   const topLender = best ? partnerOf(best) : undefined;
-  upshotEvent('Offers_Got', {
+  upshotEvent('offers_got', {
     offerCount: got.length,
     ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}),
     ...(amounts.length ? { maxAmount: Math.max(...amounts) } : {}),

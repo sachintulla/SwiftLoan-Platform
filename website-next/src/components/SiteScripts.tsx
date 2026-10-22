@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { emiBreakdown, fmtINR, validateField, amountBounds, lookupApp, makeRefId, TrackedApp } from '@/lib/core';
 import { upshotIdentify, upshotEvent } from '@/components/UpshotWeb';
+import { toUpshotAttribution } from '@/lib/upshot';
 import { dict } from '@/lib/i18n-legacy';
 
 // Imperative port of website/js/main.js. Deliberately querySelector-style
@@ -521,7 +522,7 @@ export default function SiteScripts() {
             product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
             amount: amtNum,
             ref: id,
-            ...attribution(),
+            ...toUpshotAttribution(attribution()),
           });
 
           createContextLink({

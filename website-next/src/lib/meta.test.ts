@@ -98,10 +98,10 @@ describe('after consent', () => {
     metaTrackFromWebEvent('offer_viewed');
     metaTrackFromWebEvent('eligibility_completed');
     metaTrackFromWebEvent('eligibility_completed');
-    metaTrackFromWebEvent('PAN_Verified');
-    metaTrackFromWebEvent('PAN_Verified');
-    metaTrackFromWebEvent('Offers_Got');
-    metaTrackFromWebEvent('Offers_Got');
+    metaTrackFromWebEvent('pan_verified');
+    metaTrackFromWebEvent('pan_verified');
+    metaTrackFromWebEvent('offers_got');
+    metaTrackFromWebEvent('offers_got');
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
     await new Promise((r) => setTimeout(r, 30));
     expect(fetch).toHaveBeenCalledTimes(4);

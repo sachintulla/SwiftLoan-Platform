@@ -77,7 +77,7 @@ websiteAuthRouter.post(
   validate(z.object({ phone: phoneSchema, code: z.string().length(6) })),
   ah(async (req, res) => {
     const { phone, code } = req.body;
-    const { user, tokens } = await verifyOtpAndLogin({
+    const { user, tokens, priorInquiries } = await verifyOtpAndLogin({
       phone,
       code,
       refreshTtlMs: WEBSITE_REFRESH_TTL_MS,
@@ -87,7 +87,15 @@ websiteAuthRouter.post(
     const { hasApplication, applicationId } = await findHasApplication(user.id);
     res.json({
       success: true,
-      data: { user: publicUser(user), accessToken: tokens.accessToken, expiresIn: tokens.expiresIn, hasApplication, applicationId },
+      data: {
+        user: publicUser(user),
+        accessToken: tokens.accessToken,
+        expiresIn: tokens.expiresIn,
+        hasApplication,
+        applicationId,
+        // How many earlier website enquiries matched this number — sent to Upshot as otp_verified.priorInquiryCount (same as the app).
+        priorInquiryCount: priorInquiries.length,
+      },
       message: 'Logged in',
     });
   }),
