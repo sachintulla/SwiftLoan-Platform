@@ -606,6 +606,13 @@ adminRouter.get('/users', ah(async (req, res) => {
     });
     where.id = { in: staged.map((c) => c.userId!) };
   }
+  // Joined-date range (ISO instants, computed in the viewer's timezone).
+  const createdAt: { gte?: Date; lte?: Date } = {};
+  const from = typeof req.query.from === 'string' ? new Date(req.query.from) : null;
+  const to = typeof req.query.to === 'string' ? new Date(req.query.to) : null;
+  if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
+  if (to && !Number.isNaN(to.getTime())) createdAt.lte = to;
+  if (Object.keys(createdAt).length) where.createdAt = createdAt;
   const [rows, total] = await Promise.all([
     prisma.user.findMany({
       where, orderBy: { createdAt: 'desc' }, skip, take,
