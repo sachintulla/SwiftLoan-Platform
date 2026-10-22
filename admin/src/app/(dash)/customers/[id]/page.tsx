@@ -17,7 +17,7 @@ import { ApplicationOffers } from '@/components/ApplicationOffers';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
 import { ActivityFeed, buildActivityHighlights } from '@/components/activityFeed';
-import { inr, inrRupees, dateStr, timeAgo, humanStatus, num } from '@/lib/format';
+import { inr, inrRupees, dateStr, dateTimeStr, timeAgo, humanStatus, num } from '@/lib/format';
 import { NUDGES_DISABLED, withoutNudgeEvents } from '@/lib/flags';
 
 interface Customer {
@@ -442,7 +442,7 @@ export default function CustomerDetail() {
             <Fact label="Aurix token">
               {user?.aurixTokenExpiresAt ? (
                 <span className={aurixExpired ? 'is-stale' : undefined}>
-                  {aurixExpired ? 'Expired ' : 'Valid to '}{dateStr(user.aurixTokenExpiresAt)}
+                  {aurixExpired ? 'Expired ' : 'Valid to '}{dateTimeStr(user.aurixTokenExpiresAt)}
                 </span>
               ) : null}
             </Fact>
@@ -463,7 +463,7 @@ export default function CustomerDetail() {
             </Fact>
             <Fact label="Campaign">{c.campaignId}</Fact>
             <Fact label="Device">{deviceLine}</Fact>
-            <Fact label="First seen">{c.createdAt ? dateStr(c.createdAt) : null}</Fact>
+            <Fact label="First seen">{c.createdAt ? dateTimeStr(c.createdAt) : null}</Fact>
             {showSystem && (
               <>
                 <Fact label="Customer id" mono>
@@ -585,10 +585,10 @@ export default function CustomerDetail() {
                       {plain.map((a) => {
                         const isSubmitted = a.id === submittedAppId;
                         const note = isSubmitted
-                          ? `Submitted, awaiting lender${a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}`
+                          ? `Submitted, awaiting lender${a.createdAt ? ` · ${dateTimeStr(a.createdAt)}` : ''}`
                           : submittedAppId
-                            ? `Abandoned${a.updatedAt ? ` · ${dateStr(a.updatedAt)}` : ''}`
-                            : a.updatedAt ? `Last updated ${dateStr(a.updatedAt)}` : '—';
+                            ? `Abandoned${a.updatedAt ? ` · ${dateTimeStr(a.updatedAt)}` : ''}`
+                            : a.updatedAt ? `Last updated ${dateTimeStr(a.updatedAt)}` : '—';
                         return (
                           <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
                             <td className="mono">{a.ref}</td>

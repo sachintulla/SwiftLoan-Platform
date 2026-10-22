@@ -20,9 +20,23 @@ adminRouter.use(auditAdmin);
 
 // ─────────────────────────── helpers ───────────────────────────
 
+// Parse ?from=&to= (ISO instants) into a Prisma date filter, or undefined.
+function dateRange(q: Record<string, unknown>): { gte?: Date; lte?: Date } | undefined {
+  const r: { gte?: Date; lte?: Date } = {};
+  const f = typeof q.from === 'string' ? new Date(q.from) : null;
+  const t = typeof q.to === 'string' ? new Date(q.to) : null;
+  if (f && !Number.isNaN(f.getTime())) r.gte = f;
+  if (t && !Number.isNaN(t.getTime())) r.lte = t;
+  return Object.keys(r).length ? r : undefined;
+}
+
 // The 8-stage business funnel (WS4). Each stage is derived from existing data so
 // the dashboard shows real numbers without needing the app to be instrumented first.
-async function buildFunnel() {
+// An optional date range scopes every stage to records created in that window
+// (Session by startedAt, everything else by createdAt).
+async function buildFunnel(range?: { gte?: Date; lte?: Date }) {
+  const cr = range ? { createdAt: range } : {};
+  const sr = range ? { startedAt: range } : {};
   // Two populations, split at "Application submitted": the stages up to and
   // including submission count unique CUSTOMERS/applications, but once a
   // customer applies to several lenders the downstream stages count PER-LENDER
@@ -30,14 +44,14 @@ async function buildFunnel() {
   // and rejected by a third, so approved/disbursed here are lender-application
   // counts, deliberately not customer counts.
   const [sessions, leads, qualifiedLeads, apps, kyc, submittedToLenders, lenderApproved, lenderDisbursed] = await Promise.all([
-    prisma.session.count(),
-    prisma.lead.count(),
-    prisma.lead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
-    prisma.loanApplication.count(),
-    prisma.loanApplication.count({ where: { status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
-    prisma.offer.count({ where: { applied: true } }),
-    prisma.offer.count({ where: { applied: true, lenderStatus: { in: ['approved', 'disbursed', 'closed'] } } }),
-    prisma.offer.count({ where: { applied: true, lenderStatus: { in: ['disbursed', 'closed'] } } }),
+    prisma.session.count({ where: sr }),
+    prisma.lead.count({ where: cr }),
+    prisma.lead.count({ where: { ...cr, status: { in: ['qualified', 'converted'] } } }),
+    prisma.loanApplication.count({ where: cr }),
+    prisma.loanApplication.count({ where: { ...cr, status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { ...cr, applied: true } }),
+    prisma.offer.count({ where: { ...cr, applied: true, lenderStatus: { in: ['approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { ...cr, applied: true, lenderStatus: { in: ['disbursed', 'closed'] } } }),
   ]);
 
   const stages = [
@@ -74,19 +88,24 @@ const APP_STATUSES = [
 // ─────────────────────────── dashboard ───────────────────────────
 
 // GET /api/admin/dashboard/overview
-adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
+adminRouter.get('/dashboard/overview', ah(async (req, res) => {
+  // Optional ?from=&to= scopes every metric to its window. Date field per model:
+  // User/LoanApplication/Lead/Offer by createdAt, Loan by disbursedAt,
+  // AppDownload by installedAt.
+  const range = dateRange(req.query as Record<string, unknown>);
+  const cr = range ? { createdAt: range } : {};
   const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
-    prisma.user.count(),
-    prisma.loanApplication.count(),
-    prisma.loan.count(),
-    prisma.lead.count(),
-    prisma.appDownload.count(),
-    prisma.loan.aggregate({ _sum: { principal: true, outstanding: true } }),
-    buildFunnel(),
-    prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.user.count({ where: cr }),
+    prisma.loanApplication.count({ where: cr }),
+    prisma.loan.count({ where: range ? { disbursedAt: range } : {} }),
+    prisma.lead.count({ where: cr }),
+    prisma.appDownload.count({ where: range ? { installedAt: range } : {} }),
+    prisma.loan.aggregate({ _sum: { principal: true, outstanding: true }, where: range ? { disbursedAt: range } : {} }),
+    buildFunnel(range),
+    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true } }),
     // Per-lender application pipeline: one applied offer = one lender application,
     // bucketed by that lender's own status (matches the app's My Loans).
-    prisma.offer.groupBy({ by: ['lenderStatus'], where: { applied: true }, _count: { _all: true } }),
+    prisma.offer.groupBy({ by: ['lenderStatus'], where: { ...cr, applied: true }, _count: { _all: true } }),
   ]);
 
   const byStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
@@ -469,18 +488,55 @@ adminRouter.patch('/leads/:id', ah(async (req, res) => {
 
 // ─────────────────────────── downloads / attribution ───────────────────────────
 
-// GET /api/admin/downloads?page=&pageSize=
+// GET /api/admin/downloads?page=&pageSize=&from=&to=
+// `from`/`to` are ISO instants (the client computes them for Today / Yesterday /
+// range in the viewer's own timezone). Each row is enriched with the matched
+// user's name/phone and their current journey stage.
 adminRouter.get('/downloads', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const q = req.query as Record<string, unknown>;
+  const installedAt: { gte?: Date; lte?: Date } = {};
+  const from = typeof q.from === 'string' ? new Date(q.from) : null;
+  const to = typeof q.to === 'string' ? new Date(q.to) : null;
+  if (from && !Number.isNaN(from.getTime())) installedAt.gte = from;
+  if (to && !Number.isNaN(to.getTime())) installedAt.lte = to;
+  const where = Object.keys(installedAt).length ? { installedAt } : {};
+
   const [rows, total, bySource, byPlatform, contextCount] = await Promise.all([
-    prisma.appDownload.findMany({ orderBy: { installedAt: 'desc' }, skip, take }),
-    prisma.appDownload.count(),
-    prisma.appDownload.groupBy({ by: ['source'], _count: { _all: true } }),
-    prisma.appDownload.groupBy({ by: ['platform'], _count: { _all: true } }),
-    prisma.appDownload.count({ where: { contextLoaded: true } }),
+    prisma.appDownload.findMany({ where, orderBy: { installedAt: 'desc' }, skip, take }),
+    prisma.appDownload.count({ where }),
+    prisma.appDownload.groupBy({ by: ['source'], where, _count: { _all: true } }),
+    prisma.appDownload.groupBy({ by: ['platform'], where, _count: { _all: true } }),
+    prisma.appDownload.count({ where: { ...where, contextLoaded: true } }),
   ]);
+
+  // Join the matched users -> identity + current journey stage (same pattern as
+  // the active-users view): AppDownload.matchedUserId -> User, Customer.currentStage.
+  const userIds = [...new Set(rows.map((r) => r.matchedUserId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, firstName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { userId: true, currentStage: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const custByUserId = new Map(customers.map((c) => [c.userId!, c]));
+  const enriched = rows.map((r) => {
+    const u = r.matchedUserId ? userById.get(r.matchedUserId) : null;
+    const c = r.matchedUserId ? custByUserId.get(r.matchedUserId) : null;
+    return {
+      ...r,
+      userId: r.matchedUserId ?? null,
+      userName: u?.fullName ?? u?.firstName ?? null,
+      userPhone: u?.phone ?? null,
+      stage: c?.currentStage ?? null,
+    };
+  });
+
   return ok(res, {
-    rows,
+    rows: enriched,
     bySource: bySource.map((g) => ({ source: g.source, count: g._count._all })),
     byPlatform: byPlatform.map((g) => ({ platform: g.platform, count: g._count._all })),
     contextInstalls: contextCount,
@@ -559,6 +615,23 @@ adminRouter.get('/users', ah(async (req, res) => {
     const s = String(req.query.search).trim();
     where.OR = [{ fullName: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { email: { contains: s, mode: 'insensitive' } }];
   }
+  // Filter by current journey stage: restrict to the users whose Customer is in
+  // that stage. An unknown/empty stage set yields no users (correct).
+  const stage = req.query.stage ? String(req.query.stage) : undefined;
+  if (stage) {
+    const staged = await prisma.customer.findMany({
+      where: { currentStage: stage, userId: { not: null } } as Record<string, unknown>,
+      select: { userId: true },
+    });
+    where.id = { in: staged.map((c) => c.userId!) };
+  }
+  // Joined-date range (ISO instants, computed in the viewer's timezone).
+  const createdAt: { gte?: Date; lte?: Date } = {};
+  const from = typeof req.query.from === 'string' ? new Date(req.query.from) : null;
+  const to = typeof req.query.to === 'string' ? new Date(req.query.to) : null;
+  if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
+  if (to && !Number.isNaN(to.getTime())) createdAt.lte = to;
+  if (Object.keys(createdAt).length) where.createdAt = createdAt;
   const [rows, total] = await Promise.all([
     prisma.user.findMany({
       where, orderBy: { createdAt: 'desc' }, skip, take,
@@ -570,7 +643,13 @@ adminRouter.get('/users', ah(async (req, res) => {
     }),
     prisma.user.count({ where }),
   ]);
-  return ok(res, rows, 'Users', paginate(page, pageSize, total));
+  // Attach each user's current stage for the stage column.
+  const custs = rows.length
+    ? await prisma.customer.findMany({ where: { userId: { in: rows.map((r) => r.id) } }, select: { userId: true, currentStage: true } })
+    : [];
+  const stageByUser = new Map(custs.map((c) => [c.userId!, c.currentStage]));
+  const enriched = rows.map((r) => ({ ...r, stage: stageByUser.get(r.id) ?? null }));
+  return ok(res, enriched, 'Users', paginate(page, pageSize, total));
 }));
 
 // GET /api/admin/users/:id — full profile + EVERY application the customer made
@@ -595,7 +674,7 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
   });
   if (!user) throw new HttpError(404, 'User not found');
 
-  const [aurixApplications, partnerReferrals, revasureLeads] = await Promise.all([
+  const [aurixApplications, partnerReferrals, revasureLeads, customer] = await Promise.all([
     // Aurix: per-lender applications (the actual "applied to this lender" records).
     prisma.lenderApplication.findMany({
       where: { application: { userId } },
@@ -609,6 +688,12 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     }),
     // Revasure: every lead created for this customer.
     prisma.revasureLead.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' } }),
+    // Current journey stage (matched by userId, else by phone — the two ways a
+    // Customer links to a User).
+    prisma.customer.findFirst({
+      where: { OR: [{ userId }, ...(user.phone ? [{ phone: user.phone }] : [])] },
+      select: { id: true, currentStage: true, stageEnteredAt: true, lastActivityAt: true },
+    }),
   ]);
 
   // Unified, lender-tagged list — the single source of truth for "what did this
@@ -638,7 +723,7 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     })),
   ].sort((a, b) => new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
 
-  return ok(res, { ...user, aurixApplications, partnerReferrals, revasureLeads, lenderApplications }, 'User profile');
+  return ok(res, { ...user, customer, aurixApplications, partnerReferrals, revasureLeads, lenderApplications }, 'User profile');
 }));
 
 // ─────────────────────────── notifications ───────────────────────────

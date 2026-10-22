@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, downloadFile } from '@/lib/api';
 import { Card, StatusBadge, FilterChips, Pagination, TableSkeleton, Callout } from '@/components/ui';
-import { dateStr, num } from '@/lib/format';
+import { dateTimeStr, num } from '@/lib/format';
 import { Campaign, minutesToTime, daysLabel, tzAbbrev, zonedDateLabel } from '@/lib/campaign';
 
 const FILTERS = [
@@ -184,7 +184,7 @@ export default function CampaignsPage() {
                       </>
                     ) : <span className="muted" style={{ fontSize: 12 }}>no contacts</span>}
                   </td>
-                  <td className="muted" style={{ fontSize: 12 }}>{dateStr(c.createdAt)}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{dateTimeStr(c.createdAt)}</td>
                   <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {(c.status === 'running' || c.status === 'paused') && (
                       <button

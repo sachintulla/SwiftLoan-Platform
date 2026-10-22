@@ -1,11 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { StatCard, Card, TableSkeleton, FilterChips } from '@/components/ui';
 import { FunnelChart, PipelineBar, ActiveUsers, FunnelStage, ActiveUser } from '@/components/viz';
 import { TrendArea, CategoryBar, DonutChart } from '@/components/charts';
 import { inrCompact, num, pct } from '@/lib/format';
+import { PERIODS, computeRange, type Period } from '@/lib/period';
 
 interface Overview {
   stats: { totalUsers: number; totalApplications: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursedPaise: number; outstandingPaise: number; approvedCount: number; applicationToDisbursalPct: number };
@@ -22,7 +23,18 @@ interface Charts {
 
 export default function OverviewPage() {
   const [days, setDays] = useState('14');
-  const { data, isLoading } = useSWR('/api/admin/dashboard/overview', swrFetcher, { refreshInterval: 15000 });
+  const [period, setPeriod] = useState<Period>('all');
+  const [cFrom, setCFrom] = useState('');
+  const [cTo, setCTo] = useState('');
+  const range = useMemo(() => computeRange(period, cFrom, cTo), [period, cFrom, cTo]);
+  const overviewQs = useMemo(() => {
+    const p = new URLSearchParams();
+    if (range.from) p.set('from', range.from);
+    if (range.to) p.set('to', range.to);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  }, [range]);
+  const { data, isLoading } = useSWR(`/api/admin/dashboard/overview${overviewQs}`, swrFetcher, { refreshInterval: 15000 });
   const { data: activeRes } = useSWR('/api/admin/active-users?limit=15', swrFetcher, { refreshInterval: 10000 });
   // Trends are a separate, slower query — it takes a day range and must not be
   // dragged into the 15s live-refresh above.
@@ -36,7 +48,21 @@ export default function OverviewPage() {
   return (
     <div className="page">
       <h1 className="page-title">Master Overview</h1>
-      <p className="page-sub">Live snapshot of the loan funnel — leads, applications, and disbursals.</p>
+      <p className="page-sub">Snapshot of the loan funnel — leads, applications, and disbursals. Use the range to scope the figures below.</p>
+
+      <div style={{ marginTop: 14 }}>
+        <FilterChips options={PERIODS} value={period} onChange={setPeriod} />
+        {period === 'custom' && (
+          <div className="row wrap" style={{ gap: 12, marginTop: 10, alignItems: 'center' }}>
+            <label className="muted" style={{ fontSize: 13 }}>From&nbsp;
+              <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => setCFrom(e.target.value)} className="input" />
+            </label>
+            <label className="muted" style={{ fontSize: 13 }}>To&nbsp;
+              <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => setCTo(e.target.value)} className="input" />
+            </label>
+          </div>
+        )}
+      </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', marginTop: 18 }}>
         {isLoading || !o ? (
@@ -45,7 +71,7 @@ export default function OverviewPage() {
           <>
             <StatCard label="Total Applications" value={num(o.stats.totalApplications)} icon="₹" tone="blue" foot={`${num(o.stats.approvedCount)} approved`} />
             <StatCard label="Active Loans" value={num(o.stats.activeLoans)} icon="◉" tone="green" foot={`${inrCompact(o.stats.outstandingPaise)} outstanding`} />
-            <StatCard label="Total Disbursed" value={inrCompact(o.stats.totalDisbursedPaise)} icon="⬆" tone="teal" foot="lifetime" />
+            <StatCard label="Total Disbursed" value={inrCompact(o.stats.totalDisbursedPaise)} icon="⬆" tone="teal" foot={period === 'all' ? 'lifetime' : (PERIODS.find((p) => p.key === period)?.label ?? '')} />
             <StatCard label="Leads" value={num(o.stats.totalLeads)} icon="✦" tone="amber" foot={`${num(o.stats.totalDownloads)} app installs`} />
             <StatCard label="App → Disbursal" value={pct(o.stats.applicationToDisbursalPct)} icon="↗" tone="grey" foot="conversion" />
           </>
