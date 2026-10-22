@@ -68,14 +68,31 @@ export interface PhonesDef extends Base {
 export type TimingDef = NumberDef | MinuteOfDayDef | BoolDef | ScheduleDef | PhonesDef;
 export type TimingValue = number | boolean | ScheduleRow[] | string[];
 
-/** SMS, then WhatsApp 30 minutes later, at the drop-off, +4 h, +8 h, then every day for a week. */
-const DEFAULT_OFFSETS_MIN = [0, 4 * 60, 8 * 60, 24 * 60, 48 * 60, 72 * 60, 96 * 60, 120 * 60, 144 * 60, 168 * 60];
-export const DEFAULT_SCHEDULE: readonly ScheduleRow[] = Object.freeze(
-  DEFAULT_OFFSETS_MIN.flatMap((m): ScheduleRow[] => [
-    { channel: 'sms', afterMinutes: m },
-    { channel: 'whatsapp', afterMinutes: m + 30 },
-  ]),
-);
+/**
+ * Lean default for someone who left the website: 5 messages over a week, alternating channels, the longest gaps last
+ * (10 min, 4 h, 1 day, 3 days, 7 days). Never more than two on the first day, never two close together. The first
+ * version was 20 messages (SMS then WhatsApp 30 min later, every day for a week), which is far more contact than a
+ * "come back to the app" nudge justifies (TRAI/DLT and DPDP both expect contact to be proportionate to the purpose).
+ */
+export const DEFAULT_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
+  { channel: 'whatsapp', afterMinutes: 10 },
+  { channel: 'sms', afterMinutes: 4 * 60 },
+  { channel: 'whatsapp', afterMinutes: 24 * 60 },
+  { channel: 'sms', afterMinutes: 3 * 24 * 60 },
+  { channel: 'whatsapp', afterMinutes: 7 * 24 * 60 },
+]);
+
+/** Visitor who asked for an OTP but never entered it: a short sequence only (we cannot prove the number is theirs). */
+export const DEFAULT_UNVERIFIED_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
+  { channel: 'whatsapp', afterMinutes: 10 },
+  { channel: 'sms', afterMinutes: 24 * 60 },
+]);
+
+/** Someone who applied to a lender: two messages per lender (the second the next day). */
+export const DEFAULT_APPLIED_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
+  { channel: 'whatsapp', afterMinutes: 10 },
+  { channel: 'whatsapp', afterMinutes: 24 * 60 },
+]);
 
 /** "900" or "15m" / "2h" / "7d" → minutes (the env format ACCESS_TTL has always used: seconds or a suffixed duration). */
 function ttlToMinutes(raw: string): number | undefined {
@@ -111,6 +128,16 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'Each message is one SMS or WhatsApp, sent a set time after the visitor leaves the website. Use Edit schedule to change, add or remove messages.',
   },
   {
+    key: 'install.unverifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: 'Also remind people who asked for an OTP but never entered it',
+    help: 'They have not proved the number is theirs, so this is a short sequence (below), once per number, and only on the website. Still needs "Send the reminders for real" to be on.',
+  },
+  {
+    key: 'install.unverifiedSchedule', group: 'install', kind: 'schedule', unit: 'minutes', def: DEFAULT_UNVERIFIED_SCHEDULE.map((r) => ({ ...r })), maxRows: 5, maxMinutes: 7 * 1440,
+    label: 'Messages for an OTP that was never entered',
+    help: 'Counted from when they stopped (about 5 minutes after asking for the code). Kept short on purpose: anyone can type any number into the box.',
+  },
+  {
     key: 'install.minGapMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 30, min: 0, max: 1440,
     label: 'Minimum gap between two messages',
     help: 'Never send two reminders to the same person closer together than this, even if both are due.',
@@ -121,7 +148,7 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'A step that could not go out on time (for example overnight quiet hours or an outage) is skipped, not sent, after this long.',
   },
   {
-    key: 'install.maxCycles', group: 'install', kind: 'number', unit: 'count', def: 3, min: 1, max: 10,
+    key: 'install.maxCycles', group: 'install', kind: 'number', unit: 'count', def: 2, min: 1, max: 10,
     label: 'Maximum runs per visitor',
     help: 'A visitor who keeps coming back and leaving restarts the schedule; this caps how many times.',
   },
@@ -139,6 +166,35 @@ export const TIMINGS: readonly TimingDef[] = [
     key: 'install.resumeMaxAgeDays', group: 'install', kind: 'number', unit: 'days', def: 14, min: 1, max: 90, env: 'JOURNEY_RESUME_MAX_AGE_DAYS',
     label: 'A saved website visit can resume for',
     help: 'After this many days the app no longer offers to continue where the visitor left off.',
+  },
+  /* ── After they apply to a lender: "you applied with <lender>, install the app to track it" (lib/lenderNudge.ts) ── */
+  {
+    key: 'applied.sendEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the "you applied" messages for real',
+    help: 'Off: the job only writes what it would send to the server log. On: real WhatsApp and SMS go out, one sequence per lender the person applied to. Has its own switch because it needs its own approved templates.',
+    warn: 'Turning this on messages everyone who applies to a lender and has not installed the app, unless the test-number list above is filled in.',
+  },
+  {
+    key: 'applied.schedule', group: 'install', kind: 'schedule', unit: 'minutes',
+    def: DEFAULT_APPLIED_SCHEDULE.map((r) => ({ ...r })),
+    maxRows: 20, maxMinutes: 14 * 1440,
+    label: 'Messages after applying to a lender',
+    help: 'Sent a set time after they applied to that lender. Each lender gets its own sequence, so someone who applies to three lenders gets three sequences, spaced by the gap below.',
+  },
+  {
+    key: 'applied.minGapMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 60, min: 0, max: 1440,
+    label: 'Gap between different lenders\' messages',
+    help: 'If someone applied to several lenders, a message about the next lender waits until this long after the previous lender\'s message. One lender\'s own messages follow the schedule above.',
+  },
+  {
+    key: 'applied.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    label: 'Skip an applied message that is this late',
+    help: 'A message that could not go out on time (quiet hours, an outage, waiting behind the gap) is skipped, not sent, after this long.',
+  },
+  {
+    key: 'applied.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
+    label: 'Only for applications made in the last',
+    help: 'Older applications are never nudged, so switching this on does not message everyone who applied in the past.',
   },
   {
     key: 'website.pingEverySeconds', group: 'website', kind: 'number', unit: 'seconds', def: 60, min: 15, max: 900,

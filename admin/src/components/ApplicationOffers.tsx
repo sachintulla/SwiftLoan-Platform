@@ -6,7 +6,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, StatusBadge, LoanStatusBadge } from '@/components/ui';
 import type { LenderOffer } from '@/components/journey';
-import { inrRupees, dateStr } from '@/lib/format';
+import { inrRupees, dateTimeStr } from '@/lib/format';
 
 export interface OfferApplication {
   id: string; ref: string; amount: number; tenureMonths?: number | null; status: string;
@@ -42,7 +42,7 @@ export function ApplicationOffers({ applications }: { applications: OfferApplica
           <Card
             key={a.id}
             title={`Offers · ${a.ref}`}
-            sub={`${offers.length} offer${offers.length === 1 ? '' : 's'} · requested ${inrRupees(a.amount)}${a.tenureMonths ? ` for ${a.tenureMonths} mo` : ''}${a.createdAt ? ` · ${dateStr(a.createdAt)}` : ''}`}
+            sub={`${offers.length} offer${offers.length === 1 ? '' : 's'} · requested ${inrRupees(a.amount)}${a.tenureMonths ? ` for ${a.tenureMonths} mo` : ''}${a.createdAt ? ` · ${dateTimeStr(a.createdAt)}` : ''}`}
             right={<button className="btn" onClick={() => router.push(`/loans/${a.id}`)}>Open application →</button>}
           >
             <div className="table-wrap">

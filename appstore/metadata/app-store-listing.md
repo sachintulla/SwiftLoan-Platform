@@ -18,7 +18,7 @@ business/legal decision before you submit.
 | **Primary category** | Finance | — |
 | **Secondary category** | (none) | — |
 | **Primary language** | English (India) | — |
-| **Copyright** | `© 2026 Purple Talk India Private Limited` **[confirm legal entity]** | — |
+| **Copyright** | `© 2026 Purpletalk India Private Limited` | — |
 
 Subtitle alternatives (same limit, pick one): `Compare loans in your language` (30),
 `Real offers, by voice` (21), `Voice loan compare + EMI` (24).
@@ -105,7 +105,7 @@ Questions? Reach us anytime from inside the app or at support@swiftloan.ai.
 
 | Field | Value |
 |---|---|
-| **Support URL** (required) | `https://swiftloan.ai/support` **[confirm live before submit]** |
+| **Support URL** (required) | `https://swiftloan.ai/support` (public page shipped — PR #129 to main; verify it returns 200 after the prod deploy) |
 | **Marketing URL** (optional) | `https://swiftloan.ai` |
 | **Privacy Policy URL** (required) | `https://swiftloan.ai/privacy-policy` (live — verified) |
 
@@ -136,7 +136,7 @@ SwiftLoan is a loan-comparison and referral platform (an RBI Lending Service
 Provider / Digital Lending App), not a lender. It does not sanction, underwrite,
 price, or disburse loans — regulated Lending Partners do.
 
-SwiftLoan is built and operated in-house by Purple Talk India Private Limited, the
+SwiftLoan is built and operated in-house by Purpletalk India Private Limited, the
 owner of this Apple Developer account and of the SwiftLoan brand and content. It is
 not built from a template or app-generation service, and is not submitted on behalf
 of a third party.

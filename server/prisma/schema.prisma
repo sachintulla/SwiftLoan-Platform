@@ -140,6 +140,7 @@ model User {
   journeyReminders JourneyReminder[]
 
   @@index([createdAt])
+  lenderNudges LenderNudge[]
 }
 
 model OtpToken {
@@ -1698,6 +1699,41 @@ model AccountDeletionFeedback {
 // the last step they reached and runs the install-link reminder schedule (lib/reminderSchedule.ts):
 // SMS then WhatsApp, up to 7 days, until the app is installed or the person logs in to it.
 // Holds no PAN: only the first name (from the PAN check) and the last completed step.
+/// "You applied with <lender>, install the app to track it": one row per lender application (lib/lenderNudge.ts).
+/// Separate from JourneyReminder, which says "incomplete" and stops once the person has applied to any lender.
+model LenderNudge {
+  id                  String    @id @default(uuid())
+  /// The LenderApplication this is about (one nudge sequence per lender application).
+  lenderApplicationId String    @unique
+  userId              String
+  customerId          String?
+  phone               String
+  firstName           String?
+  /// Snapshot of the lender's name at apply time, used in the message.
+  lenderName          String?
+  /// The visitor's website reference ID, used as /dl?ref=<token> (so the app can resume and the install is attributed).
+  token               String?
+  /// active | stopped | completed
+  status              String    @default("active")
+  /// installed | app_login | lender_finished | do_not_contact | in_app | no_link | review_phone
+  stopReason          String?
+  /// The schedule's offsets are counted from here (when they applied).
+  startAt             DateTime
+  stepsSent           Int       @default(0)
+  lastSentAt          DateTime?
+  nextCheckAt         DateTime  @default(now())
+  /// One entry per handled step: { step, channel, at, outcome: logged|sent|failed|skipped, reason? }.
+  history             Json      @default("[]")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextCheckAt])
+  @@index([phone])
+  @@index([userId])
+}
+
 model JourneyReminder {
   id         String    @id @default(uuid())
   userId     String
@@ -1706,8 +1742,10 @@ model JourneyReminder {
   /// Reference ID carried in the app link (/dl?ref=<token>); ties an install back to this visitor.
   token      String    @unique
   firstName  String?
-  /// otp_only | pan_done | application_started
+  /// otp_requested | otp_only | pan_done | application_started
   lastStep   String    @default("otp_only")
+  /// True for someone who asked for an OTP on the website but never entered it (a short sequence; the number is unproven).
+  unverified Boolean   @default(false)
   /// active | stopped | completed
   status     String    @default("active")
   /// installed | app_login | application_finished | do_not_contact | returned

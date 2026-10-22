@@ -46,8 +46,9 @@ show "time ago" timestamps and indicative amounts; "no offer" results now show o
 rather than lender wording.]
 
 **5. Standalone or part of a suite**
-Standalone. [CONFIRM: say whether any other app is published under this developer account. The
-earlier reply said an older similar app was removed — state that only if true, and name it.]
+Standalone. There was previously one similar app under this developer account, titled
+"Swift Loan" (with a space). We have since removed it, and SwiftLoan is now the only app of
+its kind published under our account.
 
 **6. Could it be an IAP/feature of another app on the account?**
 No. [CONFIRM with Q5: if there is no other app, say "There is no other app on our account to
@@ -64,12 +65,18 @@ screens, flows, comparison logic and backend are our own. [CONFIRM: ownership/re
 Ello if asked — it is the voice-agent platform, not another consumer app.]
 
 **9. Built for a client/third party? (4.2.6)**
-No. SwiftLoan is our own brand and product, operated by Purple Talk India Private Limited, which
+No. SwiftLoan is our own brand and product, operated by Purpletalk India Private Limited, which
 owns this developer account. It is custom-built (React Native app + our own Node/PostgreSQL
 backend), not from a template or app-generation service, and not submitted on anyone's behalf.
 
-**Testing the app.** Sign-in uses the demo number and OTP in App Review Information. That
-account is a sandbox: it returns sample offers and no real money moves.
+**Testing the app.** Sign in with the demo account below (also entered in App Review
+Information). It is a sandbox: it returns sample offers and no real money moves.
+
+- Mobile number: 9000000001
+- OTP: 362832
+
+The voice assistant needs microphone permission, which can be declined with the app
+remaining fully usable.
 
 Privacy policy: https://swiftloan.ai/privacy-policy
 

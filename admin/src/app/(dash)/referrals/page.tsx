@@ -3,7 +3,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { num, dateStr } from '@/lib/format';
+import { num, dateTimeStr } from '@/lib/format';
 
 interface Person { id: string; name: string; phone: string | null }
 interface Payload {
@@ -64,7 +64,7 @@ export default function ReferralsPage() {
                 <td><StatusBadge status={r.status === 'signed_up' ? 'in_progress' : r.status === 'applied' ? 'pending' : 'disbursed'} label={r.status.replace('_', ' ')} /></td>
                 <td className="muted">{r.matchMethod ? METHOD[r.matchMethod] ?? r.matchMethod : '—'}</td>
                 <td className="mono muted">{r.code}</td>
-                <td className="muted">{dateStr(r.createdAt)}</td>
+                <td className="muted">{dateTimeStr(r.createdAt)}</td>
               </tr>
             ))}</tbody>
           </table></div>

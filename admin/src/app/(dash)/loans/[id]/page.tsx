@@ -3,7 +3,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatusBadge, LoanStatusBadge, StatCard, TableSkeleton } from '@/components/ui';
-import { inrRupees, dateStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
+import { inrRupees, dateStr, dateTimeStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
 import { LenderTrack, LenderRollup } from '@/components/journey';
 import { withoutNudgeEvents } from '@/lib/flags';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
@@ -48,7 +48,7 @@ export default function LoanDetail() {
       <div className="row between wrap">
         <div>
           <h1 className="page-title">{app.ref} <LoanStatusBadge status={app.status} /></h1>
-          <p className="page-sub">{app.user?.fullName} · {app.user?.phone} · applied {dateStr(app.createdAt)}</p>
+          <p className="page-sub">{app.user?.fullName} · {app.user?.phone} · applied {dateTimeStr(app.createdAt)}</p>
         </div>
       </div>
 

@@ -7,7 +7,7 @@ import {
   Card, StatusBadge, Pagination, TableSkeleton, Empty, ConfirmDialog, Menu, SearchBox,
 } from '@/components/ui';
 import { HorizontalBarList, SegmentedProgressBar } from '@/components/viz';
-import { inr, dateStr, num, timeAgo } from '@/lib/format';
+import { inr, dateTimeStr, num, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import CampaignBuilder from '@/components/CampaignBuilder';
 import {
@@ -234,7 +234,7 @@ export default function CampaignDetail() {
           </div>
           <p className="page-sub" style={{ marginTop: 8 }}>
             Agent <b style={{ color: 'var(--text)' }}>{campaign.assistantName || campaign.assistantId || 'not set'}</b>
-            {' '}· Created {dateStr(campaign.createdAt)}
+            {' '}· Created {dateTimeStr(campaign.createdAt)}
             {campaign.providerCampaignId && <> · Via Ello · <span className="mono" style={{ color: 'var(--brand)' }}>{campaign.providerCampaignId}</span></>}
           </p>
         </div>

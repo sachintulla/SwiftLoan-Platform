@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import Link from 'next/link';
-import { dateStr } from '@/lib/format';
+import { dateStr, dateTimeStr } from '@/lib/format';
 
 // Canonical customer journey — these keys are the server's JourneyStage enum
 // (server/src/lib/journey.ts STAGE_ORDER / STAGE_LABELS). They must match exactly:
@@ -128,7 +128,7 @@ export function JourneyTracker({ steps, currentStage, stalledMinutes }: {
                   {s.label || stageLabel(s.stage)}
                 </div>
                 <div className="stepper-date" style={{ color: inferred ? 'var(--amber)' : 'var(--text-faint)' }}>
-                  {confirmed ? dateStr(s.at) : inferred ? 'inferred' : isCurrent ? 'here now' : 'not reached'}
+                  {confirmed ? dateTimeStr(s.at) : inferred ? 'inferred' : isCurrent ? 'here now' : 'not reached'}
                 </div>
               </div>
             </React.Fragment>

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, LoanStatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { inrRupees, dateStr } from '@/lib/format';
+import { inrRupees, dateTimeStr } from '@/lib/format';
 
 // Every ApplicationStatus, in funnel order. The mid-funnel states
 // (pan_pending / prequalifying / handoff) were previously unfilterable even
@@ -78,7 +78,7 @@ export default function LoansPage() {
                     <td className="mono">{inrRupees(r.amount)}</td>
                     <td><LoanStatusBadge status={r.status} /></td>
                     <td className="muted" style={{ fontSize: 12.5 }}>{lenderSummary(r.offers)}</td>
-                    <td className="muted">{dateStr(r.createdAt)}</td>
+                    <td className="muted">{dateTimeStr(r.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
