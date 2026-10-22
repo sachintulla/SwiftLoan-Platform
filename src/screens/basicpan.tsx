@@ -41,17 +41,8 @@ export default function BasicPan() {
 
   React.useEffect(() => () => { if (typeTimer.current) clearTimeout(typeTimer.current); }, []);
 
-  // Returning applicant ("Update details", a second loan): start from the PAN
-  // already on their profile. Re-verifying it is served from the server's PAN
-  // cache, so it never costs a second paid Aurix call.
-  React.useEffect(() => {
-    if (!isAuthed() || state.panNumber) return;
-    api.me().then((r: any) => {
-      const saved = r?.user?.panNumber;
-      if (saved) set({ panNumber: String(saved) });
-    }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // The PAN field always starts empty: SwiftLoan does not keep the PAN (the server holds it only encrypted, for the
+  // lender check), so there is nothing to pre-fill.
 
   // Type the recognized PAN in character-by-character, then pulse the field so
   // the auto-fill is visible and feels deliberate.

@@ -30,6 +30,7 @@ import {
 import { mapOutcome } from './webhooks.routes.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
+import { resolveLookupAccess, NOT_VERIFIED_RESULT } from '../lib/lookupGrant.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('conversations');
@@ -79,7 +80,10 @@ conversationsRouter.use(ah(async (req, res, next) => {
  * recent conversations, newest first.
  */
 conversationsRouter.get('/context', ah(async (req, res) => {
-  const phone = String(req.query.phone ?? '');
+  let phone = String(req.query.phone ?? '');
+  const access = resolveLookupAccess(req.headers, req.query as Record<string, unknown>);
+  if (access.kind === 'denied') return ok(res, { ...NOT_VERIFIED_RESULT, brief: null }, 'Not verified');
+  if (access.kind === 'granted') phone = access.phone;
   if (!phone) return fail(res, 400, 'phone is required');
 
   const limit = Number(req.query.limit ?? 8);
@@ -105,7 +109,12 @@ conversationsRouter.get('/context', ah(async (req, res) => {
  */
 conversationsRouter.post('/context', ah(async (req, res) => {
   const b = (req.body ?? {}) as Record<string, unknown>;
-  const phone = String(b.phone ?? '');
+  let phone = String(b.phone ?? '');
+  const access = resolveLookupAccess(req.headers, b);
+  if (access.kind === 'denied') {
+    return res.json({ success: true, brief: null, known: false, data: { ...NOT_VERIFIED_RESULT, brief: null }, message: 'Not verified' });
+  }
+  if (access.kind === 'granted') phone = access.phone;
   if (!phone) return fail(res, 400, 'phone is required');
 
   const rawLimit = Number(b.limit);

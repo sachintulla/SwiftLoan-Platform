@@ -16,6 +16,7 @@
 
 import { NativeModules, Platform } from 'react-native';
 import { UPSHOT_DEMO } from '../config/build';
+import { metaTrackFromAppEvent } from './meta';
 
 /** Upshot's platform label for this build — never hard-code it: iPhones were being
  *  profiled as Android. */
@@ -205,20 +206,118 @@ export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
   compare: 'Compare Offers',
 };
 
+/* ───────────────────────────── stage ─────────────────────────────
+ * `stage` = the user's PRESENT step in the journey, as a Title Case phrase ("Pan Verification").
+ * It rides on every event AND is kept on the user's profile (updated whenever it changes), so a
+ * campaign can target "everyone currently at Pan Verification". Screens outside the loan journey
+ * (home, loans, profile, help…) leave it unchanged: it stays the last journey step reached.
+ * Same vocabulary as the website (website-next/src/lib/upshot.ts), enforced by
+ * __tests__/upshotEventParity.test.ts — add a step in both places and in docs/UPSHOT_EVENTS.md.
+ */
+export const UPSHOT_STAGES = [
+  'Language Selection',
+  'Get Started',
+  'Mobile Number',
+  'Otp Verification',
+  'Permissions',
+  'About You',
+  'Pan Verification',
+  'Basic Details',
+  'More Details',
+  'Finding Offers',
+  'Offers',
+  'Compare Offers',
+  'Lender Application',
+  'Application Submitted',
+  'Loan Disbursed',
+  'Repayment',
+] as const;
+
+export const UPSHOT_STAGE_FOR_SCREEN: Record<string, string> = {
+  language: 'Language Selection',
+  intro: 'Get Started',
+  mobile: 'Mobile Number',
+  otp: 'Otp Verification',
+  permissions: 'Permissions',
+  aboutyou: 'About You',
+  basicpan: 'Pan Verification',
+  basic: 'Basic Details',
+  moredetails: 'More Details',
+  finding: 'Finding Offers',
+  fare: 'Offers',
+  offers: 'Offers',
+  compare: 'Compare Offers',
+  handoff: 'Lender Application',
+  lenderweb: 'Lender Application',
+  altweb: 'Lender Application',
+  status: 'Application Submitted',
+  disbursed: 'Loan Disbursed',
+  repay: 'Repayment',
+};
+
+/** An event that itself moves the user to the next step: OTP entry shares the `mobile` screen. */
+const STAGE_AFTER_EVENT: Record<string, string> = { otp_requested: 'Otp Verification' };
+
+let currentStage: string | null = null;
+/** The id the profile is keyed on, once known — the stage is only pushed to a profile that exists. */
+let identifiedUserId: string | null = null;
+
+export function currentUpshotStage(): string | null {
+  return currentStage;
+}
+
+function pushStageToProfile(): void {
+  const stage = currentStage;
+  if (!stage || !identifiedUserId) return;
+  const appuID = identifiedUserId;
+  safe(() => sdk()?.setUserProfile?.(JSON.stringify({ appuID, stage })));
+}
+
+function setStage(stage: string | null | undefined): void {
+  if (!stage || stage === currentStage) return;
+  currentStage = stage;
+  devLog('stage ->', stage);
+  pushStageToProfile();
+}
+
+/** Test seam: forget the current step and who is identified. */
+export function __resetUpshotStageForTests(): void {
+  currentStage = null;
+  identifiedUserId = null;
+}
+
 /** Screens that are never reported: the animated logo at launch carries no information. */
 const UPSHOT_SKIPPED_SCREENS = new Set(['splash']);
 
 export function upshotScreen(screen: string): void {
   if (!started || UPSHOT_SKIPPED_SCREENS.has(screen)) return;
   const name = UPSHOT_SCREEN_LABELS[screen] ?? screen;
+  // Before anything else fires on this screen: events from here on carry this stage.
+  setStage(UPSHOT_STAGE_FOR_SCREEN[screen]);
   devLog('screen ->', name);
   safe(() => sdk()?.createPageViewEvent?.(name, __DEV__ ? accepted(`screen:${name}`) : noop));
 }
 
+/**
+ * Event NAMES are one canonical lowercase snake_case spelling shared with the website
+ * (website-next/src/lib/upshot.ts); the contract is `docs/UPSHOT_EVENTS.md`, enforced by
+ * `__tests__/upshotEventParity.test.ts`. Upshot keeps a separate event for every distinct
+ * spelling ("PAN Verified" / "PANVerified" / "pan_verified" are three events), so never
+ * invent a new variant of an existing name.
+ *
+ * `platform` ('iOS' | 'Android') rides on every event, as 'Web' does on the website, so a
+ * report can split by surface the same way everywhere; so does `stage` (the present step,
+ * once known). A caller's own value wins.
+ */
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
+  // Meta ads: the two funnel moments only, no attributes (see src/analytics/meta.ts).
+  metaTrackFromAppEvent(name);
   if (!started) return;
-  devLog('event ->', name, attrs);
-  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false, __DEV__ ? accepted(`event:${name}`) : noop));
+  const payload = { platform: PLATFORM, ...(currentStage ? { stage: currentStage } : {}), ...attrs };
+  devLog('event ->', name, payload);
+  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(payload), false, __DEV__ ? accepted(`event:${name}`) : noop));
+  // After the event: it happened AT the previous step; the user is now at the next one.
+  setStage(STAGE_AFTER_EVENT[name]);
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -273,10 +372,15 @@ export function upshotIdentify(user: {
       }),
     ),
   );
+  // Now there is a profile: attach the step the user is on (and keep it current from here).
+  identifiedUserId = user.userId;
+  pushStageToProfile();
 }
 
 /** Upshot's logout is `disableUser(true)` — there is no `userLogout`. */
 export function upshotLogout(): void {
+  identifiedUserId = null;
+  currentStage = null; // the next person on this device starts from no step
   safe(() => sdk()?.disableUser?.(true));
 }
 
@@ -343,7 +447,7 @@ export function showUpshotInbox(): void {
  * TYPES matter more than the values: Upshot infers a type from the first event
  * it sees, so sending `amount` as a string once makes it a string forever.
  *
- * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step.
+ * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step (the parity test fails if they drift).
  */
 export const MOBILE_UPSHOT_EVENTS: Array<{ name: string; attributes: Record<string, unknown> }> = [
   { name: 'app_installed', attributes: { platform: PLATFORM, source: 'organic' } },
@@ -351,24 +455,25 @@ export const MOBILE_UPSHOT_EVENTS: Array<{ name: string; attributes: Record<stri
   { name: 'language_selected', attributes: { language: 'en', label: 'English' } },
   { name: 'otp_requested', attributes: { screen: 'mobile' } },
   { name: 'otp_verified', attributes: { priorInquiryCount: 1 } },
-  { name: 'PAN Verified', attributes: { source: 'aurix', aadhaarLinked: true } },
+  { name: 'pan_verified', attributes: { source: 'aurix', aadhaarLinked: true } },
   { name: 'eligibility_completed', attributes: { offerCount: 4 } },
-  { name: 'Offers Got', attributes: { offerCount: 4, bestApr: 10.49 } },
+  { name: 'offers_got', attributes: { offerCount: 4, bestApr: 10.49, maxAmount: 500000, lenders: 'Aditya Finance, Axis Finance', topLender: 'Aditya Finance' } },
   { name: 'offer_viewed', attributes: { offerCount: 4, bestApr: 10.49 } },
-  { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance' } },
+  { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance', offerType: 'preapproved', offerLikelihood: '1' } },
   { name: 'kyc_started', attributes: { method: 'aadhaar' } },
   { name: 'kyc_completed', attributes: { methods: 'aadhaar,pan,bank,selfie' } },
   { name: 'application_submitted', attributes: { amount: 500000, product: 'Personal Loan' } },
   { name: 'loan_approved', attributes: { amount: 500000, apr: 10.49 } },
   { name: 'loan_rejected', attributes: { reason: 'credit_policy' } },
   { name: 'loan_disbursed', attributes: { amount: 500000, partner: 'Aditya Finance' } },
-  { name: 'call_completed', attributes: { answered: true, durationSec: 95, outcome: 'interested' } },
+  { name: 'call_completed', attributes: { answered: true, durationSec: 95, outcome: 'interested', campaign: 'diwali' } },
   // Drop-off nudges — the events campaigns are actually built against.
-  { name: 'swiftloan_otp_not_verified', attributes: { stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, minutesStuck: 20 } },
-  { name: 'swiftloan_install_not_registered', attributes: { stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, minutesStuck: 45 } },
-  { name: 'swiftloan_eligibility_incomplete', attributes: { stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, minutesStuck: 22 } },
-  { name: 'swiftloan_offer_not_selected', attributes: { stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, minutesStuck: 30 } },
-  { name: 'swiftloan_kyc_incomplete', attributes: { stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, minutesStuck: 25 } },
+  { name: 'swiftloan_otp_not_verified', attributes: { rule: 'OTP requested but not verified', stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, stage: 'otp_requested', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 20 } },
+  { name: 'swiftloan_install_not_registered', attributes: { rule: 'App installed but never registered', stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, stage: 'app_installed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 45 } },
+  { name: 'swiftloan_eligibility_incomplete', attributes: { rule: 'Registered but eligibility not checked', stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, stage: 'otp_verified', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 22 } },
+  { name: 'swiftloan_offer_not_selected', attributes: { rule: 'Offers viewed but none selected', stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, stage: 'offers_viewed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 30 } },
+  { name: 'swiftloan_kyc_incomplete', attributes: { rule: 'KYC started but not completed', stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, stage: 'kyc_started', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 25 } },
+  { name: 'swiftloan_lead_no_install', attributes: { rule: 'Website lead never installed the app', stuckAt: 'lead_captured', expected: 'app_installed', delayMinutes: 30, stage: 'lead_captured', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 90 } },
 ];
 
 /**
@@ -385,7 +490,7 @@ export function seedUpshotCatalogue(): number {
   }
   MOBILE_UPSHOT_EVENTS.forEach((e, i) => {
     // Spread over time so the SDK batches rather than dropping.
-    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: PLATFORM, seeded: true }), i * 150);
+    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: PLATFORM, stage: 'Pan Verification', seeded: true }), i * 150);
   });
   if (__DEV__) console.log(`[upshot] seeding ${MOBILE_UPSHOT_EVENTS.length} events`);
   return MOBILE_UPSHOT_EVENTS.length;

@@ -4,7 +4,7 @@ import { offersInputSignature, pickReusable, reuseWindowMs } from './offersReuse
 const user = {
   firstName: 'Ravi', lastName: 'Kumar', fullName: 'Ravi Kumar', phone: '9876543210', email: 'ravi@example.com',
   dob: new Date('1991-03-04T00:00:00Z'), gender: 'male', employment: 'salaried', monthlyIncome: 80000, pincode: '560001',
-  addressLine1: '12 MG Road', city: 'Bengaluru', state: 'Karnataka', panNumber: 'ABCPA1234A', qualification: 'Graduate', salaryMode: 'Bank Transfer',
+  addressLine1: '12 MG Road', city: 'Bengaluru', state: 'Karnataka', panFp: 'fp-a', qualification: 'Graduate', salaryMode: 'Bank Transfer',
 };
 const app = { loanType: 'personal', amount: 300000, tenureMonths: 24, purpose: 'personal', employment: 'salaried', monthlyIncome: 80000, panNumber: 'ABCPA1234A' };
 
@@ -27,7 +27,7 @@ describe('offersInputSignature — "same details" means the same fingerprint', (
     ['income', { monthlyIncome: 90000 }, {}],
     ['employment', { employment: 'self_employed' }, {}],
     ['pincode', { pincode: '560002' }, {}],
-    ['PAN', { panNumber: 'ABCPA1234B' }, {}],
+    ['PAN (keyed hash)', { panFp: 'fp-b' }, {}],
     ['email', { email: 'new@example.com' }, {}],
     ['date of birth', { dob: new Date('1992-03-04T00:00:00Z') }, {}],
     ['city', { city: 'Mysuru' }, {}],

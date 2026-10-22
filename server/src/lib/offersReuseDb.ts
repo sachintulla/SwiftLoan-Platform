@@ -1,4 +1,5 @@
-import type { LoanApplication, Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
+import type { SafeApplication } from './storedPan.js';
 import { prisma } from './prisma.js';
 
 const withDetails = { emiOptions: true, partner: true } as const;
@@ -15,7 +16,7 @@ export async function storedOffers(applicationId: string) {
  * never extends how long the offers count as fresh. Lender-side progress (selected /
  * applied / status) is deliberately not copied — that belongs to the old application.
  */
-export async function copyOffersFrom(app: LoanApplication, sourceId: string) {
+export async function copyOffersFrom(app: SafeApplication, sourceId: string) {
   const source = await prisma.loanApplication.findUnique({
     where: { id: sourceId },
     include: { offers: { include: { emiOptions: true }, orderBy: { apr: 'asc' } } },

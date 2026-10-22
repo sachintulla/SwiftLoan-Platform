@@ -173,9 +173,17 @@ export class ElloAgent {
     this.listeners[event]?.forEach((fn) => fn(payload));
   }
 
+  /** How long a call may sit in "connecting" before we give up and let the visitor try again. */
+  static CONNECT_TIMEOUT_MS = 25_000;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+
   private setStatus(s: AgentStatus) {
     if (this.status === s) return;
     this.status = s;
+    if (s !== 'connecting' && this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
     // The mic deliberately stays live throughout the whole call, including
     // while the agent is speaking — muting it here was killing barge-in:
     // the user's interrupting speech never reached the server, so its VAD
@@ -308,6 +316,15 @@ export class ElloAgent {
     this.stats = { micFrames: 0, micSoundFrames: 0, audioOut: 0, toolsSent: 0, toolsAcked: null };
     this.dbg('info', 'start()', 'connecting');
     this.setStatus('connecting');
+    // Without this a stalled step (provider never answers, socket never opens, no session-established) left the
+    // widget on "Connecting…" forever, and start() ignores clicks while connecting — only a page refresh got out.
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null;
+      if (this.status !== 'connecting') return;
+      this.dbg('error', 'connect timeout', `still connecting after ${ElloAgent.CONNECT_TIMEOUT_MS}ms (conversation_id=${this.conversationId ?? 'none'})`);
+      this.emit('error', { message: "Couldn't connect to the assistant. Please check your connection and tap to try again." });
+      this.stop();
+    }, ElloAgent.CONNECT_TIMEOUT_MS);
     this.playbackQueueTime = 0;
     this.playCount = 0;
     // getUserMedia MUST be the first async call after the click, not the
@@ -349,8 +366,10 @@ export class ElloAgent {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: this.opts.role ?? 'websiteCompanion' }),
+        signal: AbortSignal.timeout(22_000),
       });
-      const json = await resp.json();
+      // A proxy/gateway error page is HTML, not JSON — don't surface "Unexpected token <".
+      const json = await resp.json().catch(() => null);
       this.log('session response', json);
       const conversationId = json?.data?.conversationId ?? json?.data?.conversation_id;
       if (!resp.ok || !conversationId) {
@@ -364,7 +383,13 @@ export class ElloAgent {
       this.dbg('error', 'publish failed', String(err));
       // `String(err)` on an Error yields "Error: <message>", and on a non-Error
       // object "[object Object]" — neither belongs in front of a user.
-      this.emit('error', { message: err instanceof Error ? err.message : readProviderError(err, 0) });
+      const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      this.emit('error', {
+        message: timedOut
+          ? "The assistant took too long to answer. Please tap to try again."
+          : err instanceof Error ? err.message : readProviderError(err, 0),
+      });
+      this.stopMic();
       this.setStatus('idle');
       return;
     }
@@ -410,10 +435,21 @@ export class ElloAgent {
         this.handleAudioFrame(e.data as ArrayBuffer);
       }
     });
-    await new Promise<void>((resolve) => {
-      if (ws.readyState === WebSocket.OPEN) return resolve();
-      ws.addEventListener('open', () => resolve(), { once: true });
+    // Resolves on open; a socket that errors or closes before opening ends the attempt instead of hanging it.
+    const opened = await new Promise<boolean>((resolve) => {
+      if (ws.readyState === WebSocket.OPEN) return resolve(true);
+      ws.addEventListener('open', () => resolve(true), { once: true });
+      ws.addEventListener('close', () => resolve(false), { once: true });
+      ws.addEventListener('error', () => resolve(false), { once: true });
     });
+    if (!opened || !isCurrent()) {
+      if (isCurrent() && (this.status === 'connecting')) {
+        this.emit('error', { message: "Couldn't reach the assistant. Please tap to try again." });
+        this.setStatus('idle');
+        this.stopMic();
+      }
+      return;
+    }
     const tools = this.toolsPayload();
     this.stats.toolsSent = tools.length;
     ws.send(

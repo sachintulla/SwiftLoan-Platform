@@ -48,6 +48,7 @@ import { aurixWebhookRouter } from './modules/aurixWebhook.routes.js';
 import { yubiWebhookRouter } from './modules/yubiWebhook.routes.js';
 import { websiteRouter } from './modules/website.routes.js';
 import { websiteAuthRouter } from './modules/websiteAuth.routes.js';
+import { metaRouter } from './modules/meta.routes.js';
 
 export function createApp() {
   const app = express();
@@ -149,6 +150,8 @@ export function createApp() {
   // ── Install attribution + friend referrals ──
   // /claim is public (no account yet) and writes a row per call, so it shares the tracking bucket.
   app.use('/api/attribution', trackLimiter, attributionRouter);
+  // Website Meta Conversions API relay (consent-gated, small event allow-list).
+  app.use('/api/meta', limiter(60_000, 60, 'Too many events'), metaRouter);
   app.use('/api/referrals', referralRouter);
   app.use('/api/admin/auth', authLimiter, adminAuthRouter);
   // ── WS5: outbound calling + campaigns + provider webhooks ──

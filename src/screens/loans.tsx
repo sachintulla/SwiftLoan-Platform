@@ -10,6 +10,7 @@ import { useStore, useT } from '../state/store';
 import { api, isAuthed } from '../api/client';
 import { displayLenderName } from './offers';
 import { timeAgo } from '../utils/timeAgo';
+import { isJustApplied } from '../utils/justApplied';
 
 const TYPE_ICON: Record<string, string> = {
   personal: 'bolt', business: 'business_center', home: 'home', education: 'school', vehicle: 'directions_car',
@@ -151,7 +152,12 @@ export default function Loans() {
         const meta = STATUS_META[la.status];
         const statusText = meta ? statusLabel(meta.key, la.status) : la.status;
         const statusColor = meta?.color || colors.muted;
-        const internal = INTERNAL_STATUS_META[la.internalStatus] || INTERNAL_STATUS_META.just_applied;
+        // 'just_applied' is the column default, so it only shows while the application is
+        // actually fresh; success/failed/error are real outcomes and always show.
+        const rawInternal = la.internalStatus || 'just_applied';
+        const internal = rawInternal === 'just_applied'
+          ? (isJustApplied(rawInternal, la.appliedAt) ? INTERNAL_STATUS_META.just_applied : null)
+          : INTERNAL_STATUS_META[rawInternal] || null;
         const isDisbursedLoan = la.status === 'disbursed' && app.loan;
         const apr = la.apr ?? app.loan?.apr ?? null;
         // `> 0`, not just `!= null` — a lender that hasn't priced this yet can
@@ -175,8 +181,8 @@ export default function Loans() {
             typeLabel={typeName}
             status={statusText}
             statusColor={statusColor}
-            internalLabel={statusLabel(internal.key, la.internalStatus)}
-            internalColor={internal.color}
+            internalLabel={internal ? statusLabel(internal.key, rawInternal) : undefined}
+            internalColor={internal?.color}
             logoUrl={la.lenderLogoUrl}
             updated={timeAgo(la.updatedAt || la.appliedAt, t)}
             updatedPrefix={t.updatedPrefix}

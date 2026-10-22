@@ -47,10 +47,10 @@ interface LinkedUser {
   dob?: string | null; gender?: string | null; maritalStatus?: string | null; qualification?: string | null;
   employment?: string | null; company?: string | null; monthlyIncome?: number | null; salaryMode?: string | null;
   residenceType?: string | null; addressLine1?: string | null; addressLine2?: string | null; landmark?: string | null;
-  city?: string | null; state?: string | null; pincode?: string | null; loanPurpose?: string | null; panNumber?: string | null;
+  city?: string | null; state?: string | null; pincode?: string | null; loanPurpose?: string | null; panOnFile?: boolean | null;
   aadhaarLast4?: string | null; creditScore?: number | null; phoneVerified?: boolean | null; emailVerified?: boolean | null;
   aurixTokenExpiresAt?: string | null;
-  applications?: { id: string; ref: string; amount: number; tenureMonths?: number | null; status: string; panNumber?: string | null; createdAt?: string; updatedAt?: string; offers?: LenderOffer[] }[];
+  applications?: { id: string; ref: string; amount: number; tenureMonths?: number | null; status: string; createdAt?: string; updatedAt?: string; offers?: LenderOffer[] }[];
   loans?: { id: string; principal: number; outstanding: number; status: string }[];
   // One row per verification method attempted — [] genuinely means "none", not "pending".
   kyc?: { status?: string | null; panVerified?: boolean; aadhaarVerified?: boolean }[] | null;
@@ -92,10 +92,6 @@ function initials(name?: string | null, phone?: string | null): string {
  * shoulder-surfing the dashboard. There is deliberately no "show" affordance:
  * a value that can be revealed is a value that gets screenshotted.
  */
-function maskPan(value: string): string {
-  const tail = value.slice(-3);
-  return '•'.repeat(Math.max(value.length - 3, 3)) + tail;
-}
 
 /** CIBIL band, so 750 reads as a verdict and not just a number. */
 function scoreBand(score: number): { label: string; tone: string } {
@@ -351,7 +347,8 @@ export default function CustomerDetail() {
     </span>
   ) : null;
 
-  const pan = user?.panNumber || applications[0]?.panNumber || '';
+  // The API never returns a PAN (stored encrypted, env-only key) — only whether one is on file.
+  const panOnFile = !!user?.panOnFile;
   const deviceLine = [d.device?.os, d.device?.model, d.device?.appVersion ? `v${d.device.appVersion}` : null].filter(Boolean).join(' · ');
   const email = c.email || user?.email || '';
   const city = c.city || user?.city || lead?.city || '';
@@ -440,7 +437,7 @@ export default function CustomerDetail() {
               ) : null}
             </Fact>
             <Fact label="KYC records">{user?.kyc?.length ? humanStatus(user.kyc[0].status || 'pending') : null}</Fact>
-            <Fact label="PAN" mono>{pan ? maskPan(pan) : null}</Fact>
+            <Fact label="PAN">{panOnFile ? 'On file (encrypted)' : null}</Fact>
             <Fact label="Aadhaar last 4" mono>{user?.aadhaarLast4}</Fact>
             <Fact label="Aurix token">
               {user?.aurixTokenExpiresAt ? (

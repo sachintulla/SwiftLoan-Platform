@@ -16,11 +16,11 @@ const USER_FIELDS = [
   'dob', 'gender', 'maritalStatus', 'qualification', 'employment', 'company', 'companyEmail',
   'businessEmail', 'professionalType', 'monthlyIncome', 'salaryMode', 'monthlyObligations',
   'loanPurpose', 'addressLine1', 'addressLine2', 'landmark', 'district', 'city', 'state', 'pincode',
-  'panNumber',
+  'panFp', // keyed hash of the PAN (lib/storedPan.ts) — never the PAN itself
 ] as const;
 
 /** Fields of the application that feed it. */
-const APP_FIELDS = ['loanType', 'amount', 'tenureMonths', 'purpose', 'employment', 'monthlyIncome', 'residenceType', 'panNumber'] as const;
+const APP_FIELDS = ['loanType', 'amount', 'tenureMonths', 'purpose', 'employment', 'monthlyIncome', 'residenceType'] as const;
 
 type Bag = Record<string, unknown> | null | undefined;
 

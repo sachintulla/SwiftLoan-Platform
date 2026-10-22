@@ -121,9 +121,11 @@ case-sensitively: `appuid`, `firstName`, `lastName`, `userName`, `email`, `phone
 `disableUser()` is a permanent privacy opt-out (deletes the user's data and disables Upshot for them) and is
 never called on sign-out.
 
-**Event names / attribute keys:** the SDK keeps letters, digits and `_` and silently strips the rest, so
-`PAN Verified` would be stored as `PANVerified`. The website therefore sends `PAN_Verified` and `Offers_Got`
-(the app still sends the spaced forms). Keys must start with a letter; payload max 2048 bytes.
+**Event names / attribute keys:** one canonical spelling on every surface — lowercase `snake_case` names,
+`camelCase` attribute keys — listed in `docs/UPSHOT_EVENTS.md` and enforced by
+`__tests__/upshotEventParity.test.ts`. The web SDK strips spaces and keeps case, so `PAN Verified` was stored as
+`PANVerified`; the two legacy spaced names are now `pan_verified` and `offers_got` on the website AND the app.
+Keys must start with a letter; payload max 2048 bytes.
 
 **Parity with the mobile app** (same event names, attribute names/types, and screen labels; hooked in
 the API layer like mobile's `client.ts`, so no page markup changed):
@@ -139,8 +141,8 @@ the API layer like mobile's `client.ts`, so no page markup changed):
 | Returning visitor | `applyApi.fetchMe` | identify (deduped) |
 | Sign-out | `session.logout` | `appuid: ''` |
 | About You | `applyApi.patchProfile` | identify (name/email) |
-| PAN | `applyApi.verifyPan` | `PAN_Verified` (never the PAN) |
-| Offers | `applyApi.prequalify` | `eligibility_completed`, `Offers_Got` |
+| PAN | `applyApi.verifyPan` | `pan_verified` (never the PAN) |
+| Offers | `applyApi.prequalify` | `eligibility_completed`, `offers_got` |
 | Offers page | route | `offer_viewed` |
 | Apply to an offer | `applyApi.applyOffer` | `offer_selected` |
 | Success page | route | `application_submitted` (once per application) |

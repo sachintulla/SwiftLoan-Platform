@@ -11,6 +11,7 @@
  */
 import { apiBase } from './leads';
 import { upshotEvent, upshotIdentifyServerUser, upshotLogout } from './upshot';
+import { clearCachedAccountUser } from './accountUserCache';
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
@@ -102,13 +103,15 @@ export async function verifyOtp(phone: string, code: string): Promise<OtpVerifyR
   setAccessToken(body.data.accessToken);
   // Upshot: key the profile on the server user id (same as the mobile app), then record the registration.
   upshotIdentifyServerUser(body.data.user);
-  upshotEvent('otp_verified');
+  // Same attribute the app sends. Absent (older server) = left off, never a misleading 0.
+  upshotEvent('otp_verified', typeof body.data.priorInquiryCount === 'number' ? { priorInquiryCount: body.data.priorInquiryCount } : {});
   return { user: body.data.user, hasApplication: body.data.hasApplication, applicationId: body.data.applicationId };
 }
 
 export async function logout(): Promise<void> {
   await fetch(`${apiBase()}/api/website/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
   setAccessToken(null);
+  clearCachedAccountUser();
   upshotLogout();
 }
 

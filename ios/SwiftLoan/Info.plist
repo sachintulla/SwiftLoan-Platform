@@ -4,6 +4,18 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Meta SDK (ad attribution). Nothing auto-starts or collects: the SDK is started from JS
+	     (src/analytics/meta.ts) once a client token is configured. No advertising ID, no ATT prompt. -->
+	<key>FacebookAppID</key>
+	<string>1669156655221818</string>
+	<key>FacebookDisplayName</key>
+	<string>SwiftLoan</string>
+	<key>FacebookAutoInitEnabled</key>
+	<false/>
+	<key>FacebookAutoLogAppEventsEnabled</key>
+	<false/>
+	<key>FacebookAdvertiserIDCollectionEnabled</key>
+	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleDevelopmentRegion</key>

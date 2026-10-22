@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutList, Tag, User, MessageCircle, LogOut, Menu, X } from 'lucide-react';
+import { LayoutList, Tag, User, MessageCircle, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { logout as logoutSession } from '@/lib/session';
 import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
 import { useCopy } from '@/lib/i18n';
@@ -25,6 +25,31 @@ function initials(name?: string) {
   return name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 }
 
+const COLLAPSE_KEY = 'sl_rail_collapsed';
+
+/** Sidebar open/closed, remembered on this device. Read after mount so server and first client render agree. */
+function useRailCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(COLLAPSE_KEY) === '1');
+    } catch {
+      /* storage blocked — stay open */
+    }
+  }, []);
+  const toggle = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        /* not persisted; still toggles */
+      }
+      return next;
+    });
+  return [collapsed, toggle];
+}
+
 export interface AccountRailUser {
   fullName?: string | null;
   firstName?: string | null;
@@ -43,26 +68,51 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const [collapsed, toggleCollapsed] = useRailCollapsed();
   const t = useCopy(applyShellCopy);
   const name = user?.fullName || user?.firstName || t.guestName;
+  const toggleLabel = collapsed ? t.openMenu : t.closeMenu;
 
   return (
     <>
-      <aside className="bg-deep-gradient relative hidden h-screen w-[320px] shrink-0 flex-col gap-6 self-start overflow-y-auto p-8 text-white lg:sticky lg:top-0 lg:flex">
-        <div className="flex items-center gap-2.5 text-lg font-extrabold">
-          <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
-          SwiftLoan
+      <aside
+        data-collapsed={collapsed ? '1' : '0'}
+        className={`bg-deep-gradient relative hidden h-screen shrink-0 flex-col self-start overflow-y-auto overflow-x-hidden text-white transition-[width] duration-200 lg:sticky lg:top-0 lg:flex ${
+          collapsed ? 'w-[76px] items-center gap-5 px-3 py-6' : 'w-[320px] gap-6 p-8'
+        }`}
+      >
+        <div className={`flex items-center ${collapsed ? 'flex-col gap-4' : 'justify-between gap-2.5'}`}>
+          <div className="flex items-center gap-2.5 text-lg font-extrabold">
+            <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
+            {!collapsed && 'SwiftLoan'}
+          </div>
+          {/* Top-right of the sidebar: closes it to a slim icon strip, and opens it again from there. */}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-label={toggleLabel}
+            title={toggleLabel}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/20 bg-white/10 text-white/90 hover:bg-white/20"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
         </div>
         {/* Deliberately NOT the brand-gradient tile above — a glass/outline
             treatment reads as "a person" at a glance instead of a second logo. */}
-        <div className="flex items-center gap-3 border-t border-white/10 pt-6">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 border-white/25 bg-white/10 text-base font-extrabold backdrop-blur-sm">
+        <div className={`flex items-center gap-3 border-t border-white/10 pt-6 ${collapsed ? 'justify-center' : ''}`}>
+          <div
+            title={collapsed ? name : undefined}
+            className={`grid shrink-0 place-items-center rounded-full border-2 border-white/25 bg-white/10 font-extrabold backdrop-blur-sm ${collapsed ? 'h-10 w-10 text-sm' : 'h-12 w-12 text-base'}`}
+          >
             {initials(name)}
           </div>
-          <div className="min-w-0">
-            <div className="truncate font-extrabold">{name}</div>
-            {user?.phone && <div className="text-xs text-white/60">+91 {user.phone}</div>}
-          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="truncate font-extrabold">{name}</div>
+              {user?.phone && <div className="text-xs text-white/60">+91 {user.phone}</div>}
+            </div>
+          )}
         </div>
         <nav className="flex flex-col gap-1">
           {NAV.map(({ href, labelKey, icon: Icon }) => {
@@ -71,22 +121,26 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${
+                title={collapsed ? t[labelKey] : undefined}
+                aria-label={collapsed ? t[labelKey] : undefined}
+                className={`flex items-center rounded-xl text-sm font-semibold ${collapsed ? 'h-11 w-11 justify-center' : 'gap-3 px-3 py-2.5'} ${
                   active ? 'bg-white/12 text-white' : 'text-white/75'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                {t[labelKey]}
+                <Icon className="h-4 w-4 shrink-0" />
+                {!collapsed && t[labelKey]}
               </Link>
             );
           })}
           <button
             onClick={() => setConfirmingLogout(true)}
             data-voice-gate="logout"
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-white/75"
+            title={collapsed ? t.logOut : undefined}
+            aria-label={collapsed ? t.logOut : undefined}
+            className={`flex items-center rounded-xl text-left text-sm font-semibold text-white/75 ${collapsed ? 'h-11 w-11 justify-center' : 'gap-3 px-3 py-2.5'}`}
           >
-            <LogOut className="h-4 w-4" />
-            {t.logOut}
+            <LogOut className="h-4 w-4 shrink-0" />
+            {!collapsed && t.logOut}
           </button>
         </nav>
       </aside>

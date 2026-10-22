@@ -19,6 +19,7 @@ import {
 // instead of a "here's a QR code for the app" dead end.
 import { requestOtp as requestAuthOtp, verifyOtp as verifyAuthOtp } from "@/lib/session";
 import { upshotEvent, upshotIdentify } from "@/components/UpshotWeb";
+import { toUpshotAttribution } from "@/lib/upshot";
 
 export const AMOUNT_MIN = 10_000;
 export const AMOUNT_MAX = 50_00_000;
@@ -297,7 +298,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
         product: details.product,
         amount: details.amountRupees,
         ref,
-        ...attribution(),
+        ...toUpshotAttribution(attribution()),
       });
 
       // ── the integration the redesign must preserve ──────────────────────

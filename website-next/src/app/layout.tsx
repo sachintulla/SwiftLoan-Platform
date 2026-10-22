@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import UpshotWeb from '@/components/UpshotWeb';
+import MetaPixel from '@/components/MetaPixel';
 import VoiceWidget from '@/components/VoiceWidget';
 import { LanguageProvider } from '@/lib/i18n';
 import { Backdrop } from '@/components/site/Backdrop';
@@ -91,6 +92,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             sits on top of / eats clicks on that button. See its own
             `launcherSide()` for which routes those are. */}
         <UpshotWeb />
+        <MetaPixel />
         <VoiceWidget />
       </body>
     </html>

@@ -64,7 +64,8 @@ export default function Step2BasicsPage() {
   // elsewhere on the page.
   const lastLookedUpPinRef = useRef<string | null>(null);
   // The PAN verified on Step 1 — attached to the application created here.
-  const panRef = useRef<string | null>(null);
+  // True once a verified PAN exists server-side. The PAN itself is never held in the browser.
+  const panReadyRef = useRef(false);
   const [fromPan, setFromPan] = useState(false);
   // Shown as the "PAN verified" confirmation card at the top.
   const [panInfo, setPanInfo] = useState<PanHandoff | null>(null);
@@ -132,14 +133,14 @@ export default function Step2BasicsPage() {
       if (handoff) setPanInfo(handoff);
     };
     // PAN comes first now — without a verified one, start from Step 1.
-    const requirePan = (profilePan?: string | null) => {
-      panRef.current = handoff?.pan || profilePan || null;
-      if (!panRef.current) router.replace('/apply/step-1');
+    const requirePan = (panOnFile?: boolean) => {
+      panReadyRef.current = !!handoff || !!panOnFile;
+      if (!panReadyRef.current) router.replace('/apply/step-1');
     };
     fetchMe()
       .then((res) => {
         const user = res?.data?.user;
-        requirePan(user?.panNumber);
+        requirePan(user?.panOnFile);
         if (!user) { if (handoff) applyPan(handoff.prefill); return; }
         if (user.firstName) setFirstName(user.firstName);
         if (user.lastName) setLastName(user.lastName);
@@ -165,7 +166,7 @@ export default function Step2BasicsPage() {
       })
       .catch(() => {
         /* not logged in yet, or offline — the draft/defaults above still render */
-        requirePan(null);
+        requirePan(false);
         if (handoff) applyPan(handoff.prefill);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,8 +243,8 @@ export default function Step2BasicsPage() {
         residenceType: slug(residence),
       });
       setApplicationId(application.id);
-      // Attach the Step 1 PAN (sets status pan_pending, as the old Step 3 did).
-      if (panRef.current) await patchApplication(application.id, { panNumber: panRef.current });
+      // Attach the verified PAN the server already holds (encrypted) — sets status pan_pending, as the old Step 3 did.
+      if (panReadyRef.current) await patchApplication(application.id, { usePanOnFile: true });
       if (phone) {
         saveDraft(phone, {
           amount, purpose, firstName, lastName, dob, gender, qualification, email, pincode,
@@ -361,7 +362,7 @@ function PanConfirmation({ info, prefilled }: { info: PanHandoff; prefilled: boo
   const t = useCopy(applyDetailsCopy);
   const name = info.prefill.fullName;
   const masked = info.prefill.maskedAadhaar;
-  const panMasked = `${info.pan.slice(0, 2)}XXXX${info.pan.slice(-4)}`;
+  const panMasked = info.panMasked;
   return (
     <div className="border-mint/40 bg-accent/60 mb-6 rounded-2xl border p-4 sm:p-5">
       <div className="flex items-start gap-3">
