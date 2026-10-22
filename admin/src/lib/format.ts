@@ -88,6 +88,8 @@ const STATUS_TONE: Record<string, StatusTone> = {
   converted: 'teal', qualified: 'teal',
   // support tickets (in_progress is blue above)
   open: 'amber', resolved: 'green',
+  // message delivery (queued is amber and failed is red above)
+  delivered: 'green', read: 'teal', sent: 'blue',
 };
 
 export function statusTone(status: string | null | undefined): StatusTone {

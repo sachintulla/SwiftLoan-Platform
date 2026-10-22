@@ -22,6 +22,7 @@ import { JOURNEY_EVENTS, recordJourneyEvent } from './journey.js';
 import { getProviderConfig } from './integrations.js';
 import { withinCallingHours } from './leadCaller.js';
 import { sendVoxSms, smsConfigured } from './voxSms.js';
+import { hasActiveInstallReminder } from './installReminderGuard.js';
 
 export interface SmsTemplate {
   templateId: string;
@@ -67,6 +68,7 @@ export async function sendStallSms(
   if (!customer.phone) return false;
   if (customer.currentStage === 'lost') return false; // asked us to stop: no channel
   if (!withinCallingHours(now)) return false; // leaves them eligible once it opens
+  if (await hasActiveInstallReminder(customer.phone)) return false; // the app-link reminders own this person
 
   const since = new Date(now.getTime() - COOLDOWN_HOURS * 3_600_000);
   const recent = await prisma.outboundRequest.count({
@@ -95,7 +97,7 @@ export async function sendStallSms(
     return false; // another worker claimed it first
   }
 
-  const result = await sendVoxSms({ phone: customer.phone, body: tpl.body, templateId: tpl.templateId });
+  const result = await sendVoxSms({ phone: customer.phone, body: tpl.body, templateId: tpl.templateId, track: { kind: 'stall', customerId: customer.id } });
 
   await prisma.outboundRequest
     .update({

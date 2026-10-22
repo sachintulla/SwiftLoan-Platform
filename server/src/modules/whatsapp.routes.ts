@@ -77,8 +77,8 @@ whatsappRouter.post('/send', requireRole(...CAN_ADMINISTER),
     }
 
     const result = text
-      ? await sendWhatsAppText({ phone: target, text })
-      : await sendWhatsAppTemplate({ phone: target, templateName, language, placeholders });
+      ? await sendWhatsAppText({ phone: target, text, track: { kind: 'admin', customerId: customer.id } })
+      : await sendWhatsAppTemplate({ phone: target, templateName, language, placeholders, track: { kind: 'admin', customerId: customer.id } });
 
     log[result.ok ? 'info' : 'warn']('send', { customerId: customer.id, phone: target, ok: result.ok, error: result.error ?? null });
 

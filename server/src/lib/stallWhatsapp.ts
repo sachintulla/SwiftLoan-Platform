@@ -23,6 +23,7 @@ import { JOURNEY_EVENTS, recordJourneyEvent } from './journey.js';
 import { getProviderConfig, DEFAULT_SETTINGS } from './integrations.js';
 import { withinCallingHours } from './leadCaller.js';
 import { sendWhatsAppTemplate, whatsappConfigured } from './whatsapp.js';
+import { hasActiveInstallReminder } from './installReminderGuard.js';
 
 /** One stage's template: its name, language, and the ordered values for {{1}}… */
 export interface StallTemplate {
@@ -149,6 +150,8 @@ export async function sendStallWhatsApp(
   if (customer.currentStage === 'lost') return false;
   // Not claiming the key here leaves them eligible once the window opens.
   if (!withinCallingHours(now)) return false;
+  // The app-link reminders own anyone on that schedule: never two overlapping sequences.
+  if (await hasActiveInstallReminder(customer.phone)) return false;
 
   const vars = await varsFor(customer, siteUrl);
   const placeholders = buildPlaceholders(tpl.placeholders, vars);
@@ -197,6 +200,7 @@ export async function sendStallWhatsApp(
     language: tpl.language,
     placeholders,
     referenceId: claimId,
+    track: { kind: 'stall', customerId: customer.id },
   });
 
   await prisma.outboundRequest

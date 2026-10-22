@@ -11,6 +11,7 @@ import { upshotIdentify, upshotEvent, registerUpshotPush } from '../analytics/up
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
 import { agent } from '../voice';
+import { parseResume, resumeDestination } from '../utils/resume';
 
 // Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
 // ("0000000000", "9999999999") — the server's own phoneSchema only checked
@@ -132,6 +133,45 @@ export default function Mobile() {
       // requested — so request it here. iOS only shows its prompt once (when the choice is
       // still undetermined), and nothing is shown if they already decided.
       if (alreadyOnboarded) registerUpshotPush();
+
+      // Website drop-off recovery: this person may have left an application unfinished on the website.
+      // The server's answer for THIS account is the authority (it knows whether step 1 is really done);
+      // the install link's own hint is only used if it is for the same number and the lookup fails.
+      const fromLink = state.resume && state.resume.phone === state.mobileVal ? state.resume : null;
+      const lookedUp = await Promise.race([
+        api.journeyResume().catch(() => null),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 1500)),
+      ]);
+      const resume = parseResume(lookedUp, 'login') ?? fromLink;
+      const dest = resumeDestination(resume, alreadyOnboarded);
+
+      if (resume && dest === 'step2') {
+        // Step 1 (PAN) was done on the website: pick up the verified details (never the PAN itself) and go
+        // straight to step 2. If the server no longer has them, fall back to offering the application from Home.
+        const onFile = await api.panOnFile().catch(() => null);
+        if (onFile?.onFile && onFile.maskedPan) {
+          set({
+            resume, resumePrompt: null, resumeStage: 'resumed_at_step_2',
+            panNumber: onFile.maskedPan,
+            panPrefill: { pan: onFile.maskedPan, prefill: onFile.prefill ?? {}, aadhaarLinked: onFile.aadhaarLinked ?? null },
+          });
+          registerUpshotPush();
+          markUrgentContext();
+          go('basic');
+          return;
+        }
+      }
+      if (resume && (dest === 'home_offer' || dest === 'step2')) {
+        // Only the OTP was done: Home, and offer to start the application (the agent asks it itself when on the call).
+        set({ resume, resumePrompt: 'start', resumeStage: 'offer_start_application' });
+        registerUpshotPush();
+        markUrgentContext();
+        go('home');
+        return;
+      }
+      // Nothing to resume (or it was for someone else's number): forget it, so another visitor's phone number and
+      // name never linger in memory.
+      set({ resume: null, resumePrompt: null, resumeStage: null });
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);

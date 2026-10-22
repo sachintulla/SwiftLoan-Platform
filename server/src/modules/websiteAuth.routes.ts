@@ -10,6 +10,7 @@ import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
+import { armInstallReminder } from '../lib/installReminder.js';
 
 const log = scoped('websiteAuth');
 
@@ -84,6 +85,8 @@ websiteAuthRouter.post(
       source: 'website',
     });
     setRefreshCookie(res, tokens.refreshToken);
+    // Start the app-link reminders for this visitor (fire-and-forget; never blocks or fails the login).
+    armInstallReminder({ id: user.id, phone: user.phone }).catch((e) => log.warn('arm install reminder failed', { error: (e as Error).message }));
     const { hasApplication, applicationId } = await findHasApplication(user.id);
     res.json({
       success: true,

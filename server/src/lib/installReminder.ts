@@ -1,0 +1,324 @@
+/**
+ * Website drop-off recovery: remember where a verified website visitor stopped, and send them the
+ * app link on a schedule until they install the app (rules in reminderSchedule.ts).
+ *
+ * Lifecycle of a JourneyReminder:
+ *   - armed when the visitor verifies their OTP on the website (`armInstallReminder`)
+ *   - kept fresh by the website's activity pings (`pingInstallReminder`)
+ *   - advanced once a minute by `installReminderTick`: saves "dropped off at <step>" after 5 idle
+ *     minutes, stops on install / app login / finished application / do-not-contact, and sends
+ *     (or, by default, only LOGS) whatever step is due.
+ *
+ * Nothing is sent unless INSTALL_REMINDER_SEND=true. Until the SMS template and WhatsApp are ready the
+ * job records what it WOULD send in `history`, so the cadence can be watched without messaging anyone.
+ *
+ * Guard rails, same spirit as stallSms.ts: calling hours only, never to a do-not-contact customer, a step
+ * is claimed with a conditional update BEFORE sending (two workers cannot both send it), and a failed send
+ * is recorded and not retried.
+ */
+import type { JourneyReminder } from '@prisma/client';
+import { prisma } from './prisma.js';
+import { newReferralCode } from './attribution.js';
+import { withinCallingHours } from './leadCaller.js';
+import { downloads } from '../config/downloads.js';
+import { getProviderConfig } from './integrations.js';
+import { sendVoxSms, smsConfigured } from './voxSms.js';
+import { sendWhatsAppTemplate, whatsappConfigured } from './whatsapp.js';
+import { buildPlaceholders } from './stallWhatsapp.js';
+import { isReviewPhone } from './reviewLogin.js';
+import { JOURNEY_EVENTS } from './journey.js';
+import { scoped } from './log.js';
+import {
+  DEFAULT_STEP_LABELS, IDLE_MS, MAX_CYCLES, SCHEDULE_STEPS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle,
+  nextAction, nextCheckTime, renderSmsBody, stopReason, type LastStep, type ScheduleStep, type StopReason,
+} from './reminderSchedule.js';
+
+const log = scoped('install-reminder');
+
+const PAGE_SIZE = 200;
+const MAX_PAGES = 10; // up to 2,000 due reminders per tick; the rest are picked up on the next one
+
+export const installReminderSendEnabled = () => /^(1|true|yes)$/i.test(process.env.INSTALL_REMINDER_SEND ?? '');
+
+export type HistoryOutcome = 'logged' | 'sent' | 'failed' | 'skipped';
+export interface HistoryEntry {
+  step: number;
+  channel: string;
+  label: string;
+  at: string;
+  outcome: HistoryOutcome;
+  reason?: string;
+}
+
+function readHistory(r: Pick<JourneyReminder, 'history'>): HistoryEntry[] {
+  return Array.isArray(r.history) ? (r.history as unknown as HistoryEntry[]) : [];
+}
+
+/* ───────────────────────────── arming and pings ───────────────────────────── */
+
+async function createReminder(
+  user: { id: string; phone: string },
+  cycle: number,
+  startAt: Date,
+  firstName: string | null,
+): Promise<JourneyReminder | null> {
+  const customer = await prisma.customer.findUnique({ where: { phone: user.phone }, select: { id: true } });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await prisma.journeyReminder.create({
+        data: { userId: user.id, customerId: customer?.id ?? null, phone: user.phone, token: newReferralCode(), firstName, cycle, startAt, nextCheckAt: startAt },
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'P2002') throw e; // only a token collision is worth retrying
+    }
+  }
+  return null;
+}
+
+async function alreadyInApp(phone: string): Promise<boolean> {
+  const customer = await prisma.customer.findUnique({ where: { phone }, select: { id: true } });
+  if (!customer) return false;
+  const ev = await prisma.journeyEvent.findFirst({
+    where: { customerId: customer.id, channel: 'app', name: JOURNEY_EVENTS.OTP_VERIFIED },
+    select: { id: true },
+  });
+  return !!ev;
+}
+
+/**
+ * Called when a visitor verifies their OTP on the website. Starts their reminder schedule, unless
+ * they are already an app user, already finished, or the schedule already ran for them.
+ */
+export async function armInstallReminder(user: { id: string; phone: string }, now: Date = new Date()): Promise<JourneyReminder | null> {
+  if (isReviewPhone(user.phone)) return null;
+
+  const active = await prisma.journeyReminder.findFirst({ where: { userId: user.id, status: 'active' } });
+  if (active) {
+    if (!active.droppedAt) {
+      await prisma.journeyReminder.update({ where: { id: active.id }, data: { lastSeenAt: now } });
+      return active;
+    }
+    // Back on the website after being marked dropped off: stop this run, and start the next one
+    // (which only begins sending once they go idle again).
+    await prisma.journeyReminder.update({ where: { id: active.id }, data: { status: 'stopped', stopReason: 'returned' } });
+    if (active.cycle >= MAX_CYCLES) return null;
+    return createReminder(user, active.cycle + 1, new Date(now.getTime() + IDLE_MS), active.firstName);
+  }
+
+  const last = await prisma.journeyReminder.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+  if (last) {
+    if (last.status === 'completed') return null; // the full week already ran
+    if (last.status === 'stopped' && last.stopReason !== 'returned') return null; // installed, finished, or asked us to stop
+    if (last.cycle >= MAX_CYCLES) return null;
+  }
+  if (await alreadyInApp(user.phone)) return null;
+
+  const cycle = last ? last.cycle + 1 : 1;
+  return createReminder(user, cycle, cycle === 1 ? now : new Date(now.getTime() + IDLE_MS), last?.firstName ?? null);
+}
+
+/** The website tab pinged: the visitor is active right now. */
+export async function pingInstallReminder(user: { id: string; phone: string }, now: Date = new Date()): Promise<void> {
+  const active = await prisma.journeyReminder.findFirst({ where: { userId: user.id, status: 'active' }, select: { id: true, droppedAt: true } });
+  if (!active) return;
+  if (active.droppedAt) {
+    await armInstallReminder(user, now); // returned after being idle: ends this run, starts the next
+    return;
+  }
+  await prisma.journeyReminder.update({ where: { id: active.id }, data: { lastSeenAt: now } });
+}
+
+/**
+ * PAN records hold names in capitals ("PRIYA"); a greeting reads better as "Priya". Capitalises each word and the
+ * part after a hyphen or apostrophe; trims; caps the length; null when blank.
+ */
+export function tidyName(raw: string | null | undefined): string | null {
+  const t = (raw ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!t) return null;
+  return t.toLowerCase().replace(/(^|[\s'’-])(\p{L})/gu, (_m, sep: string, ch: string) => sep + ch.toUpperCase());
+}
+
+/** PAN verified on the website: remember the first name (for the greeting) and that step 1 is done. */
+export async function markPanVerified(userId: string, firstName: string | null | undefined): Promise<void> {
+  const name = tidyName(firstName);
+  await prisma.journeyReminder.updateMany({
+    where: { userId, status: 'active' },
+    data: { lastStep: 'pan_done', ...(name ? { firstName: name } : {}) },
+  });
+}
+
+/* ───────────────────────────────── sending ───────────────────────────────── */
+
+interface DeliverResult { outcome: HistoryOutcome; reason?: string }
+
+/**
+ * Send one step. Templates are operator settings on the Voxvalley integration, because India SMS must
+ * match its registered (DLT) text exactly and WhatsApp only allows approved templates:
+ *   settings.installSmsTemplateId + settings.installSmsBody (must contain {link})
+ *   settings.installWhatsapp = { template, language?, placeholders? } with {name}, {step} and {link} tokens
+ */
+async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastStep = r.lastStep as LastStep): Promise<DeliverResult> {
+  if (!installReminderSendEnabled()) return { outcome: 'logged' };
+
+  const link = buildInstallLink(downloads.publicBase, r.token);
+  const cfg = await getProviderConfig('voxvalley');
+  const labels = { ...DEFAULT_STEP_LABELS, ...((cfg.settings.installStepLabels as Partial<Record<LastStep, string>> | undefined) ?? {}) };
+  const stepLabel = labels[lastStep] ?? labels.otp_only;
+
+  if (step.channel === 'sms') {
+    const templateId = String(cfg.settings.installSmsTemplateId ?? '').trim();
+    const body = String(cfg.settings.installSmsBody ?? '');
+    if (!templateId || !body.includes('{link}')) return { outcome: 'skipped', reason: 'sms template not configured' };
+    if (!(await smsConfigured())) return { outcome: 'skipped', reason: 'sms gateway not configured' };
+    const text = renderSmsBody(body, { name: r.firstName, step: stepLabel, link });
+    const res = await sendVoxSms({ phone: r.phone, body: text, templateId, track: { kind: 'install_reminder', customerId: r.customerId } });
+    return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'sms failed').slice(0, 200) };
+  }
+
+  const wa = cfg.settings.installWhatsapp as { template?: string; language?: string; placeholders?: string[] } | undefined;
+  if (!wa?.template?.trim()) return { outcome: 'skipped', reason: 'whatsapp template not configured' };
+  if (!(await whatsappConfigured())) return { outcome: 'skipped', reason: 'whatsapp not configured' };
+  const placeholders = buildPlaceholders(wa.placeholders, { name: r.firstName ?? 'there', link, step: stepLabel });
+  if (!placeholders) return { outcome: 'skipped', reason: 'whatsapp placeholder missing' };
+  const res = await sendWhatsAppTemplate({
+    phone: r.phone, templateName: wa.template, language: wa.language, placeholders, referenceId: `${r.id}:${step.index}`,
+    track: { kind: 'install_reminder', customerId: r.customerId },
+  });
+  return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'whatsapp failed').slice(0, 200) };
+}
+
+/* ─────────────────────────────────── the job ─────────────────────────────────── */
+
+export interface TickResult { scanned: number; stopped: number; dropped: number; handled: number; completed: number }
+
+async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | null, now: Date): Promise<{ reason: StopReason | null; lastStep: LastStep }> {
+  const [customer, application, click] = await Promise.all([
+    prisma.customer.findUnique({ where: { phone: r.phone }, select: { id: true, currentStage: true } }),
+    prisma.loanApplication.findFirst({ where: { userId: r.userId }, orderBy: { updatedAt: 'desc' }, select: { status: true } }),
+    prisma.appClick.findFirst({ where: { ref: r.token, status: 'matched' }, select: { id: true } }),
+  ]);
+  const appLogin = customer
+    ? !!(await prisma.journeyEvent.findFirst({
+        where: { customerId: customer.id, channel: 'app', name: JOURNEY_EVENTS.OTP_VERIFIED, occurredAt: { gte: r.createdAt } },
+        select: { id: true },
+      }))
+    : false;
+  const lastStep = deriveLastStep({ panOnFile: !!user?.panOnFile, hasApplication: !!application });
+  const reason = stopReason({
+    doNotContact: customer?.currentStage === 'lost',
+    installed: !!click,
+    appLogin,
+    applicationFinished: isFinishedApplicationStatus(application?.status),
+    returned: !!r.droppedAt && r.lastSeenAt.getTime() > r.droppedAt.getTime() + 60_000 && r.lastSeenAt <= now,
+  });
+  return { reason, lastStep };
+}
+
+async function processReminder(r: JourneyReminder, now: Date, out: TickResult): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: r.userId }, select: { panOnFile: true } });
+  const { reason, lastStep } = await stopReasonFor(r, user, now);
+
+  if (reason) {
+    await prisma.journeyReminder.update({ where: { id: r.id }, data: { status: 'stopped', stopReason: reason } });
+    out.stopped++;
+    log.info('stopped', { id: r.id, reason, step: r.stepsSent });
+    return;
+  }
+
+  // Save "dropped off at <step>" once the visitor has been idle long enough.
+  const dropNow = !r.droppedAt && isIdle(r.lastSeenAt, now);
+  if (dropNow || lastStep !== r.lastStep) {
+    await prisma.journeyReminder.update({
+      where: { id: r.id },
+      // The schedule runs from the moment they dropped off, so the first message is "idle for 5 minutes", not "5 minutes after login".
+      data: { lastStep, ...(dropNow ? { droppedAt: now, startAt: now } : {}) },
+    });
+    if (dropNow) {
+      out.dropped++;
+      log.info('dropped off', { id: r.id, lastStep });
+    }
+  }
+  const dropped = !!r.droppedAt || dropNow;
+  const startAt = dropNow ? now : r.startAt;
+
+  // When this row next needs attention, given what has been handled so far.
+  const checkAfter = (stepsHandled: number, lastSentAt: Date | null) =>
+    nextCheckTime({ now, startAt, stepsHandled, lastSentAt, lastSeenAt: r.lastSeenAt, dropped });
+
+  // Still on the website (or only just left): nothing is sent until they have been idle long enough to count as dropped off.
+  if (!dropped) {
+    await prisma.journeyReminder.update({ where: { id: r.id }, data: { nextCheckAt: checkAfter(r.stepsSent, r.lastSentAt) } });
+    return;
+  }
+
+  const action = nextAction({
+    startAt,
+    stepsHandled: r.stepsSent,
+    lastSentAt: r.lastSentAt,
+    now,
+    inCallingWindow: withinCallingHours(now),
+  });
+  if (action.kind === 'wait') {
+    await prisma.journeyReminder.update({ where: { id: r.id }, data: { nextCheckAt: checkAfter(r.stepsSent, r.lastSentAt) } });
+    return;
+  }
+  if (action.kind === 'finished') {
+    await prisma.journeyReminder.update({ where: { id: r.id }, data: { status: 'completed' } });
+    out.completed++;
+    return;
+  }
+
+  // Claim the step before doing anything: a second worker or a re-run finds stepsSent already moved on.
+  const claimed = await prisma.journeyReminder.updateMany({
+    where: { id: r.id, status: 'active', stepsSent: r.stepsSent },
+    data: { stepsSent: r.stepsSent + 1 },
+  });
+  if (claimed.count !== 1) return;
+
+  const step = action.step;
+  const result: DeliverResult = action.kind === 'skip' ? { outcome: 'skipped', reason: action.reason } : await deliver(r, step, lastStep);
+  const entry: HistoryEntry = { step: step.index, channel: step.channel, label: step.label, at: now.toISOString(), outcome: result.outcome, ...(result.reason ? { reason: result.reason } : {}) };
+  const sentNow = result.outcome === 'sent' || result.outcome === 'logged';
+  const lastSentAt = sentNow ? now : r.lastSentAt;
+  const isLast = step.index === SCHEDULE_STEPS.length - 1;
+  await prisma.journeyReminder.update({
+    where: { id: r.id },
+    data: {
+      history: [...readHistory(r), entry] as unknown as object,
+      ...(sentNow ? { lastSentAt: now } : {}),
+      ...(isLast ? { status: 'completed' } : { nextCheckAt: checkAfter(r.stepsSent + 1, lastSentAt) }),
+    },
+  });
+  out.handled++;
+  log.info(result.outcome === 'logged' ? 'would send (log-only)' : result.outcome, { id: r.id, step: step.index, channel: step.channel, reason: result.reason });
+  if (isLast) out.completed++;
+}
+
+/**
+ * One pass over the reminders that are DUE (their nextCheckAt has come), oldest first, page by page. Safe to run
+ * every minute and from more than one worker. Rows that are not due are not even read, so the cost follows the
+ * work to do, not the number of active visitors.
+ */
+export async function installReminderTick(now: Date = new Date()): Promise<TickResult> {
+  const out: TickResult = { scanned: 0, stopped: 0, dropped: 0, handled: 0, completed: 0 };
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const rows = await prisma.journeyReminder.findMany({
+      where: { status: 'active', nextCheckAt: { lte: now } },
+      orderBy: { nextCheckAt: 'asc' },
+      take: PAGE_SIZE,
+    });
+    if (!rows.length) break;
+    for (const r of rows) {
+      out.scanned++;
+      try {
+        await processReminder(r, now, out);
+      } catch (e) {
+        log.error('tick failed for one reminder', { id: r.id, error: (e as Error).message }); // one bad row never aborts the scan
+        // Look again later: a row that keeps failing must not be picked up again and again within this tick.
+        await prisma.journeyReminder.update({ where: { id: r.id }, data: { nextCheckAt: new Date(now.getTime() + 5 * 60_000) } }).catch(() => undefined);
+      }
+    }
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return out;
+}

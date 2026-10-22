@@ -10,6 +10,7 @@ import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { isMaskedPan } from '../utils/resume';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
 import { missingBasicRequired } from '../utils/basicRequired';
 import { revealTarget, emitFx } from '../feedback/agentFx';
@@ -336,12 +337,15 @@ export default function Basic() {
       // Reuse the in-progress application already held in state (e.g. the user
       // went back and is re-submitting this screen) instead of inserting
       // another row. The Step 1 PAN is attached to it here (status pan_pending).
+      // A visitor who verified their PAN on the website arrives with only a MASKED PAN: the server attaches
+      // the real (encrypted) one it already holds instead of us sending it.
+      const panPatch = isMaskedPan(state.panNumber) ? { usePanOnFile: true } : { panNumber: state.panNumber };
       let application: any;
       if (state.applicationId) {
         const { application: updated }: any = await api.updateApplication(state.applicationId, {
           amount: state.appAmount,
           tenureMonths: state.appTenure || 12,
-          panNumber: state.panNumber,
+          ...panPatch,
         });
         application = updated;
         mergeApiContext({ applicationUpdated: application });
@@ -353,7 +357,7 @@ export default function Basic() {
         });
         application = created;
         mergeApiContext({ applicationCreated: application });
-        const { application: withPan }: any = await api.updateApplication(created.id, { panNumber: state.panNumber });
+        const { application: withPan }: any = await api.updateApplication(created.id, panPatch);
         application = withPan ?? created;
       }
       set({ applicationId: application.id });

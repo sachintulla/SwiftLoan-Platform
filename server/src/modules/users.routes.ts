@@ -11,6 +11,7 @@ import { isAdult } from '../lib/age.js';
 import { fail } from '../lib/http.js';
 import { userPanData } from '../lib/storedPan.js';
 import { parseDeletionFeedback } from '../lib/accountDeletion.js';
+import { phoneKey } from '../lib/messageStatus.js';
 
 const log = scoped('users');
 
@@ -233,6 +234,9 @@ usersRouter.delete('/me', ah(async (req, res) => {
   // (applications → offers → lender applications, loans, kyc, consents, tokens).
   // But the partner-lead models are plain-FK (no relation, no cascade), so they
   // would be orphaned with PII still attached — delete them explicitly first.
+  // The message-delivery log keeps the recipient's number, so it goes with the account (no FK to cascade).
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } });
+  const myPhoneKey = phoneKey(me?.phone) ?? '__none__';
   await prisma.$transaction([
     ...(parsed.value
       ? [prisma.accountDeletionFeedback.create({
@@ -241,6 +245,7 @@ usersRouter.delete('/me', ah(async (req, res) => {
       : []),
     prisma.partnerReferral.deleteMany({ where: { userId } }), // Yubi
     prisma.revasureLead.deleteMany({ where: { userId } }),    // Revasure
+    prisma.messageDelivery.deleteMany({ where: { phone: myPhoneKey } }), // WhatsApp/SMS delivery log
     prisma.user.delete({ where: { id: userId } }),
   ]);
   log.warn('account deleted (incl. partner leads)', { userId, reason: parsed.value?.reasonCode ?? null, source: parsed.value?.source ?? 'app' });
