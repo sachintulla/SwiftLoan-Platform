@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Pagination, Empty } from '@/components/ui';
-import { dateStr } from '@/lib/format';
+import { dateTimeStr } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 
 interface Member { customerId: string; phone: string; name: string | null; city: string | null; activityAt: string | null }
@@ -129,7 +129,7 @@ export default function SegmentPickerModal({
                     <td>{m.name || <span className="muted">—</span>}</td>
                     <td className="mono">{m.phone}</td>
                     <td>{m.city || '—'}</td>
-                    <td className="muted" style={{ fontSize: 12 }}>{m.activityAt ? dateStr(m.activityAt) : '—'}</td>
+                    <td className="muted" style={{ fontSize: 12 }}>{m.activityAt ? dateTimeStr(m.activityAt) : '—'}</td>
                   </tr>
                 ))}
               </tbody>

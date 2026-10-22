@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile } from '@/lib/api';
 import { Card, Stat, Select, StatusBadge, SearchBox, Pagination, TableSkeleton } from '@/components/ui';
-import { dateStr, timeAgo, num, inrRupees } from '@/lib/format';
+import { dateTimeStr, timeAgo, num, inrRupees } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
 
 const SOURCES = [
@@ -18,7 +18,7 @@ const SOURCES = [
 interface CustomerRow {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
   firstSource?: string | null; campaignId?: string | null; currentStage: string; stageEnteredAt?: string | null;
-  lastActivityAt?: string | null; stalledMinutes?: number | null;
+  lastActivityAt?: string | null; stalledMinutes?: number | null; createdAt?: string | null;
   /** Phone legs only — website-widget and app chats are not calls. */
   callCount?: number | null;
   /** Their most recent application amount, in rupees. */
@@ -180,6 +180,7 @@ export default function CustomersPage() {
               <th style={{ textAlign: 'right' }}>Loan amount</th>
               <th style={{ textAlign: 'right' }}>Calls</th>
               <th style={{ textAlign: 'right' }}>Last activity</th>
+              <th style={{ textAlign: 'right' }}>Joined</th>
             </tr></thead>
             <tbody>{rows.map((c) => {
               const st = c.stalledMinutes ?? null;
@@ -217,7 +218,7 @@ export default function CustomersPage() {
                       <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
                       <span
                         style={{ fontSize: 11.5, color: (st ?? 0) > 1440 ? 'var(--red)' : (st ?? 0) > 60 ? 'var(--amber)' : 'var(--text-faint)' }}
-                        title={c.stageEnteredAt ? `in this stage since ${dateStr(c.stageEnteredAt)}` : undefined}
+                        title={c.stageEnteredAt ? `in this stage since ${dateTimeStr(c.stageEnteredAt)}` : undefined}
                       >
                         {st == null ? 'just arrived' : `here ${stalledLabel(st)}`}
                       </span>
@@ -231,6 +232,9 @@ export default function CustomersPage() {
                   </td>
                   <td className="muted" style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12.5 }}>
                     {c.lastActivityAt ? timeAgo(c.lastActivityAt) : '—'}
+                  </td>
+                  <td className="muted" style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12.5 }}>
+                    {dateTimeStr(c.createdAt)}
                   </td>
                 </tr>
               );

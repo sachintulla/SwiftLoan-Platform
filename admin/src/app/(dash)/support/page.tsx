@@ -5,7 +5,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty, Callout } from '@/components/ui';
-import { dateStr, timeAgo, inrRupees } from '@/lib/format';
+import { dateStr, dateTimeStr, timeAgo, inrRupees } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 
 type Status = 'open' | 'in_progress' | 'resolved';
@@ -183,7 +183,7 @@ function TicketPanel({ id, onClose, onChanged, onOpen }: { id: string; onClose: 
               <StatusBadge status={t.status} label={STATUS_LABEL[t.status]} />
               {t.type === 'grievance' && <span className="badge tone-red">Grievance · reply within 24h</span>}
               <span className="badge tone-grey">{t.categoryLabel}</span>
-              <span className="muted" style={{ fontSize: 12 }}>Raised {dateStr(t.createdAt)} · {timeAgo(t.createdAt)}</span>
+              <span className="muted" style={{ fontSize: 12 }}>Raised {dateTimeStr(t.createdAt)} · {timeAgo(t.createdAt)}</span>
             </div>
 
             <Section title="Message">
@@ -211,7 +211,7 @@ function TicketPanel({ id, onClose, onChanged, onOpen }: { id: string; onClose: 
                   <button key={s} className={`chip-filter ${t.status === s ? 'active' : ''}`} disabled={busy !== null || t.status === s} onClick={() => patch({ status: s }, s)}>{STATUS_LABEL[s]}</button>
                 ))}
               </div>
-              {t.resolvedAt && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Resolved {dateStr(t.resolvedAt)}</div>}
+              {t.resolvedAt && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Resolved {dateTimeStr(t.resolvedAt)}</div>}
             </Section>
 
             <Section title="Reply to customer">

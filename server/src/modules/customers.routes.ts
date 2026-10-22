@@ -74,7 +74,7 @@ customersRouter.get('/', ah(async (req, res) => {
       take,
       select: {
         id: true, name: true, phone: true, email: true, city: true, firstSource: true, campaignId: true,
-        currentStage: true, stageEnteredAt: true, lastActivityAt: true,
+        currentStage: true, stageEnteredAt: true, lastActivityAt: true, createdAt: true,
       },
     }),
     prisma.customer.count({ where }),
