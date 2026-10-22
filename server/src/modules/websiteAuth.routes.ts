@@ -1,8 +1,9 @@
+import { timing } from '../lib/timings.js';
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sha256 } from '../lib/crypto.js';
-import { signAccess } from '../lib/jwt.js';
+import { signAccess, accessTtlSeconds } from '../lib/jwt.js';
 import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -22,7 +23,8 @@ export const websiteAuthRouter = Router();
 // the app, just a shorter, sliding session appropriate for a browser: an
 // idle visitor is logged out after this long, an active one never is, because
 // every refresh (below) pushes both the cookie and the DB row out again.
-const WEBSITE_REFRESH_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+/** Website session length in ms. Live value: Admin → Timings (auth.websiteSessionMinutes, default 2 hours). */
+const websiteRefreshTtlMs = () => timing.minutesMs('auth.websiteSessionMinutes');
 
 const COOKIE_NAME = 'sl_web_refresh';
 const COOKIE_PATH = '/api/website/auth';
@@ -33,7 +35,7 @@ function setRefreshCookie(res: Response, token: string) {
     secure: env.isProd,
     sameSite: 'lax',
     path: COOKIE_PATH,
-    maxAge: WEBSITE_REFRESH_TTL_MS,
+    maxAge: websiteRefreshTtlMs(),
   });
 }
 
@@ -81,7 +83,7 @@ websiteAuthRouter.post(
     const { user, tokens, priorInquiries } = await verifyOtpAndLogin({
       phone,
       code,
-      refreshTtlMs: WEBSITE_REFRESH_TTL_MS,
+      refreshTtlMs: websiteRefreshTtlMs(),
       source: 'website',
     });
     setRefreshCookie(res, tokens.refreshToken);
@@ -107,7 +109,7 @@ websiteAuthRouter.post(
 /**
  * Exchange the httpOnly refresh cookie for a new access token. Sliding
  * expiration: a successful refresh pushes the same refresh token's DB row and
- * cookie another WEBSITE_REFRESH_TTL_MS out, so an active visitor never hits
+ * cookie another websiteRefreshTtlMs() out, so an active visitor never hits
  * the 2-hour wall — only real idle time does.
  */
 websiteAuthRouter.post(
@@ -120,13 +122,13 @@ websiteAuthRouter.post(
     const user = await prisma.user.findUnique({ where: { id: row.userId } });
     if (!user) throw new HttpError(401, 'User not found');
 
-    const newExpiresAt = new Date(Date.now() + WEBSITE_REFRESH_TTL_MS);
+    const newExpiresAt = new Date(Date.now() + websiteRefreshTtlMs());
     await prisma.refreshToken.update({ where: { id: row.id }, data: { expiresAt: newExpiresAt } });
     setRefreshCookie(res, raw);
 
     res.json({
       success: true,
-      data: { accessToken: signAccess({ sub: user.id, phone: user.phone }), expiresIn: env.accessTtl },
+      data: { accessToken: signAccess({ sub: user.id, phone: user.phone }), expiresIn: accessTtlSeconds() },
       message: 'Session refreshed',
     });
   }),

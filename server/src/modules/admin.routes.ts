@@ -684,6 +684,9 @@ adminRouter.put('/config', requireRole(...CAN_ADMINISTER), ah(async (req, res) =
     nudgeIdleMs: b.nudgeIdleMs,
     nudgeDropoffMs: b.nudgeDropoffMs,
     nudgeEligibleMs: b.nudgeEligibleMs,
+    nudgeStartMs: b.nudgeStartMs,
+    nudgeRotateMs: b.nudgeRotateMs,
+    nudgeSnoozeMs: b.nudgeSnoozeMs,
   });
   log.info('nudge config updated', { by: (req as any).admin?.email, ...updated });
   return ok(res, updated, 'Config saved');

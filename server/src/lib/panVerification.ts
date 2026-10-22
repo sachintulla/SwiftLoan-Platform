@@ -26,6 +26,7 @@
  * Any legacy row from before this design (an "invalid" PanRecord, cached by
  * the old code) self-heals: the next lookup discards it and re-checks fresh.
  */
+import { timing } from './timings.js';
 import type { SafeUser as User } from './storedPan.js';
 import { loadPan, userPanData } from './storedPan.js';
 import { prisma } from './prisma.js';
@@ -44,7 +45,7 @@ const DAILY_WINDOW_MS = 24 * 60 * 60_000;
 // Set PAN_DAILY_LIMIT=0 (or any value <= 0) to DISABLE the cap entirely — used
 // on the UAT box so repeated test lookups never hit "too many PAN checks today".
 // Same env-gated convention as DEV_MASTER_OTP: absent in prod ⇒ the cap applies.
-const dailyLimit = () => parseInt(process.env.PAN_DAILY_LIMIT || '5', 10);
+const dailyLimit = () => timing.num('pan.dailyLimit');
 const sharedPolicy = () => (process.env.PAN_SHARED_POLICY === 'block' ? 'block' : 'allow');
 
 export function isValidPanFormat(pan: string): boolean {

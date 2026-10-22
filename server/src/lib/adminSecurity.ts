@@ -6,6 +6,7 @@
  * RFC 6238 is ~30 lines and adding a package for it is not worth the supply
  * chain surface on an auth path.
  */
+import { timing } from './timings.js';
 import crypto from 'node:crypto';
 import type { Request } from 'express';
 import { prisma } from './prisma.js';
@@ -74,7 +75,8 @@ export async function writeAuditLog(req: Request, status: number): Promise<void>
 /* ─────────────────────────── idle timeout ─────────────────────────── */
 
 /** Minutes of inactivity before an admin session is refused. */
-export const IDLE_TIMEOUT_MINUTES = Number(process.env.ADMIN_IDLE_TIMEOUT_MINUTES ?? 30) || 30;
+/** Admin auto-logout in minutes. Live value: Admin → Timings (auth.adminIdleMinutes), falling back to ADMIN_IDLE_TIMEOUT_MINUTES. */
+export const idleTimeoutMinutes = () => timing.num('auth.adminIdleMinutes');
 
 /**
  * Whether this admin has been idle too long.
@@ -85,7 +87,7 @@ export const IDLE_TIMEOUT_MINUTES = Number(process.env.ADMIN_IDLE_TIMEOUT_MINUTE
  */
 export function isIdleExpired(lastActivityAt: Date | null | undefined, now = new Date()): boolean {
   if (!lastActivityAt) return false; // first request after login
-  return now.getTime() - lastActivityAt.getTime() > IDLE_TIMEOUT_MINUTES * 60_000;
+  return now.getTime() - lastActivityAt.getTime() > idleTimeoutMinutes() * 60_000;
 }
 
 export async function touchActivity(adminId: string): Promise<void> {

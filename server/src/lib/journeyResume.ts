@@ -3,6 +3,7 @@
  * name (for the greeting) and the last step they reached. Built from the JourneyReminder row the website
  * flow created (lib/installReminder.ts); the PAN is never part of it.
  */
+import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { deriveLastStep, type LastStep } from './reminderSchedule.js';
 
@@ -15,7 +16,7 @@ export interface ResumePayload {
 }
 
 /** A reminder older than this is a stale visit, not a journey worth resuming. */
-export const RESUME_MAX_AGE_DAYS = Number(process.env.JOURNEY_RESUME_MAX_AGE_DAYS) || 14;
+export const RESUME_MAX_AGE_DAYS = 14; // the default; the live value is Admin → Timings (install.resumeMaxAgeDays)
 
 async function toPayload(r: { token: string; userId: string; phone: string; firstName: string | null }): Promise<ResumePayload> {
   const [user, application] = await Promise.all([
@@ -39,7 +40,7 @@ export function resumeToWire(r: ResumePayload | null) {
   return r && { token: r.token, first_name: r.firstName, phone: r.phone, last_step: r.lastStep };
 }
 
-const freshSince = () => new Date(Date.now() - RESUME_MAX_AGE_DAYS * 86_400_000);
+const freshSince = () => new Date(Date.now() - timing.daysMs('install.resumeMaxAgeDays'));
 
 /** From the link's reference ID (the install matched deterministically, so the link holder is the recipient). */
 export async function resumeForToken(token: string | null | undefined): Promise<ResumePayload | null> {

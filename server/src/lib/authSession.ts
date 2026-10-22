@@ -1,7 +1,8 @@
+import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { sha256, genOtp, randomToken } from './crypto.js';
 import { sendOtpSms, smsConfigured } from './sms.js';
-import { signAccess } from './jwt.js';
+import { signAccess, accessTtlSeconds } from './jwt.js';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error.js';
 import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from './journey.js';
@@ -49,7 +50,7 @@ export async function createOtp(phone: string, userId?: string): Promise<{ devOt
   const code = genOtp();
   await prisma.otpToken.updateMany({ where: { phone, consumed: false }, data: { consumed: true } });
   await prisma.otpToken.create({
-    data: { phone, userId, codeHash: sha256(code), expiresAt: new Date(Date.now() + 5 * 60_000) },
+    data: { phone, userId, codeHash: sha256(code), expiresAt: new Date(Date.now() + timing.minutesMs('auth.otpValidityMinutes')) },
   });
 
   if (smsConfigured()) {
@@ -65,7 +66,7 @@ export async function issueTokens(userId: string, phone: string, refreshTtlMs: n
   const refresh = randomToken();
   const expiresAt = new Date(Date.now() + refreshTtlMs);
   const row = await prisma.refreshToken.create({ data: { userId, tokenHash: sha256(refresh), expiresAt } });
-  return { accessToken: access, refreshToken: refresh, expiresIn: env.accessTtl, refreshTokenId: row.id, refreshExpiresAt: expiresAt };
+  return { accessToken: access, refreshToken: refresh, expiresIn: accessTtlSeconds(), refreshTokenId: row.id, refreshExpiresAt: expiresAt };
 }
 
 export function publicUser(u: any) {

@@ -3,7 +3,7 @@
  *
  * Runs on the same 1-minute cadence as leadCaller.ts's passive follow-up (see
  * tracking.jobs.ts) — there is no separate slower cron for this path anymore.
- * FIRST_ATTEMPT_DELAY_SECONDS defaults to 20, so a fresh "yes" is picked up on
+ * the first-attempt delay (Admin → Timings, default 20 s), so a fresh "yes" is picked up on
  * the very next tick (the cron's own 1-minute cadence is the real floor on
  * how "on the spot" this can be — the seconds value just avoids padding that
  * with an extra artificial wait on top).
@@ -29,6 +29,7 @@
  * terminal status. This job only handles the synchronous failure case (the
  * dial never even reached the provider) the same way.
  */
+import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
@@ -37,18 +38,18 @@ import { buildLeadCallContext, compactContext } from './callContext.js';
 import { agentIdFor } from './agents.js';
 
 const ENABLED = (process.env.IMMEDIATE_CALLBACK_ENABLED ?? 'true') !== 'false';
-const MAX_PER_TICK = 25;
+const maxPerTick = () => timing.num('calls.perScan');
 /** Shares the same global spend ceiling as leadCaller.ts — both jobs dial
  *  through the same telephony account, so they must consult one number. */
-const MAX_CALLS_PER_HOUR = Number(process.env.LEAD_CALL_MAX_PER_HOUR ?? 60) || 60;
+const maxCallsPerHour = () => timing.num('calls.maxPerHour');
 
 /** How long after "yes" the first attempt fires — "on the spot", picked up by
  *  this job's own 1-minute tick (see tracking.jobs.ts). */
-export const FIRST_ATTEMPT_DELAY_SECONDS = Number(process.env.IMMEDIATE_CALLBACK_DELAY_SECONDS ?? 20) || 20;
+export const firstAttemptDelaySeconds = () => timing.num('calls.firstDelaySeconds');
 /** Wait between retries when an attempt doesn't connect. */
-export const RETRY_INTERVAL_MINUTES = Number(process.env.IMMEDIATE_CALLBACK_RETRY_MINUTES ?? 60) || 60;
+export const retryIntervalMinutes = () => timing.num('calls.retryMinutes');
 /** Total attempts (the first try + this many retries) before giving up. */
-export const MAX_ATTEMPTS = Number(process.env.IMMEDIATE_CALLBACK_MAX_ATTEMPTS ?? 3) || 3;
+export const maxAttempts = () => timing.num('calls.maxAttempts');
 /** A call stuck "in_progress" this long never got a webhook — resolve it as a
  *  failed attempt so it can't block the cycle forever. Comfortably longer than
  *  any real call, short enough not to delay a legitimate retry by much. */
@@ -75,7 +76,7 @@ export async function recordImmediateCallbackAttemptOutcome(customerId: string, 
     return;
   }
 
-  if (customer.callbackAttempts >= MAX_ATTEMPTS) {
+  if (customer.callbackAttempts >= maxAttempts()) {
     await prisma.customer.update({
       where: { id: customerId },
       data: { callbackStatus: 'not_answered', callbackNextAttemptAt: null },
@@ -85,7 +86,7 @@ export async function recordImmediateCallbackAttemptOutcome(customerId: string, 
       where: { id: customerId },
       data: {
         callbackStatus: 'requested',
-        callbackNextAttemptAt: new Date(Date.now() + RETRY_INTERVAL_MINUTES * 60_000),
+        callbackNextAttemptAt: new Date(Date.now() + retryIntervalMinutes() * 60_000),
       },
     });
   }
@@ -107,9 +108,9 @@ export async function immediateCallback(now: Date = new Date()): Promise<number>
 
   if (!withinCallingHours(now)) return 0;
 
-  const budget = await hourlyCallBudget(MAX_CALLS_PER_HOUR, now);
+  const budget = await hourlyCallBudget(maxCallsPerHour(), now);
   if (budget <= 0) {
-    console.error(`[immediate-callback] HOURLY CAP HIT (shared with lead-autocaller, limit ${MAX_CALLS_PER_HOUR}). Holding.`);
+    console.error(`[immediate-callback] HOURLY CAP HIT (shared with lead-autocaller, limit ${maxCallsPerHour()}). Holding.`);
     return 0;
   }
 
@@ -122,7 +123,7 @@ export async function immediateCallback(now: Date = new Date()): Promise<number>
       // already has one.
     },
     orderBy: { callbackNextAttemptAt: 'asc' },
-    take: Math.min(MAX_PER_TICK, budget),
+    take: Math.min(maxPerTick(), budget),
   });
 
   console.log(`[immediate-callback] tick: ${leads.length} due; phones=${JSON.stringify(leads.map((l) => l.phone))}`);
@@ -160,11 +161,11 @@ export async function immediateCallback(now: Date = new Date()): Promise<number>
 
       if (result.ok) {
         placed++;
-        console.log(`[immediate-callback] ${lead.phone}: DIALLED (attempt ${attemptNumber}/${MAX_ATTEMPTS}) — status=${result.attempt?.status}; awaiting outcome`);
+        console.log(`[immediate-callback] ${lead.phone}: DIALLED (attempt ${attemptNumber}/${maxAttempts()}) — status=${result.attempt?.status}; awaiting outcome`);
       } else {
         // Never reached the provider at all — no webhook will ever arrive for
         // this attempt, so resolve it the same way a no-answer would be.
-        console.warn(`[immediate-callback] ${lead.phone}: FAILED to dial (attempt ${attemptNumber}/${MAX_ATTEMPTS}) — ${result.error}`);
+        console.warn(`[immediate-callback] ${lead.phone}: FAILED to dial (attempt ${attemptNumber}/${maxAttempts()}) — ${result.error}`);
         await recordImmediateCallbackAttemptOutcome(lead.id, false);
       }
     } catch (e) {

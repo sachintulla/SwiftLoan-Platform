@@ -186,3 +186,76 @@ describe('renderSmsBody', () => {
     expect(DEFAULT_STEP_LABELS.pan_done).toBe('Pan verification');
   });
 });
+
+import { offsetLabel, stepsFromRows, DEFAULT_SCHEDULE_CONFIG, type ScheduleConfig } from './reminderSchedule.js';
+
+describe('offsetLabel (how a step is named)', () => {
+  it('reads naturally from minutes to days', () => {
+    expect(offsetLabel(0)).toBe('start');
+    expect(offsetLabel(30)).toBe('+30m');
+    expect(offsetLabel(60)).toBe('+1h');
+    expect(offsetLabel(90)).toBe('+1h30m');
+    expect(offsetLabel(240)).toBe('+4h');
+    expect(offsetLabel(1440)).toBe('day 1');
+    expect(offsetLabel(1470)).toBe('day 1 +30m');
+    expect(offsetLabel(10080)).toBe('day 7');
+  });
+});
+
+describe('stepsFromRows (the editable schedule becomes steps)', () => {
+  it('keeps order, channel and converts minutes to milliseconds', () => {
+    const steps = stepsFromRows([{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 20 }]);
+    expect(steps).toEqual([
+      { index: 0, channel: 'whatsapp', offsetMs: 10 * 60_000, label: '+10m whatsapp' },
+      { index: 1, channel: 'sms', offsetMs: 20 * 60_000, label: '+20m sms' },
+    ]);
+  });
+  it('the default rows give exactly the schedule the code has always had', () => {
+    expect(DEFAULT_SCHEDULE_CONFIG.steps).toBe(SCHEDULE_STEPS);
+    expect(DEFAULT_SCHEDULE_CONFIG).toMatchObject({ idleMs: IDLE_MS, minGapMs: MIN_GAP_MS, maxLateMs: MAX_LATE_MS });
+  });
+});
+
+describe('nextAction and nextCheckTime with custom settings', () => {
+  const cfg: ScheduleConfig = {
+    steps: stepsFromRows([{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 20 }]),
+    idleMs: 2 * MIN,
+    minGapMs: 5 * MIN,
+    maxLateMs: 60 * MIN,
+    recheckMs: 3 * MIN,
+  };
+  const input = { startAt: start, lastSentAt: null as Date | null, inCallingWindow: true, cfg };
+
+  it('follows the custom order: WhatsApp first, at its own time', () => {
+    expect(nextAction({ ...input, stepsHandled: 0, now: at(9 * MIN) })).toMatchObject({ kind: 'wait', reason: 'not_due' });
+    expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN) })).toMatchObject({ kind: 'send', step: { channel: 'whatsapp' } });
+  });
+  it('is finished after the last custom step, not after twenty', () => {
+    expect(nextAction({ ...input, stepsHandled: 2, now: at(30 * MIN) })).toEqual({ kind: 'finished' });
+  });
+  it('uses the custom minimum gap', () => {
+    const a = nextAction({ ...input, stepsHandled: 1, lastSentAt: at(18 * MIN), now: at(20 * MIN) });
+    expect(a).toMatchObject({ kind: 'wait', reason: 'gap' });
+    expect(nextAction({ ...input, stepsHandled: 1, lastSentAt: at(10 * MIN), now: at(20 * MIN) })).toMatchObject({ kind: 'send' });
+  });
+  it('uses the custom "too late" limit', () => {
+    expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN + 61 * MIN) })).toMatchObject({ kind: 'skip', reason: 'too_late' });
+    expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN + 59 * MIN) })).toMatchObject({ kind: 'send' });
+  });
+  it('a step number past a shortened schedule just finishes (no crash for a visitor already deep in the old one)', () => {
+    expect(nextAction({ ...input, stepsHandled: 7, now: at(5000 * MIN) })).toEqual({ kind: 'finished' });
+  });
+  it('the idle check follows the custom idle time', () => {
+    const now = at(0);
+    const t = nextCheckTime({ cfg, now, startAt: now, stepsHandled: 0, lastSentAt: null, lastSeenAt: now, dropped: false });
+    expect(t.getTime()).toBe(now.getTime() + 2 * MIN);
+  });
+  it('a held step is looked at again after the custom re-check time', () => {
+    const now = at(60 * MIN);
+    const t = nextCheckTime({ cfg, now, startAt: start, stepsHandled: 0, lastSentAt: null, lastSeenAt: start, dropped: true });
+    expect(t.getTime()).toBe(now.getTime() + 3 * MIN);
+  });
+  it('without a config it behaves exactly as before', () => {
+    expect(nextAction({ startAt: start, stepsHandled: 0, lastSentAt: null, now: at(0), inCallingWindow: true })).toMatchObject({ kind: 'send', step: { index: 0, channel: 'sms' } });
+  });
+});
