@@ -26,10 +26,11 @@ interface Tab { id: string; title: string; groups: string[]; intro: string; sect
 const TABS: Tab[] = [
   {
     id: 'reminders', title: 'Install reminders', groups: ['install', 'website'],
-    intro: 'When someone leaves the website part-way, how and when we bring them back to the app.',
+    intro: 'When someone leaves the website part-way, or has applied to a lender, how and when we bring them to the app.',
     sections: [
       { title: 'Sending', keys: ['install.sendEnabled', 'install.allowedNumbers'] },
       { title: 'When to remind', keys: ['install.idleMinutes', 'install.schedule', 'install.minGapMinutes', 'install.maxLateHours', 'install.maxCycles'] },
+      { title: 'After they apply to a lender', keys: ['applied.sendEnabled', 'applied.schedule', 'applied.minGapMinutes', 'applied.maxLateHours', 'applied.maxAgeHours'] },
       { title: 'Behind the scenes', keys: ['install.recheckMinutes', 'install.jobEveryMinutes', 'install.resumeMaxAgeDays', 'website.pingEverySeconds'] },
     ],
   },
@@ -41,7 +42,7 @@ const TABS: Tab[] = [
 
 /** Changes to these get a review step before they are saved. */
 const sensitive = (key: string) =>
-  key.startsWith('auth.') || key.startsWith('calling.') || key === 'install.sendEnabled' || key === 'calls.maxPerHour' || key === 'pan.dailyLimit';
+  key.startsWith('auth.') || key.startsWith('calling.') || key === 'install.sendEnabled' || key === 'applied.sendEnabled' || key === 'calls.maxPerHour' || key === 'pan.dailyLimit';
 
 const FACTOR: Record<TimeUnit, number> = { minutes: 1, hours: 60, days: 1440 };
 const UNIT_SHORT: Record<string, string> = { seconds: 'sec', minutes: 'min', hours: 'hours', days: 'days', count: '' };
@@ -136,7 +137,7 @@ export default function TimingsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
-  const [dialog, setDialog] = useState<{ kind: 'reset'; it: Item } | { kind: 'send' } | { kind: 'save' } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: 'reset'; it: Item } | { kind: 'send'; key: string } | { kind: 'save' } | null>(null);
   const prevItems = useRef<Map<string, Item>>(new Map());
 
   // Load the saved values into the form. After a save or a reset, keep anything else still being edited.
@@ -228,7 +229,7 @@ export default function TimingsPage() {
   }
 
   function setBool(it: Item, on: boolean) {
-    if (it.key === 'install.sendEnabled' && on) { setDialog({ kind: 'send' }); return; }
+    if ((it.key === 'install.sendEnabled' || it.key === 'applied.sendEnabled') && on) { setDialog({ kind: 'send', key: it.key }); return; }
     set(it.key, on);
   }
 
@@ -323,10 +324,12 @@ export default function TimingsPage() {
           confirmLabel="Turn on"
           message={
             testListFilled
-              ? 'Real SMS and WhatsApp reminders will go out, but only to the numbers in the test list. Nobody else is messaged.'
-              : 'Real SMS and WhatsApp reminders will go out to EVERY website visitor who drops off. The test-number list is empty. If you only want to try it on a few phones, add their numbers to the list first.'
+              ? 'Real SMS and WhatsApp messages will go out, but only to the numbers in the test list. Nobody else is messaged.'
+              : dialog.key === 'applied.sendEnabled'
+                ? 'Real SMS and WhatsApp messages will go out to EVERYONE who applies to a lender and has not installed the app (one sequence per lender). The test-number list is empty. If you only want to try it on a few phones, add their numbers to the list first.'
+                : 'Real SMS and WhatsApp reminders will go out to EVERY website visitor who drops off. The test-number list is empty. If you only want to try it on a few phones, add their numbers to the list first.'
           }
-          onConfirm={() => { set('install.sendEnabled', true); setDialog(null); }}
+          onConfirm={() => { set(dialog.key, true); setDialog(null); }}
           onCancel={() => setDialog(null)}
         />
       )}

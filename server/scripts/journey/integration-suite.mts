@@ -1117,6 +1117,229 @@ await t('S114', 'appconfig', 'bubble timings are kept inside safe limits, and on
   await put({ nudgeStartMs: 5000, nudgeRotateMs: 3000, nudgeSnoozeMs: 600000 }, sup);
 });
 
+/* ───────────── S: "you applied with <lender>, install the app to track it" (one sequence per lender) ───────────── */
+const ln = await import(`${ROOT}/lib/lenderNudge.js`);
+const { hasActiveInstallReminder } = await import(`${ROOT}/lib/installReminderGuard.js`);
+const isolateN = async () => { await prisma.lenderNudge.deleteMany(); await prisma.lenderApplication.deleteMany(); await prisma.journeyReminder.deleteMany(); hits.length = 0; await clearTimings(); };
+const nudgeTick = async (now: Date) => { await prisma.$executeRawUnsafe(`UPDATE "LenderNudge" SET "nextCheckAt" = to_timestamp(0) WHERE status = 'active'`); return ln.lenderNudgeTick(now); };
+const nudgeOf = (id: string) => prisma.lenderNudge.findUniqueOrThrow({ where: { id } });
+const nudgesFor = (userId: string) => prisma.lenderNudge.findMany({ where: { userId }, orderBy: { startAt: 'asc' } });
+const MINUTES = (n: number, from = OPEN) => new Date(from.getTime() + n * MIN_MS);
+let applySeq = 0;
+async function applyTo(userId: string, lenderName: string, appliedAt: Date = OPEN, opts: { status?: string; applicationId?: string } = {}) {
+  const partner = await prisma.lenderPartner.upsert({ where: { name: lenderName }, update: {}, create: { name: lenderName, baseApr: 12 } });
+  const app = opts.applicationId
+    ? await prisma.loanApplication.findUniqueOrThrow({ where: { id: opts.applicationId } })
+    : await prisma.loanApplication.create({ data: { userId, ref: `SL-N${Date.now()}${++applySeq}`, amount: 100000, status: 'offers_ready' } });
+  const offer = await prisma.offer.create({ data: { applicationId: app.id, partnerId: partner.id, amount: 100000, apr: 12, emi: 9000, tenureMonths: 12, processingFee: 0, lenderName } });
+  const la = await prisma.lenderApplication.create({ data: { applicationId: app.id, offerId: offer.id, lenderName, amount: 100000, status: (opts.status ?? 'offers_ready') as any, appliedAt } });
+  return { app, la, offer };
+}
+const appliedOn = async (switchOn = true, extra: Record<string, unknown> = {}) => { if (switchOn) await TS.saveTimings({ 'applied.sendEnabled': true, ...extra }, 't'); else if (Object.keys(extra).length) await TS.saveTimings(extra, 't'); };
+const waBodies = () => hitsFor('/api/v1/whatsapp').map((h) => JSON.stringify(h.body));
+
+await t('S115', 'applied', 'applying to a lender arms one sequence for that lender, carrying the visitor\'s link and the lender name', async () => {
+  await isolateN(); const w = await webLogin(); const { la } = await applyTo(w.user.id, 'IDFC FIRST Bank');
+  const r = await nudgeTick(OPEN); assert.equal(r.armed, 1);
+  const [n] = await nudgesFor(w.user.id); assert.equal(n.lenderApplicationId, la.id); assert.equal(n.lenderName, 'IDFC FIRST Bank');
+  assert.equal(n.token, w.reminder!.token, 'the same reference ID the website visit created, so the app can resume and the install is attributed');
+  assert.equal(n.status, 'active'); assert.equal(n.phone, w.phone); assert.equal(n.startAt.getTime(), OPEN.getTime());
+});
+
+await t('S116', 'applied', 'arming is idempotent: ticking again, or two workers at once, never makes a second sequence for the same application', async () => {
+  await isolateN(); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank');
+  await Promise.all([nudgeTick(OPEN), nudgeTick(OPEN), nudgeTick(MINUTES(1))]); await nudgeTick(MINUTES(2));
+  assert.equal((await nudgesFor(w.user.id)).length, 1);
+});
+
+await t('S117', 'applied', 'switch off (the default): the schedule runs but only LOGS, nothing is sent', async () => {
+  await isolateN(); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank');
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
+  const [n] = await nudgesFor(w.user.id); assert.deepEqual((n.history as any[]).map((h) => h.outcome), ['logged', 'logged']);
+  assert.equal(hits.length, 0, 'nothing leaves the building');
+});
+
+await t('S118', 'applied', 'WhatsApp goes out at the scheduled time with the person\'s name, the LENDER\'s name and their link', async () => {
+  await isolateN(); await appliedOn(); const w = await webLogin(); await giveVerifiedPan(w.user.id, 'PRIYA'); await rem.markPanVerified(w.user.id, 'PRIYA');
+  await applyTo(w.user.id, 'IDFC FIRST Bank'); await nudgeTick(OPEN); await nudgeTick(MINUTES(9));
+  assert.equal(hits.length, 0, 'not before 10 minutes');
+  await nudgeTick(MINUTES(10)); const wa = waBodies(); assert.equal(wa.length, 1);
+  assert.ok(wa[0].includes('loan_applied_install_app'), 'the applied template, not the install-reminder one');
+  assert.ok(wa[0].includes('Priya') && wa[0].includes('IDFC FIRST Bank') && wa[0].includes(`/dl?ref=${w.reminder!.token}`), wa[0]);
+  const m = await prisma.messageDelivery.findFirst({ where: { phone: { not: null }, kind: 'applied_nudge' }, orderBy: { createdAt: 'desc' } });
+  assert.ok(m, 'recorded in the admin Messages list under its own kind');
+});
+
+await t('S119', 'applied', 'SMS step: skipped with a reason until its template is registered, then carries the template id, name, lender and link', async () => {
+  await isolateN(); await appliedOn(); const w = await webLogin(); await applyTo(w.user.id, 'Hero FinCorp');
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
+  let [n] = await nudgesFor(w.user.id); const h = n.history as any[]; assert.equal(h[1].outcome, 'skipped'); assert.equal(h[1].reason, 'sms template not configured'); assert.equal(hitsFor('/sms').length, 0);
+  await upsertProviderConfig('voxvalley', { settings: { appliedSmsTemplateId: '777', appliedSmsBody: 'Dear {name} , you applied with {lender}. Track it in the app :{link}. Team SwiftLoan' } });
+  try {
+    await isolateN(); await appliedOn(); const w2 = await webLogin(); await applyTo(w2.user.id, 'Hero FinCorp');
+    await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
+    const sms = hitsFor('/sms'); assert.equal(sms.length, 1); assert.equal(sms[0].body.template_id, '777'); assert.equal(sms[0].body.to, `+91${w2.phone}`);
+    assert.ok(sms[0].body.body.includes('Dear Customer') && sms[0].body.body.includes('Hero FinCorp') && sms[0].body.body.includes(`/dl?ref=${w2.reminder!.token}`), sms[0].body.body);
+    assert.ok(!sms[0].body.body.includes('{'), 'no placeholder left unfilled');
+  } finally { await upsertProviderConfig('voxvalley', { settings: { appliedSmsTemplateId: '', appliedSmsBody: '' } }); }
+});
+
+await t('S120', 'applied', 'two lenders = two separate sequences, each naming its own lender, never back to back (60 minute gap across both)', async () => {
+  await isolateN(); await appliedOn(); const w = await webLogin();
+  const a = await applyTo(w.user.id, 'IDFC FIRST Bank', OPEN); const b = await applyTo(w.user.id, 'Hero FinCorp', MINUTES(2));
+  await nudgeTick(OPEN); assert.equal((await nudgesFor(w.user.id)).length, 2, 'one sequence per lender application');
+  await nudgeTick(MINUTES(10)); assert.equal(waBodies().length, 1); assert.ok(waBodies()[0].includes('IDFC FIRST Bank') && !waBodies()[0].includes('Hero FinCorp'));
+  await nudgeTick(MINUTES(13)); assert.equal(waBodies().length, 1, 'the second lender is held back by the gap');
+  const held = (await nudgesFor(w.user.id)).find((n) => n.lenderApplicationId === b.la.id)!; assert.equal(held.stepsSent, 0);
+  assert.equal(held.nextCheckAt.getTime(), MINUTES(70).getTime(), 'it will look again exactly when the gap ends');
+  await nudgeTick(MINUTES(69)); assert.equal(waBodies().length, 1);
+  await nudgeTick(MINUTES(70)); const wa = waBodies(); assert.equal(wa.length, 2); assert.ok(wa[1].includes('Hero FinCorp') && !wa[1].includes('IDFC FIRST Bank'));
+  const sent = (await nudgesFor(w.user.id)).map((n) => n.lastSentAt!.getTime()).sort(); assert.ok(sent[1] - sent[0] >= 60 * MIN_MS, 'at least 60 minutes apart');
+  void a;
+});
+
+await t('S121', 'applied', 'the gap setting is editable: with 15 minutes the second lender follows sooner', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.minGapMinutes': 15 }); const w = await webLogin();
+  await applyTo(w.user.id, 'IDFC FIRST Bank', OPEN); await applyTo(w.user.id, 'Hero FinCorp', MINUTES(2));
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(24)); assert.equal(waBodies().length, 1);
+  await nudgeTick(MINUTES(25)); assert.equal(waBodies().length, 2);
+});
+
+await t('S122', 'applied', 'a custom schedule is followed exactly, then the sequence completes', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.schedule': [{ channel: 'whatsapp', afterMinutes: 5 }, { channel: 'whatsapp', afterMinutes: 120 }], 'applied.minGapMinutes': 0 });
+  const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank');
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(4)); assert.equal(hits.length, 0);
+  await nudgeTick(MINUTES(5)); assert.equal(waBodies().length, 1);
+  await nudgeTick(MINUTES(119)); assert.equal(waBodies().length, 1); await nudgeTick(MINUTES(120)); assert.equal(waBodies().length, 2);
+  const [n] = await nudgesFor(w.user.id); assert.equal(n.status, 'completed'); await nudgeTick(MINUTES(300)); assert.equal(waBodies().length, 2, 'nothing after it completes');
+});
+
+const stopN = async (id: string, title: string, arrange: (w: Awaited<ReturnType<typeof webLogin>>, laId: string) => Promise<void>, reason: string) =>
+  t(id, 'applied:stop', title, async () => {
+    await isolateN(); await appliedOn(); const w = await webLogin(); const { la } = await applyTo(w.user.id, 'IDFC FIRST Bank'); await nudgeTick(OPEN);
+    await arrange(w, la.id); await nudgeTick(MINUTES(10));
+    const [n] = await nudgesFor(w.user.id); assert.equal(n.status, 'stopped'); assert.equal(n.stopReason, reason); assert.equal(hits.length, 0, 'nothing is sent once stopped');
+  });
+await stopN('S123', 'installing the app through their link stops it', async (w) => { await prisma.appClick.create({ data: { token: 'TSTNUDGE001', ref: w.reminder!.token, kind: 'campaign', platform: 'android', ipHash: 'x', uaHash: 'y', status: 'matched', matchedAt: new Date(), expiresAt: new Date(Date.now() + 3_600_000) } }); }, 'installed');
+await stopN('S124', 'logging in to the app stops it', async (w) => { const c = await prisma.customer.upsert({ where: { phone: w.phone }, update: {}, create: { phone: w.phone, userId: w.user.id } }); await prisma.journeyEvent.create({ data: { customerId: c.id, channel: 'app', name: 'otp_verified', occurredAt: MINUTES(5) } }); await prisma.lenderNudge.updateMany({ where: { userId: w.user.id }, data: { createdAt: OPEN } }); }, 'app_login');
+await stopN('S125', 'a do-not-contact customer stops it', async (w) => { await prisma.customer.upsert({ where: { phone: w.phone }, update: { currentStage: 'lost' }, create: { phone: w.phone, userId: w.user.id, currentStage: 'lost' } }); }, 'do_not_contact');
+await stopN('S126', 'the lender application being rejected stops it', async (_w, laId) => { await prisma.lenderApplication.update({ where: { id: laId }, data: { status: 'rejected' } }); }, 'lender_finished');
+await stopN('S127', 'the lender application disappearing stops it (never a message about something that is gone)', async (_w, laId) => { await prisma.lenderApplication.delete({ where: { id: laId } }); }, 'lender_finished');
+
+await t('S128', 'applied:stop', 'an application the lender is still reviewing (or has approved) keeps the messages going; only rejected/disbursed/closed stop it', async () => {
+  for (const status of ['under_review', 'approved', 'handoff']) {
+    await isolateN(); await appliedOn(); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank', OPEN, { status });
+    await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); assert.equal(waBodies().length, 1, status);
+  }
+});
+
+await t('S129', 'applied:stop', 'stopping one lender\'s sequence leaves the other lender\'s running', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.minGapMinutes': 0 }); const w = await webLogin();
+  const a = await applyTo(w.user.id, 'IDFC FIRST Bank'); await applyTo(w.user.id, 'Hero FinCorp'); await nudgeTick(OPEN);
+  await prisma.lenderApplication.update({ where: { id: a.la.id }, data: { status: 'rejected' } }); await nudgeTick(MINUTES(10));
+  const wa = waBodies(); assert.equal(wa.length, 1); assert.ok(wa[0].includes('Hero FinCorp'));
+});
+
+await t('S130', 'applied:skip', 'never armed for someone already in the app, someone with no website link, or an old application', async () => {
+  await isolateN(); await appliedOn();
+  // already in the app
+  const inApp = await webLogin(); const c = await prisma.customer.upsert({ where: { phone: inApp.phone }, update: {}, create: { phone: inApp.phone, userId: inApp.user.id } });
+  await prisma.journeyEvent.create({ data: { customerId: c.id, channel: 'app', name: 'otp_verified', occurredAt: new Date(OPEN.getTime() - 86_400_000) } });
+  await applyTo(inApp.user.id, 'IDFC FIRST Bank');
+  // never came through the website, so nothing to carry in a link
+  const phone = newPhone(); const noLink = await prisma.user.create({ data: { phone } }); await applyTo(noLink.id, 'IDFC FIRST Bank');
+  // applied three days ago
+  const old = await webLogin(); await applyTo(old.user.id, 'IDFC FIRST Bank', new Date(OPEN.getTime() - 3 * 86_400_000));
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(10)); await nudgeTick(MINUTES(40));
+  assert.equal((await nudgesFor(inApp.user.id))[0].stopReason, 'in_app');
+  assert.equal((await nudgesFor(noLink.id))[0].stopReason, 'no_link');
+  assert.equal((await nudgesFor(old.user.id)).length, 0, 'an old application is never even armed, so enabling this never messages the backlog');
+  assert.equal(hits.length, 0);
+});
+
+await t('S131', 'applied:skip', 'the application-age window is editable (default 24 h)', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.maxAgeHours': 72 }); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank', new Date(OPEN.getTime() - 3_600_000 * 48));
+  await nudgeTick(OPEN); assert.equal((await nudgesFor(w.user.id)).length, 1);
+});
+
+await t('S132', 'applied:safety', 'the test-number list applies: others are recorded as skipped and never messaged', async () => {
+  await isolateN(); const a = await webLogin(); const b = await webLogin(); await appliedOn(true, { 'install.allowedNumbers': [a.phone] });
+  await applyTo(a.user.id, 'IDFC FIRST Bank'); await applyTo(b.user.id, 'IDFC FIRST Bank');
+  await nudgeTick(OPEN); await nudgeTick(MINUTES(10));
+  const ha = (await nudgesFor(a.user.id))[0].history as any[]; const hb = (await nudgesFor(b.user.id))[0].history as any[];
+  assert.equal(ha[0].outcome, 'sent'); assert.equal(hb[0].outcome, 'skipped'); assert.equal(hb[0].reason, 'not on the test-number list');
+  assert.equal(waBodies().length, 1); assert.ok(!hits.some((h) => JSON.stringify(h.body).includes(b.phone)));
+});
+
+await t('S133', 'applied:safety', 'calling hours: applying at 20:55 holds the first message until 09:00 next morning, then sends it (inside the 12 h limit)', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.schedule': [{ channel: 'whatsapp', afterMinutes: 10 }] });
+  const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank', IST(20, 55));
+  await nudgeTick(IST(20, 55)); await nudgeTick(IST(21, 5)); await nudgeTick(IST(23)); await nudgeTick(IST(8, 59, 21)); assert.equal(hits.length, 0, 'quiet hours');
+  await nudgeTick(IST(9, 1, 21)); assert.equal(waBodies().length, 1);
+});
+
+await t('S134', 'applied:safety', 'a message more than 12 hours late is skipped, not sent; the limit is editable', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.schedule': [{ channel: 'whatsapp', afterMinutes: 10 }] });
+  const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank'); await nudgeTick(OPEN);
+  await nudgeTick(MINUTES(10 + 13 * 60)); const [n] = await nudgesFor(w.user.id);
+  assert.equal((n.history as any[])[0].outcome, 'skipped'); assert.equal((n.history as any[])[0].reason, 'too_late'); assert.equal(hits.length, 0);
+});
+
+await t('S135', 'applied:safety', 'a provider failure is recorded as failed, counts for nothing, and is never retried', async () => {
+  await isolateN(); await appliedOn(true, { 'applied.minGapMinutes': 0 }); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank'); await nudgeTick(OPEN);
+  waMode = 'reject';
+  try { for (let i = 0; i < 4; i++) await nudgeTick(MINUTES(10 + i)); } finally { waMode = 'ok'; }
+  assert.equal(hitsFor('/api/v1/whatsapp').length, 1, 'exactly one attempt'); const [n] = await nudgesFor(w.user.id);
+  assert.equal((n.history as any[])[0].outcome, 'failed'); assert.equal(n.lastSentAt, null, 'a failed send does not delay the next one');
+});
+
+await t('S136', 'applied:safety', 'two workers ticking at once send each step exactly once', async () => {
+  await isolateN(); await appliedOn(); const w = await webLogin(); await applyTo(w.user.id, 'IDFC FIRST Bank'); await nudgeTick(OPEN);
+  await prisma.$executeRawUnsafe(`UPDATE "LenderNudge" SET "nextCheckAt" = to_timestamp(0) WHERE status = 'active'`);
+  await Promise.all([ln.lenderNudgeTick(MINUTES(10)), ln.lenderNudgeTick(MINUTES(10)), ln.lenderNudgeTick(MINUTES(10))]);
+  assert.equal(waBodies().length, 1); assert.equal((await nudgesFor(w.user.id))[0].stepsSent, 1);
+});
+
+await t('S137', 'applied:handover', 'applying ends the "incomplete" install reminders, so the person never gets both ("incomplete" is wrong once they applied)', async () => {
+  await isolateN(); await appliedOn(); const w = await webLogin(); await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN } });
+  await applyTo(w.user.id, 'IDFC FIRST Bank', OPEN); // status stays offers_ready: the lender's own webhook has not (and may never) reported
+  await tickAll(MINUTES(1)); const r = await reminderById(w.reminder!.id);
+  assert.equal(r.status, 'stopped'); assert.equal(r.stopReason, 'application_finished'); assert.equal(r.stepsSent, 0);
+});
+
+await t('S138', 'applied:handover', 'a visitor who has NOT applied to a lender is unaffected (an offers_ready application alone still gets the install reminders)', async () => {
+  await isolateN(); const w = await webLogin(); await prisma.loanApplication.create({ data: { userId: w.user.id, ref: `SL-N${Date.now()}`, amount: 100000, status: 'offers_ready' } });
+  await tickAll(OPEN); assert.equal((await reminderById(w.reminder!.id)).status, 'active');
+});
+
+await t('S139', 'applied:handover', 'the stuck-stage nudges stand down while a lender sequence is active, and resume once it ends', async () => {
+  await isolateN(); const w = await webLogin(); await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { status: 'stopped', stopReason: 'installed' } });
+  assert.equal(await hasActiveInstallReminder(w.phone), false);
+  await applyTo(w.user.id, 'IDFC FIRST Bank'); await nudgeTick(OPEN); assert.equal(await hasActiveInstallReminder(w.phone), true);
+  await prisma.lenderNudge.updateMany({ where: { userId: w.user.id }, data: { status: 'completed' } }); assert.equal(await hasActiveInstallReminder(w.phone), false);
+});
+
+await t('S140', 'applied:admin', 'the new settings are in the admin Timings list with their defaults, saveable and resettable', async () => {
+  await isolateN(); const sup = await adminTok('super_admin'); const g = await getTimings(sup);
+  const want: Record<string, unknown> = { 'applied.sendEnabled': false, 'applied.minGapMinutes': 60, 'applied.maxLateHours': 12, 'applied.maxAgeHours': 24 };
+  for (const [k, v] of Object.entries(want)) { const it = itemOf(g, k); assert.ok(it, k); assert.equal(it.effective, v, k); assert.equal(it.group, 'install'); }
+  assert.deepEqual(itemOf(g, 'applied.schedule').effective, [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 40 }, { channel: 'whatsapp', afterMinutes: 1440 }]);
+  assert.equal((await putTimings({ 'applied.minGapMinutes': 30, 'applied.schedule': [{ channel: 'sms', afterMinutes: 5 }] }, sup)).status, 200);
+  assert.equal(itemOf(await getTimings(sup), 'applied.minGapMinutes').effective, 30);
+  assert.equal((await putTimings({ 'applied.minGapMinutes': 99999 }, sup)).status, 400);
+  assert.equal((await putTimings({ 'applied.schedule': [{ channel: 'email', afterMinutes: 5 }] }, sup)).status, 400);
+  assert.equal((await delTiming('applied.minGapMinutes', sup)).status, 200); assert.equal(itemOf(await getTimings(sup), 'applied.minGapMinutes').effective, 60);
+  await clearTimings();
+});
+
+await t('S141', 'applied:job', 'the scheduler job runs no more often than "Reminder job runs every" says', async () => {
+  await clearTimings(); const T = Date.now(); ln.resetLenderNudgeThrottle();
+  assert.ok(await ln.lenderNudgeTickThrottled(T)); assert.equal(await ln.lenderNudgeTickThrottled(T + 30_000), null); assert.ok(await ln.lenderNudgeTickThrottled(T + 61_000));
+  ln.resetLenderNudgeThrottle();
+});
+
+await isolateN(); await prisma.lenderPartner.deleteMany({ where: { name: { in: ['IDFC FIRST Bank', 'Hero FinCorp'] } } }).catch(() => undefined);
+
 /* ───────────── report ───────────── */
 const pass = results.filter((r) => r.status === 'PASS').length; const fail = results.length - pass;
 fs.writeFileSync(process.env.RESULTS_FILE ?? '/tmp/server-suite-results.json', JSON.stringify({ total: results.length, pass, fail, results }, null, 2));

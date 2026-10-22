@@ -540,3 +540,26 @@ timings stay on **App Config**). Plain admins can look, not save. Every save/res
   save/reset/audit, and each setting changing real behaviour). Suite is now 114 checks.
 - Known, pre-existing: `admin/src/components/Shell.tsx` reads the role from localStorage while rendering, so the super-admin-only nav items cause a
   dev-mode hydration warning (also on App Config / Audit Log). Harmless; fix by deferring `getAdmin()` to an effect.
+
+---
+
+## "You applied with <lender>" messages (`server/src/lib/lenderNudge.ts`)
+
+Lenders do not report status back (the `handoff` status only ever comes from their webhook), so after someone taps Apply we say only what is true and point to
+the app: "you applied with <lender>, install the SwiftLoan app to track it". Never claim under review / approved.
+- **One sequence per `LenderApplication`** (`LenderNudge` table, migration `20261023120000_lender_nudges`). The job (`lender-nudge`, every minute, throttled
+  by `install.jobEveryMinutes`) ARMS them itself from recent lender applications (no edit to the apply route; website and app both covered). Not armed for
+  someone already in the app (`in_app`), a review phone, a person with no website link to carry (`no_link`), or an application older than `applied.maxAgeHours`.
+  The link is the visitor's own `JourneyReminder.token` (`/dl?ref=`), so install attribution and app resume work as before.
+- **Several lenders:** each lender gets its own sequence naming that lender. A message that would follow ANOTHER lender's message to the same person by less
+  than `applied.minGapMinutes` (60) waits (`crossLenderWait`); one lender's own steps keep exactly the schedule's spacing (an earlier version applied the
+  gap to a lender's own steps too and delayed its SMS; the integration suite caught it).
+- **Stops** on install (matched `AppClick`), app login, do-not-contact, or that lender application becoming `rejected`/`disbursed`/`closed` (or deleted).
+  `under_review`/`approved`/`handoff` keep going. Stuck-stage nudges stand down while one is active (`hasActiveInstallReminder`).
+- **Install reminders now stop at Apply.** `JourneyReminder` used to stop only when the application reached `handoff` (lender webhook), so someone who had
+  applied still got "your application is incomplete". `stopReasonFor` now also stops on ANY `LenderApplication` for the user (`application_finished`).
+- Own send switch `applied.sendEnabled` (Admin → Timings, **off by default**: log-only, same guard rails as the install reminders, shares the
+  `install.allowedNumbers` test list). Templates: `appliedWhatsapp` (default `loan_applied_install_app`, **awaiting Meta approval**), `appliedSmsTemplateId` +
+  `appliedSmsBody` (blank until the DLT template exists); texts in `docs/JOURNEY_RESUME_TEMPLATES.md` §5. Sends are recorded as kind `applied_nudge` (Admin → Messages).
+- Tests: `lenderNudgeRules.test.ts` (pure) and integration S115–S141 (arming, sending against fake providers, multi-lender gap, stops, safety, handover).
+

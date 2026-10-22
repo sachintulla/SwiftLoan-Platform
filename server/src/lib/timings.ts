@@ -140,6 +140,35 @@ export const TIMINGS: readonly TimingDef[] = [
     label: 'A saved website visit can resume for',
     help: 'After this many days the app no longer offers to continue where the visitor left off.',
   },
+  /* ── After they apply to a lender: "you applied with <lender>, install the app to track it" (lib/lenderNudge.ts) ── */
+  {
+    key: 'applied.sendEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the "you applied" messages for real',
+    help: 'Off: the job only writes what it would send to the server log. On: real WhatsApp and SMS go out, one sequence per lender the person applied to. Has its own switch because it needs its own approved templates.',
+    warn: 'Turning this on messages everyone who applies to a lender and has not installed the app, unless the test-number list above is filled in.',
+  },
+  {
+    key: 'applied.schedule', group: 'install', kind: 'schedule', unit: 'minutes',
+    def: [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 40 }, { channel: 'whatsapp', afterMinutes: 1440 }],
+    maxRows: 20, maxMinutes: 14 * 1440,
+    label: 'Messages after applying to a lender',
+    help: 'Sent a set time after they applied to that lender. Each lender gets its own sequence, so someone who applies to three lenders gets three sequences, spaced by the gap below.',
+  },
+  {
+    key: 'applied.minGapMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 60, min: 0, max: 1440,
+    label: 'Gap between different lenders\' messages',
+    help: 'If someone applied to several lenders, a message about the next lender waits until this long after the previous lender\'s message. One lender\'s own messages follow the schedule above.',
+  },
+  {
+    key: 'applied.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    label: 'Skip an applied message that is this late',
+    help: 'A message that could not go out on time (quiet hours, an outage, waiting behind the gap) is skipped, not sent, after this long.',
+  },
+  {
+    key: 'applied.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
+    label: 'Only for applications made in the last',
+    help: 'Older applications are never nudged, so switching this on does not message everyone who applied in the past.',
+  },
   {
     key: 'website.pingEverySeconds', group: 'website', kind: 'number', unit: 'seconds', def: 60, min: 15, max: 900,
     label: 'Website "still here" signal every',

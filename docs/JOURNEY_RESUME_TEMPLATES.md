@@ -95,3 +95,52 @@ Only after both are approved and saved:
 ## 4. Local test before the templates exist (this Mac only)
 
 Run the whole journey without the new templates: see "Local phone test" at the end of `CLAUDE.md`. The link is opened by hand in Safari on the phone; no message has to carry it.
+
+---
+
+## 5. After they apply to a lender: "you applied with <lender>, install the app to track it"
+
+Lenders do not report status back to us, so this message says only what is true (they applied with that lender) and points to the app, where we can
+track the application. It never says "under review" or "approved". One sequence per lender application; see `server/src/lib/lenderNudge.ts`.
+
+### 5a. WhatsApp: `loan_applied_install_app` (submit to Meta through Vox; **not yet approved**)
+
+| Field | Value |
+|---|---|
+| Name | `loan_applied_install_app` |
+| Language | English (`en`) |
+| Category | MARKETING |
+| Variables | `{{1}}` name, `{{2}}` lender, `{{3}}` link |
+
+**Body**
+
+```
+Hi {{1}}, you applied for a loan with {{2}} through SwiftLoan. Install the SwiftLoan app to track your application and get updates in one place: {{3}}
+
+It takes less than a minute.
+```
+
+**Footer:** `SwiftLoan`. **Sample values:** `{{1}}` = `Priya`, `{{2}}` = `IDFC FIRST Bank`, `{{3}}` = `https://api.swiftloan.ai/dl?ref=AB12CD34`.
+
+Example as received: "Hi Priya, you applied for a loan with IDFC FIRST Bank through SwiftLoan. Install the SwiftLoan app to track your application and get updates in one place: https://api.swiftloan.ai/dl?ref=AB12CD34 / It takes less than a minute. / SwiftLoan"
+(`{{1}}` is "there" when we do not know the name; `{{2}}` is "your chosen lender" when the lender name was not stored.)
+
+The shipped default (Admin → Configs → Voxvalley → `appliedWhatsapp`) already points at this template:
+`{"template":"loan_applied_install_app","language":"en","placeholders":["{name}","{lender}","{link}"]}`
+
+### 5b. SMS (DLT): register a new template
+
+```
+Dear {#alphanumeric#} , you applied for a loan with {#alphanumeric#} through SwiftLoan. Install the SwiftLoan app to track your application :{#url#}. Team SwiftLoan
+-PurpleTalk IPL
+```
+
+Same sender ID (`PTSLA`) and type as the other install template; the same notes about the link variable length apply (section 1). Then save in
+Admin → Configs → Voxvalley: `appliedSmsTemplateId` = the DLT id, `appliedSmsBody` = the same text with `{name}`, `{lender}` and `{link}` in place of
+the three variables (line break included). Until both are set, SMS steps are skipped with the reason "sms template not configured".
+
+### 5c. Switch on (Admin → Timings → Install reminders → "After they apply to a lender")
+
+Own switch, **off by default** (it has its own templates): "Send the 'you applied' messages for real". It shares the test-number list with the install
+reminders. Defaults: WhatsApp 10 min after applying, SMS at 40 min, WhatsApp the next day; a message about the next lender waits 60 minutes after the
+previous lender's; a message more than 12 h late is skipped; only applications from the last 24 h are ever nudged. All editable there.

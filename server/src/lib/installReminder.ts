@@ -95,7 +95,7 @@ async function createReminder(
   return null;
 }
 
-async function alreadyInApp(phone: string): Promise<boolean> {
+export async function alreadyInApp(phone: string): Promise<boolean> {
   const customer = await prisma.customer.findUnique({ where: { phone }, select: { id: true } });
   if (!customer) return false;
   const ev = await prisma.journeyEvent.findFirst({
@@ -214,10 +214,13 @@ async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastSte
 export interface TickResult { scanned: number; stopped: number; dropped: number; handled: number; completed: number }
 
 async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | null, now: Date): Promise<{ reason: StopReason | null; lastStep: LastStep }> {
-  const [customer, application, click] = await Promise.all([
+  const [customer, application, click, appliedToLender] = await Promise.all([
     prisma.customer.findUnique({ where: { phone: r.phone }, select: { id: true, currentStage: true } }),
     prisma.loanApplication.findFirst({ where: { userId: r.userId }, orderBy: { updatedAt: 'desc' }, select: { status: true } }),
     prisma.appClick.findFirst({ where: { ref: r.token, status: 'matched' }, select: { id: true } }),
+    // The lender's own status webhook (what moves the application to 'handoff') may never arrive, so tapping Apply is the
+    // moment this stops saying "incomplete"; the "you applied with <lender>" messages (lenderNudge.ts) take over.
+    prisma.lenderApplication.findFirst({ where: { application: { userId: r.userId } }, select: { id: true } }),
   ]);
   const appLogin = customer
     ? !!(await prisma.journeyEvent.findFirst({
@@ -230,7 +233,7 @@ async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | 
     doNotContact: customer?.currentStage === 'lost',
     installed: !!click,
     appLogin,
-    applicationFinished: isFinishedApplicationStatus(application?.status),
+    applicationFinished: isFinishedApplicationStatus(application?.status) || !!appliedToLender,
     returned: !!r.droppedAt && r.lastSeenAt.getTime() > r.droppedAt.getTime() + 60_000 && r.lastSeenAt <= now,
   });
   return { reason, lastStep };

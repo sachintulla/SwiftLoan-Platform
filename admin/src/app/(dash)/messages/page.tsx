@@ -24,7 +24,7 @@ const STATUS_FILTERS = [
 ];
 const CHANNEL_FILTERS = [{ key: '', label: 'All channels' }, { key: 'whatsapp', label: 'WhatsApp' }, { key: 'sms', label: 'SMS' }];
 const KIND_LABEL: Record<string, string> = {
-  install_reminder: 'Install reminder', stall: 'Stuck-stage nudge', admin: 'Sent by admin', test: 'Test', other: 'Other', unknown: 'Unknown (callback only)', unparsed: 'Unreadable callback',
+  install_reminder: 'Install reminder', applied_nudge: 'Applied-to-lender nudge', stall: 'Stuck-stage nudge', admin: 'Sent by admin', test: 'Test', other: 'Other', unknown: 'Unknown (callback only)', unparsed: 'Unreadable callback',
 };
 
 export default function MessagesPage() {

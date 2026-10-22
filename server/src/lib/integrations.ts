@@ -211,6 +211,14 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     installSmsBody: '',
     /** Optional rename of the last-step wording used for `{step}`; empty = built-in labels. */
     installStepLabels: {},
+    /**
+     * "You applied with <lender>, install the app to track it" (lib/lenderNudge.ts). Sending is gated by Admin → Timings
+     * (`applied.sendEnabled`). WhatsApp: the template `loan_applied_install_app` (to be approved), {{1}} name, {{2}} lender,
+     * {{3}} link. SMS stays blank (SMS steps are skipped) until its DLT template is registered; the body needs `{link}`.
+     */
+    appliedWhatsapp: { template: 'loan_applied_install_app', language: 'en', placeholders: ['{name}', '{lender}', '{link}'] },
+    appliedSmsTemplateId: '',
+    appliedSmsBody: '',
   },
 };
 
