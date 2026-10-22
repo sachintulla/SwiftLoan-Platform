@@ -33,6 +33,7 @@ import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { adminMessagesRouter } from './modules/adminMessages.routes.js';
+import { adminTimingsRouter } from './modules/adminTimings.routes.js';
 import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
 import { segmentsRouter } from './modules/segments.routes.js';
@@ -166,6 +167,7 @@ export function createApp() {
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
+  app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
   app.use('/api/admin/campaigns', campaignsRouter);
   app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);

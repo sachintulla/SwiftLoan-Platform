@@ -10,6 +10,7 @@
  * cannot lose the call — the lead is durable in the database and the next tick
  * picks it up.
  */
+import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
 import { localParts } from './campaignSchedule.js';
@@ -40,35 +41,20 @@ const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
  * unless they actually asked for it. A flat "no" or silence should never read
  * as an immediate, unsolicited call.
  */
-const FOLLOWUP_DELAY_MINUTES = Number(process.env.LEAD_CALL_DECLINE_DELAY_MINUTES ?? 60) || 60;
+/** Minutes to wait before the follow-up call after a decline. Live value: Admin → Timings (calls.declineFollowupMinutes). */
+const followupDelayMinutes = () => timing.num('calls.declineFollowupMinutes');
 /** Calling hours, minutes from local midnight. Default 09:00–21:00 IST. */
-/**
- * Minutes from local midnight.
- *
- * NOT `Number(x) || default` — 0 is a legitimate value (midnight) and falsy, so
- * that form silently ignored `LEAD_CALL_WINDOW_START=0` and snapped back to 09:00.
- * The docs three lines below tell you to set exactly that to disable the window,
- * so the bug made its own instructions not work.
- */
-function minuteEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw == null || raw.trim() === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 && n <= 1439 ? n : fallback;
-}
-
-const WINDOW_START = minuteEnv('LEAD_CALL_WINDOW_START', 540);
-const WINDOW_END = minuteEnv('LEAD_CALL_WINDOW_END', 1260);
 const TIMEZONE = process.env.LEAD_CALL_TIMEZONE ?? 'Asia/Kolkata';
 /** Cap per tick so one bad batch cannot dial a whole table. */
-const MAX_PER_TICK = 25;
+/** Cap per tick so one bad batch cannot dial a whole table. Live value: Admin → Timings (calls.perScan). */
+const maxPerTick = () => timing.num('calls.perScan');
 /**
  * Spend ceiling. `/api/context/create` is public, so without a global cap a
  * scripted form-spam run turns directly into a telephony bill and a stream of
  * calls to people who never asked. Breaching it is an incident, so it logs
  * loudly rather than failing quietly.
  */
-const MAX_CALLS_PER_HOUR = Number(process.env.LEAD_CALL_MAX_PER_HOUR ?? 60) || 60;
+const maxCallsPerHour = () => timing.num('calls.maxPerHour');
 /**
  * One automatic call per phone number per this many hours.
  *
@@ -92,13 +78,13 @@ export const PER_PHONE_COOLDOWN_HOURS = hoursEnv('LEAD_CALL_PHONE_COOLDOWN_HOURS
  * India's TRAI telemarketing rules restrict when a customer may be called, and
  * a lending product calling someone at 3am is a complaint waiting to happen —
  * so a lead submitted at night is held until the window opens rather than
- * dialled immediately. Set LEAD_CALL_WINDOW_START=0 / _END=1439 to disable.
+ * dialled immediately. Set the start to 00:00 and the end to 23:59 (Admin → Timings, or LEAD_CALL_WINDOW_START=0 / _END=1439) to disable.
  */
 export function withinCallingHours(now: Date = new Date()): boolean {
   const { minutes } = localParts(now, TIMEZONE);
-  return WINDOW_START <= WINDOW_END
-    ? minutes >= WINDOW_START && minutes < WINDOW_END
-    : minutes >= WINDOW_START || minutes < WINDOW_END;
+  const start = timing.num('calling.windowStart');
+  const end = timing.num('calling.windowEnd');
+  return start <= end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
 }
 
 /**
@@ -121,10 +107,10 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
 
   // Global hourly ceiling, counted from what was actually dialled rather than
   // an in-memory tally, so a restart cannot reset it.
-  const budget = await hourlyCallBudget(MAX_CALLS_PER_HOUR, now);
+  const budget = await hourlyCallBudget(maxCallsPerHour(), now);
   if (budget <= 0) {
     console.error(
-      `[lead-call] HOURLY CAP HIT (limit ${MAX_CALLS_PER_HOUR}). ` +
+      `[lead-call] HOURLY CAP HIT (limit ${maxCallsPerHour()}). ` +
         'Holding new calls. Investigate for form spam, or raise LEAD_CALL_MAX_PER_HOUR.',
     );
     return 0;
@@ -163,7 +149,7 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
       callbackRequestedAt: null,
     },
     orderBy: { lastActivityAt: 'asc' },
-    take: Math.min(MAX_PER_TICK, budget) * 4, // over-fetch; most are filtered out below
+    take: Math.min(maxPerTick(), budget) * 4, // over-fetch; most are filtered out below
     include: {
       // Prisma cannot compare two columns of the same row in a filter, so both
       // the delay and the "already called about this one" test are done in code.
@@ -193,12 +179,12 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
       const submittedAt = c.events[0]?.occurredAt ?? c.stageEnteredAt;
       // Whether they explicitly declined the popup or never answered it, the
       // follow-up call waits the same delay — see FOLLOWUP_DELAY_MINUTES above.
-      const dueBefore = new Date(now.getTime() - FOLLOWUP_DELAY_MINUTES * 60_000);
+      const dueBefore = new Date(now.getTime() - followupDelayMinutes() * 60_000);
       if (submittedAt > dueBefore) return false; // not old enough yet
       const lastCall = c.conversations[0]?.queuedAt;
       return !lastCall || lastCall < submittedAt; // not yet called about THIS one
     })
-    .slice(0, Math.min(MAX_PER_TICK, budget));
+    .slice(0, Math.min(maxPerTick(), budget));
 
   console.log(
     `[lead-call] tick: ${candidates.length} candidate(s) @ lead_captured, ${leads.length} eligible after age/already-called filter (now=${now.toISOString()}); phones=${JSON.stringify(leads.map((l) => l.phone))}`,

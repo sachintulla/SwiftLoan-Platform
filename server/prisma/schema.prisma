@@ -1501,7 +1501,19 @@ model AppConfig {
   nudgeIdleMs     Int      @default(30000) // main screens
   nudgeDropoffMs  Int      @default(18000) // application funnel
   nudgeEligibleMs Int      @default(20000) // offers / My Offers
+  nudgeStartMs    Int      @default(5000) // bubble appears this long after a screen opens
+  nudgeRotateMs   Int      @default(3000) // time per line while the bubble rotates its text
+  nudgeSnoozeMs   Int      @default(600000) // quiet period after the user dismisses the bubble
   updatedAt       DateTime @updatedAt
+}
+
+// Admin-editable timings and limits (the "Timings" page). One row per setting that an admin has changed; a setting
+// with no row uses its environment value or the built-in default (lib/timings.ts is the single registry).
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
 }
 
 // ─────────────────── Pre-qualifying offers (admin-curated) ───────────────────

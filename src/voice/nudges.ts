@@ -21,7 +21,7 @@ let wakeTimer: ReturnType<typeof setTimeout> | undefined;
 const wakeListeners = new Set<() => void>();
 
 /** Hide tips for `ms`, then tell the scheduler (via onNudgeWake) to show one again. */
-export function snoozeNudges(ms: number = NUDGE_SNOOZE_MS): void {
+export function snoozeNudges(ms: number = nudgeSnoozeMs()): void {
   snoozeUntil = Date.now() + ms;
   if (wakeTimer) clearTimeout(wakeTimer);
   wakeTimer = setTimeout(() => wakeListeners.forEach((l) => l()), ms);
@@ -41,16 +41,33 @@ export interface NudgeConfig {
   labels: string[];
 }
 
-/** Admin settings fetched from the backend. Only `enabled` (the on/off switch) is
- *  still honoured; the three timers are kept for the DTO but no longer drive the
- *  schedule — start/rotate timing is hard-coded above. */
+/** Admin settings fetched from the backend (Admin → App config). `enabled` is the on/off switch; `startMs`, `rotateMs`
+ *  and `snoozeMs` set the three timings above (a server that predates them omits them, so the built-ins apply).
+ *  `idleMs`, `dropoffMs` and `eligibleMs` are legacy: kept in the DTO but they have never driven the schedule. */
 export interface NudgeTimers {
   enabled: boolean;
   idleMs: number;
   dropoffMs: number;
   eligibleMs: number;
+  startMs?: number;
+  rotateMs?: number;
+  snoozeMs?: number;
 }
-export const DEFAULT_TIMERS: NudgeTimers = { enabled: true, idleMs: 30000, dropoffMs: 18000, eligibleMs: 20000 };
+export const DEFAULT_TIMERS: NudgeTimers = {
+  enabled: true, idleMs: 30000, dropoffMs: 18000, eligibleMs: 20000,
+  startMs: NUDGE_START_MS, rotateMs: NUDGE_ROTATE_MS, snoozeMs: NUDGE_SNOOZE_MS,
+};
+
+// The timings currently in force (the last config the app fetched or restored from storage).
+let live: NudgeTimers = DEFAULT_TIMERS;
+export function setLiveNudgeTimers(t: NudgeTimers): void { live = t; }
+const positive = (n: number | undefined, fallback: number) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : fallback);
+/** How long after a screen opens the bubble appears. */
+export const nudgeStartMs = (): number => positive(live.startMs, NUDGE_START_MS);
+/** How long each line shows before the bubble rotates to the next. */
+export const nudgeRotateMs = (): number => positive(live.rotateMs, NUDGE_ROTATE_MS);
+/** Quiet period after the user dismisses the bubble. */
+export const nudgeSnoozeMs = (): number => positive(live.snoozeMs, NUDGE_SNOOZE_MS);
 
 // Application funnel — a stall here usually means the user is stuck/confused.
 const FUNNEL = new Set<Screen>(['basicpan', 'basic', 'moredetails']);

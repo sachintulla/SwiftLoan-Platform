@@ -8,6 +8,8 @@
  * (the server was down) is skipped rather than sent at a stale time.
  */
 
+import { DEFAULT_SCHEDULE, type ScheduleRow } from './timings.js';
+
 export type ReminderChannel = 'sms' | 'whatsapp';
 export type LastStep = 'otp_only' | 'pan_done' | 'application_started';
 export type StopReason = 'installed' | 'app_login' | 'application_finished' | 'do_not_contact' | 'returned';
@@ -22,7 +24,6 @@ export interface ScheduleStep {
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
-const DAY = 24 * HOUR;
 
 /** WhatsApp always follows its SMS by this long. */
 export const WHATSAPP_GAP_MS = 30 * MIN;
@@ -35,22 +36,37 @@ export const MIN_GAP_MS = 30 * MIN;
 /** A visitor who keeps coming back and leaving gets at most this many separate runs. */
 export const MAX_CYCLES = 3;
 
-function buildSteps(): ScheduleStep[] {
-  const points: Array<[number, string]> = [
-    [0, 'start'],
-    [4 * HOUR, '+4h'],
-    [8 * HOUR, '+8h'],
-    ...[1, 2, 3, 4, 5, 6, 7].map((d): [number, string] => [d * DAY, `day ${d}`]),
-  ];
-  const steps: ScheduleStep[] = [];
-  for (const [offset, label] of points) {
-    steps.push({ index: steps.length, channel: 'sms', offsetMs: offset, label: `${label} sms` });
-    steps.push({ index: steps.length, channel: 'whatsapp', offsetMs: offset + WHATSAPP_GAP_MS, label: `${label} whatsapp` });
-  }
-  return steps;
+/** "start", "+30m", "+4h", "+1h30m", "day 3", "day 3 +4h": a readable name for how long after the drop-off a step is due. */
+export function offsetLabel(minutes: number): string {
+  if (minutes <= 0) return 'start';
+  if (minutes < 60) return `+${minutes}m`;
+  if (minutes < 1440) return minutes % 60 === 0 ? `+${minutes / 60}h` : `+${Math.floor(minutes / 60)}h${minutes % 60}m`;
+  const days = Math.floor(minutes / 1440);
+  const rest = minutes % 1440;
+  if (rest === 0) return `day ${days}`;
+  return `day ${days} ${offsetLabel(rest)}`;
 }
 
-export const SCHEDULE_STEPS: readonly ScheduleStep[] = Object.freeze(buildSteps());
+/** The schedule as the code uses it, from the editable rows (admin → Timings). */
+export function stepsFromRows(rows: readonly ScheduleRow[]): ScheduleStep[] {
+  return rows.map((r, index) => ({
+    index,
+    channel: r.channel,
+    offsetMs: r.afterMinutes * MIN,
+    label: `${offsetLabel(r.afterMinutes)} ${r.channel}`,
+  }));
+}
+
+export const SCHEDULE_STEPS: readonly ScheduleStep[] = Object.freeze(stepsFromRows(DEFAULT_SCHEDULE));
+
+/** Everything about the schedule that an admin can change. `DEFAULT_SCHEDULE_CONFIG` is how it behaves out of the box. */
+export interface ScheduleConfig {
+  steps: readonly ScheduleStep[];
+  idleMs: number;
+  minGapMs: number;
+  maxLateMs: number;
+  recheckMs: number;
+}
 
 export function stepDueAt(startAt: Date, step: ScheduleStep): Date {
   return new Date(startAt.getTime() + step.offsetMs);
@@ -63,6 +79,8 @@ export type NextAction =
   | { kind: 'send'; step: ScheduleStep };
 
 export interface NextActionInput {
+  /** The schedule rules; omit for the defaults. */
+  cfg?: ScheduleConfig;
   startAt: Date;
   /** How many steps have already been handled (sent, logged or skipped). */
   stepsHandled: number;
@@ -74,14 +92,15 @@ export interface NextActionInput {
 
 /** What to do with the reminder right now. Handles one step at a time. */
 export function nextAction(i: NextActionInput): NextAction {
-  const step = SCHEDULE_STEPS[i.stepsHandled];
+  const cfg = i.cfg ?? DEFAULT_SCHEDULE_CONFIG;
+  const step = cfg.steps[i.stepsHandled];
   if (!step) return { kind: 'finished' };
 
   const dueAt = stepDueAt(i.startAt, step);
   if (i.now.getTime() < dueAt.getTime()) return { kind: 'wait', step, reason: 'not_due', dueAt };
-  if (i.now.getTime() - dueAt.getTime() > MAX_LATE_MS) return { kind: 'skip', step, reason: 'too_late' };
+  if (i.now.getTime() - dueAt.getTime() > cfg.maxLateMs) return { kind: 'skip', step, reason: 'too_late' };
   if (!i.inCallingWindow) return { kind: 'wait', step, reason: 'quiet_hours', dueAt };
-  if (i.lastSentAt && i.now.getTime() - i.lastSentAt.getTime() < MIN_GAP_MS) {
+  if (i.lastSentAt && i.now.getTime() - i.lastSentAt.getTime() < cfg.minGapMs) {
     return { kind: 'wait', step, reason: 'gap', dueAt };
   }
   return { kind: 'send', step };
@@ -154,11 +173,20 @@ export function renderSmsBody(body: string, v: { name: string | null | undefined
 /** How soon to look again at a step that is due but held back (quiet hours). */
 export const QUIET_RECHECK_MS = 15 * MIN;
 
+export const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = Object.freeze({
+  steps: SCHEDULE_STEPS,
+  idleMs: IDLE_MS,
+  minGapMs: MIN_GAP_MS,
+  maxLateMs: MAX_LATE_MS,
+  recheckMs: QUIET_RECHECK_MS,
+});
+
 /**
  * When a reminder next needs attention: the earlier of its next step becoming sendable and, until the visitor
  * has been saved as dropped off, the moment they would count as idle. Lets the job pick up only rows that are due.
  */
 export function nextCheckTime(i: {
+  cfg?: ScheduleConfig;
   now: Date;
   startAt: Date;
   stepsHandled: number;
@@ -166,15 +194,16 @@ export function nextCheckTime(i: {
   lastSeenAt: Date;
   dropped: boolean;
 }): Date {
+  const cfg = i.cfg ?? DEFAULT_SCHEDULE_CONFIG;
   const candidates: number[] = [];
-  const step = SCHEDULE_STEPS[i.stepsHandled];
+  const step = cfg.steps[i.stepsHandled];
   // Until they are saved as dropped off no message can be sent, so only the idle check matters.
   if (step && i.dropped) {
     let at = stepDueAt(i.startAt, step).getTime();
-    if (i.lastSentAt) at = Math.max(at, i.lastSentAt.getTime() + MIN_GAP_MS);
+    if (i.lastSentAt) at = Math.max(at, i.lastSentAt.getTime() + cfg.minGapMs);
     // Already sendable but not sent (it is held for quiet hours): look again soon rather than every minute.
-    candidates.push(at <= i.now.getTime() ? i.now.getTime() + QUIET_RECHECK_MS : at);
+    candidates.push(at <= i.now.getTime() ? i.now.getTime() + cfg.recheckMs : at);
   }
-  if (!i.dropped) candidates.push(Math.max(i.lastSeenAt.getTime() + IDLE_MS, i.now.getTime() + 1000));
-  return new Date(candidates.length ? Math.min(...candidates) : i.now.getTime() + QUIET_RECHECK_MS);
+  if (!i.dropped) candidates.push(Math.max(i.lastSeenAt.getTime() + cfg.idleMs, i.now.getTime() + 1000));
+  return new Date(candidates.length ? Math.min(...candidates) : i.now.getTime() + cfg.recheckMs);
 }

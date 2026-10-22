@@ -1,3 +1,4 @@
+import { timing } from './timings.js';
 import { createHash } from 'node:crypto';
 
 /**
@@ -40,10 +41,10 @@ export function offersInputSignature(user: Bag, app: Bag): string {
 
 /**
  * How long stored offers stay reusable. Default 24 h — the offers screen tells the
- * applicant "offers are valid for 24 hours". OFFERS_REUSE_HOURS=<n> changes it;
+ * applicant "offers are valid for 24 hours". Admin → Timings (offers.reuseHours, or OFFERS_REUSE_HOURS=<n>) changes it;
  * 0 means they never expire (reuse for as long as the details are unchanged).
  */
-export function reuseWindowMs(raw: string | undefined = process.env.OFFERS_REUSE_HOURS): number | null {
+export function reuseWindowMs(raw: string | undefined = String(timing.num('offers.reuseHours'))): number | null {
   if (raw === undefined || raw.trim() === '') return 24 * 3_600_000;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 24 * 3_600_000;

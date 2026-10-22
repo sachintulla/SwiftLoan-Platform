@@ -7,7 +7,7 @@ import { ok, fail } from '../lib/http.js';
 import { requestPhoneOtp, verifyPhoneOtp } from '../lib/otp.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
-import { FIRST_ATTEMPT_DELAY_SECONDS } from '../lib/immediateCallback.js';
+import { firstAttemptDelaySeconds } from '../lib/immediateCallback.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('website');
@@ -142,14 +142,14 @@ websiteRouter.post(
       // under it would make the webhook that reports its outcome a no-op
       // (recordImmediateCallbackAttemptOutcome only acts on 'in_progress').
       if (customer.callbackStatus !== 'in_progress') {
-        const nextAttemptAt = new Date(Date.now() + FIRST_ATTEMPT_DELAY_SECONDS * 1_000);
+        const nextAttemptAt = new Date(Date.now() + firstAttemptDelaySeconds() * 1_000);
         await prisma.customer.update({
           where: { id: customer.id },
           data: {
             callbackRequestedAt: new Date(),
             callbackStatus: 'requested',
             callbackAttempts: 0,
-            // FIRST_ATTEMPT_DELAY_SECONDS defaults to 20 — the next 1-minute
+            // the first-attempt delay defaults to 20 s — the next 1-minute
             // tick of the immediate-callback job dials it on the spot.
             callbackNextAttemptAt: nextAttemptAt,
             callbackLastAttemptAt: null,
