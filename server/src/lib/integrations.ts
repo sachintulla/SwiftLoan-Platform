@@ -199,6 +199,18 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
         placeholders: ['{name}', '{ref}', 'your KYC details (PAN and Aadhaar eKYC)', '{siteUrl}/apply'],
       },
     },
+    /**
+     * Install-link reminders (lib/installReminder.ts). Sending itself is still
+     * gated by the INSTALL_REMINDER_SEND env var; these only say what to send.
+     * WhatsApp: the approved `install_app_resume_step` template; its {{1}}, {{2}},
+     * {{3}} are filled from `{name}`, `{step}` and `{link}`.
+     */
+    installWhatsapp: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] },
+    /** SMS stays blank (so SMS steps are skipped) until the DLT template is registered; the body must contain `{link}`. */
+    installSmsTemplateId: '',
+    installSmsBody: '',
+    /** Optional rename of the last-step wording used for `{step}`; empty = built-in labels. */
+    installStepLabels: {},
   },
 };
 
