@@ -9,13 +9,25 @@
 import { apiBase } from './leads';
 import { getAccessToken } from './session';
 
-/** Interaction pings are throttled to this. */
+/** Interaction pings are throttled to this until the server says otherwise (Admin → Timings, "still here" signal). */
 export const MIN_PING_GAP_MS = 60_000;
+const FLOOR_MS = 15_000;
+const CEILING_MS = 900_000;
+let gapMs: number = MIN_PING_GAP_MS;
+
+/** Adopt the interval the server asked for. Anything that is not a sensible number is ignored. */
+export function setPingGapFromServer(seconds: unknown): void {
+  const n = typeof seconds === 'number' ? seconds * 1000 : NaN;
+  if (Number.isFinite(n) && n >= FLOOR_MS && n <= CEILING_MS) gapMs = Math.round(n);
+}
+export const currentPingGapMs = (): number => gapMs;
+/** Test hook. */
+export function resetPingGap(): void { gapMs = MIN_PING_GAP_MS; }
 
 /** Pure throttle: ping if we never have, or the gap has passed. `force` is for route changes and leaving. */
-export function shouldPing(lastPingAt: number | null, now: number, force = false, gapMs: number = MIN_PING_GAP_MS): boolean {
+export function shouldPing(lastPingAt: number | null, now: number, force = false, gap: number = gapMs): boolean {
   if (force || lastPingAt === null) return true;
-  return now - lastPingAt >= gapMs;
+  return now - lastPingAt >= gap;
 }
 
 let lastPingAt: number | null = null;
@@ -34,7 +46,10 @@ export function pingActivity(force = false): void {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       keepalive: true,
-    }).catch(() => {});
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => setPingGapFromServer(body?.data?.pingEverySeconds))
+      .catch(() => {});
   } catch {
     /* a ping must never break the page */
   }

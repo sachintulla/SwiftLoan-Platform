@@ -514,3 +514,29 @@ A gateway 200 only means "queued", so every send is recorded and the provider's 
   first (the install claim runs once per install), then launch the dev build from Xcode: pop-up → OTP → step 2. Templates to register for real sends:
   `docs/JOURNEY_RESUME_TEMPLATES.md`.
 
+
+---
+
+## Admin Timings (timings and limits changed without a deploy)
+
+Super admins change waits, windows, lifetimes and limits in **Admin → Timings** (`admin/src/app/(dash)/timings`; the in-app help bubble
+timings stay on **App Config**). Plain admins can look, not save. Every save/reset goes through `auditAdmin`.
+- **Precedence: admin override (`PlatformSetting` row) > env variable > built-in default.** The registry is `server/src/lib/timings.ts`
+  (pure: key, section, kind, min/max, default, env fallback, validation); `timingsStore.ts` is the DB side (cache refreshed every 30 s and on save,
+  started in `index.ts` before the jobs). Code reads synchronously: `timing.num('install.idleMinutes')`, `timing.bool(…)`, `timing.minutesMs(…)`.
+  **Add a setting = one entry in `TIMINGS` and replace the constant at its use site**; the admin page renders from `GET /api/admin/timings`.
+  A stored value that breaks its own rules is ignored (falls back), so a bad row can never take a flow down.
+- API: `GET/PUT /api/admin/timings`, `DELETE /api/admin/timings/:key` (`modules/adminTimings.routes.ts`). A save is all-or-nothing and returns
+  per-field `errors`. Migration `20261022120000_admin_timings` (additive: `PlatformSetting` + three `AppConfig` columns).
+- Install reminders: the message schedule is an editable list of `{channel, afterMinutes}` rows counted **from the drop-off** (never at login).
+  `install.sendEnabled` (admin switch; env `INSTALL_REMINDER_SEND` only sets the starting value) + `install.allowedNumbers` (test list: when set, only
+  those numbers are messaged; the rest are recorded as `skipped: not on the test-number list`). The job is throttled by `install.jobEveryMinutes`.
+  Steps skipped for being too late are consumed, never replayed later. Rules take a `ScheduleConfig` (`reminderSchedule.ts`).
+- Others: calling hours (`calling.windowStart/End`, minutes after midnight IST, overnight allowed), lead-call delays/retries, OTP validity/resend
+  window, website session / access-token / admin-idle lifetimes, install-link click life + IP window, offers reuse window, referral eligibility,
+  PAN daily limit, website ping interval (returned to the page by `POST /website/activity` as `pingEverySeconds`), app bubble start/rotate/snooze.
+- Tests: `server/src/lib/timings.test.ts` (registry), `reminderSchedule.test.ts` (custom schedules), `__tests__/nudgeTimings.test.ts` (app),
+  `website-next/src/lib/activityPing.test.ts`, and integration S90–S114 in `server/scripts/journey/integration-suite.mts` (admin API auth/validation/
+  save/reset/audit, and each setting changing real behaviour). Suite is now 114 checks.
+- Known, pre-existing: `admin/src/components/Shell.tsx` reads the role from localStorage while rendering, so the super-admin-only nav items cause a
+  dev-mode hydration warning (also on App Config / Audit Log). Harmless; fix by deferring `getAdmin()` to an effect.
