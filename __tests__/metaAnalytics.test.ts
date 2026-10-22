@@ -63,9 +63,9 @@ describe('Meta SDK wrapper', () => {
     const m = load({ token: 'tok' });
     m.initMeta();
     m.metaTrackFromAppEvent('otp_verified');
-    m.metaTrackFromAppEvent('PAN Verified');
+    m.metaTrackFromAppEvent('pan_verified');
     m.metaTrackFromAppEvent('eligibility_completed');
-    m.metaTrackFromAppEvent('Offers Got');
+    m.metaTrackFromAppEvent('offers_got');
     m.metaTrackFromAppEvent('offer_viewed');
     m.metaTrackFromAppEvent('offer_selected');
     m.metaTrackFromAppEvent('application_submitted');
@@ -93,10 +93,10 @@ describe('Meta SDK wrapper', () => {
     m.metaTrackFromAppEvent('eligibility_completed');
     m.metaTrackFromAppEvent('eligibility_completed');
     m.metaTrackFromAppEvent('offer_selected');
-    m.metaTrackFromAppEvent('PAN Verified');
-    m.metaTrackFromAppEvent('PAN Verified');
-    m.metaTrackFromAppEvent('Offers Got');
-    m.metaTrackFromAppEvent('Offers Got');
+    m.metaTrackFromAppEvent('pan_verified');
+    m.metaTrackFromAppEvent('pan_verified');
+    m.metaTrackFromAppEvent('offers_got');
+    m.metaTrackFromAppEvent('offers_got');
     m.metaTrackFromAppEvent('loan_disbursed');
     m.metaTrackFromAppEvent('loan_disbursed');
     m.metaTrackFromAppEvent('offer_selected'); // a real choice each time: not deduplicated

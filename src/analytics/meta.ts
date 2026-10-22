@@ -34,9 +34,9 @@ const ALLOW_DEMO: boolean = (globalThis as any).SWIFTLOAN_META_ALLOW_DEMO === tr
 /** Our (Upshot-shared) funnel event names -> the Meta events they count as. Nothing else is ever sent. */
 export const META_APP_EVENT_FOR: Record<string, string> = {
   otp_verified: 'fb_mobile_complete_registration', // AppEvents.CompletedRegistration
-  'PAN Verified': 'IdentityVerified', // custom: identity step passed (the PAN itself is never sent)
+  pan_verified: 'IdentityVerified', // custom: identity step passed (the PAN itself is never sent)
   eligibility_completed: 'EligibilityCompleted', // custom: offers lookup finished
-  'Offers Got': 'OffersReceived', // custom: at least one offer came back
+  offers_got: 'OffersReceived', // custom: at least one offer came back
   offer_viewed: 'fb_mobile_content_view', // AppEvents.ViewedContent: the offers page
   offer_selected: 'fb_mobile_initiated_checkout', // AppEvents.InitiatedCheckout: chose an offer to apply
   application_submitted: 'SubmitApplication', // AppEvents.SubmitApplication
@@ -44,7 +44,7 @@ export const META_APP_EVENT_FOR: Record<string, string> = {
 };
 
 /** Funnel steps that can fire many times (re-fetches, revisits): reported once per app launch. */
-const ONCE_PER_LAUNCH = new Set(['PAN Verified', 'eligibility_completed', 'Offers Got', 'offer_viewed', 'loan_disbursed']);
+const ONCE_PER_LAUNCH = new Set(['pan_verified', 'eligibility_completed', 'offers_got', 'offer_viewed', 'loan_disbursed']);
 const reported = new Set<string>();
 
 type FbNative = {

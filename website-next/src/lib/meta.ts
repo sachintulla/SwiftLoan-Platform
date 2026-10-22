@@ -48,16 +48,16 @@ export type MetaWebEvent =
 export const META_EVENT_FOR: Record<string, MetaWebEvent> = {
   website_lead_submitted: 'Lead',
   otp_verified: 'CompleteRegistration',
-  PAN_Verified: 'IdentityVerified', // custom: identity step passed (the PAN itself is never sent)
+  pan_verified: 'IdentityVerified', // custom: identity step passed (the PAN itself is never sent)
   eligibility_completed: 'EligibilityCompleted', // custom: offers lookup finished
-  Offers_Got: 'OffersReceived', // custom: at least one offer came back
+  offers_got: 'OffersReceived', // custom: at least one offer came back
   offer_viewed: 'ViewContent', // the offers page
   offer_selected: 'InitiateCheckout', // chose an offer to apply (no amounts are sent)
   application_submitted: 'SubmitApplication',
 };
 
 /** Steps that can fire repeatedly in one visit (re-fetches, back/forward): reported once per page session. */
-const ONCE_PER_SESSION = new Set(['PAN_Verified', 'eligibility_completed', 'Offers_Got', 'offer_viewed']);
+const ONCE_PER_SESSION = new Set(['pan_verified', 'eligibility_completed', 'offers_got', 'offer_viewed']);
 const reported = new Set<string>();
 
 /* ───────────────────────── consent ───────────────────────── */

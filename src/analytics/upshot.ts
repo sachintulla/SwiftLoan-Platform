@@ -216,12 +216,23 @@ export function upshotScreen(screen: string): void {
   safe(() => sdk()?.createPageViewEvent?.(name, __DEV__ ? accepted(`screen:${name}`) : noop));
 }
 
+/**
+ * Event NAMES are one canonical lowercase snake_case spelling shared with the website
+ * (website-next/src/lib/upshot.ts); the contract is `docs/UPSHOT_EVENTS.md`, enforced by
+ * `__tests__/upshotEventParity.test.ts`. Upshot keeps a separate event for every distinct
+ * spelling ("PAN Verified" / "PANVerified" / "pan_verified" are three events), so never
+ * invent a new variant of an existing name.
+ *
+ * `platform` ('iOS' | 'Android') rides on every event, as 'Web' does on the website, so a
+ * report can split by surface the same way everywhere. A caller's own value wins.
+ */
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
   // Meta ads: the two funnel moments only, no attributes (see src/analytics/meta.ts).
   metaTrackFromAppEvent(name);
   if (!started) return;
-  devLog('event ->', name, attrs);
-  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false, __DEV__ ? accepted(`event:${name}`) : noop));
+  const payload = { platform: PLATFORM, ...attrs };
+  devLog('event ->', name, payload);
+  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(payload), false, __DEV__ ? accepted(`event:${name}`) : noop));
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -346,7 +357,7 @@ export function showUpshotInbox(): void {
  * TYPES matter more than the values: Upshot infers a type from the first event
  * it sees, so sending `amount` as a string once makes it a string forever.
  *
- * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step.
+ * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step (the parity test fails if they drift).
  */
 export const MOBILE_UPSHOT_EVENTS: Array<{ name: string; attributes: Record<string, unknown> }> = [
   { name: 'app_installed', attributes: { platform: PLATFORM, source: 'organic' } },
@@ -354,24 +365,25 @@ export const MOBILE_UPSHOT_EVENTS: Array<{ name: string; attributes: Record<stri
   { name: 'language_selected', attributes: { language: 'en', label: 'English' } },
   { name: 'otp_requested', attributes: { screen: 'mobile' } },
   { name: 'otp_verified', attributes: { priorInquiryCount: 1 } },
-  { name: 'PAN Verified', attributes: { source: 'aurix', aadhaarLinked: true } },
+  { name: 'pan_verified', attributes: { source: 'aurix', aadhaarLinked: true } },
   { name: 'eligibility_completed', attributes: { offerCount: 4 } },
-  { name: 'Offers Got', attributes: { offerCount: 4, bestApr: 10.49 } },
+  { name: 'offers_got', attributes: { offerCount: 4, bestApr: 10.49, maxAmount: 500000, lenders: 'Aditya Finance, Axis Finance', topLender: 'Aditya Finance' } },
   { name: 'offer_viewed', attributes: { offerCount: 4, bestApr: 10.49 } },
-  { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance' } },
+  { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance', offerType: 'preapproved', offerLikelihood: '1' } },
   { name: 'kyc_started', attributes: { method: 'aadhaar' } },
   { name: 'kyc_completed', attributes: { methods: 'aadhaar,pan,bank,selfie' } },
   { name: 'application_submitted', attributes: { amount: 500000, product: 'Personal Loan' } },
   { name: 'loan_approved', attributes: { amount: 500000, apr: 10.49 } },
   { name: 'loan_rejected', attributes: { reason: 'credit_policy' } },
   { name: 'loan_disbursed', attributes: { amount: 500000, partner: 'Aditya Finance' } },
-  { name: 'call_completed', attributes: { answered: true, durationSec: 95, outcome: 'interested' } },
+  { name: 'call_completed', attributes: { answered: true, durationSec: 95, outcome: 'interested', campaign: 'diwali' } },
   // Drop-off nudges — the events campaigns are actually built against.
-  { name: 'swiftloan_otp_not_verified', attributes: { stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, minutesStuck: 20 } },
-  { name: 'swiftloan_install_not_registered', attributes: { stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, minutesStuck: 45 } },
-  { name: 'swiftloan_eligibility_incomplete', attributes: { stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, minutesStuck: 22 } },
-  { name: 'swiftloan_offer_not_selected', attributes: { stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, minutesStuck: 30 } },
-  { name: 'swiftloan_kyc_incomplete', attributes: { stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, minutesStuck: 25 } },
+  { name: 'swiftloan_otp_not_verified', attributes: { rule: 'OTP requested but not verified', stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, stage: 'otp_requested', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 20 } },
+  { name: 'swiftloan_install_not_registered', attributes: { rule: 'App installed but never registered', stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, stage: 'app_installed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 45 } },
+  { name: 'swiftloan_eligibility_incomplete', attributes: { rule: 'Registered but eligibility not checked', stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, stage: 'otp_verified', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 22 } },
+  { name: 'swiftloan_offer_not_selected', attributes: { rule: 'Offers viewed but none selected', stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, stage: 'offers_viewed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 30 } },
+  { name: 'swiftloan_kyc_incomplete', attributes: { rule: 'KYC started but not completed', stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, stage: 'kyc_started', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 25 } },
+  { name: 'swiftloan_lead_no_install', attributes: { rule: 'Website lead never installed the app', stuckAt: 'lead_captured', expected: 'app_installed', delayMinutes: 30, stage: 'lead_captured', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 90 } },
 ];
 
 /**

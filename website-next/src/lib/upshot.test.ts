@@ -18,6 +18,7 @@ import {
   upshotPanVerified,
   upshotRouteFunnel,
   upshotScreenLabel,
+  toUpshotAttribution,
 } from './upshot';
 
 /** The only methods the real v1.4 bundle exposes for these jobs (checked against `window.upshot`). */
@@ -137,8 +138,8 @@ describe('queueing and the real SDK API', () => {
   it('strips undefined attributes so Upshot never infers a type from a null', () => {
     const sdk = installSdk();
     markUpshotReady();
-    upshotEvent('PAN_Verified', { source: 'aurix', aadhaarLinked: undefined });
-    expect(sdk.createEventByName).toHaveBeenCalledWith('PAN_Verified', { platform: 'Web', source: 'aurix' }, false);
+    upshotEvent('pan_verified', { source: 'aurix', aadhaarLinked: undefined });
+    expect(sdk.createEventByName).toHaveBeenCalledWith('pan_verified', { platform: 'Web', source: 'aurix' }, false);
   });
 
   it('does not report dev / brand routes', () => {
@@ -215,19 +216,19 @@ describe('funnel events', () => {
     { id: 'o2', amount: 300000, apr: 10.49, tenureMonths: 24, partner: { name: 'Axis Finance' } },
   ];
 
-  it('eligibility_completed + Offers_Got mirror the mobile attributes', () => {
+  it('eligibility_completed + offers_got mirror the mobile attributes', () => {
     const sdk = installSdk();
     markUpshotReady();
     upshotOffersFetched(offers);
     const calls = sdk.createEventByName.mock.calls.map((c) => [c[0], c[1]]);
     expect(calls).toContainEqual(['eligibility_completed', { platform: 'Web', offerCount: 2 }]);
     expect(calls).toContainEqual([
-      'Offers_Got',
+      'offers_got',
       { platform: 'Web', offerCount: 2, bestApr: 10.49, maxAmount: 500000, lenders: 'Aditya Finance, Axis Finance', topLender: 'Axis Finance' },
     ]);
   });
 
-  it('zero offers still reports eligibility_completed but not Offers_Got', () => {
+  it('zero offers still reports eligibility_completed but not offers_got', () => {
     const sdk = installSdk();
     markUpshotReady();
     upshotOffersFetched([]);
@@ -257,13 +258,13 @@ describe('funnel events', () => {
     expect(knownOfferInfo('o2')).toEqual({ amount: 300000, partner: 'Axis Finance' });
   });
 
-  it('PAN_Verified never carries the PAN and is skipped when not verified', () => {
+  it('pan_verified never carries the PAN and is skipped when not verified', () => {
     const sdk = installSdk();
     markUpshotReady();
     upshotPanVerified({ verified: false });
     expect(sdk.createEventByName).not.toHaveBeenCalled();
     upshotPanVerified({ verified: true, source: 'cache', aadhaarLinked: true, ...({ pan: 'ABCDE1234F' } as object) });
-    expect(sdk.createEventByName).toHaveBeenCalledWith('PAN_Verified', { platform: 'Web', source: 'cache', aadhaarLinked: true }, false);
+    expect(sdk.createEventByName).toHaveBeenCalledWith('pan_verified', { platform: 'Web', source: 'cache', aadhaarLinked: true }, false);
   });
 
   it('routes drive offer_viewed and application_submitted', () => {
@@ -280,5 +281,24 @@ describe('funnel events', () => {
       { platform: 'Web', amount: 500000, product: 'Personal Loan' },
       false,
     );
+  });
+});
+
+describe('toUpshotAttribution', () => {
+  it('renames utm_* to the camelCase keys website_visit uses, so one concept is one attribute', () => {
+    expect(
+      toUpshotAttribution({ utm_source: 'google', utm_medium: 'cpc', utm_campaign: 'diwali', utm_term: 'loan', utm_content: 'a', campaignId: 'c1' }),
+    ).toEqual({ utmSource: 'google', utmMedium: 'cpc', utmCampaign: 'diwali', utmTerm: 'loan', utmContent: 'a', campaignId: 'c1' });
+  });
+
+  it('sends the referrer as host only, and drops ad click ids and junk', () => {
+    const out = toUpshotAttribution({ referrer: 'https://www.google.com/search?q=loan&x=1', gclid: 'abc', fbclid: 'def' });
+    expect(out).toEqual({ referrer: 'www.google.com' });
+    expect(toUpshotAttribution({ referrer: 'not a url' })).toEqual({});
+  });
+
+  it('is empty for nothing', () => {
+    expect(toUpshotAttribution(undefined)).toEqual({});
+    expect(toUpshotAttribution({})).toEqual({});
   });
 });

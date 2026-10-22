@@ -71,10 +71,10 @@ describe('API-layer Upshot funnel events', () => {
     expect(upshotEvent).not.toHaveBeenCalled();
   });
 
-  it("'Offers Got' fires only when prequalify actually returns offers", async () => {
+  it("'offers_got' fires only when prequalify actually returns offers", async () => {
     (globalThis as any).fetch = jest.fn().mockResolvedValue(mockRes({ offers }));
     await api.prequalify('app1');
-    expect(upshotEvent).toHaveBeenCalledWith('Offers Got', {
+    expect(upshotEvent).toHaveBeenCalledWith('offers_got', {
       offerCount: 2, bestApr: 11.2, maxAmount: 500000, lenders: 'IDFC, Prefr', topLender: 'Prefr',
     });
 
@@ -82,13 +82,13 @@ describe('API-layer Upshot funnel events', () => {
     (globalThis as any).fetch = jest.fn().mockResolvedValue(mockRes({ offers: [] }));
     await api.prequalify('app2');
     expect(upshotEvent).toHaveBeenCalledWith('eligibility_completed', { offerCount: 0 });
-    expect(upshotEvent).not.toHaveBeenCalledWith('Offers Got', expect.anything());
+    expect(upshotEvent).not.toHaveBeenCalledWith('offers_got', expect.anything());
   });
 
-  it("'PAN Verified' fires for a verified PAN, never carries the PAN, and not for an invalid one", async () => {
+  it("'pan_verified' fires for a verified PAN, never carries the PAN, and not for an invalid one", async () => {
     (globalThis as any).fetch = jest.fn().mockResolvedValue(mockRes({ data: { status: 'verified', verified: true, aadhaarLinked: true, prefill: {}, source: 'aurix' } }));
     await api.verifyPan('ABCDE1234F');
-    expect(upshotEvent).toHaveBeenCalledWith('PAN Verified', { source: 'aurix', aadhaarLinked: true });
+    expect(upshotEvent).toHaveBeenCalledWith('pan_verified', { source: 'aurix', aadhaarLinked: true });
     expect(JSON.stringify(upshotEvent.mock.calls)).not.toContain('ABCDE1234F');
 
     upshotEvent.mockClear();
@@ -157,6 +157,43 @@ describe('Upshot wrapper platform label', () => {
     const { up } = profileFor('ios');
     const opened = up.MOBILE_UPSHOT_EVENTS.find((e: any) => e.name === 'app_opened');
     expect(opened.attributes.platform).toBe('iOS');
+  });
+});
+
+describe('Upshot app events carry the surface label', () => {
+  const eventFor = (os: 'ios' | 'android', name: string, attrs?: Record<string, unknown>) => {
+    let sent: { name: string; payload: any } | undefined;
+    jest.resetModules();
+    jest.doMock('react-native', () => {
+      const rn = jest.requireActual('react-native');
+      return Object.setPrototypeOf({ Platform: { ...rn.Platform, OS: os }, NativeModules: { ...rn.NativeModules, UpshotReact: {} } }, rn);
+    });
+    jest.doMock('react-native-upshotsdk', () => ({
+      default: {
+        initializeUpshotUsingOptions: jest.fn(), addListener: jest.fn(), setDispatchInterval: jest.fn(),
+        createCustomEvent: (n: string, json: string) => { sent = { name: n, payload: JSON.parse(json) }; },
+      },
+    }), { virtual: true });
+    const up = require('../src/analytics/upshot');
+    expect(up.initUpshot()).toBe(true);
+    up.upshotEvent(name, attrs);
+    jest.dontMock('react-native');
+    jest.dontMock('react-native-upshotsdk');
+    return sent!;
+  };
+
+  it('adds platform (iOS / Android) to every event, like the website adds Web', () => {
+    expect(eventFor('ios', 'offer_viewed', { offerCount: 2 })).toEqual({ name: 'offer_viewed', payload: { platform: 'iOS', offerCount: 2 } });
+    expect(eventFor('android', 'otp_verified', {}).payload).toEqual({ platform: 'Android' });
+  });
+
+  it('sends the canonical lowercase name to the SDK untouched', () => {
+    expect(eventFor('ios', 'pan_verified', { source: 'aurix' }).name).toBe('pan_verified');
+    expect(eventFor('android', 'offers_got', { offerCount: 1 }).name).toBe('offers_got');
+  });
+
+  it('a caller-provided platform wins (app_opened passes its own)', () => {
+    expect(eventFor('ios', 'app_opened', { platform: 'iOS' }).payload).toEqual({ platform: 'iOS' });
   });
 });
 

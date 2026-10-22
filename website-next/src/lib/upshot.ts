@@ -154,10 +154,13 @@ export function upshotPageView(pathname: string): void {
 /* ─────────────────────────── events ─────────────────────────── */
 
 /**
- * Event NAMES and attribute KEYS: the SDK keeps letters, digits and underscores and
- * silently strips everything else, so "PAN Verified" is stored as "PANVerified". Names
- * here are written the way Upshot will store them (the app's two legacy spaced names
- * become PAN_Verified / Offers_Got on web) so what we send is what the dashboard shows.
+ * Event NAMES: one canonical spelling, lowercase snake_case, shared with the mobile app
+ * (src/analytics/upshot.ts). Contract: `docs/UPSHOT_EVENTS.md`, enforced by
+ * `__tests__/upshotEventParity.test.ts` at the repo root.
+ *
+ * Why so strict: Upshot keeps a separate event for every distinct spelling, and the web SDK
+ * silently strips spaces (and keeps case), so "PAN Verified", "PANVerified", "PAN_Verified" and
+ * "pan_verified" were four different events. Letters, digits and `_` only; never invent a variant.
  */
 
 /** Attributes on every web event, so a campaign can segment web vs app consistently. */
@@ -174,6 +177,36 @@ export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): 
   run(() => {
     sdk()?.createEventByName?.(name, clean, false);
   });
+}
+
+/**
+ * Campaign attribution as Upshot attributes: camelCase keys, the same spelling `website_visit`
+ * uses, so one concept is one attribute in every event. The raw attribution object keeps its
+ * snake_case `utm_*` keys for the server; only this Upshot copy is renamed. Left out on
+ * purpose: ad click ids (gclid / fbclid), which Upshot has no use for, and the full referrer
+ * URL (host only, like `website_visit`).
+ */
+const ATTRIBUTION_TO_UPSHOT: Record<string, string> = {
+  utm_source: 'utmSource',
+  utm_medium: 'utmMedium',
+  utm_campaign: 'utmCampaign',
+  utm_term: 'utmTerm',
+  utm_content: 'utmContent',
+  campaignId: 'campaignId',
+};
+
+export function toUpshotAttribution(raw: Record<string, string> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw) return out;
+  for (const [from, to] of Object.entries(ATTRIBUTION_TO_UPSHOT)) if (raw[from]) out[to] = raw[from]!;
+  if (raw.referrer) {
+    try {
+      out.referrer = new URL(raw.referrer).host;
+    } catch {
+      /* not a URL — leave it out rather than send junk */
+    }
+  }
+  return out;
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -322,7 +355,7 @@ export function knownOfferInfo(id: string | null | undefined): { amount?: number
 /** Funnel events that come from API results. PAN/DOB/address/bureau data is never sent. */
 export function upshotPanVerified(result: { verified?: boolean; source?: string; aadhaarLinked?: boolean | null }): void {
   if (!result?.verified) return;
-  upshotEvent('PAN_Verified', {
+  upshotEvent('pan_verified', {
     source: result.source,
     ...(typeof result.aadhaarLinked === 'boolean' ? { aadhaarLinked: result.aadhaarLinked } : {}),
   });
@@ -338,7 +371,7 @@ export function upshotOffersFetched(list: unknown): void {
   const lenders = [...new Set(got.map(partnerOf).filter((n): n is string => !!n))];
   const best = aprs.length ? got.find((o) => o?.apr === Math.min(...aprs)) : undefined;
   const topLender = best ? partnerOf(best) : undefined;
-  upshotEvent('Offers_Got', {
+  upshotEvent('offers_got', {
     offerCount: got.length,
     ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}),
     ...(amounts.length ? { maxAmount: Math.max(...amounts) } : {}),
