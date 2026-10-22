@@ -91,6 +91,8 @@ export function __resetUpshotForTests(): void {
   offers.clear();
   offerViewPending = false;
   lastIdentified = '';
+  currentStage = null;
+  identifiedUser = false;
 }
 
 /* ─────────────────────────── screens ─────────────────────────── */
@@ -128,6 +130,73 @@ export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
   '/partner/return': 'Partner Return',
 };
 
+/* ───────────────────────────── stage ─────────────────────────────
+ * `stage` = the user's PRESENT step in the journey, as a Title Case phrase ("Pan Verification").
+ * It rides on every event AND is kept on the user's profile (updated whenever it changes), so a
+ * campaign can target "everyone currently at Pan Verification". Pages outside the loan journey
+ * (home, FAQs, account…) leave it unchanged: it stays the last journey step the user reached.
+ * The vocabulary is shared with the app (src/analytics/upshot.ts) and enforced by
+ * __tests__/upshotEventParity.test.ts — add a step in both places and in docs/UPSHOT_EVENTS.md.
+ */
+export const UPSHOT_STAGES = [
+  'Language Selection',
+  'Get Started',
+  'Mobile Number',
+  'Otp Verification',
+  'Permissions',
+  'About You',
+  'Pan Verification',
+  'Basic Details',
+  'More Details',
+  'Finding Offers',
+  'Offers',
+  'Compare Offers',
+  'Lender Application',
+  'Application Submitted',
+  'Loan Disbursed',
+  'Repayment',
+] as const;
+
+export const UPSHOT_STAGE_FOR_ROUTE: Record<string, string> = {
+  '/apply': 'Mobile Number',
+  '/apply/verify': 'Otp Verification',
+  '/apply/step-1': 'Pan Verification',
+  '/apply/step-2': 'Basic Details',
+  '/apply/step-3': 'More Details',
+  '/apply/finding': 'Finding Offers',
+  '/apply/offers': 'Offers',
+  '/apply/compare': 'Compare Offers',
+  '/apply/lender': 'Lender Application',
+  '/apply/confirm': 'Lender Application',
+  '/apply/success': 'Application Submitted',
+};
+
+/** An event that itself moves the user to the next step (the step has no route of its own). */
+const STAGE_AFTER_EVENT: Record<string, string> = { otp_requested: 'Otp Verification' };
+
+let currentStage: string | null = null;
+/** True once the visitor has a profile to attach the stage to (an anonymous visitor has none). */
+let identifiedUser = false;
+
+export function currentUpshotStage(): string | null {
+  return currentStage;
+}
+
+function pushStageToProfile(): void {
+  const stage = currentStage;
+  if (!stage || !identifiedUser) return;
+  run(() => {
+    sdk()?.updateUserProfile?.({ stage }, () => {});
+  });
+}
+
+function setStage(stage: string | null | undefined): void {
+  if (!stage || stage === currentStage) return;
+  currentStage = stage;
+  devLog('stage ->', stage);
+  pushStageToProfile();
+}
+
 /** Route -> label. `/account/<id>` is the loan detail page; everything else falls back to the path. */
 export function upshotScreenLabel(pathname: string): string {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
@@ -143,6 +212,8 @@ const SKIPPED_ROUTES = [/^\/dev(\/|$)/, /^\/brand(\/|$)/, /^\/logo(\/|$)/];
 export function upshotPageView(pathname: string): void {
   if (SKIPPED_ROUTES.some((re) => re.test(pathname))) return;
   const label = upshotScreenLabel(pathname);
+  // Before the event below is queued: whatever fires next on this page carries this stage.
+  setStage(UPSHOT_STAGE_FOR_ROUTE[pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname]);
   devLog('screen ->', label);
   // Exactly as documented: createEvent('UpshotEventPageView', pageName). The SDK times the
   // view and sends the previous one when the next is created.
@@ -171,12 +242,14 @@ export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): 
   metaTrackFromWebEvent(name);
   // Drop undefined values: the SDK would turn them into nulls and Upshot would
   // then infer the attribute's type from a null.
-  const clean: Record<string, unknown> = { ...COMMON };
+  const clean: Record<string, unknown> = { ...COMMON, ...(currentStage ? { stage: currentStage } : {}) };
   for (const [k, v] of Object.entries(attrs)) if (v !== undefined) clean[k] = v;
   devLog('event ->', name, clean);
   run(() => {
     sdk()?.createEventByName?.(name, clean, false);
   });
+  // After the event: it happened AT the previous step; the user is now at the next one.
+  setStage(STAGE_AFTER_EVENT[name]);
 }
 
 /**
@@ -274,6 +347,9 @@ export function upshotIdentify(user: UpshotUser): void {
   run(() => {
     sdk()?.updateUserProfile?.(profile, () => {});
   });
+  // Now there is a profile: attach the step the user is on (and keep it current from here).
+  identifiedUser = true;
+  pushStageToProfile();
 }
 
 /**
@@ -284,6 +360,8 @@ export function upshotIdentify(user: UpshotUser): void {
  */
 export function upshotLogout(): void {
   lastIdentified = ''; // the same person logging straight back in must be re-identified
+  identifiedUser = false;
+  currentStage = null; // the next person on this browser starts from no step
   devLog('logout');
   run(() => {
     sdk()?.updateUserProfile?.({ appuid: '' }, () => {});

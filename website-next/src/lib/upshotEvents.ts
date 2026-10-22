@@ -24,6 +24,8 @@ export type UpshotEventDef = {
 /** Attributes attached to every event, so campaigns can segment consistently. */
 export const COMMON_ATTRIBUTES = {
   platform: 'Web' as string,
+  /** The user's present step (Title Case). Real events carry it once a journey step is known. */
+  stage: 'Pan Verification' as string,
 };
 
 export const UPSHOT_EVENTS: UpshotEventDef[] = [

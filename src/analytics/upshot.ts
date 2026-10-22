@@ -206,12 +206,94 @@ export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
   compare: 'Compare Offers',
 };
 
+/* ───────────────────────────── stage ─────────────────────────────
+ * `stage` = the user's PRESENT step in the journey, as a Title Case phrase ("Pan Verification").
+ * It rides on every event AND is kept on the user's profile (updated whenever it changes), so a
+ * campaign can target "everyone currently at Pan Verification". Screens outside the loan journey
+ * (home, loans, profile, help…) leave it unchanged: it stays the last journey step reached.
+ * Same vocabulary as the website (website-next/src/lib/upshot.ts), enforced by
+ * __tests__/upshotEventParity.test.ts — add a step in both places and in docs/UPSHOT_EVENTS.md.
+ */
+export const UPSHOT_STAGES = [
+  'Language Selection',
+  'Get Started',
+  'Mobile Number',
+  'Otp Verification',
+  'Permissions',
+  'About You',
+  'Pan Verification',
+  'Basic Details',
+  'More Details',
+  'Finding Offers',
+  'Offers',
+  'Compare Offers',
+  'Lender Application',
+  'Application Submitted',
+  'Loan Disbursed',
+  'Repayment',
+] as const;
+
+export const UPSHOT_STAGE_FOR_SCREEN: Record<string, string> = {
+  language: 'Language Selection',
+  intro: 'Get Started',
+  mobile: 'Mobile Number',
+  otp: 'Otp Verification',
+  permissions: 'Permissions',
+  aboutyou: 'About You',
+  basicpan: 'Pan Verification',
+  basic: 'Basic Details',
+  moredetails: 'More Details',
+  finding: 'Finding Offers',
+  fare: 'Offers',
+  offers: 'Offers',
+  compare: 'Compare Offers',
+  handoff: 'Lender Application',
+  lenderweb: 'Lender Application',
+  altweb: 'Lender Application',
+  status: 'Application Submitted',
+  disbursed: 'Loan Disbursed',
+  repay: 'Repayment',
+};
+
+/** An event that itself moves the user to the next step: OTP entry shares the `mobile` screen. */
+const STAGE_AFTER_EVENT: Record<string, string> = { otp_requested: 'Otp Verification' };
+
+let currentStage: string | null = null;
+/** The id the profile is keyed on, once known — the stage is only pushed to a profile that exists. */
+let identifiedUserId: string | null = null;
+
+export function currentUpshotStage(): string | null {
+  return currentStage;
+}
+
+function pushStageToProfile(): void {
+  const stage = currentStage;
+  if (!stage || !identifiedUserId) return;
+  const appuID = identifiedUserId;
+  safe(() => sdk()?.setUserProfile?.(JSON.stringify({ appuID, stage })));
+}
+
+function setStage(stage: string | null | undefined): void {
+  if (!stage || stage === currentStage) return;
+  currentStage = stage;
+  devLog('stage ->', stage);
+  pushStageToProfile();
+}
+
+/** Test seam: forget the current step and who is identified. */
+export function __resetUpshotStageForTests(): void {
+  currentStage = null;
+  identifiedUserId = null;
+}
+
 /** Screens that are never reported: the animated logo at launch carries no information. */
 const UPSHOT_SKIPPED_SCREENS = new Set(['splash']);
 
 export function upshotScreen(screen: string): void {
   if (!started || UPSHOT_SKIPPED_SCREENS.has(screen)) return;
   const name = UPSHOT_SCREEN_LABELS[screen] ?? screen;
+  // Before anything else fires on this screen: events from here on carry this stage.
+  setStage(UPSHOT_STAGE_FOR_SCREEN[screen]);
   devLog('screen ->', name);
   safe(() => sdk()?.createPageViewEvent?.(name, __DEV__ ? accepted(`screen:${name}`) : noop));
 }
@@ -224,15 +306,18 @@ export function upshotScreen(screen: string): void {
  * invent a new variant of an existing name.
  *
  * `platform` ('iOS' | 'Android') rides on every event, as 'Web' does on the website, so a
- * report can split by surface the same way everywhere. A caller's own value wins.
+ * report can split by surface the same way everywhere; so does `stage` (the present step,
+ * once known). A caller's own value wins.
  */
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
   // Meta ads: the two funnel moments only, no attributes (see src/analytics/meta.ts).
   metaTrackFromAppEvent(name);
   if (!started) return;
-  const payload = { platform: PLATFORM, ...attrs };
+  const payload = { platform: PLATFORM, ...(currentStage ? { stage: currentStage } : {}), ...attrs };
   devLog('event ->', name, payload);
   safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(payload), false, __DEV__ ? accepted(`event:${name}`) : noop));
+  // After the event: it happened AT the previous step; the user is now at the next one.
+  setStage(STAGE_AFTER_EVENT[name]);
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -287,10 +372,15 @@ export function upshotIdentify(user: {
       }),
     ),
   );
+  // Now there is a profile: attach the step the user is on (and keep it current from here).
+  identifiedUserId = user.userId;
+  pushStageToProfile();
 }
 
 /** Upshot's logout is `disableUser(true)` — there is no `userLogout`. */
 export function upshotLogout(): void {
+  identifiedUserId = null;
+  currentStage = null; // the next person on this device starts from no step
   safe(() => sdk()?.disableUser?.(true));
 }
 
@@ -400,7 +490,7 @@ export function seedUpshotCatalogue(): number {
   }
   MOBILE_UPSHOT_EVENTS.forEach((e, i) => {
     // Spread over time so the SDK batches rather than dropping.
-    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: PLATFORM, seeded: true }), i * 150);
+    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: PLATFORM, stage: 'Pan Verification', seeded: true }), i * 150);
   });
   if (__DEV__) console.log(`[upshot] seeding ${MOBILE_UPSHOT_EVENTS.length} events`);
   return MOBILE_UPSHOT_EVENTS.length;

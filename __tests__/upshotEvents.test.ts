@@ -197,6 +197,89 @@ describe('Upshot app events carry the surface label', () => {
   });
 });
 
+describe('Upshot stage (the present step)', () => {
+  /** Boots the wrapper against a fake SDK and records every event + profile call. */
+  const harness = (os: 'ios' | 'android' = 'ios') => {
+    const events: Array<{ name: string; payload: any }> = [];
+    const profiles: any[] = [];
+    jest.resetModules();
+    jest.doMock('react-native', () => {
+      const rn = jest.requireActual('react-native');
+      return Object.setPrototypeOf({ Platform: { ...rn.Platform, OS: os }, NativeModules: { ...rn.NativeModules, UpshotReact: {} } }, rn);
+    });
+    jest.doMock('react-native-upshotsdk', () => ({
+      default: {
+        initializeUpshotUsingOptions: jest.fn(), addListener: jest.fn(), setDispatchInterval: jest.fn(),
+        createPageViewEvent: jest.fn(),
+        createCustomEvent: (n: string, json: string) => { events.push({ name: n, payload: JSON.parse(json) }); },
+        setUserProfile: (json: string) => { profiles.push(JSON.parse(json)); },
+      },
+    }), { virtual: true });
+    const up = require('../src/analytics/upshot');
+    expect(up.initUpshot()).toBe(true);
+    return { up, events, profiles };
+  };
+  afterEach(() => { jest.dontMock('react-native'); jest.dontMock('react-native-upshotsdk'); });
+
+  it('is set by the journey screens, and every event after carries it', () => {
+    const { up, events } = harness();
+    expect(up.currentUpshotStage()).toBeNull();
+    up.upshotScreen('basicpan');
+    expect(up.currentUpshotStage()).toBe('Pan Verification');
+    up.upshotEvent('pan_verified', { source: 'aurix' });
+    expect(events.at(-1)).toEqual({ name: 'pan_verified', payload: { platform: 'iOS', stage: 'Pan Verification', source: 'aurix' } });
+  });
+
+  it('follows the user through the whole journey, with the same wording as the website', () => {
+    const { up } = harness('android');
+    const seen: Array<string | null> = [];
+    for (const screen of ['intro', 'mobile', 'otp', 'permissions', 'aboutyou', 'basicpan', 'basic', 'moredetails', 'finding', 'fare', 'compare', 'handoff', 'status', 'disbursed']) {
+      up.upshotScreen(screen);
+      seen.push(up.currentUpshotStage());
+    }
+    expect(seen).toEqual([
+      'Get Started', 'Mobile Number', 'Otp Verification', 'Permissions', 'About You', 'Pan Verification', 'Basic Details',
+      'More Details', 'Finding Offers', 'Offers', 'Compare Offers', 'Lender Application', 'Application Submitted', 'Loan Disbursed',
+    ]);
+  });
+
+  it('screens outside the loan journey leave it unchanged', () => {
+    const { up } = harness();
+    up.upshotScreen('basic');
+    for (const screen of ['home', 'loans', 'profile', 'help', 'referral', 'calculator']) up.upshotScreen(screen);
+    expect(up.currentUpshotStage()).toBe('Basic Details');
+  });
+
+  it('requesting an OTP (same screen as the number) moves the user on, AFTER the event itself', () => {
+    const { up, events } = harness();
+    up.upshotScreen('mobile');
+    up.upshotEvent('otp_requested', { screen: 'mobile' });
+    expect(events.at(-1)!.payload.stage).toBe('Mobile Number');
+    expect(up.currentUpshotStage()).toBe('Otp Verification');
+  });
+
+  it('is kept on the user profile as it changes — but only once the user is identified', () => {
+    const { up, profiles } = harness();
+    up.upshotScreen('otp');
+    expect(profiles).toEqual([]); // nobody to attach it to yet
+    up.upshotIdentify({ userId: 'u1', phone: '9999999999' });
+    expect(profiles.at(-1)).toEqual({ appuID: 'u1', stage: 'Otp Verification' });
+    up.upshotScreen('basicpan');
+    expect(profiles.at(-1)).toEqual({ appuID: 'u1', stage: 'Pan Verification' });
+    const n = profiles.length;
+    up.upshotScreen('basicpan'); // unchanged: no repeat
+    expect(profiles.length).toBe(n);
+  });
+
+  it('every stage a screen maps to is in the shared vocabulary, in Title Case', () => {
+    const { up } = harness();
+    for (const stage of Object.values(up.UPSHOT_STAGE_FOR_SCREEN as Record<string, string>)) {
+      expect(up.UPSHOT_STAGES).toContain(stage);
+      expect(stage).toMatch(/^[A-Z][a-z]+( [A-Z][a-z]+)*$/);
+    }
+  });
+});
+
 describe('Upshot screen names', () => {
   it('sends readable names for the renamed screens and the raw id for the rest', () => {
     jest.resetModules();

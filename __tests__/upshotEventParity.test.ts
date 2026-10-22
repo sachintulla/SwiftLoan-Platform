@@ -12,13 +12,19 @@
  *   - both catalogues (the dev "seed" lists) must list the same names, with the same
  *     attribute keys and value TYPES for any event they share (Upshot fixes an attribute's
  *     type on first sight, so a string-vs-number slip is permanent);
- *   - the screen labels both surfaces use for the same funnel step must match.
+ *   - the screen labels both surfaces use for the same funnel step must match;
+ *   - `stage` (the user's present step) uses one shared vocabulary and the same value for the same step.
  *
  * Adding or renaming an event? Change the code AND this CONTRACT AND the doc, deliberately.
  */
 import fs from 'fs';
 import path from 'path';
-import { MOBILE_UPSHOT_EVENTS, UPSHOT_SCREEN_LABELS as APP_SCREEN_LABELS } from '../src/analytics/upshot';
+import {
+  MOBILE_UPSHOT_EVENTS,
+  UPSHOT_SCREEN_LABELS as APP_SCREEN_LABELS,
+  UPSHOT_STAGES as APP_STAGES,
+  UPSHOT_STAGE_FOR_SCREEN as APP_STAGE_FOR_SCREEN,
+} from '../src/analytics/upshot';
 import { UPSHOT_EVENTS as WEB_EVENTS } from '../website-next/src/lib/upshotEvents';
 
 interface Contract {
@@ -102,6 +108,23 @@ function emittedNames(dir: string): string[] {
   return [...names].sort();
 }
 
+
+/** `export const NAME = [ 'a', 'b' ]` or `{ key: 'a' }` from the website source, as its string literals. */
+function webLiterals(name: string, kind: 'array' | 'map'): string[] {
+  const text = fs.readFileSync(path.join(ROOT, 'website-next/src/lib/upshot.ts'), 'utf8');
+  const start = text.indexOf(`export const ${name}`);
+  expect(start).toBeGreaterThan(-1);
+  const end = text.indexOf(kind === 'array' ? '] as const' : '};', start);
+  const body = text.slice(start, end);
+  return kind === 'array' ? [...body.matchAll(/'([^']+)'/g)].map((m) => m[1]!) : [...body.matchAll(/:\s*'([^']+)'/g)].map((m) => m[1]!);
+}
+function webStageMap(): Record<string, string> {
+  const text = fs.readFileSync(path.join(ROOT, 'website-next/src/lib/upshot.ts'), 'utf8');
+  const start = text.indexOf('export const UPSHOT_STAGE_FOR_ROUTE');
+  const body = text.slice(start, text.indexOf('};', start));
+  return Object.fromEntries([...body.matchAll(/'([^']+)':\s*'([^']+)'/g)].map((m) => [m[1]!, m[2]!]));
+}
+
 const want = (pick: (c: Contract) => boolean) =>
   Object.entries(CONTRACT)
     .filter(([, c]) => pick(c))
@@ -173,5 +196,44 @@ describe('Upshot event names: one canonical spelling everywhere', () => {
     ]) {
       expect([label, app.has(label), web.has(label)]).toEqual([label, true, true]);
     }
+  });
+});
+
+describe('stage: the user\'s present step, one vocabulary on every surface', () => {
+  it('the app and the website share exactly the same list of stages', () => {
+    expect([...APP_STAGES]).toEqual(webLiterals('UPSHOT_STAGES', 'array'));
+  });
+
+  it('stages are Title Case phrases like "Pan Verification" (letters and spaces only)', () => {
+    for (const stage of APP_STAGES) expect(stage).toMatch(/^[A-Z][a-z]+( [A-Z][a-z]+)*$/);
+  });
+
+  it('every screen / route maps to a stage in the vocabulary', () => {
+    for (const stage of Object.values(APP_STAGE_FOR_SCREEN)) expect(APP_STAGES).toContain(stage);
+    for (const stage of Object.values(webStageMap())) expect(APP_STAGES).toContain(stage);
+  });
+
+  it('the journey steps both surfaces have map to the same stage on each', () => {
+    const app = new Set(Object.values(APP_STAGE_FOR_SCREEN));
+    const web = new Set(Object.values(webStageMap()));
+    for (const stage of [
+      'Mobile Number',
+      'Otp Verification',
+      'Pan Verification',
+      'Basic Details',
+      'More Details',
+      'Finding Offers',
+      'Offers',
+      'Compare Offers',
+      'Lender Application',
+      'Application Submitted',
+    ]) {
+      expect([stage, app.has(stage), web.has(stage)]).toEqual([stage, true, true]);
+    }
+  });
+
+  it('every stage in the vocabulary is reachable from at least one screen or route', () => {
+    const reachable = new Set([...Object.values(APP_STAGE_FOR_SCREEN), ...Object.values(webStageMap())]);
+    for (const stage of APP_STAGES) expect([stage, reachable.has(stage)]).toEqual([stage, true]);
   });
 });

@@ -19,6 +19,9 @@ import {
   upshotRouteFunnel,
   upshotScreenLabel,
   toUpshotAttribution,
+  currentUpshotStage,
+  UPSHOT_STAGES,
+  UPSHOT_STAGE_FOR_ROUTE,
 } from './upshot';
 
 /** The only methods the real v1.4 bundle exposes for these jobs (checked against `window.upshot`). */
@@ -120,7 +123,8 @@ describe('queueing and the real SDK API', () => {
     upshotIdentify({ userId: 'u-1', phone: '9876543210' });
     expect(sdk.createEventByName).toHaveBeenCalledTimes(1);
     expect(sdk.createEvent).toHaveBeenCalledTimes(1);
-    expect(sdk.updateUserProfile).toHaveBeenCalledTimes(1);
+    // identify + the current step (the page view above put the visitor on 'Mobile Number')
+    expect(sdk.updateUserProfile).toHaveBeenCalledTimes(2);
     for (const fn of Object.values(wrong)) expect(fn).not.toHaveBeenCalled();
   });
 
@@ -300,5 +304,96 @@ describe('toUpshotAttribution', () => {
   it('is empty for nothing', () => {
     expect(toUpshotAttribution(undefined)).toEqual({});
     expect(toUpshotAttribution({})).toEqual({});
+  });
+});
+
+describe('stage (the present step)', () => {
+  it('is set by the journey pages, and every event after carries it', () => {
+    const sdk = installSdk();
+    markUpshotReady();
+    expect(currentUpshotStage()).toBeNull();
+    upshotPageView('/apply/step-1');
+    expect(currentUpshotStage()).toBe('Pan Verification');
+    upshotEvent('pan_verified', { source: 'aurix' });
+    expect(sdk.createEventByName).toHaveBeenLastCalledWith(
+      'pan_verified',
+      { platform: 'Web', stage: 'Pan Verification', source: 'aurix' },
+      false,
+    );
+  });
+
+  it('follows the user step by step through the whole journey', () => {
+    installSdk();
+    markUpshotReady();
+    const seen: Array<string | null> = [];
+    for (const route of ['/apply', '/apply/verify', '/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/finding', '/apply/offers', '/apply/compare', '/apply/lender', '/apply/success']) {
+      upshotPageView(route);
+      seen.push(currentUpshotStage());
+    }
+    expect(seen).toEqual([
+      'Mobile Number', 'Otp Verification', 'Pan Verification', 'Basic Details', 'More Details',
+      'Finding Offers', 'Offers', 'Compare Offers', 'Lender Application', 'Application Submitted',
+    ]);
+  });
+
+  it('pages outside the loan journey leave it unchanged (it stays the last step reached)', () => {
+    installSdk();
+    markUpshotReady();
+    upshotPageView('/apply/step-2');
+    upshotPageView('/faqs');
+    upshotPageView('/privacy-policy');
+    upshotPageView('/');
+    expect(currentUpshotStage()).toBe('Basic Details');
+  });
+
+  it('requesting an OTP moves the user on to Otp Verification, AFTER the event itself', () => {
+    const sdk = installSdk();
+    markUpshotReady();
+    upshotPageView('/apply');
+    upshotEvent('otp_requested', { screen: 'apply' });
+    expect(sdk.createEventByName).toHaveBeenLastCalledWith('otp_requested', { platform: 'Web', stage: 'Mobile Number', screen: 'apply' }, false);
+    expect(currentUpshotStage()).toBe('Otp Verification');
+  });
+
+  it('a caller-provided stage wins', () => {
+    const sdk = installSdk();
+    markUpshotReady();
+    upshotPageView('/apply/step-1');
+    upshotEvent('custom_thing', { stage: 'Something Else' });
+    expect(sdk.createEventByName).toHaveBeenLastCalledWith('custom_thing', { platform: 'Web', stage: 'Something Else' }, false);
+  });
+
+  it('is kept on the user profile as it changes — but only once there is a profile', () => {
+    const sdk = installSdk();
+    markUpshotReady();
+    upshotPageView('/apply/verify'); // anonymous: nothing to attach it to
+    expect(sdk.updateUserProfile).not.toHaveBeenCalled();
+
+    upshotIdentifyServerUser({ id: 'u-1', phone: '9876543210' }); // identify, then the current step
+    expect(sdk.updateUserProfile).toHaveBeenNthCalledWith(2, { stage: 'Otp Verification' }, expect.any(Function));
+
+    upshotPageView('/apply/step-1');
+    expect(sdk.updateUserProfile).toHaveBeenLastCalledWith({ stage: 'Pan Verification' }, expect.any(Function));
+    upshotPageView('/apply/step-1'); // unchanged: no repeat
+    expect(sdk.updateUserProfile).toHaveBeenCalledTimes(3);
+  });
+
+  it('logout forgets the step and the profile, so the next person starts clean', () => {
+    const sdk = installSdk();
+    markUpshotReady();
+    upshotIdentifyServerUser({ id: 'u-1', phone: '9876543210' });
+    upshotPageView('/apply/offers');
+    upshotLogout();
+    expect(currentUpshotStage()).toBeNull();
+    sdk.updateUserProfile.mockClear();
+    upshotPageView('/apply/step-1'); // anonymous again: no profile push
+    expect(sdk.updateUserProfile).not.toHaveBeenCalled();
+  });
+
+  it('every stage a route maps to is in the shared vocabulary, in Title Case', () => {
+    for (const stage of Object.values(UPSHOT_STAGE_FOR_ROUTE)) {
+      expect(UPSHOT_STAGES).toContain(stage);
+      expect(stage).toMatch(/^[A-Z][a-z]+( [A-Z][a-z]+)*$/);
+    }
   });
 });
