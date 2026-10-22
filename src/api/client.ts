@@ -492,6 +492,17 @@ export const api = {
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
   deleteAvatar: () => request('DELETE', '/users/me/avatar'),
 
+  // Website drop-off recovery: the signed-in user's unfinished website visit, if any (null when none).
+  journeyResume: async (): Promise<{ token: string; first_name: string | null; phone: string; last_step: string } | null> => {
+    const r = await request<{ data?: { resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null } }>('GET', '/journey/resume');
+    return r?.data?.resume ?? null;
+  },
+  // The details for the PAN this user already verified (on the website), without the PAN: a masked form only.
+  panOnFile: async (): Promise<{ onFile: boolean; maskedPan?: string; category?: string | null; aadhaarLinked?: boolean | null; prefill?: PanPrefill }> => {
+    const r = await request<{ data?: any }>('GET', '/kyc/pan/on-file');
+    return r?.data ?? { onFile: false };
+  },
+
   // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
   // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.
   // The server answers from its own PAN cache when it has seen this PAN
@@ -679,10 +690,14 @@ let sessionId: string | null = null;
 export const getSessionId = () => sessionId;
 
 // Low-level fire-and-forget POST. Short timeout; errors are silently ignored.
+// The calls that are made BEFORE anyone is signed in: install attribution (the old per-process
+// /track/install and the current first-launch /attribution/claim). Everything else needs a session.
+const ANONYMOUS_TRACK_PATHS: ReadonlySet<string> = new Set(['/track/install', '/attribution/claim', '/attribution/resume']);
+
 function trackPost(path: string, body: Record<string, unknown>): Promise<any> {
   // Activity is only tracked for a signed-in user (the server drops it otherwise, so
-  // don't even send it). Install attribution is the one anonymous call.
-  if (!accessToken && path !== '/track/install') return Promise.resolve({});
+  // don't even send it). Install attribution is the anonymous exception.
+  if (!accessToken && !ANONYMOUS_TRACK_PATHS.has(path)) return Promise.resolve({});
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
   return fetch(TRACK_BASE + path, {
@@ -746,6 +761,8 @@ export interface InstallClaim {
   download_id: string;
   source: string;
   referral: { code: string; referrer_name: string } | null;
+  /** Set when the install matched the link of a website visitor who left their application unfinished. */
+  resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null;
 }
 
 /**
@@ -765,6 +782,15 @@ export async function claimInstall(
     os_version: signals.osVersion ?? null,
   });
   return r?.success && r.data ? (r.data as InstallClaim) : null;
+}
+
+/**
+ * The app was opened from a website visitor's own link (swiftloan://onboard?token=…): the saved journey for that
+ * reference ID, or null when there is none (unknown, stale, or the network is down).
+ */
+export async function resumeFromLink(token: string): Promise<{ token: string; first_name: string | null; phone: string; last_step: string } | null> {
+  const r = await trackPost('/attribution/resume', { token });
+  return r?.success && r.data?.resume ? r.data.resume : null;
 }
 
 export function trackEvent(

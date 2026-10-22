@@ -8,6 +8,7 @@ import { immediateCallback } from '../lib/immediateCallback.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
 import { purgeExpiredClicks } from '../lib/referral.js';
+import { installReminderTick } from '../lib/installReminder.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -160,6 +161,9 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   // ADM-016 — close calls whose terminal webhook never arrived, so a lost
   // callback cannot pin a contact in `queued` and stall the whole campaign.
   { name: 'call-reconcile', fn: async () => { await reconcileStaleCalls(); }, everyMs: 10 * 60_000 },
+  // Website drop-off recovery: save where a verified visitor stopped and run the app-link reminder
+  // schedule. Log-only unless INSTALL_REMINDER_SEND=true (see lib/installReminder.ts).
+  { name: 'install-reminder', fn: async () => { await installReminderTick(); }, everyMs: 60_000 },
   // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
   { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
 ];
@@ -167,7 +171,7 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
 // Kill switch for every outbound-nudge path: the stall detectors that create
 // nudges and the workers that drain the dispatch queue. Admin-alert-only jobs
 // (idle / loan-stale / onboarding-stale) keep running.
-const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender']);
+const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder']);
 export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '');
 
 let timers: NodeJS.Timeout[] = [];

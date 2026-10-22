@@ -10,6 +10,7 @@
  * Reuses the Voxvalley integration's saved `authToken` + `projectId`.
  */
 import { getProviderConfig } from './integrations.js';
+import { recordSend } from './messageDelivery.js';
 
 export interface SmsResult {
   ok: boolean;
@@ -24,7 +25,17 @@ function toE164(phone: string): string {
   return `+${digits.length > 10 ? digits : `91${digits.slice(-10)}`}`;
 }
 
-export async function sendVoxSms(opts: { phone: string; body?: string; templateId?: string; from?: string }): Promise<SmsResult> {
+export async function sendVoxSms(opts: { phone: string; body?: string; templateId?: string; from?: string; track?: { kind?: string; customerId?: string | null } }): Promise<SmsResult> {
+  const result = await sendVoxSmsRaw(opts);
+  // Remember it for the Messages list. The SMS gateway gives no delivery callback here, so "sent" means "the gateway accepted it".
+  await recordSend({
+    channel: 'sms', providerRef: result.ok ? result.messageId ?? null : null, phone: opts.phone, template: opts.templateId ?? null,
+    kind: opts.track?.kind ?? 'other', customerId: opts.track?.customerId ?? null, ok: result.ok, status: 'sent', error: result.error ?? null,
+  });
+  return result;
+}
+
+async function sendVoxSmsRaw(opts: { phone: string; body?: string; templateId?: string; from?: string }): Promise<SmsResult> {
   const cfg = await getProviderConfig('voxvalley');
   if (!cfg.enabled) return { ok: false, status: 0, error: 'Voxvalley integration is disabled' };
 

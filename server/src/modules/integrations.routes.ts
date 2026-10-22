@@ -181,6 +181,7 @@ integrationsRouter.post('/:provider/test', requireRole(...CAN_ADMINISTER), valid
     const result = await sendWhatsAppTemplate({
       phone: body.testPhone,
       placeholders: Array.isArray(body.placeholders) ? body.placeholders.map(String) : ['there'],
+      track: { kind: 'test' },
     });
     log.info('test whatsapp sent', { phone: body.testPhone, ok: result.ok, status: result.status, error: result.error ?? null });
     return ok(res, {
