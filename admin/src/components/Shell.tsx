@@ -125,7 +125,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </React.Fragment>
         ))}
         <div className="spacer" />
-        <button className="nav-item" style={{ border: 'none', background: 'none', width: '100%' }} onClick={() => { clearSession(); router.replace('/login'); }}>
+        <button className="nav-item nav-signout" style={{ border: 'none', width: '100%' }} onClick={() => { clearSession(); router.replace('/login'); }}>
           <span className="row" style={{ gap: 10 }}><span style={{ width: 18, textAlign: 'center' }}>⏻</span>Sign out</span>
         </button>
       </aside>

@@ -11,7 +11,7 @@
 import { DEFAULT_SCHEDULE, type ScheduleRow } from './timings.js';
 
 export type ReminderChannel = 'sms' | 'whatsapp';
-export type LastStep = 'otp_only' | 'pan_done' | 'application_started';
+export type LastStep = 'otp_requested' | 'otp_only' | 'pan_done' | 'application_started';
 export type StopReason = 'installed' | 'app_login' | 'application_finished' | 'do_not_contact' | 'returned';
 
 export interface ScheduleStep {
@@ -107,7 +107,8 @@ export function nextAction(i: NextActionInput): NextAction {
 }
 
 /** Where the visitor got to, from what the server knows about them. */
-export function deriveLastStep(i: { panOnFile: boolean; hasApplication: boolean }): LastStep {
+export function deriveLastStep(i: { panOnFile: boolean; hasApplication: boolean; unverified?: boolean }): LastStep {
+  if (i.unverified) return 'otp_requested';
   if (i.hasApplication) return 'application_started';
   return i.panOnFile ? 'pan_done' : 'otp_only';
 }
@@ -150,11 +151,20 @@ export function buildInstallLink(publicBase: string, token: string): string {
   return `${publicBase.replace(/\/$/, '')}/dl?ref=${encodeURIComponent(token)}`;
 }
 
-/** What the SMS calls the step the visitor stopped at (an operator setting `installStepLabels` can override any of these). */
+/**
+ * What the message calls the step the visitor is STUCK ON: the sentence reads "incomplete at <step>", so each label is
+ * the next website step they have not finished, not the one they just completed (an operator setting `installStepLabels`
+ * can override any of these). The website's steps: 1 PAN verification, 2 Basic details, 3 Finding offers.
+ *   otp_requested       asked for an OTP, never entered it → the OTP step
+ *   otp_only            mobile verified, PAN not done      → step 1
+ *   pan_done            PAN done, details not submitted    → step 2
+ *   application_started details submitted (application row) → step 3
+ */
 export const DEFAULT_STEP_LABELS: Readonly<Record<LastStep, string>> = Object.freeze({
-  otp_only: 'Mobile verification',
-  pan_done: 'Pan verification',
-  application_started: 'Application',
+  otp_requested: 'OTP verification',
+  otp_only: 'PAN verification',
+  pan_done: 'Basic details',
+  application_started: 'Finding offers',
 });
 
 /** A DLT variable is capped (30 characters is common): keep the whole name if it fits, else its first word. */

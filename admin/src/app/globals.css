@@ -48,7 +48,14 @@ button { font-family: inherit; cursor: pointer; }
   position: fixed; inset: 0 auto 0 0; width: var(--sidebar-w);
   background: var(--brand-ink); color: #cfe8e8;
   display: flex; flex-direction: column; padding: 18px 14px; gap: 4px; z-index: 20;
+  /* The menu is taller than most windows (and keeps growing), so it scrolls on its own; the page behind it does not move. */
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent;
 }
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 6px; }
+.sidebar > * { flex-shrink: 0; } /* never squash menu rows to fit: scroll instead */
+/* Sign out stays in view at the bottom of the window however far the menu is scrolled. */
+.nav-signout { position: sticky; bottom: -18px; margin-top: 8px; padding-bottom: 14px !important; background: var(--brand-ink) !important; box-shadow: 0 -10px 12px -6px var(--brand-ink); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 18px; }
 .brand-logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), var(--brand-mint)); display: grid; place-items: center; color: #fff; font-weight: 800; }
 .brand-name { color: #fff; font-weight: 700; font-size: 16px; }
