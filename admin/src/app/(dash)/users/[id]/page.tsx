@@ -3,7 +3,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
-import { inr, dateStr, humanStatus, timeAgo } from '@/lib/format';
+import { inr, dateStr, dateTimeStr, humanStatus, timeAgo } from '@/lib/format';
 import { stageLabel } from '@/components/journey';
 import type { ReactNode } from 'react';
 
@@ -39,7 +39,7 @@ export default function UserProfile() {
         {u.avatarUrl && <img src={u.avatarUrl} alt="" width={44} height={44} style={{ borderRadius: '50%', objectFit: 'cover' }} />}
         <div>
           <h1 className="page-title" style={{ margin: 0 }}>{u.fullName || [u.firstName, u.lastName].filter(Boolean).join(' ') || 'User'}</h1>
-          <p className="page-sub" style={{ margin: 0 }}>{u.phone} · {u.email || 'no email'} · joined {dateStr(u.createdAt)}</p>
+          <p className="page-sub" style={{ margin: 0 }}>{u.phone} · {u.email || 'no email'} · joined {dateTimeStr(u.createdAt)}</p>
         </div>
       </div>
 

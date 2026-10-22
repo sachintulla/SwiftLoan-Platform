@@ -60,6 +60,13 @@ export function timeStr(iso: string | Date | null | undefined): string {
   return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
+/** Date + time, e.g. "22 Oct 2026, 3:07 PM" — for columns that must show both. */
+export function dateTimeStr(iso: string | Date | null | undefined): string {
+  if (!iso) return '—';
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
 /** Day-group header: "Today" / "Yesterday" / "Mon, 24 Aug 2026". */
 export function dayLabel(iso: string | Date | null | undefined): string {
   if (!iso) return '—';

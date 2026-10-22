@@ -4,7 +4,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { num, pct, dateStr } from '@/lib/format';
+import { num, pct, dateTimeStr } from '@/lib/format';
 import { stageLabel } from '@/components/journey';
 import { DonutChart } from '@/components/charts';
 import AppBuilds from '@/components/AppBuilds';
@@ -128,7 +128,7 @@ export default function DownloadsPage() {
                 <td className="mono muted">{r.campaignId || '—'}</td>
                 <td className="muted">{r.matchMethod ? r.matchMethod.replace('_', ' ') : '—'}</td>
                 <td>{r.contextLoaded ? <StatusBadge status="converted" label="Context" /> : <StatusBadge status="not_started" label="Organic" />}</td>
-                <td className="muted">{dateStr(r.installedAt)}</td>
+                <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTimeStr(r.installedAt)}</td>
               </tr>
             ))}</tbody>
           </table></div>

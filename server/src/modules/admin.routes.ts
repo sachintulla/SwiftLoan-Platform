@@ -596,6 +596,16 @@ adminRouter.get('/users', ah(async (req, res) => {
     const s = String(req.query.search).trim();
     where.OR = [{ fullName: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { email: { contains: s, mode: 'insensitive' } }];
   }
+  // Filter by current journey stage: restrict to the users whose Customer is in
+  // that stage. An unknown/empty stage set yields no users (correct).
+  const stage = req.query.stage ? String(req.query.stage) : undefined;
+  if (stage) {
+    const staged = await prisma.customer.findMany({
+      where: { currentStage: stage, userId: { not: null } } as Record<string, unknown>,
+      select: { userId: true },
+    });
+    where.id = { in: staged.map((c) => c.userId!) };
+  }
   const [rows, total] = await Promise.all([
     prisma.user.findMany({
       where, orderBy: { createdAt: 'desc' }, skip, take,
@@ -607,7 +617,13 @@ adminRouter.get('/users', ah(async (req, res) => {
     }),
     prisma.user.count({ where }),
   ]);
-  return ok(res, rows, 'Users', paginate(page, pageSize, total));
+  // Attach each user's current stage for the stage column.
+  const custs = rows.length
+    ? await prisma.customer.findMany({ where: { userId: { in: rows.map((r) => r.id) } }, select: { userId: true, currentStage: true } })
+    : [];
+  const stageByUser = new Map(custs.map((c) => [c.userId!, c.currentStage]));
+  const enriched = rows.map((r) => ({ ...r, stage: stageByUser.get(r.id) ?? null }));
+  return ok(res, enriched, 'Users', paginate(page, pageSize, total));
 }));
 
 // GET /api/admin/users/:id — full profile + EVERY application the customer made
