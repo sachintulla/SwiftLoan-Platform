@@ -66,7 +66,8 @@ async function webLogin(phone = newPhone()) {
   assert.equal(vf.status, 200, 'website login');
   await new Promise((r) => setTimeout(r, 400)); // arming is fire-and-forget
   const user = await prisma.user.findUniqueOrThrow({ where: { phone } });
-  const reminder = await prisma.journeyReminder.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+  // The visitor's real (verified) run. A late "OTP requested" arming can land a moment after the verify arming; it is stopped as a duplicate, so it is not the one tests mean.
+  const reminder = await prisma.journeyReminder.findFirst({ where: { userId: user.id, unverified: false }, orderBy: { createdAt: 'desc' } });
   return { phone, token: vf.body.data.accessToken as string, user, reminder };
 }
 const IST = (h: number, m = 0, d = 20) => new Date(Date.UTC(2026, 9, d, h, m) - 5.5 * 3_600_000); // IST wall clock → Date
@@ -1458,6 +1459,49 @@ await t('S152', 'schedule:default', 'a visitor gets at most 2 runs by default (n
   const c2 = await prisma.journeyReminder.findFirstOrThrow({ where: { userId: w.user.id, status: 'active' } }); assert.equal(c2.cycle, 2);
   await prisma.journeyReminder.update({ where: { id: c2.id }, data: { droppedAt: new Date(OPEN.getTime() - 60_000) } }); await rem.pingInstallReminder(w.user, OPEN);
   assert.equal(await prisma.journeyReminder.count({ where: { userId: w.user.id, status: 'active' } }), 0, 'no third run');
+});
+
+/* ───────────── S: one active reminder per person, even when the website pings at the same instant (prod showed two rows 2 ms apart) ───────────── */
+await t('S153', 'duplicates', 'a visitor who comes back after being marked dropped off, with several website pings at the same instant, ends up with exactly ONE new active run', async () => {
+  await isolateN(); const w = await webLogin();
+  await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { droppedAt: new Date(OPEN.getTime() - 60_000), stepsSent: 2, startAt: new Date(OPEN.getTime() - 600_000) } });
+  await Promise.all(Array.from({ length: 6 }, () => rem.pingInstallReminder(w.user, OPEN)));
+  const rows = await rowsOf(w.user.id); const active = rows.filter((r: any) => r.status === 'active');
+  assert.equal(active.length, 1, `active runs: ${active.length} of ${rows.length} rows`); assert.equal(active[0].cycle, 2);
+  assert.equal(rows.filter((r: any) => r.cycle === 2).length >= 1, true);
+});
+
+await t('S154', 'duplicates', 'two simultaneous OTP verifications for the same new visitor still create only one run', async () => {
+  await isolateN(); const phone = newPhone(); const o = await otpRequestOnly(phone);
+  await Promise.all([verifyOtp(o.phone, o.devOtp), rem.armInstallReminder({ id: o.user.id, phone }, OPEN), rem.armInstallReminder({ id: o.user.id, phone }, OPEN)]);
+  await sleep(300); const rows = await rowsOf(o.user.id);
+  assert.equal(rows.filter((r: any) => r.status === 'active').length, 1, JSON.stringify(rows.map((r: any) => [r.cycle, r.status, r.unverified])));
+});
+
+await t('S155', 'duplicates', 'duplicates that already exist (as on prod) heal themselves: only the oldest active run keeps going and nothing is sent for the other', async () => {
+  await isolateN(); await sendOn({ 'install.schedule': [{ channel: 'whatsapp', afterMinutes: 1 }] }); hits.length = 0;
+  try {
+    const w = await webLogin(); const base = w.reminder!;
+    const twin = await prisma.journeyReminder.create({ data: { userId: base.userId, customerId: base.customerId, phone: base.phone, token: 'TWIN0001', firstName: base.firstName, cycle: 1, startAt: OPEN, nextCheckAt: new Date(0), droppedAt: OPEN, lastSeenAt: OPEN } });
+    await prisma.journeyReminder.update({ where: { id: base.id }, data: { startAt: OPEN, droppedAt: OPEN, lastSeenAt: OPEN, nextCheckAt: new Date(0) } });
+    await tickAll(MINUTES(2));
+    const older = await reminderById(base.id); const newer = await reminderById(twin.id);
+    assert.equal(older.status === 'active' || older.status === 'completed', true); assert.equal(newer.status, 'stopped'); assert.equal(newer.stopReason, 'duplicate'); assert.equal(newer.stepsSent, 0);
+    assert.equal(hitsFor('/api/v1/whatsapp').length, 1, 'one message to the person, not two');
+  } finally { await clearTimings(); }
+});
+
+await t('S156', 'duplicates', 'if the "OTP requested" run and the verified run both exist, the VERIFIED one survives (whichever was created first), at the next tick', async () => {
+  await isolateN(); await sendOn({ 'install.schedule': [{ channel: 'whatsapp', afterMinutes: 1 }] }); hits.length = 0;
+  try {
+    const w = await webLogin(); const real = w.reminder!;
+    await prisma.journeyReminder.updateMany({ where: { userId: real.userId, unverified: true }, data: { status: 'stopped', stopReason: 'verified' } }); // clear any real stray first
+    const early = await prisma.journeyReminder.create({ data: { userId: real.userId, phone: real.phone, token: 'EARLYUNV', cycle: 1, unverified: true, lastStep: 'otp_requested', startAt: new Date(OPEN.getTime() - 60_000), nextCheckAt: new Date(0), droppedAt: OPEN, lastSeenAt: OPEN, createdAt: new Date(real.createdAt.getTime() - 5_000) } });
+    await prisma.journeyReminder.update({ where: { id: real.id }, data: { startAt: OPEN, droppedAt: OPEN, lastSeenAt: OPEN, nextCheckAt: new Date(0) } });
+    await tickAll(MINUTES(2));
+    assert.equal((await reminderById(early.id)).stopReason, 'duplicate', 'the older unverified run is the one stopped');
+    assert.notEqual((await reminderById(real.id)).status, 'stopped'); assert.equal(hitsFor('/api/v1/whatsapp').length, 1);
+  } finally { await clearTimings(); }
 });
 
 await isolateN(); await prisma.lenderPartner.deleteMany({ where: { name: { in: ['IDFC FIRST Bank', 'Hero FinCorp'] } } }).catch(() => undefined);

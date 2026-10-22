@@ -76,6 +76,28 @@ function readHistory(r: Pick<JourneyReminder, 'history'>): HistoryEntry[] {
 
 /* ───────────────────────────── arming and pings ───────────────────────────── */
 
+/**
+ * A person must have ONE active run. Two website pings (route change + interaction + session) can arrive in the same
+ * instant, both see "dropped off, came back", both stop the old run and both create the next one (prod showed two rows
+ * 2 ms apart, so the person got every message twice). So after creating a run, anything beyond the BEST active run for
+ * that person is stopped: verified before unverified, then oldest, ties by id. Deterministic, so two servers racing reach the same answer,
+ * and it costs one indexed query. Nothing is sent at creation time, so the duplicate never gets a chance to send.
+ */
+async function stopDuplicateActive(userId: string): Promise<JourneyReminder | null> {
+  // The VERIFIED run wins over a short "never entered the OTP" run (the two can be armed within milliseconds of each other
+  // when someone requests and enters the code quickly); among equals, the oldest wins.
+  const active = (await prisma.journeyReminder.findMany({ where: { userId, status: 'active' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }))
+    .sort((a, b) => Number(a.unverified) - Number(b.unverified));
+  if (active.length > 1) {
+    await prisma.journeyReminder.updateMany({
+      where: { id: { in: active.slice(1).map((r) => r.id) }, status: 'active' },
+      data: { status: 'stopped', stopReason: 'duplicate' },
+    });
+    log.warn('stopped duplicate active reminders', { userId, kept: active[0].id, stopped: active.length - 1 });
+  }
+  return active[0] ?? null;
+}
+
 async function createReminder(
   user: { id: string; phone: string },
   cycle: number,
@@ -86,12 +108,14 @@ async function createReminder(
   const customer = await prisma.customer.findUnique({ where: { phone: user.phone }, select: { id: true } });
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return await prisma.journeyReminder.create({
+      const created = await prisma.journeyReminder.create({
         data: {
           userId: user.id, customerId: customer?.id ?? null, phone: user.phone, token: newReferralCode(), firstName, cycle, startAt, nextCheckAt: startAt,
           ...(unverified ? { unverified: true, lastStep: 'otp_requested' } : {}),
         },
       });
+      // Hand back the run that survives (this one, unless a racing call created an older one first).
+      return (await stopDuplicateActive(user.id)) ?? created;
     } catch (e) {
       if ((e as { code?: string }).code !== 'P2002') throw e; // only a token collision is worth retrying
     }
@@ -270,6 +294,24 @@ function configFor(r: Pick<JourneyReminder, 'unverified'>, cfg: ScheduleConfig):
 
 async function processReminder(r: JourneyReminder, now: Date, out: TickResult, baseCfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {
   const cfg = configFor(r, baseCfg);
+
+  // A duplicate that already exists (made before the guard above, or by a rare race between servers): only the oldest
+  // active run for a person may send, so the other is stopped here before it can message anyone twice.
+  const olderCond = { OR: [{ createdAt: { lt: r.createdAt } }, { createdAt: r.createdAt, id: { lt: r.id } }] };
+  const older = await prisma.journeyReminder.findFirst({
+    where: {
+      userId: r.userId, status: 'active', id: { not: r.id },
+      // Another run beats this one if it is verified and this is not, or it is the same kind and older.
+      OR: r.unverified ? [{ unverified: false }, { unverified: true, ...olderCond }] : [{ unverified: false, ...olderCond }],
+    },
+    select: { id: true },
+  });
+  if (older) {
+    await prisma.journeyReminder.update({ where: { id: r.id }, data: { status: 'stopped', stopReason: 'duplicate' } });
+    out.stopped++;
+    log.warn('stopped duplicate reminder', { id: r.id, keptOlder: older.id });
+    return;
+  }
   const user = await prisma.user.findUnique({ where: { id: r.userId }, select: { panOnFile: true } });
   const { reason, lastStep } = await stopReasonFor(r, user, now);
 
