@@ -66,7 +66,8 @@ export interface ApiResult<T> {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  /** `body` is the parsed error response, when there was one (for example the per-field `errors` of a rejected save). */
+  constructor(public status: number, message: string, public body?: unknown) { super(message); }
 }
 
 /**
@@ -162,7 +163,7 @@ export async function apiFetch<T>(path: string, opts: RequestInit = {}, _retried
   }
   if (!parsed) throw new ApiError(res.status, `HTTP ${res.status}`);
   if (!res.ok || body?.success === false) {
-    throw new ApiError(res.status, body?.message || body?.error || `HTTP ${res.status}`);
+    throw new ApiError(res.status, body?.message || body?.error || `HTTP ${res.status}`, body);
   }
   return body;
 }

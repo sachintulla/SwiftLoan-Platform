@@ -78,8 +78,12 @@ export function ChipGroup({
   );
 }
 
-export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`border-border rounded-2xl border bg-card p-5 ${className}`}>{children}</div>;
+export function Card({ children, className = '', ...rest }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div {...rest} className={`border-border rounded-2xl border bg-card p-5 ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 export function PrimaryButton({

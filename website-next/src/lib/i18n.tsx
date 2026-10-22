@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -38,6 +39,7 @@ const LanguageContext = createContext<LanguageContextValue>({
 });
 
 const STORAGE_KEY = "sl_lang";
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>("en");
@@ -59,11 +61,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Restore the last choice after hydration (not in the initial state, which must match the server render).
-  useEffect(() => {
+  // Layout effect so the saved language is on screen before the first paint, not a flash of English after it.
+  const restore = useCallback(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       const match = LANGS.find((l) => l === saved);
-      if (match) {
+      if (match && match !== currentLang.current) {
         currentLang.current = match;
         setLangState(match);
       }
@@ -71,9 +74,27 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       /* storage blocked */
     }
   }, []);
+  useIsoLayoutEffect(() => {
+    restore();
+  }, [restore]);
+
+  // Coming back to the page without a fresh mount — the browser's Back from a partner lender's site (bfcache),
+  // or another tab changing the language — must keep the saved language, not fall back to English.
+  useEffect(() => {
+    const onPageShow = () => restore();
+    const onStorage = (e: StorageEvent) => { if (e.key === STORAGE_KEY) restore(); };
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [restore]);
 
   useEffect(() => {
     document.documentElement.lang = lang;
+    // The floating voice widget is built outside React; this is how it hears about a change.
+    window.dispatchEvent(new CustomEvent("swiftloan:lang", { detail: lang }));
   }, [lang]);
 
   /**

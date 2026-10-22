@@ -9,7 +9,7 @@ import React, {
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
   trackSessionStart, trackSessionEnd, getSessionId, trackEvent, trackOnboardingStep,
-  trackLoanStep, claimInstall, fetchContext, setTokens, api,
+  trackLoanStep, claimInstall, resumeFromLink, fetchContext, setTokens, api,
   isAuthed, upshotOfferViewed, knownOfferInfo,
   type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill, fetchUserContext,
 } from '../api/client';
@@ -20,8 +20,10 @@ import {
   loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
 } from './session';
 import { readInstallSignals } from '../utils/installSignals';
+import { parseResume, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
+import { initMeta } from '../analytics/meta';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
@@ -196,6 +198,12 @@ export interface AppState {
   // WS3 context-aware install (context build only)
   contextLoaded: boolean;
   contextData: ContextPayload | null;
+  // Website drop-off recovery: the unfinished website visit this install belongs to (found by the install
+  // link, or by phone after login). `resumePrompt` is which pop-up is open; `resumeStage` is what the voice
+  // agent is told about it (page_context.journey_resume). In memory only: it carries a phone number.
+  resume: Resume | null;
+  resumePrompt: 'welcome' | 'start' | null;
+  resumeStage: ResumeStage | null;
   // Website inquiries matched to this phone at OTP verify; fed to the voice agent.
   priorInquiries: PriorInquiry[];
   // WS8: everything the backend already knows about this phone (website
@@ -300,6 +308,7 @@ export const initialState: AppState = {
   pdDobOpen: false, pdCalY: 1995, pdCalM: 0,
   authUser: null, applicationId: null, selectedOfferId: null, selectedLenderApplicationId: null, loanId: null,
   contextLoaded: false, contextData: null,
+  resume: null, resumePrompt: null, resumeStage: null,
   priorInquiries: [],
   userContext: null,
   savedApplicantDraft: null,
@@ -969,6 +978,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Authoritative user name — the agent must address the user by THIS name
       // (or neutrally if empty), never a name from userContext/priorInquiries.
       user_name: userName,
+      // Website drop-off recovery: which moment of the "continue where you left off" journey this is.
+      journey_resume: s.resumeStage ? agentResumeContext(s.resume, s.resumeStage) : undefined,
       // The one way Ello can learn a phone number for a call that started
       // before login — get_user_context is a pre-call-only tool, called once
       // at session start with whatever context_data.phone_number the app had
@@ -1068,12 +1079,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (claim.referral) {
           await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
         }
+        // The install came from a website visitor's own link: offer to continue where they left off.
+        const resume = parseResume(claim.resume, 'link');
+        if (resume) dispatch({ type: 'set', patch: { resume, resumePrompt: 'welcome', resumeStage: 'pre_login' } });
       })().catch(() => undefined);
       trackEvent('app_lifecycle', 'app_opened');
     }
 
     // Upshot: boot once per process. No-ops entirely unless the SDK is
     // installed AND credentials are set, so this is safe on every build.
+    // Meta (ads attribution): same idea — no-op unless the SDK is linked and a client token is set.
+    initMeta();
     if (initUpshot()) {
       upshotEvent('app_opened', { platform: UPSHOT_PLATFORM });
       // Demo/test builds only (pointed at a dev or local backend): ask for push
@@ -1232,7 +1248,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!m) return;
       const token = decodeURIComponent(m[1]);
       const ctx = await fetchContext(token);
-      if (!ctx || done) return;
+      if (done) return;
+      if (!ctx) {
+        // Not a lead/agent context. It may be a website visitor's own link: offer to continue where they left
+        // off (the pop-up opens the login with their number filled in), unless someone is already signed in.
+        if (await loadTokens()) return;
+        const resume = parseResume(await resumeFromLink(token), 'link');
+        if (!resume || done) return;
+        done = true;
+        dispatch({ type: 'set', patch: { resume, resumePrompt: 'welcome', resumeStage: 'pre_login' } });
+        return;
+      }
       done = true;
 
       const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);

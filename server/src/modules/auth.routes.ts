@@ -1,9 +1,9 @@
+import { timing } from '../lib/timings.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { hash, compare, sha256 } from '../lib/crypto.js';
-import { signAccess } from '../lib/jwt.js';
-import { env } from '../config/env.js';
+import { signAccess, accessTtlSeconds } from '../lib/jwt.js';
 import { validate } from '../middleware/validate.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
@@ -96,7 +96,7 @@ authRouter.post(
       phone,
       code,
       sessionId,
-      refreshTtlMs: env.refreshTtlDays * 864e5,
+      refreshTtlMs: timing.daysMs('auth.refreshTokenDays'),
       source: 'app',
     });
     res.json({ user: publicUser(user), ...tokens, priorInquiries });
@@ -116,7 +116,7 @@ authRouter.post(
       log.warn('password login rejected', { identifier });
       throw new HttpError(401, 'Invalid credentials');
     }
-    const tokens = await issueTokens(user.id, user.phone, env.refreshTtlDays * 864e5);
+    const tokens = await issueTokens(user.id, user.phone, timing.daysMs('auth.refreshTokenDays'));
     log.info('password login', { userId: user.id });
     res.json({ user: publicUser(user), ...tokens });
   }),
@@ -132,7 +132,7 @@ authRouter.post(
     if (!row || row.revoked || row.expiresAt < new Date()) throw new HttpError(401, 'Invalid refresh token');
     const user = await prisma.user.findUnique({ where: { id: row.userId } });
     if (!user) throw new HttpError(401, 'User not found');
-    res.json({ accessToken: signAccess({ sub: user.id, phone: user.phone }), expiresIn: env.accessTtl });
+    res.json({ accessToken: signAccess({ sub: user.id, phone: user.phone }), expiresIn: accessTtlSeconds() });
   }),
 );
 

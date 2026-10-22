@@ -1,9 +1,10 @@
+import { timing } from './timings.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
 import {
-  CLICK_TTL_HOURS,
-  IP_WINDOW_MINUTES,
+  clickTtlHours,
+  ipWindowMinutes,
   hashClient,
   newClickToken,
   newReferralCode,
@@ -18,7 +19,7 @@ import {
 const log = scoped('referral');
 
 /** A referee must be a new account — an existing user re-installing is not a referral. */
-export const REFERRAL_ELIGIBLE_DAYS = Number(process.env.REFERRAL_ELIGIBLE_DAYS) || 7;
+export const referralEligibleDays = () => timing.num('referral.eligibleDays');
 
 const STATUS_ORDER = ['signed_up', 'applied', 'disbursed'] as const;
 export type ReferralStatus = (typeof STATUS_ORDER)[number];
@@ -66,7 +67,7 @@ export async function recordClick(input: ClickInput) {
       ipHash: hashClient(input.ip),
       uaHash: hashClient(input.userAgent),
       osVersion: parseOsVersion(input.userAgent),
-      expiresAt: new Date(Date.now() + CLICK_TTL_HOURS * 3600_000),
+      expiresAt: new Date(Date.now() + clickTtlHours() * 3600_000),
     },
   });
 }
@@ -86,6 +87,8 @@ export interface ClaimResult {
   method: MatchMethod | null;
   downloadId: string;
   clickId: string | null;
+  /** The link's `ref` (a referral code, a campaign, or a website visitor's reference ID). */
+  clickRef: string | null;
   source: string;
   referral: { code: string; referrerName: string } | null;
 }
@@ -120,7 +123,7 @@ export async function claimInstall(input: ClaimInput): Promise<ClaimResult> {
         ipHash: hashClient(input.ip),
         platform: input.platform,
         status: 'pending',
-        createdAt: { gte: new Date(Date.now() - IP_WINDOW_MINUTES * 60_000) },
+        createdAt: { gte: new Date(Date.now() - ipWindowMinutes() * 60_000) },
         expiresAt: { gt: new Date() },
       },
       select: { id: true, osVersion: true },
@@ -155,7 +158,7 @@ export async function claimInstall(input: ClaimInput): Promise<ClaimResult> {
   }
 
   log.info('install claimed', { platform: input.platform, matched: !!click, method, source });
-  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, source, referral };
+  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, clickRef: click?.ref ?? null, source, referral };
 }
 
 // ── Redeem (after the friend has an account) ────────────────────────────────
@@ -177,7 +180,7 @@ export async function redeemReferral(
 
   const referee = await prisma.user.findUnique({ where: { id: refereeId }, select: { createdAt: true } });
   if (!referee) return { ok: false, reason: 'invalid_code' };
-  if (referee.createdAt.getTime() < Date.now() - REFERRAL_ELIGIBLE_DAYS * 86_400_000) {
+  if (referee.createdAt.getTime() < Date.now() - referralEligibleDays() * 86_400_000) {
     return { ok: false, reason: 'not_new_user' };
   }
 

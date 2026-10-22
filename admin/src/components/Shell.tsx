@@ -36,6 +36,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       // Analytics merged into Master Overview's "Trends" section; /analytics
       // still resolves via a redirect for old links.
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
+      { href: '/messages', label: 'Messages', icon: '✆' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
     ],
   },
@@ -44,6 +45,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     items: [
       { href: '/integrations', label: 'Configs', icon: '⚙' },
       { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
+      { href: '/timings', label: 'Timings', icon: '⏲', superAdminOnly: true },
       ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
@@ -54,11 +56,11 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets',
+  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
-  '/app-config': 'App Config',
+  '/app-config': 'App Config', '/timings': 'Timings',
   '/notifications-rules': 'Notification Rules',
   '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans', '/prequalifying': 'Pre-Qualifying Offers',
 };

@@ -379,3 +379,164 @@ Same server endpoints as the app — nothing lender-specific is client-only.
 - **Yubi is deliberately untouched** (its pre-warm still runs on every prequalify; the partner handles its own limits).
 - Terminology: a `LoanApplication` is created when the applicant submits their details (before offers); fetching offers
   (prequalify) fills it with `Offer` rows; a `LenderApplication` is created only when they apply to a specific lender's offer.
+
+---
+
+## PAN handling (never stored in the clear)
+
+- A PAN is **never** stored, returned or logged in plaintext. Where it is genuinely needed (the lender eligibility call and
+  the Revasure lead are made server-side, after the user typed it) it lives in `User.panEnc` / `LoanApplication.panEnc`,
+  AES-256-GCM encrypted with the env-only `PII_ENCRYPTION_KEY` (`server/src/lib/pii.ts`; production refuses to boot without
+  it; never rotate by just changing the value).
+- `server/src/lib/storedPan.ts` is the **only** reader/writer. `lib/prisma.ts` omits `panNumber`/`panEnc` from every query by
+  default, so a plain `findUnique`/`include`/`res.json(row)` cannot leak one; use `loadPan(userId, applicationId?)` and decrypt
+  in memory for that one call. APIs expose only `User.panOnFile` (boolean). The offers fingerprint uses a keyed hash, not the PAN.
+- The legacy plaintext `panNumber` columns are deprecated and never written. Run `cd server && npm run pan:encrypt` (after the
+  `20261015120000_encrypted_pan` migration, same `PII_ENCRYPTION_KEY` as the API) to encrypt existing values and null the
+  plaintext; once `SELECT count(*) … WHERE "panNumber" IS NOT NULL` is 0 in User and LoanApplication, drop the columns.
+- Clients never pre-fill the PAN field and never keep the PAN: the website's Step-1→2 hand-off holds only a masked form
+  (`XXXXXX234A`), and Step 2 asks the server to attach the user's own PAN (`PATCH /applications/:id {usePanOnFile:true}`).
+- `PanRecord.dataEnc` (encrypted PAN-verification cache: PAN, prefill, raw response) uses the same key.
+
+---
+
+## Meta (Facebook) ads measurement — app SDK + website Pixel + Conversions API
+
+Full detail in `docs/META_SDK_INTEGRATION.md`. Everything is **off until credentials exist**.
+- Reports ONLY a few coarse funnel moments, no parameters: `Lead` (website lead form), `CompleteRegistration` (`otp_verified`),
+  `IdentityVerified` (PAN step, no PAN), `EligibilityCompleted`, `OffersReceived`, `ViewContent` (offers page),
+  `InitiateCheckout` (`offer_selected`), `SubmitApplication`, and app-only `LoanDisbursed`. Never amounts/APR/lender/the PAN.
+  `LoanDisbursed` is policy-sensitive (financial status) — one line in `META_APP_EVENT_FOR` to drop. Repeatable steps fire once per session.
+  Hooked as one line inside each Upshot `upshotEvent` (`metaTrackFromAppEvent` / `metaTrackFromWebEvent`) — no screen edits.
+- App (`src/analytics/meta.ts`, `react-native-fbsdk-next`): no advertising ID (AD_ID stays stripped), no ATT prompt, no
+  native auto-init; needs `META_CLIENT_TOKEN`; demo builds excluded unless `SWIFTLOAN_META_ALLOW_DEMO`.
+- Website: Pixel loads only after the visitor accepts the consent banner (`MetaPixel.tsx`); `NEXT_PUBLIC_META_PIXEL_ID`.
+- Server: `POST /api/meta/event` relays to the Conversions API (`lib/metaCapi.ts`), hashes ids, dedups via shared `eventID`;
+  needs `META_PIXEL_ID` + `META_CAPI_TOKEN`.
+- Don't ship in a store build until the privacy policy / Data Safety / App Store labels are updated (see §6 of the doc).
+
+---
+
+## WhatsApp via Voxvalley (replaced Infobip)
+
+- Provider key `voxvalley` (Admin → Configs → WhatsApp). `server/src/lib/whatsapp.ts` posts to
+  `{baseUrl}/api/v1/whatsapp/send` with `Authorization: Bearer <project authToken>` + `projectid` in the body. A 200 only
+  means **queued**; failures are HTTP 400 or `status: "FAILED"`. Secret is `authToken`; settings: `projectId`, `sender`
+  (active WABA number), `defaultTemplate`, `messageCategory`, `callbackUrl`, `siteUrl`, `stallTemplates`.
+- **Stuck-stage nudges** (`lib/stallWhatsapp.ts`, called from `evaluateRule`): a `whatsapp`-channel stall rule sends the
+  approved template mapped to its trigger stage in `settings.stallTemplates` (`{name}/{ref}/{offerCount}/{siteUrl}` tokens;
+  a customer missing a value is skipped, never sent a blank). Stage with no mapping, or integration off → falls back to the
+  Upshot event as before. Guards: calling hours, 1 per customer per `STALL_WA_COOLDOWN_HOURS` (24), `STALL_WA_MAX_PER_CUSTOMER`
+  (3) lifetime, only stalls newer than `STALL_WA_MAX_AGE_HOURS` (24) so enabling a rule never messages the backlog, do-not-contact
+  skipped, `OutboundRequest` row claimed before sending, failures not retried. New seeded `WHATSAPP — …` rules start **disabled**
+  and all use a **30-minute** stall delay. Shipped `stallTemplates` defaults are merged UNDER what the dashboard saved (saved
+  entry wins; blank `template` = back to Upshot), so new stages reach environments that already saved the form.
+  Seeding only inserts missing rules — an existing rule's delay is edited on the Notifications rules page, not by the seed.
+- **WhatsApp send is blocked on Vox's side (as of 2026-10-16):** `POST https://cpaas.voxdigitals.com/api/v1/whatsapp/send` (and `/api/v2/…`)
+  return nginx `405` even from Vox's own docs "Test API" tab — the real host/path must come from Vox support. Set it via the card's
+  Advanced `baseUrl`/`sendPath`. A direct **Meta Cloud API** backend also exists (`meta_whatsapp` integration: `phoneNumberId` +
+  `accessToken`); when it is enabled it is used instead of Voxvalley. No live WhatsApp send has been verified yet.
+- **SMS works and is the live stuck-stage channel:** `lib/voxSms.ts` posts to `settings.smsUrl`
+  (`https://cpaas.voxdigitals.com/sms-customer-apis/sms/v2/send`) with the project token IN THE BODY as `authtoken`, plus
+  `projectid`, `from` (`smsSender`, DLT sender ID), `to` (`+91…`), `template_id` and `body`. India SMS is DLT-regulated: the body
+  must match the registered template (`smsTemplateId`/`smsBody`) exactly — the admin form uses a textarea so its line break
+  survives. `lib/stallSms.ts` is called from `evaluateRule` for `sms`-channel rules (8 seeded `SMS — …` rules, one per funnel
+  step, **30-minute** delay, enabled; per-stage text via `settings.smsTemplates[triggerEvent]`). Same guards as WhatsApp
+  (calling hours, 1 per `STALL_SMS_COOLDOWN_HOURS`=24, `STALL_SMS_MAX_PER_CUSTOMER`=3, only stalls < `STALL_SMS_MAX_AGE_HOURS`=24,
+  DNC skipped, key claimed before sending, failures not retried). Nothing sends until the Voxvalley integration is enabled with a
+  token. Verified: a real SMS to the owner's number, and a full fake-stall → rule → SMS run locally.
+- Templates live in the Voxvalley portal (WhatsApp → My Templates): application_received, document_request, emi_reminder,
+  kyc_completed, loan_disbursed, marketing_check_rate, offers_ready, otp_verification. Placeholder counts must match exactly.
+- Not built yet: delivery-status webhook (`callbackUrl`) and inbound "STOP" opt-out handling.
+
+---
+
+## Website drop-off recovery: install-link reminders (phases 1-2 built; sending is log-only)
+
+Plan + sign-off: `docs/JOURNEY_RESUME_PLAN.md` / `.docx` / `JOURNEY_RESUME_ONE_PAGE.docx`. Built: phase 1 (server + website) and phase 2 (app
+resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin view.
+- `JourneyReminder` (migration `20261019120000_journey_reminders`, additive; **not applied to the hosted DB yet**) is armed when a visitor
+  verifies their OTP on the website (`websiteAuth.routes.ts` → `armInstallReminder`). It holds the last step (`otp_only | pan_done |
+  application_started`), first name from the PAN check (`kyc.routes.ts` → `markPanVerified`), and a reference token used as `/dl?ref=<token>`.
+- Website tab pings `POST /api/website/activity` (`website-next/src/lib/activityPing.ts`, mounted by `ActivityPing` in the apply/account layouts).
+  5 minutes without a ping = "dropped off at <lastStep>". **The schedule starts at that moment** (`startAt` is reset to the drop time; nothing is sent while the visitor is still active — the first version sent the first message at login, caught on a real run).
+- Rules are pure and tested in `server/src/lib/reminderSchedule.ts`: SMS then WhatsApp +30 min at start, +4 h, +8 h, then days 1-7 (20 messages),
+  calling hours only, a step far too late is skipped, never two messages < 30 min apart. Stops on install (matched `AppClick` with this ref), app
+  login, application at the lender or beyond, do-not-contact (`Customer.currentStage = 'lost'`), or a return to the website (next cycle, max 3).
+- Job `install-reminder` (every minute, in `NUDGE_JOBS`) in `lib/installReminder.ts`. **Log-only unless `INSTALL_REMINDER_SEND=true`**: it records
+  what it would send in `JourneyReminder.history`. Real sends need Voxvalley settings `installSmsTemplateId` + `installSmsBody` (must contain `{link}`; may also use `{name}` and `{step}`, with `installStepLabels` renaming the steps)
+  and `installWhatsapp` `{template, language, placeholders: ['{name}','{link}']}` (`{step}` is also available; `install_app_resume_step` takes name, step, link) (a registered DLT template / approved WhatsApp template).
+- `stallSms` / `stallWhatsapp` stand down for anyone with an active reminder (`lib/installReminderGuard.ts`), so no two sequences overlap.
+- **App resume (phase 2).** `POST /attribution/claim` returns a `resume` block ONLY for a deterministic match (Play referrer / clipboard token; never
+  a same-IP guess): reference token, first name, phone, last step (`lib/journeyResume.ts`). `src/components/ResumePrompt.tsx` (mounted in `App.tsx`)
+  shows "Okay, continue" / "Take help from agent"; both open `mobile` with the number pre-filled and the consent box UNTICKED (the agent asks before
+  ticking it). After OTP, `screens/mobile.tsx` asks `GET /journey/resume` (the authority; the link's hint is used only for the same number) and routes by
+  `utils/resume.ts`: `pan_done` → `basic` (step 2) using `GET /kyc/pan/on-file` (masked PAN + prefill, never the PAN; `basic.tsx` then saves with
+  `usePanOnFile`); `otp_only` → Home + "Start application?" pop-up; anything else → the normal flow. permissions/About You are skipped for a resumed visitor.
+  **Already-installed app, opened from the visitor's link** (`swiftloan://onboard?token=<link reference ID>`): `store.ts` first tries the old lead/agent
+  context for that token; if there is none it asks `POST /api/attribution/resume` (public, throttled to 20/min per IP because it returns a phone number +
+  first name; same payload as the claim/login) and, if a fresh journey exists and nobody is signed in, shows the same pre-login pop-up ("Okay, continue"
+  opens the login with the number filled in, consent unticked). Nothing generates such a link yet: SMS/WhatsApp carry the https `/dl` link.
+  The voice agent gets `page_context.journey_resume` (`stage`, `first_name`, `last_step`; no phone). Prompt: section F + a Name Rule exception in
+  `prompts/ello-inapp-copilot-prompt.md` (edited locally; paste into Ello by hand).
+- **Job scheduling (`nextCheckAt`).** Each `JourneyReminder` row says when it next needs attention (next step due, or the 5-minute idle check);
+  `installReminderTick` reads only rows that are due, page by page (migration `20261019130000_journey_reminder_next_check`). The first version read
+  the 200 oldest active rows, so newer visitors starved once more than 200 were active.
+- **Tests.** Server integration suite: `cd server && bash scripts/journey/run.sh` (89 checks against a throwaway DB and fake providers, nothing real is sent;
+  it blanks the Aurix secret because a website login otherwise calls the lender UAT). Simulator seeds + inspector helper: `server/scripts/journey/`.
+  Full report: `docs/JOURNEY_RESUME_TEST_REPORT.md`. Two lessons from it: `trackPost()` used to drop the anonymous `/attribution/claim` (install attribution
+  never worked on a fresh install), and both resume endpoints must go through `resumeToWire()` (the app parses snake_case).
+
+---
+
+## Message delivery tracking (WhatsApp / SMS status → admin "Messages")
+
+A gateway 200 only means "queued", so every send is recorded and the provider's later reports are matched to it.
+- `MessageDelivery` (migration `20261019140000_message_delivery`, additive; **apply with `prisma migrate deploy` on the hosted DB**). One row per
+  provider message id: channel, status (`queued < sent < delivered < read`, or `failed`), phone key, kind (`install_reminder | stall | test | admin`),
+  error code/text, and the raw reports received. Pure rules in `lib/messageStatus.ts` (tested): failure words win over success words, `failed` beats
+  queued/sent but never delivered/read, a late delivery supersedes an early failure, queued/sent for > 15 min = "stuck". DB side: `lib/messageDelivery.ts`
+  (`recordSend`, `applyStatusEvents`, `recordUnparsed`). `whatsapp.ts` / `voxSms.ts` record every send (SMS has no reports: stays `sent`).
+- Public webhook `GET/POST /api/webhooks/whatsapp` (`modules/whatsappStatus.routes.ts`): Meta-style `entry[].changes[].value.statuses[]` and flat shapes.
+  Auth is the dedicated `WHATSAPP_WEBHOOK_KEY` (query `?key=` or header `x-webhook-secret`; 503 if unset, 401 if wrong). Unreadable or unmatched bodies
+  are stored raw and still answered 200, so the first real callback shows what shape the gateway really sends and the parser can be adjusted.
+- Callback URL given to the gateway per send: `<PUBLIC_BASE_URL>/api/webhooks/whatsapp?key=<WHATSAPP_WEBHOOK_KEY>` (https only; the Voxvalley
+  `callbackUrl` setting overrides it). Without a public https URL no reports can arrive; the admin page says so.
+- Admin: `/messages` (`admin/src/app/(dash)/messages`, API `modules/adminMessages.routes.ts`): tiles, filters, stuck/missing-callback callouts, detail panel.
+  Account deletion also removes the person's `MessageDelivery` rows. Demo data for screenshots: `server/scripts/journey/messages-demo-seed.mts` (throwaway DB only).
+
+### Local phone test (iPhone on the same Wi-Fi as the Mac; nothing committed, nothing deployed)
+- `src/config/build.ts` `DEV_API_BASE = 'http://<Mac LAN IP>:4000/api'` (covers API + tracking; iOS allows it via `NSAllowsLocalNetworking`).
+  **Set back to `''` and never commit it.** `server/.env` `PUBLIC_BASE_URL=http://<same IP>:4000` makes the reminder link (`/dl?ref=`) reachable from
+  the phone; remove it after (an https value is needed for the WhatsApp delivery callback). The Mac's IP: `ipconfig getifaddr en0`; it changes with the network.
+- Journey: verify the number + PAN on the local website (`website-next`, :4002, talks to :4000), stop for 5 minutes, then open
+  `http://<IP>:4000/dl?ref=<token from JourneyReminder>` in Safari on the phone (copies the clipboard token, goes to TestFlight), delete any installed copy
+  first (the install claim runs once per install), then launch the dev build from Xcode: pop-up → OTP → step 2. Templates to register for real sends:
+  `docs/JOURNEY_RESUME_TEMPLATES.md`.
+
+
+---
+
+## Admin Timings (timings and limits changed without a deploy)
+
+Super admins change waits, windows, lifetimes and limits in **Admin → Timings** (`admin/src/app/(dash)/timings`; the in-app help bubble
+timings stay on **App Config**). Plain admins can look, not save. Every save/reset goes through `auditAdmin`.
+- **Precedence: admin override (`PlatformSetting` row) > env variable > built-in default.** The registry is `server/src/lib/timings.ts`
+  (pure: key, section, kind, min/max, default, env fallback, validation); `timingsStore.ts` is the DB side (cache refreshed every 30 s and on save,
+  started in `index.ts` before the jobs). Code reads synchronously: `timing.num('install.idleMinutes')`, `timing.bool(…)`, `timing.minutesMs(…)`.
+  **Add a setting = one entry in `TIMINGS` and replace the constant at its use site**; the admin page renders from `GET /api/admin/timings`.
+  A stored value that breaks its own rules is ignored (falls back), so a bad row can never take a flow down.
+- API: `GET/PUT /api/admin/timings`, `DELETE /api/admin/timings/:key` (`modules/adminTimings.routes.ts`). A save is all-or-nothing and returns
+  per-field `errors`. Migration `20261022120000_admin_timings` (additive: `PlatformSetting` + three `AppConfig` columns).
+- Install reminders: the message schedule is an editable list of `{channel, afterMinutes}` rows counted **from the drop-off** (never at login).
+  `install.sendEnabled` (admin switch; env `INSTALL_REMINDER_SEND` only sets the starting value) + `install.allowedNumbers` (test list: when set, only
+  those numbers are messaged; the rest are recorded as `skipped: not on the test-number list`). The job is throttled by `install.jobEveryMinutes`.
+  Steps skipped for being too late are consumed, never replayed later. Rules take a `ScheduleConfig` (`reminderSchedule.ts`).
+- Others: calling hours (`calling.windowStart/End`, minutes after midnight IST, overnight allowed), lead-call delays/retries, OTP validity/resend
+  window, website session / access-token / admin-idle lifetimes, install-link click life + IP window, offers reuse window, referral eligibility,
+  PAN daily limit, website ping interval (returned to the page by `POST /website/activity` as `pingEverySeconds`), app bubble start/rotate/snooze.
+- Tests: `server/src/lib/timings.test.ts` (registry), `reminderSchedule.test.ts` (custom schedules), `__tests__/nudgeTimings.test.ts` (app),
+  `website-next/src/lib/activityPing.test.ts`, and integration S90–S114 in `server/scripts/journey/integration-suite.mts` (admin API auth/validation/
+  save/reset/audit, and each setting changing real behaviour). Suite is now 114 checks.
+- Known, pre-existing: `admin/src/components/Shell.tsx` reads the role from localStorage while rendering, so the super-admin-only nav items cause a
+  dev-mode hydration warning (also on App Config / Audit Log). Harmless; fix by deferring `getAdmin()` to an effect.

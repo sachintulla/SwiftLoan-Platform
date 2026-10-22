@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AccountShell } from '@/components/apply/AccountShell';
+import { DeleteAccountCard } from '@/components/account/DeleteAccountCard';
 import { Card, SectionLabel, TextInput } from '@/components/apply/primitives';
 import { useAccount } from '@/lib/accountContext';
 import { patchProfile, patchNotifications } from '@/lib/applyApi';
@@ -23,6 +24,7 @@ export default function ProfilePage() {
   const [fullName, setFullName] = useState((user?.fullName as string) || '');
   const [email, setEmail] = useState((user?.email as string) || '');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [notif, setNotif] = useState({
     loanUpdates: !!user?.notifyLoanUpdates,
     securityAlerts: !!user?.notifySecurityAlerts,
@@ -46,10 +48,18 @@ export default function ProfilePage() {
 
   const save = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
-      await patchProfile({ fullName, email });
+      // Only fields that have a value: an empty email is not a valid email, and sending it made the whole save fail.
+      const patch: Record<string, string> = {};
+      if (fullName.trim()) patch.fullName = fullName.trim();
+      if (email.trim()) patch.email = email.trim();
+      await patchProfile(patch);
       refresh();
       setEditing(false);
+    } catch (e) {
+      // Shown on screen (role=alert) so the voice assistant also sees that it did NOT save.
+      setSaveError(e instanceof Error && e.message && e.message !== 'Request failed' ? e.message : t.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -100,6 +110,11 @@ export default function ProfilePage() {
             <div className="flex flex-col gap-3">
               <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t.fullNamePlaceholder} />
               <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t.emailPlaceholder} type="email" />
+              {saveError && (
+                <p className="text-danger text-xs font-semibold" role="alert">
+                  {saveError}
+                </p>
+              )}
               <div className="flex gap-2">
                 <button onClick={save} disabled={saving} className="bg-brand-gradient text-primary-foreground flex-1 rounded-full py-2.5 text-sm font-bold">
                   {saving ? t.saving : t.saveChanges}
@@ -137,6 +152,8 @@ export default function ProfilePage() {
             </Link>
           ))}
         </Card>
+
+        <DeleteAccountCard />
       </div>
     </AccountShell>
   );

@@ -7,7 +7,8 @@ import { ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import type { KycMethod } from '@prisma/client';
 import { scoped } from '../lib/log.js';
-import { verifyPan } from '../lib/panVerification.js';
+import { verifyPan, cachedPanForUser } from '../lib/panVerification.js';
+import { markPanVerified } from '../lib/installReminder.js';
 
 const log = scoped('kyc');
 
@@ -29,10 +30,29 @@ kycRouter.post('/pan/verify',
     const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
     const result = await verifyPan(user, req.body.pan);
+    // Website drop-off recovery: remember step 1 is done, and the first name for the app's greeting.
+    // A no-op unless this user has an active website reminder; never blocks the response.
+    if (result.verified) markPanVerified(user.id, result.prefill?.firstName).catch(() => {});
     res.json({
       success: true,
       data: result,
       message: result.verified ? 'PAN verified' : (result.message ?? 'PAN could not be verified'),
+    });
+  }));
+
+/**
+ * The details for the PAN this user already verified (e.g. on the website), so the app can resume at
+ * step 2 without asking for the PAN again. Never returns the PAN, only a masked form; no lender call.
+ */
+kycRouter.get('/pan/on-file',
+  ah(async (req, res) => {
+    const found = await cachedPanForUser(req.user!.sub);
+    res.json({
+      success: true,
+      data: found
+        ? { onFile: true, maskedPan: found.maskedPan, category: found.result.category, aadhaarLinked: found.result.aadhaarLinked, prefill: found.result.prefill }
+        : { onFile: false },
+      message: found ? 'PAN on file' : 'No verified PAN on file',
     });
   }));
 

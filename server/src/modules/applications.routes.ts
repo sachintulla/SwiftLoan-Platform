@@ -13,6 +13,7 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
 import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offersReuse.js';
+import { loadPan, panFingerprint, applicationPanData } from '../lib/storedPan.js';
 import { copyOffersFrom, storedOffers } from '../lib/offersReuseDb.js';
 import { scoped } from '../lib/log.js';
 import { advanceReferral } from '../lib/referral.js';
@@ -182,12 +183,18 @@ applicationsRouter.patch('/:id',
     amount: z.number().int().min(25000).max(1500000).optional(),
     tenureMonths: z.number().int().min(6).max(72).optional(),
     panNumber: panSchema.optional(),
+    // The website never holds the PAN after verifying it: this asks the server to attach the user's own
+    // (encrypted) PAN to the application instead.
+    usePanOnFile: z.boolean().optional(),
   })),
   ah(async (req, res) => {
     await owned(req.user!.sub, req.params.id);
+    // The PAN is never stored as sent: it goes into the encrypted column (lib/storedPan.ts).
+    const { panNumber: sentPan, usePanOnFile, ...rest } = req.body as { panNumber?: string; usePanOnFile?: boolean; amount?: number; tenureMonths?: number };
+    const panNumber = sentPan || (usePanOnFile ? await loadPan(req.user!.sub) : '');
     const app = await prisma.loanApplication.update({
       where: { id: req.params.id },
-      data: { ...req.body, ...(req.body.panNumber ? { status: 'pan_pending' } : {}) },
+      data: { ...rest, ...(panNumber ? { ...applicationPanData(panNumber), status: 'pan_pending' as const } : {}) },
     });
     res.json({ application: app });
   }));
@@ -222,7 +229,8 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   // or a recent one of the same user's fetched with the same details) and skip the
   // paid lender call. A technical failure is never stored, so it can always be retried.
   const profile = await prisma.user.findUnique({ where: { id: req.user!.sub } });
-  const signature = offersInputSignature(profile, app);
+  // A keyed hash of the PAN stands in for the PAN itself in the fingerprint — the PAN never enters it.
+  const signature = offersInputSignature({ ...profile, panFp: await panFingerprint(req.user!.sub, app.id) }, app);
   const siblings = await prisma.loanApplication.findMany({
     where: { userId: req.user!.sub, offersSignature: signature },
     select: { id: true, offersSignature: true, offersFetchedAt: true },
@@ -422,7 +430,7 @@ applicationsRouter.post('/:id/alt-offer', ah(async (req, res) => {
   // used to prefill form fields, never to accept consent or submit.
   const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
   const prefill = {
-    pan: app.panNumber || user?.panNumber || null,
+    pan: (await loadPan(req.user!.sub, app.id)) || null, // decrypted in memory for this response only
     firstName: user?.firstName || null,
     middleName: null as string | null,
     lastName: user?.lastName || null,

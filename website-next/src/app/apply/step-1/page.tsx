@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
@@ -8,7 +8,8 @@ import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
 import { fetchMe, verifyPan } from '@/lib/applyApi';
-import { savePanHandoff } from '@/lib/panPrefill';
+import { savePanHandoff, maskPan } from '@/lib/panPrefill';
+import { scanPanFromImage } from '@/lib/panScan';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { useCopy } from '@/lib/i18n';
 import { applyFlowCopy } from '@/i18n/apply-flow';
@@ -43,22 +44,37 @@ export default function Step1PanPage() {
   const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState<AlertContent | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState('');
   // Set once the API has verified the PAN: the loader finishes its ticks,
   // then goToDetails() moves on.
   const [verified, setVerified] = useState(false);
   const goToDetails = useCallback(() => router.push('/apply/step-2'), [router]);
 
-  // Returning applicant ("Update details", a second loan): start from the PAN
-  // already on their profile. Re-verifying it is served from the server's PAN
-  // cache, so it never costs a second paid Aurix call.
-  useEffect(() => {
-    fetchMe()
-      .then((res) => {
-        const saved = res?.data?.user?.panNumber;
-        if (saved) setPan((cur) => cur || String(saved));
-      })
-      .catch(() => { /* not logged in yet / offline — empty field is fine */ });
-  }, []);
+  // The PAN field always starts empty: we do not keep the PAN (the server holds it only encrypted, for the
+  // lender check), so there is nothing to pre-fill — and a pre-filled PAN would suggest otherwise.
+
+  // PAN photo → number, read on this device (the photo is never uploaded). The PAN is only filled into
+  // the field for the visitor to check; nothing is verified until they consent and press Verify.
+  const onPickFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // picking the same photo again must re-run
+    if (!file || scanning) return;
+    setScanning(true);
+    setScanNote('');
+    try {
+      const res = await scanPanFromImage(file);
+      if (res.pan !== null) {
+        setPan(res.pan);
+        setScanNote(t.scanDone);
+        return;
+      }
+      const msg = { not_image: t.scanNotImage, too_big: t.scanTooBig, not_found: t.scanNotFound, error: t.scanFailed }[res.reason];
+      setAlert({ tone: res.reason === 'error' ? 'warning' : 'error', message: msg });
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const panValid = isValidPan(pan);
   const valid = panValid && consent;
@@ -80,7 +96,7 @@ export default function Step1PanPage() {
         setAlert({ tone: 'error', message: result.message || t.fallbackError });
         return;
       }
-      savePanHandoff({ pan, prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked });
+      savePanHandoff({ panMasked: maskPan(pan), prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked });
       succeeded = true;
       setVerified(true); // loader completes → goToDetails
     } catch (e) {
@@ -131,11 +147,20 @@ export default function Step1PanPage() {
             <span className="bg-accent grid h-12 w-12 place-items-center rounded-2xl transition-transform group-hover:scale-105">
               <UploadCloud className="text-primary h-6 w-6" />
             </span>
-            <p className="text-sm font-bold">{t.uploadDrop}</p>
+            <p className="text-sm font-bold">{scanning ? t.scanning : t.uploadDrop}</p>
             <p className="text-muted-foreground text-xs">{t.uploadDetect}</p>
             <span className="border-border bg-card mt-1 rounded-full border px-4 py-2 text-xs font-bold">{t.chooseFile}</span>
-            <input id="pan-upload" type="file" accept="image/*,.pdf" className="sr-only" />
+            <input
+              id="pan-upload"
+              type="file"
+              accept="image/*"
+              disabled={scanning}
+              onChange={onPickFile}
+              aria-busy={scanning}
+              className="sr-only"
+            />
           </label>
+          {scanNote && <p role="status" className="text-primary mt-2 text-xs font-semibold">{scanNote}</p>}
         </div>
 
         <div className="text-muted-foreground flex items-center gap-3 text-xs font-bold">

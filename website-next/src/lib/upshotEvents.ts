@@ -24,6 +24,8 @@ export type UpshotEventDef = {
 /** Attributes attached to every event, so campaigns can segment consistently. */
 export const COMMON_ATTRIBUTES = {
   platform: 'Web' as string,
+  /** The user's present step (Title Case). Real events carry it once a journey step is known. */
+  stage: 'Pan Verification' as string,
 };
 
 export const UPSHOT_EVENTS: UpshotEventDef[] = [
@@ -44,7 +46,7 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
     name: 'website_lead_submitted',
     source: 'website',
     description: 'Submitted the lead form — the conversion event.',
-    attributes: { product: 'Personal Loan', amount: 500000, city: 'Pune', ref: 'SL-1234', utmCampaign: 'diwali' },
+    attributes: { product: 'Personal Loan', amount: 500000, ref: 'SL-1234', utmSource: 'google', utmMedium: 'cpc', utmCampaign: 'diwali', referrer: 'google.com' },
   },
   {
     name: 'emi_calculated',
@@ -61,19 +63,6 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
     attributes: { answered: true, durationSec: 95, outcome: 'interested', campaign: 'diwali' },
   },
 
-  // ── mobile app lifecycle ──
-  {
-    name: 'app_installed',
-    source: 'mobile',
-    description: 'App installed on the device.',
-    attributes: { platform: 'Android', source: 'organic' },
-  },
-  {
-    name: 'app_opened',
-    source: 'mobile',
-    description: 'App launched.',
-    attributes: { platform: 'Android' },
-  },
   {
     name: 'language_selected',
     source: 'both',
@@ -96,16 +85,14 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
   // ── loan funnel ──
   // The website runs the same funnel as the app, so the events below are emitted
   // by both surfaces (src/lib/upshot.ts hooks them in the API layer, like the app).
-  // The Web SDK strips spaces from event names, so the two legacy spaced names are
-  // PAN_Verified / Offers_Got here (the app still sends 'PAN Verified' / 'Offers Got').
   {
-    name: 'PAN_Verified',
+    name: 'pan_verified',
     source: 'both',
     description: 'PAN verified (Step 1). Never carries the PAN itself.',
     attributes: { source: 'aurix', aadhaarLinked: true },
   },
   {
-    name: 'Offers_Got',
+    name: 'offers_got',
     source: 'both',
     description: 'Lender offers returned for the application.',
     attributes: { offerCount: 4, bestApr: 10.49, maxAmount: 500000, lenders: 'Aditya Finance, Axis Finance', topLender: 'Aditya Finance' },
@@ -126,7 +113,7 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
     name: 'offer_selected',
     source: 'both',
     description: 'Chose a specific offer.',
-    attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance' },
+    attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance', offerType: 'preapproved', offerLikelihood: '1' },
   },
   {
     name: 'kyc_started',
@@ -158,12 +145,6 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
     description: 'Lender rejected the application.',
     attributes: { reason: 'credit_policy' },
   },
-  {
-    name: 'loan_disbursed',
-    source: 'mobile',
-    description: 'Funds disbursed.',
-    attributes: { amount: 500000, partner: 'Aditya Finance' },
-  },
 
   // ── drop-off nudges (fired by the server's stall rules) ──
   // These are the ones campaigns are actually built against, so they must exist
@@ -172,37 +153,37 @@ export const UPSHOT_EVENTS: UpshotEventDef[] = [
     name: 'swiftloan_otp_not_verified',
     source: 'mobile',
     description: 'Requested an OTP but never verified it (15 min).',
-    attributes: { stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, minutesStuck: 20 },
+    attributes: { rule: 'OTP requested but not verified', stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, stage: 'otp_requested', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 20 },
   },
   {
     name: 'swiftloan_install_not_registered',
     source: 'mobile',
     description: 'Installed the app but never registered (30 min).',
-    attributes: { stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, minutesStuck: 45 },
+    attributes: { rule: 'App installed but never registered', stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, stage: 'app_installed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 45 },
   },
   {
     name: 'swiftloan_eligibility_incomplete',
     source: 'mobile',
     description: 'Registered but never checked eligibility (15 min).',
-    attributes: { stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, minutesStuck: 22 },
+    attributes: { rule: 'Registered but eligibility not checked', stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, stage: 'otp_verified', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 22 },
   },
   {
     name: 'swiftloan_offer_not_selected',
     source: 'mobile',
     description: 'Viewed offers but selected none (20 min).',
-    attributes: { stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, minutesStuck: 30 },
+    attributes: { rule: 'Offers viewed but none selected', stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, stage: 'offers_viewed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 30 },
   },
   {
     name: 'swiftloan_kyc_incomplete',
     source: 'mobile',
     description: 'Started KYC but never finished (15 min).',
-    attributes: { stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, minutesStuck: 25 },
+    attributes: { rule: 'KYC started but not completed', stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, stage: 'kyc_started', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 25 },
   },
   {
     name: 'swiftloan_lead_no_install',
     source: 'website',
     description: 'Website lead never installed the app (60 min).',
-    attributes: { stuckAt: 'lead_captured', expected: 'app_installed', delayMinutes: 60, minutesStuck: 90 },
+    attributes: { rule: 'Website lead never installed the app', stuckAt: 'lead_captured', expected: 'app_installed', delayMinutes: 30, stage: 'lead_captured', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 90 },
   },
 ];
 

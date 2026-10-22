@@ -233,8 +233,8 @@ describe('verifyPan — paid call happens at most once', () => {
     aurix.mockResolvedValue({ ok: true, status: 200, body: notFound });
     const r1 = await verifyPan(userA, PAN);
     const r2 = await verifyPan(userA, PAN);
-    expect(r1).toMatchObject({ verified: false, source: 'aurix', message: 'No record found for the given input', prefill: {} });
-    expect(r2).toMatchObject({ verified: false, source: 'aurix', message: 'No record found for the given input' });
+    expect(r1).toMatchObject({ verified: false, source: 'aurix', message: 'We couldn’t find this PAN. Please check the number you entered and try again.', prefill: {} });
+    expect(r2).toMatchObject({ verified: false, source: 'aurix', message: 'We couldn’t find this PAN. Please check the number you entered and try again.' });
     expect(aurix).toHaveBeenCalledTimes(2);
     expect(records.size).toBe(0);
     expect(users.get(userA.id)).toMatchObject({ panVerifyLastStatus: 'not_found', panVerifyLastMessage: 'No record found for the given input' });
@@ -257,7 +257,7 @@ describe('verifyPan — paid call happens at most once', () => {
     aurix.mockResolvedValue({ ok: true, status: 200, body: live({ Category: 'person', PanStatus: 'Invalid' }) });
     const r = await verifyPan(userA, PAN);
     expect(r.verified).toBe(false);
-    expect(r.message).toBe('PAN status: Invalid');
+    expect(r.message).toBe('We couldn’t find this PAN. Please check the number you entered and try again.');
   });
 
   it.each([

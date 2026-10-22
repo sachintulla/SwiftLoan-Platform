@@ -1,3 +1,4 @@
+import { timing } from './timings.js';
 import { createHash } from 'node:crypto';
 
 /**
@@ -16,11 +17,11 @@ const USER_FIELDS = [
   'dob', 'gender', 'maritalStatus', 'qualification', 'employment', 'company', 'companyEmail',
   'businessEmail', 'professionalType', 'monthlyIncome', 'salaryMode', 'monthlyObligations',
   'loanPurpose', 'addressLine1', 'addressLine2', 'landmark', 'district', 'city', 'state', 'pincode',
-  'panNumber',
+  'panFp', // keyed hash of the PAN (lib/storedPan.ts) — never the PAN itself
 ] as const;
 
 /** Fields of the application that feed it. */
-const APP_FIELDS = ['loanType', 'amount', 'tenureMonths', 'purpose', 'employment', 'monthlyIncome', 'residenceType', 'panNumber'] as const;
+const APP_FIELDS = ['loanType', 'amount', 'tenureMonths', 'purpose', 'employment', 'monthlyIncome', 'residenceType'] as const;
 
 type Bag = Record<string, unknown> | null | undefined;
 
@@ -40,10 +41,10 @@ export function offersInputSignature(user: Bag, app: Bag): string {
 
 /**
  * How long stored offers stay reusable. Default 24 h — the offers screen tells the
- * applicant "offers are valid for 24 hours". OFFERS_REUSE_HOURS=<n> changes it;
+ * applicant "offers are valid for 24 hours". Admin → Timings (offers.reuseHours, or OFFERS_REUSE_HOURS=<n>) changes it;
  * 0 means they never expire (reuse for as long as the details are unchanged).
  */
-export function reuseWindowMs(raw: string | undefined = process.env.OFFERS_REUSE_HOURS): number | null {
+export function reuseWindowMs(raw: string | undefined = String(timing.num('offers.reuseHours'))): number | null {
   if (raw === undefined || raw.trim() === '') return 24 * 3_600_000;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 24 * 3_600_000;

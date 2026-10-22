@@ -12,7 +12,8 @@ import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
-import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, NUDGE_START_MS, nudgeSnoozeRemaining, onNudgeWake } from './src/voice/nudges';
+import ResumePrompt from './src/components/ResumePrompt';
+import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, nudgeStartMs, setLiveNudgeTimers, nudgeSnoozeRemaining, onNudgeWake } from './src/voice/nudges';
 import { trackEvent, api, isAuthed, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
 import { agent } from './src/voice';
@@ -23,6 +24,9 @@ const toTimers = (d: NudgeConfigDTO): NudgeTimers => ({
   idleMs: d.nudgeIdleMs,
   dropoffMs: d.nudgeDropoffMs,
   eligibleMs: d.nudgeEligibleMs,
+  startMs: d.nudgeStartMs,
+  rotateMs: d.nudgeRotateMs,
+  snoozeMs: d.nudgeSnoozeMs,
 });
 
 // Voice FAB is shown on every screen except the splash and the first-launch
@@ -79,7 +83,7 @@ function AppShell() {
   // offersError set; the offers-surface tip then points to re-check/explore
   // instead of "pick an offer". Kept in a ref so the fire() closure reads it live.
   const noOffersRef = useRef(false); noOffersRef.current = !!state.offersError;
-  // Admin on/off switch (from the backend); timing itself is hard-coded.
+  // Admin on/off switch and the start/rotate/snooze timings (from the backend, Admin → App config).
   const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
 
   // Load the last-known config instantly, then fetch fresh; re-fetch on every
@@ -87,11 +91,11 @@ function AppShell() {
   const refreshConfig = useCallback(async () => {
     try {
       const r = await api.nudgeConfig();
-      if (r?.data) { timersRef.current = toTimers(r.data); saveNudgeTimers(timersRef.current); }
+      if (r?.data) { timersRef.current = toTimers(r.data); setLiveNudgeTimers(timersRef.current); saveNudgeTimers(timersRef.current); }
     } catch { /* keep current timers on failure */ }
   }, []);
   useEffect(() => {
-    loadNudgeTimers<NudgeTimers>().then((t) => { if (t) timersRef.current = t; });
+    loadNudgeTimers<NudgeTimers>().then((t) => { if (t) { timersRef.current = t; setLiveNudgeTimers(t); } });
     refreshConfig();
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') refreshConfig(); });
     return () => sub.remove();
@@ -116,7 +120,7 @@ function AppShell() {
       setRef.current({ voiceFabUnlocked: true, voiceNudge: { id: nudgeIdRef.current, labels: cfg.labels, reason: cfg.reason } });
       trackEvent('nudge', cfg.reason, screen, { label: cfg.labels[0] });
     };
-    timer = setTimeout(fire, NUDGE_START_MS);
+    timer = setTimeout(fire, nudgeStartMs());
     const offWake = onNudgeWake(() => { if (timer) clearTimeout(timer); fire(); });
     return () => { if (timer) clearTimeout(timer); offWake(); };
   }, [screen]);
@@ -143,6 +147,7 @@ function AppShell() {
       <BottomNav />
       <VoiceFabGate />
       <ConfirmationSheet />
+      <ResumePrompt />
       <OfflineNotice />
       <BackHandlerBridge />
     </View>

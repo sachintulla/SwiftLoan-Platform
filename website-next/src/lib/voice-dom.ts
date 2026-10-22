@@ -92,6 +92,14 @@ export function isVisible(el: Element): boolean {
  * logout confirmation are plain full-screen overlays (`fixed inset-0`) with no
  * ARIA at all, so those are recognised by that shape too.
  */
+/** What an open dialog actually says (e.g. "Your reference is SL-T-00042"), so the agent can read it out. */
+export function dialogText(max = 360): string | undefined {
+  const d = activeDialog();
+  if (!d) return undefined;
+  const t = visibleText(d).replace(/\s+/g, ' ').trim();
+  return t ? (t.length > max ? `${t.slice(0, max - 1)}…` : t) : undefined;
+}
+
 export function activeDialog(): HTMLElement | null {
   const dialogs = Array.from(
     document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"], dialog[open], .fixed.inset-0'),
@@ -403,7 +411,9 @@ export function collectMissingRequired(root: ParentNode = scopeRoot()): { missin
 /** Visible error / helper text the app is showing (why Continue is disabled, a failed OTP…). */
 export function collectMessages(root: ParentNode = scopeRoot()): string[] {
   const msgs: string[] = [];
-  const sel = '[role="alert"], [role="status"], .text-danger, p.text-danger';
+  // `[role="alertdialog"] p` — the blocking popup (e.g. "PAN not found") holds its reason in a plain <p>, and when it is
+  // up the scope root IS the popup, so without this the assistant sees no message at all after a failed press.
+  const sel = '[role="alert"], [role="status"], [role="alertdialog"] p, .text-danger, p.text-danger';
   for (const el of Array.from(root.querySelectorAll(sel))) {
     if (!isVisible(el)) continue;
     const t = clean(el.textContent, 220);
@@ -480,6 +490,12 @@ function rank(candidate: string, want: string): number {
   if (c.includes(want)) return 2;
   const wantWords = want.split(' ').filter((w) => w.length > 2);
   if (wantWords.length && wantWords.every((w) => c.includes(w))) return 1;
+  // A label read back from the page can arrive cut off ("…") and with a re-spelled word, which is common for long
+  // Hindi / Telugu consent text. Treat a mostly-matching label as the weakest match; ties still come back as ambiguous.
+  if (wantWords.length >= 4) {
+    const hit = wantWords.filter((w) => c.includes(w)).length;
+    if (hit / wantWords.length >= 0.75) return 1;
+  }
   return 0;
 }
 
@@ -529,10 +545,14 @@ export function findChip(option: string, group?: string): Match<HTMLElement> {
 
 export function findToggle(label: string): Match<HTMLElement> {
   const els = visibleIn<HTMLElement>('input[type=checkbox], [role="switch"]');
-  return pick(
+  const named = pick(
     els.map((el) => ({ el, label: labelOf(el) })),
     label,
   );
+  // Like sliders: the one and only checkbox on the screen is unambiguous even if the label came back mangled
+  // (the PAN-consent step has exactly one).
+  if (!named.el && !named.ambiguous && els.length === 1) return { el: els[0]! };
+  return named;
 }
 
 export function findSlider(label?: string): Match<HTMLElement> {

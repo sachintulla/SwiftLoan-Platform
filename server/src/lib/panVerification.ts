@@ -26,7 +26,9 @@
  * Any legacy row from before this design (an "invalid" PanRecord, cached by
  * the old code) self-heals: the next lookup discards it and re-checks fresh.
  */
-import type { User } from '@prisma/client';
+import { timing } from './timings.js';
+import type { SafeUser as User } from './storedPan.js';
+import { loadPan, userPanData } from './storedPan.js';
 import { prisma } from './prisma.js';
 import { callAurixPanComprehensive } from './lenderOffers.js';
 import { panHash, normalisePan, encryptJson, decryptJson, PII_KEY_VERSION } from './pii.js';
@@ -43,7 +45,7 @@ const DAILY_WINDOW_MS = 24 * 60 * 60_000;
 // Set PAN_DAILY_LIMIT=0 (or any value <= 0) to DISABLE the cap entirely — used
 // on the UAT box so repeated test lookups never hit "too many PAN checks today".
 // Same env-gated convention as DEV_MASTER_OTP: absent in prod ⇒ the cap applies.
-const dailyLimit = () => parseInt(process.env.PAN_DAILY_LIMIT || '5', 10);
+const dailyLimit = () => timing.num('pan.dailyLimit');
 const sharedPolicy = () => (process.env.PAN_SHARED_POLICY === 'block' ? 'block' : 'allow');
 
 export function isValidPanFormat(pan: string): boolean {
@@ -370,6 +372,18 @@ async function recordFailedAttempt(user: User, status: 'not_found' | 'error', me
   });
 }
 
+/**
+ * What the customer (and the voice assistant reading the popup) sees when Aurix answers "no such PAN".
+ * Aurix's own wording ("No record found for the given input", "PAN status: Invalid") is vendor text, not
+ * something to show a customer, and reads like a system fault. The raw text stays on the user row for support.
+ */
+export function friendlyNotFoundMessage(raw?: string): string {
+  const base = 'We couldn’t find this PAN. Please check the number you entered and try again.';
+  if (!raw || /no record|not ?found|invalid|fake|no data/i.test(raw)) return base;
+  if (/deactivat|inoperative|deleted/i.test(raw)) return 'This PAN is not active, so we can’t verify it. Please check the number or use a different PAN.';
+  return base;
+}
+
 async function callAndStore(user: User, pan: string, hash: string): Promise<PanVerifyResult> {
   await ensureUnderDailyLimit(user);
 
@@ -408,7 +422,7 @@ async function callAndStore(user: User, pan: string, hash: string): Promise<PanV
     log.info('pan not found via aurix', { userId: user.id, aurixMessage: mapped.message });
     return {
       status: 'invalid', verified: false, category: null, aadhaarLinked: null, verifiedAt: null,
-      prefill: {}, message: mapped.message ?? 'We couldn’t verify this PAN. Please check the number and try again.',
+      prefill: {}, message: friendlyNotFoundMessage(mapped.message),
       source: 'aurix',
     };
   }
@@ -427,12 +441,27 @@ async function callAndStore(user: User, pan: string, hash: string): Promise<PanV
   return { ...fromRecord(rec), source: 'aurix' };
 }
 
-/** Keep User.panNumber in step with the verified PAN (existing column the rest of the flow reads). */
+/** Keep the user's stored (encrypted) PAN in step with the verified one — never written in plaintext. */
 async function attachPanToUser(user: User, pan: string) {
-  if (user.panNumber === pan) return;
-  await prisma.user.update({ where: { id: user.id }, data: { panNumber: pan } }).catch(e => {
+  if ((await loadPan(user.id)) === pan) return;
+  await prisma.user.update({ where: { id: user.id }, data: userPanData(pan) }).catch(e => {
     log.warn('could not attach PAN to user', { userId: user.id, error: String(e?.message ?? e) });
   });
+}
+
+/**
+ * The pre-fill for the PAN this user already verified, WITHOUT the PAN and without any Aurix call (cache
+ * only). Lets the app resume at step 2 after the visitor did step 1 on the website: it gets a masked PAN
+ * to show and the details to fill in, never the number itself. Null when there is no stored PAN or no
+ * verified record for it (the caller then sends the user back to step 1).
+ */
+export async function cachedPanForUser(userId: string): Promise<{ maskedPan: string; result: PanVerifyResult } | null> {
+  const pan = await loadPan(userId);
+  if (!pan) return null;
+  const found = await prisma.panRecord.findUnique({ where: { panHash: panHash(pan) } });
+  const cached = found ? await remapFromRaw(found) : null;
+  if (!cached || cached.status !== 'verified') return null;
+  return { maskedPan: `XXXXXX${pan.slice(6)}`, result: fromRecord(cached) };
 }
 
 /** eligible_offers' PanVerificationDTO source — DB only, never calls Aurix. */
