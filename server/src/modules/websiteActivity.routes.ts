@@ -1,3 +1,4 @@
+import { timing } from '../lib/timings.js';
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -17,6 +18,7 @@ websiteActivityRouter.post(
   ah(async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user!.sub }, select: { id: true, phone: true } });
     if (user) await pingInstallReminder(user).catch(() => {});
-    res.json({ success: true, data: { ok: true }, message: 'ok' });
+    // Tells the open page how often to signal (Admin → Timings), so the interval can change without redeploying the website.
+    res.json({ success: true, data: { ok: true, pingEverySeconds: timing.num('website.pingEverySeconds') }, message: 'ok' });
   }),
 );

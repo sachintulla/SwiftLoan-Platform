@@ -28,9 +28,11 @@ import { buildPlaceholders } from './stallWhatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { JOURNEY_EVENTS } from './journey.js';
 import { scoped } from './log.js';
+import { timing } from './timings.js';
+import { phoneKey } from './messageStatus.js';
 import {
-  DEFAULT_STEP_LABELS, IDLE_MS, MAX_CYCLES, SCHEDULE_STEPS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle,
-  nextAction, nextCheckTime, renderSmsBody, stopReason, type LastStep, type ScheduleStep, type StopReason,
+  DEFAULT_STEP_LABELS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle,
+  nextAction, nextCheckTime, renderSmsBody, stepsFromRows, stopReason, type LastStep, type ScheduleConfig, type ScheduleStep, type StopReason,
 } from './reminderSchedule.js';
 
 const log = scoped('install-reminder');
@@ -38,7 +40,25 @@ const log = scoped('install-reminder');
 const PAGE_SIZE = 200;
 const MAX_PAGES = 10; // up to 2,000 due reminders per tick; the rest are picked up on the next one
 
-export const installReminderSendEnabled = () => /^(1|true|yes)$/i.test(process.env.INSTALL_REMINDER_SEND ?? '');
+/** Real sending on? Admin → Timings (falls back to INSTALL_REMINDER_SEND). Off = the job only logs what it would send. */
+export const installReminderSendEnabled = () => timing.bool('install.sendEnabled');
+
+/** The schedule rules as currently set in Admin → Timings (read every tick, so a change applies within a minute). */
+export function currentScheduleConfig(): ScheduleConfig {
+  return {
+    steps: stepsFromRows(timing.schedule('install.schedule')),
+    idleMs: timing.minutesMs('install.idleMinutes'),
+    minGapMs: timing.minutesMs('install.minGapMinutes'),
+    maxLateMs: timing.hoursMs('install.maxLateHours'),
+    recheckMs: timing.minutesMs('install.recheckMinutes'),
+  };
+}
+
+/** The test-number list: empty means everyone may receive reminders; otherwise only these numbers. */
+export function notOnTestList(phone: string): boolean {
+  const allowed = timing.phones('install.allowedNumbers');
+  return allowed.length > 0 && !allowed.includes(phoneKey(phone) ?? '__none__');
+}
 
 export type HistoryOutcome = 'logged' | 'sent' | 'failed' | 'skipped';
 export interface HistoryEntry {
@@ -101,20 +121,20 @@ export async function armInstallReminder(user: { id: string; phone: string }, no
     // Back on the website after being marked dropped off: stop this run, and start the next one
     // (which only begins sending once they go idle again).
     await prisma.journeyReminder.update({ where: { id: active.id }, data: { status: 'stopped', stopReason: 'returned' } });
-    if (active.cycle >= MAX_CYCLES) return null;
-    return createReminder(user, active.cycle + 1, new Date(now.getTime() + IDLE_MS), active.firstName);
+    if (active.cycle >= timing.num('install.maxCycles')) return null;
+    return createReminder(user, active.cycle + 1, new Date(now.getTime() + timing.minutesMs('install.idleMinutes')), active.firstName);
   }
 
   const last = await prisma.journeyReminder.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
   if (last) {
     if (last.status === 'completed') return null; // the full week already ran
     if (last.status === 'stopped' && last.stopReason !== 'returned') return null; // installed, finished, or asked us to stop
-    if (last.cycle >= MAX_CYCLES) return null;
+    if (last.cycle >= timing.num('install.maxCycles')) return null;
   }
   if (await alreadyInApp(user.phone)) return null;
 
   const cycle = last ? last.cycle + 1 : 1;
-  return createReminder(user, cycle, cycle === 1 ? now : new Date(now.getTime() + IDLE_MS), last?.firstName ?? null);
+  return createReminder(user, cycle, cycle === 1 ? now : new Date(now.getTime() + timing.minutesMs('install.idleMinutes')), last?.firstName ?? null);
 }
 
 /** The website tab pinged: the visitor is active right now. */
@@ -159,6 +179,8 @@ interface DeliverResult { outcome: HistoryOutcome; reason?: string }
  */
 async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastStep = r.lastStep as LastStep): Promise<DeliverResult> {
   if (!installReminderSendEnabled()) return { outcome: 'logged' };
+  // While a test list is set, nobody else is messaged. The step is used up (not saved for later), so clearing the list never sends a backlog.
+  if (notOnTestList(r.phone)) return { outcome: 'skipped', reason: 'not on the test-number list' };
 
   const link = buildInstallLink(downloads.publicBase, r.token);
   const cfg = await getProviderConfig('voxvalley');
@@ -214,7 +236,7 @@ async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | 
   return { reason, lastStep };
 }
 
-async function processReminder(r: JourneyReminder, now: Date, out: TickResult): Promise<void> {
+async function processReminder(r: JourneyReminder, now: Date, out: TickResult, cfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: r.userId }, select: { panOnFile: true } });
   const { reason, lastStep } = await stopReasonFor(r, user, now);
 
@@ -226,7 +248,7 @@ async function processReminder(r: JourneyReminder, now: Date, out: TickResult): 
   }
 
   // Save "dropped off at <step>" once the visitor has been idle long enough.
-  const dropNow = !r.droppedAt && isIdle(r.lastSeenAt, now);
+  const dropNow = !r.droppedAt && isIdle(r.lastSeenAt, now, cfg.idleMs);
   if (dropNow || lastStep !== r.lastStep) {
     await prisma.journeyReminder.update({
       where: { id: r.id },
@@ -243,7 +265,7 @@ async function processReminder(r: JourneyReminder, now: Date, out: TickResult): 
 
   // When this row next needs attention, given what has been handled so far.
   const checkAfter = (stepsHandled: number, lastSentAt: Date | null) =>
-    nextCheckTime({ now, startAt, stepsHandled, lastSentAt, lastSeenAt: r.lastSeenAt, dropped });
+    nextCheckTime({ cfg, now, startAt, stepsHandled, lastSentAt, lastSeenAt: r.lastSeenAt, dropped });
 
   // Still on the website (or only just left): nothing is sent until they have been idle long enough to count as dropped off.
   if (!dropped) {
@@ -252,6 +274,7 @@ async function processReminder(r: JourneyReminder, now: Date, out: TickResult): 
   }
 
   const action = nextAction({
+    cfg,
     startAt,
     stepsHandled: r.stepsSent,
     lastSentAt: r.lastSentAt,
@@ -280,7 +303,7 @@ async function processReminder(r: JourneyReminder, now: Date, out: TickResult): 
   const entry: HistoryEntry = { step: step.index, channel: step.channel, label: step.label, at: now.toISOString(), outcome: result.outcome, ...(result.reason ? { reason: result.reason } : {}) };
   const sentNow = result.outcome === 'sent' || result.outcome === 'logged';
   const lastSentAt = sentNow ? now : r.lastSentAt;
-  const isLast = step.index === SCHEDULE_STEPS.length - 1;
+  const isLast = step.index === cfg.steps.length - 1;
   await prisma.journeyReminder.update({
     where: { id: r.id },
     data: {
@@ -301,6 +324,7 @@ async function processReminder(r: JourneyReminder, now: Date, out: TickResult): 
  */
 export async function installReminderTick(now: Date = new Date()): Promise<TickResult> {
   const out: TickResult = { scanned: 0, stopped: 0, dropped: 0, handled: 0, completed: 0 };
+  const cfg = currentScheduleConfig();
   for (let page = 0; page < MAX_PAGES; page++) {
     const rows = await prisma.journeyReminder.findMany({
       where: { status: 'active', nextCheckAt: { lte: now } },
@@ -311,7 +335,7 @@ export async function installReminderTick(now: Date = new Date()): Promise<TickR
     for (const r of rows) {
       out.scanned++;
       try {
-        await processReminder(r, now, out);
+        await processReminder(r, now, out, cfg);
       } catch (e) {
         log.error('tick failed for one reminder', { id: r.id, error: (e as Error).message }); // one bad row never aborts the scan
         // Look again later: a row that keeps failing must not be picked up again and again within this tick.
@@ -321,4 +345,20 @@ export async function installReminderTick(now: Date = new Date()): Promise<TickR
     if (rows.length < PAGE_SIZE) break;
   }
   return out;
+}
+
+let lastThrottledRun = 0;
+/**
+ * What the background scheduler calls every minute: runs the real tick no more often than "Reminder job runs every"
+ * (Admin → Timings). The scheduler's own rhythm is fixed at one minute, so this can only slow the job down.
+ */
+export async function installReminderTickThrottled(nowMs: number = Date.now()): Promise<TickResult | null> {
+  if (nowMs - lastThrottledRun < timing.minutesMs('install.jobEveryMinutes') - 5_000) return null; // 5 s of slack for timer jitter
+  lastThrottledRun = nowMs;
+  return installReminderTick(new Date(nowMs));
+}
+
+/** Test hook: forget when the throttled job last ran. */
+export function resetInstallReminderThrottle() {
+  lastThrottledRun = 0;
 }

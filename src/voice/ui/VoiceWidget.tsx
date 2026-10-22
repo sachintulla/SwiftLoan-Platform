@@ -28,7 +28,7 @@ function keepAwake(on: boolean) {
 }
 import { ELLO_CONFIGURED } from '../config';
 import { vlog } from '../log';
-import { NUDGE_ROTATE_MS, snoozeNudges } from '../nudges';
+import { nudgeRotateMs, snoozeNudges } from '../nudges';
 import type { AgentStatus } from '../types';
 
 // Deliberately more than a typical FAB margin: anything much closer to the
@@ -568,7 +568,7 @@ export default function VoiceWidget() {
       rotate = setInterval(() => {
         i = (i + 1) % n.labels.length;
         swapTo(n.labels[i]);
-      }, NUDGE_ROTATE_MS);
+      }, nudgeRotateMs());
     }
     return () => {
       cancelled = true;

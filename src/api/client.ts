@@ -385,6 +385,10 @@ export interface NudgeConfigDTO {
   nudgeIdleMs: number;
   nudgeDropoffMs: number;
   nudgeEligibleMs: number;
+  /** Absent when the server predates them: the app then uses its built-in values. */
+  nudgeStartMs?: number;
+  nudgeRotateMs?: number;
+  nudgeSnoozeMs?: number;
   version: number;
 }
 

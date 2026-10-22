@@ -1,3 +1,4 @@
+import { timing } from './timings.js';
 import { createHmac, randomInt } from 'node:crypto';
 import { env } from '../config/env.js';
 
@@ -15,9 +16,9 @@ export type Platform = 'android' | 'ios' | 'web';
 export type MatchMethod = 'play_referrer' | 'clipboard' | 'ip_window';
 
 /** How long an unclaimed click stays matchable by tokens (Play referrer / clipboard). */
-export const CLICK_TTL_HOURS = Number(process.env.ATTRIBUTION_CLICK_TTL_HOURS) || 48;
+export const clickTtlHours = () => timing.num('tracking.clickTtlHours');
 /** IP-only matching is the weakest signal, so its window is much shorter. */
-export const IP_WINDOW_MINUTES = Number(process.env.ATTRIBUTION_WINDOW_MIN) || 30;
+export const ipWindowMinutes = () => timing.num('tracking.ipWindowMinutes');
 
 /** Prefix that marks a clipboard value as ours, so we never read arbitrary text into the DB. */
 export const CLIPBOARD_PREFIX = 'swiftloan-ref:';

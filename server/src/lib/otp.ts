@@ -13,15 +13,17 @@
  * "verify_phone", already reserved but unused in the schema comment) so there
  * is one delivery/storage mechanism, not two.
  */
+import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { sha256, genOtp } from './crypto.js';
 import { sendOtpSms, smsConfigured } from './sms.js';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error.js';
 
-const OTP_TTL_MS = 5 * 60_000;
+/** How long a code works / how long repeated requests are counted. Live values: Admin → Timings (auth.*). */
+const otpTtlMs = () => timing.minutesMs('auth.otpValidityMinutes');
 /** Anti-SMS-bombing: this is a public, unauthenticated endpoint. */
-const RESEND_WINDOW_MS = 10 * 60_000;
+const resendWindowMs = () => timing.minutesMs('auth.otpResendWindowMinutes');
 const MAX_REQUESTS_PER_WINDOW = 3;
 
 export const VERIFY_PHONE_PURPOSE = 'verify_phone';
@@ -33,7 +35,7 @@ export interface RequestOtpResult {
 }
 
 export async function requestPhoneOtp(phone: string, purpose: string = VERIFY_PHONE_PURPOSE): Promise<RequestOtpResult> {
-  const windowStart = new Date(Date.now() - RESEND_WINDOW_MS);
+  const windowStart = new Date(Date.now() - resendWindowMs());
   const recent = await prisma.otpToken.count({ where: { phone, purpose, createdAt: { gte: windowStart } } });
   if (recent >= MAX_REQUESTS_PER_WINDOW) {
     throw new HttpError(429, 'Too many OTP requests for this number. Please try again in a few minutes.');
@@ -44,7 +46,7 @@ export async function requestPhoneOtp(phone: string, purpose: string = VERIFY_PH
   // most recently sent one can ever verify.
   await prisma.otpToken.updateMany({ where: { phone, purpose, consumed: false }, data: { consumed: true } });
   await prisma.otpToken.create({
-    data: { phone, purpose, codeHash: sha256(code), expiresAt: new Date(Date.now() + OTP_TTL_MS) },
+    data: { phone, purpose, codeHash: sha256(code), expiresAt: new Date(Date.now() + otpTtlMs()) },
   });
 
   if (smsConfigured()) {

@@ -8,7 +8,7 @@ import { immediateCallback } from '../lib/immediateCallback.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
 import { purgeExpiredClicks } from '../lib/referral.js';
-import { installReminderTick } from '../lib/installReminder.js';
+import { installReminderTickThrottled } from '../lib/installReminder.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -163,7 +163,7 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'call-reconcile', fn: async () => { await reconcileStaleCalls(); }, everyMs: 10 * 60_000 },
   // Website drop-off recovery: save where a verified visitor stopped and run the app-link reminder
   // schedule. Log-only unless INSTALL_REMINDER_SEND=true (see lib/installReminder.ts).
-  { name: 'install-reminder', fn: async () => { await installReminderTick(); }, everyMs: 60_000 },
+  { name: 'install-reminder', fn: async () => { await installReminderTickThrottled(); }, everyMs: 60_000 },
   // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
   { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
 ];

@@ -822,6 +822,301 @@ await t('S78', 'privacy', 'deleting an account also deletes that number\'s deliv
   assert.ok(!JSON.stringify(await prisma.messageDelivery.findMany()).includes(KEY), 'the webhook key must never appear in stored data');
 });
 
+/* ───────────── S: admin Timings (every timing and limit that can be changed without a deploy) ───────────── */
+const TM = await import(`${ROOT}/lib/timings.js`);
+const TS = await import(`${ROOT}/lib/timingsStore.js`);
+const clearTimings = async () => { await prisma.platformSetting.deleteMany(); TM.setOverrides(new Map()); };
+const adminTok = async (role: 'admin' | 'super_admin') => {
+  const email = `timings-${role}@example.test`;
+  const a = await prisma.adminUser.upsert({ where: { email }, update: { active: true, role, lastActivityAt: new Date() }, create: { email, passwordHash: 'x', name: `Timings ${role}`, role, active: true, lastActivityAt: new Date() } });
+  return signAdminAccess({ sub: a.id, email, role });
+};
+const jsonH = (token?: string) => ({ 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) });
+const putTimings = (changes: unknown, token?: string) => j('/api/admin/timings', { method: 'PUT', headers: jsonH(token), body: JSON.stringify({ changes }) });
+const delTiming = (key: string, token?: string) => j(`/api/admin/timings/${encodeURIComponent(key)}`, { method: 'DELETE', headers: jsonH(token) });
+const getTimings = (token?: string) => get('/api/admin/timings', token);
+const itemOf = (res: any, key: string) => res.body.data.items.find((i: any) => i.key === key);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const MIN_MS = 60_000;
+const loginRaw = async (phone = newPhone()) => {
+  const rq = await post('/api/website/auth/otp/request', { phone });
+  return { phone, vf: await post('/api/website/auth/otp/verify', { phone, code: rq.body.data.devOtp }) };
+};
+const jwtLife = (token: string) => { const c = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); return c.exp - c.iat; };
+await clearTimings();
+
+await t('S90', 'timings', 'the list needs an admin login and returns every setting with its rules, default, current value and source', async () => {
+  const sup = await adminTok('admin');
+  assert.equal((await getTimings()).status, 401);
+  const r = await getTimings(sup); assert.equal(r.status, 200);
+  const d = r.body.data; assert.equal(d.items.length, TM.TIMINGS.length);
+  assert.deepEqual(d.groups.map((g: any) => g.key), ['install', 'hours', 'website', 'calls', 'auth', 'tracking']);
+  for (const it of d.items) {
+    for (const k of ['key', 'group', 'label', 'help', 'kind', 'def', 'effective', 'source']) assert.ok(k in it, `${it.key} lacks ${k}`);
+    assert.ok(!('fromEnv' in it), 'no function leaks into the response');
+    assert.ok(d.groups.some((g: any) => g.key === it.group), `${it.key} belongs to a listed section`);
+  }
+  const idle = itemOf(r, 'install.idleMinutes'); assert.equal(idle.min, 1); assert.equal(idle.max, 120); assert.equal(idle.effective, 5); assert.equal(idle.source, 'default');
+});
+
+await t('S91', 'timings', 'only a super admin can change or reset a setting; other admins can look but not touch', async () => {
+  await clearTimings(); const admin = await adminTok('admin'); const sup = await adminTok('super_admin');
+  assert.equal((await putTimings({ 'install.idleMinutes': 9 })).status, 401, 'no login');
+  assert.equal((await putTimings({ 'install.idleMinutes': 9 }, admin)).status, 403, 'plain admin');
+  assert.equal((await delTiming('install.idleMinutes', admin)).status, 403);
+  assert.equal(await prisma.platformSetting.count(), 0, 'the refused calls saved nothing');
+  assert.equal((await putTimings({ 'install.idleMinutes': 9 }, sup)).status, 200);
+  await clearTimings();
+});
+
+await t('S92', 'timings', 'a save is all-or-nothing: one bad value rejects the whole request and names each bad field', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  const r = await putTimings({ 'install.idleMinutes': 9, 'auth.otpValidityMinutes': 99, 'calling.windowStart': 'abc', 'calls.maxPerHour': 2.5 }, sup);
+  assert.equal(r.status, 400); const e = r.body.errors;
+  assert.ok(e['auth.otpValidityMinutes'] && e['calling.windowStart'] && e['calls.maxPerHour'], JSON.stringify(e));
+  assert.ok(!e['install.idleMinutes'], 'the good value is not blamed');
+  assert.equal(await prisma.platformSetting.count(), 0, 'nothing was saved, not even the good one');
+  assert.equal(itemOf(await getTimings(sup), 'install.idleMinutes').effective, 5);
+});
+
+await t('S93', 'timings', 'empty or malformed requests and unknown settings are refused cleanly', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  for (const body of [{}, { changes: [] }, { changes: 'x' }, { changes: {} }]) {
+    const r = await j('/api/admin/timings', { method: 'PUT', headers: jsonH(sup), body: JSON.stringify(body) });
+    assert.equal(r.status, 400, JSON.stringify(body));
+  }
+  const r = await putTimings({ 'made.up.key': 5 }, sup); assert.equal(r.status, 400); assert.match(r.body.errors['made.up.key'], /Unknown/);
+  assert.equal((await delTiming('made.up.key', sup)).status, 404);
+  assert.equal(await prisma.platformSetting.count(), 0);
+});
+
+await t('S94', 'timings', 'a saved value is stored, shown as an override with who changed it, and text numbers are accepted', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  const r = await putTimings({ 'install.idleMinutes': 9, 'calling.windowStart': '600' }, sup); assert.equal(r.status, 200); assert.deepEqual(r.body.data.saved.sort(), ['calling.windowStart', 'install.idleMinutes']);
+  const g = await getTimings(sup); const idle = itemOf(g, 'install.idleMinutes');
+  assert.equal(idle.effective, 9); assert.equal(idle.source, 'override'); assert.equal(idle.updatedBy, 'timings-super_admin@example.test'); assert.ok(idle.updatedAt);
+  assert.equal(itemOf(g, 'calling.windowStart').effective, 600, 'a number sent as text is stored as a number');
+  assert.equal((await prisma.platformSetting.findUniqueOrThrow({ where: { key: 'install.idleMinutes' } })).value, 9);
+  assert.equal((await putTimings({ 'install.idleMinutes': 11 }, sup)).status, 200); assert.equal(itemOf(await getTimings(sup), 'install.idleMinutes').effective, 11, 'saving again replaces');
+  await clearTimings();
+});
+
+await t('S95', 'timings', 'reset puts a setting back to its default and removes the stored row; resetting twice is harmless', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  await putTimings({ 'install.idleMinutes': 9 }, sup);
+  assert.equal((await delTiming('install.idleMinutes', sup)).status, 200);
+  const idle = itemOf(await getTimings(sup), 'install.idleMinutes'); assert.equal(idle.effective, 5); assert.equal(idle.source, 'default');
+  assert.equal(await prisma.platformSetting.count(), 0);
+  assert.equal((await delTiming('install.idleMinutes', sup)).status, 200);
+});
+
+await t('S96', 'timings', 'every change and reset is written to the admin audit log with who did it', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin'); await prisma.adminAuditLog.deleteMany({ where: { path: { startsWith: '/api/admin/timings' } } });
+  await putTimings({ 'install.maxCycles': 2 }, sup); await delTiming('install.maxCycles', sup); await sleep(600);
+  const rows = await prisma.adminAuditLog.findMany({ where: { path: { startsWith: '/api/admin/timings' } }, orderBy: { createdAt: 'asc' } });
+  assert.ok(rows.length >= 2, `audit rows: ${rows.length}`);
+  assert.ok(rows.every((r: any) => r.adminEmail === 'timings-super_admin@example.test'));
+  assert.ok(rows.some((r: any) => r.method === 'PUT' && JSON.stringify(r.metadata).includes('install.maxCycles')), 'the change itself is in the log');
+  assert.ok(rows.some((r: any) => r.method === 'DELETE'));
+});
+
+await t('S97', 'timings:effect', 'website signal interval: the server tells the open page how often to ping, and a change shows at once', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin'); const w = await webLogin();
+  const ping = () => j('/api/website/activity', { method: 'POST', headers: jsonH(w.token), body: '{}' });
+  assert.equal((await ping()).body.data.pingEverySeconds, 60);
+  await putTimings({ 'website.pingEverySeconds': 30 }, sup); assert.equal((await ping()).body.data.pingEverySeconds, 30);
+  await delTiming('website.pingEverySeconds', sup); assert.equal((await ping()).body.data.pingEverySeconds, 60);
+});
+
+await t('S98', 'timings:effect', 'OTP validity: a new code lives for the configured minutes', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  const life = async () => { const phone = newPhone(); await post('/api/website/auth/otp/request', { phone }); const row = await prisma.otpToken.findFirstOrThrow({ where: { phone }, orderBy: { createdAt: 'desc' } }); return row.expiresAt.getTime() - row.createdAt.getTime(); };
+  const near = (ms: number, want: number) => Math.abs(ms - want) < 5_000;
+  assert.ok(near(await life(), 5 * MIN_MS), 'default 5 min');
+  await putTimings({ 'auth.otpValidityMinutes': 2 }, sup); assert.ok(near(await life(), 2 * MIN_MS), 'now 2 min');
+  await putTimings({ 'auth.otpValidityMinutes': 12 }, sup); assert.ok(near(await life(), 12 * MIN_MS), 'now 12 min');
+  await clearTimings();
+});
+
+await t('S99', 'timings:effect', 'login lifetimes: website session cookie and access token follow the settings; defaults are unchanged', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  const d = await loginRaw(); assert.match(d.vf.headers.get('set-cookie') ?? '', /Max-Age=7200/); assert.equal(d.vf.body.data.expiresIn, 900); assert.equal(jwtLife(d.vf.body.data.accessToken), 900);
+  await putTimings({ 'auth.websiteSessionMinutes': 30, 'auth.accessTokenMinutes': 20 }, sup);
+  const c = await loginRaw(); assert.match(c.vf.headers.get('set-cookie') ?? '', /Max-Age=1800/); assert.equal(c.vf.body.data.expiresIn, 1200); assert.equal(jwtLife(c.vf.body.data.accessToken), 1200, 'the token itself, not just the number we report');
+  await clearTimings();
+});
+
+await t('S100', 'timings:effect', 'OTP resend window: how long repeated requests for one number are counted', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin'); const { requestPhoneOtp } = await import(`${ROOT}/lib/otp.js`);
+  const phone = newPhone(); const old = new Date(Date.now() - 2 * MIN_MS);
+  await prisma.otpToken.createMany({ data: [1, 2, 3].map(() => ({ phone, purpose: 'verify_phone', codeHash: 'x', expiresAt: new Date(Date.now() + MIN_MS), createdAt: old })) });
+  await assert.rejects(() => requestPhoneOtp(phone), (e: any) => e.status === 429, 'three requests 2 minutes ago still count inside the default 10-minute window');
+  await putTimings({ 'auth.otpResendWindowMinutes': 1 }, sup);
+  assert.ok((await requestPhoneOtp(phone)).sent !== undefined, 'with a 1-minute window those requests no longer count');
+  await clearTimings();
+});
+
+await t('S101', 'timings:effect', 'install link click life: the stored expiry follows the setting', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin');
+  const click = async () => { await get('/dl?ref=TSTTTL01', undefined, { 'user-agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 7) Chrome/120 Mobile Safari/537.36' }); const r = await prisma.appClick.findFirstOrThrow({ orderBy: { createdAt: 'desc' } }); return (r.expiresAt.getTime() - r.createdAt.getTime()) / 3_600_000; };
+  assert.ok(Math.abs((await click()) - 48) < 0.1, 'default 48 h');
+  await putTimings({ 'tracking.clickTtlHours': 1 }, sup); assert.ok(Math.abs((await click()) - 1) < 0.1, 'now 1 h');
+  await clearTimings();
+});
+
+await t('S102', 'timings:effect', 'how long a saved website visit can resume follows the setting (through the app\'s own lookup)', async () => {
+  await clearTimings(); const sup = await adminTok('super_admin'); await isolate();
+  const w = await webLogin(); await prisma.$executeRawUnsafe(`UPDATE "JourneyReminder" SET "createdAt" = now() - interval '2 days' WHERE id = '${w.reminder!.id}'`);
+  assert.ok((await resumeBy(w.reminder!.token)).body.data.resume, 'a 2-day-old visit resumes by default (14 days)');
+  await putTimings({ 'install.resumeMaxAgeDays': 1 }, sup); assert.equal((await resumeBy(w.reminder!.token)).body.data.resume, null, 'with a 1-day limit it is too old');
+  await clearTimings();
+});
+
+await t('S103', 'timings:effect', 'idle time: with 10 minutes a visitor is not "dropped off" at 6; with the default 5 they are', async () => {
+  await isolate();
+  const set = async () => { const w = await webLogin(); await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN, nextCheckAt: OPEN, lastSeenAt: OPEN } }); return w.reminder!.id; };
+  const a = await set(); await TS.saveTimings({ 'install.idleMinutes': 10 }, 't');
+  try {
+    await tickRaw(new Date(OPEN.getTime() + 6 * MIN_MS)); assert.equal((await reminderById(a)).droppedAt, null);
+    await tickRaw(new Date(OPEN.getTime() + 10 * MIN_MS)); assert.ok((await reminderById(a)).droppedAt);
+  } finally { await clearTimings(); }
+  await isolate(); const b = await set(); await tickRaw(new Date(OPEN.getTime() + 6 * MIN_MS)); assert.ok((await reminderById(b)).droppedAt, 'default 5 min: dropped at 6');
+});
+
+await t('S104', 'timings:effect', 'a custom schedule runs exactly as set: WhatsApp at 10 min then SMS at 20 min, counted from the drop-off, then complete', async () => {
+  await isolate(); const w = await webLogin(); const id = w.reminder!.id;
+  await prisma.journeyReminder.update({ where: { id }, data: { startAt: OPEN, nextCheckAt: OPEN, lastSeenAt: new Date(OPEN.getTime() - 6 * MIN_MS) } });
+  await TS.saveTimings({ 'install.schedule': [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 20 }], 'install.minGapMinutes': 5 }, 't');
+  try {
+    await tickRaw(OPEN); let r = await reminderById(id); assert.ok(r.droppedAt); assert.equal(r.stepsSent, 0);
+    await tickRaw(new Date(OPEN.getTime() + 9 * MIN_MS)); assert.equal((await reminderById(id)).stepsSent, 0, 'not before 10 minutes');
+    await tickRaw(new Date(OPEN.getTime() + 10 * MIN_MS)); r = await reminderById(id); assert.equal(r.stepsSent, 1); assert.equal((r.history as any[])[0].channel, 'whatsapp');
+    await tickRaw(new Date(OPEN.getTime() + 20 * MIN_MS)); r = await reminderById(id);
+    assert.deepEqual((r.history as any[]).map((h) => h.channel), ['whatsapp', 'sms']); assert.equal(r.status, 'completed', 'two messages in the schedule = done after two');
+  } finally { await clearTimings(); }
+});
+
+await t('S105', 'timings:effect', 'the minimum gap, the "too late" limit and the run cap follow their settings', async () => {
+  await isolate(); const w = await webLogin(); const id = w.reminder!.id;
+  await prisma.journeyReminder.update({ where: { id }, data: { startAt: OPEN, nextCheckAt: OPEN, lastSeenAt: new Date(OPEN.getTime() - 6 * MIN_MS) } });
+  await TS.saveTimings({ 'install.schedule': [{ channel: 'sms', afterMinutes: 0 }, { channel: 'whatsapp', afterMinutes: 1 }], 'install.minGapMinutes': 20 }, 't');
+  try {
+    await tickRaw(OPEN); await tickRaw(new Date(OPEN.getTime() + 2 * MIN_MS));
+    assert.equal((await reminderById(id)).stepsSent, 1, 'the second message waits for the 20-minute gap');
+    await tickRaw(new Date(OPEN.getTime() + 21 * MIN_MS)); assert.equal((await reminderById(id)).stepsSent, 2);
+    // too late: shorten the limit so a step a few hours late is skipped, not sent
+    const w2 = await webLogin(); const id2 = w2.reminder!.id;
+    await TS.saveTimings({ 'install.maxLateHours': 1, 'install.minGapMinutes': 0, 'install.schedule': [{ channel: 'sms', afterMinutes: 0 }] }, 't');
+    await prisma.journeyReminder.update({ where: { id: id2 }, data: { startAt: OPEN, droppedAt: OPEN, lastSeenAt: OPEN, nextCheckAt: OPEN } });
+    await tickRaw(new Date(OPEN.getTime() + 3 * 3_600_000)); assert.equal(((await reminderById(id2)).history as any[])[0].outcome, 'skipped');
+    // run cap: with 1 run allowed a visitor who returns does not start a second one
+    await TS.saveTimings({ 'install.maxCycles': 1 }, 't');
+    const w3 = await webLogin(); await prisma.journeyReminder.update({ where: { id: w3.reminder!.id }, data: { droppedAt: new Date() } });
+    assert.equal(await rem.armInstallReminder(w3.user, OPEN), null, 'no second run when only one is allowed');
+  } finally { await clearTimings(); }
+});
+
+await t('S106', 'timings:effect', 'the admin on/off switch and the test-number list decide who is messaged (the env variable only sets the starting value)', async () => {
+  await isolate(); hits.length = 0; smsMode = 'ok'; delete process.env.INSTALL_REMINDER_SEND;
+  const a = await webLogin(); const b = await webLogin();
+  for (const w of [a, b]) await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN } });
+  await TS.saveTimings({ 'install.sendEnabled': true, 'install.allowedNumbers': [a.phone] }, 't');
+  try {
+    await tickAll(OPEN); await tickAll(new Date(OPEN.getTime() + 31 * MIN_MS));
+    const ha = (await reminderById(a.reminder!.id)).history as any[]; const hb = (await reminderById(b.reminder!.id)).history as any[];
+    assert.deepEqual(ha.map((h) => h.outcome), ['sent', 'sent'], 'the listed number is messaged');
+    assert.deepEqual(hb.map((h) => h.outcome), ['skipped', 'skipped']); assert.equal(hb[0].reason, 'not on the test-number list');
+    assert.equal(hitsFor('/sms').length, 1); assert.equal(hitsFor('/api/v1/whatsapp').length, 1);
+    assert.ok(!hits.some((h) => JSON.stringify(h.body).includes(b.phone)), 'nothing was sent to the number that is not on the list');
+    // switch off in the admin while the env variable says on: off wins, and the job only logs
+    process.env.INSTALL_REMINDER_SEND = 'true'; await TS.saveTimings({ 'install.sendEnabled': false, 'install.allowedNumbers': [] }, 't'); hits.length = 0;
+    await isolate(); const c = await webLogin(); await prisma.journeyReminder.update({ where: { id: c.reminder!.id }, data: { startAt: OPEN } });
+    await tickAll(OPEN); assert.equal(((await reminderById(c.reminder!.id)).history as any[])[0].outcome, 'logged'); assert.equal(hits.length, 0, 'switched off = nothing leaves the building');
+  } finally { delete process.env.INSTALL_REMINDER_SEND; await clearTimings(); }
+});
+
+await t('S107', 'timings:effect', 'calling hours: a normal window, a changed window and an overnight window', async () => {
+  await clearTimings(); const { withinCallingHours } = await import(`${ROOT}/lib/leadCaller.js`);
+  assert.equal(withinCallingHours(IST(10)), true); assert.equal(withinCallingHours(IST(22)), false); assert.equal(withinCallingHours(IST(8, 59)), false); assert.equal(withinCallingHours(IST(20, 59)), true);
+  await TS.saveTimings({ 'calling.windowStart': 720, 'calling.windowEnd': 780 }, 't');
+  assert.equal(withinCallingHours(IST(12, 30)), true); assert.equal(withinCallingHours(IST(10)), false); assert.equal(withinCallingHours(IST(13, 0)), false, 'the end minute is outside');
+  await TS.saveTimings({ 'calling.windowStart': 1320, 'calling.windowEnd': 360 }, 't');
+  assert.equal(withinCallingHours(IST(23)), true); assert.equal(withinCallingHours(IST(3)), true); assert.equal(withinCallingHours(IST(12)), false, 'overnight window wraps past midnight');
+  await TS.saveTimings({ 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't'); assert.equal(withinCallingHours(IST(3)), true, '00:00 to 23:59 turns the window off');
+  await clearTimings();
+});
+
+await t('S108', 'timings:effect', 'lead-call timings and the other limits are read live from the settings', async () => {
+  await clearTimings(); const ic = await import(`${ROOT}/lib/immediateCallback.js`); const { isIdleExpired } = await import(`${ROOT}/lib/adminSecurity.js`);
+  const { reuseWindowMs } = await import(`${ROOT}/lib/offersReuse.js`); const { referralEligibleDays } = await import(`${ROOT}/lib/referral.js`); const at = await import(`${ROOT}/lib/attribution.js`);
+  assert.deepEqual([ic.firstAttemptDelaySeconds(), ic.retryIntervalMinutes(), ic.maxAttempts()], [20, 60, 3]);
+  assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), false, 'admin idle default 30 min'); assert.equal(reuseWindowMs(), 24 * 3_600_000);
+  assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [7, 48, 30]);
+  await TS.saveTimings({ 'calls.firstDelaySeconds': 45, 'calls.retryMinutes': 90, 'calls.maxAttempts': 5, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'referral.eligibleDays': 14, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
+  try {
+    assert.deepEqual([ic.firstAttemptDelaySeconds(), ic.retryIntervalMinutes(), ic.maxAttempts()], [45, 90, 5]);
+    assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), true, 'admin idle now 5 min'); assert.equal(reuseWindowMs(), 48 * 3_600_000);
+    assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [14, 72, 60]);
+  } finally { await clearTimings(); }
+});
+
+await t('S109', 'timings:effect', 'the job runs no more often than "Reminder job runs every" says (the scheduler itself ticks every minute)', async () => {
+  await clearTimings(); const T = Date.now();
+  rem.resetInstallReminderThrottle(); assert.ok(await rem.installReminderTickThrottled(T), 'the first call runs');
+  assert.equal(await rem.installReminderTickThrottled(T + 30_000), null, 'too soon'); assert.ok(await rem.installReminderTickThrottled(T + 61_000), 'a minute later it runs again');
+  await TS.saveTimings({ 'install.jobEveryMinutes': 5 }, 't'); rem.resetInstallReminderThrottle();
+  try { await rem.installReminderTickThrottled(T); assert.equal(await rem.installReminderTickThrottled(T + 4 * MIN_MS), null); assert.ok(await rem.installReminderTickThrottled(T + 5 * MIN_MS)); }
+  finally { await clearTimings(); rem.resetInstallReminderThrottle(); }
+});
+
+await t('S110', 'timings:effect', 'a visitor already deep in the old schedule when it is shortened simply finishes (no error, no stuck row)', async () => {
+  await isolate(); const w = await webLogin(); const id = w.reminder!.id;
+  await prisma.journeyReminder.update({ where: { id }, data: { startAt: OPEN, stepsSent: 7, droppedAt: new Date(OPEN.getTime() - 3_600_000), lastSeenAt: new Date(OPEN.getTime() - 3_600_000), lastSentAt: null, nextCheckAt: OPEN } });
+  await TS.saveTimings({ 'install.schedule': [{ channel: 'sms', afterMinutes: 0 }] }, 't');
+  try { await tickRaw(OPEN); assert.equal((await reminderById(id)).status, 'completed'); } finally { await clearTimings(); }
+});
+
+await t('S111', 'timings', 'a stored value that breaks its own rules is ignored; a change made by another server is picked up; a removed row falls back', async () => {
+  await clearTimings();
+  await prisma.platformSetting.create({ data: { key: 'install.idleMinutes', value: 99999 } });
+  await TS.refreshTimings(); assert.equal(TM.timing.num('install.idleMinutes'), 5, 'an out-of-range stored value is not trusted');
+  await prisma.platformSetting.update({ where: { key: 'install.idleMinutes' }, data: { value: 9 } });
+  await prisma.platformSetting.create({ data: { key: 'a.setting.that.no.longer.exists', value: 1 } });
+  await TS.refreshTimings(); assert.equal(TM.timing.num('install.idleMinutes'), 9, 'a row edited elsewhere is picked up on the next refresh');
+  await prisma.platformSetting.deleteMany(); await TS.refreshTimings(); assert.equal(TM.timing.num('install.idleMinutes'), 5, 'deleting the row goes back to the default');
+});
+
+await t('S112', 'timings', 'a visitor already on the schedule is unaffected by saving unrelated settings, and the message steps are not re-sent', async () => {
+  await isolate(); hits.length = 0; const sup = await adminTok('super_admin'); const w = await webLogin();
+  await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN, droppedAt: OPEN, lastSeenAt: OPEN, stepsSent: 3, lastSentAt: OPEN, nextCheckAt: new Date(OPEN.getTime() + 5 * 3_600_000) } });
+  await putTimings({ 'pan.dailyLimit': 7, 'referral.eligibleDays': 9 }, sup);
+  const r = await reminderById(w.reminder!.id); assert.equal(r.stepsSent, 3); assert.equal(hits.length, 0); assert.equal(r.status, 'active');
+  await clearTimings();
+});
+
+/* ── App Config: the three in-app bubble timings ── */
+await t('S113', 'appconfig', 'bubble timings: a fresh config has today\'s values, the app endpoint serves them, and a super admin can change them', async () => {
+  await prisma.appConfig.deleteMany(); const sup = await adminTok('super_admin');
+  const pub = () => get('/api/config/nudges'); const fresh = (await pub()).body.data;
+  assert.deepEqual([fresh.nudgeStartMs, fresh.nudgeRotateMs, fresh.nudgeSnoozeMs], [5000, 3000, 600000]);
+  const r = await j('/api/admin/config', { method: 'PUT', headers: jsonH(sup), body: JSON.stringify({ nudgeStartMs: 8000, nudgeRotateMs: 4000, nudgeSnoozeMs: 120000 }) }); assert.equal(r.status, 200);
+  const now = (await pub()).body.data; assert.deepEqual([now.nudgeStartMs, now.nudgeRotateMs, now.nudgeSnoozeMs], [8000, 4000, 120000]);
+  assert.deepEqual([now.nudgeIdleMs, now.nudgeDropoffMs, now.nudgeEligibleMs], [fresh.nudgeIdleMs, fresh.nudgeDropoffMs, fresh.nudgeEligibleMs], 'the other fields are untouched');
+});
+
+await t('S114', 'appconfig', 'bubble timings are kept inside safe limits, and only a super admin can change them', async () => {
+  const sup = await adminTok('super_admin'); const admin = await adminTok('admin');
+  const put = (b: unknown, tok: string) => j('/api/admin/config', { method: 'PUT', headers: jsonH(tok), body: JSON.stringify(b) });
+  assert.equal((await put({ nudgeStartMs: 9000 }, admin)).status, 403);
+  await put({ nudgeStartMs: 100, nudgeRotateMs: 5, nudgeSnoozeMs: 5000 }, sup); let d = (await get('/api/config/nudges')).body.data;
+  assert.deepEqual([d.nudgeStartMs, d.nudgeRotateMs, d.nudgeSnoozeMs], [1000, 1000, 60000], 'too small is raised to the minimum');
+  await put({ nudgeStartMs: 9_999_999, nudgeRotateMs: 9_999_999, nudgeSnoozeMs: 999_999_999 }, sup); d = (await get('/api/config/nudges')).body.data;
+  assert.deepEqual([d.nudgeStartMs, d.nudgeRotateMs, d.nudgeSnoozeMs], [60000, 30000, 86400000], 'too large is lowered to the maximum');
+  await put({ nudgeStartMs: 'soon', nudgeSnoozeMs: null }, sup); d = (await get('/api/config/nudges')).body.data;
+  assert.deepEqual([d.nudgeStartMs, d.nudgeSnoozeMs], [60000, 86400000], 'junk or blank leaves the value alone');
+  await put({ nudgeStartMs: 5000, nudgeRotateMs: 3000, nudgeSnoozeMs: 600000 }, sup);
+});
+
 /* ───────────── report ───────────── */
 const pass = results.filter((r) => r.status === 'PASS').length; const fail = results.length - pass;
 fs.writeFileSync(process.env.RESULTS_FILE ?? '/tmp/server-suite-results.json', JSON.stringify({ total: results.length, pass, fail, results }, null, 2));

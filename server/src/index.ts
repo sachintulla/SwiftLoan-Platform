@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
 import { assertPiiKeyConfigured } from './lib/pii.js';
 import { startJobs, stopJobs } from './jobs/tracking.jobs.js';
+import { startTimingsRefresh, stopTimingsRefresh } from './lib/timingsStore.js';
 import { startApiLogRetention, stopApiLogRetention } from './lib/apiLog.js';
 import { trustExtraCaForFetch } from './lib/devCa.js';
 
@@ -16,7 +17,11 @@ assertPiiKeyConfigured();
 const server = app.listen(env.port, () => {
   console.log(`[swiftloan-api] listening on http://localhost:${env.port}  (${env.nodeEnv})`);
   // WS4 maintenance jobs (idle sessions, stale loans/onboarding, notifications).
-  startJobs().catch((e) => console.warn('[jobs] failed to start:', e?.message));
+  // Load the admin-saved timings first, so the first job run already uses them (falls back to env/defaults if the read fails).
+  startTimingsRefresh()
+    .catch(() => undefined)
+    .then(() => startJobs())
+    .catch((e) => console.warn('[jobs] failed to start:', e?.message));
   // Prune the API log table to the last 24h, now and hourly.
   startApiLogRetention();
 });
@@ -31,6 +36,7 @@ async function shutdown(sig: string) {
   shuttingDown = true;
   console.log(`\n[swiftloan-api] ${sig} received, shutting down…`);
   stopJobs();
+  stopTimingsRefresh();
   stopApiLogRetention();
 
   // Without a deadline, one lingering keep-alive connection means server.close()
