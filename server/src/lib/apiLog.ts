@@ -76,21 +76,31 @@ export interface ApiLogEntry {
 
 /** Record one API log row. Fire-and-forget — never throws into the caller. */
 export function recordApiLog(entry: ApiLogEntry): void {
-  prisma.apiLog.create({
-    data: {
-      direction: entry.direction,
-      source: entry.source,
-      target: entry.target,
-      method: entry.method,
-      url: entry.url,
-      status: entry.status ?? null,
-      durationMs: entry.durationMs ?? null,
-      requestBody: serialiseBody(entry.requestBody),
-      responseBody: serialiseBody(entry.responseBody),
-      error: entry.error ?? null,
-      meta: (entry.meta ?? undefined) as any,
-    },
-  }).catch(err => log.warn('write failed', { error: (err as Error)?.message }));
+  // Wrap the whole call: a missing client/model (tests that mock prisma without
+  // apiLog, a stale generated client) throws synchronously on the property access,
+  // which .catch() can't swallow. This logger must never affect its callers.
+  try {
+    const p = prisma.apiLog?.create({
+      data: {
+        direction: entry.direction,
+        source: entry.source,
+        target: entry.target,
+        method: entry.method,
+        url: entry.url,
+        status: entry.status ?? null,
+        durationMs: entry.durationMs ?? null,
+        requestBody: serialiseBody(entry.requestBody),
+        responseBody: serialiseBody(entry.responseBody),
+        error: entry.error ?? null,
+        meta: (entry.meta ?? undefined) as any,
+      },
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch((err: unknown) => log.warn('write failed', { error: (err as Error)?.message }));
+    }
+  } catch (err) {
+    log.warn('write failed', { error: (err as Error)?.message });
+  }
 }
 
 /** List recent log rows for the /logs page. */
