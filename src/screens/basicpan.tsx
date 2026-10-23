@@ -24,7 +24,7 @@ function isValidPan(v: string): boolean {
 type PanAlert = { tone: 'error' | 'warning'; message: string };
 
 export default function BasicPan() {
-  const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const t = useT();
   const [busy, setBusy] = React.useState(false);
   // Set once the API has verified the PAN: the loader finishes its ticks,
@@ -162,20 +162,16 @@ export default function BasicPan() {
       succeeded = true;
       setVerified(true); // loader completes → go('basic')
     } catch (e) {
-      const status = e instanceof ApiError ? e.status : 0;
+      // PAN auto-fill is a best-effort BACKGROUND lookup — the user must never see
+      // an error or a blocking alert for it. Whatever went wrong (daily cap / 429,
+      // a bureau or service error / 502, a bad-request / 409, a network drop or
+      // timeout), silently carry the entered PAN forward and continue to manual
+      // entry. The failure still reaches api_context for the voice agent, but
+      // nothing is shown to the applicant.
       const message = e instanceof ApiError && e.message ? e.message : t.panVerifyFail;
       mergeApiContext({ panValidationResult: { ok: false, error: message } });
-      if (status === 429) {
-        // Daily PAN-check cap reached. Blocking here would stall a real applicant
-        // for up to a day — bad for the business — and manual entry needs no
-        // further lookup. So continue to the details step instead of dead-ending.
-        continueManually();
-        return;
-      }
-      // A real async failure needs to reach api_context, and urgently: Ruby
-      // may still be mid "let me verify that" when it lands.
-      setAlert({ tone: status === 400 || status === 409 ? 'error' : 'warning', message });
-      markUrgentContext();
+      continueManually();
+      return;
     } finally {
       // On success the loader stays up until it hands off to the details step.
       if (!succeeded) setBusy(false);
