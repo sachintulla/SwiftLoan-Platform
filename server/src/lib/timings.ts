@@ -262,6 +262,23 @@ export const TIMINGS: readonly TimingDef[] = [
     label: 'Calls started per minute at most',
     help: 'Stops one bad batch from dialling a whole table at once.',
   },
+  {
+    key: 'calls.nudgeEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false, env: 'CALLS_NUDGE_ENABLED',
+    label: 'Outbound nudge/status calls enabled',
+    help: 'Master switch for automatic drop-off (stuck-stage) calls and the daily status call. Off by default — nothing is dialled until this is on.',
+    warn: 'Turning this on lets the system ring real customers. Keep a test-number list set while testing.',
+  },
+  {
+    key: 'calls.allowedNumbers', group: 'calls', kind: 'phones', unit: 'none', def: [], maxItems: 200,
+    label: 'Call test-number allowlist',
+    help: 'When set, automatic calls (drop-off + daily status) only ring these numbers; everyone else is skipped. Leave empty to call all eligible customers.',
+  },
+  {
+    key: 'calls.statusDailyEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false, env: 'CALLS_STATUS_DAILY_ENABLED',
+    label: 'Daily status call enabled',
+    help: 'Calls each eligible customer once a day with their current status. Also gated by the master switch and the test-number allowlist above.',
+    warn: 'A daily call to every customer is a lot of calls and spend; keep the test-number list set until proven.',
+  },
 
   /* ───────────── E. Login and sessions ───────────── */
   {

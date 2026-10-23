@@ -10,6 +10,7 @@ import { reconcileStaleCalls } from '../lib/callReconcile.js';
 import { purgeExpiredClicks } from '../lib/referral.js';
 import { installReminderTickThrottled } from '../lib/installReminder.js';
 import { statusPoller } from '../lib/statusPoller.js';
+import { runDailyStatusCalls } from '../lib/statusCall.js';
 import { lenderNudgeTickThrottled } from '../lib/lenderNudge.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
@@ -175,12 +176,18 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   // the actual cadence (default every 2h) and the 9am–7pm IST window are read
   // live from Admin → Timings (status.pollEveryMinutes / status.window*).
   { name: 'status-poll', fn: async () => { await statusPoller(); }, everyMs: 10 * 60_000 },
+
+  // Daily status call: rings each eligible customer once per IST day with where
+  // their application stands. The minute tick only finds who is due; the feature
+  // is off unless Admin → Timings calls.statusDailyEnabled + calls.nudgeEnabled,
+  // and (while testing) calls.allowedNumbers restricts who rings.
+  { name: 'status-call', fn: async () => { await runDailyStatusCalls(); }, everyMs: 60_000 },
 ];
 
 // Kill switch for every outbound-nudge path: the stall detectors that create
 // nudges and the workers that drain the dispatch queue. Admin-alert-only jobs
 // (idle / loan-stale / onboarding-stale) keep running.
-const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge']);
+const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge', 'status-call']);
 export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '');
 
 let timers: NodeJS.Timeout[] = [];

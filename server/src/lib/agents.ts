@@ -21,7 +21,7 @@
 import { getProviderConfig } from './integrations.js';
 
 export const AGENT_ROLES = [
-  'leadCallback', 'campaign', 'companion', 'websiteCompanion', 'adminNavigator',
+  'leadCallback', 'campaign', 'companion', 'websiteCompanion', 'adminNavigator', 'statusUpdate',
 ] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
@@ -52,6 +52,11 @@ export const AGENT_ROLE_INFO: Record<AgentRole, { label: string; direction: stri
     direction: 'in-browser',
     purpose: 'Drives the admin dashboard by voice for the ops team.',
   },
+  statusUpdate: {
+    label: 'Daily status update',
+    direction: 'outbound',
+    purpose: 'Calls an existing customer once a day with where their application stands and what to do next.',
+  },
 };
 
 const ENV_KEY: Record<AgentRole, string> = {
@@ -60,6 +65,7 @@ const ENV_KEY: Record<AgentRole, string> = {
   companion: 'ELLO_AGENT_COMPANION',
   websiteCompanion: 'ELLO_AGENT_WEBSITE_COMPANION',
   adminNavigator: 'ELLO_AGENT_ADMIN_NAVIGATOR',
+  statusUpdate: 'ELLO_AGENT_STATUS_UPDATE',
 };
 
 /** Reject a placeholder so a half-filled config fails loudly rather than dialling the wrong agent. */
