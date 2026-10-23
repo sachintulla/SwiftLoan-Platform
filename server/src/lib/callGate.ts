@@ -25,15 +25,29 @@ function bare(phone: string): string {
 }
 
 /**
- * Is this number allowed to be called right now?
- * - master switch must be on;
- * - if the test allowlist has entries, the number must be on it.
+ * Test-number allowlist, applied to EVERY outbound call path (including the
+ * existing website lead-callback and immediate-callback diallers).
+ *
+ * Empty list → returns true for everyone, so this is a no-op in production and
+ * changes none of the existing behaviour. Non-empty → ONLY those numbers may be
+ * called, which is how a dev/staging box is pinned to a couple of test phones
+ * without touching any other logic.
+ */
+export function withinTestAllowlist(phone: string | null | undefined): boolean {
+  const allow = timing.phones('calls.allowedNumbers');
+  if (!allow.length) return true;
+  if (!phone) return false;
+  const b = bare(phone);
+  return allow.some((a) => bare(a) === b);
+}
+
+/**
+ * Is this number allowed for a NEW automatic nudge/status call?
+ * - master switch (calls.nudgeEnabled) must be on — off by default; and
+ * - it must pass the test-number allowlist.
  */
 export function isCallAllowed(phone: string | null | undefined): boolean {
   if (!phone) return false;
   if (!callNudgesEnabled()) return false;
-  const allow = timing.phones('calls.allowedNumbers');
-  if (!allow.length) return true;
-  const b = bare(phone);
-  return allow.some((a) => bare(a) === b);
+  return withinTestAllowlist(phone);
 }

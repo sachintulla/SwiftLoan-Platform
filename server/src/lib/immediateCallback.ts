@@ -32,6 +32,7 @@
 import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
+import { withinTestAllowlist } from './callGate.js';
 import { withinCallingHours } from './leadCaller.js';
 import { hourlyCallBudget } from './callThrottle.js';
 import { buildLeadCallContext, compactContext } from './callContext.js';
@@ -134,6 +135,12 @@ export async function immediateCallback(now: Date = new Date()): Promise<number>
   // not something a generic anti-spam cooldown should be second-guessing.
   let placed = 0;
   for (const lead of leads) {
+    // Test-number allowlist (Admin → Timings calls.allowedNumbers). No-op in
+    // production (empty list); pins dev/staging to the test phones.
+    if (!withinTestAllowlist(lead.phone)) {
+      console.log(`[immediate-callback] ${lead.phone}: SKIP — not on the call test-number allowlist`);
+      continue;
+    }
     const attemptNumber = lead.callbackAttempts + 1;
     await prisma.customer.update({
       where: { id: lead.id },
