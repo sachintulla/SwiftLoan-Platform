@@ -38,11 +38,12 @@ export async function presignAvatarUpload(userId: string, contentType: string) {
   if (!ext) throw new Error(`Unsupported content type: ${contentType}`);
 
   const key = `avatars/${userId}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
-  // ACL is part of the signed request, so the client's actual PUT must send the
-  // matching `x-amz-acl: public-read` header or S3 rejects it as a signature
-  // mismatch — no bucket policy needed, the object is public the moment it's
-  // written (requires the bucket's Object Ownership to allow ACLs).
-  const command = new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType, ACL: 'public-read' });
+  // No ACL: this bucket has Object Ownership set to "Bucket owner enforced",
+  // which rejects any ACL outright (400 AccessControlListNotSupported) — and
+  // even sending one correctly still 403s, since it becomes an extra
+  // unsigned header the presigned URL's signature doesn't cover. Public read
+  // is already granted via the bucket's own policy, not per-object ACLs.
+  const command = new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType });
   const uploadUrl = await getSignedUrl(s3(), command, { expiresIn: 300 });
   const publicUrl = `https://${BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
   return { uploadUrl, publicUrl };

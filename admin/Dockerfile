@@ -5,8 +5,8 @@ RUN npm install
 COPY . .
 
 # Baked into the browser bundle at build time (Next.js NEXT_PUBLIC_* semantics).
-# Sourced from GitHub Actions Variables/Secrets in CI, not a .env.local file
-# living only on one box — see .github/workflows/deploy*.yml.
+# Sourced from ~/secrets/server.env on the deploy box (ADMIN_NEXT_PUBLIC_* keys),
+# not GitHub Secrets/Variables — see .github/workflows/deploy*.yml.
 ARG NEXT_PUBLIC_API_BASE=""
 ARG NEXT_PUBLIC_ELLO_API_KEY=""
 ARG NEXT_PUBLIC_ELLO_ASSISTANT_ID=""

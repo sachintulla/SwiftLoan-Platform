@@ -5,6 +5,10 @@ import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
+import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('admin');
 
 // All routes require an authenticated admin.
 export const adminRouter = Router();
@@ -16,29 +20,50 @@ adminRouter.use(auditAdmin);
 
 // ─────────────────────────── helpers ───────────────────────────
 
+// Parse ?from=&to= (ISO instants) into a Prisma date filter, or undefined.
+function dateRange(q: Record<string, unknown>): { gte?: Date; lte?: Date } | undefined {
+  const r: { gte?: Date; lte?: Date } = {};
+  const f = typeof q.from === 'string' ? new Date(q.from) : null;
+  const t = typeof q.to === 'string' ? new Date(q.to) : null;
+  if (f && !Number.isNaN(f.getTime())) r.gte = f;
+  if (t && !Number.isNaN(t.getTime())) r.lte = t;
+  return Object.keys(r).length ? r : undefined;
+}
+
 // The 8-stage business funnel (WS4). Each stage is derived from existing data so
 // the dashboard shows real numbers without needing the app to be instrumented first.
-async function buildFunnel() {
-  const [sessions, leads, qualifiedLeads, apps, kyc, review, approved, disbursed] = await Promise.all([
-    prisma.session.count(),
-    prisma.anonymousLead.count(),
-    prisma.anonymousLead.count({ where: { status: { in: ['qualified', 'converted'] } } }),
-    prisma.loanApplication.count(),
-    prisma.loanApplication.count({ where: { status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
-    prisma.loanApplication.count({ where: { status: { in: ['under_review', 'approved', 'disbursed', 'closed'] } } }),
-    prisma.loanApplication.count({ where: { status: { in: ['approved', 'disbursed', 'closed'] } } }),
-    prisma.loanApplication.count({ where: { status: { in: ['disbursed', 'closed'] } } }),
+// An optional date range scopes every stage to records created in that window
+// (Session by startedAt, everything else by createdAt).
+async function buildFunnel(range?: { gte?: Date; lte?: Date }) {
+  const cr = range ? { createdAt: range } : {};
+  const sr = range ? { startedAt: range } : {};
+  // Two populations, split at "Application submitted": the stages up to and
+  // including submission count unique CUSTOMERS/applications, but once a
+  // customer applies to several lenders the downstream stages count PER-LENDER
+  // applications (an applied Offer). One customer can be approved by two lenders
+  // and rejected by a third, so approved/disbursed here are lender-application
+  // counts, deliberately not customer counts.
+  const [sessions, leads, qualifiedLeads, apps, kyc, submittedToLenders, lenderApproved, lenderDisbursed] = await Promise.all([
+    prisma.session.count({ where: sr }),
+    prisma.lead.count({ where: cr }),
+    prisma.lead.count({ where: { ...cr, status: { in: ['qualified', 'converted'] } } }),
+    prisma.loanApplication.count({ where: cr }),
+    prisma.loanApplication.count({ where: { ...cr, status: { in: ['handoff', 'under_review', 'approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { ...cr, applied: true } }),
+    prisma.offer.count({ where: { ...cr, applied: true, lenderStatus: { in: ['approved', 'disbursed', 'closed'] } } }),
+    prisma.offer.count({ where: { ...cr, applied: true, lenderStatus: { in: ['disbursed', 'closed'] } } }),
   ]);
 
   const stages = [
-    { key: 'visit', label: 'Visit / Session', value: sessions },
-    { key: 'lead', label: 'Lead captured', value: leads },
-    { key: 'qualified', label: 'Qualified lead', value: qualifiedLeads },
-    { key: 'application', label: 'Application started', value: apps },
-    { key: 'kyc', label: 'KYC / docs submitted', value: kyc },
-    { key: 'compliance', label: 'Compliance / review', value: review },
-    { key: 'approved', label: 'Approved', value: approved },
-    { key: 'disbursed', label: 'Disbursed', value: disbursed },
+    { key: 'visit', label: 'Visit / Session', value: sessions, unit: 'customers' },
+    { key: 'lead', label: 'Lead captured', value: leads, unit: 'customers' },
+    { key: 'qualified', label: 'Qualified lead', value: qualifiedLeads, unit: 'customers' },
+    { key: 'application', label: 'Application started', value: apps, unit: 'customers' },
+    { key: 'kyc', label: 'KYC / docs submitted', value: kyc, unit: 'customers' },
+    // From here on, one unit = one lender application (an applied offer).
+    { key: 'submitted', label: 'Submitted to lenders', value: submittedToLenders, unit: 'applications' },
+    { key: 'approved', label: 'Approved by lender', value: lenderApproved, unit: 'applications' },
+    { key: 'disbursed', label: 'Disbursed', value: lenderDisbursed, unit: 'applications' },
   ];
 
   // conversion % vs previous stage, drop-off % vs previous stage.
@@ -63,20 +88,31 @@ const APP_STATUSES = [
 // ─────────────────────────── dashboard ───────────────────────────
 
 // GET /api/admin/dashboard/overview
-adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
-  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups] = await Promise.all([
-    prisma.user.count(),
-    prisma.loanApplication.count(),
-    prisma.loan.count(),
-    prisma.anonymousLead.count(),
-    prisma.appDownload.count(),
-    prisma.loan.aggregate({ _sum: { principal: true, outstanding: true } }),
-    buildFunnel(),
-    prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
+adminRouter.get('/dashboard/overview', ah(async (req, res) => {
+  // Optional ?from=&to= scopes every metric to its window. Date field per model:
+  // User/LoanApplication/Lead/Offer by createdAt, Loan by disbursedAt,
+  // AppDownload by installedAt.
+  const range = dateRange(req.query as Record<string, unknown>);
+  const cr = range ? { createdAt: range } : {};
+  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
+    prisma.user.count({ where: cr }),
+    prisma.loanApplication.count({ where: cr }),
+    prisma.loan.count({ where: range ? { disbursedAt: range } : {} }),
+    prisma.lead.count({ where: cr }),
+    prisma.appDownload.count({ where: range ? { installedAt: range } : {} }),
+    prisma.loan.aggregate({ _sum: { principal: true, outstanding: true }, where: range ? { disbursedAt: range } : {} }),
+    buildFunnel(range),
+    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true } }),
+    // Per-lender application pipeline: one applied offer = one lender application,
+    // bucketed by that lender's own status (matches the app's My Loans).
+    prisma.offer.groupBy({ by: ['lenderStatus'], where: { ...cr, applied: true }, _count: { _all: true } }),
   ]);
 
   const byStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
   statusGroups.forEach((g) => { byStatus[g.status] = g._count._all; });
+
+  const byLenderStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
+  lenderGroups.forEach((g) => { if (g.lenderStatus) byLenderStatus[g.lenderStatus] = g._count._all; });
 
   const totalDisbursed = disbursedAgg._sum.principal ?? 0;
   const approved = byStatus['approved'] + byStatus['disbursed'] + byStatus['closed'];
@@ -97,6 +133,8 @@ adminRouter.get('/dashboard/overview', ah(async (_req, res) => {
     },
     funnel,
     applicationsByStatus: byStatus,
+    // Per-lender application pipeline (applied offers by their own status).
+    lenderApplicationsByStatus: byLenderStatus,
   }, 'Overview');
 }));
 
@@ -122,7 +160,7 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
   const [apps, loans, leadsBySource, appsByType] = await Promise.all([
     prisma.loanApplication.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true } }),
     prisma.loan.findMany({ where: { disbursedAt: { gte: since } }, select: { disbursedAt: true, principal: true } }),
-    prisma.anonymousLead.groupBy({ by: ['source'], _count: { _all: true } }),
+    prisma.lead.groupBy({ by: ['source'], _count: { _all: true } }),
     prisma.loanApplication.groupBy({ by: ['loanType'], _count: { _all: true } }),
   ]);
 
@@ -147,7 +185,88 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
 adminRouter.get('/live-feed', ah(async (req, res) => {
   const limit = Math.min(100, Math.max(5, parseInt(String(req.query.limit ?? '30'), 10) || 30));
   const events = await prisma.activityEvent.findMany({ orderBy: { ts: 'desc' }, take: limit });
-  return ok(res, events, 'Live feed');
+
+  // Attach who each event belongs to, so the feed can name the person and link
+  // through to them. Batched (one query for the whole page) rather than a join
+  // per row. ActivityEvent.userId is a User id; the drill-through page is keyed
+  // by Customer, so resolve both here.
+  const userIds = [...new Set(events.map((e) => e.userId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const customerByUserId = new Map(customers.map((c) => [c.userId!, c.id]));
+
+  const enriched = events.map((e) => ({
+    ...e,
+    user: e.userId ? userById.get(e.userId) ?? null : null,
+    customerId: e.userId ? customerByUserId.get(e.userId) ?? null : null,
+  }));
+  return ok(res, enriched, 'Live feed');
+}));
+
+// GET /api/admin/active-users?limit=  — most-recently-active users, newest first,
+// each with their phone and device/OS (from the latest session).
+adminRouter.get('/active-users', ah(async (req, res) => {
+  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit ?? '15'), 10) || 15));
+  // Pull a generous window of recent sessions, then keep the newest one per user
+  // so a chatty user does not crowd out everyone else.
+  // Only signed-in users: activity without a login is not shown (nor stored any more).
+  const sessions = await prisma.session.findMany({
+    where: { userId: { not: null } },
+    orderBy: { startedAt: 'desc' },
+    take: limit * 8,
+    select: { id: true, userId: true, deviceInfo: true, startedAt: true, endedAt: true, pagesVisited: true },
+  });
+
+  const seen = new Set<string>();
+  const picked: typeof sessions = [];
+  for (const s of sessions) {
+    const key = s.userId ?? `anon:${s.id}`; // anonymous sessions never dedupe together
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push(s);
+    if (picked.length >= limit) break;
+  }
+
+  const userIds = [...new Set(picked.map((s) => s.userId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true, currentStage: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const custByUserId = new Map(customers.map((c) => [c.userId!, c]));
+
+  const rows = picked.map((s) => {
+    const u = s.userId ? userById.get(s.userId) : null;
+    const c = s.userId ? custByUserId.get(s.userId) : null;
+    const d = (s.deviceInfo ?? {}) as Record<string, unknown>;
+    const platform = d.platform ? String(d.platform) : null;
+    const osVersion = d.osVersion ? String(d.osVersion) : null;
+    return {
+      userId: s.userId ?? null,
+      customerId: c?.id ?? null,
+      name: u?.fullName ?? null,
+      phone: u?.phone ?? null,
+      stage: c?.currentStage ?? null,
+      os: platform ? `${platform}${osVersion ? ` ${osVersion}` : ''}` : null,
+      device: d.model ? String(d.model) : null,
+      appVersion: d.appVersion ? String(d.appVersion) : null,
+      lastActiveAt: s.startedAt,
+      online: !s.endedAt,
+      pagesVisited: s.pagesVisited,
+    };
+  });
+  return ok(res, rows, 'Active users');
 }));
 
 // ─────────────────────────── loans / pipeline ───────────────────────────
@@ -173,7 +292,18 @@ adminRouter.get('/loans', ah(async (req, res) => {
       where,
       orderBy: { createdAt: 'desc' },
       skip, take,
-      include: { user: { select: { id: true, fullName: true, phone: true, pincode: true } }, loan: true, _count: { select: { offers: true } } },
+      include: {
+        user: { select: { id: true, fullName: true, phone: true, pincode: true } },
+        loan: true,
+        _count: { select: { offers: true } },
+        // Per-lender applications for this row (applied offers + their own
+        // status), so the pipeline can show "3 lenders · 1 approved, 2 pending"
+        // rather than just the parent application's single status.
+        offers: {
+          where: { applied: true },
+          select: { id: true, lenderName: true, lenderStatus: true, partner: { select: { name: true } } },
+        },
+      },
     }),
     prisma.loanApplication.count({ where }),
   ]);
@@ -241,8 +371,8 @@ adminRouter.get('/leads', ah(async (req, res) => {
     where.OR = [{ name: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { city: { contains: s, mode: 'insensitive' } }];
   }
   const [rows, total] = await Promise.all([
-    prisma.anonymousLead.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
-    prisma.anonymousLead.count({ where }),
+    prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.lead.count({ where }),
   ]);
 
   // WS10 — attach the cross-channel conversation memory for each lead's number, so
@@ -285,7 +415,7 @@ adminRouter.get('/leads', ah(async (req, res) => {
 
 // GET /api/admin/leads/:id  — lead + (if converted) the user + any activity matched by phone
 adminRouter.get('/leads/:id', ah(async (req, res) => {
-  const lead = await prisma.anonymousLead.findUnique({ where: { id: req.params.id } });
+  const lead = await prisma.lead.findUnique({ where: { id: req.params.id } });
   if (!lead) throw new HttpError(404, 'Lead not found');
 
   // If the lead converted to a real user, pull that user + their applications for the journey.
@@ -307,7 +437,7 @@ adminRouter.get('/leads/:id', ah(async (req, res) => {
   const [brief, conversations, customer] = phone
     ? await Promise.all([
         prisma.conversationSummary.findUnique({ where: { phone } }),
-        prisma.conversation.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
+        prisma.callAttempt.findMany({ where: { phone }, orderBy: { startedAt: 'desc' }, take: 50 }),
         prisma.customer.findFirst({ where: { phone }, select: { id: true, currentStage: true } }),
       ])
     : [null, [], null];
@@ -348,32 +478,131 @@ adminRouter.get('/leads/:id', ah(async (req, res) => {
 
 // PATCH /api/admin/leads/:id  { status?, note? }
 adminRouter.patch('/leads/:id', ah(async (req, res) => {
-  const lead = await prisma.anonymousLead.update({
+  const lead = await prisma.lead.update({
     where: { id: req.params.id },
     data: { status: req.body?.status ?? undefined, note: req.body?.note ?? undefined },
   });
+  log.info('lead updated', { id: lead.id, status: lead.status, noteChanged: req.body?.note !== undefined });
   return ok(res, lead, 'Lead updated');
 }));
 
 // ─────────────────────────── downloads / attribution ───────────────────────────
 
-// GET /api/admin/downloads?page=&pageSize=
+// GET /api/admin/downloads?page=&pageSize=&from=&to=
+// `from`/`to` are ISO instants (the client computes them for Today / Yesterday /
+// range in the viewer's own timezone). Each row is enriched with the matched
+// user's name/phone and their current journey stage.
 adminRouter.get('/downloads', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const q = req.query as Record<string, unknown>;
+  const installedAt: { gte?: Date; lte?: Date } = {};
+  const from = typeof q.from === 'string' ? new Date(q.from) : null;
+  const to = typeof q.to === 'string' ? new Date(q.to) : null;
+  if (from && !Number.isNaN(from.getTime())) installedAt.gte = from;
+  if (to && !Number.isNaN(to.getTime())) installedAt.lte = to;
+  const where = Object.keys(installedAt).length ? { installedAt } : {};
+
   const [rows, total, bySource, byPlatform, contextCount] = await Promise.all([
-    prisma.appDownload.findMany({ orderBy: { installedAt: 'desc' }, skip, take }),
-    prisma.appDownload.count(),
-    prisma.appDownload.groupBy({ by: ['source'], _count: { _all: true } }),
-    prisma.appDownload.groupBy({ by: ['platform'], _count: { _all: true } }),
-    prisma.appDownload.count({ where: { contextLoaded: true } }),
+    prisma.appDownload.findMany({ where, orderBy: { installedAt: 'desc' }, skip, take }),
+    prisma.appDownload.count({ where }),
+    prisma.appDownload.groupBy({ by: ['source'], where, _count: { _all: true } }),
+    prisma.appDownload.groupBy({ by: ['platform'], where, _count: { _all: true } }),
+    prisma.appDownload.count({ where: { ...where, contextLoaded: true } }),
   ]);
+
+  // Join the matched users -> identity + current journey stage (same pattern as
+  // the active-users view): AppDownload.matchedUserId -> User, Customer.currentStage.
+  const userIds = [...new Set(rows.map((r) => r.matchedUserId).filter(Boolean) as string[])];
+  const [users, customers] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, firstName: true, phone: true } })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { userId: true, currentStage: true } })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const custByUserId = new Map(customers.map((c) => [c.userId!, c]));
+  const enriched = rows.map((r) => {
+    const u = r.matchedUserId ? userById.get(r.matchedUserId) : null;
+    const c = r.matchedUserId ? custByUserId.get(r.matchedUserId) : null;
+    return {
+      ...r,
+      userId: r.matchedUserId ?? null,
+      userName: u?.fullName ?? u?.firstName ?? null,
+      userPhone: u?.phone ?? null,
+      stage: c?.currentStage ?? null,
+    };
+  });
+
   return ok(res, {
-    rows,
+    rows: enriched,
     bySource: bySource.map((g) => ({ source: g.source, count: g._count._all })),
     byPlatform: byPlatform.map((g) => ({ platform: g.platform, count: g._count._all })),
     contextInstalls: contextCount,
     organicInstalls: total - contextCount,
   }, 'Downloads', paginate(page, pageSize, total));
+}));
+
+// ─────────────────────────── revasure leads ───────────────────────────
+
+// GET /api/admin/revasure?status=&page=&pageSize=
+// Leads pushed to Revasure (third lender group, fired in parallel at prequalify)
+// with the recorded request/response. status: success|duplicate|ineligible|failed|pending
+adminRouter.get('/revasure', ah(async (req, res) => {
+  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const where: Record<string, unknown> = {};
+  if (status) where.status = status;
+
+  const [rows, total, byStatus] = await Promise.all([
+    prisma.revasureLead.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take }),
+    prisma.revasureLead.count({ where }),
+    prisma.revasureLead.groupBy({ by: ['status'], _count: { _all: true } }),
+  ]);
+  return ok(res, {
+    rows,
+    byStatus: byStatus.map((g) => ({ status: g.status, count: g._count._all })),
+  }, 'Revasure leads', paginate(page, pageSize, total));
+}));
+
+// GET /api/admin/revasure/:id — one lead's full request/response
+adminRouter.get('/revasure/:id', ah(async (req, res) => {
+  const lead = await prisma.revasureLead.findUnique({ where: { id: req.params.id } });
+  if (!lead) return res.status(404).json({ success: false, message: 'Not found' });
+  return ok(res, { lead }, 'Revasure lead');
+}));
+
+// ─────────────────────────── yubi (YMPL) referrals ───────────────────────────
+
+// GET /api/admin/yubi?applied=1&status=&page=&pageSize=
+// Yubi partner referrals. applied=1 (default) = only those the customer actually
+// proceeded with (appliedAt set) — the ones that count as an application. Joins
+// the customer so the operator can see who applied via Yubi.
+adminRouter.get('/yubi', ah(async (req, res) => {
+  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const appliedOnly = req.query.applied !== '0' && req.query.applied !== 'false';
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const where: Record<string, unknown> = {};
+  if (appliedOnly) where.appliedAt = { not: null };
+  if (status) where.lastStatus = status;
+
+  const [rows, total, byStatus] = await Promise.all([
+    prisma.partnerReferral.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take }),
+    prisma.partnerReferral.count({ where }),
+    prisma.partnerReferral.groupBy({ by: ['lastStatus'], where: { appliedAt: { not: null } }, _count: { _all: true } }),
+  ]);
+  // Attach the customer (plain-FK model, no relation).
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
+    : [];
+  const byId = Object.fromEntries(users.map((u) => [u.id, u]));
+  const withUser = rows.map((r) => ({ ...r, user: byId[r.userId] || null }));
+  return ok(res, {
+    rows: withUser,
+    byStatus: byStatus.map((g) => ({ status: g.lastStatus || 'applied', count: g._count._all })),
+  }, 'Yubi referrals', paginate(page, pageSize, total));
 }));
 
 // ─────────────────────────── users ───────────────────────────
@@ -386,6 +615,23 @@ adminRouter.get('/users', ah(async (req, res) => {
     const s = String(req.query.search).trim();
     where.OR = [{ fullName: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { email: { contains: s, mode: 'insensitive' } }];
   }
+  // Filter by current journey stage: restrict to the users whose Customer is in
+  // that stage. An unknown/empty stage set yields no users (correct).
+  const stage = req.query.stage ? String(req.query.stage) : undefined;
+  if (stage) {
+    const staged = await prisma.customer.findMany({
+      where: { currentStage: stage, userId: { not: null } } as Record<string, unknown>,
+      select: { userId: true },
+    });
+    where.id = { in: staged.map((c) => c.userId!) };
+  }
+  // Joined-date range (ISO instants, computed in the viewer's timezone).
+  const createdAt: { gte?: Date; lte?: Date } = {};
+  const from = typeof req.query.from === 'string' ? new Date(req.query.from) : null;
+  const to = typeof req.query.to === 'string' ? new Date(req.query.to) : null;
+  if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
+  if (to && !Number.isNaN(to.getTime())) createdAt.lte = to;
+  if (Object.keys(createdAt).length) where.createdAt = createdAt;
   const [rows, total] = await Promise.all([
     prisma.user.findMany({
       where, orderBy: { createdAt: 'desc' }, skip, take,
@@ -397,13 +643,28 @@ adminRouter.get('/users', ah(async (req, res) => {
     }),
     prisma.user.count({ where }),
   ]);
-  return ok(res, rows, 'Users', paginate(page, pageSize, total));
+  // Attach each user's current stage for the stage column.
+  const custs = rows.length
+    ? await prisma.customer.findMany({ where: { userId: { in: rows.map((r) => r.id) } }, select: { userId: true, currentStage: true } })
+    : [];
+  const stageByUser = new Map(custs.map((c) => [c.userId!, c.currentStage]));
+  const enriched = rows.map((r) => ({ ...r, stage: stageByUser.get(r.id) ?? null }));
+  return ok(res, enriched, 'Users', paginate(page, pageSize, total));
 }));
 
-// GET /api/admin/users/:id — full profile
+// GET /api/admin/users/:id — full profile + EVERY application the customer made
+// across all three lender groups, so an operator can see (and manually track)
+// exactly what a customer applied for:
+//   • Aurix (Knight Fintech) — LenderApplication rows (one per applied offer)
+//   • Yubi (YMPL)            — PartnerReferral rows that reached "applied"
+//   • Revasure               — RevasureLead rows (created leads)
+// PartnerReferral/RevasureLead are plain-FK models (no User relation), and
+// LenderApplication links via its parent application — so they're fetched by
+// userId separately and attached.
 adminRouter.get('/users/:id', ah(async (req, res) => {
+  const userId = req.params.id;
   const user = await prisma.user.findUnique({
-    where: { id: req.params.id },
+    where: { id: userId },
     include: {
       applications: { orderBy: { createdAt: 'desc' }, include: { loan: true } },
       loans: { orderBy: { disbursedAt: 'desc' } },
@@ -412,7 +673,57 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     },
   });
   if (!user) throw new HttpError(404, 'User not found');
-  return ok(res, user, 'User profile');
+
+  const [aurixApplications, partnerReferrals, revasureLeads, customer] = await Promise.all([
+    // Aurix: per-lender applications (the actual "applied to this lender" records).
+    prisma.lenderApplication.findMany({
+      where: { application: { userId } },
+      orderBy: { appliedAt: 'desc' },
+      include: { offer: { select: { lenderName: true, apr: true, amount: true } } },
+    }),
+    // Yubi: referrals the customer actually proceeded with (appliedAt set).
+    prisma.partnerReferral.findMany({
+      where: { userId, appliedAt: { not: null } },
+      orderBy: { appliedAt: 'desc' },
+    }),
+    // Revasure: every lead created for this customer.
+    prisma.revasureLead.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' } }),
+    // Current journey stage (matched by userId, else by phone — the two ways a
+    // Customer links to a User).
+    prisma.customer.findFirst({
+      where: { OR: [{ userId }, ...(user.phone ? [{ phone: user.phone }] : [])] },
+      select: { id: true, currentStage: true, stageEnteredAt: true, lastActivityAt: true },
+    }),
+  ]);
+
+  // Unified, lender-tagged list — the single source of truth for "what did this
+  // customer apply for". Real-time status may not exist for every lender, but the
+  // record of the application always does.
+  const lenderApplications = [
+    ...aurixApplications.map((a) => ({
+      lenderGroup: 'knight_fintech', provider: 'aurix',
+      lender: a.lenderName || a.offer?.lenderName || 'Knight Fintech partner',
+      amount: a.amount, apr: a.apr ?? a.offer?.apr ?? null,
+      status: a.status, appliedAt: a.appliedAt, ref: a.id,
+    })),
+    ...partnerReferrals.map((p) => ({
+      lenderGroup: 'yubi', provider: 'ympl',
+      lender: p.appliedLender || 'Yubi Markets partner',
+      amount: null, apr: null,
+      // The customer HAS applied (appliedAt is set), so surface the journey
+      // status if we have one, else "applied" — never the referral's internal
+      // registration status (e.g. "failed"/"pending_data"), which would wrongly
+      // read as if no application was made.
+      status: p.lastStatus || (p.appliedAt ? 'applied' : p.status), appliedAt: p.appliedAt, ref: p.id,
+    })),
+    ...revasureLeads.map((r) => ({
+      lenderGroup: 'revasure', provider: 'revasure',
+      lender: 'Revasure', amount: null, apr: null,
+      status: r.status, appliedAt: r.createdAt, ref: r.leadId || r.sourceLeadId,
+    })),
+  ].sort((a, b) => new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
+
+  return ok(res, { ...user, customer, aurixApplications, partnerReferrals, revasureLeads, lenderApplications }, 'User profile');
 }));
 
 // ─────────────────────────── notifications ───────────────────────────
@@ -440,4 +751,28 @@ adminRouter.patch('/notifications/:id/read', ah(async (req, res) => {
 adminRouter.post('/notifications/read-all', ah(async (_req, res) => {
   await prisma.notification.updateMany({ where: { read: false }, data: { read: true } });
   return ok(res, null, 'All marked read');
+}));
+
+// ─────────────────────────── app configuration ───────────────────────────
+
+// GET /api/admin/config — current nudge timers (any admin can view).
+adminRouter.get('/config', ah(async (_req, res) => {
+  return ok(res, await getNudgeConfig(true), 'App config');
+}));
+
+// PUT /api/admin/config — update nudge timers (administer role only). The mobile
+// app picks up the change on its next config fetch (launch / foreground).
+adminRouter.put('/config', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const b = req.body ?? {};
+  const updated = await setNudgeConfig({
+    nudgeEnabled: b.nudgeEnabled,
+    nudgeIdleMs: b.nudgeIdleMs,
+    nudgeDropoffMs: b.nudgeDropoffMs,
+    nudgeEligibleMs: b.nudgeEligibleMs,
+    nudgeStartMs: b.nudgeStartMs,
+    nudgeRotateMs: b.nudgeRotateMs,
+    nudgeSnoozeMs: b.nudgeSnoozeMs,
+  });
+  log.info('nudge config updated', { by: (req as any).admin?.email, ...updated });
+  return ok(res, updated, 'Config saved');
 }));

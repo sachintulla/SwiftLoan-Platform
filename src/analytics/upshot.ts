@@ -14,9 +14,25 @@
  * import, so a missing package is a no-op instead of a red-screen at boot.
  */
 
-// Defaults: Upshot production app "Swiftloan_prod".
-const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? "f8ac8f46-ba91-4d54-a8de-da4546e85fdb";
-const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? "6cfe2c70-4130-46d5-9202-54252d38e57f";
+import { NativeModules, Platform } from 'react-native';
+import { UPSHOT_DEMO } from '../config/build';
+import { metaTrackFromAppEvent } from './meta';
+
+/** Upshot's platform label for this build — never hard-code it: iPhones were being
+ *  profiled as Android. */
+export const PLATFORM: 'iOS' | 'Android' = Platform.OS === 'ios' ? 'iOS' : 'Android';
+
+// Two Upshot apps exist in the console (Account settings -> App Management). The
+// SDK's "Owner ID" is the console's "Account ID"; "App SDK ID" is the App ID.
+//   - Builds pointed at a dev/local backend  -> the Demo app "Swiftloan", so test
+//     traffic never lands in production data (see UPSHOT_DEMO in config/build.ts).
+//   - Builds pointed at the production API   -> the Production app "Swiftloan_prod".
+// Either can still be overridden with globalThis.SWIFTLOAN_UPSHOT_APP_ID / _OWNER_ID.
+const UPSHOT_IDS = UPSHOT_DEMO
+  ? { appId: 'ce84173a-1e4b-4dcf-b1d3-8d9504cd0c50', ownerId: '6cfe2c70-4130-46d5-9202-54252d38e57f' } // Demo
+  : { appId: 'f8ac8f46-ba91-4d54-a8de-da4546e85fdb', ownerId: '6cfe2c70-4130-46d5-9202-54252d38e57f' }; // Production
+const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? UPSHOT_IDS.appId;
+const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? UPSHOT_IDS.ownerId;
 
 /** Activity types Upshot can render (surveys, polls, trivia/mini-games…). */
 export type UpshotActivityType =
@@ -32,8 +48,8 @@ type UpshotNative = {
   initializeUpshotUsingOptions: (optionsJson: string) => void;
   terminate?: () => void;
   setDispatchInterval?: (seconds: number) => void;
-  createPageViewEvent?: (screen: string) => void;
-  createCustomEvent?: (name: string, payload: string, isTimed: boolean) => void;
+  createPageViewEvent?: (screen: string, callback: () => void) => void;
+  createCustomEvent?: (name: string, payload: string, isTimed: boolean, callback: () => void) => void;
   setUserProfile?: (profileJson: string) => void;
   getUserId?: () => Promise<string>;
   getUserDetails?: () => Promise<unknown>;
@@ -61,6 +77,15 @@ let resolved = false;
 function sdk(): UpshotNative | null {
   if (resolved) return native;
   resolved = true;
+  // The wrapper builds `new NativeEventEmitter(NativeModules.UpshotReact)` at
+  // import time. In any build where the native module isn't linked (e.g. a
+  // simulator build with Upshot excluded), UpshotReact is undefined and that
+  // constructor throws an *uncaught* invariant red-screen at boot. Guard by
+  // confirming the native module is present before we require the JS wrapper.
+  if (!(NativeModules as { UpshotReact?: unknown })?.UpshotReact) {
+    native = null;
+    return native;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require('react-native-upshotsdk');
@@ -69,6 +94,12 @@ function sdk(): UpshotNative | null {
     native = null;
   }
   return native;
+}
+
+/** Debug builds only: one greppable line per call handed to the SDK
+ *  (`adb logcat | grep "\[upshot\]"`, or the Metro terminal). Release builds log nothing. */
+function devLog(...args: unknown[]): void {
+  if (__DEV__) console.log('[upshot]', ...args);
 }
 
 /** Swallow everything — analytics must never break a screen. */
@@ -130,7 +161,15 @@ export function initUpshot(): boolean {
     s.addListener?.('UpshotAuthStatus', (status) => {
       if (__DEV__) console.log('[upshot] auth', status);
     });
-    s.setDispatchInterval?.(60); // documented range 10–120s
+    // Push lifecycle (iOS emits these from the native module; Android handles push in
+    // SwiftLoanMessagingService). Debug-only visibility: the token itself is never logged.
+    s.addListener?.('UpshotPushToken', () => devLog('push token registered with Upshot'));
+    s.addListener?.('UpshotOnPushClickInfo', () => devLog('push notification tapped'));
+    s.addListener?.('UpshotPushPayload', () => devLog('push payload received'));
+    // Documented range 10–120s. Short in debug builds so events reach the dashboard
+    // quickly while testing; 60s in release to batch for battery.
+    s.setDispatchInterval?.(UPSHOT_DEMO ? 10 : 60);
+    devLog('initialised', { platform: PLATFORM, demo: UPSHOT_DEMO, dispatchSeconds: UPSHOT_DEMO ? 10 : 60 });
     started = true;
     return true;
   } catch (e) {
@@ -141,12 +180,144 @@ export function initUpshot(): boolean {
 
 /* ─────────────────────────── events ─────────────────────────── */
 
-export function upshotScreen(screen: string): void {
-  safe(() => sdk()?.createPageViewEvent?.(screen));
+// The native iOS bridge declares these methods with a required
+// RCTResponseSenderBlock callback (react-native-upshotsdk's JS wrapper is
+// `createPageViewEvent(screenName, callback)` / `createCustomEvent(name,
+// payload, isTimed, callback)`). Omitting it makes the bridge throw "argument
+// must be a function. Got undefined" — so pass a no-op callback.
+const noop = (): void => {};
+/** SDK callback for events: in debug builds it confirms the SDK accepted the call. */
+const accepted = (what: string) => (): void => devLog('sdk accepted', what);
+
+/**
+ * Readable names for the screens whose internal ids are not self-explanatory.
+ * Upshot (Live Events, screen-targeted campaigns) sees these labels; every screen
+ * not listed here is sent under its internal id (home, profile, offers, ...).
+ * The application funnel steps are numbered in the order the user does them.
+ */
+export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
+  intro: 'Get Started',
+  fare: 'My Offers',
+  loans: 'My Loans',
+  basicpan: 'PAN Verification Step 1',
+  basic: 'Basic Details Step 2',
+  moredetails: 'More Details Step 3',
+  finding: 'Finding Loader',
+  compare: 'Compare Offers',
+};
+
+/* ───────────────────────────── stage ─────────────────────────────
+ * `stage` = the user's PRESENT step in the journey, as a Title Case phrase ("Pan Verification").
+ * It rides on every event AND is kept on the user's profile (updated whenever it changes), so a
+ * campaign can target "everyone currently at Pan Verification". Screens outside the loan journey
+ * (home, loans, profile, help…) leave it unchanged: it stays the last journey step reached.
+ * Same vocabulary as the website (website-next/src/lib/upshot.ts), enforced by
+ * __tests__/upshotEventParity.test.ts — add a step in both places and in docs/UPSHOT_EVENTS.md.
+ */
+export const UPSHOT_STAGES = [
+  'Language Selection',
+  'Get Started',
+  'Mobile Number',
+  'Otp Verification',
+  'Permissions',
+  'About You',
+  'Pan Verification',
+  'Basic Details',
+  'More Details',
+  'Finding Offers',
+  'Offers',
+  'Compare Offers',
+  'Lender Application',
+  'Application Submitted',
+  'Loan Disbursed',
+  'Repayment',
+] as const;
+
+export const UPSHOT_STAGE_FOR_SCREEN: Record<string, string> = {
+  language: 'Language Selection',
+  intro: 'Get Started',
+  mobile: 'Mobile Number',
+  otp: 'Otp Verification',
+  permissions: 'Permissions',
+  aboutyou: 'About You',
+  basicpan: 'Pan Verification',
+  basic: 'Basic Details',
+  moredetails: 'More Details',
+  finding: 'Finding Offers',
+  fare: 'Offers',
+  offers: 'Offers',
+  compare: 'Compare Offers',
+  handoff: 'Lender Application',
+  lenderweb: 'Lender Application',
+  altweb: 'Lender Application',
+  status: 'Application Submitted',
+  disbursed: 'Loan Disbursed',
+  repay: 'Repayment',
+};
+
+/** An event that itself moves the user to the next step: OTP entry shares the `mobile` screen. */
+const STAGE_AFTER_EVENT: Record<string, string> = { otp_requested: 'Otp Verification' };
+
+let currentStage: string | null = null;
+/** The id the profile is keyed on, once known — the stage is only pushed to a profile that exists. */
+let identifiedUserId: string | null = null;
+
+export function currentUpshotStage(): string | null {
+  return currentStage;
 }
 
+function pushStageToProfile(): void {
+  const stage = currentStage;
+  if (!stage || !identifiedUserId) return;
+  const appuID = identifiedUserId;
+  safe(() => sdk()?.setUserProfile?.(JSON.stringify({ appuID, stage })));
+}
+
+function setStage(stage: string | null | undefined): void {
+  if (!stage || stage === currentStage) return;
+  currentStage = stage;
+  devLog('stage ->', stage);
+  pushStageToProfile();
+}
+
+/** Test seam: forget the current step and who is identified. */
+export function __resetUpshotStageForTests(): void {
+  currentStage = null;
+  identifiedUserId = null;
+}
+
+/** Screens that are never reported: the animated logo at launch carries no information. */
+const UPSHOT_SKIPPED_SCREENS = new Set(['splash']);
+
+export function upshotScreen(screen: string): void {
+  if (!started || UPSHOT_SKIPPED_SCREENS.has(screen)) return;
+  const name = UPSHOT_SCREEN_LABELS[screen] ?? screen;
+  // Before anything else fires on this screen: events from here on carry this stage.
+  setStage(UPSHOT_STAGE_FOR_SCREEN[screen]);
+  devLog('screen ->', name);
+  safe(() => sdk()?.createPageViewEvent?.(name, __DEV__ ? accepted(`screen:${name}`) : noop));
+}
+
+/**
+ * Event NAMES are one canonical lowercase snake_case spelling shared with the website
+ * (website-next/src/lib/upshot.ts); the contract is `docs/UPSHOT_EVENTS.md`, enforced by
+ * `__tests__/upshotEventParity.test.ts`. Upshot keeps a separate event for every distinct
+ * spelling ("PAN Verified" / "PANVerified" / "pan_verified" are three events), so never
+ * invent a new variant of an existing name.
+ *
+ * `platform` ('iOS' | 'Android') rides on every event, as 'Web' does on the website, so a
+ * report can split by surface the same way everywhere; so does `stage` (the present step,
+ * once known). A caller's own value wins.
+ */
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
-  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(attrs), false));
+  // Meta ads: the two funnel moments only, no attributes (see src/analytics/meta.ts).
+  metaTrackFromAppEvent(name);
+  if (!started) return;
+  const payload = { platform: PLATFORM, ...(currentStage ? { stage: currentStage } : {}), ...attrs };
+  devLog('event ->', name, payload);
+  safe(() => sdk()?.createCustomEvent?.(name, JSON.stringify(payload), false, __DEV__ ? accepted(`event:${name}`) : noop));
+  // After the event: it happened AT the previous step; the user is now at the next one.
+  setStage(STAGE_AFTER_EVENT[name]);
 }
 
 /* ───────────────────────── identity ───────────────────────── */
@@ -171,23 +342,45 @@ export function upshotIdentify(user: {
       ? user.phone!
       : `+91${digits.slice(-10)}`
     : undefined;
+  const fullName = (user.name || '').trim();
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  if (started) {
+    devLog('identify ->', {
+      appuID: user.userId,
+      phone: phone ? `${phone.slice(0, 3)}******${phone.slice(-2)}` : null,
+      name: fullName || null,
+      platform: PLATFORM,
+    });
+  }
+  // The SDK maps profile fields by EXACT key: `appuID`, `firstName`, `lastName`,
+  // `userName`, `email`, `phone` (see UpshotModule.java predefinedKeys / the iOS
+  // wrapper). Any other key is stored as a custom attribute, so the old
+  // `appuid` / `Name` / `Email` / `Phone` left App UID and Name blank on the
+  // dashboard. Platform / City / Country stay custom attributes.
   safe(() =>
     sdk()?.setUserProfile?.(
       JSON.stringify({
-        appuid: user.userId,
-        Name: user.name ?? undefined,
-        Email: user.email ?? undefined,
-        Phone: phone,
+        appuID: user.userId,
+        firstName: parts[0],
+        lastName: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
+        userName: fullName || undefined,
+        email: user.email ?? undefined,
+        phone,
         City: user.city ?? undefined,
         Country: 'India',
-        Platform: 'Android',
+        Platform: PLATFORM,
       }),
     ),
   );
+  // Now there is a profile: attach the step the user is on (and keep it current from here).
+  identifiedUserId = user.userId;
+  pushStageToProfile();
 }
 
 /** Upshot's logout is `disableUser(true)` — there is no `userLogout`. */
 export function upshotLogout(): void {
+  identifiedUserId = null;
+  currentStage = null; // the next person on this device starts from no step
   safe(() => sdk()?.disableUser?.(true));
 }
 
@@ -254,30 +447,33 @@ export function showUpshotInbox(): void {
  * TYPES matter more than the values: Upshot infers a type from the first event
  * it sees, so sending `amount` as a string once makes it a string forever.
  *
- * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step.
+ * Mirrors website-next/src/lib/upshotEvents.ts — keep the two in step (the parity test fails if they drift).
  */
 export const MOBILE_UPSHOT_EVENTS: Array<{ name: string; attributes: Record<string, unknown> }> = [
-  { name: 'app_installed', attributes: { platform: 'Android', source: 'organic' } },
-  { name: 'app_opened', attributes: { platform: 'Android' } },
+  { name: 'app_installed', attributes: { platform: PLATFORM, source: 'organic' } },
+  { name: 'app_opened', attributes: { platform: PLATFORM } },
   { name: 'language_selected', attributes: { language: 'en', label: 'English' } },
   { name: 'otp_requested', attributes: { screen: 'mobile' } },
   { name: 'otp_verified', attributes: { priorInquiryCount: 1 } },
+  { name: 'pan_verified', attributes: { source: 'aurix', aadhaarLinked: true } },
   { name: 'eligibility_completed', attributes: { offerCount: 4 } },
+  { name: 'offers_got', attributes: { offerCount: 4, bestApr: 10.49, maxAmount: 500000, lenders: 'Aditya Finance, Axis Finance', topLender: 'Aditya Finance' } },
   { name: 'offer_viewed', attributes: { offerCount: 4, bestApr: 10.49 } },
-  { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance' } },
+  { name: 'offer_selected', attributes: { apr: 10.49, amount: 500000, tenureMonths: 36, partner: 'Aditya Finance', offerType: 'preapproved', offerLikelihood: '1' } },
   { name: 'kyc_started', attributes: { method: 'aadhaar' } },
   { name: 'kyc_completed', attributes: { methods: 'aadhaar,pan,bank,selfie' } },
   { name: 'application_submitted', attributes: { amount: 500000, product: 'Personal Loan' } },
   { name: 'loan_approved', attributes: { amount: 500000, apr: 10.49 } },
   { name: 'loan_rejected', attributes: { reason: 'credit_policy' } },
   { name: 'loan_disbursed', attributes: { amount: 500000, partner: 'Aditya Finance' } },
-  { name: 'call_completed', attributes: { answered: true, durationSec: 95, outcome: 'interested' } },
+  { name: 'call_completed', attributes: { answered: true, durationSec: 95, outcome: 'interested', campaign: 'diwali' } },
   // Drop-off nudges — the events campaigns are actually built against.
-  { name: 'swiftloan_otp_not_verified', attributes: { stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, minutesStuck: 20 } },
-  { name: 'swiftloan_install_not_registered', attributes: { stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, minutesStuck: 45 } },
-  { name: 'swiftloan_eligibility_incomplete', attributes: { stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, minutesStuck: 22 } },
-  { name: 'swiftloan_offer_not_selected', attributes: { stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, minutesStuck: 30 } },
-  { name: 'swiftloan_kyc_incomplete', attributes: { stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, minutesStuck: 25 } },
+  { name: 'swiftloan_otp_not_verified', attributes: { rule: 'OTP requested but not verified', stuckAt: 'otp_requested', expected: 'otp_verified', delayMinutes: 15, stage: 'otp_requested', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 20 } },
+  { name: 'swiftloan_install_not_registered', attributes: { rule: 'App installed but never registered', stuckAt: 'app_installed', expected: 'otp_verified', delayMinutes: 30, stage: 'app_installed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 45 } },
+  { name: 'swiftloan_eligibility_incomplete', attributes: { rule: 'Registered but eligibility not checked', stuckAt: 'otp_verified', expected: 'eligibility_completed', delayMinutes: 15, stage: 'otp_verified', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 22 } },
+  { name: 'swiftloan_offer_not_selected', attributes: { rule: 'Offers viewed but none selected', stuckAt: 'offer_viewed', expected: 'offer_selected', delayMinutes: 20, stage: 'offers_viewed', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 30 } },
+  { name: 'swiftloan_kyc_incomplete', attributes: { rule: 'KYC started but not completed', stuckAt: 'kyc_started', expected: 'kyc_completed', delayMinutes: 15, stage: 'kyc_started', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 25 } },
+  { name: 'swiftloan_lead_no_install', attributes: { rule: 'Website lead never installed the app', stuckAt: 'lead_captured', expected: 'app_installed', delayMinutes: 30, stage: 'lead_captured', name: 'Asha Rao', phone: '+919876543210', city: 'Pune', source: 'website', campaign: 'diwali', minutesStuck: 90 } },
 ];
 
 /**
@@ -294,7 +490,7 @@ export function seedUpshotCatalogue(): number {
   }
   MOBILE_UPSHOT_EVENTS.forEach((e, i) => {
     // Spread over time so the SDK batches rather than dropping.
-    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: 'Android', seeded: true }), i * 150);
+    setTimeout(() => upshotEvent(e.name, { ...e.attributes, platform: PLATFORM, stage: 'Pan Verification', seeded: true }), i * 150);
   });
   if (__DEV__) console.log(`[upshot] seeding ${MOBILE_UPSHOT_EVENTS.length} events`);
   return MOBILE_UPSHOT_EVENTS.length;

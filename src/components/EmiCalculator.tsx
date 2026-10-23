@@ -41,6 +41,7 @@ export function EmiCalculator({ onApply }: { onApply: () => void }) {
         >
           <Slider
             label={t.fareAmountLabel}
+            role="amount"
             value={fareAmount}
             min={25000}
             max={500000}
@@ -51,6 +52,7 @@ export function EmiCalculator({ onApply }: { onApply: () => void }) {
         <SliderRow label={t.fareTenureLabel} value={`${fareTenure} ${t.months}`} min="6" max="60">
           <Slider
             label={t.fareTenureLabel}
+            role="tenure"
             value={fareTenure}
             min={6}
             max={60}
@@ -61,6 +63,7 @@ export function EmiCalculator({ onApply }: { onApply: () => void }) {
         <SliderRow label={t.fareRateLabel} value={`${fareRate}% p.a.`} min="8%" max="36%">
           <Slider
             label={t.fareRateLabel}
+            role="rate"
             value={fareRate}
             min={8}
             max={36}

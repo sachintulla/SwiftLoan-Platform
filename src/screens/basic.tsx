@@ -1,13 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Screen, AppHeader } from '../components/Frame';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
-import { Field, Chips, Slider, ConsentRow, PrimaryButton, StepBadge } from '../components/Controls';
-import { Calendar, formatDob, useDobVoiceTarget } from '../components/Calendar';
+import { Field, Chips, Slider, HeaderCta, StepBadge, Select } from '../components/Controls';
+import { INDIAN_STATES, INDIAN_CITIES } from '../utils/indiaLocations';
+import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../components/Calendar';
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
+import { isMaskedPan } from '../utils/resume';
+import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
+import { missingBasicRequired } from '../utils/basicRequired';
+import { revealTarget, emitFx } from '../feedback/agentFx';
+import { useAgentFx, AgentRing } from '../feedback/useAgentFx';
+import {
+  NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
+  PINCODE_RE, sanitizeNameInput, cleanName,
+} from '../utils/inputLimits';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
 const RES_TYPE_SLUG: Record<string, string> = { Own: 'own', Rented: 'rented', Family: 'family', Company: 'company' };
@@ -24,24 +35,99 @@ const EMP_SLUG: Record<string, string> = {
 };
 
 export default function Basic() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, mergeApiContext, go, showToast } = useStore();
+  const t = useT();
   const [dob, setDob] = useState<{ y: number; m: number; d: number } | null>(null);
   useDobVoiceTarget(dob, setDob);
   const [busy, setBusy] = useState(false);
+  // Avoids re-querying the same pincode on every re-render/keystroke elsewhere
+  // on the screen, and avoids racing an in-flight lookup with a newer one if
+  // the user keeps editing.
+  const lastLookedUpPinRef = useRef<string | null>(null);
+  // Set once a lookup actually finds the pincode, so onContinue can cross-check
+  // whatever the user typed/edited into city/state against real postal data —
+  // never set on a network failure, so a flaky connection can't block Continue.
+  const pinLookupRef = useRef<{ city: string; state: string } | null>(null);
+  // Shown under the pincode field: a same-digit/leading-zero format problem
+  // (checked locally, no network) or "not found" (a real lookup that came
+  // back with no match) — a network hiccup shows nothing, same as before.
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  // Validate + auto-fill city/state from the pincode once it's a complete
+  // 6-digit code, via India Post's public Pincode API (free, no key). A
+  // network hiccup must never block typing; an actually-invalid code does.
+  useEffect(() => {
+    const pin = state.basicPin;
+    if (pin.length !== 6 || pin === lastLookedUpPinRef.current) return;
+    lastLookedUpPinRef.current = pin;
+    pinLookupRef.current = null;
+    if (!PINCODE_RE.test(pin)) { setPinError(t.basicValPin); return; }
+    setPinError(null);
+    let cancelled = false;
+    (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { signal: controller.signal });
+        clearTimeout(timer);
+        const json = await res.json();
+        const po = json?.[0]?.PostOffice?.[0];
+        if (cancelled) return;
+        if (!po) { setPinError(t.pinNotFound); return; }
+        if (po.District) set({ optCity: po.District });
+        if (po.State) set({ optState: po.State });
+        pinLookupRef.current = { city: po.District ?? '', state: po.State ?? '' };
+      } catch {
+        // Silently ignore — city/state stay editable by hand, and onContinue
+        // has nothing to cross-check against since pinLookupRef stays null.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.basicPin]);
+  // Snapshot of what the server already held when this screen loaded (from
+  // save_applicant_context during the warm-up conversation, or an earlier
+  // profile edit) — onContinue diffs against this so it only PATCHes fields
+  // that actually changed on screen, instead of re-sending everything every
+  // time, which was a pure duplicate write of data already saved seconds
+  // earlier by the voice agent.
+  const initialUserRef = useRef<any>(null);
 
   // Auto-fill from whatever's already saved server-side.
   useEffect(() => {
-    if (!isAuthed()) return;
+    if (!isAuthed()) { applyPan(); return; }
     api.me().then((r: any) => {
       const user = r.user;
       if (!user) return;
-      if (!state.basicFirst && user.firstName) set({ basicFirst: user.firstName });
-      if (!state.basicLast && user.lastName) set({ basicLast: user.lastName });
+      initialUserRef.current = user;
+      // Name: prefer explicit first/last, but fall back to splitting the fullName
+      // saved by the "Tell us about yourself" screen, so the user never re-types it.
+      const nameParts = (user.fullName || '').trim().split(/\s+/).filter(Boolean);
+      if (!state.basicFirst) {
+        if (user.firstName) set({ basicFirst: user.firstName });
+        else if (nameParts.length) set({ basicFirst: nameParts[0] });
+      }
+      if (!state.basicLast) {
+        if (user.lastName) set({ basicLast: user.lastName });
+        else if (nameParts.length > 1) set({ basicLast: nameParts.slice(1).join(' ') });
+      }
       if (!state.basicEmail && user.email) set({ basicEmail: user.email });
       if (!state.basicPin && user.pincode) set({ basicPin: user.pincode });
       if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });
       if (!state.basicIncome && user.monthlyIncome) set({ basicIncome: String(user.monthlyIncome) });
       if (!state.basicCompany && user.company) set({ basicCompany: user.company });
+      // The amount slider defaults to a placeholder (150000), not empty, so
+      // "is it still the placeholder" is what stands in for "hasn't been set
+      // yet" here — everything else above checks for an empty string instead.
+      if (state.appAmount === 150000 && user.draftLoanAmount) set({ appAmount: user.draftLoanAmount });
+      // Returning-user prefill for the Aurix-required fields so they don't
+      // re-enter what they already gave us last time.
+      if (!state.basicQualification && user.qualification) set({ basicQualification: user.qualification });
+      if (!state.basicLoanPurpose && user.loanPurpose) set({ basicLoanPurpose: user.loanPurpose });
+      if (!state.optSalaryMode && user.salaryMode) set({ optSalaryMode: user.salaryMode });
+      if (!state.optAddr1 && user.addressLine1) set({ optAddr1: user.addressLine1 });
+      if (!state.optCity && user.city) set({ optCity: user.city });
+      if (!state.optState && user.state) set({ optState: user.state });
       if (!state.basicRes && user.residenceType) {
         const label = RES_TYPES.find(r => RES_TYPE_SLUG[r] === user.residenceType);
         if (label) set({ basicRes: label });
@@ -50,40 +136,197 @@ export default function Basic() {
         const label = EMPS.find(e => EMP_SLUG[e] === user.employment);
         if (label) set({ basicEmp: label });
       }
+      if (!state.optAddr2 && user.addressLine2) set({ optAddr2: user.addressLine2 });
       if (!dob && user.dob) {
         const d = new Date(user.dob);
         setDob({ y: d.getFullYear(), m: d.getMonth(), d: d.getDate() });
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(applyPan);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Then the PAN Comprehensive details from Step 1 go on top: they're the
+  // verified identity, so name/DOB/gender/address from the PAN win over older
+  // profile values. Only fields the PAN actually returned are touched, and
+  // only once per verification — coming back to this step keeps any edits.
+  const [fromPan, setFromPan] = useState(!!state.panPrefill?.applied);
+  function applyPan() {
+    const hand = state.panPrefill;
+    if (!hand || hand.applied) return;
+    const p = hand.prefill;
+    const patch: Record<string, unknown> = {};
+    if (p.firstName) patch.basicFirst = p.firstName;
+    if (p.lastName) patch.basicLast = p.lastName;
+    if (p.gender) patch.aboutGender = p.gender;
+    if (p.email) patch.basicEmail = p.email;
+    if (p.pincode) patch.basicPin = p.pincode;
+    if (p.addressLine1) patch.optAddr1 = p.addressLine1;
+    if (p.addressLine2) patch.optAddr2 = p.addressLine2;
+    if (p.city) patch.optCity = p.city;
+    if (p.state) patch.optState = p.state;
+    if (p.district) patch.optDistrict = p.district;
+    const m = p.dob ? /^(\d{4})-(\d{2})-(\d{2})/.exec(p.dob) : null;
+    if (m) setDob({ y: +m[1], m: +m[2] - 1, d: +m[3] });
+    if (Object.keys(patch).length || m) setFromPan(true);
+    set({ ...patch, panPrefill: { ...hand, applied: true } });
+  }
+
+  // Tell the voice agent EVERY mandatory field still empty, up front. Without this it only learned
+  // about them one at a time, from Continue's error toast — asked, pressed Continue, hit the next
+  // error, asked again. An empty list means Continue will go through.
+  const missingRequired = missingBasicRequired(
+    {
+      first: state.basicFirst, last: state.basicLast, dobSet: !!dob, gender: state.aboutGender,
+      email: state.basicEmail, loanPurpose: state.basicLoanPurpose, qualification: state.basicQualification,
+      residence: state.basicRes, employment: state.basicEmp, salaryMode: state.optSalaryMode,
+      addr1: state.optAddr1, city: state.optCity, state: state.optState, pin: state.basicPin, income: state.basicIncome,
+    },
+    { pincodeRe: PINCODE_RE, incomeMin: MONTHLY_INCOME_MIN },
+  );
+  const missingKey = missingRequired.join('|');
+  useEffect(() => {
+    setScreenHint('basic', { missing_required_fields: missingRequired });
+    requestContextRefresh();
+    return () => setScreenHint('basic', null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingKey]);
+
+  // Display label for each required-field key (for the toast + nudge text).
+  const FIELD_LABEL: Record<string, string> = {
+    'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, 'date of birth': t.dobLabel,
+    gender: t.genderLabel, email: t.basicEmailLabel, 'loan purpose': t.basicPurposeLabel,
+    qualification: t.basicQualLabel, 'residence type': t.basicResLabel, 'employment type': t.basicEmpLabel,
+    'salary mode': t.basicSalaryModeLabel, 'address line 1': t.basicAddr1Label, city: t.basicCity,
+    state: t.basicState, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+  };
+  // Text-input fields jump the caret (keyboard cursor) onto the field itself.
+  const TEXT_FIELD: Record<string, string> = {
+    'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, email: t.basicEmailLabel,
+    'address line 1': t.basicAddr1Label, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+  };
+  // Dropdowns (City, State) register under their label like a Field but have no
+  // caret — scroll to them and ring the control, no cursor.
+  const SELECT_FIELD: Record<string, string> = { city: t.basicCity, state: t.basicState };
+
+  // Continue with empty required fields → jump to the first one (caret for a text
+  // field, a short ring for a chip/date control) and name what's left in a short
+  // Ruby nudge (+ a toast).
+  const flagMissing = () => {
+    if (!missingRequired.length) return;
+    const first = missingRequired[0];
+    // Short bubble text: first field + "+N" so it fits the small nudge design.
+    const firstName = FIELD_LABEL[first] ?? first;
+    const extra = missingRequired.length - 1;
+    const shown = extra > 0 ? `${firstName} +${extra}` : firstName;
+    showToast(t.basicMissingToast.replace('{field}', firstName));
+    set({ voiceFabUnlocked: true, voiceNudge: { id: Date.now(), labels: [t.basicMissingNudge.replace('{fields}', shown)], reason: 'missing_fields' } });
+
+    const textLabel = TEXT_FIELD[first];
+    const selectLabel = SELECT_FIELD[first];
+    if (textLabel) {
+      // Scroll it in, drop the caret on it (native focus border + keyboard), and
+      // give its own tight ring a brief pulse — no whole-section highlight.
+      revealTarget('basic', textLabel).then(() => {
+        emitFx('focus', textLabel);
+        emitFx('cursor', textLabel);
+        setTimeout(() => emitFx('done', textLabel), 1600);
+      }).catch(() => {});
+    } else if (selectLabel) {
+      // Dropdown: scroll in + a short ring around the selector (no caret).
+      revealTarget('basic', selectLabel).then(() => {
+        emitFx('focus', selectLabel);
+        setTimeout(() => emitFx('done', selectLabel), 1600);
+      }).catch(() => {});
+    } else {
+      // Chip group / date picker: scroll in + a short ring around just the control.
+      revealTarget('basic', `req:${first}`).then(() => {
+        emitFx('focus', `req:${first}`);
+        setTimeout(() => emitFx('done', `req:${first}`), 1600);
+      }).catch(() => {});
+    }
+  };
+
   const onContinue = async () => {
-    if (!state.panConsent) {
-      showToast('Please accept the soft-enquiry consent.');
+    // Already saving: a second tap (or a voice retry) must not create a second application.
+    if (busy) return;
+    // PAN comes first now — without a verified one, start from Step 1.
+    if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
+    // Every required-empty / malformed field in one place: scroll to the first
+    // one, pulse a ring around it, and name what's left in a Ruby nudge — instead
+    // of a one-at-a-time toast. (missingRequired already drives the voice hint.)
+    if (missingRequired.length) { flagMissing(); return; }
+    // dob is guaranteed set here (it's in missingRequired when empty); still
+    // reject an under-18 date that slipped past the calendar/voice guards.
+    if (dob && !isAtLeastAge(dob)) { showToast(t.basicValAge); return; }
+    const incomeCheck = parseInt(state.basicIncome, 10);
+    // The last successful pincode lookup is the one source of truth for what
+    // city/state that pincode actually belongs to — if the user has since
+    // hand-edited either away from it, stop rather than save a mismatched
+    // address. Skipped entirely when the lookup never resolved (network down
+    // / not yet run) so this never blocks on something outside our control.
+    if (pinLookupRef.current?.state && cleanName(state.optState).toLowerCase() !== pinLookupRef.current.state.toLowerCase()) {
+      showToast(t.pinStateMismatch);
+      return;
+    }
+    if (pinLookupRef.current?.city && cleanName(state.optCity).toLowerCase() !== pinLookupRef.current.city.toLowerCase()) {
+      showToast(t.pinCityMismatch);
       return;
     }
     if (!isAuthed()) {
-      showToast('Please verify your mobile number to continue.');
+      showToast(t.basicValMobile);
       go('mobile');
       return;
     }
     setBusy(true);
     try {
-      const fullName = [state.basicFirst, state.basicLast].filter(Boolean).join(' ').trim();
-      const { user }: any = await api.updateProfile({
-        ...(state.basicFirst ? { firstName: state.basicFirst } : {}),
-        ...(state.basicLast ? { lastName: state.basicLast } : {}),
-        ...(fullName ? { fullName } : {}),
-        ...(state.basicEmail ? { email: state.basicEmail } : {}),
-        ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
-        ...(state.aboutGender ? { gender: state.aboutGender } : {}),
-        ...(state.basicPin ? { pincode: state.basicPin } : {}),
-        ...(state.basicRes && RES_TYPE_SLUG[state.basicRes] ? { residenceType: RES_TYPE_SLUG[state.basicRes] } : {}),
-        ...(state.basicEmp && EMP_SLUG[state.basicEmp] ? { employment: EMP_SLUG[state.basicEmp] } : {}),
-        ...(state.basicIncome ? { monthlyIncome: parseInt(state.basicIncome, 10) || 0 } : {}),
-        ...(state.basicCompany ? { company: state.basicCompany } : {}),
-      });
+      // Cleaned once here (trim + collapse internal whitespace) — the
+      // onChangeText filter already keeps out anything but letters/space/
+      // '.-, so this only ever touches leading/trailing/doubled spaces.
+      const first = cleanName(state.basicFirst);
+      const last = cleanName(state.basicLast);
+      const fullName = [first, last].filter(Boolean).join(' ');
+      const dobIso = dob ? new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() : null;
+      const resSlug = state.basicRes ? RES_TYPE_SLUG[state.basicRes] : null;
+      const empSlug = state.basicEmp ? EMP_SLUG[state.basicEmp] : null;
+      const incomeNum = Number.isFinite(incomeCheck) ? incomeCheck : null;
+      const addr1 = state.optAddr1.trim();
+      const addr2 = state.optAddr2.trim();
+      const city = state.optCity.trim();
+      const st = state.optState.trim();
+
+      // Diff against what was already on the server when this screen loaded
+      // (typically written moments earlier by save_applicant_context during
+      // the warm-up conversation) — only PATCH what actually changed here,
+      // instead of re-sending every field every time regardless of whether
+      // the voice agent already saved it.
+      const initial = initialUserRef.current || {};
+      const patch: Record<string, unknown> = {};
+      if (first && first !== initial.firstName) patch.firstName = first;
+      if (last && last !== initial.lastName) patch.lastName = last;
+      if (fullName && fullName !== initial.fullName) patch.fullName = fullName;
+      if (state.basicEmail && state.basicEmail !== initial.email) patch.email = state.basicEmail;
+      if (dobIso && dobIso !== (initial.dob ? new Date(initial.dob).toISOString() : null)) patch.dob = dobIso;
+      if (state.aboutGender && state.aboutGender !== initial.gender) patch.gender = state.aboutGender;
+      if (state.basicPin && state.basicPin !== initial.pincode) patch.pincode = state.basicPin;
+      if (resSlug && resSlug !== initial.residenceType) patch.residenceType = resSlug;
+      if (empSlug && empSlug !== initial.employment) patch.employment = empSlug;
+      if (incomeNum != null && incomeNum !== initial.monthlyIncome) patch.monthlyIncome = incomeNum;
+      if (state.basicCompany && state.basicCompany !== initial.company) patch.company = state.basicCompany;
+      // Aurix-required: qualification + loan purpose.
+      if (state.basicQualification && state.basicQualification !== initial.qualification) patch.qualification = state.basicQualification;
+      if (state.basicLoanPurpose && state.basicLoanPurpose !== initial.loanPurpose) patch.loanPurpose = state.basicLoanPurpose;
+      // Lender-required income mode + current address.
+      if (state.optSalaryMode && state.optSalaryMode !== initial.salaryMode) patch.salaryMode = state.optSalaryMode;
+      if (addr1 && addr1 !== initial.addressLine1) patch.addressLine1 = addr1;
+      if (addr2 && addr2 !== initial.addressLine2) patch.addressLine2 = addr2;
+      if (city && city !== initial.city) patch.city = city;
+      if (st && st !== initial.state) patch.state = st;
+
+      let user = state.authUser ?? initial;
+      if (Object.keys(patch).length > 0) {
+        const res: any = await api.updateProfile(patch);
+        user = res.user;
+      }
       set({
         authUser: user,
         pdName: user.fullName || state.pdName,
@@ -91,40 +334,88 @@ export default function Basic() {
         pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
       });
 
-      const { application }: any = await api.createApplication({
-        amount: state.appAmount,
-        tenureMonths: state.appTenure || 12,
-        loanType: 'personal',
-      });
+      // Reuse the in-progress application already held in state (e.g. the user
+      // went back and is re-submitting this screen) instead of inserting
+      // another row. The Step 1 PAN is attached to it here (status pan_pending).
+      // A visitor who verified their PAN on the website arrives with only a MASKED PAN: the server attaches
+      // the real (encrypted) one it already holds instead of us sending it.
+      const panPatch = isMaskedPan(state.panNumber) ? { usePanOnFile: true } : { panNumber: state.panNumber };
+      let application: any;
+      if (state.applicationId) {
+        const { application: updated }: any = await api.updateApplication(state.applicationId, {
+          amount: state.appAmount,
+          tenureMonths: state.appTenure || 12,
+          ...panPatch,
+        });
+        application = updated;
+        mergeApiContext({ applicationUpdated: application });
+      } else {
+        const { application: created }: any = await api.createApplication({
+          amount: state.appAmount,
+          tenureMonths: state.appTenure || 12,
+          loanType: 'personal',
+        });
+        application = created;
+        mergeApiContext({ applicationCreated: application });
+        const { application: withPan }: any = await api.updateApplication(created.id, panPatch);
+        application = withPan ?? created;
+      }
       set({ applicationId: application.id });
-      go('basicpan');
+      go('moredetails');
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : 'Could not start your application.');
+      showToast(e instanceof ApiError ? e.message : t.basicErrStart);
     } finally {
       setBusy(false);
     }
   };
 
-  return (
-    <Screen scroll padded={false}>
-      <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader title={<View />} />
-      </View>
+  // Chip display labels are localized while the stored value stays English
+  // (values map to server slugs / are sent to the lender unchanged).
+  const RES_LABELS: Record<string, string> = { Own: t.resOwn, Rented: t.resRented, Family: t.resFamily, Company: t.resCompany };
+  const EMP_LABELS: Record<string, string> = {
+    Salaried: t.empSalaried, 'Self-employed': t.empSelfEmployed, 'Business owner': t.empBusinessOwner,
+    'Gig worker': t.empGigWorker, Student: t.empStudent, Retired: t.empRetired, Other: t.commonOther,
+  };
+  const PURPOSE_OPTS = [
+    { label: t.lpPersonalUse, value: 'Personal use' }, { label: t.lpWorkingCapital, value: 'Working Capital' },
+    { label: t.lpMedical, value: 'Medical' }, { label: t.lpEducation, value: 'Education' },
+    { label: t.lpHomeRenovation, value: 'Home renovation' }, { label: t.lpTravel, value: 'Travel' },
+    { label: t.commonOther, value: 'Other' },
+  ];
+  const QUAL_OPTS = [
+    { label: t.qualGraduate, value: 'Graduate' }, { label: t.qualPostGraduate, value: 'Post-Graduate' },
+    { label: t.qualDiploma, value: 'Diploma' }, { label: t.qual12th, value: '12th Pass' }, { label: t.commonOther, value: 'Other' },
+  ];
+  const SALARY_OPTS = [
+    { label: t.smBankTransfer, value: 'Bank Transfer' }, { label: t.smCheque, value: 'Cheque' }, { label: t.smCash, value: 'Cash' },
+  ];
+  const GENDER_OPTS = [{ label: t.genderMale, value: 'male' }, { label: t.genderFemale, value: 'female' }, { label: t.commonOther, value: 'other' }];
 
+  return (
+    <Screen
+      scroll
+      padded={false}
+      contentStyle={{ paddingBottom: 24 }}
+      collapsingTitle={t.basicTitle}
+      headerRight={<HeaderCta label={busy ? t.basicStarting : t.continueBtn} disabled={busy} onPress={onContinue} />}
+    >
       <View style={{ paddingHorizontal: 20 }}>
-        <StepBadge step={1} of={4} label="Your details" />
-        <StepDots total={4} active={1} />
-        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>Tell us about yourself</Text>
+        <StepBadge step={2} of={3} label={t.basicStepLabel} />
+        <StepDots total={3} active={2} />
+        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, marginTop: 14 }]}>{t.basicTitle}</Text>
         <Text style={[font(400), { fontSize: 13.5, color: colors.textSoft, marginTop: 4 }]}>
-          A soft check to find your best offers — no impact on your credit score.
+          {t.basicSub}
         </Text>
+
+        {state.panPrefill ? <PanConfirmation info={state.panPrefill} prefilled={fromPan} /> : null}
 
         {/* Amount */}
         <View style={{ marginTop: 22 }}>
-          <FieldLabel text="Desired loan amount" required />
+          <FieldLabel text={t.basicAmountLabel} required />
           <Text style={[font(800), { fontSize: 26, color: colors.primary, marginVertical: 4 }]}>₹ {inr(state.appAmount)}</Text>
           <Slider
             label="Desired loan amount"
+            role="amount"
             value={state.appAmount}
             min={25000}
             max={1500000}
@@ -134,65 +425,181 @@ export default function Basic() {
           <RangeLabels min="₹25,000" max="₹15,00,000" />
         </View>
 
+        {/* Loan purpose (required by lender) */}
+        <View style={{ gap: 8, marginTop: 18 }}>
+          <FieldLabel text={t.basicPurposeLabel} required />
+          <RequiredBlock fkey="loan purpose">
+            <Chips
+              group={t.basicPurposeLabel}
+              value={state.basicLoanPurpose}
+              onChange={v => set({ basicLoanPurpose: v })}
+              options={PURPOSE_OPTS}
+            />
+          </RequiredBlock>
+        </View>
+
         {/* Personal details */}
-        <SectionLabel text="Personal details" />
+        <SectionLabel text={t.basicPersonalSection} />
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <Field label="First name (as per PAN)" placeholder="First name" value={state.basicFirst} onChangeText={v => set({ basicFirst: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicFirstLabel} placeholder={t.basicFirstPlaceholder} value={state.basicFirst} onChangeText={v => set({ basicFirst: sanitizeNameInput(v) })} onBlur={() => set({ basicFirst: cleanName(state.basicFirst) })} />
           </View>
           <View style={{ flex: 1 }}>
-            <Field label="Last name" placeholder="Last name" value={state.basicLast} onChangeText={v => set({ basicLast: v })} />
+            <Field required maxLength={NAME_MAX} label={t.basicLastLabel} placeholder={t.basicLastPlaceholder} value={state.basicLast} onChangeText={v => set({ basicLast: sanitizeNameInput(v) })} onBlur={() => set({ basicLast: cleanName(state.basicLast) })} />
           </View>
         </View>
 
         <View style={{ gap: 6, marginTop: 16 }}>
-          <FieldLabel text="Date of birth" required />
-          <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
-            <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>{dob ? formatDob(dob.y, dob.m, dob.d) : 'Select date'}</Text>
-            <Icon name="calendar_month" size={20} color={colors.textSoft} />
-          </Pressable>
-          {state.dobOpen ? (
-            <Calendar year={dob?.y ?? state.calY} month={dob?.m ?? state.calM} selectedDay={dob?.d} onSelect={(y, m, d) => { setDob({ y, m, d }); set({ dobOpen: false }); }} />
-          ) : null}
+          <FieldLabel text={t.dobLabel} required />
+          <RequiredBlock fkey="date of birth" style={{ gap: 6 }}>
+            <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
+              <Text style={[font(500), { fontSize: 15, color: dob ? colors.text : colors.muted }]}>{dob ? formatDob(dob.y, dob.m, dob.d) : t.selectDate}</Text>
+              <Icon name="calendar_month" size={20} color={colors.textSoft} />
+            </Pressable>
+            {state.dobOpen ? (
+              <Calendar year={dob?.y ?? state.calY} month={dob?.m ?? state.calM} selectedDay={dob?.d} onSelect={(y, m, d) => { setDob({ y, m, d }); set({ dobOpen: false }); }} />
+            ) : null}
+          </RequiredBlock>
         </View>
 
         <View style={{ gap: 8, marginTop: 16 }}>
-          <FieldLabel text="Gender" required />
-          <Chips value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={[{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }, { label: 'Other', value: 'other' }]} />
+          <FieldLabel text={t.genderLabel} required />
+          <RequiredBlock fkey="gender">
+            <Chips group={t.genderLabel} value={state.aboutGender} onChange={v => set({ aboutGender: v })} options={GENDER_OPTS} />
+          </RequiredBlock>
+        </View>
+
+        <View style={{ gap: 8, marginTop: 16 }}>
+          <FieldLabel text={t.basicQualLabel} required />
+          <RequiredBlock fkey="qualification">
+            <Chips
+              group={t.basicQualLabel}
+              value={state.basicQualification}
+              onChange={v => set({ basicQualification: v })}
+              options={QUAL_OPTS}
+            />
+          </RequiredBlock>
         </View>
 
         {/* Contact & address */}
-        <SectionLabel text="Contact & address" />
+        <SectionLabel text={t.basicContactSection} />
         <View style={{ gap: 16 }}>
-          <Field label="Contact email" placeholder="you@example.com" hint="RBI requires your actual email ID for sharing loan details." autoCapitalize="none" keyboardType="email-address" value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
-          <Field label="Pin code (current address)" placeholder="6-digit pincode" keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+          <Field required label={t.basicEmailLabel} placeholder={t.emailPlaceholder} hint={t.basicEmailHint} autoCapitalize="none" keyboardType="email-address" maxLength={EMAIL_MAX} value={state.basicEmail} onChangeText={v => set({ basicEmail: v })} />
+          <View>
+            <Field required label={t.basicPinLabel} placeholder={t.pincodePlaceholder} keyboardType="number-pad" maxLength={6} value={state.basicPin} onChangeText={v => set({ basicPin: v.replace(/\D/g, '').slice(0, 6) })} />
+            {pinError ? <Text style={[font(500), { fontSize: 12, color: colors.red, marginTop: 6 }]}>{pinError}</Text> : null}
+          </View>
+          <Field required label={t.basicAddr1Label} placeholder={t.basicAddr1Placeholder} maxLength={ADDR_MAX} value={state.optAddr1} onChangeText={v => set({ optAddr1: v })} />
+          <Field label={t.basicAddr2Label} placeholder={t.basicAddr2Placeholder} maxLength={ADDR_MAX} value={state.optAddr2} onChangeText={v => set({ optAddr2: v })} />
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Select required label={t.basicCity} placeholder={t.basicCity} value={state.optCity} onChange={v => set({ optCity: v })} options={INDIAN_CITIES} allowCustom />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Select required label={t.basicState} placeholder={t.basicState} value={state.optState} onChange={v => set({ optState: v })} options={INDIAN_STATES} />
+            </View>
+          </View>
           <View style={{ gap: 8 }}>
-            <FieldLabel text="Residence type" required />
-            <Chips value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: r, value: r }))} />
+            <FieldLabel text={t.basicResLabel} required />
+            <RequiredBlock fkey="residence type">
+              <Chips group={t.basicResLabel} value={state.basicRes} onChange={v => set({ basicRes: v })} options={RES_TYPES.map(r => ({ label: RES_LABELS[r], value: r }))} />
+            </RequiredBlock>
           </View>
         </View>
 
         {/* Work & income */}
-        <SectionLabel text="Work & income" />
+        <SectionLabel text={t.basicWorkSection} />
         <View style={{ gap: 12 }}>
-          <FieldLabel text="Employment type" required />
-          <Chips value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: e, value: e }))} />
-          <Field label="Monthly income (₹)" placeholder="45,000" hint="Your net monthly income" keyboardType="number-pad" value={state.basicIncome} onChangeText={v => set({ basicIncome: v })} />
-          <Field label="Company / employer name (optional)" placeholder="e.g. Infosys Ltd" value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
+          <View style={{ gap: 12 }}>
+            <FieldLabel text={t.basicEmpLabel} required />
+            <RequiredBlock fkey="employment type">
+              <Chips group={t.basicEmpLabel} value={state.basicEmp} onChange={v => set({ basicEmp: v })} options={EMPS.map(e => ({ label: EMP_LABELS[e], value: e }))} />
+            </RequiredBlock>
+          </View>
+          <Field required label={t.basicIncomeLabel} placeholder="45,000" hint={t.basicIncomeHint} keyboardType="number-pad" maxLength={MONEY_DIGITS} value={state.basicIncome} onChangeText={v => set({ basicIncome: v.replace(/\D/g, '').slice(0, MONEY_DIGITS) })} />
+          <View style={{ gap: 8 }}>
+            <FieldLabel text={t.basicSalaryModeLabel} required />
+            <RequiredBlock fkey="salary mode">
+              <Chips group={t.basicSalaryModeLabel} value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
+            </RequiredBlock>
+          </View>
+          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
-        {/* Consent */}
-        <View style={{ marginTop: 22 }}>
-          <ConsentRow voiceId="Accept terms and consent" checked={state.panConsent} onChange={v => set({ panConsent: v })}>
-            I agree to the Terms & Conditions and consent to SwiftLoan fetching my credit information from{' '}
-            <Text style={{ color: colors.primary }}>TransUnion CIBIL</Text> and <Text style={{ color: colors.primary }}>CRIF Highmark</Text>, and sharing it with lending partners for this application.
-          </ConsentRow>
-        </View>
-
-        <View style={{ height: 22 }} />
-        <PrimaryButton label={busy ? 'Starting…' : 'Continue'} icon={null} disabled={busy} onPress={onContinue} />
+        <View style={{ height: 8 }} />
       </View>
     </Screen>
+  );
+}
+
+/** Wraps a required field so Continue can scroll to it and pulse a ring around
+ *  the whole block when it's still empty. Registered under `req:<key>` (distinct
+ *  from the inner control's own voice label) so revealTarget / emitFx target the
+ *  block, uniformly for text fields, chip groups and the date picker alike. */
+function RequiredBlock({
+  fkey,
+  children,
+  style,
+}: {
+  fkey: string;
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  // Scroll anchor + a tight highlight ring over the control. box-none keeps the
+  // wrapper from ever swallowing a tap, and the ring sits in its own
+  // pointer-transparent overlay, so neither can intercept taps meant for the
+  // chips / date picker underneath.
+  const fx = useAgentFx(`req:${fkey}`);
+  return (
+    <View ref={fx.ref} collapsable={false} style={style} pointerEvents="box-none">
+      {children}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <AgentRing fx={fx} radius={12} inset={-4} />
+      </View>
+    </View>
+  );
+}
+
+/** "30XXXXXXXX00" → "30XX XXXX XX00" (display only — it arrives already masked). */
+function formatMaskedAadhaar(m: string) {
+  return m.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '$1 ');
+}
+
+/** Confirmation of what the PAN lookup returned, shown at the top of this step. */
+function PanConfirmation({ info, prefilled }: { info: NonNullable<AppStateT['panPrefill']>; prefilled: boolean }) {
+  const t = useT();
+  const name = info.prefill.fullName;
+  const masked = info.prefill.maskedAadhaar;
+  const panMasked = `${info.pan.slice(0, 2)}XXXX${info.pan.slice(-4)}`;
+  return (
+    <View style={styles.panCard}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+        <View style={styles.panTick}><Icon name="verified" size={22} color="#fff" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), { fontSize: 14, color: colors.text }]}>{t.panVerifiedCard}</Text>
+          {name ? <Text style={[font(600), { fontSize: 14, color: colors.text, marginTop: 1 }]} numberOfLines={1}>{name}</Text> : null}
+          <Text style={[font(500), { fontSize: 12, color: colors.textSoft, marginTop: 2, letterSpacing: 1.5 }]}>{panMasked}</Text>
+        </View>
+      </View>
+      {info.aadhaarLinked != null || masked ? (
+        <View style={styles.panChips}>
+          {info.aadhaarLinked != null ? (
+            <View style={[styles.panChip, info.aadhaarLinked ? { backgroundColor: 'rgba(47,177,131,0.15)' } : { backgroundColor: '#FCEFD9' }]}>
+              <Icon name="verified_user" size={14} color={info.aadhaarLinked ? colors.primary : '#B4740A'} />
+              <Text style={[font(700), { fontSize: 12, color: info.aadhaarLinked ? colors.primary : '#B4740A' }]}>
+                {info.aadhaarLinked ? t.aadhaarLinked : t.aadhaarNotLinked}
+              </Text>
+            </View>
+          ) : null}
+          {masked ? (
+            <View style={[styles.panChip, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line }]}>
+              <Text style={[font(600), { fontSize: 12, color: colors.text, letterSpacing: 1 }]}>{t.aadhaarLabel} {formatMaskedAadhaar(masked)}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+      {prefilled ? <Text style={[font(400), { fontSize: 12, color: colors.textSoft, marginTop: 10, lineHeight: 17 }]}>{t.panPrefilledNote}</Text> : null}
+    </View>
   );
 }
 
@@ -217,6 +624,10 @@ function RangeLabels({ min, max }: { min: string; max: string }) {
 }
 
 const styles = StyleSheet.create({
+  panCard: { marginTop: 18, borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)', backgroundColor: 'rgba(225,243,243,0.6)', borderRadius: 16, padding: 14 },
+  panTick: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
+  panChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.line },
+  panChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   dobBtn: {
     flexDirection: 'row',
     alignItems: 'center',

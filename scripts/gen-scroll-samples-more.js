@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+/**
+ * Candidate SCROLL sounds, round 3: twelve more plain, short, normal options with a wider range of
+ * character (cork, rubber, felt, bubble, bell, ...). Writes docs/sound-samples/scroll-more/.
+ *
+ *   node scripts/gen-scroll-samples-more.js
+ */
+const fs = require('fs');
+const path = require('path');
+const SR = 22050;
+const PEAK = 0.3;
+
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
+}
+function render(ms, fn) {
+  const n = Math.round((SR * ms) / 1000);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = fn(i / SR, i / n);
+  const edge = Math.min(Math.round(SR * 0.0015), n >> 1);
+  for (let i = 0; i < edge; i++) {
+    out[i] *= i / edge;
+    out[n - 1 - i] *= i / edge;
+  }
+  return out;
+}
+const env = (t, k) => Math.exp(-t * k);
+const sin = (f, t) => Math.sin(2 * Math.PI * f * t);
+const mix = (...b) => {
+  const n = Math.max(...b.map(x => x.length));
+  const o = new Float32Array(n);
+  for (const x of b) for (let i = 0; i < x.length; i++) o[i] += x[i];
+  return o;
+};
+const delayed = (b, ms, g = 1) => {
+  const pad = Math.round((SR * ms) / 1000);
+  const o = new Float32Array(b.length + pad);
+  o.set(b.map(v => v * g), pad);
+  return o;
+};
+const norm = b => {
+  let pk = 0;
+  for (const v of b) pk = Math.max(pk, Math.abs(v));
+  return b.map(v => (v * PEAK) / (pk || 1));
+};
+const tone = (f, ms, k, attackMs = 2, over = 0, overRatio = 2) =>
+  render(ms, t => {
+    const a = Math.min(1, t / (attackMs / 1000));
+    return (sin(f, t) + over * sin(f * overRatio, t)) * (0.5 - 0.5 * Math.cos(Math.PI * a)) * env(t, k);
+  });
+const glide = (f0, f1, ms, k) => {
+  const dur = ms / 1000;
+  return render(ms, t => Math.sin(2 * Math.PI * (f0 * t + ((f1 - f0) * t * t) / (2 * dur))) * env(t, k));
+};
+const r = rng(11);
+const airTick = (ms, k, hp) => {
+  let lp = 0;
+  return render(ms, t => {
+    const x = r();
+    lp += hp * (x - lp);
+    return (x - lp) * env(t, k); // high-passed noise: dry, airy
+  });
+};
+const feltNoise = (ms, k, a) => {
+  let y = 0;
+  return render(ms, t => (y += a * (r() - y)) * env(t, k));
+};
+
+const samples = [
+  ['01-cork-pop', 'Cork pop: a tiny, dry pop', norm(glide(520, 260, 22, 110))],
+  ['02-rubber-tap', 'Rubber tap: a soft, slightly muted tap', norm(tone(480, 24, 110, 4, 0.3))],
+  ['03-bubble-tiny', 'Tiny bubble: a very small rising blip', norm(glide(500, 900, 22, 100))],
+  ['04-thip', 'Thip: a dry little air tick, no pitch', norm(airTick(14, 260, 0.35))],
+  ['05-tk', 'Tk: a crisp micro-click with a hint of tone', norm(mix(airTick(4, 700, 0.5), tone(1100, 10, 330)))],
+  ['06-drop-low', 'Low drop: a small, round, low note', norm(glide(260, 140, 40, 70))],
+  ['07-soft-bell', 'Soft bell: a gentle, short bell', norm(tone(1200, 70, 55, 3, 0.25, 2.4))],
+  ['08-click-pop', 'Click-pop: a tiny click followed by a small pop', norm(mix(tone(1500, 8, 420), delayed(glide(400, 200, 24, 90), 10, 0.9)))],
+  ['09-muted-tap', 'Muted tap: a dull, cushioned tap', norm(tone(440, 18, 200, 3))],
+  ['10-gentle-beep', 'Gentle beep: one short smooth tone', norm(tone(660, 38, 70, 8))],
+  ['11-felt-tick', 'Felt tick: soft and woolly, like tapping felt', norm(mix(feltNoise(12, 260, 0.35), tone(350, 22, 150, 3)))],
+  ['12-sparkle', 'Sparkle: two tiny high notes, light and bright', norm(mix(tone(1800, 14, 250), delayed(tone(2700, 12, 280), 9, 0.7)))],
+];
+
+function wav(b) {
+  const data = Buffer.alloc(b.length * 2);
+  for (let i = 0; i < b.length; i++) data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, b[i])) * 32767), i * 2);
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + data.length, 4); h.write('WAVE', 8); h.write('fmt ', 12);
+  h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(SR, 24);
+  h.writeUInt32LE(SR * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36);
+  h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
+}
+
+const dir = path.join(__dirname, '../docs/sound-samples/scroll-more');
+fs.mkdirSync(dir, { recursive: true });
+let rows = '';
+for (const [id, desc, buf] of samples) {
+  const w = wav(buf);
+  fs.writeFileSync(path.join(dir, `scroll-${id}.wav`), w);
+  rows += `<div class="row"><button onclick="document.getElementById('${id}').currentTime=0;document.getElementById('${id}').play()">▶ ${id}</button><span>${desc}</span><audio id="${id}" src="data:audio/wav;base64,${w.toString('base64')}"></audio></div>\n`;
+  console.log(id.padEnd(16), `${Math.round((buf.length / SR) * 1000)} ms`);
+}
+fs.writeFileSync(path.join(dir, 'index.html'), `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>More scroll sounds</title>
+<style>body{font:15px system-ui;margin:24px;max-width:760px;color:#0A3F41;background:#F6FBFA}h1{font-size:20px}.row{display:flex;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid #d9e8e6}button{font:600 14px system-ui;padding:9px 14px;border-radius:10px;border:0;background:#079FA0;color:#fff;min-width:200px;text-align:left;cursor:pointer}button:active{transform:scale(.97)}span{color:#4b6a6a}</style>
+<h1>More scroll sounds</h1><p>Twelve more plain, short options. In the app one plays per ~260 px of scrolling, a little quieter than here.</p>
+${rows}`);

@@ -5,8 +5,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
+import { NUDGES_DISABLED } from '@/lib/flags';
 
-interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs'; superAdminOnly?: boolean }
+interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
 
 const NAV: { section?: string; items: NavDef[] }[] = [
   { items: [
@@ -19,9 +20,13 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     section: 'Funnel',
     items: [
       { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
+      { href: '/revasure', label: 'Revasure', icon: '⇄' },
+      { href: '/yubi', label: 'Yubi', icon: '✦' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
+      { href: '/referrals', label: 'Referrals', icon: '☺' },
       { href: '/campaigns', label: 'Campaigns', icon: '📣' },
       { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
+      { href: '/prequalifying', label: 'Pre-Qualifying Offers', icon: '★' },
     ],
   },
   {
@@ -30,6 +35,8 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/users', label: 'All Users', icon: '☺' },
       // Analytics merged into Master Overview's "Trends" section; /analytics
       // still resolves via a redirect for old links.
+      { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
+      { href: '/messages', label: 'Messages', icon: '✆' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
     ],
   },
@@ -37,7 +44,9 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     section: 'Configuration',
     items: [
       { href: '/integrations', label: 'Configs', icon: '⚙' },
-      { href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' },
+      { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
+      { href: '/timings', label: 'Timings', icon: '⏲', superAdminOnly: true },
+      ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
     ],
@@ -46,13 +55,14 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
-  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications',
+  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
+  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
+  '/app-config': 'App Config', '/timings': 'Timings',
   '/notifications-rules': 'Notification Rules',
-  '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans',
+  '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans', '/prequalifying': 'Pre-Qualifying Offers',
 };
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -71,6 +81,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   const { data: realtime } = useSWR('/api/admin/dashboard/realtime', swrFetcher, { refreshInterval: 8000 });
   const rt = (realtime?.data ?? {}) as { unreadNotifs?: number; activeSessions?: number };
+  // Open + in-progress support tickets — what still needs a human.
+  const { data: supSummary } = useSWR('/api/admin/support/summary', swrFetcher, { refreshInterval: 15000 });
+  const supportOpen = ((supSummary?.data ?? {}) as { needsAction?: number }).needsAction;
   const admin = getAdmin();
 
   const title = TITLES[pathname] || (Object.keys(TITLES).find((k) => pathname.startsWith(k)) ? TITLES[Object.keys(TITLES).find((k) => pathname.startsWith(k))!] : 'SwiftLoan Admin');
@@ -90,7 +103,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               .filter((it) => !it.superAdminOnly || admin?.role === 'super_admin')
               .map((it) => {
               const active = pathname === it.href || pathname.startsWith(it.href + '/');
-              const badge = it.badgeKey ? rt[it.badgeKey] : undefined;
+              const badge = it.badgeKey === 'supportOpen' ? supportOpen : it.badgeKey ? rt[it.badgeKey] : undefined;
               const inner = (
                 <>
                   <span className="row" style={{ gap: 10 }}><span style={{ width: 18, textAlign: 'center', opacity: .9 }}>{it.icon}</span>{it.label}</span>
@@ -112,7 +125,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </React.Fragment>
         ))}
         <div className="spacer" />
-        <button className="nav-item" style={{ border: 'none', background: 'none', width: '100%' }} onClick={() => { clearSession(); router.replace('/login'); }}>
+        <button className="nav-item nav-signout" style={{ border: 'none', width: '100%' }} onClick={() => { clearSession(); router.replace('/login'); }}>
           <span className="row" style={{ gap: 10 }}><span style={{ width: 18, textAlign: 'center' }}>⏻</span>Sign out</span>
         </button>
       </aside>

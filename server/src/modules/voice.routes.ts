@@ -25,6 +25,9 @@ import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { getProviderConfig } from '../lib/integrations.js';
 import { agentIdFor, type AgentRole } from '../lib/agents.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('voice');
 
 export const voiceRouter = Router();
 
@@ -81,12 +84,13 @@ voiceRouter.post('/session', ah(async (req, res) => {
     // as an OBJECT on 402 ("No active subscription"), which is what previously
     // surfaced to users as the meaningless "[object Object]".
     const reason = readProviderError(body) ?? `provider returned HTTP ${r.status}`;
-    console.warn(`[voice] publish failed for role=${role}: ${reason}`);
+    log.warn('publish failed', { role, reason, status: r.status });
     // 502 — the failure is upstream, and the status shouldn't imply the caller
     // sent something wrong.
     return fail(res, 502, reason);
   }
 
+  log.info('session started', { role, conversationId, assistantId });
   return ok(
     res,
     {

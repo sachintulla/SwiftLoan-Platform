@@ -12,6 +12,9 @@ import { listElloAgents } from '../lib/integrations.js';
 import { prisma } from '../lib/prisma.js';
 import { fail } from '../lib/http.js';
 import { agentRoleStatus, AGENT_ROLE_INFO, AGENT_ROLES } from '../lib/agents.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('agents');
 
 export const agentsRouter = Router();
 agentsRouter.use(requireAdmin);
@@ -92,5 +95,6 @@ agentsRouter.put('/roles', requireRole(...CAN_ADMINISTER), ah(async (req, res) =
   const settings = { ...((existing.settings as any) ?? {}), agents: next };
   await prisma.integrationConfig.update({ where: { provider: 'ello' }, data: { settings } });
 
+  log.info('agent roles updated', { agents: next });
   return ok(res, { agents: next }, 'Agent roles updated');
 }));

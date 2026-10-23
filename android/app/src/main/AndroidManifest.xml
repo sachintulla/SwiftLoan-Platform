@@ -1,11 +1,16 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Frame.tsx's voice-agent FAB calls Vibration.vibrate() on every tap for
+         haptic feedback. Without this, that call throws a SecurityException
+         that React Native's bridgeless host treats as fatal, tearing down and
+         never recreating the whole ReactContext — the app going blank on tap
+         wasn't a JS bug, it was this missing manifest permission. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- react-native-image-picker: profile photo "Take Photo" flow -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Permissions screen: profile enrichment / fraud checks -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- react-native-webrtc / react-native-incall-manager (transports/webrtc) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -14,6 +19,16 @@
     <!-- Upshot: required from Android 13 (API 33) before any notification can be
          shown. Runtime-requested; harmless on older versions. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- The app does not use the advertising ID (no ad network, no ad attribution).
+         Firebase's measurement library merges these in; remove them so the Play Data
+         Safety form and the privacy policy match the binary. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove" />
+    <!-- Privacy Sandbox ad-targeting permissions merged in by the Meta SDK; this app uses neither. -->
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_CUSTOM_AUDIENCE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_TOPICS" tools:node="remove" />
 
     <application
       android:name=".MainApplication"
@@ -25,6 +40,14 @@
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:networkSecurityConfig="@xml/network_security_config"
       android:supportsRtl="true">
+
+      <!-- Meta SDK (ad attribution). Everything that collects or auto-starts is OFF here; the
+           SDK is started from JS (src/analytics/meta.ts) once a client token is configured.
+           No advertising ID: AD_ID is also stripped above, so Play Data Safety stays "no". -->
+      <meta-data android:name="com.facebook.sdk.ApplicationId" android:value="@string/facebook_app_id" />
+      <meta-data android:name="com.facebook.sdk.AutoInitEnabled" android:value="false" />
+      <meta-data android:name="com.facebook.sdk.AutoLogAppEventsEnabled" android:value="false" />
+      <meta-data android:name="com.facebook.sdk.AdvertiserIDCollectionEnabled" android:value="false" />
 
       <!-- Upshot push. The Upshot AAR ships no messaging service, so without
            this the only MESSAGING_EVENT receiver is Firebase's base class at
@@ -38,6 +61,15 @@
           <action android:name="com.google.firebase.MESSAGING_EVENT" />
         </intent-filter>
       </service>
+
+      <!-- react-native-webrtc ships a screen-capture foreground service
+           (mediaProjection). SwiftLoan only uses WebRTC for the voice agent's
+           audio, never screen capture, so strip it from the merged manifest —
+           a mediaProjection foreground service is an unnecessary Play review
+           trigger for a lending app. -->
+      <service
+        android:name="com.oney.WebRTCModule.MediaProjectionService"
+        tools:node="remove" />
 
       <!-- Small icon for the notification tray. Without it Android draws a grey
            square from API 21 onwards. Reusing the launcher icon for now; swap for

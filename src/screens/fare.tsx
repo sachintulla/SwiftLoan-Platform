@@ -1,20 +1,501 @@
-import React from 'react';
-import { View, Text } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, ScrollView } from 'react-native';
 import { Screen } from '../components/Frame';
-import { EmiCalculator } from '../components/EmiCalculator';
-import { colors, font } from '../theme/tokens';
+import Icon from '../components/Icon';
+import { PrimaryButton } from '../components/Controls';
+import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
+import { api, isAuthed, Offer } from '../api/client';
+import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/session';
+import { useOfferSelect, displayLenderName } from './offers';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
+import YubiOffersTab from '../components/YubiOffersTab';
+import { LogoLockup } from '../components/Logo';
 
-export default function Fare() {
+// Statuses whose applications still carry showable offers.
+const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
+
+/** "just now / 5m ago / 2h ago / on 24 Aug" for the saved-offers timestamp,
+ *  in the current language ('t' from useT()). */
+function agoLabel(ts: number | null, t: Record<string, string>): string {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return t.agoJustNow;
+  if (diff < 3_600_000) return t.agoMinutesTemplate.replace('{n}', String(Math.floor(diff / 60_000)));
+  if (diff < 86_400_000) return t.agoHoursTemplate.replace('{n}', String(Math.floor(diff / 3_600_000)));
+  return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+/**
+ * My Offers — the user's saved eligible (Aurix) offers, cached locally so they
+ * appear instantly and offline, shown as the same rich tiles as the result
+ * screen. A top-right Refresh re-runs prequalify on the backend (which re-calls
+ * Aurix). With no offers, the screen becomes an engaging "apply for a loan" CTA.
+ */
+export default function MyOffers() {
+  const { state, set, mergeApiContext, go, showToast } = useStore();
   const t = useT();
-  const { go } = useStore();
-  return (
-    <Screen scroll bottomNav padded>
-      <View style={{ marginTop: 8, marginBottom: 16 }}>
-        <Text style={[font(800), { fontSize: 26, letterSpacing: -0.5, color: colors.text }]}>{t.fareTitle}</Text>
-        <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 4 }]}>{t.fareSub}</Text>
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [appId, setAppId] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  // Two sources of offers: 'knight' = our matched (Aurix/Knight Fintech) offers;
+  // 'yubi' = the Yubi Markets web journey hosted inline in its own tab.
+  const [tab, setTab] = useState<'knight' | 'yubi'>('knight');
+  // Explore-lenders webview is lazily mounted on first visit, then kept alive
+  // (hidden) across tab switches so the partner journey keeps its place instead
+  // of reloading every time. Bumping `yubiKey` remounts it — a fresh start from
+  // the refresh icon beside the tab label.
+  const [yubiMounted, setYubiMounted] = useState(false);
+  const [yubiKey, setYubiKey] = useState(0);
+  const openYubi = () => { setYubiMounted(true); setTab('yubi'); };
+  const refreshYubi = () => { setYubiMounted(true); setTab('yubi'); setYubiKey(k => k + 1); };
+
+  // Apply from My Offers → back from the offers result returns here (not into
+  // the funnel). See back() in store.ts.
+  const startApply = () => { set({ offersReturn: 'fare', applicationId: null, offersError: '' }); go('basicpan'); };
+
+  // Tapping a tile applies inline via the shared handler. Removed from the
+  // list, not just re-labelled — once applied, an offer is tracked in My
+  // Loans, not shown here (same reasoning, same behaviour as the website).
+  const select = useOfferSelect(id => setOffers(prev => prev.filter(o => o.id !== id)));
+
+  // Local-first: show cached offers immediately, then reconcile with the backend.
+  const hydrate = useCallback(async () => {
+    const cache = await loadOffersCache();
+    if (cache) {
+      const cached = (cache.offers as Offer[]).filter(o => !o.applied);
+      setOffers(cached);
+      setAppId(cache.applicationId);
+      setSavedAt(cache.savedAt);
+      if (cache.applicationId) set({ applicationId: cache.applicationId, offersReturn: 'fare' });
+    }
+    setLoading(false);
+    if (!isAuthed()) return;
+    try {
+      const r: any = await api.listApplications();
+      const apps: any[] = r?.applications || [];
+      mergeApiContext({ applications: apps });
+      // "Has offers" means has offers still worth showing — an application
+      // whose only offers are ones already applied to shouldn't outrank one
+      // with real, pending offers, and shouldn't count as "has offers" at all
+      // if every offer on it is already applied.
+      const unappliedCount = (a: any) => (a.offers ?? []).filter((o: Offer) => !o.applied).length;
+      const withOffers =
+        apps.find(a => unappliedCount(a) > 0 && OFFER_STATUSES.includes(a.status)) ||
+        apps.find(a => unappliedCount(a) > 0);
+      if (withOffers) {
+        const list = ((withOffers.offers || []) as Offer[]).filter(o => !o.applied);
+        const now = Date.now();
+        setOffers(list);
+        setAppId(withOffers.id);
+        setSavedAt(now);
+        set({ applicationId: withOffers.id, offersReturn: 'fare' });
+        saveOffersCache({ applicationId: withOffers.id, savedAt: now, offers: list });
+      } else {
+        // The backend authoritatively has NO eligible offers for this account
+        // (fresh login, deleted data, or a superseded run). The fetch succeeded,
+        // so the cache is stale — clear it and the display instead of leaving
+        // the previous offers on screen. (On a fetch FAILURE we fall to the
+        // catch below and keep the cache, for offline resilience.)
+        //
+        // Exception: a fresh offersError means we just landed here straight
+        // from a failed/empty finding.tsx attempt — keep applicationId in
+        // that case, or the Retry button below has nothing left to retry.
+        setOffers([]);
+        setAppId(null);
+        setSavedAt(null);
+        if (!state.offersError) set({ applicationId: null });
+        await clearOffersCache().catch(() => {});
+      }
+    } catch {
+      /* offline / not signed in — keep whatever the cache gave us */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => { hydrate(); }, [hydrate]);
+
+  // Retry: re-run eligibility (→ Aurix) through the same animated "finding
+  // offers" loader as the first attempt. finding.tsx makes the prequalify call
+  // and lands back here with the offers or the failure state.
+  const retryEligibility = () => {
+    if (!state.applicationId) return;
+    go('finding');
+  };
+
+  const hasOffers = offers.length > 0;
+
+  // Show the "Explore lenders" tab only once the user has actually applied and
+  // has a result to build on (an eligibility run exists → applicationId set).
+  // Before that, the Yubi tab has nothing to refer and would just repeat the
+  // "Apply for a loan" CTA that Instant offers already shows — a confusing
+  // duplicate. So first-timers see a single, tab-less Instant-offers screen;
+  // the tab bar appears after the first apply, positive or negative.
+  const showTabs = state.altOffersEnabled && !!state.applicationId;
+
+  // If the tabs disappear (e.g. after a logout/reset clears applicationId while
+  // parked on the Yubi tab), fall back to the Instant-offers view.
+  useEffect(() => {
+    if (!showTabs && tab === 'yubi') setTab('knight');
+  }, [showTabs, tab]);
+
+  // Title + (conditional) two-source tab bar, shared by both tab layouts.
+  const header = (
+    <>
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), styles.title]}>{t.myOffersTitle}</Text>
+          <Text style={[font(400), styles.sub]} numberOfLines={2}>
+            {tab === 'yubi'
+              ? t.offersTabYubiSub
+              : hasOffers ? t.savedUpdatedTemplate.replace('{n}', String(offers.length)).replace('{ago}', agoLabel(savedAt, t as any)) : t.myOffersSubGeneric}
+          </Text>
+        </View>
+        {/* SwiftLoan branding lockup — shown on both tabs in place of the old
+            "Recheck offers" action, so the marketplace always reads as ours. */}
+        <LogoLockup size={26} />
       </View>
-      <EmiCalculator onApply={() => go('basic')} />
+      {/* Tab bar only once an application exists (develop) — each tab opens/refreshes the
+          partner journey as on main: Explore lenders reopens it, the refresh icon restarts it. */}
+      {showTabs && (
+        <View style={styles.tabsRow}>
+          {(['knight', 'yubi'] as const).map(k => (
+            <Pressable key={k} onPress={() => (k === 'yubi' ? openYubi() : setTab(k))} accessibilityRole="tab" style={styles.tabBtn}>
+              <View style={styles.tabLabelRow}>
+                {/* Sparkle marks the lender marketplace tab as the richer, exciting
+                    destination — not a secondary "more" option. */}
+                {k === 'yubi' ? <Icon name="auto_awesome" size={15} color={tab === k ? colors.primary : colors.textSoft} /> : null}
+                <Text style={[font(tab === k ? 800 : 600), styles.tabTxt, tab === k && styles.tabTxtOn]}>
+                  {k === 'knight' ? t.offersTabKnight : t.offersTabYubi}
+                </Text>
+                {/* Refresh beside the active Explore-lenders label: restart the
+                    partner journey from the beginning (the tab otherwise keeps its
+                    state across switches). */}
+                {k === 'yubi' && tab === 'yubi' ? (
+                  <Pressable onPress={refreshYubi} hitSlop={10} accessibilityRole="button" accessibilityLabel={t.recheckOffers}>
+                    <Icon name="refresh" size={16} color={colors.primary} />
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={[styles.tabUnderline, tab === k && styles.tabUnderlineOn]} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </>
+  );
+
+  // One stable layout for both tabs: the <Screen> wrapper, the branding header
+  // and the tab bar stay mounted across switches — only the body below swaps.
+  // Previously each tab returned its own <Screen> (scroll vs non-scroll), so
+  // switching remounted the whole screen and the header/tabs visibly jumped.
+  return (
+    <Screen scroll={false} bottomNav padded={false}>
+      <View style={{ paddingHorizontal: 18 }}>{header}</View>
+      {/* Explore lenders: lazily mounted on first visit, then kept alive but
+          hidden on other tabs so the partner journey doesn't reload on every
+          switch (its place is preserved). `yubiKey` remounts it on refresh. */}
+      {yubiMounted ? (
+        <View style={[{ flex: 1, marginTop: 8 }, tab !== 'yubi' && styles.hidden]} pointerEvents={tab === 'yubi' ? 'auto' : 'none'}>
+          <YubiOffersTab key={yubiKey} onApply={startApply} />
+        </View>
+      ) : null}
+      {tab === 'knight' ? (
+        // Instant offers: the matched offers list / empty state, scrolling
+        // inside the stable frame.
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {loading ? (
+            <View style={{ paddingTop: 60, alignItems: 'center' }}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : hasOffers ? (
+            <>
+              {offers.length >= 2 ? (
+                <Pressable
+                  onPress={() => go('compare')}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.compareAllOffersTemplate.replace('{n}', String(offers.length))}
+                  style={({ pressed }) => [styles.compareBtn, pressed && { opacity: 0.75 }]}
+                >
+                  <View style={styles.compareIcon}>
+                    <Icon name="balance" size={20} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[font(700), styles.compareLabel]}>{t.compareAllOffersTemplate.replace('{n}', String(offers.length))}</Text>
+                    <Text style={[font(500), styles.compareSub]}>{t.compareOffersSub}</Text>
+                  </View>
+                  <Icon name="chevron_right" size={22} color={colors.primary} />
+                </Pressable>
+              ) : null}
+              <View style={{ gap: 14 }}>
+                {offers.map(o => (
+                  <MyOfferCard key={o.id} offer={o} onSelect={select} />
+                ))}
+              </View>
+              {/* More lender options live in the "Explore lenders" tab above. */}
+              <Pressable onPress={openYubi} style={styles.moreRow} accessibilityRole="button">
+                <Icon name="storefront" size={15} color={colors.primary} />
+                <Text style={[font(600), { fontSize: 12.5, color: colors.primary }]}>{t.offersSeeYubi}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <EmptyOffers
+              onApply={startApply}
+              onRetry={retryEligibility}
+              offersError={state.offersError}
+              onSeeYubi={openYubi}
+            />
+          )}
+        </ScrollView>
+      ) : null}
     </Screen>
   );
 }
+
+/** My Offers card — the eligible/partner-lender offer tile (per design). */
+function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offer) => void }) {
+  const t = useT();
+  const name = displayLenderName(offer.lenderName || offer.partner?.name);
+  const logoUri = offer.lenderLogoUrl || offer.partner?.logoUrl;
+  const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
+  const disbursal = offer.partner?.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} ${t.hrSuffix}` : t.instantWord;
+  const applied = offer.applied;
+
+  // Same reasoning as offers.tsx's OfferCard (see its own comment): a bare
+  // lender name auto-discovered from the card never matches a generic "apply"
+  // query, only a query that happens to name the lender exactly — and this
+  // card had NO voice registration at all before, generic or otherwise
+  // (confirmed live: select_option on a lender name here returned not_found
+  // even though the card was on screen), so "Apply to <lender>" is a genuinely
+  // new fix here, not just a label rename.
+  useVoiceTarget(
+    `Apply to ${name}`,
+    { kind: 'button', onTap: () => onSelect(offer) },
+    [offer],
+  );
+
+  return (
+    <View style={styles.card}>
+      {/* Partner-lender pill floats over the divider on the right. */}
+      <View style={[styles.partnerPill, applied && { backgroundColor: colors.greenDeep }]}>
+        <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]}>{applied ? t.lenderStatusApplied : t.partnerLenderLabel}</Text>
+      </View>
+
+      {/* Header (inside the box): logo · name / high-match */}
+      <View style={styles.headRow}>
+        <View style={[styles.logoBox, logoUri ? styles.logoBoxImg : null]}>
+          {logoUri ? (
+            <Image source={{ uri: logoUri }} style={{ width: 42, height: 42 }} resizeMode="contain" />
+          ) : (
+            <Icon name={offer.partner?.icon || 'account_balance'} size={26} color={colors.primary} />
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[font(800), styles.lender]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{name}</Text>
+          {highMatch ? (
+            <View style={styles.matchChip}>
+              <Icon name="bolt" size={12} color={colors.greenDeep} />
+              <Text style={[font(700), { fontSize: 11, color: colors.greenDeep }]}>{t.highMatchLabel}</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.divider} />
+
+      {/* amount + interest rate on one row · disbursal chip · receipt · apply */}
+      <View>
+        <View style={styles.amountRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[font(500), { fontSize: 12.5, color: colors.textSoft }]}>{t.eligibleAmount}</Text>
+            <Text style={[font(800), styles.amount]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{rupee(offer.amount)}</Text>
+          </View>
+          <View style={styles.rateCol}>
+            <View style={styles.rateIcon}><Icon name="percent" size={13} color={colors.primary} /></View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft }]}>{t.fareRateLabel}</Text>
+              <Text style={[font(800), { fontSize: 15, color: colors.text, marginTop: 1 }]}>{offer.apr}% p.a.</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.disbursalChip}>
+          <Icon name="schedule" size={13} color={colors.greenDeep} />
+          <Text style={[font(700), { fontSize: 11.5, color: colors.greenDeep }]}>{disbursal} {t.disbursalSuffix}</Text>
+        </View>
+
+        <View style={styles.receipt}>
+          <View style={{ flex: 1 }}>
+            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>{t.processingFeeLabel}</Text>
+            <Text style={[font(700), { fontSize: 12.5, color: colors.text, marginTop: 1 }]} numberOfLines={1}>
+              {rupee(offer.processingFeeAmount)} <Text style={{ color: colors.textSoft, fontSize: 11 }}>+ {rupee(offer.gstOnProcessingFee)} GST</Text>
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={[font(500), { fontSize: 11.5, color: colors.muted }]}>{t.youReceiveLabel}</Text>
+            <Text style={[font(800), { fontSize: 14, color: colors.greenDeep, marginTop: 1 }]}>{rupee(offer.netDisbursalAmount)}</Text>
+          </View>
+        </View>
+
+        <Pressable onPress={() => onSelect(offer)} style={styles.applyBtn}>
+          <Text style={[font(700), { fontSize: 15, color: '#fff' }]}>{applied ? t.applyAgainLabel : (offer.redirectionUrl ? t.applyLoan : t.selectOffer)}</Text>
+          <Icon name="arrow_forward" size={18} color="#fff" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * No-offers state. Plain "never applied yet" is an engaging apply prompt.
+ * A failed/empty attempt (offersError set, e.g. returning from the loader)
+ * shows what went wrong instead, with a lighter Retry alongside the option
+ * to go change details — this used to be a separate "Offers" screen, but
+ * My Offers is the one place results (good or bad) are shown.
+ */
+function EmptyOffers({
+  onApply,
+  onRetry,
+  offersError,
+  onSeeYubi,
+}: {
+  onApply: () => void;
+  onRetry: () => void;
+  offersError: string;
+  onSeeYubi: () => void;
+}) {
+  const t = useT();
+  const { state } = useStore();
+  const failed = !!offersError;
+  return (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Icon name={failed ? 'error' : 'local_offer'} size={40} color={colors.primary} />
+      </View>
+      <Text style={[font(800), { fontSize: 20, color: colors.text, marginTop: 18, textAlign: 'center' }]}>
+        {failed ? t.couldntFetchOffers : t.noOffersYet}
+      </Text>
+      <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
+        {offersError || t.fareEmptyMsgGeneric}
+      </Text>
+
+      {failed ? (
+        <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
+          <PrimaryButton label={t.retryLabel} icon="refresh" onPress={onRetry} />
+          <Pressable style={styles.updateBtn} onPress={onApply}>
+            <Icon name="tune" size={18} color={colors.text} />
+            <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>{t.updateDetailsRetry}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <View style={styles.benefits}>
+            <Benefit icon="bolt" text={t.benefitFast} />
+            <Benefit icon="shield" text={t.benefitSoftCheck} />
+            <Benefit icon="storefront" text={t.benefitCompare} />
+          </View>
+
+          <View style={{ width: '100%', marginTop: 22 }}>
+            <PrimaryButton label={t.applyForLoan} icon="arrow_forward" onPress={onApply} />
+          </View>
+        </>
+      )}
+
+      {/* Alternative offers live in the "Yubi" tab — point there once an
+          eligibility run exists to refer (applicationId set, e.g. after a failed
+          Aurix attempt). */}
+      {state.altOffersEnabled && state.applicationId ? (
+        <Pressable onPress={onSeeYubi} style={styles.seeYubiBtn} accessibilityRole="button">
+          <Icon name="storefront" size={18} color={colors.primary} />
+          <Text style={[font(700), { color: colors.primary, fontSize: 14 }]}>{t.offersSeeYubi}</Text>
+          <Icon name="chevron_right" size={18} color={colors.primary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function Benefit({ icon, text }: { icon: string; text: string }) {
+  return (
+    <View style={styles.benefitRow}>
+      <View style={styles.benefitIcon}><Icon name={icon} size={16} color={colors.primary} /></View>
+      <Text style={[font(500), { flex: 1, fontSize: 13, color: colors.textMid }]}>{text}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8, marginBottom: 18 },
+  title: { fontSize: 26, letterSpacing: -0.5, color: colors.text },
+  // Fixed 2-line height so the tab bar below never shifts when the subtitle
+  // text differs per tab (1 line on Instant offers, 2 on Explore lenders).
+  sub: { fontSize: 13.5, lineHeight: 18, color: colors.textSoft, marginTop: 4, minHeight: 36 },
+  refreshBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.chip, borderRadius: 20, borderWidth: 1, borderColor: colors.line,
+    paddingHorizontal: 12, height: 38, marginTop: 2, minWidth: 104, justifyContent: 'center',
+  },
+  refreshLabel: { fontSize: 13, color: colors.primary },
+  compareBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderColor: '#BFE3E3', borderRadius: 18, paddingVertical: 12, paddingLeft: 12, paddingRight: 10, marginBottom: 16,
+    backgroundColor: '#F2FAFA',
+  },
+  compareIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#DDF1F1', alignItems: 'center', justifyContent: 'center' },
+  compareLabel: { fontSize: 15, color: colors.text },
+  compareSub: { fontSize: 12, color: colors.textSoft, marginTop: 1 },
+  updateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 54, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line },
+
+  // ── Offer card ─────────────────────────────────────────────────────────
+  card: {
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: 22, padding: 16,
+    shadowColor: '#0A3F41', shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2,
+  },
+  headRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  logoBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  logoBoxImg: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
+  lender: { fontSize: 16, color: colors.text, letterSpacing: -0.2 },
+  divider: { height: 1, backgroundColor: colors.line, marginTop: 12, marginBottom: 14 },
+  matchChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 5,
+    backgroundColor: colors.chip, borderRadius: 9999, paddingVertical: 3, paddingHorizontal: 8,
+  },
+  partnerPill: {
+    // Floats over the divider between the header and the amount, on the right.
+    position: 'absolute', top: 56, right: 16, zIndex: 2,
+    backgroundColor: colors.primary, borderRadius: 9999, paddingVertical: 6, paddingHorizontal: 12,
+    shadowColor: '#0A3F41', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3,
+  },
+  amount: { fontSize: 24, color: colors.primary, letterSpacing: -0.6, marginTop: 2 },
+  amountRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  rateCol: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  rateIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.chip, alignItems: 'center', justifyContent: 'center' },
+  disbursalChip: {
+    flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 5, marginTop: 12,
+    backgroundColor: colors.chip, borderRadius: 9999, paddingVertical: 4, paddingHorizontal: 10,
+  },
+  receipt: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.lineSoft },
+  applyBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: 14, height: 48, marginTop: 14 },
+  moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18, paddingHorizontal: 20 },
+  // Two-source tab bar (Knight Fintech | Yubi)
+  tabsRow: { flexDirection: 'row', marginTop: 4, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
+  hidden: { display: 'none' },
+  tabBtn: { flex: 1, alignItems: 'center', paddingBottom: 0 },
+  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  tabTxt: { fontSize: 14.5, color: colors.textSoft, paddingVertical: 10 },
+  tabTxtOn: { color: colors.primary },
+  tabUnderline: { height: 2.5, alignSelf: 'stretch', backgroundColor: 'transparent', borderTopLeftRadius: 2, borderTopRightRadius: 2 },
+  tabUnderlineOn: { backgroundColor: colors.primary },
+  seeYubiBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 20, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: '#BFE3E3', backgroundColor: '#F2FAFA', width: '100%' },
+
+  empty: { alignItems: 'center', paddingTop: 36, paddingHorizontal: 6 },
+  emptyIcon: { width: 92, height: 92, borderRadius: 46, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+  benefits: { width: '100%', marginTop: 24, gap: 12 },
+  benefitRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  benefitIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#E1F3F3', alignItems: 'center', justifyContent: 'center' },
+});

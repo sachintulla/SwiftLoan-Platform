@@ -1,12 +1,15 @@
 import React, { useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { Screen } from '../components/Frame';
 import { Wordmark } from '../components/Logo';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
+import { useHandoffIn } from '../utils/handoff';
 import { trackEvent } from '../api/client';
+import { VoiceHidden } from '../voice/screenGraph';
+import { registerTarget } from '../voice/actionRegistry';
 
 const GREETINGS = [
   'Welcome to SwiftLoan',
@@ -23,6 +26,8 @@ const LANGS = [
 export default function Language() {
   const { state, set, go } = useStore();
   const [gi, setGi] = React.useState(0);
+  // The "SwiftLoan" wordmark travels here from the splash screen.
+  const wordHandoff = useHandoffIn('wordmark');
 
   useEffect(() => {
     const id = setInterval(() => setGi(i => (i + 1) % 3), 2600);
@@ -31,41 +36,72 @@ export default function Language() {
 
   const contEnabled = !!state.selectedLang;
 
+  // Tell the voice agent which language card is picked. The cards only show a tick icon,
+  // so without this the agent saw three identical buttons and asked "which language?" even
+  // when the user had already chosen one before starting the call.
+  useEffect(() => {
+    const unregisters = LANGS.map(l =>
+      registerTarget(state.screen, `chip:Language:${l.label}`, {
+        kind: 'chips',
+        label: l.label,
+        group: 'Language',
+        getValue: () => state.selectedLang === l.selected,
+        onTap: () => set({ selectedLang: l.selected, lang: l.lang ?? state.lang }),
+      }),
+    );
+    return () => unregisters.forEach(u => u());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.screen, state.selectedLang, state.lang]);
+
   return (
     <Screen bottomNav={false} scroll padded={false}>
-      {/* header */}
+      {/* header — no back arrow: splash auto-advances here and there's
+          nothing upstream worth returning to. */}
       <View style={styles.header}>
-        <Pressable onPress={() => go('splash')} style={styles.backCircle} hitSlop={8}>
-          <Icon name="arrow_back" size={22} color={colors.text} />
-        </Pressable>
-        <Wordmark size={20} />
+        <Animated.View ref={wordHandoff.ref} onLayout={wordHandoff.onLayout} style={wordHandoff.style}>
+          <Wordmark size={20} />
+        </Animated.View>
       </View>
 
       <View style={{ paddingHorizontal: 20 }}>
-        <View style={{ alignItems: 'center', marginBottom: 22, minHeight: 62 }}>
-          <Text style={[font(800), { fontSize: 25, letterSpacing: -0.5, textAlign: 'center', color: colors.text }]}>
-            {GREETINGS[gi]}
-          </Text>
-          <Text style={[font(400), { fontSize: 13.5, color: '#6E8080', marginTop: 6 }]}>
-            Choose your language / अपनी भाषा चुनें
-          </Text>
-        </View>
+        {/* This rotates every 2.6s (setInterval above) purely as a marketing
+            flourish — cycling the greeting through English/Hindi/Telugu.
+            VoiceHidden keeps it out of screen_overview: a genuinely-different
+            string landing every few seconds isn't caught by the "unchanged,
+            don't resend" dedup (it's real new content, not a duplicate), so
+            each rotation was triggering a fresh page_context send and, with
+            it, a real spoken response — confirmed live as Ruby re-nudging
+            "please pick a language" three times over ~18s with no user input
+            between them, just this banner quietly cycling underneath. */}
+        <VoiceHidden>
+          <View style={{ alignItems: 'center', marginBottom: 22, minHeight: 62 }}>
+            <Text style={[font(800), { fontSize: 25, letterSpacing: -0.5, textAlign: 'center', color: colors.text }]}>
+              {GREETINGS[gi]}
+            </Text>
+            <Text style={[font(400), { fontSize: 13.5, color: '#6E8080', marginTop: 6 }]}>
+              Choose your language / अपनी भाषा चुनें
+            </Text>
+          </View>
+        </VoiceHidden>
 
         <View style={{ gap: 12 }}>
           {LANGS.map(l => {
             const on = state.selectedLang === l.selected;
+            // VoiceHidden: the card is exposed to the agent by the "Language" options registered
+            // above (which carry the selected state), so the plain button must not be listed too.
             return (
-              <Pressable
-                key={l.label}
-                onPress={() => set({ selectedLang: l.selected, lang: l.lang ?? state.lang })}
-                style={[styles.langCard, on ? styles.langOn : styles.langOff]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={[font(800), { fontSize: 17, color: colors.text }]}>{l.label}</Text>
-                  {on ? <Icon name="check_circle" size={22} color={colors.primary} /> : null}
-                </View>
-                <Text style={[font(400), { fontSize: 12.5, color: '#7A8A8A', marginTop: 2 }]}>{l.sub}</Text>
-              </Pressable>
+              <VoiceHidden key={l.label}>
+                <Pressable
+                  onPress={() => set({ selectedLang: l.selected, lang: l.lang ?? state.lang })}
+                  style={[styles.langCard, on ? styles.langOn : styles.langOff]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[font(800), { fontSize: 17, color: colors.text }]}>{l.label}</Text>
+                    {on ? <Icon name="check_circle" size={22} color={colors.primary} /> : null}
+                  </View>
+                  <Text style={[font(400), { fontSize: 12.5, color: '#7A8A8A', marginTop: 2 }]}>{l.sub}</Text>
+                </Pressable>
+              </VoiceHidden>
             );
           })}
         </View>
@@ -102,16 +138,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 20,
     paddingBottom: 8,
-  },
-  backCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   langCard: { borderRadius: 16, borderWidth: 1.5, padding: 16 },
   langOn: { backgroundColor: 'rgba(7,159,160,0.12)', borderColor: colors.primary },

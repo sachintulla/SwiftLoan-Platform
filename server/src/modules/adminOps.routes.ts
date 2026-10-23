@@ -11,6 +11,10 @@ import {
   requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_ADMINISTER,
 } from '../middleware/adminAuth.js';
 import { reconcileStaleCalls, CALL_STALE_MINUTES } from '../lib/callReconcile.js';
+import { scoped } from '../lib/log.js';
+import { toCsv } from '../lib/csv.js';
+
+const log = scoped('admin-ops');
 
 export const adminOpsRouter = Router();
 adminOpsRouter.use(requireAdmin);
@@ -46,22 +50,6 @@ adminOpsRouter.get('/audit', requireRole(...CAN_ADMINISTER), ah(async (req, res)
 }));
 
 /* ─────────────────────────── CSV export ─────────────────────────── */
-
-/** RFC 4180 escaping, plus a guard against spreadsheet formula injection. */
-function csvCell(v: unknown): string {
-  if (v == null) return '';
-  let s = v instanceof Date ? v.toISOString() : String(v);
-  // A cell starting =, +, - or @ is executed as a formula by Excel/Sheets when
-  // the file is opened — a lead named "=cmd|..." would run on the operator's
-  // machine. Prefixing a quote neutralises it.
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function toCsv(headers: string[], rows: unknown[][]): string {
-  return [headers.join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\r\n');
-}
 
 function sendCsv(res: import('express').Response, filename: string, csv: string) {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -100,7 +88,7 @@ adminOpsRouter.get('/export/customers.csv', ah(async (req, res) => {
 // GET /api/admin/ops/export/calls.csv
 adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { channel: { in: ['phone_outbound', 'phone_inbound'] } };
   if (q.status) where.status = q.status;
   if (q.campaignId) where.campaignId = q.campaignId;
 
@@ -113,11 +101,11 @@ adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
 
   const csv = toCsv(
     ['id', 'phone', 'customer', 'source', 'campaign', 'status', 'outcome',
-     'answered', 'durationSec', 'attempt', 'queuedAt', 'completedAt', 'error', 'recordingUrl'],
+     'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error', 'recordingUrl'],
     rows.map((r) => [
       r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code,
       r.status, r.outcome, r.answered, r.durationSec, r.attempt,
-      r.queuedAt, r.completedAt, r.error, r.recordingUrl,
+      r.queuedAt, r.endedAt, r.error, r.recordingUrl,
     ]),
   );
   return sendCsv(res, `calls-${new Date().toISOString().slice(0, 10)}.csv`, csv);
@@ -131,6 +119,7 @@ adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
 adminOpsRouter.post('/reconcile-calls', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
   const raw = Number((req.body as Record<string, unknown> | undefined)?.olderThanMinutes);
   const r = await reconcileStaleCalls(Number.isFinite(raw) ? raw : CALL_STALE_MINUTES);
+  log.info('manual reconcile run', r);
 
   return ok(
     res,

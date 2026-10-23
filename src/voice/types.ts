@@ -112,10 +112,10 @@ export interface AgentLike {
   registerTool<TArgs>(def: ClientToolOptions<TArgs>): void;
   unregisterTool(name: string): void;
   registerPageContext(fn: PageContextProvider): void;
-  updatePageContext(): void;
+  updatePageContext(opts?: { urgent?: boolean; immediate?: boolean }): void;
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void;
   setMuted(muted: boolean): void;
   getStatus(): AgentStatus;
-  start(): Promise<void>;
+  start(phone?: string): Promise<void>;
   stop(): Promise<void>;
 }

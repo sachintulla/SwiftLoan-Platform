@@ -1,15 +1,39 @@
 import { Router } from 'express';
+import { Prisma, type ApplicationStatus } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
-import { emi } from '../utils/emi.js';
+import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
+import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
+import { createRevasureLead } from '../lib/revasureLead.js';
+import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offersReuse.js';
+import { loadPan, panFingerprint, applicationPanData } from '../lib/storedPan.js';
+import { copyOffersFrom, storedOffers } from '../lib/offersReuseDb.js';
+import { scoped } from '../lib/log.js';
+import { advanceReferral } from '../lib/referral.js';
+import { isReviewPhone, reviewOffers } from '../lib/reviewLogin.js';
+
+const log = scoped('applications');
 
 export const applicationsRouter = Router();
 applicationsRouter.use(requireAuth);
+
+// Real PAN structure, not just "10 characters" — the 4th character is a real
+// holder-type code (P=Individual, C=Company, H=HUF, A=AOP, B=BOI,
+// G=Government, J=Artificial Judicial Person, L=Local Authority, F=Firm,
+// T=Trust), so this also rejects obvious placeholders like "AAAAAAAAAA" that
+// a bare length check let through. Mirrors the app's own basicpan.tsx check.
+const PAN_HOLDER_CODES = 'ABCFGHJLPT';
+const panSchema = z
+  .string()
+  .regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'panNumber must be a valid PAN (e.g. AAAPL1234C)')
+  .refine(p => PAN_HOLDER_CODES.includes(p[3]), 'panNumber must be a valid PAN (e.g. AAAPL1234C)');
 
 /** Create a loan application (Step 1 — "Tell us about yourself"). */
 applicationsRouter.post('/',
@@ -17,7 +41,7 @@ applicationsRouter.post('/',
     loanType: z.enum(['personal', 'business', 'home', 'education', 'vehicle']).default('personal'),
     amount: z.number().int().min(25000).max(1500000),
     tenureMonths: z.number().int().min(6).max(72).default(12),
-    purpose: z.string().optional(),
+    purpose: z.string().max(200).optional(),
     employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
     monthlyIncome: z.number().int().optional(),
     residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
@@ -26,6 +50,7 @@ applicationsRouter.post('/',
     const app = await prisma.loanApplication.create({
       data: { ...req.body, ref: makeRef(), userId: req.user!.sub, status: 'draft' },
     });
+    log.info('application created', { userId: req.user!.sub, applicationId: app.id, ref: app.ref, amount: app.amount });
     res.status(201).json({ application: app });
   }));
 
@@ -34,16 +59,122 @@ applicationsRouter.get('/', ah(async (req, res) => {
   const apps = await prisma.loanApplication.findMany({
     where: { userId: req.user!.sub },
     orderBy: { createdAt: 'desc' },
-    include: { offers: true, loan: true },
+    include: { offers: true, loan: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
   });
-  res.json({ applications: apps });
+  // Surface Yubi/YMPL alt-offer applications (where the applicant tapped Proceed)
+  // as their own entries in My Loans. PartnerReferral has no Prisma relation to
+  // LoanApplication (plain FK), so attach by applicationId.
+  const appliedReferrals = await prisma.partnerReferral.findMany({
+    where: { userId: req.user!.sub, appliedAt: { not: null } },
+    orderBy: { appliedAt: 'desc' },
+  });
+  const byApp = new Map<string, typeof appliedReferrals>();
+  for (const r of appliedReferrals) {
+    const list = byApp.get(r.applicationId) ?? [];
+    list.push(r);
+    byApp.set(r.applicationId, list);
+  }
+  const withReferrals = apps.map(a => ({ ...a, partnerReferrals: byApp.get(a.id) ?? [] }));
+  res.json({ applications: withReferrals });
 }));
 
 /** Get one application with offers + loan. */
 applicationsRouter.get('/:id', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  const full = await prisma.loanApplication.findUnique({ where: { id: app.id }, include: { offers: { include: { partner: true } }, loan: true, kyc: true } });
+  const full = await prisma.loanApplication.findUnique({
+    where: { id: app.id },
+    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
+  });
   res.json({ application: full });
+}));
+
+/**
+ * Pull the lender's live status via Aurix's Fetch Lead API (v1.1). UAT only
+ * for now (see fetchAurixLeads) — the app's "Refresh status" button calls
+ * this instead of just re-reading our own DB-backed state.
+ *
+ * Sends every identifier we know (Lead ID = LoanApplication.leadId,
+ * PartnerCustomerId = userId, OfferCode = the matched Offer's offerCode) —
+ * the doc allows multiple identifiers for a single record. Status extraction
+ * from the response is best-effort: KFT's `data:[{...}]` record shape isn't
+ * documented, so this tries a handful of likely field names and otherwise
+ * leaves current status untouched (never regresses, mirrors the webhook's
+ * own forward-only guard).
+ */
+applicationsRouter.post('/:id/refresh-status', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  const full = await prisma.loanApplication.findUnique({
+    where: { id: app.id },
+    include: { offers: true, lenderApplications: true },
+  });
+  if (!full) throw new HttpError(404, 'Application not found');
+  const user = await prisma.user.findUnique({ where: { id: full.userId } });
+  if (!user) throw new HttpError(404, 'User not found');
+
+  const la = full.lenderApplications.find(x => x.id === req.body?.lenderApplicationId) ?? null;
+  const offer = full.offers.find(o => o.id === (la?.offerId ?? req.body?.offerId)) ?? null;
+
+  // Everything from here down is a live third-party call — a validation
+  // quirk on Aurix's end, an expired-token round-trip failing, or a
+  // transient outage must not turn "check for an update" into a hard 500 for
+  // the applicant. Degrade to "still shows whatever we already knew", the
+  // same forward-only philosophy the webhook and prequalify's per-partner
+  // loop already use elsewhere in this file.
+  let record: Record<string, unknown> | null = null;
+  let mappedStatus: ApplicationStatus | null = null;
+  let refreshError: string | undefined;
+  try {
+    let token = user.aurixToken ?? '';
+    const expired = !user.aurixTokenExpiresAt || user.aurixTokenExpiresAt.getTime() < Date.now();
+    if (!token || expired) {
+      token = await generateAurixTokenFromEnv(full.userId, user.phone);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { aurixToken: token, aurixTokenExpiresAt: new Date(Date.now() + 30 * 60_000) },
+      }).catch(() => {});
+    }
+
+    const result = await fetchAurixLeads(
+      { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
+      token,
+    );
+    record = result.records[0] ?? null;
+    if (record) {
+      for (const key of ['status', 'Status', 'applicationStatus', 'ApplicationStatus', 'loanStatus', 'LoanStatus', 'leadStatus', 'LeadStatus']) {
+        const v = (record as Record<string, unknown>)[key];
+        if (typeof v === 'string' && v.trim()) { mappedStatus = mapFlatStatus(v); if (mappedStatus) break; }
+      }
+    }
+  } catch (e) {
+    refreshError = (e as Error)?.message || 'Could not reach the lender right now.';
+    log.warn('refresh-status: lender call failed, returning last known status', { applicationId: full.id, error: refreshError });
+  }
+  log.info('refresh-status', {
+    applicationId: full.id, userId: full.userId, leadId: full.leadId, offerCode: offer?.offerCode,
+    hasRecord: !!record, mappedStatus, refreshError,
+  });
+
+  if (mappedStatus && advancesStatus(full.status, mappedStatus)) {
+    await prisma.loanApplication.update({ where: { id: full.id }, data: { status: mappedStatus } });
+    if (offer && advancesStatus(offer.lenderStatus, mappedStatus)) {
+      await prisma.offer.update({ where: { id: offer.id }, data: { lenderStatus: mappedStatus } });
+    }
+    if (la && advancesStatus(la.status, mappedStatus)) {
+      // Keep the app-side badge in step with what the lender now reports (see internalStatusFor).
+      const internal = la.internalStatus === 'just_applied' ? internalStatusFor(mappedStatus) : null;
+      await prisma.lenderApplication.update({ where: { id: la.id }, data: { status: mappedStatus, ...(internal ? { internalStatus: internal } : {}) } });
+    }
+  }
+  // Status already moved on earlier but the badge never followed — heal it.
+  if (la && la.internalStatus === 'just_applied' && internalStatusFor(la.status) && !(mappedStatus && advancesStatus(la.status, mappedStatus))) {
+    await prisma.lenderApplication.update({ where: { id: la.id }, data: { internalStatus: internalStatusFor(la.status)! } });
+  }
+
+  const refreshed = await prisma.loanApplication.findUnique({
+    where: { id: full.id },
+    include: { offers: { include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } }, loan: true, kyc: true, lenderApplications: { orderBy: { appliedAt: 'desc' } } },
+  });
+  res.json({ application: refreshed, aurixRaw: record, refreshError });
 }));
 
 /** Update details / attach PAN (Step 2). */
@@ -51,13 +182,19 @@ applicationsRouter.patch('/:id',
   validate(z.object({
     amount: z.number().int().min(25000).max(1500000).optional(),
     tenureMonths: z.number().int().min(6).max(72).optional(),
-    panNumber: z.string().length(10).optional(),
+    panNumber: panSchema.optional(),
+    // The website never holds the PAN after verifying it: this asks the server to attach the user's own
+    // (encrypted) PAN to the application instead.
+    usePanOnFile: z.boolean().optional(),
   })),
   ah(async (req, res) => {
     await owned(req.user!.sub, req.params.id);
+    // The PAN is never stored as sent: it goes into the encrypted column (lib/storedPan.ts).
+    const { panNumber: sentPan, usePanOnFile, ...rest } = req.body as { panNumber?: string; usePanOnFile?: boolean; amount?: number; tenureMonths?: number };
+    const panNumber = sentPan || (usePanOnFile ? await loadPan(req.user!.sub) : '');
     const app = await prisma.loanApplication.update({
       where: { id: req.params.id },
-      data: { ...req.body, ...(req.body.panNumber ? { status: 'pan_pending' } : {}) },
+      data: { ...rest, ...(panNumber ? { ...applicationPanData(panNumber), status: 'pan_pending' as const } : {}) },
     });
     res.json({ application: app });
   }));
@@ -65,27 +202,186 @@ applicationsRouter.patch('/:id',
 /** Pre-qualify: soft-pull + generate ranked partner offers (finding → offers). */
 applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  await prisma.offer.deleteMany({ where: { applicationId: app.id } });
   const partners = await prisma.lenderPartner.findMany({ where: { active: true }, take: 3, orderBy: { baseApr: 'asc' } });
   if (partners.length === 0) throw new HttpError(503, 'No lending partners configured — run the seed script');
 
-  const created = await Promise.all(partners.map((p, i) => {
-    const apr = p.baseApr;
-    return prisma.offer.create({
-      data: {
-        applicationId: app.id,
-        partnerId: p.id,
-        amount: app.amount,
-        apr,
-        emi: emi(app.amount, app.tenureMonths, apr),
-        tenureMonths: app.tenureMonths,
-        processingFee: p.processingFee,
-        tag: p.tagline,
-        recommended: i === 0, // lowest APR
-      },
+  // Alternative-offers facility (Yubi/YMPL). The offer API is the right moment:
+  // the funnel has now collected the applicant's name, email and pincode that
+  // YMPL requires. Runs Create Referral → Auth Token in sequence (see
+  // ensureRedirectUrl) in PARALLEL with Aurix eligibility, pre-warming the
+  // redirect URL so the "Alternative offers" tile opens instantly. Fire-and-
+  // forget — independent of the Aurix result below; the on-tap endpoint re-mints
+  // a fresh URL anyway (the token is short-lived, ~90s).
+  // App-store reviewer account is sandboxed: sample offers, no partner call of any kind.
+  const reviewer = isReviewPhone((await prisma.user.findUnique({ where: { id: req.user!.sub }, select: { phone: true } }))?.phone ?? '');
+  if (!reviewer) kickoffRedirect(app.id, req.user!.sub);
+
+  // Revasure (third lender group) — a single Create-Lead POST, fired in PARALLEL
+  // with the Aurix eligibility calls below. We DON'T await it here; we start the
+  // promise now and await it just before the response, so it overlaps the slow
+  // partner calls and adds little/no latency. Its result is recorded
+  // (RevasureLead → admin dashboard) and returned to the app for a debug alert.
+  const clientIp = ((req.headers['x-forwarded-for'] as string) || req.ip || '').toString();
+  const revasurePromise = reviewer ? Promise.resolve(null) : createRevasureLead(app.id, req.user!.sub, clientIp);
+
+  // Only ask the lender again when the applicant has CHANGED something. Identical
+  // details → identical offers, so reuse what we already hold (this application's own,
+  // or a recent one of the same user's fetched with the same details) and skip the
+  // paid lender call. A technical failure is never stored, so it can always be retried.
+  const profile = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+  // A keyed hash of the PAN stands in for the PAN itself in the fingerprint — the PAN never enters it.
+  const signature = offersInputSignature({ ...profile, panFp: await panFingerprint(req.user!.sub, app.id) }, app);
+  const siblings = await prisma.loanApplication.findMany({
+    where: { userId: req.user!.sub, offersSignature: signature },
+    select: { id: true, offersSignature: true, offersFetchedAt: true },
+    orderBy: { offersFetchedAt: 'desc' },
+    take: 10,
+  });
+  const reusable = reviewer ? null : pickReusable(siblings, app.id, signature, Date.now(), reuseWindowMs());
+  if (reusable) {
+    const offers = reusable.id === app.id ? await storedOffers(app.id) : await copyOffersFrom(app, reusable.id);
+    if (offers) {
+      if (reusable.id === app.id && offers.length > 0 && ['draft', 'pan_pending', 'prequalifying'].includes(app.status)) {
+        await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'offers_ready', prequalifyReason: null } });
+      }
+      log.info('prequalify reused stored offers — details unchanged, lender not called', {
+        applicationId: app.id, from: reusable.id, offerCount: offers.length,
+      });
+      const revasureReused = await revasurePromise.catch(() => null);
+      res.json({ offers, reason: offers.length === 0 ? (app.prequalifyReason ?? 'not_eligible') : null, revasure: revasureReused, reused: true });
+      return;
+    }
+  }
+
+  // Gather offers across partners. A provider whose single API call returns
+  // many offers (Aurix → one per real lender) uses getOffers; others yield a
+  // single offer. A partner that fails (provider down, no eligibility, a
+  // validation reject from the real BRE) is skipped rather than failing the
+  // whole run — we saw exactly this from Aurix's UAT ("No data found", "PAN
+  // verification failed", etc.).
+  const pending: Array<{ partner: (typeof partners)[number]; raw: RawLenderOffer }> = [];
+  if (reviewer) {
+    reviewOffers(app.amount, app.tenureMonths).forEach((raw, i) => pending.push({ partner: partners[i % partners.length], raw }));
+  }
+  for (const p of reviewer ? [] : partners) {
+    try {
+      const provider = getLenderOfferProvider(p);
+      const list = provider.getOffers ? await provider.getOffers(p, app) : [await provider.getOffer(p, app)];
+      for (const raw of list) pending.push({ partner: p, raw });
+    } catch (e) {
+      log.warn('partner produced no offers', { applicationId: app.id, partner: p.name, error: (e as Error).message });
+    }
+  }
+
+  // Recommend the single lowest-APR offer across everything (0/undefined APRs
+  // never win).
+  let bestIdx = -1;
+  let bestApr = Infinity;
+  pending.forEach((x, i) => { if (x.raw.apr > 0 && x.raw.apr < bestApr) { bestApr = x.raw.apr; bestIdx = i; } });
+  if (bestIdx === -1 && pending.length) bestIdx = 0;
+
+  // Delete-old + insert-new run as ONE transaction, immediately before the
+  // response — not a bare deleteMany() up front (the old position, before the
+  // slow Aurix/partner network calls above). Two prequalify calls close
+  // together (a double-click, a retry, or — as actually happened once in dev
+  // — React Strict Mode double-invoking this screen's effect) used to each
+  // independently delete-then-insert, and a plain transaction around
+  // delete+create does NOT fix this on its own: Postgres's DELETE only locks
+  // rows that already exist at the time it runs, so a concurrent
+  // transaction's INSERT of brand-new rows is never blocked by it — both
+  // sides' 5 offers still landed (confirmed: still 10 after switching to a
+  // bare $transaction([...]) array). The actual fix is a real serialization
+  // point: SELECT ... FOR UPDATE on the parent LoanApplication row forces a
+  // second concurrent prequalify for the SAME application to block until the
+  // first one's delete+insert has fully committed, so its own delete
+  // correctly sees and removes the first one's offers instead of racing past
+  // them. Confirmed with two concurrent requests fired at the same
+  // application: exactly 5 offers survive now, not 10.
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "LoanApplication" WHERE id = ${app.id} FOR UPDATE`;
+    // Refresh the offer set, but PRESERVE any offer the user has already applied
+    // to. Mirrors the KFT Offers-API contract: once an offer is selected it stops
+    // being returned on later calls, so a re-fetch must not wipe it —
+    // `Offer.lenderApplications` is onDelete: Cascade, so deleting an applied
+    // offer would silently drop the user's My Loans tracking. Only offers that
+    // were never applied to are cleared.
+    await tx.offer.deleteMany({
+      where: { applicationId: app.id, applied: false, lenderApplications: { none: {} } },
     });
-  }));
-  await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'offers_ready' } });
+    const rows = [];
+    for (const [i, { partner: p, raw }] of pending.entries()) {
+      // Offer row's amount/apr/emi/tenureMonths stay a denormalized copy of
+      // the recommended tenure option so /handoff keeps reading those scalars.
+      const recommendedOption = raw.emiOptions.find(o => o.recommended) ?? raw.emiOptions[0];
+      rows.push(await tx.offer.create({
+        data: {
+          applicationId: app.id,
+          partnerId: p.id,
+          amount: raw.amount,
+          apr: raw.apr,
+          emi: recommendedOption?.monthlyEmi ?? 0,
+          tenureMonths: recommendedOption?.tenureMonths ?? app.tenureMonths,
+          processingFee: raw.processingFeeAmount,
+          processingFeeAmount: raw.processingFeeAmount,
+          gstOnProcessingFee: raw.gstOnProcessingFee,
+          netDisbursalAmount: raw.netDisbursalAmount,
+          badgeText: raw.badgeText ?? p.tagline,
+          tag: p.tagline,
+          recommended: i === bestIdx,
+          // Aurix passthrough — persisted for the later tile step; harmless
+          // nulls for the mock provider.
+          offerCode: raw.offerCode ?? null,
+          offerType: raw.offerType ?? null,
+          roi: raw.roi ?? null,
+          offerLikelihood: raw.offerLikelihood ?? null,
+          redirectionUrl: raw.redirectionUrl ?? null,
+          lenderName: raw.lenderName ?? null,
+          lenderLogoUrl: raw.lenderLogoUrl ?? null,
+          externalPartnerId: raw.externalPartnerId ?? null,
+          ...(raw.rawOffer !== undefined ? { rawOffer: raw.rawOffer as Prisma.InputJsonValue } : {}),
+          emiOptions: raw.emiOptions.length ? { create: raw.emiOptions } : undefined,
+        },
+        include: { emiOptions: true, partner: true },
+      }));
+    }
+    return rows;
+  });
+  // "offers_ready" must mean real offers exist — it used to be set
+  // unconditionally the moment this call finished, whether `created` held 3
+  // offers or 0. Every downstream reader (the admin dashboard's stage
+  // tracking, and the voice agent's api_context/userContext) trusts this
+  // field over the actual offers array, so a wrongly-"ready" status doesn't
+  // just look odd in the UI — it actively tells the agent offers exist when
+  // none do, and it never proactively suggests applying because the data
+  // says there's nothing to suggest.
+  //
+  // Zero offers is NOT always a technical failure. AurixOfferProvider.getOffers
+  // returns [] (no throw) when Aurix's own eligible_offers call succeeds
+  // (HTTP 200, Meta.Success: true) but its business decision is "not
+  // eligible" — confirmed live, e.g. Meta.Message "...does not meet the
+  // eligibility criteria of our available lending partners." That's a real,
+  // informative lender decline, not an outage, and showing it as 'failed'
+  // told the applicant something broke when nothing did. Only an actual
+  // thrown error (network/HTTP failure, missing config) should read as
+  // 'failed'; a clean success with zero offers reads as 'rejected'.
+  const aurixDebug = takeAurixDebug(app.id) as { httpStatus?: number; response?: any } | null;
+  // What the zero-offer reply means (lib/aurixOutcome.ts). The applicant only ever gets a reason CODE
+  // (the website renders our own copy for it) — the lender's wording goes to the log, never the UI.
+  // A real refusal is 'rejected'; a duplicate number is not a decline ('failed'); a technical fault
+  // is 'failed' with the generic retry prompt.
+  const outcome = created.length === 0 ? classifyAurixOutcome(aurixDebug) : null;
+  const aurixSucceededWithNoOffers = outcome?.kind === 'decision';
+  const prequalifyReason = outcome ? outcome.reason : null;
+  await prisma.loanApplication.update({
+    where: { id: app.id },
+    data: {
+      status: created.length > 0 ? 'offers_ready' : outcome?.kind === 'decision' ? 'rejected' : 'failed',
+      prequalifyReason,
+      // Remember what the lender was asked, so the same details don't trigger another call.
+      // Anything but a definite decline stays retryable and is NOT remembered.
+      ...(created.length > 0 || (outcome?.kind === 'decision' && outcome.remember) ? { offersSignature: signature, offersFetchedAt: new Date() } : {}),
+    },
+  });
 
   // WS5: eligibility genuinely finished here (server-side truth). The client
   // previously only recorded "arrived at the offers screen", which is not the
@@ -99,42 +395,304 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     },
   ).catch(() => {});
 
-  res.json({ offers: created });
+  if (outcome?.lenderMessage) log.info('prequalify lender message (not shown to applicant)', { applicationId: app.id, reason: outcome.reason, lenderMessage: outcome.lenderMessage });
+  log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers, outcome: outcome?.kind ?? 'offers' });
+  // Revasure lead result (started in parallel above) — await now so its outcome
+  // rides back in this response for the app's temporary debug alert.
+  const revasure = await revasurePromise.catch(() => null);
+
+  // `reason` is a code ('not_eligible' | 'duplicate' | 'technical'), never lender wording — the clients
+  // render their own copy for it. The raw lender response stays on the server.
+  res.json({ offers: created, reason: outcome?.reason ?? null, revasure });
 }));
+
+/**
+ * Alternative-offers facility (Yubi/YMPL) — called when the applicant taps the
+ * "Alternative offers" / "More offers" tile. Ensures the referral exists and
+ * mints a FRESH redirect URL (tokens are short-lived), returned for the app to
+ * open in its in-app WebView. Always 200 with `available`: the tile degrades
+ * gracefully (a toast) rather than erroring when YMPL is down or disabled.
+ */
+applicationsRouter.post('/:id/alt-offer', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  if (!yubiEnabled()) {
+    res.json({ altOffer: { available: false, provider: 'ympl', status: 'disabled', redirectUrl: null } });
+    return;
+  }
+  const { redirectUrl, status } = await ensureRedirectUrl(app.id, req.user!.sub);
+  // Return the applicant's own verified PAN so the WebView can prefill the one
+  // remaining data field on YMPL's hosted journey (the only field not already
+  // populated by our referral). Data-only — the app never auto-accepts the
+  // consent or submits; that stays the user's explicit action.
+  // Hand the WebView the details the funnel already collected — the SAME source
+  // the Aurix offers payload reads (application.panNumber || user.panNumber, and
+  // the user profile) — so YMPL's hosted journey needs no re-typing. Data-only:
+  // used to prefill form fields, never to accept consent or submit.
+  const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+  const prefill = {
+    pan: (await loadPan(req.user!.sub, app.id)) || null, // decrypted in memory for this response only
+    firstName: user?.firstName || null,
+    middleName: null as string | null,
+    lastName: user?.lastName || null,
+    fullName: user?.fullName || null,
+    dob: user?.dob ? user.dob.toISOString().slice(0, 10) : null,
+    gender: user?.gender || null,
+    email: user?.email || null,
+    mobile: user?.phone ? user.phone.replace(/\D/g, '').slice(-10) : null,
+    pincode: user?.pincode || null,
+    addressLine1: user?.addressLine1 || null,
+    addressLine2: user?.addressLine2 || null,
+    city: user?.city || null,
+    state: user?.state || null,
+    employmentType: user?.employment || null,
+    companyName: user?.company || null,
+    monthlyIncome: user?.monthlyIncome ?? null,
+    loanAmount: app.amount ?? null,
+  };
+  // Whether this referral already has offers generated — if so the hosted
+  // journey resumes straight to its offers page (auto-advancing past DOB etc.),
+  // so the app keeps its branded loader up until offers show, hiding the flash.
+  const { journeyStatus } = await getReferralStatus(app.id, req.user!.sub).catch(() => ({ journeyStatus: null as string | null }));
+  const resumeToOffers = /OFFER|APPROV|DISBURS|SANCTION|SELECT|COMPLETE/i.test(String(journeyStatus || ''));
+  res.json({
+    altOffer: {
+      available: !!redirectUrl,
+      provider: 'ympl',
+      status,
+      redirectUrl,
+      pan: prefill.pan, // kept for back-compat
+      prefill,
+      journeyStatus: journeyStatus ?? null,
+      resumeToOffers,
+    },
+  });
+}));
+
+/**
+ * Alternative-offers facility (Yubi/YMPL) — the applicant tapped "Proceed" on
+ * YMPL's offers page (detected in the in-app WebView). Stamps the referral as
+ * applied so it surfaces in My Loans with its date/time. Optional `lender` is
+ * the one they proceeded with.
+ */
+applicationsRouter.post('/:id/alt-offer/applied',
+  validate(z.object({ lender: z.string().max(120).optional() })),
+  ah(async (req, res) => {
+    const app = await owned(req.user!.sub, req.params.id);
+    const ref = await markReferralApplied(app.id, req.user!.sub, req.body.lender ?? null);
+    res.json({ applied: !!ref, appliedAt: ref?.appliedAt ?? null, lender: ref?.appliedLender ?? null });
+  }));
 
 /** List offers for an application. */
 applicationsRouter.get('/:id/offers', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
-  const offers = await prisma.offer.findMany({ where: { applicationId: app.id }, include: { partner: true }, orderBy: { apr: 'asc' } });
+  const offers = await prisma.offer.findMany({ where: { applicationId: app.id }, include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } });
   res.json({ offers });
 }));
 
-/** Select an offer (Step 3 → 4). */
-applicationsRouter.post('/:id/offers/:offerId/select', ah(async (req, res) => {
-  const app = await owned(req.user!.sub, req.params.id);
-  await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
-  const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true } });
-  await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'handoff' } });
+/** Select an offer (Step 3 → 4) — optionally the specific tenure the user picked. */
+applicationsRouter.post('/:id/offers/:offerId/select',
+  validate(z.object({ emiOptionId: z.string().uuid().optional() })),
+  ah(async (req, res) => {
+    const app = await owned(req.user!.sub, req.params.id);
+    await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
 
-  // WS5: the real selection, with which offer — the screen-arrival proxy the
-  // client used could not say which lender or rate was chosen.
+    // If the user picked a specific tenure option, that becomes the Offer's
+    // headline amount/emi/tenure — /handoff reads those scalars directly.
+    let tenureOverride: { emi: number; tenureMonths: number } | undefined;
+    if (req.body.emiOptionId) {
+      const option = await prisma.offerEmiOption.findFirst({ where: { id: req.body.emiOptionId, offerId: req.params.offerId } });
+      if (!option) throw new HttpError(404, 'EMI option not found for this offer');
+      tenureOverride = { emi: option.monthlyEmi, tenureMonths: option.tenureMonths };
+    }
+
+    const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true, ...tenureOverride } });
+    // NOTE: we do NOT move the application to 'handoff' here. 'handoff' is a lender-reported
+    // stage (Aurix webhook), not something a tap on our side can claim.
+    void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
+
+    // WS5: the real selection, with which offer — the screen-arrival proxy the
+    // client used could not say which lender or rate was chosen.
+    trackJourney(
+      { userId: req.user!.sub },
+      {
+        channel: 'app',
+        name: JOURNEY_EVENTS.OFFER_SELECTED,
+        metadata: {
+          applicationId: app.id,
+          offerId: offer.id,
+          apr: offer.apr,
+          amount: offer.amount,
+          tenureMonths: offer.tenureMonths,
+        },
+      },
+    ).catch(() => {});
+
+    log.info('offer selected', { applicationId: app.id, offerId: offer.id, apr: offer.apr, amount: offer.amount });
+    res.json({ offer });
+  }));
+
+/**
+ * Apply to a specific lender's offer. This marks the offer as a tracked
+ * per-lender application (the Offer.id is its application id) and gives it its
+ * own `lenderStatus`, independent of the parent application's eligibility
+ * status. A user can apply to more than one lender on the same eligibility run;
+ * each applied offer is tracked separately and shown as its own card in
+ * My Loans. Idempotent — re-applying to the same lender just refreshes it and
+ * returns the existing per-lender application.
+ */
+applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
+  const app = await owned(req.user!.sub, req.params.id);
+  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, applicationId: app.id }, include: { partner: true } });
+  if (!existing) throw new HttpError(404, 'Offer not found for this application');
+
+  // Duplicate guard: a user may apply to the same lender more than once ONLY
+  // with a DIFFERENT loan amount. Same lender + same amount is a duplicate — we
+  // return the existing application instead of creating another, so the app can
+  // send the user to that application's tracker. (Different-amount applications
+  // to the same lender are allowed and each tracked separately.)
+  const lenderKey = existing.lenderName ?? existing.partner?.name ?? null;
+  const dupe = await prisma.lenderApplication.findFirst({
+    where: {
+      application: { userId: req.user!.sub },
+      amount: existing.amount,
+      ...(lenderKey ? { lenderName: lenderKey } : { offerId: existing.id }),
+    },
+    orderBy: { appliedAt: 'desc' },
+  });
+  if (dupe) {
+    return res.json({
+      duplicate: true,
+      lenderApplication: dupe,
+      lenderApplicationId: dupe.id,
+      applicationId: dupe.applicationId,
+      message: 'You’ve already applied to this lender for this amount.',
+    });
+  }
+
+  // Each apply creates a NEW LenderApplication, so the same lender can be
+  // applied to more than once (with a different amount) — each with its own
+  // tracked status and My Loans card. We snapshot the offer economics because
+  // they can change later.
+  const lenderApp = await prisma.lenderApplication.create({
+    data: {
+      applicationId: app.id,
+      offerId: existing.id,
+      lenderName: existing.lenderName ?? existing.partner?.name ?? null,
+      lenderLogoUrl: existing.lenderLogoUrl ?? existing.partner?.logoUrl ?? null,
+      amount: existing.amount,
+      apr: existing.apr,
+      emi: existing.emi,
+      tenureMonths: existing.tenureMonths,
+      processingFeeAmount: existing.processingFeeAmount ?? 0,
+      redirectionUrl: existing.redirectionUrl,
+      // Tapped Apply — the lender hasn't reported anything yet. 'handoff' is reserved for the
+      // lender's own report (webhook), so this stays 'offers_ready' ("in progress") until then.
+      status: 'offers_ready',
+    },
+  });
+
+  // `selected` still points at the offer being handed off (the native /handoff
+  // path reads it); `applied` flags the offer as "has ≥1 application" for tiles.
+  await prisma.offer.updateMany({ where: { applicationId: app.id }, data: { selected: false } });
+  await prisma.offer.update({
+    where: { id: existing.id },
+    data: { selected: true, applied: true, appliedAt: existing.appliedAt ?? new Date(), lenderStatus: existing.lenderStatus ?? 'offers_ready' },
+  }).catch(() => {});
+
+  // The parent application is NOT nudged to 'handoff' here: only the lender's webhook advances it.
+  void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
+
   trackJourney(
     { userId: req.user!.sub },
     {
       channel: 'app',
       name: JOURNEY_EVENTS.OFFER_SELECTED,
-      metadata: {
-        applicationId: app.id,
-        offerId: offer.id,
-        apr: offer.apr,
-        amount: offer.amount,
-        tenureMonths: offer.tenureMonths,
-      },
+      metadata: { applicationId: app.id, offerId: existing.id, lenderApplicationId: lenderApp.id, lenderName: lenderApp.lenderName, apr: lenderApp.apr, applied: true },
     },
   ).catch(() => {});
 
-  res.json({ offer });
+  // lenderApplication.id is the per-application id the client now tracks.
+  res.json({ lenderApplication: lenderApp, lenderApplicationId: lenderApp.id });
 }));
+
+/**
+ * Record the app-side outcome of a lender application's web-flow hand-off. This
+ * sets `internalStatus` (just_applied → success | failed | error) — the app's
+ * OWN view of what happened in the lender web flow, shown as its own state in My
+ * Loans. It does NOT touch the webhook-driven lender `status`, EXCEPT that a
+ * failed/error outcome also marks the lender `status` 'failed' (the lender never
+ * calls back for a client-side dead-end), while a `success` outcome leaves the
+ * lender status alone (the lender still decides under_review/approved/…).
+ * Never overrides a terminal outcome the lender already reported.
+ */
+async function recordLenderOutcome(
+  userSub: string,
+  applicationId: string,
+  offerId: string,
+  outcome: 'success' | 'failed' | 'error',
+  reason: string | undefined,
+  lenderApplicationId: string | undefined,
+  res: import('express').Response,
+) {
+  const app = await owned(userSub, applicationId);
+  const offer = await prisma.offer.findFirst({ where: { id: offerId, applicationId: app.id } });
+  if (!offer) throw new HttpError(404, 'Offer not found for this application');
+  // Target the specific lender application the client handed off (if it passed
+  // its id), else the most recent one for this offer. Nothing to record if none
+  // was created (user abandoned before applying).
+  const target = lenderApplicationId
+    ? await prisma.lenderApplication.findFirst({ where: { id: lenderApplicationId, applicationId: app.id } })
+    : await prisma.lenderApplication.findFirst({ where: { offerId: offer.id, applicationId: app.id }, orderBy: { appliedAt: 'desc' } });
+  if (!target) {
+    return res.json({ unchanged: true, notApplied: true });
+  }
+  // Never override a terminal outcome the lender already reported.
+  if (['approved', 'disbursed', 'rejected', 'closed'].includes(target.status)) {
+    return res.json({ lenderApplication: target, unchanged: true });
+  }
+  const isBad = outcome === 'failed' || outcome === 'error';
+  const cleanReason = reason?.slice(0, 500);
+  const updated = await prisma.lenderApplication.update({
+    where: { id: target.id },
+    data: {
+      internalStatus: outcome,
+      // Only a bad outcome touches the lender status (client-side dead-end the
+      // webhook won't report); success leaves it for the webhook to advance.
+      ...(isBad ? { status: 'failed', failureReason: cleanReason || 'The lender web flow could not be completed.' } : {}),
+    },
+  });
+  if (isBad) {
+    trackJourney(
+      { userId: userSub },
+      { channel: 'app', name: JOURNEY_EVENTS.LOAN_REJECTED, metadata: { applicationId: app.id, offerId: offer.id, lenderApplicationId: updated.id, lenderName: updated.lenderName, failed: true, outcome, reason: cleanReason } },
+    ).catch(() => {});
+  }
+  return res.json({ lenderApplication: updated });
+}
+
+/**
+ * App-side outcome of the lender web flow: success | failed | error. Sets
+ * `internalStatus` (and, for failed/error, the lender `status` to 'failed').
+ */
+applicationsRouter.post('/:id/offers/:offerId/outcome',
+  validate(z.object({
+    outcome: z.enum(['success', 'failed', 'error']),
+    reason: z.string().max(500).optional(),
+    lenderApplicationId: z.string().optional(),
+  })),
+  ah(async (req, res) => {
+    await recordLenderOutcome(req.user!.sub, req.params.id, req.params.offerId, req.body.outcome, req.body.reason, req.body.lenderApplicationId, res);
+  }));
+
+/**
+ * Back-compat alias: mark a per-lender application failed. Equivalent to
+ * /outcome with outcome='failed'.
+ */
+applicationsRouter.post('/:id/offers/:offerId/fail',
+  validate(z.object({ reason: z.string().max(500).optional(), lenderApplicationId: z.string().optional() })),
+  ah(async (req, res) => {
+    await recordLenderOutcome(req.user!.sub, req.params.id, req.params.offerId, 'failed', req.body.reason, req.body.lenderApplicationId, res);
+  }));
 
 /** Secure handoff → disburse: create the loan + repayment schedule. */
 applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
@@ -159,6 +717,7 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   });
   await prisma.repayment.createMany({ data: rows });
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'disbursed' } });
+  void advanceReferral(req.user!.sub, 'disbursed'); // friend-referral milestone (best-effort)
 
   // WS5: application submitted then disbursed. Approval/rejection arrives from
   // the lender API later (out of scope per the brief) — when it does, emit
@@ -183,6 +742,7 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
     )
     .catch(() => {});
 
+  log.info('loan disbursed', { applicationId: app.id, loanId: loan.id, userId: req.user!.sub, principal: loan.principal });
   res.status(201).json({ loan });
 }));
 

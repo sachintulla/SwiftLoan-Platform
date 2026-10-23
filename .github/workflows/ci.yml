@@ -2,6 +2,10 @@ name: CI
 
 on:
   workflow_dispatch:
+  # PR-only: the merge gate runs once on the PR. No push trigger, so merging to
+  # main/develop doesn't re-run it (Deploy Dev is the only push-to-develop workflow).
+  pull_request:
+    branches: [main, develop]
 
 # A newer push supersedes an in-flight run for the same ref.
 concurrency:
@@ -40,7 +44,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://user:pass@localhost:5432/placeholder
       - run: npm run typecheck
+      # env.ts requires these at import time; tests never connect to a database.
       - run: npm test
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/placeholder
 
   mobile:
     name: Mobile — typecheck + tests
@@ -91,6 +98,7 @@ jobs:
           cache-dependency-path: website-next/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
+      - run: npm test
       - run: npm run build
 
   migrations:

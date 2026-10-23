@@ -11,12 +11,13 @@
  * provider outage can never take down a request path or a job tick.
  */
 import { prisma } from './prisma.js';
+import { csvCell } from './csv.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /* ────────────────────────────── config ────────────────────────────── */
 
-export type ProviderName = 'ello' | 'upshot' | 'infobip';
+export type ProviderName = 'ello' | 'upshot' | 'voxvalley' | 'meta_whatsapp';
 
 export interface ProviderConfig {
   enabled: boolean;
@@ -33,11 +34,13 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
   // Ello — https://docs.getello.ai/api-reference/calls/create-call
   // POST {baseUrl}/api/agents/{agentId}/calls with an `X-API-Key` header.
   ello: {
-    baseUrl: 'https://api.getello.ai',
+    baseUrl: 'https://api-in.getello.ai',
     /** `{agentId}` is substituted per call (campaign agent, else the default). */
     triggerPath: '/api/agents/{agentId}/calls',
     /// Agent listing, used by the campaign builder's picker.
     agentsPath: '/api/agents',
+    /// Ello's own batch dialler — https://docs.getello.ai/api-reference/campaigns/create-campaign
+    campaignPath: '/api/campaign',
     triggerMethod: 'POST',
     authHeader: 'X-API-Key',
     /** Default agent used when a campaign does not name its own. */
@@ -46,8 +49,33 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     agentType: 'telephonic',
     callType: 'outbound',
     source: 'swiftloan-admin',
-    /** Sent as `hook_url`; Ello POSTs call events here. */
-    webhookUrl: 'http://localhost:4000/api/webhooks/ello/call-outcome',
+    /**
+     * Sent as `hook_url`; Ello POSTs call events here. Deliberately no
+     * default — a `localhost` fallback used to ship here, which silently
+     * became every environment's real webhook URL until someone noticed
+     * every call sat at "dialing" forever. This MUST be set per-environment
+     * from the admin dashboard (a scheme mismatch is just as fatal: an
+     * `http://` URL that the host redirects to `https://` drops the POST
+     * body on most webhook senders, so this has to be `https://` on a real
+     * deployment). triggerElloCall() below refuses to place a call at all
+     * without it, rather than dial one that can never report back.
+     */
+    webhookUrl: '',
+    /**
+     * Sent as the `webhooks` field on every /api/campaign create call — Ello
+     * takes this per-campaign rather than requiring a one-time standing
+     * subscription (their separate `PUT /api/agents/{id}/webhook` also
+     * exists, but is NOT what this uses; confirmed against a real create
+     * -campaign request that this field on the call itself is what actually
+     * wires delivery up, and it must be resent on every campaign — nothing is
+     * remembered between them). All 6 events route to the same `webhookUrl`
+     * as the per-call trigger's `hook_url` above: /ello/call-outcome branches
+     * internally on `campaign.*` vs `call.*`.
+     */
+    campaignWebhookEvents: [
+      'call.started', 'call.completed', 'call.processed', 'call.recording',
+      'campaign.started', 'campaign.ended',
+    ],
     /** Optional opening line; blank lets the agent's own greeting play. */
     message: '',
     /** Dotted path to the provider's call id in the trigger response. */
@@ -86,6 +114,9 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
      * anything will send — a wrong region silently writes to the wrong tenant.
      */
     baseUrl: '',
+    /** Set from the admin Messaging card (secrets.appId / accountId also work). */
+    appId: '',
+    accountId: '',
     eventPath: '/event/add',
     eventMethod: 'POST',
     userUpsertPath: '/userprofile/add',
@@ -100,31 +131,94 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     /** Event name used when no stage-specific mapping exists. */
     defaultEventName: 'swiftloan_journey_nudge',
   },
-  // Infobip — WhatsApp Business. https://www.infobip.com/docs/api
-  // Auth is `Authorization: App {apiKey}` (verified: `App` returns 403 on an
-  // unpermitted endpoint while Bearer/none return 401 — i.e. `App` is the scheme
-  // that actually authenticates).
-  infobip: {
-    /**
-     * Region-specific host — Infobip issues one per account and a wrong host
-     * simply will not authenticate. India: jrv2lk.api-in.infobip.com
-     */
-    baseUrl: 'https://jrv2lk.api-in.infobip.com',
-    /** Business-initiated messages. Requires a pre-approved template. */
-    templatePath: '/whatsapp/1/message/template',
-    /**
-     * Free-form text. Only valid INSIDE the 24-hour customer service window —
-     * i.e. after the customer messaged us. Outside it WhatsApp rejects the
-     * message, so anything we initiate must go through templatePath.
-     */
-    textPath: '/whatsapp/1/message/text',
-    /** Registered WhatsApp sender number (E.164, no +). Set in the dashboard. */
+  // Meta WhatsApp Cloud API — direct send, used INSTEAD of Voxvalley when enabled.
+  // https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
+  // POST {baseUrl}/{apiVersion}/{phoneNumberId}/messages, `Authorization: Bearer <accessToken>`.
+  // The accessToken must carry whatsapp_business_messaging and have access to the WABA that owns the number.
+  meta_whatsapp: {
+    baseUrl: 'https://graph.facebook.com',
+    apiVersion: 'v21.0',
+    /** Meta's id for the sending number (not the phone number itself). */
+    phoneNumberId: '',
+    /** Default approved template + its registered language code. */
+    defaultTemplate: '',
+    defaultLanguage: 'en',
+  },
+  // Voxvalley — WhatsApp Business (VOX DIGITALS CPaaS).
+  // https://cpaas.voxdigitals.com/docs/api-docs/whatsapp
+  // One endpoint for text and templates: POST {baseUrl}{sendPath}, auth is
+  // `Authorization: Bearer <project authToken>`, and the body carries `projectid`.
+  voxvalley: {
+    baseUrl: 'https://cpaas.voxdigitals.com',
+    sendPath: '/api/v1/whatsapp/send',
+    /** Project the authToken belongs to (e.g. PRJ100…). Required in every body. */
+    projectId: '',
+    /** Registered ACTIVE WABA sender number (E.164, no +). Set in the dashboard. */
     sender: '',
     /** Default approved template + its registered language code. */
     defaultTemplate: '',
     defaultLanguage: 'en',
-    /** Where Infobip POSTs delivery reports, if configured. */
-    notifyUrl: '',
+    /** UTILITY | MARKETING | AUTHENTICATION — affects Meta's per-message pricing. */
+    messageCategory: 'UTILITY',
+    /** Where Voxvalley POSTs delivery status for each message, if set. */
+    callbackUrl: '',
+    /** Vox SMS gateway (token goes in the body). Sender ID, template id and body must match the DLT registration. */
+    smsUrl: 'https://cpaas.voxdigitals.com/sms-customer-apis/sms/v2/send',
+    smsSender: 'PTSLA',
+    smsTemplateId: '1277178738168111452',
+    smsBody: 'Dear Customer , your SwiftLoan loan application is incomplete at the Customer step. Please open the SwiftLoan app to continue where you left off. Team SwiftLoan\n-PurpleTalk IPL',
+    /** Send the recipient as +91XXXXXXXXXX (false = 91XXXXXXXXXX, as in Vox's docs). */
+    recipientPlus: true,
+    /** Public site, used to build the links inside templates. */
+    siteUrl: 'https://www.swiftloan.ai',
+    /**
+     * Stuck-stage nudges: journey event the customer got stuck AT -> the approved
+     * template to send and the values for its {{1}}, {{2}}… in order. `{name}`,
+     * `{ref}`, `{offerCount}` and `{siteUrl}` are filled per customer; a customer
+     * missing one (e.g. no application yet) is skipped rather than sent a blank.
+     * A stage with no entry here keeps going through Upshot.
+     */
+    stallTemplates: {
+      // Website lead who never installed the app.
+      lead_captured: { template: 'marketing_check_rate', language: 'en', placeholders: ['{name}'] },
+      // Signed in (OTP verified) but never started an application.
+      otp_verified: { template: 'marketing_check_rate', language: 'en', placeholders: ['{name}'] },
+      // Finished the eligibility check but never opened their offers.
+      eligibility_completed: {
+        template: 'offers_ready', language: 'en',
+        placeholders: ['{name}', '{offerCount}', '{ref}', '{siteUrl}/apply/offers'],
+      },
+      // Saw offers, picked none.
+      offer_viewed: {
+        template: 'offers_ready', language: 'en',
+        placeholders: ['{name}', '{offerCount}', '{ref}', '{siteUrl}/apply/offers'],
+      },
+      // Started eKYC and stopped.
+      kyc_started: {
+        template: 'document_request', language: 'en',
+        placeholders: ['{name}', '{ref}', 'your KYC details (PAN and Aadhaar eKYC)', '{siteUrl}/apply'],
+      },
+    },
+    /**
+     * Install-link reminders (lib/installReminder.ts). Sending itself is still
+     * gated by the INSTALL_REMINDER_SEND env var; these only say what to send.
+     * WhatsApp: the approved `install_app_resume_step` template; its {{1}}, {{2}},
+     * {{3}} are filled from `{name}`, `{step}` and `{link}`.
+     */
+    installWhatsapp: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] },
+    /** SMS stays blank (so SMS steps are skipped) until the DLT template is registered; the body must contain `{link}`. */
+    installSmsTemplateId: '',
+    installSmsBody: '',
+    /** Optional rename of the last-step wording used for `{step}`; empty = built-in labels. */
+    installStepLabels: {},
+    /**
+     * "You applied with <lender>, install the app to track it" (lib/lenderNudge.ts). Sending is gated by Admin → Timings
+     * (`applied.sendEnabled`). WhatsApp: the template `loan_applied_install_app` (to be approved), {{1}} name, {{2}} lender,
+     * {{3}} link. SMS stays blank (SMS steps are skipped) until its DLT template is registered; the body needs `{link}`.
+     */
+    appliedWhatsapp: { template: 'loan_applied_install_app', language: 'en', placeholders: ['{name}', '{lender}', '{link}'] },
+    appliedSmsTemplateId: '',
+    appliedSmsBody: '',
   },
 };
 
@@ -231,6 +325,11 @@ function joinUrl(base: string, path: string): string {
   return `${(base || '').replace(/\/+$/, '')}/${(path || '').replace(/^\/+/, '')}`;
 }
 
+/** Ello expects E.164. Our phones are bare 10-digit Indian numbers. */
+function toE164India(phone: string): string {
+  return /^\+/.test(phone) ? phone : `+91${phone.replace(/\D/g, '').slice(-10)}`;
+}
+
 /* ────────────────────────────── Ello ────────────────────────────── */
 
 export interface TriggerCallInput {
@@ -257,8 +356,21 @@ export async function triggerElloCall(input: TriggerCallInput): Promise<HttpResu
   const agentId = input.assistantId || s.assistantId;
   if (!agentId) return { ok: false, status: 0, body: null, error: 'No Ello agent id configured' };
 
+  // A call placed without a real, reachable webhookUrl can never report its
+  // outcome back — it just sits at "dialing" until the reconcile job times
+  // it out 30 minutes later. Refuse to dial rather than do that silently.
+  if (!s.webhookUrl) {
+    return { ok: false, status: 0, body: null, error: 'Ello webhookUrl is not configured — see settings.webhookUrl' };
+  }
+  if (!/^https:\/\//i.test(s.webhookUrl)) {
+    return {
+      ok: false, status: 0, body: null,
+      error: `Ello webhookUrl must be https:// (got "${s.webhookUrl}") — an http:// URL that redirects to https drops the webhook body on most senders`,
+    };
+  }
+
   // Ello expects E.164. Our phones are bare 10-digit Indian numbers.
-  const toNumber = /^\+/.test(input.phone) ? input.phone : `+91${input.phone.replace(/\D/g, '').slice(-10)}`;
+  const toNumber = toE164India(input.phone);
 
   const body: Record<string, any> = {
     to_number: toNumber,
@@ -281,15 +393,163 @@ export async function triggerElloCall(input: TriggerCallInput): Promise<HttpResu
     encodeURIComponent(agentId),
   );
 
+  const fullUrl = joinUrl(s.baseUrl, path);
+  console.log('[ello-trigger] → POST', fullUrl, 'agentId=', agentId, 'body=', JSON.stringify(body));
+
   const res = await httpJson(
-    joinUrl(s.baseUrl, path),
+    fullUrl,
     s.triggerMethod || 'POST',
     { [s.authHeader || 'X-API-Key']: String(apiKey) },
     body,
   );
 
+  console.log('[ello-trigger] ← HTTP', res.status, 'ok=', res.ok, 'body=', JSON.stringify(res.body));
+
   const providerCallId = pick(res.body, s.responseMap?.providerCallId) ?? pick(res.body, 'data.conversation_id');
   return { ...res, providerCallId: providerCallId ? String(providerCallId) : undefined };
+}
+
+/**
+ * One recipient row for Ello's own batch campaign dialler. Deliberately the
+ * same shape our own segment/upload contact-selection already produces
+ * (CampaignContact) — this only reformats an existing, unchanged contact
+ * list into the wire format Ello's dashboard itself expects (confirmed
+ * directly against their "Create Campaign" UI: phone_number is required,
+ * name is recognised, and every other column is passed through to the agent
+ * as a per-contact dynamic variable — same idea as the `context_data` our own
+ * per-call trigger already sends above).
+ */
+export interface ElloCampaignRecipient {
+  phone: string;
+  name?: string | null;
+  city?: string | null;
+  product?: string | null;
+  /** Paise, our storage convention — converted to whole rupees for the CSV, since that's what an agent should say out loud. */
+  amount?: number | null;
+  /** Anything else already carried on the contact (spreadsheet-upload extras). Spread as additional CSV columns. */
+  extra?: Record<string, unknown> | null;
+}
+
+/** Build the CSV Ello's /api/campaign upload expects. Exported for testing. */
+export function buildElloCampaignCsv(recipients: ElloCampaignRecipient[]): string {
+  // Every row must have the same columns (a column present for only some
+  // contacts would otherwise shift values between rows), so collect every
+  // distinct `extra` key across the whole batch up front.
+  const extraKeys = new Set<string>();
+  for (const r of recipients) {
+    if (r.extra && typeof r.extra === 'object') {
+      for (const k of Object.keys(r.extra)) extraKeys.add(k);
+    }
+  }
+  const extraCols = Array.from(extraKeys);
+  const headers = ['phone_number', 'name', 'city', 'product', 'amount', ...extraCols];
+  const rows = recipients.map((r) => [
+    // Bare 10-digit number, NOT E.164 — confirmed against Ello's own
+    // downloadable campaign template (their dashboard's "Template" button,
+    // "phone_number,name" header with plain example numbers like
+    // "9182922731", no "+91"). This is the campaign-CSV upload specifically;
+    // the separate per-call trigger above (triggerElloCall) is a different
+    // Ello endpoint whose documented schema does want E.164 — don't unify
+    // the two just because they look similar.
+    r.phone.replace(/\D/g, '').slice(-10),
+    // Ello's own campaign CSV parser requires a non-empty name per row (confirmed
+    // against their own backend source: read_names_and_phones_from_file treats
+    // name as required alongside phone) — a blank one doesn't 400 cleanly, it
+    // 500s with a malformed "Invalid status code: undefined" body, which looks
+    // like their own validation error handler throwing. Contacts sourced from a
+    // segment often have no name on file, so fall back to the phone number
+    // rather than ever sending an empty cell.
+    csvCell(r.name?.trim() || r.phone),
+    csvCell(r.city ?? ''),
+    csvCell(r.product ?? ''),
+    csvCell(r.amount != null ? Math.round(r.amount / 100) : ''),
+    ...extraCols.map((k) => csvCell(r.extra && k in r.extra ? (r.extra as Record<string, unknown>)[k] : '')),
+  ].join(','));
+  return [headers.join(','), ...rows].join('\r\n');
+}
+
+export interface TriggerCampaignInput {
+  /** Shown on Ello's own dashboard. */
+  campaignName: string;
+  assistantId?: string | null;
+  recipients: ElloCampaignRecipient[];
+  /** ISO datetime — omit to send immediately (Ello's "Send immediately"). */
+  scheduleTime?: string | null;
+}
+
+/**
+ * Hand an already-built contact list (from our own segments/upload flow —
+ * unchanged) to Ello's native batch campaign dialler, instead of this
+ * server's own per-contact campaignRunner loop. Ello owns the actual dialling
+ * once this call succeeds; we only get a campaign-level id + status back
+ * (their /api/campaign has no per-contact detail endpoint), not the live
+ * per-contact tracking campaignRunner.ts provides.
+ */
+export async function triggerElloCampaign(
+  input: TriggerCampaignInput,
+): Promise<HttpResult & { providerCampaignId?: string }> {
+  const cfg = await getProviderConfig('ello');
+  if (!cfg.enabled) return { ok: false, status: 0, body: null, error: 'Ello integration is disabled' };
+
+  const apiKey = cfg.secrets.apiKey ?? cfg.secrets.api_key;
+  if (!apiKey) return { ok: false, status: 0, body: null, error: 'Ello apiKey is not configured' };
+
+  const s = cfg.settings;
+  const agentId = input.assistantId || s.assistantId;
+  if (!agentId) return { ok: false, status: 0, body: null, error: 'No Ello agent id configured' };
+
+  if (!input.recipients.length) return { ok: false, status: 0, body: null, error: 'No contacts to send' };
+
+  const csv = buildElloCampaignCsv(input.recipients);
+  const form = new FormData();
+  form.append('campaignName', input.campaignName);
+  form.append('assistantId', agentId);
+  form.append('file', new Blob([csv], { type: 'text/csv' }), 'recipients.csv');
+  if (input.scheduleTime) {
+    form.append('scheduleEnabled', 'true');
+    form.append('scheduleTime', input.scheduleTime);
+  }
+  // Wired fresh on every campaign, not a one-time dashboard setup — see the
+  // comment on campaignWebhookEvents above.
+  if (s.webhookUrl && Array.isArray(s.campaignWebhookEvents) && s.campaignWebhookEvents.length) {
+    form.append('webhooks', JSON.stringify([
+      { url: s.webhookUrl, method: 'POST', events: s.campaignWebhookEvents, headers: {} },
+    ]));
+  }
+
+  const fullUrl = joinUrl(s.baseUrl, s.campaignPath || '/api/campaign');
+  console.log('[ello-campaign] → POST', fullUrl, 'agentId=', agentId, 'recipients=', input.recipients.length);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  let res: HttpResult;
+  try {
+    const r = await fetch(fullUrl, {
+      method: 'POST',
+      // No content-type header — fetch sets the multipart boundary itself
+      // for a FormData body; setting one manually strips the boundary param.
+      headers: { [s.authHeader || 'X-API-Key']: String(apiKey) },
+      body: form,
+      signal: controller.signal,
+    });
+    const text = await r.text();
+    let parsed: any = text;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      /* provider returned non-JSON; keep the raw text for debugging */
+    }
+    res = { ok: r.ok, status: r.status, body: parsed, error: r.ok ? undefined : `HTTP ${r.status}` };
+  } catch (e: any) {
+    const aborted = e?.name === 'AbortError';
+    res = { ok: false, status: 0, body: null, error: aborted ? `timed out after ${DEFAULT_TIMEOUT_MS}ms` : String(e?.message ?? e) };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  console.log('[ello-campaign] ← HTTP', res.status, 'ok=', res.ok, 'body=', JSON.stringify(res.body));
+  const providerCampaignId = pick(res.body, 'data.campaign_id') ?? pick(res.body, 'campaign_id');
+  return { ...res, providerCampaignId: providerCampaignId ? String(providerCampaignId) : undefined };
 }
 
 export interface ElloAgent {
@@ -376,6 +636,12 @@ export async function parseElloWebhook(raw: any) {
     event,
     providerCallId: get('providerCallId') != null ? String(get('providerCallId')) : null,
     clientCallId: ctx?.swiftloan_call_id != null ? String(ctx.swiftloan_call_id) : null,
+    // Only present on calls Ello placed itself via its batch campaign dialler
+    // (send-to-ello) — those never went through our own dialer.ts, so they
+    // have no CallAttempt yet for the id-based lookups above to find. Used as
+    // a fallback: correlate via Campaign.providerCampaignId + phone instead.
+    providerCampaignId: raw?.campaign_id != null ? String(raw.campaign_id) : null,
+    toNumber: raw?.to_number != null ? String(raw.to_number) : null,
     status,
     // Ello has no single "outcome" field; the webhook route derives one from
     // the event + status + error_reason via its tolerant mapper.
@@ -414,7 +680,10 @@ export type UpshotPlatform = 'mobile' | 'web';
  * Upshot authenticates in the request body, not via headers. Every payload
  * carries this block.
  */
-function upshotAuth(cfg: ProviderConfig, platform: UpshotPlatform = 'mobile') {
+export function upshotAuth(cfg: ProviderConfig, platform: UpshotPlatform = 'mobile') {
+  // The admin "Messaging" card saves App ID and Account ID as plain settings and
+  // only the API key as a secret, so accept either place (secrets win — they are
+  // what a per-platform setup via the API uses).
   const appId =
     (platform === 'web' ? cfg.secrets.appIdWeb : cfg.secrets.appIdMobile) ??
     // Fall back to the other app rather than sending an empty appId, which
@@ -422,10 +691,11 @@ function upshotAuth(cfg: ProviderConfig, platform: UpshotPlatform = 'mobile') {
     cfg.secrets.appIdMobile ??
     cfg.secrets.appIdWeb ??
     cfg.secrets.appId ??
+    cfg.settings.appId ??
     '';
   return {
-    appId,
-    accountId: cfg.secrets.accountId ?? '',
+    appId: String(appId).trim(),
+    accountId: String(cfg.secrets.accountId ?? cfg.settings.accountId ?? '').trim(),
     apiKey: cfg.secrets.apiKey ?? '',
   };
 }

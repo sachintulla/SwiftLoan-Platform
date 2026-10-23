@@ -5,11 +5,12 @@ import Icon from '../components/Icon';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore } from '../state/store';
 import { useDrive } from '../utils/useDrive';
+import { VoiceHidden } from '../voice/screenGraph';
 
 const CONFETTI_COLORS = ['#2FB183', '#079FA0', '#F5A624', '#7DC24B', '#0E8C7E', '#E9C21F', '#EF6A5E'];
 
 export default function Disbursed() {
-  const { go, showToast } = useStore();
+  const { go, back, showToast } = useStore();
   const t = useDrive(1400);
   const dbAmount = '₹' + inr(25000 * t) + '.00';
 
@@ -17,7 +18,7 @@ export default function Disbursed() {
     <Screen scroll padded={false}>
       <Confetti />
       <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('home')} title={<View />} />
+        <AppHeader onBack={back} title={<View />} />
       </View>
       <View style={{ paddingHorizontal: 24, alignItems: 'center' }}>
         <SuccessCheck />
@@ -26,6 +27,10 @@ export default function Disbursed() {
           <Text style={[font(700), { fontSize: 10.5, color: colors.primary, letterSpacing: 0.3 }]}>Powered by AI</Text>
         </View>
         <Text style={[font(800), { fontSize: 26, letterSpacing: -0.5, color: colors.text, marginTop: 14, textAlign: 'center' }]}>Funds on the way!</Text>
+        {/* Everything below is hard-coded demo content (₹25,000, ••4291, 12 months, Oct 2023,
+            TransID): not this user's real loan. Hidden from the agent so it can never quote
+            it as fact; the real figures are in api_context.handoffResult. */}
+        <VoiceHidden>
         <Text style={[font(400), { fontSize: 14, lineHeight: 20, color: colors.textSoft, marginTop: 6, textAlign: 'center' }]}>
           ₹25,000 is being transferred to your bank account ending in ••4291.
         </Text>
@@ -43,8 +48,12 @@ export default function Disbursed() {
           <Row label="Tenure" value="12 Months" />
           <Row label="First EMI date" value="Oct 05, 2023" />
         </View>
+        </VoiceHidden>
 
-        <Pressable style={styles.primaryBtn} onPress={() => go('repay')}>
+        {/* This screen is hardcoded demo data (see CLAUDE.md) with no real
+            loanId behind it, and the button's own label ("Go to Dashboard")
+            reads correctly for the Home destination — not a repay/status drill-down. */}
+        <Pressable style={styles.primaryBtn} onPress={() => go('home')}>
           <Text style={[font(700), { color: '#fff', fontSize: 15 }]}>Go to Dashboard</Text>
           <Icon name="arrow_forward" size={18} color="#fff" />
         </Pressable>
@@ -52,9 +61,11 @@ export default function Disbursed() {
           <Icon name="receipt_long" size={18} color={colors.text} />
           <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>View Receipt</Text>
         </Pressable>
-        <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, textAlign: 'center', marginTop: 14 }]}>
-          SwiftLoan is a regulated entity. Transaction processed via Secure Gateway. TransID: SL-9821-X.
-        </Text>
+        <VoiceHidden>
+          <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, textAlign: 'center', marginTop: 14 }]}>
+            SwiftLoan is a loan marketplace, not a lender. Your loan is disbursed by the RBI-regulated lending partner you chose.
+          </Text>
+        </VoiceHidden>
       </View>
     </Screen>
   );

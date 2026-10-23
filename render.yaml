@@ -43,8 +43,9 @@ services:
         value: "1260"
       - key: LEAD_CALL_TIMEZONE
         value: Asia/Kolkata
-      - key: LEAD_CALL_DELAY_MINUTES
-        value: "1"
+      # Not set here on purpose — leadCaller.ts's follow-up delay (whether the
+      # visitor declined the callback popup or never answered it) defaults to
+      # 60 minutes unless LEAD_CALL_DECLINE_DELAY_MINUTES is explicitly set.
       # Spend ceiling. /api/context/create is public, so without a cap a scripted
       # form-spam run turns straight into a telephony bill.
       - key: LEAD_CALL_MAX_PER_HOUR
@@ -53,6 +54,10 @@ services:
       # so testers can log in without real SMS. Remove for a real production launch.
       - key: DEMO_LOGIN
         value: "true"
+      # DEMO_LOGIN above only surfaces the generated code as `devOtp`; the fixed
+      # master OTP is accepted solely via DEV_MASTER_OTP (lib/otp.ts, authSession.ts).
+      - key: DEV_MASTER_OTP
+        value: "123456"
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET

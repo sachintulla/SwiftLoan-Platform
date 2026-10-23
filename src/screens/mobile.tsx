@@ -1,34 +1,73 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { Screen, AppHeader } from '../components/Frame';
+import { View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
+import { Screen } from '../components/Frame';
+import { LoginHero } from '../components/LoginHero';
 import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
 import { api, ApiError } from '../api/client';
-import { upshotIdentify, upshotEvent } from '../analytics/upshot';
+import { upshotIdentify, upshotEvent, registerUpshotPush } from '../analytics/upshot';
+import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { VoiceHidden } from '../voice/screenGraph';
+import { agent } from '../voice';
+import { parseResume, resumeDestination } from '../utils/resume';
+
+// Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
+// ("0000000000", "9999999999") — the server's own phoneSchema only checked
+// length (`^\d{10}$`), so those sailed straight through to a real OTP send.
+function isValidMobile(v: string): boolean {
+  return /^[6-9]\d{9}$/.test(v) && !/^(\d)\1{9}$/.test(v);
+}
 
 export default function Mobile() {
-  const { state, set, go, showToast } = useStore();
+  const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
+  const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
-  const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
+  // Single hidden field is the source of truth (see hiddenOtpInput below) — the
+  // 6 visible boxes are just a display of it, not separate inputs. Distributing
+  // OS autofill across 6 real TextInputs is unreliable (iOS/Android autofill
+  // targets one focused field with the whole code, not one keystroke per box).
+  const [otpCode, setOtpCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const boxes = useRef<Array<TextInput | null>>([]);
+  const hiddenOtpInput = useRef<TextInput>(null);
+
+  // Re-focus the hidden OTP field on tap. On Android, once the soft keyboard
+  // is dismissed by the user (back button, swipe-down, tapping outside) the
+  // TextInput itself never actually loses native focus — RN's `.focus()` is
+  // then a no-op (Android's View.requestFocus() short-circuits when the view
+  // already reports focused), so the keyboard never reappears and the boxes
+  // look permanently "stuck". Forcing a real blur → focus transition makes
+  // Android re-request the IME. iOS re-opens the keyboard from a bare
+  // .focus() just fine, so it's untouched there.
+  const refocusOtp = () => {
+    if (Platform.OS === 'android') {
+      hiddenOtpInput.current?.blur();
+      setTimeout(() => hiddenOtpInput.current?.focus(), 50);
+    } else {
+      hiddenOtpInput.current?.focus();
+    }
+  };
 
   const mobileLen = state.mobileVal.length;
-  const sendEnabled = mobileLen === 10 && state.terms && !busy;
+  const mobileInvalid = mobileLen === 10 && !isValidMobile(state.mobileVal);
+  const sendEnabled = mobileLen === 10 && isValidMobile(state.mobileVal) && state.terms && !busy;
 
   // Request an OTP from the backend, then reveal the code entry.
   const sendOtp = async () => {
     setErr(null);
+    if (!isValidMobile(state.mobileVal)) {
+      setErr(t.mobileErrInvalid);
+      return;
+    }
     setBusy(true);
     try {
       await api.requestOtp(state.mobileVal);
       set({ otpSent: true });
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not send OTP. Check the API server.');
+      setErr(e instanceof ApiError ? e.message : t.mobileErrSend);
     } finally {
       setBusy(false);
     }
@@ -39,8 +78,31 @@ export default function Mobile() {
     setErr(null);
     setBusy(true);
     try {
-      const r = await api.verifyOtp(state.mobileVal, otp.join(''));
-      set({ authUser: r.user, otpSent: false, priorInquiries: r.priorInquiries });
+      const r = await api.verifyOtp(state.mobileVal, otpCode);
+      // api.verifyOtp() already clears the intro-pitch-heard flag and the
+      // saved applicant-details draft from AsyncStorage (new phone number =
+      // genuinely new person), but that only touches storage — this app
+      // session's in-memory state.introPitchHeard/savedApplicantDraft is left
+      // over from before this login (e.g. an earlier call this session, or a
+      // previous account on a shared device) and must be reset here too, or
+      // the very next page_context still reports heard_intro_pitch: true and
+      // Ruby skips the first-time pitch for someone who's never heard it.
+      //
+      // Exception: a call that is LIVE right now. The person logging in is the one
+      // already on that call, and has heard (or is hearing) the pitch — resetting
+      // it mid-call made every later page_context say heard_intro_pitch:false, so
+      // Ruby greeted them again on Home. Only reset between calls.
+      const callLive = (() => {
+        const s = agent.getStatus();
+        return s !== 'idle' && s !== 'ended';
+      })();
+      set({
+        authUser: r.user,
+        otpSent: false,
+        priorInquiries: r.priorInquiries,
+        ...(callLive ? {} : { introPitchHeard: false }),
+        savedApplicantDraft: null,
+      });
 
       // Upshot: this is the first moment we know who this person is. Identify
       // with the same E.164 phone the website and server use, so all three
@@ -57,9 +119,63 @@ export default function Mobile() {
       // (fullName + pincode on file) — skip the permissions explainer and
       // About You form entirely and land straight on the dashboard.
       const alreadyOnboarded = !!(r.user?.fullName && r.user?.pincode);
+      // The first authentication result of the call, branching where the
+      // user lands next — at least as consequential as finding.tsx's
+      // offers-found case, and Ruby may still be mid-sentence about the OTP
+      // when it arrives. Same reasoning for a wrong code below: she needs to
+      // know it failed the instant it's known, not after finishing whatever
+      // she's already saying.
+      // Load this account's history first, so the urgent update that tells the agent who just
+      // logged in also says whether an application is under review (about 0.3s, capped at 1.5s).
+      await refreshUserContext();
+      markUrgentContext();
+      // Returning users never see the Permissions screen, which is where push is normally
+      // requested — so request it here. iOS only shows its prompt once (when the choice is
+      // still undetermined), and nothing is shown if they already decided.
+      if (alreadyOnboarded) registerUpshotPush();
+
+      // Website drop-off recovery: this person may have left an application unfinished on the website.
+      // The server's answer for THIS account is the authority (it knows whether step 1 is really done);
+      // the install link's own hint is only used if it is for the same number and the lookup fails.
+      const fromLink = state.resume && state.resume.phone === state.mobileVal ? state.resume : null;
+      const lookedUp = await Promise.race([
+        api.journeyResume().catch(() => null),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 1500)),
+      ]);
+      const resume = parseResume(lookedUp, 'login') ?? fromLink;
+      const dest = resumeDestination(resume, alreadyOnboarded);
+
+      if (resume && dest === 'step2') {
+        // Step 1 (PAN) was done on the website: pick up the verified details (never the PAN itself) and go
+        // straight to step 2. If the server no longer has them, fall back to offering the application from Home.
+        const onFile = await api.panOnFile().catch(() => null);
+        if (onFile?.onFile && onFile.maskedPan) {
+          set({
+            resume, resumePrompt: null, resumeStage: 'resumed_at_step_2',
+            panNumber: onFile.maskedPan,
+            panPrefill: { pan: onFile.maskedPan, prefill: onFile.prefill ?? {}, aadhaarLinked: onFile.aadhaarLinked ?? null },
+          });
+          registerUpshotPush();
+          markUrgentContext();
+          go('basic');
+          return;
+        }
+      }
+      if (resume && (dest === 'home_offer' || dest === 'step2')) {
+        // Only the OTP was done: Home, and offer to start the application (the agent asks it itself when on the call).
+        set({ resume, resumePrompt: 'start', resumeStage: 'offer_start_application' });
+        registerUpshotPush();
+        markUrgentContext();
+        go('home');
+        return;
+      }
+      // Nothing to resume (or it was for someone else's number): forget it, so another visitor's phone number and
+      // name never linger in memory.
+      set({ resume: null, resumePrompt: null, resumeStage: null });
       go(alreadyOnboarded ? 'home' : 'permissions');
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Verification failed.');
+      setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
+      markUrgentContext();
     } finally {
       setBusy(false);
     }
@@ -73,55 +189,84 @@ export default function Mobile() {
   // Browse without signing in. No session is created — screens that need auth
   // (starting an application, profile, loans) prompt for real verification
   // when the user actually reaches them.
-  const skip = () => { set({ exploreFromHome: false }); go('explore'); };
 
   useEffect(() => {
     if (!otpSent) return;
     setOtpSeconds(29);
+    setOtpCode('');
+    // Autofocus so the keyboard (and the OS autofill suggestion) appears
+    // immediately once the code-entry step is shown, no tap needed.
+    const focusTimer = setTimeout(() => hiddenOtpInput.current?.focus(), 50);
     const id = setInterval(() => setOtpSeconds(s => (s > 0 ? s - 1 : 0)), 1000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      clearTimeout(focusTimer);
+    };
   }, [otpSent]);
 
   const masked =
     state.mobileVal.length >= 4
       ? '+91 ' + state.mobileVal.slice(0, 2) + '•••• ••' + state.mobileVal.slice(-2)
       : '+91 ••••••••••';
-  const timerText = otpSeconds > 0 ? `(in 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : '(Ready now)';
+  const timerText = otpSeconds > 0 ? `(${t.otpTimerIn} 0:${otpSeconds < 10 ? '0' : ''}${otpSeconds})` : `(${t.otpReadyNow})`;
 
-  const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, '').slice(-1);
-    // Functional update: several digits can be set back-to-back in the same
-    // tick (the voice agent fills all 6 boxes in one batch), and building
-    // `next` off the `otp` closure instead of the latest pending state meant
-    // each call clobbered the previous one — only the last-applied digit
-    // ever stuck. This composes correctly regardless of call order/timing.
-    setOtp(prev => {
-      const next = [...prev];
-      next[i] = d;
-      return next;
-    });
-    if (d && i < 5) boxes.current[i + 1]?.focus();
-  };
+  const onOtpChange = (v: string) => setOtpCode(v.replace(/\D/g, '').slice(0, 6));
+
+  // Auto-continue: the moment all 6 digits are in — the iOS keyboard's
+  // one-time-code suggestion, Android's SMS autofill, a paste, or typing —
+  // verify straight away instead of waiting for the Verify tap. Each code is
+  // auto-submitted at most once, so a wrong code shows its error and waits
+  // for an edit rather than looping; the button still works for a retry.
+  const autoSubmitted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!otpSent || busy || otpCode.length !== 6 || autoSubmitted.current === otpCode) return;
+    autoSubmitted.current = otpCode;
+    verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpCode, otpSent, busy]);
+  useEffect(() => { if (!otpSent) autoSubmitted.current = null; }, [otpSent]);
+
+  // The OTP entry is one hidden TextInput behind 6 decorative digit boxes (see
+  // hiddenOtpInput above) — the element-tree walk in screenGraph.ts can't
+  // describe it correctly: it classifies the wrapping Pressable as a `button`
+  // and mislabels it "OTP digit 1" (the first box's accessibilityLabel), while
+  // the real hidden field falls back to the nearest preceding label-like text
+  // ("Edit phone number"). Registering it explicitly here overrides that with
+  // a correctly-labelled, directly fillable `field:OTP` target.
+  useVoiceTarget(
+    otpSent ? 'OTP' : undefined,
+    { kind: 'field', getValue: () => otpCode, setValue: v => onOtpChange(String(v)) },
+    [otpCode, otpSent],
+  );
+
+  // The terms Pressable below is hand-rolled, not the shared ConsentRow (which
+  // registers its own voiceId) — the element-tree walk auto-discovers it from
+  // its own first text fragment (t.termsAgreePrefix), which is "I agree to the"
+  // in English but collapses to a bare "నేను" ("I") in Telugu, an unusable
+  // voice label. Confirmed live: available_actions showed "button:నేను" on this
+  // screen. Explicit registration gives it a stable label in every language,
+  // without touching the visual markup.
+  useVoiceTarget(
+    !otpSent ? 'Accept terms and privacy policy' : undefined,
+    { kind: 'consent', getValue: () => state.terms, setValue: v => set({ terms: !!v }) },
+    [state.terms],
+  );
 
   return (
-    <Screen scroll padded={false}>
-      <View style={{ paddingHorizontal: 20 }}>
-        <AppHeader onBack={() => go('intro')} title={<View />} />
-      </View>
+    <Screen variant="plain" scroll padded={false} contentStyle={{ paddingTop: 0 }}>
+      <LoginHero onBack={() => go('intro')} />
 
-      <View style={{ paddingHorizontal: 24, alignItems: 'center', marginTop: 6, marginBottom: 18 }}>
-        <View style={styles.phoneCircle}>
-          <Icon name="stay_current_portrait" size={30} color={colors.primary} />
-        </View>
-      </View>
-
-      <View style={{ paddingHorizontal: 24 }}>
+      <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
           <>
-            <Text style={styles.h1}>Enter your mobile number</Text>
-            <Text style={styles.sub}>We'll send a 6-digit OTP to verify.</Text>
+            {/* On-screen instructions ("enter your number…") are for the user's eyes: if the agent
+                sees them it reads them aloud instead of asking naturally. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.mobileTitle}</Text>
+              <Text style={styles.sub}>{t.mobileSub}</Text>
+            </VoiceHidden>
 
-            <Text style={[font(600), styles.label]}>Mobile Number</Text>
+            <Text style={[font(600), styles.label]}>{t.mobileNumberLabel}</Text>
             <View style={styles.phoneRow}>
               <Text style={[font(700), { fontSize: 16, color: colors.text, marginRight: 8 }]}>+91</Text>
               <TextInput
@@ -134,67 +279,96 @@ export default function Mobile() {
                 onChangeText={v => set({ mobileVal: v.replace(/\D/g, '').slice(0, 10) })}
               />
             </View>
-            <Text style={styles.hint}>Used for secure login and loan updates.</Text>
+            <Text style={styles.hint}>{t.mobileHint}</Text>
+            {mobileInvalid ? (
+              <Text style={[font(500), { fontSize: 12, color: colors.redDeep, marginTop: 4 }]}>{t.mobileErrInvalid}</Text>
+            ) : null}
 
             <Pressable style={styles.terms} onPress={() => set({ terms: !state.terms })}>
               <View style={[styles.box, state.terms && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
                 {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
               </View>
               <Text style={[font(500), { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSoft }]}>
-                I agree to the <Text style={{ color: colors.primary }}>Terms of Service</Text> and{' '}
-                <Text style={{ color: colors.primary }}>Privacy Policy</Text>.
+                {t.termsAgreePrefix} <Text style={{ color: colors.primary }}>{t.linkTerms}</Text> {t.termsAgreeMid}{' '}
+                <Text style={{ color: colors.primary }}>{t.linkPrivacy}</Text>{t.termsAgreeSuffix}
               </Text>
             </Pressable>
 
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
               <Text style={styles.secureText}>
-                Your information is encrypted. By proceeding you authorize a soft credit check that will not affect your credit score.
+                {t.mobileSecureNote}
               </Text>
             </View>
           </>
         ) : (
           <>
-            <Text style={styles.h1}>Verify your number</Text>
-            <Text style={styles.sub}>
-              Enter the 6-digit code sent to <Text style={font(700)}>{masked}</Text>
-            </Text>
+            {/* Same here: "enter the 6-digit code…" is a UI instruction the agent must not parrot
+                (it was read out in Telugu on a live call). It asks for the OTP its own way. */}
+            <VoiceHidden>
+              <Text style={styles.h1}>{t.otpTitle}</Text>
+              <Text style={styles.sub}>
+                {t.otpSub} <Text style={font(700)}>{masked}</Text>
+              </Text>
+            </VoiceHidden>
             <Pressable style={styles.editRow} onPress={() => { setErr(null); set({ otpSent: false }); }}>
               <Icon name="edit" size={16} color={colors.primary} />
-              <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>Edit phone number</Text>
+              <Text style={[font(600), { color: colors.primary, fontSize: 13 }]}>{t.otpEditPhone}</Text>
             </Pressable>
 
-            <View style={styles.otpRow}>
-              {otp.map((d, i) => (
-                <TextInput
+            {/* VoiceHidden: the digit boxes and the hidden input are exposed to the agent by the
+                explicit `OTP` field registered above. Left visible, the walker listed them again
+                as a button "OTP digit 1" and a second field mislabelled with the "change phone
+                number" button text (both holding the same code). */}
+            <VoiceHidden>
+            <Pressable style={styles.otpRow} onPress={refocusOtp}>
+              {Array.from({ length: 6 }, (_, i) => (
+                <View
                   key={i}
-                  ref={el => {
-                    boxes.current[i] = el;
-                  }}
-                  style={[styles.otpBox, font(700), d ? { borderColor: colors.primary } : null]}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  // Marks these as a one-time code: enables OS autofill, and makes
-                  // the voice layer treat them as sensitive so the agent will not
-                  // fill them. The user types the OTP; the agent taps Verify.
-                  textContentType="oneTimeCode"
-                  autoComplete="sms-otp"
+                  style={[styles.otpBox, otpCode[i] ? { borderColor: colors.primary } : null]}
                   accessibilityLabel={`OTP digit ${i + 1}`}
-                  value={d}
-                  onChangeText={v => setDigit(i, v)}
-                />
+                >
+                  <Text style={[font(700), styles.otpDigit]}>{otpCode[i] ?? ''}</Text>
+                </View>
               ))}
-            </View>
+              {/* The real input: one field, off-screen but focusable, catches the
+                  OS autofill suggestion as a single 6-char value. Voice-fillable
+                  as `field:OTP` via the explicit useVoiceTarget registration
+                  above — the element-tree walk can't see/label this correctly
+                  on its own (see the comment there). */}
+              <TextInput
+                ref={hiddenOtpInput}
+                style={styles.otpHiddenInput}
+                keyboardType="number-pad"
+                maxLength={6}
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                value={otpCode}
+                onChangeText={onOtpChange}
+              />
+            </Pressable>
+            </VoiceHidden>
 
-            <Pressable style={{ alignSelf: 'center', marginTop: 14 }} onPress={resend}>
-              <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>
-                Resend code <Text style={{ color: colors.muted }}>{timerText}</Text>
-              </Text>
+            <Pressable style={{ alignSelf: 'center', marginTop: 14, flexDirection: 'row' }} onPress={resend}>
+              <Text style={[font(600), { color: colors.textSoft, fontSize: 13 }]}>{t.otpResend}</Text>
+              {/* The countdown ticks every second (setInterval above) — a
+                  string that changes that often was landing as new
+                  screen_overview content every second and prompting a fresh
+                  spoken response each time (same root cause as the language
+                  screen's rotating greeting). VoiceHidden only takes effect
+                  when the walker visits a node directly; nesting it inside
+                  the button's own label Text wouldn't work (label collection
+                  reads through VoiceHidden), so this has to be a sibling Text
+                  node, not a child of the one above. The button's own label
+                  still resolves to the stable "Resend OTP" text, unaffected. */}
+              <VoiceHidden>
+                <Text style={{ color: colors.muted, fontSize: 13 }}> {timerText}</Text>
+              </VoiceHidden>
             </Pressable>
 
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
-              <Text style={styles.secureText}>Your connection is secure and encrypted.</Text>
+              <Text style={styles.secureText}>{t.otpSecureNote}</Text>
             </View>
           </>
         )}
@@ -208,40 +382,16 @@ export default function Mobile() {
 
         <View style={{ height: 22 }} />
         {!otpSent ? (
-          <PrimaryButton label={busy ? 'Sending…' : 'Send OTP'} disabled={!sendEnabled} onPress={sendOtp} />
+          <PrimaryButton label={busy ? t.mobileSending : t.mobileSendOtp} disabled={!sendEnabled} onPress={sendOtp} />
         ) : (
-          <PrimaryButton label={busy ? 'Verifying…' : 'Verify & Continue'} disabled={busy || otp.join('').length < 6} onPress={verify} />
+          <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
         )}
-
-        <View style={styles.orRow}>
-          <View style={styles.orLine} />
-          <Text style={[font(500), { color: colors.muted, fontSize: 12 }]}>or</Text>
-          <View style={styles.orLine} />
-        </View>
-
-        <Pressable style={styles.googleBtn} onPress={() => showToast('Continuing with Google…')}>
-          <Text style={[font(800), { color: '#4285F4', fontSize: 16 }]}>G</Text>
-          <Text style={[font(600), { color: colors.text, fontSize: 15 }]}>Continue with Google</Text>
-        </Pressable>
-
-        <Pressable style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }} onPress={skip}>
-          <Text style={[font(600), { color: colors.textSoft, fontSize: 13.5 }]}>Skip for now — explore the app</Text>
-          <Icon name="arrow_forward" size={16} color={colors.textSoft} />
-        </Pressable>
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  phoneCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: '#E1F3F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   h1: { ...font(800), fontSize: 24, letterSpacing: -0.5, color: colors.text },
   sub: { ...font(400), fontSize: 14, color: '#6E8080', marginTop: 6, lineHeight: 20 },
   label: { fontSize: 13, color: colors.textMid, marginTop: 20, marginBottom: 8 },
@@ -285,23 +435,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.line,
     borderRadius: 12,
-    textAlign: 'center',
-    fontSize: 22,
-    color: colors.text,
     backgroundColor: 'rgba(255,255,255,0.8)',
-  },
-  orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 },
-  orLine: { flex: 1, height: 1, backgroundColor: colors.line },
-  googleBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.line,
-    backgroundColor: '#fff',
   },
+  otpDigit: { fontSize: 22, color: colors.text },
+  otpHiddenInput: { position: 'absolute', width: 1, height: 1, opacity: 0.01 },
   errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(239,106,94,0.1)', borderRadius: 12, padding: 12, marginTop: 4 },
 });

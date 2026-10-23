@@ -1,13 +1,21 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, created, fail } from '../lib/http.js';
 import { contextLinks } from '../config/downloads.js';
-import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { requireAuth } from '../middleware/auth.js';
 import { buildUserContext } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
+import { verifyApiKey } from '../lib/apiKeys.js';
+import { parseAgentPhone } from '../lib/agentPhone.js';
+import { resolveLookupAccess, signLookupGrant, LOOKUP_GRANT_TTL_SEC, NOT_VERIFIED_RESULT } from '../lib/lookupGrant.js';
+import { scoped } from '../lib/log.js';
+import { isAdult } from '../lib/age.js';
+
+const log = scoped('context');
 
 // WS3 context handoff. The website widget / voice agent posts what it learned
 // about the visitor here; we mint a short opaque token and return the links the
@@ -23,69 +31,82 @@ function shortToken(len = 8): string {
   return out;
 }
 
+// A bare 10-digit Indian mobile, matching website.routes.ts's own OTP
+// validator and the client-side check in useLeadCapture.ts — the one field
+// this endpoint cannot treat as optional. Every identity in the system (app
+// or website) is required to resolve to a real phone number; a Lead created
+// without one used to be able to slip through here with nothing to anchor it
+// to, silently producing an untrackable, unmergeable record.
+const LEAD_PHONE_RE = /^[6-9]\d{9}$/;
+
 // POST /api/context/create
-// body: { name?, phone?, city?, product?, amount?, summary?, source? }
+// body: { phone, name?, city?, product?, amount?, summary?, source? }
 contextRouter.post('/create', ah(async (req, res) => {
   const b = req.body ?? {};
+  if (typeof b.phone !== 'string' || !LEAD_PHONE_RE.test(b.phone)) {
+    return fail(res, 400, 'A valid 10-digit mobile number is required');
+  }
   let token = shortToken();
   // extremely unlikely collision, but retry once
-  if (await prisma.contextSession.findUnique({ where: { token } })) token = shortToken(10);
+  if (await prisma.lead.findUnique({ where: { token } })) token = shortToken(10);
 
-  const session = await prisma.contextSession.create({
+  const session = await prisma.lead.create({
     data: {
       token,
       name: b.name ?? null,
       phone: b.phone ?? null,
       city: b.city ?? null,
-      product: b.product ?? b.loanType ?? null,
+      productInterest: b.product ?? b.loanType ?? null,
       amount: b.amount != null ? Math.round(Number(b.amount)) : null,
-      summary: b.summary ?? null,
+      note: b.summary ?? null,
       source: b.source ?? 'website',
       transcript: b.transcript ?? undefined,
-    },
-  });
-
-  // Best-effort: also drop a lead row so it shows in the admin Leads funnel.
-  // Campaign/UTM attribution is carried through from the website query string.
-  prisma.anonymousLead.create({
-    data: {
-      name: session.name, phone: session.phone, city: session.city,
-      productInterest: session.product, amount: session.amount ?? undefined,
-      source: session.source, note: session.summary ?? undefined, status: 'new',
+      status: 'new',
       campaignId: b.campaignId ?? b.utmCampaign ?? null,
       referrer: b.referrer ?? null,
     },
-  }).catch(() => {});
+  });
 
   // WS5: this is the first touch of the customer journey. Resolve (or create)
   // the Customer for this phone and open their timeline at `lead_captured`, so
   // the same person is recognisable when they later install the app or get a
-  // call. Fire-and-forget — a journey write must never fail lead capture.
-  trackJourney(
-    {
-      phone: session.phone,
-      name: session.name,
-      email: b.email ?? null,
-      city: session.city,
-      source: b.campaignId || b.utmCampaign ? 'campaign' : 'website',
-      campaignId: b.campaignId ?? b.utmCampaign ?? null,
-      utmSource: b.utmSource ?? null,
-      utmMedium: b.utmMedium ?? null,
-      utmCampaign: b.utmCampaign ?? null,
-      referrer: b.referrer ?? null,
-    },
-    {
+  // call.
+  //
+  // resolveCustomer() is awaited (not fire-and-forget): the website's own
+  // onSubmit calls POST /api/website/otp/request immediately after this
+  // response comes back, and that endpoint 404s ("No lead found for this
+  // number") if the Customer row doesn't exist yet. Awaiting it here closes
+  // that race — it's a single fast upsert-style call, not worth losing lead
+  // capture over, so still wrapped so a failure here can't fail the response.
+  // recordJourneyEvent() stays fire-and-forget: nothing downstream depends on
+  // the timeline write landing before this request returns.
+  const customer = await resolveCustomer({
+    phone: session.phone,
+    name: session.name,
+    email: b.email ?? null,
+    city: session.city,
+    source: b.campaignId || b.utmCampaign ? 'campaign' : 'website',
+    campaignId: b.campaignId ?? b.utmCampaign ?? null,
+    utmSource: b.utmSource ?? null,
+    utmMedium: b.utmMedium ?? null,
+    utmCampaign: b.utmCampaign ?? null,
+    referrer: b.referrer ?? null,
+  }).catch(() => null);
+
+  if (customer) {
+    recordJourneyEvent(customer.id, {
       channel: 'website',
       name: JOURNEY_EVENTS.LEAD_CAPTURED,
       metadata: {
-        product: session.product,
+        product: session.productInterest,
         amount: session.amount,
-        summary: session.summary,
+        summary: session.note,
         contextToken: session.token,
       },
-    },
-  ).catch(() => {});
+    }).catch(() => {});
+  }
 
+  log.info('lead captured', { token, phone: session.phone, product: session.productInterest, amountPaise: session.amount, source: session.source });
   return created(res, { token, ...contextLinks(token), context: publicContext(session) }, 'Context saved');
 }));
 
@@ -98,36 +119,36 @@ contextRouter.post('/create', ah(async (req, res) => {
 // uppercase alphabet, so a length floor of 6 keeps every real token matching
 // while letting short literal paths through.
 contextRouter.get('/:token([A-Za-z0-9]{6,12})', ah(async (req, res) => {
-  const session = await prisma.contextSession.findUnique({ where: { token: req.params.token.toUpperCase() } });
+  const session = await prisma.lead.findUnique({ where: { token: req.params.token.toUpperCase() } });
   if (!session) return fail(res, 404, 'Context not found or expired');
   if (!session.claimedAt) {
-    await prisma.contextSession.update({ where: { id: session.id }, data: { claimedAt: new Date() } }).catch(() => {});
+    await prisma.lead.update({ where: { id: session.id }, data: { claimedAt: new Date() } }).catch(() => {});
   }
   return ok(res, publicContext(session), 'Context');
 }));
 
 // Only expose what the app needs — never leak more than was captured.
 function publicContext(s: {
-  token: string; name: string | null; city: string | null; product: string | null;
-  amount: number | null; summary: string | null; source: string;
+  token: string; name: string | null; city: string | null; productInterest: string | null;
+  amount: number | null; note: string | null; source: string;
 }) {
   return {
     token: s.token,
     name: s.name,
     city: s.city,
-    product: s.product,
+    product: s.productInterest,
     amount: s.amount, // paise
-    summary: s.summary,
+    summary: s.note,
     source: s.source,
     greeting: buildGreeting(s),
   };
 }
 
 // A ready-to-speak continuation line for the in-app agent.
-function buildGreeting(s: { name: string | null; product: string | null; amount: number | null }): string {
+function buildGreeting(s: { name: string | null; productInterest: string | null; amount: number | null }): string {
   const who = s.name ? `Hi ${s.name}! ` : 'Welcome back! ';
   const amt = s.amount ? `₹${(s.amount / 100).toLocaleString('en-IN')}` : '';
-  const prod = s.product ? s.product.toLowerCase() : 'loan';
+  const prod = s.productInterest ? s.productInterest.toLowerCase() : 'loan';
   if (amt) return `${who}As we discussed, you're interested in a ${amt} ${prod}. Let's continue your application from here.`;
   return `${who}Let's continue your ${prod} application from where we left off.`;
 }
@@ -147,6 +168,19 @@ function buildGreeting(s: { name: string | null; product: string | null; amount:
  * string. Accepting a phone parameter here would turn this into an open lookup
  * of anyone's loan history by number.
  */
+/**
+ * GET /api/context/lookup-grant
+ *
+ * A short-lived token proving "this browser session is signed in as <phone>", for the
+ * website voice agent to send back with its get_user_context / get_customer_history tool
+ * calls (see lib/lookupGrant.ts). Authenticated: the phone comes from the access token.
+ */
+contextRouter.get('/lookup-grant', requireAuth, ah(async (req, res) => {
+  const phone = req.user?.phone;
+  if (!phone || !req.user?.sub) return fail(res, 401, 'No phone on the session');
+  return ok(res, { grant: signLookupGrant({ sub: req.user.sub, phone }), expiresIn: LOOKUP_GRANT_TTL_SEC }, 'Lookup grant');
+}));
+
 contextRouter.get('/me', requireAuth, ah(async (req, res) => {
   const phone = req.user?.phone;
   if (!phone) return fail(res, 401, 'No phone on the session');
@@ -156,6 +190,216 @@ contextRouter.get('/me', requireAuth, ah(async (req, res) => {
   // 200 with hasHistory:false rather than 404 — "we know nothing about you" is a
   // normal answer for a brand-new user, not an error the app should log.
   return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+}));
+
+/**
+ * POST /api/context/lookup
+ *
+ * The Ello-callable twin of GET /api/context/me — same buildUserContext()
+ * payload, for a caller with no signed-in user session at all (Ello's
+ * tool-calling servers, same as get_customer_history in
+ * conversations.routes.ts). /me derives its phone from the caller's own
+ * access token; a third-party tool call has none, so this takes `phone` in
+ * the body instead and authenticates with the same shared x-api-key secret
+ * conversations.routes.ts uses, for the identical reason: no admin/user
+ * session to present.
+ *
+ * SECURITY: exactly like conversations.routes.ts's /context, this returns a
+ * person's full profile and loan status for any phone number given to it —
+ * the secret is the only thing standing between a caller and that lookup, so
+ * this is NEVER allowed to run unauthenticated, including in development.
+ *
+ * On its OWN router (not contextRouter) so app.ts can give it a rate limit
+ * sized for an agent-facing tool call (like /api/conversations's 120/min),
+ * not leadLimiter's 5/min — this was accidentally inheriting that 5/min from
+ * being mounted under /api/context alongside /create (real per-call
+ * telephony cost, correctly strict), and rejected a real Ello call within
+ * a minute of normal use. Confirmed live: 429 "Too many submissions" on the
+ * 6th call in under 60 seconds.
+ */
+// Shared by every Ello-callable route in this file (no user session to
+// present, so a shared secret stands in for one — same secret/headers
+// conversations.routes.ts and webhooks.routes.ts each check independently;
+// kept local to this file rather than a project-wide middleware since the
+// "not configured" vs "wrong key" messaging is specific to this pair of routes).
+async function checkEloApiKey(req: { headers: Record<string, unknown>; path: string }):
+  Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+  const provided =
+    String(req.headers['x-api-key'] ?? '') ||
+    String(req.headers['x-webhook-secret'] ?? '');
+  const legacySecret = process.env.CONVERSATION_API_KEY || process.env.ELLO_WEBHOOK_SECRET || '';
+  const authed = !!provided && (!!(await verifyApiKey(provided)) || (!!legacySecret && provided === legacySecret));
+  if (authed) return { ok: true };
+  if (!legacySecret && (await prisma.apiKey.count({ where: { revokedAt: null } })) === 0) {
+    log.error('no admin-issued API key and no CONVERSATION_API_KEY / ELLO_WEBHOOK_SECRET set — refusing', { path: req.path });
+    return { ok: false, status: 503, message: 'Context API is not configured' };
+  }
+  log.warn('rejected — invalid or missing API key', { path: req.path });
+  return { ok: false, status: 401, message: 'Invalid or missing API key' };
+}
+
+export const contextLookupRouter = Router();
+contextLookupRouter.post('/', ah(async (req, res) => {
+  const auth = await checkEloApiKey(req);
+  if (!auth.ok) return fail(res, auth.status, auth.message);
+
+  // Verified-visitor gate (lib/lookupGrant.ts). A grant, minted after a real OTP sign-in,
+  // pins the lookup to the signed-in user's OWN phone — a number the visitor merely says
+  // is never used. A grant-required agent (`x-agent-role: website`) with no valid grant
+  // gets "nothing known", exactly like a brand-new visitor.
+  const access = resolveLookupAccess(req.headers, req.body);
+  if (access.kind === 'denied') return ok(res, NOT_VERIFIED_RESULT, 'Not verified');
+  if (access.kind === 'granted') {
+    return ok(res, await buildUserContext(access.phone, access.userId), 'Context found');
+  }
+
+  // Accept either key: Ello resolves a tool's request-body property by
+  // matching its NAME against its own context variables (confirmed live —
+  // renaming this tool's property from `phone` to `phone_number` was what
+  // actually got a real number resolved, where `phone` with `{phone_number}`
+  // in the description never did), so whichever property name a given tool
+  // config ends up using should still reach a real user here.
+  const parsed = parseAgentPhone(req.body?.phone ?? req.body?.phone_number);
+  if (parsed.kind === 'pending') {
+    // The call has no phone yet (Ello sends its unfilled `{context_data.phone_number}`
+    // template). That is not an error — answer with an empty context so the agent's tool
+    // call succeeds and it simply asks the user for their number, instead of a 400 that
+    // makes the tool fail and derails the conversation.
+    return ok(
+      res,
+      {
+        hasHistory: false,
+        known: false,
+        note: 'No phone number is available yet for this call. Ask the user for their mobile number; do not call this lookup again until you have it.',
+      },
+      'No phone number yet',
+    );
+  }
+  if (parsed.kind === 'invalid') return fail(res, 400, 'phone is required');
+  const phone = parsed.phone;
+
+  const user = await prisma.user.findFirst({ where: { phone } });
+  const ctx = await buildUserContext(phone, user?.id);
+  return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+}));
+
+// Everything a warm-up conversation can gather before a real LoanApplication
+// exists — the same set users.routes.ts's `profilePatch` writes to (name/dob
+// plus every applicantDraft field), minus panNumber (never collected by
+// voice — see the core prompt's Sensitive Data rule) and the notification/
+// language settings (unrelated to this). `loanAmount` is the voice-friendly
+// name for the `draftLoanAmount` column, same alias the app's own
+// toServerProfilePatch (store.ts) uses on its side of this same write path.
+const CONTEXT_SAVE_KEY_MAP: Record<string, string> = { loanAmount: 'draftLoanAmount' };
+// Same field-length reasoning and limits as users.routes.ts's `profilePatch`
+// (the two write the same columns) — arguably more important here, since this
+// is the voice-agent-callable path, authenticated with a shared API key
+// rather than a per-user session, so a bound belongs in the schema itself
+// rather than relying on the calling tool behaving.
+const NAME_MAX = 60, MID_MAX = 100, ADDR_MAX = 300, EMAIL_MAX = 254;
+const MONEY_MAX = 999_999_999;
+// Same charset/income-floor reasoning as users.routes.ts's profilePatch —
+// both write the same columns, so both need the same guardrails.
+const NAME_RE = /^[A-Za-z '.-]+$/;
+const MONTHLY_INCOME_MIN = 5000;
+const contextSaveFields = z.object({
+  fullName: z.string().trim().min(1).max(NAME_MAX * 2).regex(NAME_RE, 'fullName must be letters, spaces, apostrophes, hyphens and dots only').optional(),
+  email: z.string().email().max(EMAIL_MAX).optional(),
+  // Deliberately looser than profilePatch's `z.string().datetime()` — a voice
+  // tool is far more likely to produce a bare "1995-05-20" than a full
+  // ISO-8601 timestamp; normalized with `new Date()` below instead.
+  dob: z.string().max(40).optional(),
+  gender: z.enum(['male', 'female', 'other']).optional(),
+  pincode: z.string().regex(/^[1-9]\d{5}$/, 'pincode must be a valid 6-digit Indian PIN code').optional(),
+  residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
+  employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
+  monthlyIncome: z.number().int().min(MONTHLY_INCOME_MIN).max(MONEY_MAX).optional(),
+  company: z.string().max(MID_MAX).optional(),
+  qualification: z.string().max(MID_MAX).optional(),
+  maritalStatus: z.string().max(MID_MAX).optional(),
+  alternateMobile: z.string().max(15).optional(),
+  alternateEmail: z.string().email().max(EMAIL_MAX).optional(),
+  loanPurpose: z.string().max(MID_MAX).optional(),
+  loanAmount: z.number().int().nonnegative().max(MONEY_MAX).optional(),
+  salaryMode: z.string().max(MID_MAX).optional(),
+  professionalType: z.string().max(MID_MAX).optional(),
+  companyEmail: z.string().email().max(EMAIL_MAX).optional(),
+  businessEmail: z.string().email().max(EMAIL_MAX).optional(),
+  addressLine1: z.string().max(ADDR_MAX).optional(),
+  addressLine2: z.string().max(ADDR_MAX).optional(),
+  landmark: z.string().max(MID_MAX).optional(),
+  city: z.string().max(MID_MAX).optional(),
+  district: z.string().max(MID_MAX).optional(),
+  state: z.string().max(MID_MAX).optional(),
+  monthlyObligations: z.number().int().nonnegative().max(MONEY_MAX).optional(),
+}).strict();
+
+/**
+ * POST /api/context/save
+ *
+ * The Ello-callable twin of PATCH /api/users/me — same underlying columns,
+ * for a caller with no signed-in user session at all. /api/users/me derives
+ * the user from the caller's own access token; Ello has none, so this takes
+ * `phone`/`phone_number` in the body instead (same tolerant lookup as
+ * /api/context/lookup) and authenticates with the same shared API key.
+ *
+ * Intentionally one endpoint for both "identity" (name/email/dob) and
+ * "application draft" (loan purpose, income, company, ...) fields, all
+ * optional except the phone — a call in progress may have gathered either
+ * subset, or both, by the time it's ready to save.
+ */
+export const contextSaveRouter = Router();
+contextSaveRouter.post('/', ah(async (req, res) => {
+  const auth = await checkEloApiKey(req);
+  if (!auth.ok) return fail(res, auth.status, auth.message);
+
+  // Same verified-visitor gate as /lookup, and more important here: this WRITES to an
+  // account chosen by phone. A grant-required agent may only write to the signed-in user.
+  const access = resolveLookupAccess(req.headers, req.body);
+  if (access.kind === 'denied') return fail(res, 403, 'Mobile number not verified — nothing was saved');
+
+  const rawPhone = access.kind === 'granted' ? access.phone : (req.body?.phone ?? req.body?.phone_number ?? '');
+  const phone = String(rawPhone).replace(/\D/g, '').slice(-10);
+  if (phone.length !== 10) return fail(res, 400, 'phone_number is required');
+
+  // phone/phone_number are the lookup key, not a field this schema owns —
+  // strip them before validating so their presence doesn't trip `.strict()`.
+  const { phone: _p, phone_number: _pn, lookup_grant: _lg, lookupGrant: _lg2, ...fields } = req.body ?? {};
+  const parsed = contextSaveFields.safeParse(fields);
+  if (!parsed.success) return fail(res, 400, parsed.error.issues[0]?.message ?? 'Invalid field value');
+
+  const data: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value === undefined) continue;
+    data[CONTEXT_SAVE_KEY_MAP[key] ?? key] = value;
+  }
+  if (typeof data.dob === 'string') {
+    const d = new Date(data.dob);
+    if (Number.isNaN(d.getTime())) return fail(res, 400, 'dob is not a valid date');
+    if (!isAdult(d)) return fail(res, 400, 'dob must belong to someone at least 18 years old');
+    data.dob = d;
+  }
+  // Nothing to write is a harmless no-op, not a client error: the agent sometimes calls save
+  // with only the phone (e.g. before it has collected anything). A 400 made that tool call
+  // fail; say plainly that nothing was saved so it can carry on.
+  if (Object.keys(data).length === 0) {
+    return ok(res, { updatedFields: [], saved: false }, 'No fields provided — nothing was saved');
+  }
+
+  const user = await prisma.user.findFirst({ where: { phone } });
+  if (!user) return fail(res, 404, 'No user found for this phone number');
+
+  try {
+    const updated = await prisma.user.update({ where: { id: user.id }, data });
+    log.info('applicant details saved via Ello', { phone, userId: user.id, fields: Object.keys(data) });
+    return ok(res, { userId: updated.id, updatedFields: Object.keys(data) }, 'Details saved');
+  } catch (e: any) {
+    if (e?.code === 'P2002') {
+      const field = Array.isArray(e?.meta?.target) ? e.meta.target[0] : (e?.meta?.target ?? 'value');
+      return fail(res, 409, `This ${field} is already in use by another account.`);
+    }
+    throw e;
+  }
 }));
 
 /**
@@ -199,8 +443,10 @@ contextRouter.post('/me/conversation', requireAuth, ah(async (req, res) => {
       durationSec: Number.isFinite(durationSec) ? Math.round(durationSec) : null,
       endedAt: new Date(),
     });
+    log.info('app conversation saved', { phone, id: row.id });
     return ok(res, { id: row.id, channel: row.channel }, 'Conversation saved');
   } catch (e) {
+    log.error('app conversation save failed', { phone, error: (e as Error).message });
     return fail(res, 400, (e as Error).message);
   }
 }));

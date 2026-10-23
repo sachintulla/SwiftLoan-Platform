@@ -1,6 +1,6 @@
 {
   "name": "SwiftLoan",
-  "version": "1.1.6",
+  "version": "1.0.2",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -13,17 +13,23 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
+    "@react-native-community/netinfo": "^12.0.1",
     "@react-native/new-app-screen": "0.86.0",
+    "@sayem314/react-native-keep-awake": "^2.0.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
+    "react-native-fbsdk-next": "13.4.3",
     "react-native-image-picker": "^8.2.1",
     "react-native-incall-manager": "^4.2.2",
     "react-native-linear-gradient": "^2.8.3",
+    "react-native-nitro-modules": "^0.37.0",
+    "react-native-nitro-sound": "^0.2.19",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-svg": "^15.15.5",
     "react-native-upshotsdk": "^0.4.9",
     "react-native-vector-icons": "^10.3.0",
-    "react-native-webrtc": "^124.0.8"
+    "react-native-webrtc": "^124.0.8",
+    "react-native-webview": "^14.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -42,6 +48,7 @@
     "@types/react": "^19.2.0",
     "@types/react-native-vector-icons": "^6.4.18",
     "@types/react-test-renderer": "^19.1.0",
+    "babel-plugin-transform-inline-environment-variables": "^0.4.4",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
     "patch-package": "^8.0.1",

@@ -15,6 +15,7 @@
     "seed:integrations": "tsx prisma/seed.integrations.ts",
     "seed:preapproved": "tsx prisma/seed.preapproved.ts",
     "smoke": "tsx src/smoke.ts",
+    "pan:encrypt": "tsx scripts/encrypt-existing-pan.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:status": "prisma migrate status",
@@ -22,13 +23,18 @@
     "test:watch": "vitest",
     "ello:sync": "tsx scripts/ello-sync-agent.ts",
     "ello:agents": "tsx scripts/ello-agents.ts",
-    "conversations:backfill": "tsx scripts/backfill-conversations.ts"
+    "conversations:backfill": "tsx scripts/backfill-conversations.ts",
+    "admin:create": "tsx scripts/create-admin.ts",
+    "backfill:customer-links": "tsx scripts/backfill-customer-links.ts",
+    "seed:prequalifying": "tsx prisma/seed.prequalifying.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1105.0",
     "@aws-sdk/s3-request-presigner": "^3.1105.0",
     "@prisma/client": "^6.19.3",
+    "@types/cookie-parser": "^1.4.10",
     "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
@@ -37,6 +43,7 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
+    "nodemailer": "^10.0.15",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
@@ -48,9 +55,11 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.1.1",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^6.19.3",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
+    "undici": "^6.29.0",
     "vitest": "^4.1.10"
   }
 }

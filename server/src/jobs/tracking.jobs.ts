@@ -4,8 +4,12 @@ import { TERMINAL_STAGES, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/jour
 import { nudgeCustomer, runDispatchQueue } from '../lib/dispatch.js';
 import { campaignScheduler } from '../lib/campaignRunner.js';
 import { leadAutoCaller } from '../lib/leadCaller.js';
+import { immediateCallback } from '../lib/immediateCallback.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
+import { purgeExpiredClicks } from '../lib/referral.js';
+import { installReminderTickThrottled } from '../lib/installReminder.js';
+import { lenderNudgeTickThrottled } from '../lib/lenderNudge.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -150,18 +154,36 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'campaign-scheduler', fn: () => campaignScheduler(), everyMs: 60_000 },
   // WS5c — auto-call a website lead ~1 min after they submit the form.
   { name: 'lead-autocaller', fn: async () => { await leadAutoCaller(); }, everyMs: 60_000 },
+  // WS5e — a visitor who explicitly asked for a callback (after verifying
+  // their phone) gets one within ~5 min, separate from the passive flow above.
+  { name: 'immediate-callback', fn: async () => { await immediateCallback(); }, everyMs: 60_000 },
   // WS5d — step-level stall rules: "did the next step happen?" -> Upshot event.
   { name: 'step-stall', fn: async () => { await stepStallDetector(); }, everyMs: 2 * 60_000 },
   // ADM-016 — close calls whose terminal webhook never arrived, so a lost
   // callback cannot pin a contact in `queued` and stall the whole campaign.
   { name: 'call-reconcile', fn: async () => { await reconcileStaleCalls(); }, everyMs: 10 * 60_000 },
+  // Website drop-off recovery: save where a verified visitor stopped and run the app-link reminder
+  // schedule. Log-only unless INSTALL_REMINDER_SEND=true (see lib/installReminder.ts).
+  { name: 'install-reminder', fn: async () => { await installReminderTickThrottled(); }, everyMs: 60_000 },
+  // "You applied with <lender>, install the app to track it": one sequence per lender application. Log-only unless Admin → Timings turns it on.
+  { name: 'lender-nudge', fn: async () => { await lenderNudgeTickThrottled(); }, everyMs: 60_000 },
+  // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
+  { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
 ];
+
+// Kill switch for every outbound-nudge path: the stall detectors that create
+// nudges and the workers that drain the dispatch queue. Admin-alert-only jobs
+// (idle / loan-stale / onboarding-stale) keep running.
+const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge']);
+export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '');
 
 let timers: NodeJS.Timeout[] = [];
 
 // Start the maintenance jobs. Uses BullMQ if REDIS_URL is set, otherwise a simple
 // setInterval scheduler in-process (fine for a single API node / dev).
 export async function startJobs() {
+  const jobs = nudgesDisabled() ? JOBS.filter((j) => !NUDGE_JOBS.has(j.name)) : JOBS;
+  if (nudgesDisabled()) console.log('[jobs] NUDGES_DISABLED — stall detectors and dispatch worker are off');
   // Install the starter stall rules once, so a fresh database has working
   // drop-off detection instead of an empty table nobody thinks to populate.
   await seedStallRules()
@@ -177,24 +199,24 @@ export async function startJobs() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { Queue, Worker }: any = await import(/* @vite-ignore */ specifier);
       const connection = { url: redisUrl };
-      for (const job of JOBS) {
+      for (const job of jobs) {
         const q = new Queue(job.name, { connection });
         await q.add(job.name, {}, { repeat: { every: job.everyMs }, removeOnComplete: true, removeOnFail: true });
         new Worker(job.name, async () => { await job.fn().catch(() => {}); }, { connection });
       }
-      console.log(`[jobs] BullMQ scheduler started (${JOBS.length} jobs) on Redis`);
+      console.log(`[jobs] BullMQ scheduler started (${jobs.length} jobs) on Redis`);
       return;
     } catch (e) {
       console.warn('[jobs] Redis/BullMQ unavailable, falling back to in-process scheduler:', (e as Error).message);
     }
   }
   // Fallback: in-process interval scheduler.
-  timers = JOBS.map((job) => {
+  timers = jobs.map((job) => {
     // Run once shortly after boot, then on the interval.
     setTimeout(() => { job.fn().catch(() => {}); }, 10_000);
     return setInterval(() => { job.fn().catch(() => {}); }, job.everyMs);
   });
-  console.log(`[jobs] in-process scheduler started (${JOBS.length} jobs, no Redis)`);
+  console.log(`[jobs] in-process scheduler started (${jobs.length} jobs, no Redis)`);
 }
 
 export function stopJobs() {

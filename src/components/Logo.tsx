@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleProp, ViewStyle } from 'react-native';
+import { View, Text, Image, StyleProp, ViewStyle, ImageStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, font } from '../theme/tokens';
@@ -16,31 +16,24 @@ export function LogoGlyph({ size = 52, color = '#FFFFFF' }: { size?: number; col
   );
 }
 
-/** Rounded gradient tile containing the glyph. */
-export function LogoMark({ size = 96, style }: { size?: number; style?: StyleProp<ViewStyle> }) {
+/** The SwiftLoan app-icon mark (₹ + speed lines) rendered from the brand asset. */
+export function LogoMark({ size = 96, style }: { size?: number; style?: StyleProp<ImageStyle> }) {
   return (
-    <LinearGradient
-      colors={['#0CB6A6', '#2FB183']}
-      start={{ x: 0.1, y: 0 }}
-      end={{ x: 0.9, y: 1 }}
+    <Image
+      source={require('../../assets/brand/logo.png')}
+      resizeMode="contain"
       style={[
         {
           width: size,
           height: size,
-          borderRadius: size * 0.29,
-          alignItems: 'center',
-          justifyContent: 'center',
           shadowColor: '#2FB183',
-          shadowOpacity: 0.5,
-          shadowRadius: 24,
-          shadowOffset: { width: 0, height: 16 },
-          elevation: 8,
+          shadowOpacity: 0.45,
+          shadowRadius: 22,
+          shadowOffset: { width: 0, height: 14 },
         },
         style,
       ]}
-    >
-      <LogoGlyph size={size * 0.54} />
-    </LinearGradient>
+    />
   );
 }
 

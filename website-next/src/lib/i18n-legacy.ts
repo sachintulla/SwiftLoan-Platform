@@ -25,7 +25,7 @@ const en: Dict = {
   'hero.title2': 'matched to the right lender.',
   'hero.sub':
     "SwiftLoan.ai reads your profile, checks eligibility across dozens of RBI-registered lenders, and matches you with the offer you're most likely to get approved for — personal or business. No guesswork. No spam calls. Full control of your data.",
-  'hero.cta1': 'Check your eligibility',
+  'hero.cta1': 'Apply now',
   'hero.cta2': 'Calculate my EMI',
   'hero.trust1': 'Soft check',
   'hero.trust1s': 'No impact on credit score',
@@ -166,7 +166,7 @@ const hi: Dict = {
   'hero.title2': 'सही लेंडर से मैच पाएं।',
   'hero.sub':
     'SwiftLoan.ai आपकी प्रोफ़ाइल पढ़ता है, दर्जनों RBI-पंजीकृत लेंडर्स में पात्रता जाँचता है, और आपको वही ऑफ़र दिलाता है जिसके मंज़ूर होने की सबसे ज़्यादा संभावना हो — पर्सनल या बिज़नेस। कोई अंदाज़ा नहीं। कोई स्पैम कॉल नहीं। आपके डेटा पर पूरा नियंत्रण।',
-  'hero.cta1': 'अपनी पात्रता जाँचें',
+  'hero.cta1': 'अभी आवेदन करें',
   'hero.cta2': 'मेरी EMI कैलकुलेट करें',
   'hero.trust1': 'सॉफ़्ट चेक',
   'hero.trust1s': 'क्रेडिट स्कोर पर कोई असर नहीं',

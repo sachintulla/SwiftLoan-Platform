@@ -1,0 +1,164 @@
+'use client';
+
+import Link from 'next/link';
+import { ShieldCheck, FileCheck, Clock3, ChevronLeft, Lock, Check } from 'lucide-react';
+import { AccountRail, MobileTopBar, type AccountRailUser } from './AccountRail';
+import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
+import { useCopy } from '@/lib/i18n';
+import { applyShellCopy } from '@/i18n/apply-shell';
+
+const BRAND_ICONS = [ShieldCheck, FileCheck, Clock3];
+
+/**
+ * The persistent split-screen frame for the whole /apply funnel — a left
+ * rail and a right content panel the step page fills in. The rail is the
+ * marketing brand pitch (identical copy across Steps 1–3, like a real
+ * lender's apply flow) UNLESS the caller passes `accountUser` — from Offers
+ * onward the visitor is a real logged-in applicant, not someone still being
+ * pitched the product, so those pages fetch their own profile and pass it
+ * here to swap in the same account sidebar /account/* uses (My Applications,
+ * Profile, Support, Log out).
+ */
+export function ApplyShell({
+  children,
+  backHref,
+  backLabel,
+  stepLabel,
+  progressPct,
+  center = false,
+  wide = false,
+  accountUser,
+}: {
+  children: React.ReactNode;
+  backHref?: string;
+  backLabel?: string;
+  stepLabel?: string;
+  progressPct?: number;
+  center?: boolean;
+  /** Use the whole content panel width (e.g. the embedded lender form) instead of the reading-width column. */
+  wide?: boolean;
+  accountUser?: AccountRailUser | null;
+}) {
+  const t = useCopy(applyShellCopy);
+  return (
+    <div className="bg-background flex min-h-screen w-full">
+      {accountUser ? (
+        <AccountRail user={accountUser} />
+      ) : (
+        <aside className="bg-deep-gradient relative hidden h-screen w-[360px] shrink-0 flex-col gap-7 self-start overflow-hidden p-10 text-white lg:sticky lg:top-0 lg:flex">
+          <div className="absolute -right-24 -bottom-24 h-72 w-72 rounded-full bg-[var(--mint)]/25 blur-3xl" aria-hidden />
+          <div className="relative z-10 flex items-center gap-2.5 text-lg font-extrabold">
+            <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
+            SwiftLoan
+          </div>
+          <div className="relative z-10">
+            <h2 className="text-2xl leading-tight font-extrabold">{t.brandHeading}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-white/70">
+              {t.brandBody}
+            </p>
+          </div>
+          <ul className="relative z-10 flex flex-col gap-3.5">
+            {t.brandPoints.map((text, i) => {
+              const Icon = BRAND_ICONS[i];
+              return (
+              <li key={text} className="flex items-start gap-3 text-sm text-white/85">
+                <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/10">
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                {text}
+              </li>
+              );
+            })}
+          </ul>
+          <span className="relative z-10 mt-auto inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-2 text-xs text-white/90">
+            <Lock className="h-3.5 w-3.5" /> {t.brandPill}
+          </span>
+        </aside>
+      )}
+
+      <div className="relative flex min-h-screen min-w-0 flex-1 flex-col">
+        <MobileTopBar user={accountUser} />
+        {typeof progressPct === 'number' && (
+          <div className="bg-border absolute top-14 left-0 z-10 h-[3px] w-full lg:top-0">
+            <div className="bg-brand-gradient h-full transition-[width] duration-500" style={{ width: `${progressPct}%` }} />
+          </div>
+        )}
+        {/* Always rendered on desktop so the language switch has a home on every step; phones have it in the top bar. */}
+        <div className={`${backHref || stepLabel ? 'flex' : 'hidden lg:flex'} items-center justify-between gap-3 pt-5 sm:px-10 ${wide ? 'px-4' : 'px-6'}`}>
+            {backHref ? (
+              <Link
+                href={backHref}
+                className="border-border inline-flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-2 text-sm font-semibold whitespace-nowrap text-muted-foreground"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                {backLabel ?? t.back}
+              </Link>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              {stepLabel && (
+                // Phones: with a back link beside it there's no room for both,
+                // and the stepper / page title already say where you are.
+                <span className={`bg-accent text-accent-foreground rounded-full px-3 py-1.5 text-xs font-bold whitespace-nowrap ${backHref ? 'hidden sm:inline-block' : ''}`}>
+                  {stepLabel}
+                </span>
+              )}
+              <div className="hidden lg:block">
+                <LanguageSwitcher />
+              </div>
+            </div>
+          </div>
+        <div className={`flex-1 sm:px-10 ${wide ? 'px-4 pt-4 pb-6' : 'px-6 pt-6 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
+          <div className={center ? 'w-full max-w-md' : wide ? 'w-full' : 'mx-auto w-full max-w-2xl'}>{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Stepper({ step }: { step: 1 | 2 | 3 }) {
+  const t = useCopy(applyShellCopy);
+  const items = [
+    { n: 1, label: t.stepper[0] },
+    { n: 2, label: t.stepper[1] },
+    { n: 3, label: t.stepper[2] },
+  ];
+  return (
+    <div className="mb-6 flex items-center">
+      {items.map((it, i) => {
+        const done = it.n < step;
+        const active = it.n === step;
+        return (
+          <div key={it.n} className="relative flex flex-1 flex-col items-center gap-2">
+            {i < items.length - 1 && (
+              <div className={`absolute top-4 left-1/2 h-0.5 w-full ${done ? 'bg-mint' : 'bg-border'}`} />
+            )}
+            <div
+              className={`relative z-10 grid h-8 w-8 place-items-center rounded-full border-2 text-xs font-bold ${
+                done
+                  ? 'border-mint bg-mint text-white'
+                  : active
+                    ? 'border-primary bg-accent text-primary'
+                    : 'border-border bg-card text-muted-foreground'
+              }`}
+            >
+              {done ? <Check className="h-4 w-4" /> : it.n}
+            </div>
+            <span className={`text-xs font-semibold ${active ? 'text-foreground' : 'text-muted-foreground'}`}>{it.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function BottomBar({ children, meta }: { children: React.ReactNode; meta?: string }) {
+  return (
+    <div className="border-border bg-background/95 sticky bottom-0 z-30 -mx-6 mt-8 flex items-center justify-between gap-4 border-t px-4 py-3 backdrop-blur sm:mx-0 sm:px-10 sm:py-4">
+      {/* Phones: no room for the meta line — actions take the full row. */}
+      {meta ? <span className="text-muted-foreground hidden text-xs font-semibold sm:inline">{meta}</span> : <span className="hidden sm:inline" />}
+      <div className="flex w-full gap-3 sm:w-auto [&>*]:flex-1 [&>*]:whitespace-nowrap sm:[&>*]:flex-none">{children}</div>
+    </div>
+  );
+}

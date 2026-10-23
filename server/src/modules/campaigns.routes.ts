@@ -12,13 +12,18 @@ import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { Prisma } from '@prisma/client';
 import { canDialNow, nextWindowOpening, formatMinutes } from '../lib/campaignSchedule.js';
-import { tickCampaign, isCampaignTicking } from '../lib/campaignRunner.js';
+import { isCampaignTicking } from '../lib/campaignRunner.js';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { validate } from '../middleware/validate.js';
 import { ok, created, fail, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
+import { SEGMENT_KEYS, getSegmentMembers, type SegmentKey } from '../lib/segments.js';
+import { scoped } from '../lib/log.js';
+import { triggerElloCampaign } from '../lib/integrations.js';
+
+const log = scoped('campaigns');
 
 export const campaignsRouter = Router();
 campaignsRouter.use(requireAdmin);
@@ -27,7 +32,7 @@ campaignsRouter.use(auditAdmin);
 
 
 
-const CAMPAIGN_STATUSES = ['draft', 'running', 'paused', 'completed', 'failed'] as const;
+const CAMPAIGN_STATUSES = ['draft', 'running', 'paused', 'completed', 'failed', 'cancelled'] as const;
 type CampaignStatusValue = (typeof CAMPAIGN_STATUSES)[number];
 
 // Spreadsheets are parsed in-process and never written to disk.
@@ -38,15 +43,36 @@ const upload = multer({
 
 /** contact-state + call-outcome counts for one campaign. */
 async function campaignCounts(campaignId: string) {
-  const [byState, byOutcome] = await Promise.all([
+  const [byState, byOutcome, byStateAnswered, byCallStatus] = await Promise.all([
     prisma.campaignContact.groupBy({ by: ['state'], where: { campaignId }, _count: { _all: true } }),
     prisma.callAttempt.groupBy({ by: ['outcome'], where: { campaignId }, _count: { _all: true } }),
+    prisma.campaignContact.groupBy({ by: ['state', 'answered'], where: { campaignId }, _count: { _all: true } }),
+    prisma.callAttempt.groupBy({ by: ['status'], where: { campaignId }, _count: { _all: true } }),
   ]);
   const contacts: Record<string, number> = { pending: 0, queued: 0, called: 0, failed: 0, skipped: 0 };
   byState.forEach((g) => { contacts[g.state] = g._count._all; });
   const outcomes: Record<string, number> = {};
   byOutcome.forEach((g) => { outcomes[g.outcome ?? 'pending'] = g._count._all; });
-  return { contacts, outcomes };
+  const callStatus: Record<string, number> = {};
+  byCallStatus.forEach((g) => { callStatus[g.status ?? 'queued'] = g._count._all; });
+
+  // Per-contact breakdown for the dashboard's progress view — splits the
+  // generic 'called' ContactState by whether that contact's call actually
+  // connected, since the state alone can't tell "rang, no pickup" apart from
+  // "genuinely spoke to someone".
+  let answered = 0; let noConnect = 0; let pending = 0; let failed = 0; let skipped = 0;
+  byStateAnswered.forEach((g) => {
+    const n = g._count._all;
+    if (g.state === 'called' && g.answered) answered += n;
+    else if (g.state === 'called') noConnect += n;
+    else if (g.state === 'pending' || g.state === 'queued') pending += n;
+    else if (g.state === 'failed') failed += n;
+    else if (g.state === 'skipped') skipped += n;
+  });
+  const total = answered + noConnect + pending + failed + skipped;
+  const progress = { answered, noConnect, pending, failed, skipped, total, dialled: answered + noConnect + failed };
+
+  return { contacts, outcomes, callStatus, progress };
 }
 
 /* ───────────────────────── schedule validation ───────────────────────── */
@@ -57,8 +83,13 @@ async function campaignCounts(campaignId: string) {
  * the UI presents them as time pickers.
  */
 const scheduleShape = {
-  startAt: z.string().datetime().optional(),
-  endAt: z.string().datetime().optional(),
+  // The client's formToPayload() always sends explicit `null` (never omits
+  // the key) for a start/end date or assistant name left blank — so these
+  // need .nullable(), not just .optional(), or every campaign save with an
+  // empty one of these 400s. (assistantId/note below have the same shape for
+  // the same reason.)
+  startAt: z.string().datetime().nullable().optional(),
+  endAt: z.string().datetime().nullable().optional(),
   scheduleType: z.enum(['one_time', 'recurring']).optional(),
   timezone: z.string().min(1).max(64).optional(),
   dailyStartMinute: z.number().int().min(0).max(1439).optional(),
@@ -70,7 +101,7 @@ const scheduleShape = {
   retryIntervalDays: z.number().int().min(1).max(365).optional(),
   retryIntervalMinutes: z.number().int().min(1).max(10080).optional(),
   stopOnAnswer: z.boolean().optional(),
-  assistantName: z.string().max(200).optional(),
+  assistantName: z.string().max(200).nullable().optional(),
 };
 
 /** Cross-field rules Zod cannot express field-by-field. Returns an error string. */
@@ -145,10 +176,15 @@ function scheduleData(b: Record<string, any>) {
 campaignsRouter.get('/', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
   const status = req.query.status ? String(req.query.status) : undefined;
-  const where: Prisma.CampaignWhereInput =
-    status && (CAMPAIGN_STATUSES as readonly string[]).includes(status)
+  // Soft-deleted campaigns are hidden from the normal list — pass
+  // ?deleted=true to see (only) the deleted ones instead, e.g. to restore one.
+  const showDeleted = req.query.deleted === 'true';
+  const where: Prisma.CampaignWhereInput = {
+    deletedAt: showDeleted ? { not: null } : null,
+    ...(status && (CAMPAIGN_STATUSES as readonly string[]).includes(status)
       ? { status: status as CampaignStatusValue }
-      : {};
+      : {}),
+  };
 
   const [total, rows] = await Promise.all([
     prisma.campaign.count({ where }),
@@ -194,8 +230,8 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
     // to invent one. Still accepted for callers that want to set it explicitly.
     code: z.string().min(1).max(60).regex(/^[A-Za-z0-9_-]+$/, 'code may contain letters, digits, - and _ only').optional(),
     concurrency: z.number().int().min(1).max(50).optional(),
-    assistantId: z.string().min(1).optional(),
-    note: z.string().max(2000).optional(),
+    assistantId: z.string().min(1).nullable().optional(),
+    note: z.string().max(2000).nullable().optional(),
     ...scheduleShape,
   })),
   ah(async (req, res) => {
@@ -220,6 +256,7 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
           ...scheduleData(b),
         },
       });
+      log.info('campaign created', { id: campaign.id, name: campaign.name, code: campaign.code, createdBy: req.admin?.sub ?? null });
       return created(res, campaign, 'Campaign created');
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -228,6 +265,92 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
       throw e;
     }
   }));
+
+// DELETE /api/admin/campaigns/:id
+// Soft delete: sets deletedAt rather than removing the row, so the campaign
+// (and every contact/call-history row it's linked to) is never actually
+// erased and can always be restored — see the schema comment on
+// Campaign.deletedAt. A running campaign must be cancelled or paused first;
+// deleting out from under an active dial would leave campaignRunner
+// referencing a campaign that's vanished from every normal list.
+campaignsRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (campaign.deletedAt) return fail(res, 409, 'Campaign is already deleted');
+  if (campaign.status === 'running') return fail(res, 409, 'Pause or cancel this campaign before deleting it');
+
+  const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { deletedAt: new Date() } });
+  log.info('campaign deleted', { id: updated.id, name: campaign.name, deletedBy: req.admin?.sub ?? null });
+  return ok(res, { id: updated.id, deletedAt: updated.deletedAt }, 'Campaign deleted');
+}));
+
+// POST /api/admin/campaigns/:id/restore
+campaignsRouter.post('/:id/restore', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (!campaign.deletedAt) return fail(res, 409, 'Campaign is not deleted');
+
+  const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { deletedAt: null } });
+  log.info('campaign restored', { id: updated.id, name: campaign.name, restoredBy: req.admin?.sub ?? null });
+  return ok(res, { id: updated.id }, 'Campaign restored');
+}));
+
+// POST /api/admin/campaigns/:id/duplicate
+// Clones the campaign's settings and contact list into a fresh draft — never
+// its run state (status/startedAt/completedAt/providerCampaignId) or any
+// contact's dial history (state/attempts/answered/error/nextEligibleAt all
+// reset), so the copy is a clean slate rather than a paused mid-dial clone.
+campaignsRouter.post('/:id/duplicate', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const source = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!source) return fail(res, 404, 'Campaign not found');
+
+  const contacts = await prisma.campaignContact.findMany({
+    where: { campaignId: source.id },
+    select: { customerId: true, name: true, phone: true, email: true, city: true, product: true, amount: true, extra: true },
+  });
+
+  const name = `${source.name} (copy)`;
+  const code = await uniqueCode(slugifyCode(name));
+
+  const clone = await prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.create({
+      data: {
+        name,
+        code,
+        concurrency: source.concurrency,
+        assistantId: source.assistantId,
+        assistantName: source.assistantName,
+        note: source.note,
+        createdBy: req.admin?.sub ?? null,
+        scheduleType: source.scheduleType,
+        timezone: source.timezone,
+        dailyStartMinute: source.dailyStartMinute,
+        dailyEndMinute: source.dailyEndMinute,
+        daysOfWeek: source.daysOfWeek,
+        retryStrategy: source.retryStrategy,
+        maxAttemptsPerContact: source.maxAttemptsPerContact,
+        attemptsPerDay: source.attemptsPerDay,
+        retryIntervalDays: source.retryIntervalDays,
+        retryIntervalMinutes: source.retryIntervalMinutes,
+        stopOnAnswer: source.stopOnAnswer,
+        totalContacts: contacts.length,
+      },
+    });
+    if (contacts.length) {
+      await tx.campaignContact.createMany({
+        data: contacts.map((c) => ({
+          ...c,
+          campaignId: campaign.id,
+          extra: (c.extra as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+        })),
+      });
+    }
+    return campaign;
+  });
+
+  log.info('campaign duplicated', { fromId: source.id, id: clone.id, name: clone.name, contacts: contacts.length, duplicatedBy: req.admin?.sub ?? null });
+  return created(res, clone, `Duplicated as "${clone.name}"`);
+}));
 
 // ─────────────────────────── single campaign ───────────────────────────
 
@@ -238,11 +361,25 @@ campaignsRouter.get('/:id', ah(async (req, res) => {
 
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>, 25);
   const state = req.query.state ? String(req.query.state) : undefined;
+  const search = req.query.search ? String(req.query.search).trim() : undefined;
+  // Dashboard-friendly grouping on top of the raw ContactState — 'answered'
+  // and 'no_connect' both narrow to state='called', split by whether the
+  // call actually connected (see campaignCounts' `progress` breakdown, which
+  // these mirror so the filter pills and their counts always agree).
+  const filter = req.query.filter ? String(req.query.filter) : undefined;
+  let filterWhere: Prisma.CampaignContactWhereInput = {};
+  if (filter === 'answered') filterWhere = { state: 'called', answered: true };
+  else if (filter === 'no_connect') filterWhere = { state: 'called', answered: false };
+  else if (filter === 'pending') filterWhere = { state: { in: ['pending', 'queued'] } };
+  else if (filter === 'failed') filterWhere = { state: 'failed' };
+
   const where: Prisma.CampaignContactWhereInput = {
     campaignId: campaign.id,
     ...(state && ['pending', 'queued', 'called', 'failed', 'skipped'].includes(state)
       ? { state: state as Prisma.CampaignContactWhereInput['state'] }
       : {}),
+    ...filterWhere,
+    ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] } : {}),
   };
 
   const [total, contacts, counts] = await Promise.all([
@@ -253,7 +390,10 @@ campaignsRouter.get('/:id', ah(async (req, res) => {
 
   return ok(
     res,
-    { campaign, counts: counts.contacts, outcomes: counts.outcomes, contacts, running: isCampaignTicking(campaign.id) },
+    {
+      campaign, counts: counts.contacts, outcomes: counts.outcomes, callStatus: counts.callStatus,
+      progress: counts.progress, contacts, running: isCampaignTicking(campaign.id),
+    },
     'Campaign',
     paginate(page, pageSize, total),
   );
@@ -292,6 +432,7 @@ campaignsRouter.patch('/:id', requireRole(...CAN_WRITE),
       where: { id: existing.id },
       data: { ...(rest as Prisma.CampaignUpdateInput), ...scheduleData(b) },
     });
+    log.info('campaign updated', { id: campaign.id, fields: Object.keys(b) });
     return ok(res, campaign, 'Campaign updated');
   }));
 
@@ -340,14 +481,6 @@ campaignsRouter.get('/:id/schedule-preview', ah(async (req, res) => {
     remaining,
     lastRunAt: campaign.lastRunAt,
   }, 'Schedule preview');
-}));
-
-// DELETE /api/admin/campaigns/:id  — contacts cascade via the schema relation.
-campaignsRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
-  const existing = await prisma.campaign.findUnique({ where: { id: req.params.id } });
-  if (!existing) return fail(res, 404, 'Campaign not found');
-  await prisma.campaign.delete({ where: { id: existing.id } });
-  return ok(res, { id: existing.id }, 'Campaign deleted');
 }));
 
 // ─────────────────────────── contact upload ───────────────────────────
@@ -443,6 +576,7 @@ campaignsRouter.post('/:id/contacts/upload', upload.single('file'), ah(async (re
   const totalContacts = await prisma.campaignContact.count({ where: { campaignId: campaign.id } });
   await prisma.campaign.update({ where: { id: campaign.id }, data: { totalContacts } });
 
+  log.info('contacts uploaded', { campaignId: campaign.id, inserted: result.count, skipped, duplicates, totalContacts });
   return ok(
     res,
     { inserted: result.count, skipped, duplicates, totalContacts, errors: errors.slice(0, 200) },
@@ -450,50 +584,163 @@ campaignsRouter.post('/:id/contacts/upload', upload.single('file'), ah(async (re
   );
 }));
 
+// POST /api/admin/campaigns/:id/contacts/from-segments
+//   { selections: Array<{ key: SegmentKey; phones?: string[] }> }
+// Populates this campaign's contacts from the union of the chosen segments
+// (deduped by phone) instead of a spreadsheet. Each selection may optionally
+// carry a `phones` allowlist — the admin cherry-picking specific people out
+// of a large segment in the UI, rather than taking the whole thing. That
+// allowlist is only ever used to FILTER the segment's own live query result;
+// it can never add a phone the segment query didn't already return, so a
+// do-not-call exclusion (baked into every segment query in segments.ts)
+// can't be bypassed by a client sending an arbitrary phone list.
+campaignsRouter.post('/:id/contacts/from-segments', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+
+  const rawSelections = Array.isArray(req.body?.selections) ? req.body.selections : [];
+  const selections: { key: SegmentKey; phones: Set<string> | null }[] = rawSelections
+    .map((s: any) => ({
+      key: String(s?.key ?? ''),
+      phones: Array.isArray(s?.phones) ? new Set(s.phones.map(String)) as Set<string> : null,
+    }))
+    .filter((s: { key: string; phones: Set<string> | null }) => (SEGMENT_KEYS as string[]).includes(s.key));
+  if (selections.length === 0) return fail(res, 400, 'Pick at least one segment');
+
+  const byPhone = new Map<string, { phone: string; name: string | null; city: string | null }>();
+  for (const { key, phones } of selections) {
+    const members = await getSegmentMembers(key);
+    for (const m of members) {
+      if (phones && !phones.has(m.phone)) continue;
+      if (!byPhone.has(m.phone)) byPhone.set(m.phone, m);
+    }
+  }
+
+  const data: Prisma.CampaignContactCreateManyInput[] = Array.from(byPhone.values()).map((m) => ({
+    campaignId: campaign.id,
+    phone: m.phone,
+    name: m.name,
+    city: m.city,
+    extra: Prisma.DbNull,
+  }));
+
+  // @@unique([campaignId, phone]) + skipDuplicates — safe to run again after
+  // adding more segments, or after new customers enter a segment later.
+  const result = data.length
+    ? await prisma.campaignContact.createMany({ data, skipDuplicates: true })
+    : { count: 0 };
+  const duplicates = data.length - result.count;
+
+  const totalContacts = await prisma.campaignContact.count({ where: { campaignId: campaign.id } });
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { totalContacts } });
+
+  const validKeys = selections.map((s) => s.key);
+  log.info('contacts added from segments', { campaignId: campaign.id, segments: validKeys, matched: data.length, inserted: result.count, duplicates, totalContacts });
+  return ok(
+    res,
+    { matched: data.length, inserted: result.count, duplicates, totalContacts, segments: validKeys },
+    `Added ${result.count} contact(s) from ${validKeys.length} segment(s)`,
+  );
+}));
+
 // ─────────────────────────── run control ───────────────────────────
 
 // POST /api/admin/campaigns/:id/start
+// Hands this campaign's pending contacts to Ello's own batch dialler — Ello
+// owns the actual dialling from here (and this campaign now shows up in
+// Ello's own dashboard), not our campaignRunner. Deliberately the ONLY way to
+// run a campaign now (send-to-ello used to be a separate route callers had to
+// know to use instead of this one — folded in here so there is one answer to
+// "how do I start a campaign", not two overlapping ones).
+//
+// This does cost something: Ello has no equivalent of our own recurring daily
+// window/weekday filter, retry cadence, or concurrency limit, so none of
+// those apply once a campaign is handed off — the closest we can still honour
+// is a one-time scheduleTime for "wait until the window opens" when it isn't
+// open right now. campaignRunner.ts / campaignScheduler are left in place
+// (harmless — they only ever act on 'pending' contacts, and contacts are
+// flipped to 'queued' below before this returns) rather than ripped out, in
+// case a future path still needs a purely-local dial.
 campaignsRouter.post('/:id/start', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
-  if (campaign.status === 'running' || isCampaignTicking(campaign.id)) {
-    return fail(res, 409, 'Campaign is already running');
-  }
+  if (campaign.status === 'running') return fail(res, 409, 'Campaign is already running');
+  if (!campaign.assistantId) return fail(res, 400, 'This campaign has no agent assigned');
 
-  const pending = await prisma.campaignContact.count({ where: { campaignId: campaign.id, state: 'pending' } });
-  if (pending === 0) return fail(res, 400, 'No pending contacts to dial');
+  const contacts = await prisma.campaignContact.findMany({
+    where: { campaignId: campaign.id, state: 'pending' },
+    select: { phone: true, name: true, city: true, product: true, amount: true, extra: true },
+  });
+  if (contacts.length === 0) return fail(res, 400, 'No pending contacts to dial');
 
-  const updated = await prisma.campaign.update({
-    where: { id: campaign.id },
-    data: { status: 'running', startedAt: campaign.startedAt ?? new Date(), completedAt: null },
+  // canDialNow() gates on status === 'running' — true once this request
+  // finishes, not yet (`campaign` here is still 'draft'/'paused', fetched
+  // before the transaction below flips it). Check against the running-to-be
+  // status directly, or every start would defer to "tomorrow" regardless of
+  // the actual time of day.
+  const gate = canDialNow({ ...campaign, status: 'running' }, new Date());
+  const scheduleTime = gate.canDial ? null : nextWindowOpening(campaign, new Date()).toISOString();
+
+  const result = await triggerElloCampaign({
+    campaignName: campaign.name,
+    assistantId: campaign.assistantId,
+    recipients: contacts.map((c) => ({
+      phone: c.phone,
+      name: c.name,
+      city: c.city,
+      product: c.product,
+      amount: c.amount,
+      extra: (c.extra as Record<string, unknown> | null) ?? null,
+    })),
+    scheduleTime,
   });
 
-  // "Start" now means "this campaign is live", not "dial everyone immediately".
-  // The scheduler (campaignRunner, every minute) owns dialling so the daily
-  // window, weekday filter and retry cadence are actually honoured — starting a
-  // 09:00–19:00 campaign at midnight must not blast the whole list at midnight.
-  const gate = canDialNow(updated, new Date());
-  if (gate.canDial) {
-    // Inside the window: tick once now so the operator sees movement instead of
-    // waiting up to a minute for the scheduler.
-    void tickCampaign(updated.id).catch((e) => console.error('[campaigns] tick failed', e));
-  }
+  log.info('campaign started (sent to Ello)', {
+    id: campaign.id, name: campaign.name, startedBy: req.admin?.sub ?? null,
+    contacts: contacts.length, ok: result.ok, status: result.status,
+    providerCampaignId: result.providerCampaignId, dialingNow: gate.canDial,
+  });
+
+  if (!result.ok) return fail(res, 502, result.error || `Ello returned HTTP ${result.status}`);
+
+  // Move these out of 'pending' immediately: our own campaignScheduler's
+  // `WHERE state = 'pending'` query must never also pick them up (that would
+  // double-dial every contact), and `queued` also fixes the dashboard reading
+  // "Pending" forever between now and the first webhook arriving.
+  // providerCampaignId lets campaign.started/ended and per-call webhooks (for
+  // calls Ello places itself, which never touch our own dialer.ts) find their
+  // way back to this campaign.
+  const [updated] = await prisma.$transaction([
+    prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: 'running',
+        startedAt: campaign.startedAt ?? new Date(),
+        completedAt: null,
+        providerCampaignId: result.providerCampaignId ?? undefined,
+      },
+    }),
+    prisma.campaignContact.updateMany({
+      where: { campaignId: campaign.id, phone: { in: contacts.map((c) => c.phone) } },
+      data: { state: 'queued' },
+    }),
+  ]);
 
   return ok(
     res,
     {
       id: updated.id,
       status: updated.status,
-      queued: pending,
-      concurrency: updated.concurrency,
+      queued: contacts.length,
+      providerCampaignId: result.providerCampaignId ?? null,
       dialingNow: gate.canDial,
       reason: gate.reason ?? null,
       detail: gate.detail ?? null,
-      nextOpening: gate.canDial ? null : nextWindowOpening(updated, new Date()).toISOString(),
+      nextOpening: gate.canDial ? null : scheduleTime,
     },
     gate.canDial
-      ? `Started — dialling ${pending} contact(s)`
-      : `Started — waiting for the calling window (${gate.detail ?? gate.reason})`,
+      ? `Sent ${contacts.length} contact(s) to Ello — dialling now`
+      : `Sent to Ello, scheduled for the next window (${gate.detail ?? gate.reason})`,
   );
 }));
 
@@ -502,7 +749,74 @@ campaignsRouter.post('/:id/pause', requireRole(...CAN_WRITE), ah(async (req, res
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
   const updated = await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'paused' } });
+  log.info('campaign paused', { id: updated.id, name: campaign.name, pausedBy: req.admin?.sub ?? null });
   return ok(res, { id: updated.id, status: updated.status }, 'Campaign paused');
+}));
+
+// POST /api/admin/campaigns/:id/cancel
+// Unlike pause (resumable), this is terminal: every not-yet-dialled contact is
+// marked `skipped` so nothing here can ever be picked up again, by us or by a
+// later "resume". For a campaign never sent to Ello (no providerCampaignId),
+// that fully stops it — campaignRunner only ever looks at `status: 'running'`
+// rows. For one sent to Ello (send-to-ello), this only stops OUR side of the
+// bookkeeping: Ello is dialling the list on its own infrastructure now, and
+// there is no confirmed public API to cancel a campaign already running
+// there (their dashboard has a Cancel button, but it isn't in their
+// documented API) — surfaced back to the caller as a warning rather than
+// silently claiming a cancellation that didn't actually happen on their end.
+campaignsRouter.post('/:id/cancel', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
+  if (!campaign) return fail(res, 404, 'Campaign not found');
+  if (campaign.status === 'cancelled' || campaign.status === 'completed') {
+    return fail(res, 409, `Campaign is already ${campaign.status}`);
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'cancelled', completedAt: new Date() } }),
+    prisma.campaignContact.updateMany({
+      where: { campaignId: campaign.id, state: { in: ['pending', 'queued'] } },
+      data: { state: 'skipped' },
+    }),
+  ]);
+
+  log.info('campaign cancelled', {
+    id: updated.id, name: campaign.name, cancelledBy: req.admin?.sub ?? null,
+    hadProviderCampaign: !!campaign.providerCampaignId,
+  });
+
+  return ok(
+    res,
+    { id: updated.id, status: updated.status, elloSideNotCancelled: !!campaign.providerCampaignId },
+    campaign.providerCampaignId
+      ? 'Cancelled here — this campaign was sent to Ello, so also cancel it from Ello\'s own dashboard'
+      : 'Campaign cancelled',
+  );
+}));
+
+// POST /api/admin/campaigns/cancel-all — stop EVERY running/paused campaign at
+// once and cancel all their upcoming (not-yet-placed) calls. The kill switch.
+campaignsRouter.post('/cancel-all', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const targets = await prisma.campaign.findMany({
+    where: { status: { in: ['running', 'paused'] } },
+    select: { id: true, name: true, providerCampaignId: true },
+  });
+  if (!targets.length) return ok(res, { cancelled: 0, ello: 0, names: [] }, 'No running or paused campaigns to stop');
+
+  const ids = targets.map((t) => t.id);
+  await prisma.$transaction([
+    prisma.campaign.updateMany({ where: { id: { in: ids } }, data: { status: 'cancelled', completedAt: new Date() } }),
+    prisma.campaignContact.updateMany({
+      where: { campaignId: { in: ids }, state: { in: ['pending', 'queued'] } },
+      data: { state: 'skipped' },
+    }),
+  ]);
+  const ello = targets.filter((t) => t.providerCampaignId).length;
+  log.info('all campaigns cancelled', { count: ids.length, ello, cancelledBy: req.admin?.sub ?? null });
+  return ok(
+    res,
+    { cancelled: ids.length, ello, names: targets.map((t) => t.name) },
+    `Stopped ${ids.length} campaign${ids.length === 1 ? '' : 's'}` + (ello ? ` — ${ello} were sent to Ello, so also cancel those on Ello's dashboard` : ''),
+  );
 }));
 
 // GET /api/admin/campaigns/:id/stats
@@ -510,12 +824,7 @@ campaignsRouter.get('/:id/stats', ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
 
-  const [counts, byStatus] = await Promise.all([
-    campaignCounts(campaign.id),
-    prisma.callAttempt.groupBy({ by: ['status'], where: { campaignId: campaign.id }, _count: { _all: true } }),
-  ]);
-  const callsByStatus: Record<string, number> = {};
-  byStatus.forEach((g) => { callsByStatus[g.status] = g._count._all; });
+  const counts = await campaignCounts(campaign.id);
 
   return ok(res, {
     campaign: {
@@ -525,7 +834,8 @@ campaignsRouter.get('/:id/stats', ah(async (req, res) => {
     },
     contactsByState: counts.contacts,
     callsByOutcome: counts.outcomes,
-    callsByStatus,
+    callsByStatus: counts.callStatus,
+    progress: counts.progress,
     running: isCampaignTicking(campaign.id),
   }, 'Campaign stats');
 }));

@@ -1,6 +1,6 @@
 'use client';
 import Link from "next/link";
-import { ArrowRight, Calculator, Clock, Lock, Sparkles, TrendingUp, type LucideIcon } from "lucide-react";
+import { ArrowRight, Clock, FileText, Lock, Sparkles, TrendingUp, type LucideIcon } from "lucide-react";
 /**
  * Served from public/, not the package's asset manifest.
  *
@@ -12,12 +12,16 @@ const heroVideo = { url: "/hero.mp4" };
 import { Reveal } from "@/components/site/Reveal";
 import { useCopy } from "@/lib/i18n";
 import { heroCopy } from "@/i18n/hero";
+import { useLeadCapture } from "@/hooks/useLeadCapture";
+import { MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 const badgeIcons: LucideIcon[] = [TrendingUp, Clock, Lock];
 
 export function Hero() {
   const t = useCopy(heroCopy);
   const badges = t.badges.map((b, i) => ({ ...b, icon: badgeIcons[i]! }));
+  const cap = useLeadCapture({ requireAmountTouched: false });
+  const { formRef, onSubmit, handleFormChange, formValid, isSubmitting, t: capT } = cap;
 
   return (
     <section className="relative overflow-hidden pt-14 pb-20 sm:pt-20">
@@ -44,22 +48,48 @@ export function Hero() {
           </Reveal>
 
           <Reveal delay={240}>
-            <div className="mt-9 flex flex-wrap gap-3">
-              <Link
-                href="/#lead-form"
-                className="bg-brand-gradient group inline-flex min-h-11 items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-float)] transition-transform hover:-translate-y-0.5 sm:px-7 sm:py-3.5"
+            {/* Simple inline form — just the mobile number, right where the
+                headline is. The full card version still lives at #lead-form
+                further down; this is a second, no-scroll entry point into
+                the same submit → OTP → callback flow. The loan amount is
+                asked in the OTP popup that follows (see OtpModal's
+                showAmount below), not here — this stays a one-field form. */}
+            <form
+              ref={formRef}
+              onSubmit={onSubmit}
+              onChange={handleFormChange}
+              className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-start"
+            >
+              <input type="hidden" name="loanType" value="Personal Loan" readOnly />
+              <div className="min-w-0 flex-1 sm:max-w-xs">
+                <MobileInput capture={cap} />
+              </div>
+              <button
+                type="submit"
+                disabled={!formValid || isSubmitting}
+                className={`group inline-flex min-h-14 shrink-0 items-center justify-center gap-2 rounded-xl border px-6 text-sm font-bold transition-transform sm:mt-[1.9rem] ${
+                  formValid && !isSubmitting
+                    ? "bg-brand-gradient cta-pulse border-transparent text-primary-foreground shadow-[var(--shadow-float)] hover:-translate-y-0.5 active:scale-[0.97]"
+                    : "bg-muted text-muted-foreground border-border cursor-not-allowed"
+                }`}
               >
-                {t.ctaPrimary}
+                {isSubmitting ? capT.submittingCta : t.ctaPrimary}
                 <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
-              </Link>
-              <Link
-                href="/#emi-calculator"
-                className="glass inline-flex min-h-11 items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-transform hover:-translate-y-0.5 sm:px-7 sm:py-3.5"
-              >
-                <Calculator className="h-4 w-4 shrink-0" />
-                {t.ctaSecondary}
-              </Link>
-            </div>
+              </button>
+            </form>
+            {/* Straight into the full application (login → PAN → details),
+                for visitors who'd rather apply than get a callback. Secondary
+                style so "Check eligibility" stays the primary action. Mobile
+                only — on wider screens the primary CTA next to the mobile
+                number field is enough, and this would just crowd the hero. */}
+            <Link
+              href="/apply"
+              className="group border-border bg-card/70 text-foreground mt-3 flex min-h-14 w-full items-center justify-center gap-2 rounded-xl border px-6 text-sm font-bold backdrop-blur transition-transform hover:-translate-y-0.5 active:scale-[0.97] sm:hidden"
+            >
+              <FileText className="text-primary h-4 w-4 shrink-0" />
+              {t.ctaApply}
+              <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
+            </Link>
           </Reveal>
 
           <Reveal delay={320}>
@@ -89,11 +119,14 @@ export function Hero() {
               width={720}
               height={1280}
               aria-label={t.videoAlt}
-              className="h-full w-full rounded-[2rem] object-contain [filter:brightness(1.14)_saturate(1.12)_contrast(1.04)]"
+              className="h-full w-full rounded-[2.5rem] object-contain [filter:brightness(1.14)_saturate(1.12)_contrast(1.04)]"
             />
           </div>
         </Reveal>
       </div>
+
+      <OtpModal capture={cap} showAmount />
+      <CallbackModal capture={cap} />
     </section>
   );
 }

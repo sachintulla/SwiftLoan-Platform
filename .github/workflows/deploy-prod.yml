@@ -4,92 +4,101 @@ on:
     branches: [main]
 jobs:
   deploy:
+    # TODO: pin this to a runner-specific label (e.g. a custom label
+    # `ip-10-20-1-186` added to that runner in Settings > Actions > Runners)
+    # instead of the shared `self-hosted` label both boxes carry, once someone
+    # with repo admin/runner permissions adds it — that removes the coin-flip
+    # below entirely. Reverted to `self-hosted` for now because `runs-on`
+    # can't target a runner by its bare registered name, only by label, and
+    # no such label exists yet.
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       # Two self-hosted runners share the generic `self-hosted` label, so GitHub
-      # picks whichever is free. Only ip-10-10-1-233 is DNS/nginx-mapped — landing
-      # on the other one deploys somewhere no one is looking at. Fail loudly
-      # instead: re-run the workflow to get reassigned to the right runner.
-      - name: Ensure this landed on the dev box
+      # picks whichever is free — dev (35.154.46.155, hostname ip-10-10-1-233)
+      # or prod (13.232.60.204, hostname ip-10-20-1-186). This workflow is
+      # PROD ONLY (triggers on `main`) and must land on the prod box, never
+      # dev — landing on the wrong one silently deploys to a box no one is
+      # looking at, or worse, redeploys prod's code onto the dev box. Fail
+      # loudly instead: re-run the workflow to get reassigned to the right runner.
+      - name: Ensure this landed on the prod box
         run: |
-          if [ "$(hostname)" != "ip-10-10-1-233" ]; then
-            echo "::error::This job landed on $(hostname), not ip-10-10-1-233. Re-run the workflow so it lands on the correct self-hosted runner."
+          if [ "$(hostname)" != "ip-10-20-1-186" ]; then
+            echo "::error::This job landed on $(hostname), not ip-10-20-1-186 (prod). Re-run the workflow so it lands on the correct self-hosted runner."
             exit 1
           fi
-      # All config below comes from repo Variables/Secrets (Settings > Secrets and
-      # variables > Actions), not a file living only on this box — that file
-      # silently drifted out of sync before and is no longer the source of truth.
+      # All config now comes from ~/secrets/server.env, a hand-maintained file
+      # on THIS (prod) box specifically — separate from dev's own
+      # ~/secrets/server.env on 35.154.46.155, deliberately reverting the
+      # earlier GitHub Secrets/Variables approach. That approach existed
+      # because an older version of this same file-on-the-box pattern had
+      # drifted out of sync; this file is the one and only source of truth
+      # again, so keep it that way — update it here via SSH, don't let GitHub
+      # Secrets/Variables silently diverge from it.
       - name: Build & deploy server
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
-          ELLO_API_KEY: ${{ secrets.ELLO_API_KEY }}
-          ELLO_AGENT_ID: ${{ vars.ELLO_AGENT_ID }}
-          ELLO_BASE_URL: ${{ vars.ELLO_BASE_URL }}
-          ELLO_WEBHOOK_URL: ${{ vars.ELLO_WEBHOOK_URL }}
-          SMS_PROVIDER: ${{ vars.SMS_PROVIDER }}
-          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_FROM: ${{ vars.TWILIO_FROM }}
         run: |
+          set -a
+          source ~/secrets/server.env
+          set +a
           cd server
           docker build --no-cache -t swiftloan-api .
-          docker run --rm \
-            -e DATABASE_URL="$DATABASE_URL" \
+          docker run --rm --env-file ~/secrets/server.env \
             swiftloan-api npx prisma migrate deploy
           # Bootstraps IntegrationConfig (Ello telephonic calling) from these env
           # vars — merges, never clears a secret left blank. The admin dashboard's
           # /integrations page remains the real place to manage these afterward.
-          docker run --rm \
-            -e DATABASE_URL="$DATABASE_URL" \
-            -e ELLO_API_KEY="$ELLO_API_KEY" \
-            -e ELLO_AGENT_ID="$ELLO_AGENT_ID" \
-            -e ELLO_BASE_URL="$ELLO_BASE_URL" \
-            -e ELLO_WEBHOOK_URL="$ELLO_WEBHOOK_URL" \
+          docker run --rm --env-file ~/secrets/server.env \
             swiftloan-api npx tsx prisma/seed.integrations.ts
           docker stop swiftloan-api || true
           docker rm swiftloan-api || true
           docker run -d --name swiftloan-api --restart unless-stopped \
-            -e DATABASE_URL="$DATABASE_URL" \
-            -e JWT_ACCESS_SECRET="$JWT_ACCESS_SECRET" \
-            -e JWT_REFRESH_SECRET="$JWT_REFRESH_SECRET" \
-            -e PORT="${{ vars.SERVER_PORT }}" \
-            -e ACCESS_TTL="${{ vars.SERVER_ACCESS_TTL }}" \
-            -e REFRESH_TTL_DAYS="${{ vars.SERVER_REFRESH_TTL_DAYS }}" \
-            -e NODE_ENV="${{ vars.SERVER_NODE_ENV }}" \
-            -e DEMO_LOGIN="${{ vars.SERVER_DEMO_LOGIN }}" \
-            -e SMS_PROVIDER="$SMS_PROVIDER" \
-            -e TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID" \
-            -e TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
-            -e TWILIO_FROM="$TWILIO_FROM" \
-            -e AWS_REGION="${{ vars.AWS_REGION }}" \
-            -e S3_BUCKET_NAME="${{ vars.S3_BUCKET_NAME }}" \
+            --env-file ~/secrets/server.env \
             -p 4000:4000 swiftloan-api
       - name: Build & deploy admin
         run: |
+          set -a
+          source ~/secrets/server.env
+          set +a
           cd admin
           docker build --no-cache \
-            --build-arg NEXT_PUBLIC_API_BASE="${{ vars.ADMIN_API_BASE }}" \
-            --build-arg NEXT_PUBLIC_ELLO_API_KEY="${{ secrets.ADMIN_ELLO_API_KEY }}" \
-            --build-arg NEXT_PUBLIC_ELLO_ASSISTANT_ID="${{ vars.ADMIN_ELLO_ASSISTANT_ID }}" \
-            --build-arg NEXT_PUBLIC_ELLO_API_BASE="${{ vars.ADMIN_ELLO_API_BASE }}" \
-            --build-arg NEXT_PUBLIC_ELLO_WS_URL="${{ vars.ADMIN_ELLO_WS_URL }}" \
+            --build-arg NEXT_PUBLIC_API_BASE="$ADMIN_NEXT_PUBLIC_API_BASE" \
+            --build-arg NEXT_PUBLIC_ELLO_API_KEY="$ADMIN_NEXT_PUBLIC_ELLO_API_KEY" \
+            --build-arg NEXT_PUBLIC_ELLO_ASSISTANT_ID="$ADMIN_NEXT_PUBLIC_ELLO_ASSISTANT_ID" \
+            --build-arg NEXT_PUBLIC_ELLO_API_BASE="$ADMIN_NEXT_PUBLIC_ELLO_API_BASE" \
+            --build-arg NEXT_PUBLIC_ELLO_WS_URL="$ADMIN_NEXT_PUBLIC_ELLO_WS_URL" \
             -t swiftloan-admin .
           docker stop swiftloan-admin || true
           docker rm swiftloan-admin || true
           docker run -d --name swiftloan-admin --restart unless-stopped -p 4001:4001 swiftloan-admin
       - name: Build & deploy website
         run: |
+          set -a
+          source ~/secrets/server.env
+          set +a
           cd website-next
           docker build --no-cache \
-            --build-arg NEXT_PUBLIC_API_BASE="${{ vars.WEBSITE_API_BASE }}" \
-            --build-arg NEXT_PUBLIC_ELLO_API_KEY="${{ secrets.WEBSITE_ELLO_API_KEY }}" \
-            --build-arg NEXT_PUBLIC_ELLO_ASSISTANT_ID="${{ vars.WEBSITE_ELLO_ASSISTANT_ID }}" \
-            --build-arg NEXT_PUBLIC_ELLO_API_BASE="${{ vars.WEBSITE_ELLO_API_BASE }}" \
-            --build-arg NEXT_PUBLIC_ELLO_WS_URL="${{ vars.WEBSITE_ELLO_WS_URL }}" \
+            --build-arg NEXT_PUBLIC_API_BASE="$WEBSITE_NEXT_PUBLIC_API_BASE" \
+            --build-arg NEXT_PUBLIC_ELLO_API_KEY="$WEBSITE_NEXT_PUBLIC_ELLO_API_KEY" \
+            --build-arg NEXT_PUBLIC_ELLO_ASSISTANT_ID="$WEBSITE_NEXT_PUBLIC_ELLO_ASSISTANT_ID" \
+            --build-arg NEXT_PUBLIC_ELLO_API_BASE="$WEBSITE_NEXT_PUBLIC_ELLO_API_BASE" \
+            --build-arg NEXT_PUBLIC_ELLO_WS_URL="$WEBSITE_NEXT_PUBLIC_ELLO_WS_URL" \
+            --build-arg NEXT_PUBLIC_UPSHOT_APP_ID="$WEBSITE_NEXT_PUBLIC_UPSHOT_APP_ID" \
+            --build-arg NEXT_PUBLIC_UPSHOT_OWNER_ID="$WEBSITE_NEXT_PUBLIC_UPSHOT_OWNER_ID" \
+            --build-arg NEXT_PUBLIC_UPSHOT_DATA_REGION="$WEBSITE_NEXT_PUBLIC_UPSHOT_DATA_REGION" \
+            --build-arg NEXT_PUBLIC_META_PIXEL_ID="$WEBSITE_NEXT_PUBLIC_META_PIXEL_ID" \
             -t swiftloan-website .
           docker stop swiftloan-website || true
           docker rm swiftloan-website || true
           docker run -d --name swiftloan-website --restart unless-stopped -p 4002:4002 swiftloan-website
+
+      # Prune superseded (dangling) images + build cache after each deploy so the
+      # --no-cache rebuilds (~3.6 GB each) don't fill the disk. Runs even on
+      # failure; never touches the running tagged images. Already proven on
+      # Deploy Dev — brought over here unconditionally (safe regardless of the
+      # runs-on question above).
+      - name: Reclaim disk (prune superseded images + build cache)
+        if: always()
+        run: |
+          docker image prune -f || true
+          docker builder prune -af || true
+          df -h / | tail -1 || true

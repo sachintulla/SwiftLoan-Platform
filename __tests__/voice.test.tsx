@@ -13,12 +13,24 @@ import {
   setCurrentScreen,
 } from '../src/voice/actionRegistry';
 import { isSensitiveField } from '../src/voice/sensitive';
+import { setTokens } from '../src/api/client';
 
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => {
   jest.clearAllTimers();
   jest.useRealTimers();
+  setTokens(null);
 });
+
+// renderAt() below calls the real go(), which now requires a session for
+// every screen except the pre-login ones (see guardScreen in store.ts).
+// Pre-login screens (language/mobile/otp) need no token, exactly as before;
+// post-login screens (profile/fare/basic/calculator) need one, added per
+// describe block below rather than globally, since a single setting can't
+// satisfy both. None of this is about guest-vs-authenticated behavior
+// itself, just keeping the login-boundary guard out of the way of tests
+// that are really about discovery/interaction mechanics.
+const AUTHED = () => setTokens('fake-access-token');
 
 /**
  * Navigates the store to `name` before rendering the screen body. Needed because
@@ -74,12 +86,40 @@ describe('UC-V1 auto-discovery of raw Pressables', () => {
   });
 });
 
+describe('UC-V1b language cards report which one is selected', () => {
+  it('tells the agent nothing is selected at first, then which language is', () => {
+    renderAt('language', <Language />);
+    const chipFor = (label: string) =>
+      (buildPageContext('language') as any).available_actions.find((a: any) => a.kind === 'chips' && a.label === label);
+
+    // Before any pick: three Language options, none selected (previously the agent saw
+    // three plain buttons and could not tell a prior pick from none).
+    expect(chipFor('English')).toMatchObject({ group: 'Language', selected: false });
+    expect(chipFor('తెలుగు')).toMatchObject({ group: 'Language', selected: false });
+
+    act(() => { findTarget('language', 'English', 'chips')!.onTap!(); });
+    expect(chipFor('English')).toMatchObject({ selected: true });
+    expect(chipFor('हिन्दी')).toMatchObject({ selected: false });
+  });
+
+  it('does not list each language twice', () => {
+    renderAt('language', <Language />);
+    const actions = (buildPageContext('language') as any).available_actions;
+    expect(actions.filter((a: any) => a.label === 'English')).toHaveLength(1);
+  });
+});
+
 describe('UC-V2 screen reading', () => {
   it('collects visible text so the agent can describe the screen', () => {
     renderAt('language', <Language />);
 
+    // The rotating greeting banner ("Choose your language" + its cycling
+    // headline) is intentionally VoiceHidden — it changes every 2.6s and
+    // was triggering a fresh page_context send (and a re-spoken nudge) on
+    // every rotation. The language options themselves stay visible to voice.
     const texts = getScreenTexts('language');
-    expect(texts.join(' ')).toContain('Choose your language');
+    // The language cards themselves are exposed as selectable options (UC-V1b), not as text.
+    expect(texts.join(' ')).toContain('View Policy');
   });
 
   it('page context exposes screen name, summary and available actions', () => {
@@ -95,13 +135,48 @@ describe('UC-V2 screen reading', () => {
 
 describe('UC-V3 varied control types across screens', () => {
   it('discovers controls on a toggle-heavy screen (profile)', () => {
+    AUTHED();
     renderAt('profile', <Profile />);
     expect(listTargets('profile').length).toBeGreaterThan(0);
   });
 
+  it('exposes a tappable Save control once personal-details editing starts', () => {
+    AUTHED();
+    // Regression: the Save/Edit toggle is passed to SectionHead via its
+    // `right` prop, not as a direct child, so screenGraph.ts's auto-discovery
+    // (which only walks `children`) can never see it — confirmed live: the
+    // voice agent's available_actions never once contained "Save Changes",
+    // so it told the user their edits auto-save (they don't). profile.tsx
+    // now registers it explicitly via useVoiceTarget; this asserts that
+    // registration actually flips with edit mode.
+    renderAt('profile', <Profile />);
+    const editToggle = listTargets('profile').find(t => t.kind === 'button' && t.label === 'Edit');
+    expect(editToggle).toBeDefined();
+    expect(listTargets('profile').some(t => t.label === 'Save Changes')).toBe(false);
+
+    act(() => editToggle!.onTap!());
+
+    expect(listTargets('profile').some(t => t.label === 'Edit' && t.kind === 'button')).toBe(false);
+    const saveTarget = listTargets('profile').find(t => t.kind === 'button' && t.label === 'Save Changes');
+    expect(saveTarget).toBeDefined();
+    expect(saveTarget?.onTap).toBeInstanceOf(Function);
+  });
+
   it('discovers controls on a slider screen (fare)', () => {
-    renderAt('fare', <Fare />);
-    expect(listTargets('fare').length).toBeGreaterThan(0);
+    AUTHED();
+    // The Instant offers | Explore lenders tab bar only exists once an application exists
+    // (and the partner facility is on), so seed that — otherwise this screen has no controls
+    // for the agent to find.
+    function SeedApplication({ children }: { children: React.ReactNode }) {
+      const { state, set } = useStore();
+      useEffect(() => {
+        if (!state.applicationId) set({ applicationId: 'app-1', altOffersEnabled: true });
+      }, [state.applicationId, set]);
+      return <>{state.applicationId ? children : null}</>;
+    }
+    renderAt('fare', <SeedApplication><Fare /></SeedApplication>);
+    const labels = listTargets('fare').map(t => t.label);
+    expect(labels).toEqual(expect.arrayContaining(['Instant offers', 'Explore lenders']));
   });
 });
 
@@ -148,15 +223,16 @@ describe('UC-V5 input labels are speakable, not placeholders', () => {
 });
 
 describe('UC-V6 controls inside child components are reachable', () => {
-  it('exposes the EmiCalculator sliders on the fare screen', () => {
-    const Fare = require('../src/screens/fare').default;
-    renderAt('fare', <Fare />);
+  it('exposes the EmiCalculator sliders on the calculator screen', () => {
+    AUTHED();
+    const Calculator = require('../src/screens/calculator').default;
+    renderAt('calculator', <Calculator />);
 
-    const targets = listTargets('fare');
+    const targets = listTargets('calculator');
     const sliders = targets.filter(t => t.kind === 'slider').map(t => t.label);
-    // Previously this screen exposed only "scroll:page": fare.tsx renders a lone
-    // <EmiCalculator/>, and the element-tree walk cannot see inside a child
-    // component. useVoiceTarget in Slider closes that gap.
+    // The calculator screen renders a lone <EmiCalculator/>, and the element-tree
+    // walk cannot see inside a child component. useVoiceTarget in Slider closes
+    // that gap.
     expect(sliders).toContain('Loan amount');
     expect(sliders).toContain('Tenure');
     expect(sliders).toContain('Interest rate');
@@ -165,10 +241,11 @@ describe('UC-V6 controls inside child components are reachable', () => {
   });
 
   it('clamps a slider value to its range instead of writing it raw', () => {
-    const Fare = require('../src/screens/fare').default;
-    renderAt('fare', <Fare />);
+    AUTHED();
+    const Calculator = require('../src/screens/calculator').default;
+    renderAt('calculator', <Calculator />);
 
-    const tenure = listTargets('fare').find(t => t.kind === 'slider' && t.label === 'Tenure');
+    const tenure = listTargets('calculator').find(t => t.kind === 'slider' && t.label === 'Tenure');
     expect(tenure?.setValue).toBeInstanceOf(Function);
     tenure!.setValue!(500); // max is 60
     expect(Number(tenure!.getValue!())).toBeLessThanOrEqual(60);
@@ -200,6 +277,24 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
     expect(isSensitiveField('Enter OTP', {})).toBe(false);
   });
 
+  it('does NOT treat the Hindi/Telugu "Full name (as per PAN)" label as a secret', () => {
+    // \b is ASCII-only, so नाम / పేరు were not recognised as "name" and the label was refused.
+    expect(isSensitiveField('पूरा नाम (PAN के अनुसार)', {})).toBe(false);
+    expect(isSensitiveField('పూర్తి పేరు (PAN ప్రకారం)', {})).toBe(false);
+    // A bare PAN field in any language label still refuses.
+    expect(isSensitiveField('PAN Number', {})).toBe(true);
+  });
+
+  it('a rejected date (under 18 / not a real day) returns false so the tool can say so', () => {
+    AUTHED();
+    const AboutYou = require('../src/screens/aboutyou').default;
+    renderAt('aboutyou', <AboutYou />);
+    const dateTarget = () => listTargets('aboutyou').find(t => t.kind === 'date')!;
+    expect(dateTarget().setValue!('2015-01-01')).toBe(false); // under 18
+    expect(dateTarget().setValue!('1991-02-31')).toBe(false); // not a real day
+    expect(dateTarget().setValue!('29-12-1991')).toBe(false); // wrong format
+  });
+
   it('does NOT treat a postal "Pin code" as a secret, but a real PIN stays refused', () => {
     // basic.tsx labels its field "Pin code (current address)" — a bare /pin\b/
     // match flagged it, so the agent refused to type the user's own postal code.
@@ -211,11 +306,13 @@ describe('UC-V8 aboutyou: name and DOB are agent-fillable', () => {
   });
 
   it('exposes the name, email, pincode fields and gender chips', () => {
+    AUTHED();
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
     const labels = listTargets('aboutyou').map(t => t.label);
 
     expect(labels.some(l => /full name/i.test(l))).toBe(true);
+    expect(labels.some(l => /email/i.test(l))).toBe(true);
     expect(labels.some(l => /pincode/i.test(l))).toBe(true);
     expect(labels).toContain('Male');
     expect(labels).toContain('Female');
@@ -237,6 +334,7 @@ describe('UC-V9 OTP is agent-fillable, Verify is agent-tappable', () => {
 
 describe('UC-V10 date of birth is settable in one step', () => {
   it('labels wrapped Fields from their label prop, not the section heading', () => {
+    AUTHED();
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
     const labels = listTargets('aboutyou').map(t => t.label);
@@ -248,6 +346,7 @@ describe('UC-V10 date of birth is settable in one step', () => {
   });
 
   it('the date target is settable immediately, without opening the picker first', () => {
+    AUTHED();
     const AboutYou = require('../src/screens/aboutyou').default;
     renderAt('aboutyou', <AboutYou />);
     // Setting a DOB by voice should apply instantly — it shouldn't require
@@ -265,6 +364,7 @@ describe('UC-V10 date of birth is settable in one step', () => {
 
 describe('UC-V11 loan amount slider on the application screen', () => {
   it('exposes "Desired loan amount" and clamps to its range', () => {
+    AUTHED();
     const Basic = require('../src/screens/basic').default;
     renderAt('basic', <Basic />);
 
@@ -290,6 +390,7 @@ describe('UC-V11 loan amount slider on the application screen', () => {
   });
 
   it('the pincode field is fillable by voice, not refused as a secret', () => {
+    AUTHED();
     const Basic = require('../src/screens/basic').default;
     renderAt('basic', <Basic />);
     const pin = listTargets('basic').find(t => /pin code/i.test(t.label));
@@ -333,6 +434,32 @@ describe('UC-V12 post-action state is reported event-driven, not on a fixed dela
     const started = Date.now();
     await waitForNextPublish(60);
     expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+  });
+});
+
+describe('UC-V15 ticking a checkbox notifies the agent; typing in a field does not', () => {
+  // Bug: ConsentRow's PAN consent checkbox never proactively told the agent
+  // it was ticked — kind and label are identical before and after a toggle,
+  // so the publish signature (deliberately built from kind+label only, to
+  // avoid firing on every keystroke) never changed either. Toggling a
+  // checkbox is a single, rare, discrete event though — nothing like a
+  // keystroke stream — so folding its value into the signature is safe and
+  // closes the gap without reopening the keystroke-spam problem this
+  // signature exists to prevent.
+  it('a consent/toggle value flip is treated as a real change', () => {
+    const { publishScreenGraph } = require('../src/voice/actionRegistry');
+    const unchecked = [{ id: 'consent:Accept terms', kind: 'consent' as const, label: 'Accept terms', getValue: () => false }];
+    const checked = [{ id: 'consent:Accept terms', kind: 'consent' as const, label: 'Accept terms', getValue: () => true }];
+    expect(publishScreenGraph('basicpan', unchecked, [])).toBe(true); // first publish always "changes"
+    expect(publishScreenGraph('basicpan', checked, [])).toBe(true); // same kind+label, value flipped — must still notify
+  });
+
+  it('a field value change alone still does not (no per-keystroke spam)', () => {
+    const { publishScreenGraph } = require('../src/voice/actionRegistry');
+    const empty = [{ id: 'field:PAN Number', kind: 'field' as const, label: 'PAN Number', getValue: () => '' }];
+    const typed = [{ id: 'field:PAN Number', kind: 'field' as const, label: 'PAN Number', getValue: () => 'ABCDE1234F' }];
+    expect(publishScreenGraph('basicpan', empty, [])).toBe(true); // first publish always "changes"
+    expect(publishScreenGraph('basicpan', typed, [])).toBe(false); // same kind+label — value alone must not notify
   });
 });
 

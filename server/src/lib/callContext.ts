@@ -28,10 +28,22 @@ import { nextActionFor } from './nextAction.js';
  * (`npm run ello:sync`) so Ello learns the new name.
  */
 export const LEAD_CALL_VARIABLES = [
+  // The registered SwiftLoan account holder's name, when this number is linked
+  // to a real user account. Distinct from lead_name (what the lead form said)
+  // and usually the same person; blank for an anonymous / unregistered lead.
+  'user_name',
   'lead_name',
   'lead_first_name',
   'lead_city',
   'lead_phone',
+  /**
+   * Duplicate of lead_phone under the bare name `phone`. Ello's tool-calling
+   * placeholder resolver only does an exact key match against call context
+   * (no aliasing) — the get_customer_history tool's `phone` parameter needs a
+   * context key literally named `phone` to resolve, not `lead_phone` or
+   * Ello's own built-in `customer_number`.
+   */
+  'phone',
   'lead_product',
   'lead_amount',
   'lead_amount_words',
@@ -122,7 +134,7 @@ export async function buildLeadCallContext(
   // The website's own wording for what they wanted, taken from the most recent
   // inquiry for this phone. Far better than anything we could synthesise.
   const lead = customer.phone
-    ? await prisma.anonymousLead
+    ? await prisma.lead
         .findFirst({
           where: { phone: customer.phone },
           orderBy: { createdAt: 'desc' },
@@ -133,7 +145,7 @@ export async function buildLeadCallContext(
   // "Returning" changes the opening line, so count earlier inquiries excluding
   // the one that triggered this call.
   const priorCount = customer.phone
-    ? await prisma.anonymousLead
+    ? await prisma.lead
         .count({ where: { phone: customer.phone, ...(lead ? { id: { not: lead.id } } : {}) } })
         .catch(() => 0)
     : 0;
@@ -148,13 +160,31 @@ export async function buildLeadCallContext(
     ? await prisma.conversationSummary.findUnique({ where: { phone: customer.phone } }).catch(() => null)
     : null;
 
+  // The registered account holder behind this number, if any. Linked via
+  // Customer.userId at OTP verify; otherwise fall back to matching on phone.
+  const account = customer.userId
+    ? await prisma.user.findUnique({ where: { id: customer.userId } }).catch(() => null)
+    : customer.phone
+      ? await prisma.user.findUnique({ where: { phone: customer.phone } }).catch(() => null)
+      : null;
+  const accountName = (account?.fullName ?? [account?.firstName, account?.lastName].filter(Boolean).join(' ')).trim();
+
   const str = (v: unknown): string => (v == null ? '' : String(v));
 
   return {
+    // Prefer the registered account name; fall back to the lead's own name so
+    // the variable resolves rather than rendering blank.
+    user_name: accountName || full,
     lead_name: full,
     lead_first_name: full ? full.split(/\s+/)[0] : '',
     lead_city: str(customer.city),
     lead_phone: str(customer.phone),
+    // Ello's tool-calling placeholder resolver only does an exact key match
+    // against call context (no aliasing) — its get_customer_history tool asks
+    // for `{phone}` specifically, not `{lead_phone}` or Ello's own built-in
+    // `customer_number`. Duplicated here so that tool resolves without any
+    // change needed on Ello's side.
+    phone: str(customer.phone),
     lead_product: product,
     lead_amount: inrDigits(amount),
     lead_amount_words: inrWords(amount),

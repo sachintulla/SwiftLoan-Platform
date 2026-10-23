@@ -8,28 +8,118 @@ import React, {
 } from 'react';
 import { Platform, AppState as RNAppState, Linking } from 'react-native';
 import {
-  trackSessionStart, trackSessionEnd, trackEvent, trackOnboardingStep,
-  trackLoanStep, trackInstall, fetchContext, fetchUserContext, setTokens, api,
-  type ContextPayload, type PriorInquiry, type UserContext,
+  trackSessionStart, trackSessionEnd, getSessionId, trackEvent, trackOnboardingStep,
+  trackLoanStep, claimInstall, resumeFromLink, fetchContext, setTokens, api,
+  isAuthed, upshotOfferViewed, knownOfferInfo,
+  type ContextPayload, type PriorInquiry, type UserContext, type PanPrefill, fetchUserContext,
 } from '../api/client';
-import { loadTokens, loadLang, saveLang } from './session';
+import {
+  loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
+  loadPrefillDraft, savePrefillDraft,
+  loadIntroPitchHeard,
+  loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
+} from './session';
+import { readInstallSignals } from '../utils/installSignals';
+import { parseResume, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
 import { BUILD } from '../config/build';
-import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush } from '../analytics/upshot';
+import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
+import { initMeta } from '../analytics/meta';
+import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
+import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 
 // The full list of screens, mirroring the design's state machine. Kept as a
 // const array (rather than a hand-written union) so the voice agent's
 // navigate_screen tool can validate an incoming screen name at runtime.
 export const SCREEN_NAMES = [
-  'splash', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
-  'home', 'loans', 'fare', 'help', 'profile', 'explore',
-  'basic', 'basicpan', 'finding', 'offers', 'handoff',
+  'splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou',
+  'home', 'loans', 'fare', 'help', 'profile', 'legal',
+  'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'kyc', 'aadhaar', 'panv', 'bankv', 'selfie',
-  'status', 'disbursed', 'repay', 'creditscore',
+  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral',
 ] as const;
+
+// Friendly/spoken screen names → canonical screen id. The voice agent used to
+// guess the id from the model, so "My Loan(s)" often landed on the repayment
+// screen. This canonical map removes the guessing: names are matched
+// case-insensitively after stripping non-alphanumerics.
+const SCREEN_ALIASES: Record<string, Screen> = {
+  myloan: 'loans', myloans: 'loans', loan: 'loans', loans: 'loans',
+  myloanstatus: 'loans', loanstatus: 'loans', applicationstatus: 'status',
+  repayment: 'repay', repayments: 'repay', repaymentoverview: 'repay',
+  repay: 'repay', emi: 'repay', myrepayments: 'repay',
+  myoffers: 'fare', offers: 'fare', fare: 'fare',
+  compare: 'compare', compareoffers: 'compare', compareloans: 'compare', bestoffer: 'compare',
+  calculator: 'calculator', emicalculator: 'calculator', loancalculator: 'calculator',
+  home: 'home', dashboard: 'home', main: 'home',
+  profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
+  help: 'help', support: 'help',
+  referral: 'referral', referrals: 'referral', referafriend: 'referral', invitefriends: 'referral', invite: 'referral',
+  applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
+};
+
+/** Resolve a spoken/typed screen name to a canonical screen id, or null. */
+export function resolveScreenName(name: string): Screen | null {
+  const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Aliases first, then exact ids. The order matters for exactly two names that are
+  // BOTH a screen id and an alias for a different screen: "offers" (the retired
+  // legacy results screen; spoken "offers" means My Offers = fare) and "apply" (a
+  // dead logic-only route with no UI; spoken "apply" means the application
+  // funnel = basicpan). With ids first, those two aliases were unreachable and
+  // navigate_screen landed on the legacy screen / an empty placeholder. Every other
+  // alias that equals an id maps to that same id, so nothing else changes.
+  if (SCREEN_ALIASES[key]) return SCREEN_ALIASES[key];
+  if ((SCREEN_NAMES as readonly string[]).includes(key)) return key as Screen;
+  return null;
+}
+/**
+ * What the voice agent is told about this account's history, sent in page_context as
+ * `account_summary`. It comes from the app's own authenticated GET /context/me, because Ello's
+ * get_user_context lookup cannot reliably learn the phone number (every lookup in the dev API
+ * logs arrived with the unfilled "{context_data.phone_number}" template, none with a real
+ * number — see context.routes.ts), so the agent never saw applications that were under review.
+ * Compact on purpose: no PAN, no income, no address.
+ */
+export function summarizeUserContext(ctx: UserContext | null): Record<string, unknown> | undefined {
+  if (!ctx) return undefined;
+  const app = ctx.application;
+  return {
+    has_history: ctx.hasHistory,
+    name_on_file: !!ctx.profile?.name,
+    dob_on_file: !!ctx.profile?.dob,
+    application_status: ctx.applicationStatus ?? null,
+    application_status_label: ctx.applicationStatusLabel,
+    ...(app
+      ? {
+          application: {
+            ref: app.ref,
+            status: app.status,
+            offers_ready: app.offers?.length ?? 0,
+            lenders_applied: (app.offers ?? []).filter(o => o.applied && o.lenderName).map(o => o.lenderName),
+          },
+        }
+      : {}),
+    has_active_loan: !!ctx.loan,
+  };
+}
+
 export type Screen = (typeof SCREEN_NAMES)[number];
+
+// Screens that show the bottom tab bar. The tab bar and the assistant FAB both
+// key off this so they animate in lockstep: on these screens the tab bar is up
+// and the FAB nests in its notch; on any other (full) screen the tab bar slides
+// down and the FAB rolls out to the bottom-right corner.
+export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
+  'home', 'loans', 'fare', 'help', 'profile',
+]);
+
+// Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
+// floating FAB lifts above this bar on these screens so the two never overlap.
+export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
+  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy',
+]);
 
 // Spelled out in full for the voice agent's page context — more reliable for
 // the model to act on than a bare 'en'/'hi'/'te' code.
@@ -38,21 +128,33 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
 const PREV: Partial<Record<Screen, Screen>> = {
-  language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
+  privacy: 'splash', language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
   permissions: 'mobile', aboutyou: 'permissions',
-  basic: 'home', basicpan: 'basic', finding: 'basicpan',
+  // PAN first (it verifies identity + pre-fills the details step), then
+  // details, then the optional extras.
+  basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
   apply: 'home', income: 'apply', residence: 'income', consent: 'residence',
-  prequalify: 'consent', kyc: 'prequalify',
-  offers: 'basicpan', handoff: 'offers', status: 'home',
-  aadhaar: 'kyc', panv: 'kyc', bankv: 'kyc', selfie: 'kyc',
-  disbursed: 'home', repay: 'home', creditscore: 'repay',
-  loans: 'home', fare: 'home', explore: 'mobile',
+  prequalify: 'consent',
+  // Fallback only — back() dynamically returns offers to its actual origin
+  // (state.offersReturn); this parent is used if that's ever unset.
+  offers: 'home', handoff: 'offers', lenderweb: 'offers', altweb: 'fare', status: 'home',
+  disbursed: 'home', repay: 'home',
+  loans: 'home', fare: 'home', calculator: 'home',
+  compare: 'fare',
+  referral: 'profile',
+  legal: 'profile',
 };
 
 export interface AppState {
   screen: Screen;
   lang: string | null; // null until chosen; effective default 'en'
+  // The language the user has spoken to the voice agent (set via the
+  // set_language tool), distinct from `lang` above. Null until stated;
+  // agent_language (sent in page_context) falls back to `lang` until then.
+  voiceLang: string | null;
   selectedLang: string | null;
+  privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
+  supportOpen: boolean; // the tab-bar Support (Ruby) bottom-sheet is showing
   toast: string;
   notif: { loan: boolean; security: boolean; promo: boolean };
   // mobile / otp
@@ -63,7 +165,17 @@ export interface AppState {
   basicFirst: string; basicLast: string; basicPin: string; basicEmail: string;
   basicIncome: string; basicCompany: string; basicEmp: string; basicEmpOther: string;
   basicRes: string;
+  // Aurix-required extras collected on the details screen.
+  basicQualification: string; basicLoanPurpose: string;
+  // Optional "a few more details" screen (skippable) — enrich the lender request.
+  optMarital: string; optAltMobile: string; optAltEmail: string;
+  optAddr1: string; optAddr2: string; optLandmark: string; optCity: string; optDistrict: string; optState: string;
+  optSalaryMode: string; optObligations: string; optProfType: string; optCompanyEmail: string; optBusinessEmail: string;
   panConsent: boolean; panNumber: string;
+  // Step 1 → Step 2 hand-off: the verified PAN and what PAN Comprehensive
+  // returned for it. In memory only (personal data) — revisiting Step 1
+  // re-verifies from the server's PAN cache, which is free.
+  panPrefill: { pan: string; prefill: PanPrefill; aadhaarLinked: boolean | null; applied?: boolean } | null;
   // detailed application
   appAmount: number; appTenure: number; appEmp: string; appResidence: string;
   appConsent: boolean; autoDebit: boolean;
@@ -81,10 +193,17 @@ export interface AppState {
   authUser: Record<string, any> | null;
   applicationId: string | null;
   selectedOfferId: string | null;
+  selectedLenderApplicationId: string | null;
   loanId: string | null;
   // WS3 context-aware install (context build only)
   contextLoaded: boolean;
   contextData: ContextPayload | null;
+  // Website drop-off recovery: the unfinished website visit this install belongs to (found by the install
+  // link, or by phone after login). `resumePrompt` is which pop-up is open; `resumeStage` is what the voice
+  // agent is told about it (page_context.journey_resume). In memory only: it carries a phone number.
+  resume: Resume | null;
+  resumePrompt: 'welcome' | 'start' | null;
+  resumeStage: ResumeStage | null;
   // Website inquiries matched to this phone at OTP verify; fed to the voice agent.
   priorInquiries: PriorInquiry[];
   // WS8: everything the backend already knows about this phone (website
@@ -92,16 +211,79 @@ export interface AppState {
   // user is signed in and handed to the in-app agent so it opens from where they
   // left off rather than from scratch. Null until fetched, or when they are new.
   userContext: UserContext | null;
-  // True only when 'explore' was opened from home's "Explore more plans" link
-  // (already signed in) rather than a pre-signup skip button — changes explore's
-  // back-target and hides its "sign up" CTA. Reset by both skip handlers.
-  exploreFromHome: boolean;
+  // Free-form applicant details the voice agent has gathered conversationally
+  // from a first-time caller, before an application/basic screen exists to
+  // fill — see the prompt's "Proactive Details Collection" rule and the
+  // save_applicant_details tool. Loaded from AsyncStorage on boot (session.ts's
+  // prefill draft) so it survives across calls, even a different day; cleared
+  // on login/logout so it never leaks across accounts on a shared device.
+  savedApplicantDraft: Record<string, unknown> | null;
+  // Whether Ruby has already given this device's first-time product pitch on
+  // a previous call — see session.ts's markIntroPitchHeard for why this
+  // exists (hasHistory doesn't track in-app voice calls at all). Loaded from
+  // AsyncStorage on boot; cleared on login/logout like savedApplicantDraft.
+  introPitchHeard: boolean;
+  // In-app lender web view: URL + title shown by the 'lenderweb' screen when a
+  // user taps Continue on an offer that carries a lender deep link.
+  webUrl: string; webTitle: string;
+  // Whether the alternative-offers facility (Yubi/YMPL) tile is available —
+  // fetched from /config/features on launch. Optimistically true so the tile
+  // shows immediately; only an explicit server `false` hides it.
+  altOffersEnabled: boolean;
+  // The funnel details we already hold (PAN, dob, address, income…), passed to
+  // the 'altweb' WebView to prefill YMPL's hosted journey so nothing is re-typed.
+  // Data-only — never used to accept consent or submit. Empty when unknown.
+  altPrefill: Record<string, string | number | null>;
+  // Offers already exist → the journey resumes straight to its offers page, so
+  // the WebView holds its loader over the intermediate screens until offers show.
+  altResumeToOffers: boolean;
+  // A friendly, actionable note when prequalify returns no offers (e.g. lender
+  // validation rejected the details) — shown on the offers screen empty state.
+  offersError: string;
+  // One-line summary of the offers the user just received (or the issue), pushed
+  // to the voice agent so it can proactively talk about them / any problem.
+  offersSummary: string;
+  // Real API responses for the loan-application lifecycle, keyed by which call
+  // produced them (applicationCreated, applicationUpdated, applications,
+  // applicationDetail, prequalifyResult, offerApplyResult, offerFailResult,
+  // handoffResult, marketOffers) — pushed to the voice agent as `api_context`
+  // so it has the actual data, not just whatever happens to be rendered as
+  // visible text on the current screen. See store.ts's registerPageContext.
+  apiContext: Record<string, unknown>;
+  // The screen the user opened `offers` from, so its back button returns there.
+  // (Kept for compatibility; back navigation now uses the real `history` stack.)
+  offersReturn: Screen;
+  // Which legal document the `legal` viewer shows (privacy | terms | lending | grievance).
+  legalDoc: string;
+  // Voice assistant FAB is hidden by default; unlocked via a hidden gesture
+  // (tap the Personal details header 5× in a row on Profile) or the dashboard's
+  // "Ask Ruby" affordance.
+  voiceFabUnlocked: boolean;
+  // Monotonic nonce: bumping it asks the VoiceWidget to draw attention to itself
+  // (an entrance/wiggle animation) and start a session — driven by "Ask Ruby" on
+  // the dashboard so first-time users discover the always-available support FAB.
+  voiceTrigger: number;
+  // Proactive-help nudge: when the user stalls (idle / drops off / eligible but
+  // hasn't applied), the idle detector sets this so the VoiceWidget vibrates,
+  // wiggles the Ruby FAB, and shows a contextual label — WITHOUT starting a
+  // session (the user taps to ask). `id` is a monotonic nonce.
+  voiceNudge: { id: number; labels: string[]; reason: string } | null;
+  // Real back stack: every `go()` pushes the current screen here; `back()` pops it
+  // to the screen the user actually came from — no more hardcoded parent map.
+  history: Screen[];
+  // True when this returning user already has offers pulled in a prior session
+  // (restored on login). Lets Home surface a "view your offers" shortcut so they
+  // don't re-enter details — applicationId points at that application.
+  hasSavedOffers: boolean;
 }
 
 export const initialState: AppState = {
   screen: 'splash',
   lang: null,
+  voiceLang: null,
   selectedLang: null,
+  privacyAccepted: false,
+  supportOpen: false,
   toast: '',
   notif: { loan: true, security: true, promo: false },
   mobileVal: '',
@@ -109,8 +291,12 @@ export const initialState: AppState = {
   otpSent: false,
   basicFirst: '', basicLast: '', basicPin: '', basicEmail: '',
   basicIncome: '', basicCompany: '', basicEmp: '', basicEmpOther: '',
-  basicRes: 'own',
-  panConsent: false, panNumber: '',
+  basicRes: '',
+  basicQualification: '', basicLoanPurpose: '',
+  optMarital: '', optAltMobile: '', optAltEmail: '',
+  optAddr1: '', optAddr2: '', optLandmark: '', optCity: '', optDistrict: '', optState: '',
+  optSalaryMode: '', optObligations: '', optProfType: '', optCompanyEmail: '', optBusinessEmail: '',
+  panConsent: false, panNumber: '', panPrefill: null,
   appAmount: 150000, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
   appConsent: false, autoDebit: true,
   fareAmount: 150000, fareTenure: 24, fareRate: 16,
@@ -120,17 +306,98 @@ export const initialState: AppState = {
   pdEdit: false, pdName: '', pdEmail: '',
   pdPhone: '', pdDob: '',
   pdDobOpen: false, pdCalY: 1995, pdCalM: 0,
-  authUser: null, applicationId: null, selectedOfferId: null, loanId: null,
+  authUser: null, applicationId: null, selectedOfferId: null, selectedLenderApplicationId: null, loanId: null,
   contextLoaded: false, contextData: null,
+  resume: null, resumePrompt: null, resumeStage: null,
   priorInquiries: [],
   userContext: null,
-  exploreFromHome: false,
+  savedApplicantDraft: null,
+  introPitchHeard: false,
+  webUrl: '', webTitle: '', altOffersEnabled: true, altPrefill: {}, altResumeToOffers: false,
+  offersError: '',
+  offersSummary: '',
+  apiContext: {},
+  offersReturn: 'home',
+  legalDoc: 'privacy',
+  voiceFabUnlocked: false,
+  voiceTrigger: 0,
+  voiceNudge: null,
+  history: [],
+  hasSavedOffers: false,
 };
 
 type Action =
   | { type: 'set'; patch: Partial<AppState> }
-  | { type: 'go'; screen: Screen }
+  // Merges into apiContext using the reducer's own always-current state,
+  // never the caller's closure — several call sites (e.g. offers.tsx's
+  // retry() calling load()) write to apiContext from two different async
+  // functions bound to the same render's (stale) `state`; a plain
+  // `set({ apiContext: { ...state.apiContext, k: v } })` from either one
+  // would silently clobber whatever the other just wrote, since both read
+  // the same pre-dispatch snapshot. Dispatching this instead is immune to
+  // that regardless of how many fire in sequence.
+  | { type: 'mergeApiContext'; patch: Record<string, unknown> }
+  // `replace` forward-navigations don't push onto the back stack — used for
+  // auto/boot transitions (splash→…, finding→offers) so Back never lands on a
+  // transient/loading screen the user never chose to visit.
+  | { type: 'go'; screen: Screen; replace?: boolean }
+  | { type: 'back' }
   | { type: 'reset' };
+
+// Top-level destinations (the bottom-nav roots). Navigating to one resets the
+// back stack — each acts as a fresh root, so Back from a flow launched off a tab
+// returns to that tab, and tab↔tab switches don't accumulate history.
+const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile', 'help']);
+
+// Transient/loading screens the user never chooses to sit on — leaving one is
+// never recorded on the back stack, so Back skips the splash + "finding offers"
+// loaders and lands on the last real screen (e.g. offers → moredetails).
+const TRANSIENT = new Set<Screen>(['splash', 'finding']);
+
+// Screens from before the user has ever set up the app / logged in. Nothing
+// should land here once a session (guest or real) exists — this is what let
+// the voice agent's generic navigate_screen tool dump an already-logged-in
+// user back on the onboarding language picker, just because the requested
+// screen happened to be literally named "language" (changing the AGENT's
+// spoken language is set_language, not a navigation at all — see
+// voice/tools.ts).
+//
+// Deliberately one-directional: an earlier version of this also blocked the
+// reverse too: post-login screens (home/basicpan/fare/profile/...) now
+// require a real session just as strictly — previously left open on the
+// theory that they were "guest-accessible by design," but nothing in the
+// actual app intentionally relies on a truly zero-token visitor reaching
+// them (the "Skip" flow already mints a real anonymous session/token before
+// home is ever shown — see ensureSession), so there was no real guest path
+// this was protecting, only an unguarded gap the voice agent's
+// navigate_screen could be sent through (confirmed live: asked to change the
+// app language while still pre-login, it navigated to `profile`, a screen
+// that requires a session it did not have).
+// `permissions` is deliberately NOT here: it is the first screen shown AFTER a
+// successful OTP (mobile.tsx → go('permissions') → aboutyou), i.e. the session
+// already exists when it is entered. Listing it redirected every new user
+// straight to home and skipped About You.
+const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp']);
+
+/**
+ * Redirects across the login boundary in whichever direction is wrong:
+ * away from a pre-login screen if a session (guest or real) already exists,
+ * and away from every other screen if one does not. Applied to every real
+ * screen change (go AND back, see the reducer below), not only the voice
+ * agent's navigate_screen: a stale back-stack entry, or any other caller,
+ * can hit either case, and this is meant to be a hard rule, not a
+ * per-caller courtesy.
+ */
+function guardScreen(screen: Screen): Screen {
+  const authed = isAuthed();
+  // `privacy` is the one pre-login screen that is still legitimate WITH a session:
+  // boot restores tokens and THEN routes a never-accepted user to it (see the
+  // boot effect). Redirecting it to home here silently skipped the consent gate
+  // for every returning user who hadn't accepted yet.
+  if (PRE_LOGIN_ONLY.has(screen) && authed && screen !== 'privacy') return 'home';
+  if (!PRE_LOGIN_ONLY.has(screen) && !authed) return 'mobile';
+  return screen;
+}
 
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
 // Used only to emit fire-and-forget analytics; no effect on navigation.
@@ -139,13 +406,11 @@ const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
 };
 const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
-  offers: 'offers_viewed', handoff: 'offer_selected', kyc: 'kyc_started',
-  aadhaar: 'kyc_submitted', panv: 'kyc_submitted', bankv: 'kyc_submitted', selfie: 'kyc_submitted',
+  offers: 'offers_viewed', handoff: 'offer_selected',
   status: 'application_submitted', disbursed: 'loan_disbursed', repay: 'repayment_viewed',
-  creditscore: 'credit_score_viewed',
 };
 
-/** WS5: one install report per app process (see the boot effect below). */
+/** One install-attribution attempt per app process (see the boot effect below). */
 let installReported = false;
 
 // Exposed for unit tests.
@@ -154,14 +419,182 @@ export function parentScreen(s: Screen): Screen {
   return PREV[s] || 'home';
 }
 
+// First name Ruby has used on the CURRENT call (see user_name in page_context).
+let stickyCallName = '';
+// Last agent_language sent in page_context — only to log when it CHANGES (see vlogAlways).
+let lastSentAgentLanguage = '';
+
+// One-shot RESULT keys in apiContext that screens write immediately before
+// navigating away (handoff -> disbursed, offers -> status/handoff/lenderweb,
+// lenderweb completed -> loans). The `go`/`back` reducers wipe apiContext, so
+// without this the result was erased in the same batch that told Ruby the
+// screen had changed — she was interrupted with the new screen but never got
+// the result, and re-asked or never narrated it. These survive exactly ONE
+// navigation (tracked in `__carried`), then drop like everything else.
+// panValidationResult / prequalifyResult are written right before the success
+// navigation (PAN verified -> details; offers found -> My Offers) and used to be
+// wiped by it, so the new screen opened with no word of how the last step ended.
+const CARRY_KEYS = [
+  'handoffResult', 'offerApplyResult', 'lenderWebFlow', 'lastToast', 'panValidationResult', 'prequalifyResult',
+] as const;
+
+function nextApiContext(prev: Record<string, unknown>): Record<string, unknown> {
+  const alreadyCarried = (prev.__carried as string[] | undefined) ?? [];
+  const out: Record<string, unknown> = {};
+  const kept: string[] = [];
+  for (const k of CARRY_KEYS) {
+    if (k in prev && !alreadyCarried.includes(k)) {
+      out[k] = prev[k];
+      kept.push(k);
+    }
+  }
+  if (kept.length) out.__carried = kept;
+  return out;
+}
+
+// apiContext exists purely to feed the voice agent's page_context (every
+// mergeApiContext call site renders from its own local state, never reads
+// apiContext back — see e.g. home.tsx, which keeps its own `offers` state
+// and only pushes into apiContext as a side effect) — so it's safe, and
+// necessary, to strip fields the voice model has no use for but that are
+// huge: each Offer carries the same lender logo twice, once as a base64
+// data: URI (`lenderLogoUrl`) and again buried in the untouched provider
+// payload (`rawOffer.Lender.LenderLogo`). With ~10 offers per application
+// that's enough bloat to blow past the Gemini Live session's WebSocket
+// frame size and kill it outright (close code 1007, "invalid frame payload
+// data"). Deep and key-name-based (rather than shape-specific) since patches
+// arrive in several different shapes (`applications`, `applicationDetail`,
+// `prequalifyResult`, ...) — new call sites are covered automatically.
+const VOICE_CONTEXT_STRIP_KEYS = new Set(['lenderLogoUrl', 'rawOffer']);
+function stripForVoiceContext<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(stripForVoiceContext) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (VOICE_CONTEXT_STRIP_KEYS.has(k)) continue;
+      out[k] = stripForVoiceContext(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+// save_applicant_details (the voice tool) accepts free-form keys — "use
+// whatever field names fit what was actually said" — but PATCH /users/me's
+// profilePatch is .strict(), so a single unrecognised key rejects the WHOLE
+// patch, not just that one field. This allowlists exactly the keys that are
+// real User columns (translating the two that don't match 1:1: the tool's
+// own `employmentType` -> the column `employment`, and `loanAmount` -> the
+// dedicated `draftLoanAmount` column, since no LoanApplication exists yet to
+// hold a real amount). Everything else the model might send is dropped
+// silently rather than risking the sync failing outright.
+const APPLICANT_DRAFT_KEY_MAP: Record<string, string> = {
+  employmentType: 'employment',
+  loanAmount: 'draftLoanAmount',
+};
+const APPLICANT_DRAFT_ALLOWED_KEYS = new Set([
+  'fullName', 'email', 'dob', 'gender', 'pincode', 'residenceType', 'employment',
+  'monthlyIncome', 'company', 'qualification', 'maritalStatus', 'alternateMobile',
+  'alternateEmail', 'loanPurpose', 'salaryMode', 'professionalType', 'companyEmail',
+  'businessEmail', 'addressLine1', 'addressLine2', 'landmark', 'city', 'district',
+  'state', 'monthlyObligations', 'draftLoanAmount',
+]);
+
+function toServerProfilePatch(details: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  for (const [rawKey, rawValue] of Object.entries(details)) {
+    const key = APPLICANT_DRAFT_KEY_MAP[rawKey] ?? rawKey;
+    if (!APPLICANT_DRAFT_ALLOWED_KEYS.has(key)) continue;
+    // profilePatch's dob is z.string().datetime() — a full ISO datetime, not
+    // a bare date — so "2001-09-15" alone fails validation server-side.
+    if (key === 'dob' && typeof rawValue === 'string') {
+      const d = new Date(rawValue);
+      if (Number.isNaN(d.getTime())) continue;
+      out[key] = d.toISOString();
+      continue;
+    }
+    out[key] = rawValue;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'set':
       return { ...state, ...action.patch };
-    case 'go':
-      return { ...state, screen: action.screen };
+    case 'mergeApiContext':
+    {
+      // A freshly written key is a NEW result, not a leftover carried one.
+      const carried = ((state.apiContext.__carried as string[] | undefined) ?? []).filter(k => !(k in action.patch));
+      const merged: Record<string, unknown> = { ...state.apiContext, ...stripForVoiceContext(action.patch) };
+      if (carried.length) merged.__carried = carried; else delete merged.__carried;
+      return { ...state, apiContext: merged };
+    }
+    case 'go': {
+      const screen = guardScreen(action.screen);
+      // No-op navigations don't touch the stack.
+      if (screen === state.screen) return state;
+      let history: Screen[];
+      if (action.replace) {
+        // Transient/auto transition — swap the current screen without recording it.
+        history = state.history;
+      } else if (TOP_LEVEL.has(screen)) {
+        // A tab root starts a fresh stack.
+        history = [];
+      } else if (TRANSIENT.has(state.screen)) {
+        // Leaving a loader/splash — don't record it.
+        history = state.history;
+      } else {
+        // Normal forward nav — remember where we came from (cap depth defensively).
+        history = [...state.history, state.screen].slice(-50);
+      }
+      // apiContext is a voice-only snapshot of whichever API calls the
+      // screen(s) the user was just on happened to make (see the reducer
+      // comment above) — reset on every real screen change so a call started
+      // later never carries forward data fetched for a screen the user has
+      // since left. Each new screen repopulates it from its own API calls.
+      return { ...state, screen, history, apiContext: nextApiContext(state.apiContext) };
+    }
+    case 'back': {
+      // `permissions` is the first screen after a successful OTP. Its back target
+      // (`mobile`) is a pre-login screen the guard turns into `home`, so Back here
+      // used to silently skip About You. There is nowhere meaningful to go back to
+      // once the session exists, so stay put (the screen has its own forward CTA).
+      if (state.screen === 'permissions' && isAuthed()) return state;
+      // The offers RESULT is a funnel endpoint: pressing back must return to
+      // wherever the funnel was started from (My Offers / Home) — never back into
+      // the funnel (Verify PAN → details → …). offersReturn records that origin.
+      if (state.screen === 'offers') {
+        return { ...state, screen: guardScreen(state.offersReturn || 'home'), history: [], apiContext: nextApiContext(state.apiContext) };
+      }
+      // Pop to the screen the user actually came from; fall back to the PREV map
+      // (then home) only when the stack is empty (e.g. deep-linked entry).
+      // guardScreen covers a stale entry from before login (e.g. `permissions`
+      // still sitting on the stack from just before OTP verify) the same way
+      // it covers `go()` — Back is just as capable of surfacing one.
+      if (state.history.length > 0) {
+        const history = state.history.slice(0, -1);
+        return { ...state, screen: guardScreen(state.history[state.history.length - 1]), history, apiContext: nextApiContext(state.apiContext) };
+      }
+      return { ...state, screen: guardScreen(PREV[state.screen] || 'home'), apiContext: nextApiContext(state.apiContext) };
+    }
     case 'reset':
-      return { ...initialState, screen: 'splash' };
+      // Logout: clear all session/profile state, but KEEP device-level consent
+      // (privacyAccepted) and the chosen language, and land on the login screen —
+      // NOT splash, which would auto-route to the Privacy screen (bug #14) because
+      // a fresh initialState has privacyAccepted=false.
+      return {
+        ...initialState,
+        privacyAccepted: state.privacyAccepted,
+        lang: state.lang,
+        selectedLang: state.selectedLang,
+        // Persisted across logout (session.ts never clears it), so the in-memory
+        // copy must survive too — otherwise agent_language silently reverts to the
+        // UI language for the rest of the call even though storage still holds
+        // the Hindi/Telugu choice.
+        voiceLang: state.voiceLang,
+        screen: 'mobile',
+      };
     default:
       return state;
   }
@@ -173,9 +606,22 @@ export const _reducer = reducer;
 interface Ctx {
   state: AppState;
   set: (patch: Partial<AppState>) => void;
+  // Use this (not `set`) for apiContext writes — see the 'mergeApiContext'
+  // Action comment for why a plain set() is unsafe when multiple call sites
+  // can write to it from the same render's stale `state` closure.
+  mergeApiContext: (patch: Record<string, unknown>) => void;
+  // Marks the *next* screen change as urgent — see the ref of the same name
+  // in StoreProvider for what that actually does and why it's rare to call.
+  markUrgentContext: () => void;
+  // Fetches the account's history (GET /context/me, max ~1.5s) into `userContext` so the next
+  // page_context carries `account_summary`. Never throws.
+  refreshUserContext: () => Promise<void>;
   go: (screen: Screen) => void;
   back: () => void;
-  showToast: (msg: string) => void;
+  // Every toast is also copied into apiContext.lastToast so the voice agent can see
+  // what the user was just shown (errors especially). Pass { silentToAgent: true }
+  // for toasts that are not the user's own action result.
+  showToast: (msg: string, opts?: { silentToAgent?: boolean }) => void;
   reset: () => void;
   parentOf: (s: Screen) => Screen;
 }
@@ -193,6 +639,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const prevOnboardingStep = useRef<{ step: number; screen: Screen } | null>(null);
 
   const set = useCallback((patch: Partial<AppState>) => dispatch({ type: 'set', patch }), []);
+  const mergeApiContext = useCallback((patch: Record<string, unknown>) => dispatch({ type: 'mergeApiContext', patch }), []);
+  const refreshUserContext = useCallback(async () => {
+    try {
+      const ctx = await Promise.race([
+        fetchUserContext(),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 1500)),
+      ]);
+      if (ctx) dispatch({ type: 'set', patch: { userContext: ctx } });
+    } catch {
+      /* never block a screen on this */
+    }
+  }, []);
+  // One-shot flag consumed by the very next screen-change effect run below —
+  // set by a screen right before its own go() call to mark THAT specific
+  // transition as urgent (interrupts Ruby immediately instead of waiting for
+  // her current reply to finish). Reserved for genuinely time-sensitive
+  // moments — finding.tsx calling this when real offers just came back is
+  // the first and, for now, only caller. Not app state: this never needs to
+  // trigger a re-render, and nothing should read it back.
+  const urgentNextContext = useRef(false);
+  const urgentFallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markUrgentContext = useCallback(() => {
+    urgentNextContext.current = true;
+    // Most callers navigate right after marking, and the screen-change effect
+    // consumes the flag. Several do NOT (wrong OTP, profile save error, PAN
+    // error): the flag then stayed armed with nothing sent, and the result
+    // reached Ruby only via the slow, deferred routine path — while the NEXT
+    // unrelated navigation would barge in on her. If nothing consumed the flag
+    // shortly after, send the urgent update ourselves and disarm it.
+    if (urgentFallbackTimer.current) clearTimeout(urgentFallbackTimer.current);
+    urgentFallbackTimer.current = setTimeout(() => {
+      urgentFallbackTimer.current = null;
+      if (!urgentNextContext.current) return; // a navigation already consumed it
+      urgentNextContext.current = false;
+      agent.updatePageContext({ urgent: true });
+    }, 400);
+  }, []);
 
   const clearAuto = () => {
     if (timers.current.auto) clearTimeout(timers.current.auto);
@@ -206,11 +689,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const parentOf = useCallback((s: Screen): Screen => PREV[s] || 'home', []);
 
   const back = useCallback(() => {
-    dispatch({ type: 'go', screen: PREV[stateRef.current.screen] || 'home' });
+    // Pop the real back stack — returns to wherever the user actually came from.
+    dispatch({ type: 'back' });
   }, []);
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, opts?: { silentToAgent?: boolean }) => {
     dispatch({ type: 'set', patch: { toast: msg } });
+    // A toast is invisible to the voice agent otherwise: tool results say "tapped
+    // Continue, still on <screen>" with no reason, so Ruby retried blindly or went
+    // silent while the user read an error (e.g. "This email is already in use").
+    // `at` makes every toast a distinct value, so a repeat of the same message is
+    // not dropped by page_context's unchanged-content dedup.
+    if (msg && !opts?.silentToAgent) {
+      dispatch({ type: 'mergeApiContext', patch: { lastToast: { message: msg, at: Date.now() } } });
+    }
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(
       () => dispatch({ type: 'set', patch: { toast: '' } }),
@@ -226,13 +718,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Restore a persisted session on boot, so a returning user skips onboarding
   // entirely instead of re-verifying OTP every single app launch — and the
-  // voice agent's preferred_language is correct from the very first turn,
-  // not just within one session's memory. The language itself restores even
-  // for a guest who never logged in.
+  // voice agent's agent_language is correct from the very first turn, not
+  // just within one session's memory. The language itself restores even for
+  // a guest who never logged in.
   useEffect(() => {
     (async () => {
       const savedLang = await loadLang();
       if (savedLang) dispatch({ type: 'set', patch: { lang: savedLang } });
+      const savedVoiceLang = await loadVoiceLang();
+      if (savedVoiceLang) dispatch({ type: 'set', patch: { voiceLang: savedVoiceLang } });
+      const savedDraft = await loadPrefillDraft();
+      if (savedDraft) dispatch({ type: 'set', patch: { savedApplicantDraft: savedDraft } });
+      const pitchHeard = await loadIntroPitchHeard();
+      if (pitchHeard) dispatch({ type: 'set', patch: { introPitchHeard: true } });
+
+      // Privacy consent gate — loaded before any routing decision.
+      const accepted = await loadPrivacyAccepted(PRIVACY_POLICY_VERSION);
+      if (accepted) dispatch({ type: 'set', patch: { privacyAccepted: true } });
+
+      // Client feature flags (public). Drives whether the alternative-offers
+      // (Yubi/YMPL) tile is shown. Optimistic default is true, so we only act on
+      // an explicit server `false`; any failure leaves the tile enabled.
+      api.features()
+        .then(r => { if (r?.data && r.data.altOffers === false) dispatch({ type: 'set', patch: { altOffersEnabled: false } }); })
+        .catch(() => {});
 
       const tokens = await loadTokens();
       if (!tokens) return;
@@ -247,12 +756,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             pdEmail: user.email || '',
             pdPhone: user.phone ? `+91 ${user.phone}` : '',
             pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : '',
-            lang: user.lang || stateRef.current.lang,
+            // Prefer the locally chosen language (from the language screen /
+            // voice agent, restored from AsyncStorage) over the backend's value,
+            // so a fresh selection isn't clobbered by a stale server `lang`.
+            lang: stateRef.current.lang || user.lang || null,
+            voiceLang: stateRef.current.voiceLang || user.voiceLang || null,
           },
         });
         // Only jump the user automatically if they haven't already moved
-        // past the splash screen themselves while this was resolving.
-        if (stateRef.current.screen === 'splash') dispatch({ type: 'go', screen: 'home' });
+        // past the splash screen themselves while this was resolving. New
+        // (never-accepted) users see the Privacy Policy first, even with a
+        // restored session.
+        if (stateRef.current.screen === 'splash') dispatch({ type: 'go', screen: accepted ? 'home' : 'privacy' });
       } catch {
         // Expired/invalid — drop the stale session rather than keep retrying
         // it on every future boot.
@@ -262,10 +777,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the last-picked language around across app restarts.
+  // Keep the last-picked language around across app restarts, and — when signed
+  // in — push it to the backend so the server value stops going stale (which is
+  // what used to clobber the selection on the next Profile load / login).
   useEffect(() => {
-    if (state.lang) saveLang(state.lang);
-  }, [state.lang]);
+    if (!state.lang) return;
+    saveLang(state.lang);
+    if (state.authUser) api.setLanguage(state.lang).catch(() => {});
+  }, [state.lang, state.authUser]);
+
+  // Same persistence pattern for the voice-spoken-language preference — kept
+  // as its own effect/key/endpoint so it never overwrites the UI-copy `lang`.
+  useEffect(() => {
+    if (!state.voiceLang) return;
+    saveVoiceLang(state.voiceLang);
+    if (state.authUser) api.setVoiceLanguage(state.voiceLang).catch(() => {});
+  }, [state.voiceLang, state.authUser]);
 
   // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
@@ -274,7 +801,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     // Keep the voice agent's view of the current screen + available actions fresh.
     setCurrentScreen(state.screen);
-    agent.updatePageContext();
+    const urgent = urgentNextContext.current;
+    urgentNextContext.current = false;
+    agent.updatePageContext(urgent ? { urgent: true } : undefined);
 
     // Track page view for all screens
     trackEvent('page_view', `viewed_${state.screen}`, state.screen);
@@ -291,7 +820,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (state.screen === 'splash') {
-      timers.current.auto = setTimeout(() => dispatch({ type: 'go', screen: 'language' }), 2600);
+      // First launch → Privacy Policy consent; thereafter → language selection.
+      timers.current.auto = setTimeout(
+        () => dispatch({ type: 'go', screen: stateRef.current.privacyAccepted ? 'language' : 'privacy' }),
+        2600,
+      );
     }
     return clearAuto;
   }, [state.screen, state.loanId]);
@@ -300,28 +833,227 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // this provider's own go()) and the page-context source the agent sends on
   // every update. Reads stateRef so the closure never goes stale.
   useEffect(() => {
-    ensureToolsRegistered((screenName: string) => {
-      if (!(SCREEN_NAMES as readonly string[]).includes(screenName)) return false;
-      go(screenName as Screen);
-      return true;
+    ensureToolsRegistered({
+      recentToast: () => {
+        const t = stateRef.current.apiContext.lastToast as { message: string; at: number } | undefined;
+        return t && Date.now() - t.at < 6000 ? t.message : null;
+      },
+      navigateToScreen: (screenName: string) => {
+        const target = resolveScreenName(screenName);
+        if (!target) return false;
+        go(target);
+        return { requested: target, landed: guardScreen(target) };
+      },
+      // Bug fix: logout now runs the real action from any screen (was a no-op
+      // unless the Profile screen's "Log out" button happened to be on screen).
+      logout: async () => {
+        await api.logout().catch(() => {});
+        dispatch({ type: 'reset' });
+      },
+      // Voice-stated language preference: writes `voiceLang`, a key separate
+      // from the UI-copy `lang` (language-selection screen / Profile toggle),
+      // so speaking Telugu to the agent doesn't also flip the app's own
+      // screen text. The persistence effect below (AsyncStorage +
+      // api.setVoiceLanguage) picks it up, and agent_language (page_context)
+      // prefers it over `lang` on the very next turn — and on every future call.
+      setLanguage: (lang: string) => {
+        vlogAlways('lang: set_language tool ->', lang, '(was voiceLang=' + String(stateRef.current.voiceLang) + ', ui lang=' + String(stateRef.current.lang) + ')');
+        dispatch({ type: 'set', patch: { voiceLang: lang } });
+      },
+      // The app's own UI-copy language (`lang`), settable directly from any
+      // screen instead of requiring a navigate-to-language/profile-then-tap
+      // detour — the persistence effect below (AsyncStorage + api.setLanguage
+      // when signed in) picks this up exactly the same way a real tap on
+      // either screen's language card already does.
+      setAppLanguage: (lang: string) => {
+        vlogAlways('lang: set_app_language tool ->', lang, '(was ui lang=' + String(stateRef.current.lang) + ', voiceLang=' + String(stateRef.current.voiceLang) + ')');
+        dispatch({ type: 'set', patch: { lang } });
+      },
+      // Merges (never replaces) into whatever's already saved — the model
+      // calls this incrementally as details come up across a conversation.
+      // Persisted immediately so it survives the call ending, not just this
+      // session's memory; reads stateRef so a rapid sequence of calls within
+      // one turn each merge onto the previous one's result, not a stale
+      // closure's snapshot.
+      saveApplicantDetails: (details: Record<string, unknown>) => {
+        const merged = { ...(stateRef.current.savedApplicantDraft ?? {}), ...details };
+        dispatch({ type: 'set', patch: { savedApplicantDraft: merged } });
+        savePrefillDraft(merged);
+        // Also sync to the server, fire-and-forget — this device-local draft
+        // alone never reached the backend at all before, meaning a different
+        // device (or the pre-call tool, which only ever sees server data)
+        // had no way to see any of it. Only THIS call's new details, not the
+        // whole merged draft — the endpoint is additive per-field already.
+        if (isAuthed()) {
+          const patch = toServerProfilePatch(details);
+          if (patch) api.updateProfile(patch).catch(() => undefined);
+        }
+      },
+      // Bug fix: open a specific loan/application by its reference number.
+      openLoan: async (reference: string) => {
+        const want = (reference || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!want) return { ok: false, reason: 'no_reference' };
+        const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        try {
+          const [loansRes, appsRes]: any[] = await Promise.all([
+            api.listLoans().catch(() => null),
+            api.listApplications().catch(() => null),
+          ]);
+          const loans: any[] = loansRes?.loans || loansRes || [];
+          const apps: any[] = appsRes?.applications || appsRes || [];
+          // Match on the loan's reference first, then the application's.
+          const loan = loans.find((l) => norm(l?.ref) === want || norm(l?.id) === want);
+          if (loan) {
+            dispatch({ type: 'set', patch: { loanId: loan.id, applicationId: loan.applicationId ?? stateRef.current.applicationId } });
+            go('repay');
+            return { ok: true, opened: 'loan', reference, screen: 'repay' };
+          }
+          const app = apps.find((a) => norm(a?.ref) === want || norm(a?.id) === want);
+          if (app) {
+            const hasLoan = !!app.loan?.id;
+            dispatch({ type: 'set', patch: { applicationId: app.id, loanId: app.loan?.id ?? null } });
+            go(hasLoan ? 'repay' : 'status');
+            return { ok: true, opened: hasLoan ? 'loan' : 'application', reference, screen: hasLoan ? 'repay' : 'status' };
+          }
+          return { ok: false, reason: 'not_found', message: `No loan or application matches reference "${reference}".` };
+        } catch {
+          return { ok: false, reason: 'lookup_failed' };
+        }
+      },
     });
-    agent.registerPageContext(() => ({
-      ...buildPageContext(stateRef.current.screen),
-      // The language the user picked on the language-selection screen — the
-      // voice agent should speak in this language from the first word,
-      // regardless of what language it's addressed in, unless the user
-      // explicitly asks to switch (see the prompt's Voice style section).
-      preferred_language: LANGUAGE_NAMES[stateRef.current.lang ?? 'en'] ?? 'English',
-      priorInquiries: stateRef.current.priorInquiries,
-      // WS8: the history behind this phone number. `brief` is a one-line summary
-      // the agent can open from ("Anita enquired 2 days ago about a 3 lakh
-      // personal loan; spoke to us on the phone yesterday"), so it continues the
-      // conversation instead of restarting it. Read from stateRef so this closure
-      // never goes stale.
-      userContext: stateRef.current.userContext ?? undefined,
-    }));
+    if (__DEV__) {
+      // Dev builds only: lets a QA session on the Metro inspector read the live app state.
+      const dbg = (globalThis as { __ello?: Record<string, unknown> }).__ello;
+      if (dbg) dbg.getState = () => stateRef.current;
+    }
+    agent.registerPageContext(() => {
+      // The authoritative logged-in name — so the agent addresses the user
+      // correctly instead of picking a lead name out of `userContext` or
+      // inventing one (bug #15). Empty when unknown so the prompt can fall back
+      // to a neutral greeting.
+      const s = stateRef.current;
+      const liveName =
+        (s.authUser?.firstName || s.authUser?.fullName || s.pdName || '').trim().split(/\s+/)[0] || '';
+      // Fixed for the duration of a call once known: typing a different first
+      // name into the application form rewrites authUser.firstName mid-call, and
+      // the prompt says the name Ruby uses does not change within a call.
+      const callLive = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
+      if (!callLive) stickyCallName = '';
+      else if (!stickyCallName && liveName) stickyCallName = liveName;
+      const userName = callLive ? stickyCallName || liveName : liveName;
+      // Only relevant on the Profile screen itself — these are exactly the
+      // fields skipped at aboutyou/never filled via the application flow that
+      // Profile lets the user edit directly. Computed fresh every time the
+      // screen context refreshes, not just once, so it reflects whatever's
+      // true right now (e.g. filled in via the application flow since).
+      const missingProfileFields =
+        s.screen === 'profile'
+          ? [
+              ...(!s.pdName.trim() ? ['full name'] : []),
+              ...(!s.pdEmail.trim() ? ['email'] : []),
+              ...(!s.pdDob ? ['date of birth'] : []),
+            ]
+          : [];
+      return {
+      ...buildPageContext(s.screen),
+      missing_profile_fields: missingProfileFields.length ? missingProfileFields : undefined,
+      // Two distinct fields, deliberately not one: preferred_language is the
+      // app's own UI-copy language (language-selection screen / Profile
+      // toggle) — nothing to do with speech. agent_language is what Ruby
+      // should actually SPEAK, set independently via the set_language voice
+      // tool (voiceLang) and falling back to the UI language only until the
+      // user has stated one. Collapsing these into one field is what made
+      // the agent's spoken language unreliable — a change meant for the app
+      // screen could get read as a change to how the agent talks, or vice
+      // versa, depending on which one a given prompt happened to key off.
+      preferred_language: LANGUAGE_NAMES[s.lang ?? 'en'] ?? 'English',
+      agent_language: (() => {
+        const al = LANGUAGE_NAMES[s.voiceLang ?? s.lang ?? 'en'] ?? 'English';
+        if (al !== lastSentAgentLanguage) {
+          vlogAlways('lang: agent_language', lastSentAgentLanguage || '(first)', '->', al, '| voiceLang=' + String(s.voiceLang), 'ui lang=' + String(s.lang), 'screen=' + s.screen);
+          lastSentAgentLanguage = al;
+        }
+        return al;
+      })(),
+      // Authoritative user name — the agent must address the user by THIS name
+      // (or neutrally if empty), never a name from userContext/priorInquiries.
+      user_name: userName,
+      // Website drop-off recovery: which moment of the "continue where you left off" journey this is.
+      journey_resume: s.resumeStage ? agentResumeContext(s.resume, s.resumeStage) : undefined,
+      // The one way Ello can learn a phone number for a call that started
+      // before login — get_user_context is a pre-call-only tool, called once
+      // at session start with whatever context_data.phone_number the app had
+      // THEN (nothing, for someone still on mobile/otp). Once OTP verification
+      // succeeds mid-call, this field appears in the very next page_context
+      // push (markUrgentContext() already fires one) — see the core prompt's
+      // opening section for the follow-up get_user_context call this enables.
+      authenticated_phone: s.authUser?.phone || undefined,
+      // Whether this device has already heard the first-time product pitch on
+      // an earlier call — see session.ts's markIntroPitchHeard for why this
+      // exists. Always sent (never omitted), even `false` — the Opening Call
+      // Protocol's first-time pitch is conditioned on this being false.
+      heard_intro_pitch: stateRef.current.introPitchHeard,
+      // Set once the agent has introduced itself on this call, so returning to Home is not a new opening.
+      already_introduced: agent.hasIntroducedThisCall() || undefined,
+      // The offers the user just received (or the problem) so the agent can speak
+      // about them proactively on the offers screen.
+      // Only meaningful while on the offers surfaces; they were never cleared, so
+      // the agent kept being told about "no offers" long after the user moved on.
+      offers_summary: (s.screen === 'offers' || s.screen === 'fare') && s.offersSummary ? s.offersSummary : undefined,
+      offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? s.offersError : undefined,
+      // Not on Home: that screen sends the buttons only (see BUTTONS_ONLY_SCREENS).
+      priorInquiries: s.screen === 'home' ? undefined : stateRef.current.priorInquiries,
+      // Where this account stands (applications under review, offers ready, loan) — see summarizeUserContext.
+      account_summary: summarizeUserContext(stateRef.current.userContext),
+      // Details Ruby gathered conversationally on a previous call (or earlier
+      // this one), before the user had reached the application form — see
+      // save_applicant_details / the prompt's "Proactive Details Collection"
+      // rule. Was gated on `!applicationId`, which was wrong: a
+      // LoanApplication row gets created right after the PAN step, well
+      // before `basic`'s actual fields (name/DOB/income/...) are ever
+      // filled in — so that gate suppressed the draft for exactly the
+      // window it exists to help, confirmed live as savedApplicantDraft
+      // missing from page_context entirely on a fresh call despite real
+      // data sitting in AsyncStorage. Gate on userContext.application
+      // instead — per userContext.ts's own fix, that only appears once the
+      // user has actually applied to a lender, meaning `basic` was for-real
+      // submitted and its saved values are genuinely authoritative now.
+      savedApplicantDraft:
+        !stateRef.current.userContext?.application && stateRef.current.savedApplicantDraft
+          ? stateRef.current.savedApplicantDraft
+          : undefined,
+      // Real API responses for the loan-application lifecycle (see the
+      // apiContext field comment) — more complete/authoritative than
+      // screen_overview for these entities since it's the actual response,
+      // not scraped visible text. Populated by whichever of these calls has
+      // run so far this session; absent until at least one has.
+      api_context: (() => {
+        const ctx = { ...stateRef.current.apiContext };
+        delete ctx.__carried; // internal bookkeeping, not for the model
+        // A toast is a moment, not a standing fact. Tell the agent how old it is, and
+        // stop sending it once it is clearly stale, so a fixed problem is not
+        // announced again as if it were current.
+        const toast = ctx.lastToast as { message: string; at: number } | undefined;
+        if (toast) {
+          const ago = Math.round((Date.now() - toast.at) / 1000);
+          if (ago > 20) delete ctx.lastToast;
+          else ctx.lastToast = { message: toast.message, seconds_ago: ago };
+        }
+        return Object.keys(ctx).length ? ctx : undefined;
+      })(),
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // apiContext changes don't reach the agent on their own — reading a ref
+  // doesn't trigger a re-pull; this must explicitly ask it to refresh, same
+  // as offersSummary's own effect below (offers.tsx). One shared effect here
+  // covers every application-lifecycle call site instead of repeating this
+  // in each screen.
+  useEffect(() => {
+    if (Object.keys(state.apiContext).length) agent.updatePageContext();
+  }, [state.apiContext]);
 
   // ── WS4: start a tracking session on app boot; end it when backgrounded ──
   useEffect(() => {
@@ -330,26 +1062,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       osVersion: String(Platform.Version),
       appVersion: '1.0',
     });
-    // WS5: report the install exactly once per device. AsyncStorage isn't a
-    // dependency here, so the flag lives on the module-level `installReported`
-    // guard — good enough because a reinstall genuinely is a new install.
+    // Install attribution: once per install (the flag lives in AsyncStorage, which a
+    // reinstall wipes), find out which /dl link brought this install and report it.
+    // Fire-and-forget; the flag is only set after the server answers, so a failed
+    // attempt is retried on the next launch.
     if (!installReported) {
       installReported = true;
-      trackInstall(Platform.OS, {});
+      (async () => {
+        if (await loadInstallClaimed()) return;
+        // An app update on a device that is already signed in is not a new install.
+        if (await loadTokens()) { await saveInstallClaimed(); return; }
+        const signals = await readInstallSignals();
+        const claim = await claimInstall(Platform.OS, signals);
+        if (!claim) return;
+        await saveInstallClaimed();
+        if (claim.referral) {
+          await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
+        }
+        // The install came from a website visitor's own link: offer to continue where they left off.
+        const resume = parseResume(claim.resume, 'link');
+        if (resume) dispatch({ type: 'set', patch: { resume, resumePrompt: 'welcome', resumeStage: 'pre_login' } });
+      })().catch(() => undefined);
       trackEvent('app_lifecycle', 'app_opened');
     }
 
     // Upshot: boot once per process. No-ops entirely unless the SDK is
     // installed AND credentials are set, so this is safe on every build.
+    // Meta (ads attribution): same idea — no-op unless the SDK is linked and a client token is set.
+    initMeta();
     if (initUpshot()) {
-      upshotEvent('app_opened', { platform: Platform.OS });
-      // Ask for POST_NOTIFICATIONS. Required from Android 13 — without it the
-      // OS drops every notification silently, so push looks "delivered" on the
-      // Upshot dashboard while nothing ever appears on the handset.
-      //
-      // Deferred a tick because the SDK requests the permission through the
-      // *current Activity*, which is not attached yet at this point in boot.
-      setTimeout(() => registerUpshotPush(), 1500);
+      upshotEvent('app_opened', { platform: UPSHOT_PLATFORM });
+      // Demo/test builds only (pointed at a dev or local backend): ask for push
+      // permission at launch so a test push can be sent without walking through
+      // onboarding to the Permissions screen. Production builds keep asking only there.
+      if (UPSHOT_DEMO) registerUpshotPush();
+      // Note: the notification permission (registerUpshotPush) is NOT requested
+      // here. It's requested from the 'Allow permissions' onboarding screen
+      // (permissions.tsx) so nothing prompts the user before they reach it.
     }
     const sub = RNAppState.addEventListener('change', (s) => {
       if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
@@ -357,34 +1106,76 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
 
-  // ── WS8: load what the backend already knows about this phone ──────────
-  //
-  // Runs when the user becomes authenticated, by either route (OTP verify or the
-  // anonymous "Skip" session). This is the non-deep-link path: an organic
-  // Play Store install arrives with just a phone number, so without this the
-  // in-app agent greets a returning customer as a stranger and re-asks what they
-  // already told the website and the phone agent.
-  //
-  // Fire-and-forget and never awaited by a screen: if it fails or the user is
-  // brand new, `userContext` stays null and the agent behaves exactly as before.
-  const contextFetched = useRef(false);
+  // Activity is only recorded for a signed-in user, so the session starts when one
+  // appears (OTP verify, or a restored login on launch) — not at boot.
   useEffect(() => {
-    if (!state.authUser || contextFetched.current) return;
-    contextFetched.current = true;
-    fetchUserContext()
-      .then((ctx) => {
-        // Only store it when there is something to say. An empty context would
-        // put `hasHistory: false` in front of the agent, which is noise.
-        if (!ctx?.hasHistory) return;
-        dispatch({ type: 'set', patch: { userContext: ctx } });
-        trackEvent('funnel', 'user_context_loaded', 'home', {
-          inquiries: ctx.inquiries.length,
-          hadCall: !!ctx.lastCall,
-          stage: ctx.stage,
-        });
+    if (!state.authUser?.id || getSessionId()) return;
+    trackSessionStart({ platform: Platform.OS, osVersion: String(Platform.Version), appVersion: '1.0' });
+  }, [state.authUser?.id]);
+
+  // WS8's cross-channel userContext fetch (GET /api/context/me) — the
+  // *once-at-login* copy of it — was removed from here: its "application in
+  // progress" used to be any non-terminal LoanApplication row, never
+  // requiring an actual applied-to-a-lender offer, which got a stale
+  // snapshot describing an application to the user that their own My Loans
+  // screen (by its own, deliberate definition) correctly showed nothing for.
+  // `userContext` is NOT null, though — VoiceWidget.tsx does its own fresh,
+  // per-call-open fetch of the same endpoint (see the comment on
+  // refreshSessionContext there) and writes straight into this state.
+  //
+  // That state is no longer forwarded to the agent via page_context, though
+  // (see agent.ts's startPageContext comment) — the in-app agent's
+  // status-aware opening now comes from the get_user_context pre-call tool
+  // instead, which resolves before the agent speaks (this fetch, racing the
+  // WebSocket handshake, sometimes didn't) and shares the data with Ello once
+  // per call rather than continuously. `state.userContext` itself stays: the
+  // savedApplicantDraft gate a few lines up still reads
+  // userContext.application locally. `user_name` was always unaffected — it
+  // comes from the logged-in account, not this fetch.
+
+  // ── Restore the returning user's last-pulled offers on login ──────────
+  //
+  // A user's profile + offers persist server-side (User by phone, Offer rows on
+  // their last application). On login we find the most recent application that
+  // still has offers and point applicationId at it, so Home can show a "view
+  // your offers" shortcut and the offers screen renders the saved offers without
+  // the user re-entering any details or re-pulling.
+  const offersRestored = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || offersRestored.current) return;
+    offersRestored.current = true;
+    api.listApplications()
+      .then((r: any) => {
+        const apps: any[] = r?.applications || [];
+        const withOffers = apps.find(
+          (a) => (a.offers?.length ?? 0) > 0 &&
+            ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'].includes(a.status),
+        );
+        if (withOffers) {
+          dispatch({ type: 'set', patch: { applicationId: withOffers.id, loanId: withOffers.loan?.id ?? null, hasSavedOffers: true } });
+        }
       })
       .catch(() => undefined);
   }, [state.authUser]);
+
+  // A friend's invite is redeemed once they have an account (OTP verified). Expected
+  // refusals (own code, already referred, not a new user) are silent; only a real
+  // success tells the user who invited them.
+  const referralRedeemed = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || referralRedeemed.current) return;
+    referralRedeemed.current = true;
+    (async () => {
+      const pending = await loadPendingReferral();
+      if (!pending) return;
+      const r: any = await api.redeemReferral(pending.code, pending.downloadId, pending.method).catch(() => null);
+      if (!r) return; // network error: keep it pending, retry next launch
+      await clearPendingReferral();
+      if (r?.data?.redeemed && r.data.referrer_name) {
+        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`);
+      }
+    })().catch(() => undefined);
+  }, [state.authUser, showToast]);
 
   // ── WS4: emit an event on every screen transition (fire-and-forget) ──
   useEffect(() => {
@@ -398,6 +1189,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // a screen ("show the offers survey on `offers`") using the names the rest
     // of our analytics already uses.
     upshotScreen(screen);
+
+    // Upshot funnel moments the screen names already map to (same screens as the
+    // `funnel` events below). Values come from the offers the app has seen.
+    if (screen === 'fare' || screen === 'offers') upshotOfferViewed();
+    if (screen === 'status') {
+      const { amount } = knownOfferInfo(stateRef.current.selectedOfferId);
+      upshotEvent('application_submitted', { ...(typeof amount === 'number' ? { amount } : {}), product: 'Personal Loan' });
+    }
+    if (screen === 'disbursed') {
+      const { amount, partner } = knownOfferInfo(stateRef.current.selectedOfferId);
+      upshotEvent('loan_disbursed', { ...(typeof amount === 'number' ? { amount } : {}), ...(partner ? { partner } : {}) });
+    }
 
     const funnelName = FUNNEL_EVENTS[screen];
     if (funnelName) {
@@ -414,6 +1217,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Correct model: leaving a screen completes THAT step with the time actually
     // spent on it; arriving marks the new step in_progress.
     const prev = prevOnboardingStep.current;
+    // Upshot: leaving the language picker means a language was actually chosen.
+    if (prev?.screen === 'language') {
+      upshotEvent('language_selected', { language: stateRef.current.lang ?? 'en', label: stateRef.current.selectedLang ?? '' });
+    }
     if (prev) trackOnboardingStep(prev.step, prev.screen, 'completed', spent);
 
     const stepNum = ONBOARDING_STEPS[screen];
@@ -441,7 +1248,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!m) return;
       const token = decodeURIComponent(m[1]);
       const ctx = await fetchContext(token);
-      if (!ctx || done) return;
+      if (done) return;
+      if (!ctx) {
+        // Not a lead/agent context. It may be a website visitor's own link: offer to continue where they left
+        // off (the pop-up opens the login with their number filled in), unless someone is already signed in.
+        if (await loadTokens()) return;
+        const resume = parseResume(await resumeFromLink(token), 'link');
+        if (!resume || done) return;
+        done = true;
+        dispatch({ type: 'set', patch: { resume, resumePrompt: 'welcome', resumeStage: 'pre_login' } });
+        return;
+      }
       done = true;
 
       const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);
@@ -457,9 +1274,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         },
       });
       trackEvent('funnel', 'agent_context_loaded', 'basic', { token, source: ctx.source });
-      // Continue the journey: land on the loan-application start, pre-filled.
-      dispatch({ type: 'go', screen: 'basic' });
-      showToast(ctx.greeting);
+      // Continue the journey: land on the loan-application start (PAN
+      // first); the name carries through to the details step.
+      dispatch({ type: 'go', screen: 'basicpan' });
+      showToast(ctx.greeting, { silentToAgent: true });
     };
 
     Linking.getInitialURL().then(applyContext).catch(() => {});
@@ -468,8 +1286,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: Ctx = { state, set, go, back, showToast, reset, parentOf };
+  const value: Ctx = { state, set, mergeApiContext, markUrgentContext, refreshUserContext, go, back, showToast, reset, parentOf };
   return React.createElement(StoreContext.Provider, { value }, children);
+}
+
+/** Like useStore, but null outside a StoreProvider — for shared building blocks that may render bare (tests, previews). */
+export function useOptionalStore(): Ctx | null {
+  return useContext(StoreContext);
 }
 
 export function useStore(): Ctx {

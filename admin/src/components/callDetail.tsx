@@ -32,8 +32,11 @@ export interface CallAttemptDetail {
   attempt?: number | null;
   error?: string | null;
   queuedAt?: string | null;
-  dialedAt?: string | null;
-  completedAt?: string | null;
+  // Renamed server-side from dialedAt/completedAt when CallAttempt merged with
+  // Conversation (startedAt/endedAt already existed there as the equivalent
+  // concept for every other channel) — this is the current API shape.
+  startedAt?: string | null;
+  endedAt?: string | null;
 }
 
 export function secs(n: number | null | undefined) {
@@ -250,7 +253,7 @@ export function Transcript({ transcript }: { transcript: unknown }) {
 
 export function CallAttemptCard({ call }: { call: CallAttemptDetail }) {
   const duration = call.durationSec ?? call.durationSeconds ?? null;
-  const when = call.dialedAt ?? call.queuedAt ?? call.completedAt ?? null;
+  const when = call.startedAt ?? call.queuedAt ?? call.endedAt ?? null;
 
   return (
     <div style={{ padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
@@ -316,5 +319,96 @@ export function CallList({ calls, emptyLabel = 'No voice calls placed yet' }: { 
         {list.map((c) => <CallAttemptCard key={c.id} call={c} />)}
       </div>
     </>
+  );
+}
+
+/* ── compact call log (table) ───────────────────────────────────────────────
+ * Timestamp + one-line summary per row; tapping a row expands to the full
+ * transcript (and recording). Preferred over CallList where a scannable log is
+ * more useful than stacked cards.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+function whenOf(c: CallAttemptDetail): { iso: string | null; t: number } {
+  const iso = c.startedAt ?? c.queuedAt ?? c.endedAt ?? null;
+  const t = iso ? new Date(iso).getTime() : 0;
+  return { iso, t: Number.isNaN(t) ? 0 : t };
+}
+
+// "Wednesday, 27 Aug 2026" and "2:45 PM" — weekday + date, and time.
+function fmtDay(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
+
+export function CallLog({ calls, emptyLabel = 'No voice calls placed yet' }: { calls: CallAttemptDetail[] | null | undefined; emptyLabel?: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const list = Array.isArray(calls) ? calls : [];
+  if (list.length === 0) return <Empty label={emptyLabel} />;
+  // Newest first — a call log reads top-down like a timeline.
+  const rows = [...list].sort((a, b) => whenOf(b).t - whenOf(a).t);
+  const clamp2: React.CSSProperties = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
+
+  return (
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr><th style={{ width: 190 }}>Timestamp</th><th>Call summary</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => {
+            const { iso } = whenOf(c);
+            const dur = c.durationSec ?? c.durationSeconds ?? null;
+            const isOpen = open === c.id;
+            return (
+              <React.Fragment key={c.id}>
+                <tr onClick={() => setOpen(isOpen ? null : c.id)} style={{ cursor: 'pointer' }}>
+                  <td style={{ whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtDay(iso)}</div>
+                    <div className="muted" style={{ fontSize: 11.5 }}>
+                      {fmtTime(iso)}{fmtTime(iso) && dur != null ? ' · ' : ''}{dur != null ? secs(dur) : ''}
+                    </div>
+                    {iso ? <div className="muted" style={{ fontSize: 11 }}>{timeAgo(iso)}</div> : null}
+                  </td>
+                  <td style={{ verticalAlign: 'top' }}>
+                    <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="row" style={{ gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+                          <StatusBadge status={c.status} />
+                          {c.outcome ? <OutcomeCell outcome={c.outcome} source={c.outcomeSource} evidence={c.outcomeEvidence} /> : null}
+                        </div>
+                        <div style={{ fontSize: 13, lineHeight: 1.5, ...(isOpen ? {} : clamp2) }}>
+                          {c.summary || <span className="muted">No summary for this call.</span>}
+                        </div>
+                      </div>
+                      <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{isOpen ? 'Hide ▲' : 'Transcript ▾'}</span>
+                    </div>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={2} style={{ background: 'var(--grey-bg)' }}>
+                      {c.recordingUrl ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <a className="btn" style={{ padding: '4px 11px', fontSize: 11.5 }} href={c.recordingUrl} target="_blank" rel="noreferrer">Listen to recording ↗</a>
+                        </div>
+                      ) : null}
+                      <Transcript transcript={c.transcript} />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

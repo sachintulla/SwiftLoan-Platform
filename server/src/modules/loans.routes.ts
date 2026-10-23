@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ah, HttpError } from '../middleware/error.js';
+import { scoped } from '../lib/log.js';
+
+const log = scoped('loans');
 
 export const loansRouter = Router();
 loansRouter.use(requireAuth);
@@ -31,5 +34,6 @@ loansRouter.post('/:id/repayments/:rid/pay', ah(async (req, res) => {
   if (!loan || loan.userId !== req.user!.sub) throw new HttpError(404, 'Loan not found');
   const r = await prisma.repayment.update({ where: { id: req.params.rid }, data: { status: 'paid', paidDate: new Date() } });
   await prisma.loan.update({ where: { id: loan.id }, data: { outstanding: Math.max(0, loan.outstanding - r.amount) } });
+  log.info('repayment paid', { loanId: loan.id, repaymentId: r.id, amount: r.amount });
   res.json({ repayment: r });
 }));

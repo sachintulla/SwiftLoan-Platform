@@ -1,4 +1,6 @@
 <resources>
     <!-- app_name is provided by build.gradle resValue (see defaultConfig) so the
          context build can override the label via -PappLabel. -->
+    <!-- Meta (Facebook) app id. The client token is set from JS (src/analytics/meta.ts). -->
+    <string name="facebook_app_id" translatable="false">1669156655221818</string>
 </resources>

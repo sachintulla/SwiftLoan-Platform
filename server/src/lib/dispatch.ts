@@ -167,7 +167,7 @@ export async function nudgeCustomer(customer: Customer, stage: JourneyStage) {
 
   // Product interest is not on Customer; the website enquiry carries it.
   const lead = customer.phone
-    ? await prisma.anonymousLead.findFirst({
+    ? await prisma.lead.findFirst({
         where: { phone: customer.phone },
         orderBy: { createdAt: 'desc' },
         select: { productInterest: true, amount: true },

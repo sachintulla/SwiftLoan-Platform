@@ -30,6 +30,32 @@ export function readProviderError(json: unknown, status: number): string {
   if (msg) return code && !msg.includes(String(code)) ? `${msg} (${code})` : msg;
   return `request failed with HTTP ${status}`;
 }
+
+/**
+ * getUserMedia() failures were all being shown as "Microphone access denied:
+ * NotAllowedError: Permission denied" (or worse, "...: NotFoundError: ..." for
+ * a missing mic, mislabeled as "denied" too) — a raw exception string with no
+ * indication of what to actually do about it. Browsers only show their native
+ * allow/block prompt ONCE per site; after a block, the only way back in is the
+ * site-permission control in the address bar, which this message now points
+ * the user at directly instead of leaving them stuck on a dead-end error.
+ */
+function micErrorMessage(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : '';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Microphone access is blocked. Click the lock/info icon in your browser’s address bar, allow the microphone, then tap the mic button again.';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No microphone was found on this device.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'Your microphone is being used by another app. Close it and try again.';
+  }
+  if (err instanceof Error && /needs https|supported browser/i.test(err.message)) {
+    return err.message;
+  }
+  return 'Could not access your microphone. Check your browser’s site permissions and try again.';
+}
 /* =========================================================
    SwiftLoan.ai — Ello voice-agent client (ported from
    website/js/ello-agent.js / admin/src/lib/ello-agent.ts).
@@ -66,6 +92,11 @@ export interface ElloAgentOptions {
   sessionUrl?: string;
   /** Which agent role to start. */
   role?: 'websiteCompanion' | 'companion' | 'adminNavigator';
+  /**
+   * Awaited (up to 2.5s) after the mic is granted and before the session is
+   * brokered, so page context built at connect time is already complete.
+   */
+  prepare?: () => Promise<void>;
   debug?: boolean;
 }
 
@@ -82,12 +113,24 @@ export class ElloAgent {
   private listeners: Record<string, Listener[]> = {};
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
+  private muted = false;
   private micProcessor: ScriptProcessorNode | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
   private playbackQueueTime = 0;
   private playing: AudioBufferSourceNode[] = [];
   private startTime = 0;
-  private contextUpdatesUnsupported = false;
+  // ── Page-context updates (protocol ported from the mobile client, src/voice/agent.ts) ──
+  // The backend's message for this is `client-tools-update` — NOT `update-context`,
+  // which it rejects as "Unknown message type". This class used to send the latter
+  // and, on that rejection, switch context updates OFF for the rest of the call, so
+  // the agent saw the first page and never another one.
+  private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A flush that was held back because the agent was mid-sentence; sent when she stops. */
+  private flushAfterSpeech = false;
+  private lastSentPage: string | null = null;
+  private lastSentFingerprint = new Map<string, string>();
+  private toolsSentThisSession = false;
   private speakingQuietTimer: ReturnType<typeof setTimeout> | null = null;
   stats = { micFrames: 0, micSoundFrames: 0, audioOut: 0, toolsSent: 0, toolsAcked: null as number | null };
   conversationId: string | null = null;
@@ -105,7 +148,7 @@ export class ElloAgent {
           ? (window as unknown as { SWIFTLOAN_API_BASE?: string }).SWIFTLOAN_API_BASE
           : undefined) ??
         process.env.NEXT_PUBLIC_API_BASE ??
-        'https://swiftloan-api.onrender.com',
+        '',
       ...options,
     };
   }
@@ -130,9 +173,17 @@ export class ElloAgent {
     this.listeners[event]?.forEach((fn) => fn(payload));
   }
 
+  /** How long a call may sit in "connecting" before we give up and let the visitor try again. */
+  static CONNECT_TIMEOUT_MS = 25_000;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+
   private setStatus(s: AgentStatus) {
     if (this.status === s) return;
     this.status = s;
+    if (s !== 'connecting' && this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
     // The mic deliberately stays live throughout the whole call, including
     // while the agent is speaking — muting it here was killing barge-in:
     // the user's interrupting speech never reached the server, so its VAD
@@ -141,6 +192,12 @@ export class ElloAgent {
     // acquireMic) instead of muting, matching the mobile app's client
     // (src/voice/agent.ts), which documents this exact tradeoff.
     this.emit('statusChange', s);
+    // A page-context update held back while she was speaking goes out the moment she
+    // is done — only to 'listening': 'executingTool' would land inside a tool call.
+    if (s === 'listening' && this.flushAfterSpeech) {
+      this.flushAfterSpeech = false;
+      this.flushPageContext(false);
+    }
   }
 
   registerTool(tool: ElloTool) {
@@ -164,42 +221,136 @@ export class ElloAgent {
     }));
   }
 
-  updatePageContext() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    if (this.contextUpdatesUnsupported) return;
+  /**
+   * Tell the agent what the page looks like now.
+   *
+   * Every send is a TURN server-side: the agent reacts to it. That is the point on
+   * a page change (it should speak to the new page at once), and the danger on
+   * everything else (a send while she is mid-sentence reads as a barge-in and cuts
+   * her off). Hence three modes, same as the mobile app:
+   *   - default   debounced (900ms) so a page that is still loading settles first,
+   *               and deferred while she is speaking;
+   *   - immediate from a tool, on the next microtask, so the update lands while the
+   *               server still sees that tool call pending and merges both into
+   *               ONE turn instead of two;
+   *   - urgent    for news worth interrupting for (offers arriving) — skips the
+   *               speaking guard.
+   */
+  updatePageContext(opts?: { urgent?: boolean; immediate?: boolean }) {
+    if (opts?.immediate && !opts.urgent) {
+      if (this.pageContextFlushTimer) {
+        clearTimeout(this.pageContextFlushTimer);
+        this.pageContextFlushTimer = null;
+      }
+      Promise.resolve().then(() => this.flushPageContext(false));
+      return;
+    }
+    if (opts?.urgent) {
+      if (this.pageContextFlushTimer) {
+        clearTimeout(this.pageContextFlushTimer);
+        this.pageContextFlushTimer = null;
+      }
+      if (this.urgentFlushTimer) clearTimeout(this.urgentFlushTimer);
+      // Collapse a burst of urgent calls into one send of whatever is true by then.
+      this.urgentFlushTimer = setTimeout(() => {
+        this.urgentFlushTimer = null;
+        this.flushPageContext(true);
+      }, 120);
+      return;
+    }
+    if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
+    this.pageContextFlushTimer = setTimeout(() => {
+      this.pageContextFlushTimer = null;
+      this.flushPageContext(false);
+    }, 900);
+  }
+
+  private flushPageContext(urgent: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.conversationId) return;
+    if (!urgent && this.status === 'speaking') {
+      this.flushAfterSpeech = true;
+      this.dbg('info', 'page context deferred', 'agent is speaking; will send when she stops');
+      return;
+    }
+    const ctx: Record<string, any> = this.pageContextFn?.() ?? {};
+    // The "speak first, introduce yourself" instruction belongs to call start only.
+    // Left in a navigation update it makes the agent greet again on every page.
+    if (ctx.interactionGuide && 'opening' in ctx.interactionGuide) {
+      const guide = { ...ctx.interactionGuide };
+      delete guide.opening;
+      ctx.interactionGuide = guide;
+    }
+    const screenKey = String(ctx.page ?? '');
+    const fingerprint = JSON.stringify(ctx);
+    // Same page, same content as the last send: nothing to tell her, and even a bare
+    // marker would be read as a new turn.
+    if (!urgent && this.lastSentPage === screenKey && this.lastSentFingerprint.get(screenKey) === fingerprint) {
+      this.dbg('info', 'page context skipped', 'unchanged since the last send');
+      return;
+    }
+    this.lastSentFingerprint.set(screenKey, fingerprint);
+    this.lastSentPage = screenKey;
+    // Field is `tools` here but `client_tools` in voice-session-start — the asymmetry
+    // is real. Tools can't be added mid-session; the first update only refreshes their
+    // `available` flags, so later ones omit the array.
+    const includeTools = !this.toolsSentThisSession;
+    this.toolsSentThisSession = true;
     const payload = {
-      type: 'update-context',
+      type: 'client-tools-update',
       conversation_id: this.conversationId,
-      client_tools: this.toolsPayload(),
-      page_context: this.pageContextFn?.() ?? {},
+      ...(includeTools ? { tools: this.toolsPayload() } : {}),
+      page_context: ctx,
     };
-    this.log('update-context ->', payload);
-    this.dbg('out', 'update-context');
+    this.log('client-tools-update ->', payload);
+    this.dbg('out', 'client-tools-update', `${urgent ? '[urgent] ' : ''}${screenKey}`);
     this.ws.send(JSON.stringify(payload));
   }
 
   async start() {
     if (this.status !== 'idle' && this.status !== 'ended') return;
     this.startTime = Date.now();
+    this.lastSentPage = null;
+    this.lastSentFingerprint.clear();
+    this.toolsSentThisSession = false;
+    this.flushAfterSpeech = false;
     this.stats = { micFrames: 0, micSoundFrames: 0, audioOut: 0, toolsSent: 0, toolsAcked: null };
     this.dbg('info', 'start()', 'connecting');
     this.setStatus('connecting');
+    // Without this a stalled step (provider never answers, socket never opens, no session-established) left the
+    // widget on "Connecting…" forever, and start() ignores clicks while connecting — only a page refresh got out.
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null;
+      if (this.status !== 'connecting') return;
+      this.dbg('error', 'connect timeout', `still connecting after ${ElloAgent.CONNECT_TIMEOUT_MS}ms (conversation_id=${this.conversationId ?? 'none'})`);
+      this.emit('error', { message: "Couldn't connect to the assistant. Please check your connection and tap to try again." });
+      this.stop();
+    }, ElloAgent.CONNECT_TIMEOUT_MS);
     this.playbackQueueTime = 0;
     this.playCount = 0;
+    // getUserMedia MUST be the first async call after the click, not the
+    // second — the "user activation" a browser uses to decide whether to
+    // even show its permission prompt (as opposed to silently refusing with
+    // no popup at all) can expire across an intervening await in stricter
+    // engines. ensureAudioContext()'s own `await audioCtx.resume()` was
+    // sitting in front of acquireMic() here, unlike startMic() below (its
+    // sibling call site), which already does this in the safe order.
+    try {
+      await this.acquireMic();
+    } catch (err) {
+      this.dbg('error', 'mic acquire failed', String(err));
+      this.emit('error', { message: micErrorMessage(err) });
+      this.setStatus('idle');
+      return;
+    }
     try {
       await this.ensureAudioContext();
     } catch {
       /* ignore */
     }
     try {
-      await this.acquireMic();
-    } catch (err) {
-      this.dbg('error', 'mic acquire failed', String(err));
-      this.emit('error', {
-        message: 'Microphone access is needed to talk. Please allow it in your browser and click again.',
-      });
-      this.setStatus('idle');
-      return;
+      await Promise.race([this.opts.prepare?.() ?? Promise.resolve(), new Promise<void>((r) => setTimeout(r, 2500))]);
+    } catch {
+      /* context is best-effort; the call must not fail on it */
     }
     try {
       // Session is started through OUR server, not Ello directly.
@@ -215,8 +366,10 @@ export class ElloAgent {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: this.opts.role ?? 'websiteCompanion' }),
+        signal: AbortSignal.timeout(22_000),
       });
-      const json = await resp.json();
+      // A proxy/gateway error page is HTML, not JSON — don't surface "Unexpected token <".
+      const json = await resp.json().catch(() => null);
       this.log('session response', json);
       const conversationId = json?.data?.conversationId ?? json?.data?.conversation_id;
       if (!resp.ok || !conversationId) {
@@ -230,7 +383,13 @@ export class ElloAgent {
       this.dbg('error', 'publish failed', String(err));
       // `String(err)` on an Error yields "Error: <message>", and on a non-Error
       // object "[object Object]" — neither belongs in front of a user.
-      this.emit('error', { message: err instanceof Error ? err.message : readProviderError(err, 0) });
+      const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      this.emit('error', {
+        message: timedOut
+          ? "The assistant took too long to answer. Please tap to try again."
+          : err instanceof Error ? err.message : readProviderError(err, 0),
+      });
+      this.stopMic();
       this.setStatus('idle');
       return;
     }
@@ -241,11 +400,22 @@ export class ElloAgent {
     const ws = new WebSocket(this.opts.wsUrl);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
+    // A stop() followed quickly by a new start() replaces `this.ws` with a
+    // fresh socket while this old one is still closing — its `close` (or a
+    // late `message`) then arrives after the new session is already live.
+    // Without this guard that stale event tore down the NEW session's mic
+    // (this.stopMic()/this.setStatus() act on shared agent state, not on
+    // this particular socket), which is exactly the "stop then restart does
+    // nothing but a page refresh fixes it" bug — a full reload creates a
+    // brand-new ElloAgent with no stale listener left to fire.
+    const isCurrent = () => this.ws === ws;
     ws.addEventListener('open', () => {
+      if (!isCurrent()) return;
       this.log('ws open');
       this.dbg('info', 'ws open');
     });
     ws.addEventListener('close', (e) => {
+      if (!isCurrent()) return;
       this.log('ws close', e.code, e.reason);
       this.dbg('info', 'ws close', `code=${e.code} ${e.reason ?? ''}`);
       this.setStatus('ended');
@@ -253,20 +423,33 @@ export class ElloAgent {
       this.stopMic();
     });
     ws.addEventListener('error', () => {
+      if (!isCurrent()) return;
       this.dbg('error', 'ws error');
       this.emit('error', { message: 'WebSocket error' });
     });
     ws.addEventListener('message', (e) => {
+      if (!isCurrent()) return;
       if (typeof e.data === 'string') {
         this.handleMessage(e.data);
       } else {
         this.handleAudioFrame(e.data as ArrayBuffer);
       }
     });
-    await new Promise<void>((resolve) => {
-      if (ws.readyState === WebSocket.OPEN) return resolve();
-      ws.addEventListener('open', () => resolve(), { once: true });
+    // Resolves on open; a socket that errors or closes before opening ends the attempt instead of hanging it.
+    const opened = await new Promise<boolean>((resolve) => {
+      if (ws.readyState === WebSocket.OPEN) return resolve(true);
+      ws.addEventListener('open', () => resolve(true), { once: true });
+      ws.addEventListener('close', () => resolve(false), { once: true });
+      ws.addEventListener('error', () => resolve(false), { once: true });
     });
+    if (!opened || !isCurrent()) {
+      if (isCurrent() && (this.status === 'connecting')) {
+        this.emit('error', { message: "Couldn't reach the assistant. Please tap to try again." });
+        this.setStatus('idle');
+        this.stopMic();
+      }
+      return;
+    }
     const tools = this.toolsPayload();
     this.stats.toolsSent = tools.length;
     ws.send(
@@ -373,9 +556,10 @@ export class ElloAgent {
       case 'error': {
         const d = msg.error ?? msg;
         const message = String(d.message ?? 'unknown error');
-        if (/unknown message type/i.test(message) && /update-context/i.test(message)) {
-          this.contextUpdatesUnsupported = true;
-          this.dbg('info', 'update-context unsupported', 'backend rejected it; disabling further sends');
+        if (/unknown message type/i.test(message)) {
+          // Never switch updates off because of this: a rejected type is OUR bug to
+          // see, not a reason to go deaf for the rest of the call.
+          this.dbg('warn', 'backend rejected a message type', message);
           break;
         }
         this.dbg('error', 'server error', message);
@@ -627,6 +811,7 @@ export class ElloAgent {
         autoGainControl: true,
       },
     });
+    this.micStream.getAudioTracks().forEach((t) => { t.enabled = !this.muted; });
     const tr = this.micStream.getAudioTracks()[0];
     this.dbg('info', 'getUserMedia ok', tr ? `${tr.label || 'mic'} enabled=${tr.enabled} muted=${tr.muted} state=${tr.readyState}` : 'no track');
   }
@@ -636,7 +821,7 @@ export class ElloAgent {
       await this.acquireMic();
     } catch (err) {
       this.dbg('error', 'getUserMedia failed', String(err));
-      this.emit('error', { message: `Microphone access denied: ${String(err)}` });
+      this.emit('error', { message: micErrorMessage(err) });
       return;
     }
     if (!this.micStream) return;
@@ -706,7 +891,27 @@ export class ElloAgent {
     this.audioCtx = null;
   }
 
+  /**
+   * Mute/unmute the mic for the live call without ending it. Disabling the
+   * track makes the browser feed silence into the existing pipeline, so the
+   * session and its playback continue; re-applied if the mic is re-acquired.
+   */
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    this.micStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+    this.emit('muteChange', muted);
+  }
+
+  isMuted() {
+    return this.muted;
+  }
+
   stop() {
+    this.muted = false;
+    for (const t of [this.pageContextFlushTimer, this.urgentFlushTimer]) if (t) clearTimeout(t);
+    this.pageContextFlushTimer = null;
+    this.urgentFlushTimer = null;
+    this.flushAfterSpeech = false;
     if (this.speakingQuietTimer) {
       clearTimeout(this.speakingQuietTimer);
       this.speakingQuietTimer = null;
@@ -772,7 +977,10 @@ function floatTo16BitPCM(input: Float32Array): Int16Array {
   return out;
 }
 
-const SENSITIVE_RE = /password|otp|cvv|cvc|ssn|pin/i;
+// `pan|aadhaar` and the OTP digit boxes ("Digit 2 of 6") were not covered: those
+// boxes carry only an aria-label and autocomplete="off" (only box 1 is
+// one-time-code), and the PAN box is identified by its placeholder.
+const SENSITIVE_RE = /password|otp|cvv|cvc|ssn|pin|\bpan\b|aadhaar|aadhar|digit \d of \d|^ABCDE1234F$/i;
 const SENSITIVE_AUTOCOMPLETE = new Set(['one-time-code', 'cc-csc', 'current-password', 'new-password']);
 
 export function isSensitiveInput(el: Element): boolean {

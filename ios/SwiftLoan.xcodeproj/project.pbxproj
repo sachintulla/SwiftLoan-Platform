@@ -20,27 +20,35 @@
 		CA9AB8BC0E2265FEE0562B7B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		F00DFACE00000000000B0001 /* VoiceAudioModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0001 /* VoiceAudioModule.swift */; };
 		F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0002 /* VoiceAudioModule.m */; };
+		F00DFACE00000000000B0003 /* UiSoundModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0003 /* UiSoundModule.swift */; };
+		F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0004 /* UiSoundModule.m */; };
+		F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0005 /* AttributionModule.swift */; };
+		F00DFACE00000000000B0006 /* AttributionModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0006 /* AttributionModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0EC11AE0BF424BCA870E7D79 /* Inter-ExtraBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-ExtraBold.ttf"; path = "../assets/fonts/Inter-ExtraBold.ttf"; sourceTree = "<group>"; };
+		0EC11AE0BF424BCA870E7D79 /* Inter-ExtraBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-ExtraBold.ttf"; path = "../assets/fonts/Inter-ExtraBold.ttf"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* SwiftLoan.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftLoan.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = SwiftLoan/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = SwiftLoan/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = SwiftLoan/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-SwiftLoan.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SwiftLoan.debug.xcconfig"; path = "Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan.debug.xcconfig"; sourceTree = "<group>"; };
-		4BF0433C56D94197BDD9A67E /* Inter-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Bold.ttf"; path = "../assets/fonts/Inter-Bold.ttf"; sourceTree = "<group>"; };
+		4BF0433C56D94197BDD9A67E /* Inter-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Bold.ttf"; path = "../assets/fonts/Inter-Bold.ttf"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-SwiftLoan.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SwiftLoan.release.xcconfig"; path = "Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan.release.xcconfig"; sourceTree = "<group>"; };
-		595CC90375074CB8B15A79D5 /* Inter-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Medium.ttf"; path = "../assets/fonts/Inter-Medium.ttf"; sourceTree = "<group>"; };
+		595CC90375074CB8B15A79D5 /* Inter-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Medium.ttf"; path = "../assets/fonts/Inter-Medium.ttf"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-SwiftLoan.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-SwiftLoan.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		61E6965BD16848979783CE74 /* MaterialSymbolsOutlined.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = MaterialSymbolsOutlined.ttf; path = ../assets/fonts/MaterialSymbolsOutlined.ttf; sourceTree = "<group>"; };
+		61E6965BD16848979783CE74 /* MaterialSymbolsOutlined.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = MaterialSymbolsOutlined.ttf; path = ../assets/fonts/MaterialSymbolsOutlined.ttf; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = SwiftLoan/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = SwiftLoan/LaunchScreen.storyboard; sourceTree = "<group>"; };
-		E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Regular.ttf"; path = "../assets/fonts/Inter-Regular.ttf"; sourceTree = "<group>"; };
+		E13B0ABFEC164589B0E25505 /* Inter-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-Regular.ttf"; path = "../assets/fonts/Inter-Regular.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F00DFACE00000000000A0001 /* VoiceAudioModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceAudioModule.swift; path = Voice/VoiceAudioModule.swift; sourceTree = "<group>"; };
-		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
-		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
+		F00DFACE00000000000A0001 /* VoiceAudioModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceAudioModule.swift; path = SwiftLoan/Voice/VoiceAudioModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0002 /* VoiceAudioModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VoiceAudioModule.m; path = SwiftLoan/Voice/VoiceAudioModule.m; sourceTree = "<group>"; };
+		F00DFACE00000000000A0003 /* UiSoundModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UiSoundModule.swift; path = SwiftLoan/UiSound/UiSoundModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0004 /* UiSoundModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = UiSoundModule.m; path = SwiftLoan/UiSound/UiSoundModule.m; sourceTree = "<group>"; };
+		F00DFACE00000000000A0005 /* AttributionModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AttributionModule.swift; path = SwiftLoan/Attribution/AttributionModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0006 /* AttributionModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AttributionModule.m; path = SwiftLoan/Attribution/AttributionModule.m; sourceTree = "<group>"; };
+		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +73,10 @@
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				F00DFACE00000000000A0001 /* VoiceAudioModule.swift */,
 				F00DFACE00000000000A0002 /* VoiceAudioModule.m */,
+				F00DFACE00000000000A0003 /* UiSoundModule.swift */,
+				F00DFACE00000000000A0004 /* UiSoundModule.m */,
+				F00DFACE00000000000A0005 /* AttributionModule.swift */,
+				F00DFACE00000000000A0006 /* AttributionModule.m */,
 			);
 			name = SwiftLoan;
 			sourceTree = "<group>";
@@ -128,7 +140,6 @@
 				F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */,
 			);
 			name = Resources;
-			path = "";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -161,7 +172,8 @@
 		83CBB9F71A601CBA00E9B192 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1210;
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1120;
@@ -230,9 +242,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -269,9 +285,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -288,6 +308,10 @@
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				F00DFACE00000000000B0001 /* VoiceAudioModule.swift in Sources */,
 				F00DFACE00000000000B0002 /* VoiceAudioModule.m in Sources */,
+				F00DFACE00000000000B0003 /* UiSoundModule.swift in Sources */,
+				F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */,
+				F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */,
+				F00DFACE00000000000B0006 /* AttributionModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -300,7 +324,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CODE_SIGN_ENTITLEMENTS = SwiftLoan/SwiftLoan.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 60;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = ACHVM26TBY;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = SwiftLoan/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -308,18 +337,20 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.6;
+				MARKETING_VERSION = 1.1.9;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.swiftloan.app;
 				PRODUCT_NAME = SwiftLoan;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "SwiftLoan Adhoc Profile";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -330,24 +361,27 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CODE_SIGN_ENTITLEMENTS = SwiftLoan/SwiftLoan.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 60;
+				DEVELOPMENT_TEAM = ACHVM26TBY;
 				INFOPLIST_FILE = SwiftLoan/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.6;
+				MARKETING_VERSION = 1.1.9;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.swiftloan.app;
 				PRODUCT_NAME = SwiftLoan;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -385,6 +419,7 @@
 				COPY_PHASE_STRIP = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = "";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -429,6 +464,7 @@
 				PODFILE_DIR = "$(SRCROOT)";
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				USE_HERMES = true;
@@ -468,6 +504,7 @@
 				COPY_PHASE_STRIP = YES;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = "";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -504,6 +541,8 @@
 				PODFILE_DIR = "$(SRCROOT)";
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				USE_HERMES = true;
 				VALIDATE_PRODUCT = YES;

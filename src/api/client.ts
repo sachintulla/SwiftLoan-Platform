@@ -1,17 +1,40 @@
-import { Platform } from 'react-native';
-import { saveTokens, clearTokens } from '../state/session';
+import NetInfo from '@react-native-community/netinfo';
+import { saveTokens, clearTokens, clearOffersCache, clearPrefillDraft, clearIntroPitchHeard } from '../state/session';
+import { reportOfflineAttempt, reportServerUnreachable } from '../state/offlineBridge';
+import { upshotEvent, upshotIdentify } from '../analytics/upshot';
 
 /**
  * Typed client for the SwiftLoan backend (see /server).
- * iOS simulator reaches the host at localhost; the Android emulator uses 10.0.2.2.
- * Override with a real host for a physical device / deployed API.
+ * Points at the deployed dev box (dev-api.swiftloan.ai) rather than a local
+ * server — a physical device can't reach `localhost`/`10.0.2.2` anyway, and
+ * this way testing doesn't depend on anyone having the local backend running.
+ * Override with SWIFTLOAN_API_BASE (see index.js) for local-backend testing.
  */
-export const API_BASE =
-  (globalThis as any).SWIFTLOAN_API_BASE ||
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000/api' : 'http://localhost:4000/api');
+export const API_BASE = (globalThis as any).SWIFTLOAN_API_BASE || 'https://dev-api.swiftloan.ai/api';
+
+// "Is the internet reachable?" is really "is OUR backend reachable?". NetInfo's
+// default probe is a Google URL, which some networks block or intercept (e.g.
+// an office TLS-inspecting proxy) — it then reports offline and every request
+// below is refused before it's even sent, though the backend is fine. Probe
+// our own health endpoint instead. useNativeReachability: false makes Android
+// use it too — otherwise Android reports the OS's own "validated" flag, which
+// is false on networks where Google's connectivity check is blocked
+// ("partial connectivity"), and the app refused every request as offline.
+NetInfo.configure({
+  useNativeReachability: false,
+  reachabilityUrl: `${API_BASE}/health`,
+  reachabilityTest: async (response) => response.status === 200,
+  reachabilityShortTimeout: 5 * 1000,
+  reachabilityLongTimeout: 60 * 1000,
+});
 
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
+
+// Applications whose alt-offer "applied" record has already been sent this
+// session — so a re-emitted Proceed (partner resume auto-advance) doesn't
+// re-POST or re-toast. Cleared on logout with the rest of the session.
+const _appliedAltOffers = new Set<string>();
 
 export function setTokens(access: string | null, refresh?: string | null) {
   accessToken = access;
@@ -19,25 +42,99 @@ export function setTokens(access: string | null, refresh?: string | null) {
   // Persisted so a returning user stays logged in across app restarts, not
   // just within one in-memory session.
   if (access && refreshToken) saveTokens({ accessToken: access, refreshToken });
-  else if (!access) clearTokens();
+  else if (!access) { clearTokens(); _appliedAltOffers.clear(); sessionId = null; }
 }
 export const getTokens = () => ({ accessToken, refreshToken });
 export const isAuthed = () => !!accessToken;
 
+// Auto-refresh: the access token is short-lived (~15 min). On a 401 we exchange
+// the stored refresh token for a fresh access token and retry the request once,
+// so a user who lingers on a screen (e.g. filling the details form) never sees
+// an "invalid/expired token" error. Concurrent 401s share one in-flight refresh.
+let refreshInFlight: Promise<boolean> | null = null;
+async function doRefresh(): Promise<boolean> {
+  if (!refreshToken) return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const res = await fetch(API_BASE + '/auth/refresh', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    if (data?.accessToken) {
+      setTokens(data.accessToken, refreshToken); // refresh token is not rotated server-side
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+function refreshOnce(): Promise<boolean> {
+  if (!refreshInFlight) refreshInFlight = doRefresh().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
 /**
  * Request timeout. Without one, an unreachable host doesn't fail fast — it waits
- * for the TCP connect timeout (30s+). That bites hardest on a physical device,
- * where the default 10.0.2.2 is the *emulator's* host alias and simply isn't
- * routable. It also stops each fire-and-forget tracking call from holding a
- * socket open for 30s.
+ * for the TCP connect timeout (30s+), and each fire-and-forget tracking call
+ * holds a socket open that whole time.
+ *
+ * Kept well under 30s so we still fail fast, but generous enough for real
+ * mobile networks + occasional backend cold-starts: at 4s, user-initiated GETs
+ * like /users/me intermittently aborted on cellular and surfaced a spurious
+ * "please try again" screen even though the server responded fine. Per-call
+ * overrides (e.g. prequalify's 45s) still apply via request()'s timeoutMs arg.
  */
-const REQUEST_TIMEOUT_MS = 4000;
+const REQUEST_TIMEOUT_MS = 12000;
 
-async function request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+/** Cheap health probe of our own API; true only if it answers with a 2xx. */
+async function apiAnswers(): Promise<boolean> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { method: 'HEAD', signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * After a failed request on a connected phone: wait a moment, probe the API, and only
+ * report "unreachable" if the probe fails too (so transient blips stay silent).
+ */
+async function confirmServerUnreachable(): Promise<void> {
+  await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+  if (!(await apiAnswers())) reportServerUnreachable();
+}
+
+async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
+    // Checked before dialing out, not after: this is the one place every
+    // user-facing screen (OTP, application, offers, loans…) goes through, so
+    // catching "no signal" here means those screens fail fast with a clear
+    // reason instead of sitting on a spinner for the full request timeout.
+    // Only a phone with NO connection at all is refused up front (isConnected ===
+    // false). `isInternetReachable` is NOT used here: it comes from probing our own
+    // /health endpoint, so it is unreliable — on the iOS Simulator it reports
+    // false/null even when the Mac is online, and on a network that blocks or
+    // re-signs HTTPS (office Wi-Fi with TLS inspection) it reads "unreachable" —
+    // and would make the app refuse every request as "no internet". In those cases
+    // we attempt the real request and report what actually happens.
+    const netState = await NetInfo.fetch();
+    if (netState.isConnected === false) {
+      throw new TypeError('offline: no internet connection');
+    }
     res = await fetch(API_BASE + path, {
       method,
       headers: {
@@ -48,15 +145,83 @@ async function request<T = any>(method: string, path: string, body?: unknown): P
       signal: controller.signal,
     });
   } catch (e: any) {
+    // The fetch itself failed to reach anything — as opposed to reaching the
+    // server and getting back an error response, which is handled below and
+    // isn't a connectivity problem. That said, a failed fetch is NOT proof the
+    // user has no internet: it just as often means this one server/host is
+    // slow, cold-starting, mid-restart, or (in local-dev builds pointed at a
+    // LAN IP) simply unreachable while the phone's real internet is fine.
+    // Re-check connectivity fresh, right now, rather than trusting the
+    // pre-flight check from a few seconds ago — only report "offline" to
+    // OfflineNotice if the device itself genuinely has none, so a slow/down
+    // backend doesn't get mislabeled as "no internet connection."
+    const looksOffline = async () =>
+      NetInfo.fetch()
+        .then(st => st.isConnected === false)
+        .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
+    if (await looksOffline()) {
+      // A single instantaneous reading isn't enough — a momentary signal drop
+      // (a step into a dead spot, a brief Wi-Fi hiccup) can look identical to
+      // this for under a second and shouldn't flag the whole app as offline.
+      // Wait briefly and confirm the device is STILL disconnected before
+      // actually reporting it, so only a real, sustained outage shows the banner.
+      await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+      if (await looksOffline()) reportOfflineAttempt();
+      else void confirmServerUnreachable();
+    } else {
+      // Connected, yet the request itself failed. One failed request is often a blip
+      // (the radio waking up, a Wi-Fi handoff, a slow endpoint) and the next one works,
+      // so don't flash a scary banner for it: re-check the server in the background and
+      // only say "can't reach SwiftLoan securely" if it is STILL unreachable. This runs
+      // off to the side so the original error reaches the caller immediately.
+      void confirmServerUnreachable();
+    }
     // Normalize an abort into the same TypeError shape a network failure throws.
-    if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
   } finally {
     clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as any).error || res.statusText, data);
+  if (!res.ok) {
+    // Access token expired → refresh once and retry transparently. Skip for the
+    // auth endpoints themselves (they mint/rotate tokens) to avoid loops.
+    if (res.status === 401 && !_retried && refreshToken && !path.startsWith('/auth/')) {
+      const refreshed = await refreshOnce();
+      if (refreshed) return request<T>(method, path, body, true, timeoutMs);
+      setTokens(null, null); // refresh failed — session is truly gone
+    }
+    throw new ApiError(res.status, (data as any).error || res.statusText, data);
+  }
   return data as T;
+}
+
+/** What PAN Comprehensive returned for Step 2's pre-fill (all optional). */
+export interface PanPrefill {
+  fullName?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  dob?: string; // YYYY-MM-DD
+  gender?: 'male' | 'female' | 'other';
+  email?: string;
+  /** Already masked by Aurix, e.g. 30XXXXXXXX00. */
+  maskedAadhaar?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface PanVerifyResult {
+  status: 'verified' | 'invalid';
+  verified: boolean;
+  aadhaarLinked: boolean | null;
+  prefill: PanPrefill;
+  message?: string;
+  source: 'cache' | 'aurix';
 }
 
 export class ApiError extends Error {
@@ -80,9 +245,10 @@ export interface AuthResult {
   priorInquiries: PriorInquiry[];
 }
 
-// Admin-curated, pre-application eligibility catalog — see server's
-// PreApprovedPlan model. Amounts are in paise.
-export interface PreApprovedPlan {
+// Admin-curated catalog of market-available loan offers shown on the dashboard
+// (no PAN, no credit pull) — see server's MarketLoanOffer model. Distinct from
+// the personalised/eligible Offer results returned per application. Amounts in paise.
+export interface MarketLoanOffer {
   id: string;
   lenderName: string;
   logoUrl?: string | null;
@@ -101,13 +267,171 @@ export interface PreApprovedPlan {
   active: boolean;
 }
 
+// A firm, global "pre-approved for you" offer — shown at the top of Home the
+// moment the user logs in, independent of the application funnel. Distinct from
+// MarketLoanOffer (soft marketing catalog, ranges): firm economics, and its
+// Accept path skips eligibility and hands off to the lender. Amounts in paise.
+export interface PrequalifyingOffer {
+  id: string;
+  lenderName: string;
+  logoUrl?: string | null;
+  icon: string;
+  badge?: string | null;
+  amount: number; // paise
+  rate: number; // % p.a.
+  tenureMonths: number;
+  processingFeePercent?: number | null;
+  redirectionUrl?: string | null;
+  terms?: string | null;
+  validTill?: string | null;
+  displayOrder: number;
+  active: boolean;
+}
+
+// A real per-application lender offer (distinct from MarketLoanOffer above,
+// which is admin-curated marketing data). Amounts are plain rupees, matching
+// LoanApplication/Offer's existing convention (not paise). Server-side this is
+// produced by a LenderOfferProvider (mock today) — see server/src/lib/lenderOffers.ts.
+export interface EmiOption {
+  id: string;
+  tenureMonths: number;
+  monthlyEmi: number;
+  totalInterestPayable: number;
+  totalRepaymentAmount: number;
+  recommended: boolean;
+}
+
+// Result of the parallel Revasure "Create Lead" call, returned by prequalify so
+// the app can show a temporary debug alert (removed for production).
+export interface RevasureResult {
+  provider: 'revasure';
+  ok: boolean;
+  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled' | 'skipped';
+  httpStatus: number | null;
+  leadId: string | null;
+  message: string | null;
+}
+
+export interface Offer {
+  id: string;
+  partner: { name: string; icon: string; logoUrl?: string | null; rating?: number | null; rbiApproved: boolean; features: string[]; disbursalTimeHrs?: number | null };
+  amount: number;
+  apr: number;
+  processingFeeAmount: number;
+  gstOnProcessingFee: number;
+  netDisbursalAmount: number;
+  badgeText?: string | null;
+  recommended: boolean;
+  selected: boolean;
+  emiOptions: EmiOption[];
+  // Aurix (Knight Fintech) passthrough — present on real partner-lender offers,
+  // null on the mock provider. The real lender's own name/logo, ROI and the
+  // deep link to complete the application on the lender's page.
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  roi?: number | null;
+  offerType?: string | null;
+  offerLikelihood?: string | null;
+  redirectionUrl?: string | null;
+  externalPartnerId?: string | null;
+  // Per-lender application tracking. `applied` once the user applies to this
+  // lender's offer; `lenderStatus` is that lender application's own status,
+  // advanced by KFT status webhooks (independent of the parent application).
+  applied?: boolean;
+  appliedAt?: string | null;
+  lenderStatus?: string | null;
+  kftApplicationId?: string | null;
+}
+
+// One tracked application to a lender. Each "Apply" creates a new one, so the
+// same lender can appear multiple times in My Loans, each with its own status.
+// Included on each application by GET /applications (newest first).
+export interface LenderApplication {
+  id: string;
+  applicationId: string;
+  offerId: string;
+  lenderName?: string | null;
+  lenderLogoUrl?: string | null;
+  amount: number;
+  apr?: number | null;
+  emi?: number | null;
+  tenureMonths?: number | null;
+  processingFeeAmount: number;
+  redirectionUrl?: string | null;
+  status: string; // handoff | under_review | approved | rejected | disbursed | failed | …
+  // App-side hand-off outcome, distinct from the webhook-driven `status`.
+  internalStatus?: 'just_applied' | 'success' | 'failed' | 'error';
+  appliedAt: string;
+  underReviewAt?: string | null;
+  approvedAt?: string | null;
+  rejectedAt?: string | null;
+  disbursedAt?: string | null;
+  failureReason?: string | null;
+}
+
+/**
+ * Why a prequalify run returned no offers — a reason CODE from the server, never lender wording.
+ * The screens turn it into our own translated copy (see finding.tsx); the lender's text stays on the
+ * server. '' when offers exist or no reason was given (the offers screen shows its generic empty state).
+ */
+export type PrequalifyReason = 'not_eligible' | 'duplicate' | 'technical';
+export function prequalifyReasonCode(reason: unknown, offerCount: number): PrequalifyReason | '' {
+  if (offerCount > 0) return '';
+  return reason === 'not_eligible' || reason === 'duplicate' || reason === 'technical' ? reason : '';
+}
+
+export interface NudgeConfigDTO {
+  nudgeEnabled: boolean;
+  nudgeIdleMs: number;
+  nudgeDropoffMs: number;
+  nudgeEligibleMs: number;
+  /** Absent when the server predates them: the app then uses its built-in values. */
+  nudgeStartMs?: number;
+  nudgeRotateMs?: number;
+  nudgeSnoozeMs?: number;
+  version: number;
+}
+
+
+/* ───── Upshot funnel events (fire-and-forget, never change a response) ─────
+ * The offers the user was last shown, so `offer_viewed` / `offer_selected` /
+ * `application_submitted` carry real values (amount in rupees, APR, partner)
+ * without any screen having to pass them in. Replaced wholesale whenever a full
+ * offers list arrives (prequalify, getApplication). */
+const knownOffers = new Map<string, Offer>();
+let offerViewPending = false;
+
+function offerPartner(o: Offer): string | undefined {
+  return o.lenderName ?? o.partner?.name ?? undefined;
+}
+function rememberOffers(list: unknown): void {
+  if (!Array.isArray(list)) return;
+  knownOffers.clear();
+  for (const o of list as Offer[]) if (o?.id) knownOffers.set(o.id, o);
+  if (offerViewPending && knownOffers.size > 0) { offerViewPending = false; fireOfferViewed(); }
+}
+function fireOfferViewed(): void {
+  const aprs = [...knownOffers.values()].map((o) => o.apr).filter((n) => typeof n === 'number' && n > 0);
+  upshotEvent('offer_viewed', { offerCount: knownOffers.size, ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}) });
+}
+/** The user opened an offers screen: report it now, or as soon as offers load. */
+export function upshotOfferViewed(): void {
+  if (knownOffers.size > 0) fireOfferViewed(); else offerViewPending = true;
+}
+/** Amount (rupees) + partner of an offer the app has seen, for funnel events. */
+export function knownOfferInfo(id: string | null | undefined): { amount?: number; partner?: string } {
+  const o = id ? knownOffers.get(id) : undefined;
+  return o ? { amount: o.amount, partner: offerPartner(o) } : {};
+}
+
 export const api = {
   health: () => request('GET', '/health'),
 
   // Auth
   register: (phone: string, opts: { email?: string; password?: string; lang?: string } = {}) =>
     request('POST', '/auth/register', { phone, ...opts }),
-  requestOtp: (phone: string) => request('POST', '/auth/otp/request', { phone }),
+  requestOtp: (phone: string) =>
+    request('POST', '/auth/otp/request', { phone }).then((r) => { upshotEvent('otp_requested', { screen: 'mobile' }); return r; }),
   verifyOtp: async (phone: string, code: string): Promise<AuthResult> => {
     // WS5: hand over the anonymous tracking session so the server can claim
     // everything done before login (install, app_opened, language) onto this
@@ -119,6 +443,17 @@ export const api = {
       session_id: getTrackingSessionId(),
     });
     setTokens(r.accessToken, r.refreshToken);
+    // Drop any eligible-offers cache left by a previous session (e.g. one that
+    // ended without a clean logout), so a freshly-logged-in phone never inherits
+    // the last user's "My Offers". Same reasoning for the voice agent's saved
+    // applicant-details draft — a fresh login must never surface a previous
+    // account's name/DOB/address/income as if they belonged to this user. And
+    // for whether Ruby's already given this device's intro pitch — a
+    // different phone number logging in on this device is a genuinely new
+    // person, who should hear it.
+    await clearOffersCache().catch(() => {});
+    await clearPrefillDraft().catch(() => {});
+    await clearIntroPitchHeard().catch(() => {});
     return r;
   },
   login: async (identifier: string, password: string): Promise<AuthResult> => {
@@ -129,30 +464,196 @@ export const api = {
   logout: async () => {
     if (refreshToken) await request('POST', '/auth/logout', { refreshToken }).catch(() => {});
     setTokens(null, null);
+    // Per-user eligible-offers cache is persisted (fare.tsx "My Offers" reads it
+    // local-first). Clear it on logout, or the NEXT phone number to log in sees
+    // the previous user's offers until a slower backend re-fetch overwrites them.
+    // Same for the voice agent's saved applicant-details draft and its
+    // intro-pitch-heard flag.
+    await clearOffersCache().catch(() => {});
+    await clearPrefillDraft().catch(() => {});
+    await clearIntroPitchHeard().catch(() => {});
   },
 
   // Users
   me: () => request('GET', '/users/me'),
   /** Right to erasure — irreversible, cascades every record tied to this user. */
   deleteAccount: () => request('DELETE', '/users/me'),
-  updateProfile: (patch: Record<string, unknown>) => request('PATCH', '/users/me', patch),
+  updateProfile: (patch: Record<string, unknown>) =>
+    request('PATCH', '/users/me', patch).then((r: any) => {
+      // Name/email are only known after About You: push them to Upshot so the
+      // profile on the dashboard isn't left blank.
+      const u = r?.user;
+      if (u?.id) upshotIdentify({ userId: String(u.id), phone: u.phone, name: u.fullName, email: u.email });
+      return r;
+    }),
   setLanguage: (lang: string) => request('PATCH', '/users/me/language', { lang }),
+  /** The language the user has spoken to the voice agent — distinct from setLanguage's UI-copy language. */
+  setVoiceLanguage: (lang: string) => request('PATCH', '/users/me/voice-language', { lang }),
   setNotifications: (prefs: { loanUpdates?: boolean; securityAlerts?: boolean; promoOffers?: boolean }) =>
     request('PATCH', '/users/me/notifications', prefs),
-  creditScore: () => request('GET', '/users/me/credit-score'),
   presignAvatarUpload: (contentType: 'image/jpeg' | 'image/png' | 'image/webp') =>
     request<{ uploadUrl: string; publicUrl: string }>('POST', '/users/me/avatar/presign', { contentType }),
   confirmAvatar: (avatarUrl: string) => request('PATCH', '/users/me/avatar', { avatarUrl }),
+  deleteAvatar: () => request('DELETE', '/users/me/avatar'),
+
+  // Website drop-off recovery: the signed-in user's unfinished website visit, if any (null when none).
+  journeyResume: async (): Promise<{ token: string; first_name: string | null; phone: string; last_step: string } | null> => {
+    const r = await request<{ data?: { resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null } }>('GET', '/journey/resume');
+    return r?.data?.resume ?? null;
+  },
+  // The details for the PAN this user already verified (on the website), without the PAN: a masked form only.
+  panOnFile: async (): Promise<{ onFile: boolean; maskedPan?: string; category?: string | null; aadhaarLinked?: boolean | null; prefill?: PanPrefill }> => {
+    const r = await request<{ data?: any }>('GET', '/kyc/pan/on-file');
+    return r?.data ?? { onFile: false };
+  },
+
+  // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
+  // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.
+  // The server answers from its own PAN cache when it has seen this PAN
+  // before — calling this again for the same PAN never costs a second paid
+  // Aurix call. The server can wait up to 20s on Aurix, hence the timeout.
+  verifyPan: async (pan: string) => {
+    const result = (await request<{ data: PanVerifyResult }>('POST', '/kyc/pan/verify', { pan }, false, 30000)).data;
+    // Never send the PAN itself to analytics — only that it verified.
+    if (result?.verified) {
+      upshotEvent('pan_verified', {
+        source: result.source,
+        ...(typeof result.aadhaarLinked === 'boolean' ? { aadhaarLinked: result.aadhaarLinked } : {}),
+      });
+    }
+    return result;
+  },
 
   // Application funnel
   createApplication: (payload: { amount: number; tenureMonths?: number; loanType?: string }) =>
     request('POST', '/applications', payload),
   listApplications: () => request('GET', '/applications'),
-  getApplication: (id: string) => request('GET', `/applications/${id}`),
+  getApplication: (id: string) =>
+    request('GET', `/applications/${id}`).then((r: any) => { rememberOffers(r?.application?.offers); return r; }),
   updateApplication: (id: string, patch: Record<string, unknown>) => request('PATCH', `/applications/${id}`, patch),
-  prequalify: (id: string) => request('POST', `/applications/${id}/prequalify`),
-  selectOffer: (id: string, offerId: string) => request('POST', `/applications/${id}/offers/${offerId}/select`),
+  // "Refresh status" — pulls the lender's live status via Aurix's Fetch Lead
+  // API instead of just re-reading our own DB-backed state. UAT only for now.
+  refreshApplicationStatus: (id: string, opts?: { lenderApplicationId?: string; offerId?: string }) =>
+    request('POST', `/applications/${id}/refresh-status`, opts, false, 20000),
+  prequalify: async (id: string) => {
+    // A real bureau/BRE call (Aurix) can take 25-30s — well beyond the default
+    // 4s timeout. Allow 45s so real offers aren't lost to a client-side abort.
+    const res = await request<{ offers: unknown[]; reason?: string | null; revasure?: RevasureResult | null }>(
+      'POST',
+      `/applications/${id}/prequalify`,
+      undefined,
+      false,
+      45000,
+    );
+    rememberOffers(res?.offers);
+    upshotEvent('eligibility_completed', { offerCount: (res?.offers ?? []).length });
+    {
+      // Offer facts from Aurix's eligible_offers response (lender names, amounts,
+      // rates) — none of it personal data. PAN / DOB / address / bureau fields are
+      // deliberately NOT shared with Upshot.
+      const got = (res?.offers ?? []) as Offer[];
+      if (got.length > 0) {
+        const aprs = got.map((o) => o?.apr).filter((n): n is number => typeof n === 'number' && n > 0);
+        const amounts = got.map((o) => o?.amount).filter((n): n is number => typeof n === 'number' && n > 0);
+        const lenders = [...new Set(got.map((o) => offerPartner(o)).filter((n): n is string => !!n))];
+        const best = aprs.length ? got.filter((o) => o?.apr === Math.min(...aprs))[0] : undefined;
+        const topLender = best ? offerPartner(best) : undefined;
+        upshotEvent('offers_got', {
+          offerCount: got.length,
+          ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}),
+          ...(amounts.length ? { maxAmount: Math.max(...amounts) } : {}),
+          ...(lenders.length ? { lenders: lenders.slice(0, 8).join(', ') } : {}),
+          ...(topLender ? { topLender } : {}),
+        });
+      }
+    }
+    // Zero offers: hand the screen the reason code so it shows our own copy, not lender text.
+    return { ...res, reason: prequalifyReasonCode(res?.reason, (res?.offers ?? []).length) };
+  },
+  selectOffer: (id: string, offerId: string, emiOptionId?: string) =>
+    request('POST', `/applications/${id}/offers/${offerId}/select`, emiOptionId ? { emiOptionId } : undefined),
+  // Apply to a specific lender's offer — creates a tracked per-lender
+  // application (returns { offer, lenderApplicationId, alreadyApplied }).
+  applyOffer: (id: string, offerId: string, emiOptionId?: string) =>
+    request('POST', `/applications/${id}/offers/${offerId}/apply`, emiOptionId ? { emiOptionId } : undefined).then((r: any) => {
+      const o = knownOffers.get(offerId);
+      // A repeat apply for the same lender+amount isn't a new selection.
+      if (o && !r?.duplicate) {
+        const tenure = o.emiOptions?.find((e) => e.id === emiOptionId)?.tenureMonths ?? o.emiOptions?.find((e) => e.recommended)?.tenureMonths;
+        const partner = offerPartner(o);
+        upshotEvent('offer_selected', {
+          apr: o.apr, amount: o.amount,
+          ...(typeof tenure === 'number' ? { tenureMonths: tenure } : {}),
+          ...(partner ? { partner } : {}),
+          ...(o.offerType ? { offerType: o.offerType } : {}),
+          ...(o.offerLikelihood ? { offerLikelihood: o.offerLikelihood } : {}),
+        });
+      }
+      return r;
+    }),
+  // Record the app-side outcome of a lender web flow: 'success' | 'failed' |
+  // 'error'. Sets the application's internalStatus (shown as its own state in My
+  // Loans); failed/error also mark the lender status failed. Pass
+  // lenderApplicationId to target the exact application (falls back to latest).
+  reportLenderOutcome: (id: string, offerId: string, outcome: 'success' | 'failed' | 'error', reason?: string, lenderApplicationId?: string | null) =>
+    request('POST', `/applications/${id}/offers/${offerId}/outcome`, {
+      outcome,
+      ...(reason ? { reason } : {}),
+      ...(lenderApplicationId ? { lenderApplicationId } : {}),
+    }),
+  // Back-compat: mark a per-lender application failed. Prefer reportLenderOutcome.
+  failApplication: (id: string, offerId: string, reason?: string, lenderApplicationId?: string | null) =>
+    request('POST', `/applications/${id}/offers/${offerId}/fail`, {
+      ...(reason ? { reason } : {}),
+      ...(lenderApplicationId ? { lenderApplicationId } : {}),
+    }),
   handoff: (id: string) => request('POST', `/applications/${id}/handoff`),
+
+  // Alternative-offers facility (Yubi/YMPL). On tapping the "Alternative offers"
+  // tile the app mints a fresh partner redirect URL to open in the in-app
+  // WebView. Always resolves (never throws for a graceful tile): check
+  // `.altOffer.available`.
+  altOfferRedirect: (
+    applicationId: string,
+  ): Promise<{
+    altOffer: {
+      available: boolean; provider: string; status: string; redirectUrl: string | null;
+      pan?: string | null;
+      // The funnel details we already hold, to prefill YMPL's hosted journey.
+      prefill?: Record<string, string | number | null>;
+      // When true, offers already exist and the journey resumes straight to its
+      // offers page — the app keeps its loader up until offers show.
+      resumeToOffers?: boolean;
+      journeyStatus?: string | null;
+    };
+  }> =>
+    request('POST', `/applications/${applicationId}/alt-offer`),
+
+  // Record that the applicant tapped "Proceed" on the Yubi/YMPL offers page, so
+  // it surfaces in My Loans with its date/time. Fire-and-forget.
+  // Idempotent: the partner page re-emits "Proceed" on every resume (its own
+  // auto-advance programmatically clicks Proceed), so we record + let the caller
+  // toast only once per application per session. The server also stamps
+  // appliedAt only once, so a duplicate POST is harmless either way.
+  altOfferApplied: async (applicationId: string, lender?: string): Promise<{ applied: boolean; appliedAt: string | null; lender: string | null; alreadyApplied: boolean }> => {
+    if (_appliedAltOffers.has(applicationId)) {
+      return { applied: true, appliedAt: null, lender: lender ?? null, alreadyApplied: true };
+    }
+    _appliedAltOffers.add(applicationId);
+    try {
+      const r = await request<{ applied: boolean; appliedAt: string | null; lender: string | null }>(
+        'POST', `/applications/${applicationId}/alt-offer/applied`, lender ? { lender } : {},
+      );
+      return { ...r, alreadyApplied: false };
+    } catch (e) {
+      _appliedAltOffers.delete(applicationId); // let a later Proceed retry on failure
+      throw e;
+    }
+  },
+
+  // Client feature flags (public). Fetched on launch to decide whether the
+  // "Alternative offers" tile is shown at all.
+  features: (): Promise<{ data: { altOffers: boolean } }> => request('GET', '/config/features'),
 
   // KYC / loans / misc
   submitKyc: (method: 'aadhaar' | 'pan' | 'bank' | 'selfie', payload: Record<string, unknown> = {}) =>
@@ -161,9 +662,18 @@ export const api = {
   getLoan: (id: string) => request('GET', `/loans/${id}`),
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
-  preApprovedPlans: (): Promise<{ data: PreApprovedPlan[] }> => request('GET', '/preapproved-plans'),
+  marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
+  // Firm "pre-approved for you" offers shown at the top of Home on login. Auth'd,
+  // active + unexpired, admin-ordered. Amounts in paise.
+  prequalifyingOffers: (): Promise<{ data: PrequalifyingOffer[] }> => request('GET', '/prequalifying-offers'),
+  // Admin-tunable nudge timers (public). The app fetches this on launch/foreground.
+  nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
+  // Friend referrals — the signed-in user's own code + the people they invited.
+  referralMe: () => request('GET', '/referrals/me'),
+  redeemReferral: (code: string, downloadId?: string | null, matchMethod?: string | null) =>
+    request('POST', '/referrals/redeem', { code, download_id: downloadId ?? null, match_method: matchMethod ?? null }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>
     request('POST', '/support/tickets', { subject, type, body }),
 };
@@ -172,19 +682,26 @@ export const api = {
 // Fire-and-forget instrumentation feeding the admin dashboard's funnel/analytics.
 // These NEVER throw and NEVER block the UI — every call is wrapped and swallowed.
 //
-// Tracking posts to the deployed API by default so events from a physical device
-// reach the live dashboard. Override with (globalThis).SWIFTLOAN_TRACK_BASE for
-// local testing, e.g. 'http://10.0.2.2:4000/api'.
+// Tracking posts to the same deployed dev API as everything else by default,
+// so events from a physical device reach the live dashboard. Override with
+// (globalThis).SWIFTLOAN_TRACK_BASE for local testing, e.g. 'http://10.0.2.2:4000/api'.
 export const TRACK_BASE: string =
   (globalThis as any).SWIFTLOAN_TRACK_BASE ||
   (globalThis as any).SWIFTLOAN_API_BASE ||
-  'https://swiftloan-api.onrender.com/api';
+  'http://dev-api.swiftloan.ai/api';
 
 let sessionId: string | null = null;
 export const getSessionId = () => sessionId;
 
 // Low-level fire-and-forget POST. Short timeout; errors are silently ignored.
+// The calls that are made BEFORE anyone is signed in: install attribution (the old per-process
+// /track/install and the current first-launch /attribution/claim). Everything else needs a session.
+const ANONYMOUS_TRACK_PATHS: ReadonlySet<string> = new Set(['/track/install', '/attribution/claim', '/attribution/resume']);
+
 function trackPost(path: string, body: Record<string, unknown>): Promise<any> {
+  // Activity is only tracked for a signed-in user (the server drops it otherwise, so
+  // don't even send it). Install attribution is the anonymous exception.
+  if (!accessToken && !ANONYMOUS_TRACK_PATHS.has(path)) return Promise.resolve({});
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : null;
   return fetch(TRACK_BASE + path, {
@@ -242,6 +759,44 @@ export function trackInstall(
   });
 }
 
+export interface InstallClaim {
+  matched: boolean;
+  method: 'play_referrer' | 'clipboard' | 'ip_window' | null;
+  download_id: string;
+  source: string;
+  referral: { code: string; referrer_name: string } | null;
+  /** Set when the install matched the link of a website visitor who left their application unfinished. */
+  resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null;
+}
+
+/**
+ * Install attribution: report the first launch and learn which link (if any) sent
+ * this install. Replaces trackInstall for new installs — the server records exactly
+ * one AppDownload per claim, matched or not. Resolves null on failure so the caller
+ * can leave the "claimed" flag unset and try again on the next launch.
+ */
+export async function claimInstall(
+  platform: string,
+  signals: { installReferrer?: string | null; clipboard?: string | null; osVersion?: string | null } = {},
+): Promise<InstallClaim | null> {
+  const r = await trackPost('/attribution/claim', {
+    platform,
+    install_referrer: signals.installReferrer ?? null,
+    clipboard: signals.clipboard ?? null,
+    os_version: signals.osVersion ?? null,
+  });
+  return r?.success && r.data ? (r.data as InstallClaim) : null;
+}
+
+/**
+ * The app was opened from a website visitor's own link (swiftloan://onboard?token=…): the saved journey for that
+ * reference ID, or null when there is none (unknown, stale, or the network is down).
+ */
+export async function resumeFromLink(token: string): Promise<{ token: string; first_name: string | null; phone: string; last_step: string } | null> {
+  const r = await trackPost('/attribution/resume', { token });
+  return r?.success && r.data?.resume ? r.data.resume : null;
+}
+
 export function trackEvent(
   eventType: string,
   eventName: string,
@@ -284,14 +839,17 @@ export async function uploadAvatar(
   const { uploadUrl, publicUrl } = await api.presignAvatarUpload(contentType);
   const fileRes = await fetch(fileUri);
   const blob = await fileRes.blob();
-  // x-amz-acl must match exactly what the server signed (public-read) or S3
-  // rejects the upload as a signature mismatch.
+  // No x-amz-acl: the bucket's Object Ownership is "Bucket owner enforced"
+  // (rejects any ACL) and public read is already granted via bucket policy,
+  // not per-object ACLs — matches the presign command's own PutObjectCommand.
   const putRes = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'content-type': contentType, 'x-amz-acl': 'public-read' },
+    headers: { 'content-type': contentType },
     body: blob as any,
   });
-  if (!putRes.ok) throw new Error(`Photo upload failed (${putRes.status})`);
+  // ApiError (not a plain Error) so the caller's `e instanceof ApiError` check
+  // in profile.tsx actually shows this reason instead of a generic fallback.
+  if (!putRes.ok) throw new ApiError(putRes.status, `Photo upload failed (${putRes.status})`);
   const { user }: any = await api.confirmAvatar(publicUrl);
   return user;
 }
@@ -359,28 +917,45 @@ export interface UserContextInquiry {
 
 export interface UserContext {
   hasHistory: boolean;
-  name: string | null;
-  city: string | null;
-  email: string | null;
-  stage: string | null;
-  stageLabel: string | null;
-  nextAction: string | null;
-  inquiries: UserContextInquiry[];
-  lastCall: {
-    at: string;
-    outcome: string | null;
-    outcomeSource: string | null;
-    summary: string | null;
-    answered: boolean;
-    durationSec: number | null;
+  /** The signed-in account's own details — null only when there is no userId. */
+  profile: {
+    name: string | null;
+    email: string | null;
+    phone: string;
+    dob: string | null;
+    gender: string | null;
+    city: string | null;
+    pincode: string | null;
+    employment: string | null;
+    monthlyIncome: number | null;
+    panOnFile: boolean;
   } | null;
+  /** The rest of what save_applicant_details collects, synced server-side. See userContext.ts. */
+  applicantDraft: {
+    residenceType: string | null; maritalStatus: string | null; qualification: string | null;
+    company: string | null; loanPurpose: string | null; loanAmount: number | null;
+    salaryMode: string | null; professionalType: string | null; companyEmail: string | null;
+    businessEmail: string | null; addressLine1: string | null; addressLine2: string | null;
+    landmark: string | null; district: string | null; state: string | null;
+    monthlyObligations: number | null; alternateMobile: string | null; alternateEmail: string | null;
+  } | null;
+  /** The one clear, customer-facing signal: where this user's loan application stands. */
+  applicationStatus: string | null;
+  applicationStatusLabel: string;
+  inquiries: UserContextInquiry[];
   application: {
     id: string; ref: string; status: string;
-    amount: number | null; loanType: string | null; offerCount: number;
+    amount: number | null; loanType: string | null; tenureMonths: number | null;
+    offers: Array<{
+      lenderName: string | null; apr: number | null; amount: number | null; emi: number | null;
+      applied: boolean; status: string | null; statusLabel: string | null;
+    }>;
   } | null;
-  loan: { id: string; principal: number | null; status: string | null } | null;
-  /** One-line brief the agent can open from. */
-  brief: string | null;
+  loan: {
+    id: string; ref: string; partnerName: string | null;
+    principal: number | null; apr: number | null; tenureMonths: number | null;
+    emiAmount: number | null; status: string | null; outstanding: number | null;
+  } | null;
 }
 
 /**
@@ -392,7 +967,23 @@ export async function fetchUserContext(): Promise<UserContext | null> {
   try {
     const json = await request<{ data?: UserContext }>('GET', '/context/me');
     const data = (json as any)?.data ?? json;
-    return data && typeof data === 'object' && 'hasHistory' in data ? (data as UserContext) : null;
+    if (!data || typeof data !== 'object' || !('hasHistory' in data)) return null;
+    // Only used locally as a gating flag (see store.ts) — never forwarded to
+    // the voice agent itself; the pre-call get_user_context/lookup tool is
+    // what actually reaches Ello. Allowlisted to exactly the fields the core
+    // prompt's userContext section documents, rather than trusting whatever
+    // /context/me happens to return.
+    const d = data as UserContext;
+    return {
+      hasHistory: d.hasHistory,
+      profile: d.profile,
+      applicantDraft: d.applicantDraft,
+      applicationStatus: d.applicationStatus,
+      applicationStatusLabel: d.applicationStatusLabel,
+      inquiries: d.inquiries,
+      application: d.application,
+      loan: d.loan,
+    };
   } catch {
     return null;
   }

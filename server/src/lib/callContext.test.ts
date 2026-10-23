@@ -101,6 +101,26 @@ describe('LEAD_CALL_VARIABLES', () => {
     }
   });
 
+  it('supplies user_name so the prompt variable never renders blank', () => {
+    // {{user_name}} is declared in the outbound prompt; if it is not registered
+    // and populated here, the agent renders the placeholder literally.
+    expect(LEAD_CALL_VARIABLES).toContain('user_name');
+  });
+
+  it('covers every variable the outbound prompt references', () => {
+    const promptVars = [
+      'user_name',
+      'lead_name', 'lead_first_name', 'lead_city', 'lead_phone',
+      'lead_product', 'lead_amount', 'lead_amount_words', 'lead_submitted_ago',
+      'lead_source', 'lead_campaign',
+      'lead_stage', 'lead_summary', 'lead_next_action', 'lead_prior_inquiries', 'lead_is_returning',
+      'agent_purpose',
+      'conversation_history', 'conversation_count',
+      'stall_reason', 'stall_last_step', 'stall_expected_step', 'stall_minutes', 'stall_channel', 'stall_help',
+    ];
+    for (const v of promptVars) expect(LEAD_CALL_VARIABLES, v).toContain(v);
+  });
+
   it('has no duplicates — Ello would register the same name twice', () => {
     expect(new Set(LEAD_CALL_VARIABLES).size).toBe(LEAD_CALL_VARIABLES.length);
   });
