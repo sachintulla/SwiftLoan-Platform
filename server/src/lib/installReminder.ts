@@ -81,12 +81,16 @@ async function createReminder(
   cycle: number,
   startAt: Date,
   firstName: string | null,
+  unverified = false,
 ): Promise<JourneyReminder | null> {
   const customer = await prisma.customer.findUnique({ where: { phone: user.phone }, select: { id: true } });
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await prisma.journeyReminder.create({
-        data: { userId: user.id, customerId: customer?.id ?? null, phone: user.phone, token: newReferralCode(), firstName, cycle, startAt, nextCheckAt: startAt },
+        data: {
+          userId: user.id, customerId: customer?.id ?? null, phone: user.phone, token: newReferralCode(), firstName, cycle, startAt, nextCheckAt: startAt,
+          ...(unverified ? { unverified: true, lastStep: 'otp_requested' } : {}),
+        },
       });
     } catch (e) {
       if ((e as { code?: string }).code !== 'P2002') throw e; // only a token collision is worth retrying
@@ -95,7 +99,7 @@ async function createReminder(
   return null;
 }
 
-async function alreadyInApp(phone: string): Promise<boolean> {
+export async function alreadyInApp(phone: string): Promise<boolean> {
   const customer = await prisma.customer.findUnique({ where: { phone }, select: { id: true } });
   if (!customer) return false;
   const ev = await prisma.journeyEvent.findFirst({
@@ -113,6 +117,12 @@ export async function armInstallReminder(user: { id: string; phone: string }, no
   if (isReviewPhone(user.phone)) return null;
 
   const active = await prisma.journeyReminder.findFirst({ where: { userId: user.id, status: 'active' } });
+  if (active?.unverified) {
+    // They entered the code after all: the short "never entered it" run ends and the normal run starts. It does not use
+    // up one of the visitor's runs (same cycle number), and the normal run only begins sending once they go idle.
+    await prisma.journeyReminder.update({ where: { id: active.id }, data: { status: 'stopped', stopReason: 'verified' } });
+    return createReminder(user, active.cycle, now, active.firstName);
+  }
   if (active) {
     if (!active.droppedAt) {
       await prisma.journeyReminder.update({ where: { id: active.id }, data: { lastSeenAt: now } });
@@ -125,7 +135,7 @@ export async function armInstallReminder(user: { id: string; phone: string }, no
     return createReminder(user, active.cycle + 1, new Date(now.getTime() + timing.minutesMs('install.idleMinutes')), active.firstName);
   }
 
-  const last = await prisma.journeyReminder.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+  const last = await prisma.journeyReminder.findFirst({ where: { userId: user.id, unverified: false }, orderBy: { createdAt: 'desc' } });
   if (last) {
     if (last.status === 'completed') return null; // the full week already ran
     if (last.status === 'stopped' && last.stopReason !== 'returned') return null; // installed, finished, or asked us to stop
@@ -135,6 +145,20 @@ export async function armInstallReminder(user: { id: string; phone: string }, no
 
   const cycle = last ? last.cycle + 1 : 1;
   return createReminder(user, cycle, cycle === 1 ? now : new Date(now.getTime() + timing.minutesMs('install.idleMinutes')), last?.firstName ?? null);
+}
+
+/**
+ * Called when someone asks for a website OTP. If they never enter it, they get a SHORT sequence (Admin → Timings:
+ * "Messages for an OTP that was never entered"), once per number ever: anyone can type any number into the box, so
+ * we never repeat it and never send the full week. Not for a number that already has a reminder (verified before, or
+ * armed before), a number already in the app, or the store-review phone. The app's own OTP never comes here.
+ */
+export async function armUnverifiedReminder(user: { id: string; phone: string }, now: Date = new Date()): Promise<JourneyReminder | null> {
+  if (!timing.bool('install.unverifiedEnabled')) return null;
+  if (isReviewPhone(user.phone)) return null;
+  if (await prisma.journeyReminder.findFirst({ where: { userId: user.id }, select: { id: true } })) return null;
+  if (await alreadyInApp(user.phone)) return null;
+  return createReminder(user, 1, now, null, true);
 }
 
 /** The website tab pinged: the visitor is active right now. */
@@ -214,10 +238,13 @@ async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastSte
 export interface TickResult { scanned: number; stopped: number; dropped: number; handled: number; completed: number }
 
 async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | null, now: Date): Promise<{ reason: StopReason | null; lastStep: LastStep }> {
-  const [customer, application, click] = await Promise.all([
+  const [customer, application, click, appliedToLender] = await Promise.all([
     prisma.customer.findUnique({ where: { phone: r.phone }, select: { id: true, currentStage: true } }),
     prisma.loanApplication.findFirst({ where: { userId: r.userId }, orderBy: { updatedAt: 'desc' }, select: { status: true } }),
     prisma.appClick.findFirst({ where: { ref: r.token, status: 'matched' }, select: { id: true } }),
+    // The lender's own status webhook (what moves the application to 'handoff') may never arrive, so tapping Apply is the
+    // moment this stops saying "incomplete"; the "you applied with <lender>" messages (lenderNudge.ts) take over.
+    prisma.lenderApplication.findFirst({ where: { application: { userId: r.userId } }, select: { id: true } }),
   ]);
   const appLogin = customer
     ? !!(await prisma.journeyEvent.findFirst({
@@ -225,18 +252,24 @@ async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | 
         select: { id: true },
       }))
     : false;
-  const lastStep = deriveLastStep({ panOnFile: !!user?.panOnFile, hasApplication: !!application });
+  const lastStep = deriveLastStep({ panOnFile: !!user?.panOnFile, hasApplication: !!application, unverified: r.unverified });
   const reason = stopReason({
     doNotContact: customer?.currentStage === 'lost',
     installed: !!click,
     appLogin,
-    applicationFinished: isFinishedApplicationStatus(application?.status),
+    applicationFinished: isFinishedApplicationStatus(application?.status) || !!appliedToLender,
     returned: !!r.droppedAt && r.lastSeenAt.getTime() > r.droppedAt.getTime() + 60_000 && r.lastSeenAt <= now,
   });
   return { reason, lastStep };
 }
 
-async function processReminder(r: JourneyReminder, now: Date, out: TickResult, cfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {
+/** The rules for one row: the same as everyone's, except an unverified visitor has its own (short) schedule. */
+function configFor(r: Pick<JourneyReminder, 'unverified'>, cfg: ScheduleConfig): ScheduleConfig {
+  return r.unverified ? { ...cfg, steps: stepsFromRows(timing.schedule('install.unverifiedSchedule')) } : cfg;
+}
+
+async function processReminder(r: JourneyReminder, now: Date, out: TickResult, baseCfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {
+  const cfg = configFor(r, baseCfg);
   const user = await prisma.user.findUnique({ where: { id: r.userId }, select: { panOnFile: true } });
   const { reason, lastStep } = await stopReasonFor(r, user, now);
 
