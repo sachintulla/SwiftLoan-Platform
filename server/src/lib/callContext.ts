@@ -17,7 +17,7 @@
  */
 import type { Customer } from '@prisma/client';
 import { prisma } from './prisma.js';
-import { STAGE_LABELS } from './journey.js';
+import { STAGE_LABELS, journeyProgress } from './journey.js';
 import { nextActionFor } from './nextAction.js';
 
 /**
@@ -51,6 +51,14 @@ export const LEAD_CALL_VARIABLES = [
   'lead_source',
   'lead_campaign',
   'lead_stage',
+  // The DEFINED journey + where this customer sits in it, sent on every call so
+  // Ruby talks about the right step (not just the current stage label).
+  'lead_stage_key',
+  'lead_stage_number',
+  'lead_stage_total',
+  'lead_journey',
+  'lead_journey_done',
+  'lead_journey_next',
   'lead_summary',
   'lead_next_action',
   'lead_prior_inquiries',
@@ -171,6 +179,9 @@ export async function buildLeadCallContext(
 
   const str = (v: unknown): string => (v == null ? '' : String(v));
 
+  // Where the customer sits in the defined journey — sent on every call.
+  const journey = journeyProgress(customer.currentStage);
+
   return {
     // Prefer the registered account name; fall back to the lead's own name so
     // the variable resolves rather than rendering blank.
@@ -192,6 +203,14 @@ export async function buildLeadCallContext(
     lead_source: str(customer.firstSource),
     lead_campaign: str(customer.campaignId ?? customer.utmCampaign),
     lead_stage: STAGE_LABELS[customer.currentStage] ?? str(customer.currentStage),
+    // Full journey context (the defined funnel + progress) so the agent can say
+    // "you're at step 7 of 12, offers viewed, next is selecting an offer".
+    lead_stage_key: str(customer.currentStage),
+    lead_stage_number: journey.index ? String(journey.index) : '',
+    lead_stage_total: String(journey.total),
+    lead_journey: journey.line,
+    lead_journey_done: journey.done.join(', '),
+    lead_journey_next: journey.next ?? '',
     lead_summary: str(lead?.note),
     lead_next_action: nextActionFor(customer.currentStage),
     lead_prior_inquiries: priorCount ? String(priorCount) : '',

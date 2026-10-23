@@ -53,6 +53,36 @@ export function stageRank(stage: JourneyStage): number {
 }
 
 /**
+ * Where a customer sits in the DEFINED journey — the ordered funnel, what they
+ * have already completed, and what comes next. Sent as context on every Ruby
+ * call so the agent speaks about the right step instead of a generic opener.
+ * Off-path stages (rejected / lost) are described plainly with no position.
+ */
+export function journeyProgress(stage: JourneyStage): {
+  current: string;
+  currentKey: JourneyStage;
+  index: number; // 1-based position on the happy path, 0 when off-path
+  total: number;
+  done: string[];
+  next: string | null;
+  line: string; // one-line human brief for the prompt
+} {
+  const total = STAGE_ORDER.length;
+  const rank = stageRank(stage);
+  const current = STAGE_LABELS[stage] ?? String(stage);
+  if (rank === -1) {
+    return { current, currentKey: stage, index: 0, total, done: [], next: null, line: `Status: ${current}.` };
+  }
+  const done = STAGE_ORDER.slice(0, rank).map((s) => STAGE_LABELS[s]);
+  const next = rank + 1 < total ? STAGE_LABELS[STAGE_ORDER[rank + 1]] : null;
+  const line =
+    `Stage ${rank + 1} of ${total}: ${current}.` +
+    (done.length ? ` Completed: ${done.join(', ')}.` : '') +
+    (next ? ` Next step: ${next}.` : ' This is the final step.');
+  return { current, currentKey: stage, index: rank + 1, total, done, next, line };
+}
+
+/**
  * True when `next` is strictly further along than `current`. `rejected` and
  * `lost` are off the main line: they may always be entered (a customer can be
  * rejected at any point) but never left by an automatic advance.
