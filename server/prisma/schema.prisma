@@ -485,11 +485,13 @@ model PartnerReferral {
   appliedAt            DateTime?
   appliedLender        String? // lender the applicant proceeded with, if known
   lastStatus           String? // latest journeyStatus from Get Status (NEW_LEAD…)
+  lastStatusCheckedAt  DateTime? // last time the status poller pulled this from YMPL (throttle)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   @@index([applicationId])
   @@index([userId])
+  @@index([appliedAt, lastStatusCheckedAt])
 }
 
 // Revasure "Create Lead" integration — a THIRD lender group, run in parallel to

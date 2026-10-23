@@ -15,12 +15,16 @@ import type { ApplicationStatus } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { timing } from './timings.js';
 import { refreshApplicationStatus } from './statusRefresh.js';
+import { getReferralStatus, yubiEnabled } from './yubiReferral.js';
 import { scoped } from './log.js';
 
 const log = scoped('status-poll');
 
 const POLL_STATUSES: ApplicationStatus[] = ['handoff', 'under_review'];
 const BATCH = 40; // cap per tick so the lender is never hammered
+// Yubi journeyStatus values (substrings, case-insensitive) that mean the
+// referral is done — stop polling it.
+const YUBI_TERMINAL = ['disbursed', 'rejected', 'declined', 'closed'];
 
 /** IST minutes-after-midnight (the platform's business timezone). */
 function istMinutes(now: Date): number {
@@ -39,6 +43,12 @@ export function withinStatusPollHours(now: Date = new Date()): boolean {
 export async function statusPoller(): Promise<void> {
   if (!withinStatusPollHours()) return; // overnight / outside the window: skip
   const cutoff = new Date(Date.now() - timing.minutesMs('status.pollEveryMinutes'));
+  await pollAurix(cutoff);
+  await pollYubi(cutoff);
+}
+
+/** Knight Fintech (Aurix) applications in progress. */
+async function pollAurix(cutoff: Date): Promise<void> {
   const due = await prisma.loanApplication.findMany({
     where: {
       status: { in: POLL_STATUSES },
@@ -50,12 +60,39 @@ export async function statusPoller(): Promise<void> {
     take: BATCH,
   });
   if (!due.length) return;
-  log.info('polling due applications', { count: due.length });
+  log.info('polling aurix applications', { count: due.length });
   for (const a of due) {
     try {
       await refreshApplicationStatus(a.id);
     } catch (e) {
-      log.warn('poll failed', { applicationId: a.id, error: (e as Error).message });
+      log.warn('aurix poll failed', { applicationId: a.id, error: (e as Error).message });
     }
+  }
+}
+
+/** Yubi (YMPL) referrals the applicant proceeded with but that aren't final yet. */
+async function pollYubi(cutoff: Date): Promise<void> {
+  if (!yubiEnabled()) return;
+  const due = await prisma.partnerReferral.findMany({
+    where: {
+      provider: 'ympl',
+      appliedAt: { not: null },
+      OR: [{ lastStatusCheckedAt: null }, { lastStatusCheckedAt: { lt: cutoff } }],
+    },
+    orderBy: { lastStatusCheckedAt: { sort: 'asc', nulls: 'first' } },
+    select: { id: true, applicationId: true, userId: true, lastStatus: true },
+    take: BATCH,
+  });
+  const pollable = due.filter((r) => !YUBI_TERMINAL.some((t) => (r.lastStatus ?? '').toLowerCase().includes(t)));
+  if (!pollable.length) return;
+  log.info('polling yubi referrals', { count: pollable.length });
+  for (const r of pollable) {
+    try {
+      await getReferralStatus(r.applicationId, r.userId); // persists lastStatus itself
+    } catch (e) {
+      log.warn('yubi poll failed', { referralId: r.id, error: (e as Error).message });
+    }
+    // Stamp regardless of outcome so a failing call isn't retried every tick.
+    await prisma.partnerReferral.update({ where: { id: r.id }, data: { lastStatusCheckedAt: new Date() } }).catch(() => {});
   }
 }
