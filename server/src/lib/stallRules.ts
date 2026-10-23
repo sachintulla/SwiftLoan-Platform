@@ -19,6 +19,7 @@ import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from './callContext.js';
 import { agentIdFor } from './agents.js';
+import { isCallAllowed } from './callGate.js';
 import { directWhatsAppConfig, templateFor, sendStallWhatsApp, STALL_WA_MAX_AGE_HOURS } from './stallWhatsapp.js';
 import { directSmsConfig, smsFor, sendStallSms, STALL_SMS_MAX_AGE_HOURS } from './stallSms.js';
 
@@ -518,6 +519,12 @@ async function placeStallCall(
   now: Date,
 ): Promise<boolean> {
   if (!customer.phone) return false;
+
+  // Master switch + test-number allowlist (Admin → Timings). Off by default, so
+  // enabling a voice rule never dials anyone until the switch is on; while a
+  // test list is set, only those numbers ring. Checked before the window so a
+  // disabled/!allowed number is simply skipped, never queued.
+  if (!isCallAllowed(customer.phone)) return false;
 
   // Never dial outside the window. Returning false (rather than consuming the
   // idempotency key) leaves them eligible when the window opens.

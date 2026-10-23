@@ -13,6 +13,7 @@
 import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
+import { withinTestAllowlist } from './callGate.js';
 import { localParts } from './campaignSchedule.js';
 import { buildLeadCallContext, compactContext } from './callContext.js';
 import { agentIdFor } from './agents.js';
@@ -192,6 +193,13 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
 
   let placed = 0;
   for (const lead of leads) {
+    // Test-number allowlist (Admin → Timings calls.allowedNumbers). No-op in
+    // production (empty list = everyone); on a dev/staging box set to a couple
+    // of test phones it pins every call path to those numbers.
+    if (!withinTestAllowlist(lead.phone)) {
+      console.log(`[lead-call] ${lead.phone}: SKIP — not on the call test-number allowlist`);
+      continue;
+    }
     // Per-phone cooldown. `calls: { none: {} }` above already excludes anyone
     // this Customer row has called, but the same human can arrive as a second
     // Customer (different email, say) — this catches that by number. Shared
