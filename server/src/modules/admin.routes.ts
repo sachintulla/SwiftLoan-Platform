@@ -361,7 +361,7 @@ adminRouter.post('/loans/:id/refresh-status', requireRole(...CAN_WRITE), ah(asyn
     mappedStatus: r.mappedStatus,
     skipped: r.skipped ?? null,
     error: r.error ?? null,
-  }, r.changed ? 'Status updated from lender' : r.error ? 'Could not reach the lender' : r.skipped ? 'No lender record to pull' : 'Already up to date');
+  }, r.changed ? 'Status updated from lender' : r.error ? 'Could not reach the lender' : r.skipped === 'no_user' ? 'No customer on this application' : 'Already up to date — no change from the lender');
 }));
 
 // ─────────────────────────── onboarding ───────────────────────────
