@@ -22,7 +22,7 @@ describe('registry', () => {
       'install.resumeMaxAgeDays': 14, 'website.pingEverySeconds': 60, 'calling.windowStart': 540, 'calling.windowEnd': 1260,
       'calls.firstDelaySeconds': 20, 'calls.retryMinutes': 60, 'calls.maxAttempts': 3, 'calls.declineFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25,
       'auth.otpValidityMinutes': 5, 'auth.otpResendWindowMinutes': 10, 'auth.accessTokenMinutes': 15, 'auth.refreshTokenDays': 30, 'auth.websiteSessionMinutes': 120, 'auth.adminIdleMinutes': 30,
-      'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 5, 'referral.eligibleDays': 7,
+      'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 0, 'referral.eligibleDays': 7,
       'install.sendEnabled': false,
     };
     for (const [k, v] of Object.entries(want)) expect(defOf(k).def, k).toBe(v);

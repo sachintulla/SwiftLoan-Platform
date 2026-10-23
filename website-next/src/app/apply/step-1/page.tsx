@@ -7,7 +7,7 @@ import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
-import { fetchMe, verifyPan } from '@/lib/applyApi';
+import { fetchMe, verifyPan, patchProfile } from '@/lib/applyApi';
 import { savePanHandoff, maskPan } from '@/lib/panPrefill';
 import { scanPanFromImage } from '@/lib/panScan';
 import { useAccountUser } from '@/hooks/useAccountUser';
@@ -24,14 +24,6 @@ function isValidPan(v: string) {
  * here. Only the icon tone is chosen locally: red when the PAN itself failed,
  * amber when the service couldn't be reached / retry is the answer.
  */
-function alertFromError(e: unknown, fallback: string): AlertContent {
-  const status = (e as { status?: number })?.status;
-  return {
-    tone: status === 400 || status === 409 ? 'error' : 'warning',
-    message: e instanceof Error && e.message ? e.message : fallback,
-  };
-}
-
 export default function Step1PanPage() {
   const router = useRouter();
   const t = useCopy(applyFlowCopy).pan;
@@ -88,19 +80,35 @@ export default function Step1PanPage() {
     setVerified(false);
     window.scrollTo({ top: 0 });
     let succeeded = false;
+    // Seamless fallback when PAN auto-fill can't verify: keep the entered PAN on the
+    // profile (encrypted server-side — never persisted raw in the client hand-off) so
+    // offers can still run, save a masked hand-off with no prefill, and let the loader
+    // hand off to Step 2 for manual entry. No alert, no dead-end.
+    const attachPanAndContinue = async () => {
+      await patchProfile({ panNumber: pan }).catch(() => {});
+      savePanHandoff({ panMasked: maskPan(pan), prefill: {}, aadhaarLinked: null });
+      succeeded = true;
+      setVerified(true);
+    };
     try {
       // PAN Comprehensive (server-cached) → pre-fill for Step 2. The loader
       // runs for exactly as long as this takes, then finishes its ticks.
       const result = await verifyPan(pan);
       if (!result.verified) {
-        setAlert({ tone: 'error', message: result.message || t.fallbackError });
+        // PAN auto-fill is a best-effort BACKGROUND lookup — never block or alert the
+        // applicant when the bureau can't verify. Attach the PAN they entered to their
+        // profile (encrypted server-side; the raw PAN is never kept in the client
+        // hand-off) so offers can still run, then continue to Step 2 for manual entry
+        // with no prefill. Mirrors the app's basicpan "continue manually" fallback.
+        await attachPanAndContinue();
         return;
       }
       savePanHandoff({ panMasked: maskPan(pan), prefill: result.prefill ?? {}, aadhaarLinked: result.aadhaarLinked });
       succeeded = true;
       setVerified(true); // loader completes → goToDetails
-    } catch (e) {
-      setAlert(alertFromError(e, t.fallbackError));
+    } catch {
+      // Same seamless fallback for a technical/service error, rate-limit or network drop.
+      await attachPanAndContinue();
     } finally {
       // On success the loader stays up until it hands off to Step 2.
       if (!succeeded) setLoading(false);

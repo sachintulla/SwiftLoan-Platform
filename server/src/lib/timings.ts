@@ -314,9 +314,9 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'Offers are not fetched again from the lender within this time if the applicant\'s details did not change.',
   },
   {
-    key: 'pan.dailyLimit', group: 'tracking', kind: 'number', unit: 'count', def: 5, min: 1, max: 50, env: 'PAN_DAILY_LIMIT',
+    key: 'pan.dailyLimit', group: 'tracking', kind: 'number', unit: 'count', def: 0, min: 0, max: 50, env: 'PAN_DAILY_LIMIT',
     label: 'PAN checks per person per day',
-    help: 'Each check is a paid lender call; this stops one person from running many.',
+    help: 'Each check is a paid lender call. 0 = no limit (default). Set a positive number to cap how many one person can run per day.',
     warn: 'Every check costs money.',
   },
   {
