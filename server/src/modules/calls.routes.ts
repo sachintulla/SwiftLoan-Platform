@@ -15,6 +15,7 @@ import { resolveCustomer } from '../lib/journey.js';
 import { placeCall, normalisePhone } from '../lib/dialer.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from '../lib/callContext.js';
 import { agentIdFor } from '../lib/agents.js';
+import { getJobHeartbeats } from '../jobs/tracking.jobs.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('calls');
@@ -172,6 +173,66 @@ callsRouter.get('/', ah(async (req, res) => {
   ]);
 
   return ok(res, items, 'Calls', paginate(page, pageSize, total));
+}));
+
+// GET /api/admin/calls/overview — call volume + dialler-job heartbeats, so an
+// operator can see how many calls happened and whether the jobs (and thus Ruby,
+// the voice agent) are being triggered on their regular interval.
+// MUST be declared before '/:id', or 'overview' is parsed as a call id.
+callsRouter.get('/overview', ah(async (_req, res) => {
+  const nowMs = Date.now();
+  const since24 = new Date(nowMs - 24 * 3_600_000);
+  const since7d = new Date(nowMs - 7 * 86_400_000);
+
+  const [count24, count7d, byStatus, recent, purposeRows, perDayRows] = await Promise.all([
+    prisma.callAttempt.count({ where: { queuedAt: { gte: since24 } } }),
+    prisma.callAttempt.count({ where: { queuedAt: { gte: since7d } } }),
+    prisma.callAttempt.groupBy({ by: ['status'], where: { queuedAt: { gte: since7d } }, _count: { _all: true } }),
+    prisma.callAttempt.findMany({
+      where: { queuedAt: { gte: since7d } },
+      orderBy: { queuedAt: 'desc' },
+      take: 25,
+      select: {
+        id: true, phone: true, status: true, answered: true, outcome: true, queuedAt: true,
+        startedAt: true, providerConversationId: true, error: true, callContext: true, summary: true,
+      },
+    }),
+    prisma.$queryRaw<Array<{ purpose: string; n: bigint }>>`
+      SELECT COALESCE("callContext"->>'reason', '(unknown)') AS purpose, count(*)::bigint AS n
+      FROM "CallAttempt" WHERE "queuedAt" >= ${since7d} GROUP BY 1 ORDER BY n DESC`,
+    prisma.$queryRaw<Array<{ d: string; n: bigint }>>`
+      SELECT to_char("queuedAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS d, count(*)::bigint AS n
+      FROM "CallAttempt" WHERE "queuedAt" >= ${since7d} GROUP BY 1 ORDER BY d`,
+  ]);
+
+  const CALL_JOBS = ['status-call', 'step-stall', 'stage-stall', 'lead-autocaller', 'immediate-callback', 'call-reconcile'];
+  const jobs = getJobHeartbeats().map((h) => ({
+    ...h,
+    isCallJob: CALL_JOBS.includes(h.name),
+    healthy: h.lastRunAt ? nowMs - new Date(h.lastRunAt).getTime() <= h.everyMs * 2.5 : false,
+    overdueMs: h.lastRunAt ? nowMs - new Date(h.lastRunAt).getTime() : null,
+  }));
+
+  const recentMapped = recent.map((r) => {
+    const ctx = (r.callContext ?? {}) as Record<string, unknown>;
+    return {
+      id: r.id, phone: r.phone, status: r.status, answered: r.answered, outcome: r.outcome,
+      purpose: (ctx.reason as string) ?? null,
+      name: (ctx.lead_name as string) ?? null,
+      queuedAt: r.queuedAt, startedAt: r.startedAt,
+      providerConversationId: r.providerConversationId, error: r.error, summary: r.summary ?? null,
+    };
+  });
+
+  return ok(res, {
+    totals: { last24h: count24, last7d: count7d },
+    byStatus: byStatus.map((s) => ({ status: s.status ?? 'unknown', count: s._count._all })),
+    byPurpose: purposeRows.map((p) => ({ purpose: p.purpose, count: Number(p.n) })),
+    perDay: perDayRows.map((d) => ({ day: d.d, count: Number(d.n) })),
+    recent: recentMapped,
+    jobs,
+    generatedAt: new Date().toISOString(),
+  });
 }));
 
 // GET /api/admin/calls/:id
