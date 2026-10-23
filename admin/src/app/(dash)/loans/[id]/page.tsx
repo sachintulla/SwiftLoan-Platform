@@ -1,7 +1,8 @@
 'use client';
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
-import { swrFetcher } from '@/lib/api';
+import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatusBadge, LoanStatusBadge, StatCard, TableSkeleton } from '@/components/ui';
 import { inrRupees, dateStr, dateTimeStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
 import { LenderTrack, LenderRollup } from '@/components/journey';
@@ -15,7 +16,18 @@ const STAGES = ['draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handof
 export default function LoanDetail() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { data, isLoading } = useSWR(`/api/admin/loans/${id}`, swrFetcher);
+  const { data, isLoading, mutate } = useSWR(`/api/admin/loans/${id}`, swrFetcher);
+  const [pulling, setPulling] = useState(false);
+  const [pullMsg, setPullMsg] = useState<string | null>(null);
+
+  async function pullStatus() {
+    setPulling(true); setPullMsg(null);
+    const res = await apiFetch<{ changed: boolean }>(`/api/admin/loans/${id}/refresh-status`, { method: 'POST' });
+    setPullMsg(res.success ? (res.message || 'Done') : (res.error || 'Could not reach the lender'));
+    if (res.success) await mutate();
+    setPulling(false);
+  }
+
   const app = (data?.data as { application?: any; timeline?: any[] })?.application;
   const timeline = withoutNudgeEvents((data?.data as { timeline?: any[] })?.timeline ?? [], (e: any) => e.eventName);
 
@@ -50,7 +62,16 @@ export default function LoanDetail() {
           <h1 className="page-title">{app.ref} <LoanStatusBadge status={app.status} /></h1>
           <p className="page-sub">{app.user?.fullName} · {app.user?.phone} · applied {dateTimeStr(app.createdAt)}</p>
         </div>
+        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+          {pullMsg && <span className="muted" style={{ fontSize: 12.5, maxWidth: 240, textAlign: 'right' }}>{pullMsg}</span>}
+          <button className="btn" disabled={pulling} onClick={pullStatus} title="Fetch the latest status from the lender and update it here">
+            {pulling ? 'Pulling…' : '↻ Pull latest status'}
+          </button>
+        </div>
       </div>
+      {app.lastStatusCheckedAt && (
+        <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>Lender status last checked {timeAgo(app.lastStatusCheckedAt)} · {dateTimeStr(app.lastStatusCheckedAt)}</p>
+      )}
 
       <div className="stack">
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
