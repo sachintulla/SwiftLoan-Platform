@@ -201,6 +201,17 @@ export default function CustomerDetail() {
   const d = (data?.data ?? {}) as Detail;
   const c = d.customer;
 
+  const [deleting, setDeleting] = useState(false);
+  async function deleteCustomer() {
+    const who = c?.name || c?.phone || 'this customer';
+    if (!window.confirm(`Permanently delete ${who} and ALL their data (account, applications, calls, messages, journey)? This cannot be undone.`)) return;
+    setDeleting(true);
+    const res = await apiFetch(`/api/admin/customers/${id}`, { method: 'DELETE' });
+    if (res.success) { router.push('/customers'); return; }
+    alert(res.error || 'Delete failed');
+    setDeleting(false);
+  }
+
   // d.timeline is chronological (asc); the activity highlights below are
   // derived from it. The full, filterable log lives on /customers/:id/activity.
   const tl = withoutNudgeEvents(asArray<TimelineEntry>(d.timeline), (e) => e.name);
@@ -359,7 +370,12 @@ export default function CustomerDetail() {
 
   return (
     <div className="page">
-      <button className="btn" style={{ marginBottom: 14 }} onClick={() => router.push('/customers')}>← Back to customers</button>
+      <div className="row between wrap" style={{ marginBottom: 14, gap: 10 }}>
+        <button className="btn" onClick={() => router.push('/customers')}>← Back to customers</button>
+        <button className="btn" style={{ color: 'var(--red)', borderColor: 'var(--red)' }} disabled={deleting} onClick={deleteCustomer} title="Permanently erase this customer and all their data (super-admin only)">
+          {deleting ? 'Deleting…' : '🗑 Delete customer'}
+        </button>
+      </div>
 
       {/* ── who they are ───────────────────────────────────────────────────
           Two jobs, kept visually apart: the person (who they are, how to reach

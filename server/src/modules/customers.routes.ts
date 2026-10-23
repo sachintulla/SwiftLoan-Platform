@@ -16,6 +16,7 @@ import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, C
 import { STAGE_ORDER, STAGE_LABELS, TERMINAL_STAGES, CHANNEL_ENTRY_STAGES } from '../lib/journey.js';
 import { nudgeCustomer } from '../lib/dispatch.js';
 import { NEXT_ACTION_BY_STAGE, nextActionFor } from '../lib/nextAction.js';
+import { eraseCustomer } from '../lib/customerErasure.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('customers');
@@ -466,4 +467,15 @@ customersRouter.post('/:id/nudge', requireRole(...CAN_WRITE), validate(nudgeSche
 
   log.info('manual nudge queued', { customerId: customer.id, channel: body.channel, eventName: body.eventName ?? null, count: out.length });
   return created(res, out.length === 1 ? out[0] : out, 'Nudge queued');
+}));
+
+// DELETE /api/admin/customers/:id — full erasure (right to be forgotten) of a
+// customer: the CRM Customer row and all identifiable records tied to them, plus
+// the linked User account. Super-admin only (destructive, irreversible) and
+// audited by the router-wide auditAdmin middleware.
+customersRouter.delete('/:id', requireRole(...CAN_ADMINISTER), ah(async (req, res) => {
+  const result = await eraseCustomer(req.params.id);
+  if (!result.found) throw new HttpError(404, 'Customer not found');
+  log.warn('customer deleted by admin', { customerId: req.params.id, deletedUser: result.deletedUser });
+  return ok(res, result, result.deletedUser ? 'Customer and linked account deleted' : 'Customer deleted');
 }));

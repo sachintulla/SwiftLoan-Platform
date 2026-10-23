@@ -23,6 +23,7 @@
 import { loadPan, type SafeApplication, type SafeUser } from './storedPan.js';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
+import { recordApiLog } from './apiLog.js';
 
 const log = scoped('revasure');
 
@@ -90,8 +91,11 @@ async function postLead(
 ): Promise<{ ok: boolean; status: number; body: any; error?: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const url = `${cfg.baseUrl}/api/inbound/leads`;
+  const startedAt = Date.now();
+  let result: { ok: boolean; status: number; body: any; error?: string };
   try {
-    const res = await fetch(`${cfg.baseUrl}/api/inbound/leads`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.token}` },
       body: JSON.stringify(body),
@@ -100,13 +104,21 @@ async function postLead(
     const text = await res.text();
     let parsed: any = text;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
-    return { ok: res.ok, status: res.status, body: parsed, error: res.ok ? undefined : `HTTP ${res.status}` };
+    result = { ok: res.ok, status: res.status, body: parsed, error: res.ok ? undefined : `HTTP ${res.status}` };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? `timed out after ${timeoutMs}ms` : (e?.message || 'network error');
-    return { ok: false, status: 0, body: null, error: msg };
+    result = { ok: false, status: 0, body: null, error: msg };
   } finally {
     clearTimeout(timer);
   }
+  // Record this outbound call (swiftloan-api → Revasure) for the internal /logs page.
+  // Fire-and-forget + redacted; never affects the returned result.
+  recordApiLog({
+    direction: 'outbound', source: 'swiftloan-api', target: 'revasure', method: 'POST', url,
+    status: result.status || null, durationMs: Date.now() - startedAt,
+    requestBody: body, responseBody: result.body, error: result.error ?? null,
+  });
+  return result;
 }
 
 // ── Field helpers: derive from what we have, else seed a safe, valid default ──
