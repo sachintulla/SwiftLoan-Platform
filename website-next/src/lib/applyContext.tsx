@@ -15,6 +15,10 @@ export interface SelectedOffer {
 
 interface ApplyState {
   phone: string;
+  /** Name captured on the first screen, carried forward and editable later. */
+  name: string;
+  /** Desired loan amount in RUPEES, captured on the first screen. Editable later. */
+  amountRupees: number | null;
   applicationId: string | null;
   selectedOffer: SelectedOffer | null;
   sessionReady: boolean;
@@ -23,6 +27,8 @@ interface ApplyState {
 
 interface ApplyContextValue extends ApplyState {
   setPhone: (phone: string) => void;
+  setName: (name: string) => void;
+  setAmountRupees: (amount: number | null) => void;
   setApplicationId: (id: string | null) => void;
   setSelectedOffer: (offer: SelectedOffer | null) => void;
   setLoggedIn: (v: boolean) => void;
@@ -73,6 +79,8 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
   // below, in an effect (safe: effects only ever run on the client, after
   // hydration has already committed the matching, SSR-safe tree).
   const [phone, setPhoneState] = useState('');
+  const [name, setNameState] = useState('');
+  const [amountRupees, setAmountRupeesState] = useState<number | null>(null);
   const [applicationId, setApplicationIdState] = useState<string | null>(null);
   const [selectedOffer, setSelectedOfferState] = useState<SelectedOffer | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -87,6 +95,8 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     // without reading sessionStorage during render.
     const stored = readStored();
     if (stored.phone) setPhoneState(stored.phone);
+    if (stored.name) setNameState(stored.name);
+    if (stored.amountRupees != null) setAmountRupeesState(stored.amountRupees);
     if (stored.applicationId) setApplicationIdState(stored.applicationId);
     if (stored.selectedOffer) setSelectedOfferState(stored.selectedOffer);
 
@@ -100,6 +110,14 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     setPhoneState(v);
     writeStored({ phone: v });
   }, []);
+  const setName = useCallback((v: string) => {
+    setNameState(v);
+    writeStored({ name: v });
+  }, []);
+  const setAmountRupees = useCallback((v: number | null) => {
+    setAmountRupeesState(v);
+    writeStored({ amountRupees: v });
+  }, []);
   const setApplicationId = useCallback((v: string | null) => {
     setApplicationIdState(v);
     writeStored({ applicationId: v });
@@ -112,7 +130,7 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ApplyContext.Provider
-      value={{ phone, applicationId, selectedOffer, sessionReady, loggedIn, setPhone, setApplicationId, setSelectedOffer, setLoggedIn }}
+      value={{ phone, name, amountRupees, applicationId, selectedOffer, sessionReady, loggedIn, setPhone, setName, setAmountRupees, setApplicationId, setSelectedOffer, setLoggedIn }}
     >
       {children}
     </ApplyContext.Provider>
