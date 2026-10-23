@@ -160,6 +160,65 @@ describe('Upshot wrapper platform label', () => {
   });
 });
 
+describe('Upshot profile reaches the native bridge', () => {
+  /** Fake SDK that, like the iOS bridge, throws unless a callback is passed. */
+  const boot = () => {
+    const calls: Array<{ profile: any; cb: unknown }> = [];
+    const listeners: Record<string, (p: unknown) => void> = {};
+    const disable = jest.fn();
+    jest.resetModules();
+    jest.doMock('react-native', () => {
+      const rn = jest.requireActual('react-native');
+      return Object.setPrototypeOf({ Platform: { ...rn.Platform, OS: 'ios' }, NativeModules: { ...rn.NativeModules, UpshotReact: {} } }, rn);
+    });
+    jest.doMock('react-native-upshotsdk', () => ({
+      default: {
+        initializeUpshotUsingOptions: jest.fn(), setDispatchInterval: jest.fn(),
+        addListener: (e: string, cb: (p: unknown) => void) => { listeners[e] = cb; },
+        setUserProfile: (json: string, cb: unknown) => {
+          if (typeof cb !== 'function') throw new Error('argument must be a function. Got undefined');
+          calls.push({ profile: JSON.parse(json), cb });
+        },
+        disableUser: (cb: unknown) => {
+          if (typeof cb !== 'function') throw new Error('argument must be a function');
+          disable();
+        },
+      },
+    }), { virtual: true });
+    const up = require('../src/analytics/upshot');
+    expect(up.initUpshot()).toBe(true);
+    jest.dontMock('react-native');
+    jest.dontMock('react-native-upshotsdk');
+    return { up, calls, listeners, disable };
+  };
+
+  it('passes a callback, so the iOS bridge accepts the profile and App UID', () => {
+    const { up, calls } = boot();
+    up.upshotIdentify({ userId: 'u42', phone: '9999999999' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].profile).toMatchObject({ appuID: 'u42', phone: '+919999999999' });
+  });
+
+  it('re-sends the profile once Upshot authentication succeeds', () => {
+    const { up, calls, listeners } = boot();
+    up.upshotIdentify({ userId: 'u42', phone: '9999999999' });
+    listeners.UpshotAuthStatus({ status: false });
+    expect(calls).toHaveLength(1);
+    listeners.UpshotAuthStatus({ status: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[1].profile.appuID).toBe('u42');
+  });
+
+  it('logout calls disableUser with a callback and forgets the profile', () => {
+    const { up, calls, listeners, disable } = boot();
+    up.upshotIdentify({ userId: 'u42' });
+    up.upshotLogout();
+    expect(disable).toHaveBeenCalledTimes(1);
+    listeners.UpshotAuthStatus({ status: true });
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe('Upshot app events carry the surface label', () => {
   const eventFor = (os: 'ios' | 'android', name: string, attrs?: Record<string, unknown>) => {
     let sent: { name: string; payload: any } | undefined;

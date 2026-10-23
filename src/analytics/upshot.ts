@@ -50,10 +50,10 @@ type UpshotNative = {
   setDispatchInterval?: (seconds: number) => void;
   createPageViewEvent?: (screen: string, callback: () => void) => void;
   createCustomEvent?: (name: string, payload: string, isTimed: boolean, callback: () => void) => void;
-  setUserProfile?: (profileJson: string) => void;
+  setUserProfile?: (profileJson: string, callback: (ok: boolean) => void) => void;
   getUserId?: () => Promise<string>;
   getUserDetails?: () => Promise<unknown>;
-  disableUser?: (disable: boolean) => void;
+  disableUser?: (callback: (ok: boolean) => void) => void;
   // activities / IAM / gamification
   showActivityWithType?: (type: string) => void;
   showActivityWithId?: (id: string) => void;
@@ -160,6 +160,9 @@ export function initUpshot(): boolean {
     // until this fires, so surface it in dev.
     s.addListener?.('UpshotAuthStatus', (status) => {
       if (__DEV__) console.log('[upshot] auth', status);
+      // A profile sent before auth completes can be dropped, which left App UID
+      // blank for users identified during boot. Re-send it once auth succeeds.
+      if ((status as { status?: unknown } | null)?.status) resendProfile();
     });
     // Push lifecycle (iOS emits these from the native module; Android handles push in
     // SwiftLoanMessagingService). Debug-only visibility: the token itself is never logged.
@@ -261,6 +264,24 @@ const STAGE_AFTER_EVENT: Record<string, string> = { otp_requested: 'Otp Verifica
 let currentStage: string | null = null;
 /** The id the profile is keyed on, once known — the stage is only pushed to a profile that exists. */
 let identifiedUserId: string | null = null;
+/** The last full profile sent, replayed when auth completes (see UpshotAuthStatus). */
+let lastProfile: Record<string, unknown> | null = null;
+
+/**
+ * Both native bridges declare setUserProfile with a callback, and iOS's is a
+ * non-null RCTResponseSenderBlock: called without one, the bridge throws
+ * "argument must be a function" and the profile (App UID included) never left
+ * the phone. Always pass one.
+ */
+function sendProfile(profile: Record<string, unknown>): void {
+  safe(() => sdk()?.setUserProfile?.(JSON.stringify(profile), (ok) => devLog('profile uploaded', ok)));
+}
+
+function resendProfile(): void {
+  if (!lastProfile) return;
+  sendProfile(lastProfile);
+  pushStageToProfile();
+}
 
 export function currentUpshotStage(): string | null {
   return currentStage;
@@ -270,7 +291,7 @@ function pushStageToProfile(): void {
   const stage = currentStage;
   if (!stage || !identifiedUserId) return;
   const appuID = identifiedUserId;
-  safe(() => sdk()?.setUserProfile?.(JSON.stringify({ appuID, stage })));
+  sendProfile({ appuID, stage });
 }
 
 function setStage(stage: string | null | undefined): void {
@@ -284,6 +305,7 @@ function setStage(stage: string | null | undefined): void {
 export function __resetUpshotStageForTests(): void {
   currentStage = null;
   identifiedUserId = null;
+  lastProfile = null;
 }
 
 /** Screens that are never reported: the animated logo at launch carries no information. */
@@ -357,31 +379,32 @@ export function upshotIdentify(user: {
   // wrapper). Any other key is stored as a custom attribute, so the old
   // `appuid` / `Name` / `Email` / `Phone` left App UID and Name blank on the
   // dashboard. Platform / City / Country stay custom attributes.
-  safe(() =>
-    sdk()?.setUserProfile?.(
-      JSON.stringify({
-        appuID: user.userId,
-        firstName: parts[0],
-        lastName: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
-        userName: fullName || undefined,
-        email: user.email ?? undefined,
-        phone,
-        City: user.city ?? undefined,
-        Country: 'India',
-        Platform: PLATFORM,
-      }),
-    ),
-  );
+  const profile: Record<string, unknown> = {
+    appuID: user.userId,
+    firstName: parts[0],
+    lastName: parts.length > 1 ? parts.slice(1).join(' ') : undefined,
+    userName: fullName || undefined,
+    email: user.email ?? undefined,
+    phone,
+    City: user.city ?? undefined,
+    Country: 'India',
+    Platform: PLATFORM,
+  };
+  lastProfile = profile;
+  sendProfile(profile);
   // Now there is a profile: attach the step the user is on (and keep it current from here).
   identifiedUserId = user.userId;
   pushStageToProfile();
 }
 
-/** Upshot's logout is `disableUser(true)` — there is no `userLogout`. */
+/** Upshot's logout is `disableUser` — there is no `userLogout`. */
 export function upshotLogout(): void {
   identifiedUserId = null;
+  lastProfile = null;
   currentStage = null; // the next person on this device starts from no step
-  safe(() => sdk()?.disableUser?.(true));
+  // The native signature is disableUser(callback) on both platforms; passing a
+  // boolean threw on iOS (non-null block) and was ignored on Android.
+  safe(() => sdk()?.disableUser?.((ok) => devLog('user disabled', ok)));
 }
 
 /* ─────────── activities: IAM, surveys, mini-games, tutorials ─────────── */

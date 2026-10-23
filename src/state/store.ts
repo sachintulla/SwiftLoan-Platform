@@ -24,7 +24,7 @@ import { parseResume, agentResumeContext, type Resume, type ResumeStage } from '
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
-import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
@@ -1105,6 +1105,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
+
+  // Upshot identity for every signed-in user, including a login restored on
+  // launch. Previously only the OTP screen identified, so a returning user's
+  // profile (App UID, name, phone) never reached Upshot.
+  useEffect(() => {
+    const u = state.authUser;
+    if (!u?.id) return;
+    upshotIdentify({ userId: String(u.id), phone: u.phone, name: u.fullName, email: u.email });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.authUser?.id]);
 
   // Activity is only recorded for a signed-in user, so the session starts when one
   // appears (OTP verify, or a restored login on launch) — not at boot.

@@ -26,7 +26,8 @@ Two standalone APK variants are produced from one codebase, differing by the
 Upshot push on Android needs `android/app/google-services.json` (gitignored). Download it from
 the Firebase console (project `swiftloan-de051` > Project settings > Your apps > the
 `com.swiftloan.ai` Android app) and drop it in `android/app/` before building. Without it the
-build still succeeds, but the APK gets no push token and Gradle prints a warning.
+build fails, because the APK would have no push token ("Device Push Token: missing" in Upshot).
+For a local build that doesn't need push, pass `-PallowNoFirebase=true` to Gradle.
 
 Also check `src/config/build.ts` before building: `API_ENV` must be `'prod'` and `DEV_API_BASE`
 must be `''` for a production APK. Upshot follows this automatically — builds pointed at

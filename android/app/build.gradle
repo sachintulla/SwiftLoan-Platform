@@ -4,12 +4,21 @@ apply plugin: "com.facebook.react"
 // Firebase (FCM) is the push transport for Upshot, so push needs
 // android/app/google-services.json (Firebase project swiftloan-de051, one client per
 // applicationId — currently com.swiftloan.ai). The file is gitignored (get it from the
-// Firebase console: Project settings > Your apps). Without it the app still builds and
-// runs — it just has no push token — so a teammate/CI machine without the file is not blocked.
+// Firebase console: Project settings > Your apps).
+//
+// Without it FirebaseApp is never initialised, the Upshot SDK's token fetch throws
+// (caught and swallowed), and Upshot shows "Device Push Token: missing" for every
+// install. That used to be only a warning, which is how APKs shipped without push,
+// so the build now fails. A local build that doesn't need push can opt out with
+// `-PallowNoFirebase=true`.
 if (file("google-services.json").exists()) {
     apply plugin: "com.google.gms.google-services"
-} else {
+} else if (project.findProperty("allowNoFirebase") == "true") {
     logger.warn("google-services.json not found in android/app: building WITHOUT Firebase (no Upshot push token).")
+} else {
+    throw new GradleException(
+        "android/app/google-services.json is missing, so this APK would have no push token for Upshot. " +
+        "Add it from the Firebase console (project swiftloan-de051), or pass -PallowNoFirebase=true for a build that doesn't need push.")
 }
 
 /**
