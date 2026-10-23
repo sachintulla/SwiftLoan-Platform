@@ -25,9 +25,12 @@ const SENSITIVE_KEYS = new Set([
   'token', 'accesstoken', 'refreshtoken', 'idtoken', 'secret', 'apikey',
   'api_key', 'cvv', 'pin', 'authorization', 'prefill', 'maskedaadhaar',
   // Personal data + short-lived partner credentials
-  'phone', 'mobile', 'mobilenumber', 'email', 'dob', 'dateofbirth', 'fullname',
+  'phone', 'mobile', 'mobilenumber', 'email', 'emailid', 'dob', 'dateofbirth', 'fullname',
   'firstname', 'middlename', 'lastname', 'addressline1', 'addressline2',
-  'redirecturl', 'redirectionurl', 'rawauth', 'rawcreate', 'x-api-key',
+  // Partner-body variants (Revasure flat snake_case uses `pancard`/`email_id` etc;
+  // separators are stripped before matching, so mobile_number/full_name/date_of_birth all hit).
+  'pancard',
+  'redirecturl', 'redirectionurl', 'rawauth', 'rawcreate', 'xapikey',
 ]);
 
 function redact(value: unknown): unknown {
@@ -35,7 +38,10 @@ function redact(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = SENSITIVE_KEYS.has(k.toLowerCase()) ? '[redacted]' : redact(v);
+      // Normalise key before matching: lowercase and drop separators so snake_case
+      // (mobile_number), camelCase and PascalCase all collapse to the same token.
+      const norm = k.toLowerCase().replace(/[_-]/g, '');
+      out[k] = SENSITIVE_KEYS.has(norm) ? '[redacted]' : redact(v);
     }
     return out;
   }
@@ -123,15 +129,36 @@ export function stopApiLogRetention(): void {
 const SKIP = [/^\/logs\b/, /^\/api\/logs\b/, /^\/api\/health\b/, /^\/api\/ready\b/, /favicon/];
 
 /**
- * Express middleware — records each inbound API request + its JSON response.
+ * Express middleware — records each inbound API request + its response.
  * Mounted app-wide; captures direction "inbound" (app → swiftloan-api).
+ * Hooks res.json AND res.send so non-JSON responses — redirects (/dl?ref=),
+ * HTML, plain text, 204s — are logged too, not just JSON handlers. The actual
+ * write happens once on 'finish' so res.json→res.send delegation can't double-log.
  */
 export function apiLogMiddleware() {
   return (req: Request, res: Response, next: NextFunction) => {
     if (SKIP.some(rx => rx.test(req.originalUrl))) return next();
     const startedAt = Date.now();
+    let captured: unknown;
+    let haveBody = false;
+
     const originalJson = res.json.bind(res);
     res.json = (body: unknown) => {
+      captured = body; haveBody = true;
+      return originalJson(body);
+    };
+    const originalSend = res.send.bind(res);
+    res.send = (body: unknown) => {
+      // res.json/res.redirect delegate to res.send — keep the first (parsed) body.
+      if (!haveBody) { captured = body; haveBody = true; }
+      return originalSend(body);
+    };
+
+    let recorded = false;
+    res.on('finish', () => {
+      if (recorded) return;
+      recorded = true;
+      const location = res.getHeader('location');
       recordApiLog({
         direction: 'inbound',
         source: 'app',
@@ -141,10 +168,10 @@ export function apiLogMiddleware() {
         status: res.statusCode,
         durationMs: Date.now() - startedAt,
         requestBody: req.body,
-        responseBody: body,
+        responseBody: haveBody ? captured : undefined,
+        meta: location ? { redirect: String(location) } : undefined,
       });
-      return originalJson(body);
-    };
+    });
     next();
   };
 }
