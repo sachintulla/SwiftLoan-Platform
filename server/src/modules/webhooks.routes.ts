@@ -41,7 +41,15 @@ function webhookSecret(): string {
 }
 
 function providedSecret(req: import('express').Request): string {
-  return String(req.headers['x-webhook-secret'] ?? '') || String(req.headers['x-api-key'] ?? '');
+  // Header first; then ?key= / ?secret= query, because Ello POSTs to the bare
+  // hook_url and does not add our custom header — the secret rides in the URL
+  // we gave it (same pattern as the WhatsApp status webhook).
+  return (
+    String(req.headers['x-webhook-secret'] ?? '') ||
+    String(req.headers['x-api-key'] ?? '') ||
+    String((req.query.key as string) ?? '') ||
+    String((req.query.secret as string) ?? '')
+  );
 }
 
 export const webhooksRouter = Router();

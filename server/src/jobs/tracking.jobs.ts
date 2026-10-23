@@ -192,6 +192,50 @@ export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DI
 
 let timers: NodeJS.Timeout[] = [];
 
+/**
+ * In-memory heartbeat per job — lets the admin "Calls" page show whether the
+ * dialler jobs (and everything else) are actually ticking on schedule, i.e.
+ * whether Ruby is being triggered on a regular interval. In-process is enough:
+ * the jobs and the admin API run in the same Node process (in-process scheduler,
+ * and the BullMQ workers are started here too). Resets on restart, which is fine
+ * — "is it running right now?" is the question it answers.
+ */
+export interface JobHeartbeat {
+  name: string;
+  everyMs: number;
+  runs: number;
+  lastRunAt: string | null;
+  lastOkAt: string | null;
+  lastError: string | null;
+  lastDurationMs: number | null;
+}
+const heartbeats = new Map<string, JobHeartbeat>();
+
+export function getJobHeartbeats(): JobHeartbeat[] {
+  return [...heartbeats.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Run one job tick and record its heartbeat. Never throws. */
+async function runJobTracked(job: { name: string; fn: () => Promise<void>; everyMs: number }): Promise<void> {
+  const started = Date.now();
+  const hb: JobHeartbeat = heartbeats.get(job.name) ?? {
+    name: job.name, everyMs: job.everyMs, runs: 0, lastRunAt: null, lastOkAt: null, lastError: null, lastDurationMs: null,
+  };
+  hb.everyMs = job.everyMs;
+  try {
+    await job.fn();
+    hb.lastOkAt = new Date().toISOString();
+    hb.lastError = null;
+  } catch (e) {
+    hb.lastError = String((e as Error)?.message ?? e);
+  } finally {
+    hb.lastRunAt = new Date().toISOString();
+    hb.lastDurationMs = Date.now() - started;
+    hb.runs += 1;
+    heartbeats.set(job.name, hb);
+  }
+}
+
 // Start the maintenance jobs. Uses BullMQ if REDIS_URL is set, otherwise a simple
 // setInterval scheduler in-process (fine for a single API node / dev).
 export async function startJobs() {
@@ -215,7 +259,7 @@ export async function startJobs() {
       for (const job of jobs) {
         const q = new Queue(job.name, { connection });
         await q.add(job.name, {}, { repeat: { every: job.everyMs }, removeOnComplete: true, removeOnFail: true });
-        new Worker(job.name, async () => { await job.fn().catch(() => {}); }, { connection });
+        new Worker(job.name, async () => { await runJobTracked(job); }, { connection });
       }
       console.log(`[jobs] BullMQ scheduler started (${jobs.length} jobs) on Redis`);
       return;
@@ -226,8 +270,8 @@ export async function startJobs() {
   // Fallback: in-process interval scheduler.
   timers = jobs.map((job) => {
     // Run once shortly after boot, then on the interval.
-    setTimeout(() => { job.fn().catch(() => {}); }, 10_000);
-    return setInterval(() => { job.fn().catch(() => {}); }, job.everyMs);
+    setTimeout(() => { void runJobTracked(job); }, 10_000);
+    return setInterval(() => { void runJobTracked(job); }, job.everyMs);
   });
   console.log(`[jobs] in-process scheduler started (${jobs.length} jobs, no Redis)`);
 }
