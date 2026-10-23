@@ -157,6 +157,23 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'See "Calling hours start". Set start 00:00 and end 23:59 to turn the window off.',
   },
 
+  /* ───────────── B2. Lender status polling ───────────── */
+  {
+    key: 'status.pollEveryMinutes', group: 'hours', kind: 'number', unit: 'minutes', def: 120, min: 30, max: 720, env: 'STATUS_POLL_MINUTES',
+    label: 'Status poll interval',
+    help: 'How often the backend pulls each in-progress loan application’s latest status from the lender. Default: every 2 hours.',
+  },
+  {
+    key: 'status.windowStart', group: 'hours', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 540, min: 0, max: 1439, env: 'STATUS_POLL_WINDOW_START',
+    label: 'Status poll hours start',
+    help: 'Automatic status polling runs only between this time and the end time (India time). Default 9:00am.',
+  },
+  {
+    key: 'status.windowEnd', group: 'hours', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 1140, min: 0, max: 1439, env: 'STATUS_POLL_WINDOW_END',
+    label: 'Status poll hours end',
+    help: 'See "Status poll hours start". Default 7:00pm; polling is skipped overnight.',
+  },
+
   /* ───────────── C. Website lead → automatic call ───────────── */
   {
     key: 'calls.firstDelaySeconds', group: 'calls', kind: 'number', unit: 'seconds', def: 20, min: 0, max: 600, env: 'IMMEDIATE_CALLBACK_DELAY_SECONDS',

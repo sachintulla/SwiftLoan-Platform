@@ -9,6 +9,7 @@ import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
 import { purgeExpiredClicks } from '../lib/referral.js';
 import { installReminderTickThrottled } from '../lib/installReminder.js';
+import { statusPoller } from '../lib/statusPoller.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -166,6 +167,11 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'install-reminder', fn: async () => { await installReminderTickThrottled(); }, everyMs: 60_000 },
   // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
   { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
+  // Lender status poller: pulls each in-progress application's latest status
+  // from the lender. The 10-min tick only checks which applications are DUE;
+  // the actual cadence (default every 2h) and the 9am–7pm IST window are read
+  // live from Admin → Timings (status.pollEveryMinutes / status.window*).
+  { name: 'status-poll', fn: async () => { await statusPoller(); }, everyMs: 10 * 60_000 },
 ];
 
 // Kill switch for every outbound-nudge path: the stall detectors that create

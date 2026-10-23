@@ -241,6 +241,11 @@ model LoanApplication {
   // carries it, so subsequent journey webhooks match this application precisely.
   leadId String?
 
+  // Last time the backend pulled this application's live status from the lender
+  // (scheduled poller + admin "Pull latest status"). Throttles the poll so the
+  // lender isn't hammered; null = never polled.
+  lastStatusCheckedAt DateTime?
+
   // snapshot of applicant details at submission
   employment    EmploymentType?
   monthlyIncome Int?
@@ -266,6 +271,7 @@ model LoanApplication {
 
   @@index([userId, status])
   @@index([leadId])
+  @@index([status, lastStatusCheckedAt])
   @@index([userId, offersSignature])
 }
 
