@@ -133,7 +133,7 @@ It is one word. Send it to me and I set it in one line.
 |---|---|
 | Server integration config | `16471b38-…` |
 | Website | `0664adf7-9c55-4a5d-833a-c5c8fd3cf3f5` |
-| Mobile app | `aa5b7c7f-0ec1-4888-9bd8-35c210f0e5fb` |
+| Mobile app (Swiftloan_prod) | `f8ac8f46-ba91-4d54-a8de-da4546e85fdb` |
 
 Events fired from the website land in the website app; journeys built in a
 different app will never see them.

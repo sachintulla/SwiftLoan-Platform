@@ -14,8 +14,9 @@
  * import, so a missing package is a no-op instead of a red-screen at boot.
  */
 
-const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? "aa5b7c7f-0ec1-4888-9bd8-35c210f0e5fb";
-const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? "f3bf1d6f-5771-41f7-a6ff-640d3af4805e";
+// Defaults: Upshot production app "Swiftloan_prod".
+const APP_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_APP_ID ?? "f8ac8f46-ba91-4d54-a8de-da4546e85fdb";
+const OWNER_ID: string | null = (globalThis as any).SWIFTLOAN_UPSHOT_OWNER_ID ?? "6cfe2c70-4130-46d5-9202-54252d38e57f";
 
 /** Activity types Upshot can render (surveys, polls, trivia/mini-games…). */
 export type UpshotActivityType =
