@@ -10,6 +10,7 @@ import { fmtINR } from '@/lib/core';
 import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { patchProfile, createApplication, fetchMe, getApplication, patchApplication, type PanPrefill } from '@/lib/applyApi';
+import { updateLeadAmount } from '@/lib/leads';
 import { loadDraft, saveDraft } from '@/lib/applyDraft';
 import { loadPanHandoff, type PanHandoff } from '@/lib/panPrefill';
 import { useCopy } from '@/lib/i18n';
@@ -34,7 +35,7 @@ export default function Step2BasicsPage() {
   const router = useRouter();
   const t = useCopy(applyDetailsCopy);
   const accountUser = useAccountUser();
-  const { phone, applicationId, setApplicationId } = useApply();
+  const { phone, applicationId, name: ctxName, amountRupees: ctxAmount, setApplicationId, setName, setAmountRupees } = useApply();
   // Plain SSR-safe defaults — matches what the server renders. localStorage
   // only exists on the client, so reading it here (or at module scope) would
   // make the client's first render disagree with the server-rendered HTML and
@@ -97,6 +98,23 @@ export default function Step2BasicsPage() {
     if (draft.company) setCompany(draft.company);
     if (draft.salaryMode) setSalaryMode(draft.salaryMode);
   }, [phone]);
+
+  // Carry forward the name + amount captured on the FIRST screen, when the draft
+  // (and a loaded application) hasn't already set them. Guarded so it never
+  // clobbers what the visitor has since typed here or an existing application's
+  // amount: amount only seeds while still at the default, name only while empty.
+  useEffect(() => {
+    if (ctxAmount != null) setAmount((prev) => (prev === 325000 ? ctxAmount : prev));
+    if (ctxName) {
+      setFirstName((prev) => {
+        if (prev) return prev;
+        const parts = ctxName.trim().split(/\s+/);
+        if (parts.length > 1) setLastName((l) => l || parts.slice(1).join(' '));
+        return parts[0] ?? '';
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctxAmount, ctxName]);
 
   useEffect(() => {
     if (!applicationId) return;
@@ -243,6 +261,12 @@ export default function Step2BasicsPage() {
         residenceType: slug(residence),
       });
       setApplicationId(application.id);
+      // Keep the name + amount captured on the first screen in step with any edits
+      // made here: update the carried context and re-save the amount against the
+      // phone (the lead the voice agent reads). Best-effort — never block the save.
+      setName(`${firstName} ${lastName}`.trim());
+      setAmountRupees(amount);
+      if (phone) updateLeadAmount(phone, amount).catch(() => undefined);
       // Attach the verified PAN the server already holds (encrypted) — sets status pan_pending, as the old Step 3 did.
       if (panReadyRef.current) await patchApplication(application.id, { usePanOnFile: true });
       if (phone) {

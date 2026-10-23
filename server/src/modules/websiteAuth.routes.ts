@@ -12,6 +12,7 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
 import { armInstallReminder, armUnverifiedReminder } from '../lib/installReminder.js';
+import { markLatestInquiryVerified } from '../lib/inquiries.js';
 
 const log = scoped('websiteAuth');
 
@@ -88,6 +89,9 @@ websiteAuthRouter.post(
       source: 'website',
     });
     setRefreshCookie(res, tokens.refreshToken);
+    // This phone just completed OTP → mark their current inquiry as VERIFIED.
+    // Fire-and-forget; never blocks or fails the login.
+    markLatestInquiryVerified(user.phone).catch((e) => log.warn('mark inquiry verified failed', { error: (e as Error).message }));
     // Start the app-link reminders for this visitor (fire-and-forget; never blocks or fails the login).
     armInstallReminder({ id: user.id, phone: user.phone }).catch((e) => log.warn('arm install reminder failed', { error: (e as Error).message }));
     const { hasApplication, applicationId } = await findHasApplication(user.id);

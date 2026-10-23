@@ -7,6 +7,7 @@ import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
 import { fetchMe } from '@/lib/applyApi';
+import { submitLead, makeRefId } from '@/lib/leads';
 import { bootstrapSession, requestOtp } from '@/lib/session';
 import { useCopy } from '@/lib/i18n';
 import { applyFlowCopy } from '@/i18n/apply-flow';
@@ -16,11 +17,19 @@ const PHONE_RE = /^[6-9]\d{9}$/;
 export default function ApplyPhonePage() {
   const router = useRouter();
   const t = useCopy(applyFlowCopy).phone;
-  const { setPhone, setApplicationId } = useApply();
+  const { name, amountRupees, setPhone, setName, setAmountRupees, setApplicationId } = useApply();
   // True until we know whether a live login session already exists. Held so a
   // signed-in visitor never sees the phone form flash before being redirected.
   const [checking, setChecking] = useState(true);
   const [value, setValue] = useState('');
+  // Name + desired loan amount, captured here and saved against the phone. Seeded
+  // from context so a visitor who comes back (or edits later) keeps what they typed.
+  const [nameValue, setNameValue] = useState('');
+  const [amountValue, setAmountValue] = useState('');
+  useEffect(() => {
+    if (name) setNameValue(name);
+    if (amountRupees != null) setAmountValue(String(amountRupees));
+  }, [name, amountRupees]);
   // Must be an explicit opt-in, never pre-checked — same reasoning as the
   // Step 1 PAN-consent checkbox.
   const [terms, setTerms] = useState(false);
@@ -52,13 +61,24 @@ export default function ApplyPhonePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const valid = PHONE_RE.test(value) && terms;
+  const amountNum = Math.round(Number(amountValue.replace(/[^\d]/g, '')) || 0);
+  const valid = PHONE_RE.test(value) && terms && nameValue.trim().length >= 2 && amountNum > 0;
 
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
     setError(null);
     try {
+      // Save name + amount against the phone before OTP, so the detail carries
+      // into the journey and the voice agent has it. Best-effort: a lead-capture
+      // hiccup must never block sign-in. The amount is editable later (Step 2 /
+      // offers), which re-saves it.
+      setName(nameValue.trim());
+      setAmountRupees(amountNum);
+      submitLead(
+        { name: nameValue.trim(), phone: value, product: 'Personal Loan', amountRupees: amountNum },
+        makeRefId(),
+      ).catch(() => undefined);
       await requestOtp(value);
       setPhone(value);
       router.push('/apply/verify');
@@ -89,6 +109,36 @@ export default function ApplyPhonePage() {
 
         <div className="border-border rounded-2xl border bg-card p-5 text-left shadow-[var(--shadow-soft)]">
           <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-foreground font-semibold">{t.nameLabel}</span>
+            <div className="input-interactive flex h-11 items-center gap-2 rounded-xl px-3.5">
+              <input
+                type="text"
+                autoComplete="name"
+                placeholder={t.namePlaceholder}
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                className="field-input h-full w-full bg-transparent text-sm font-medium outline-none"
+              />
+            </div>
+          </label>
+
+          <label className="mt-4 flex flex-col gap-1.5 text-sm">
+            <span className="text-foreground font-semibold">{t.amountLabel}</span>
+            <div className="input-interactive flex h-11 items-center gap-2 rounded-xl px-3.5">
+              <span className="text-muted-foreground text-sm font-semibold">{t.amountPrefix}</span>
+              <input
+                type="tel"
+                inputMode="numeric"
+                placeholder={t.amountPlaceholder}
+                value={amountValue}
+                onChange={(e) => setAmountValue(e.target.value.replace(/[^\d]/g, '').slice(0, 9))}
+                onKeyDown={(e) => e.key === 'Enter' && submit()}
+                className="field-input h-full w-full bg-transparent text-sm font-medium outline-none"
+              />
+            </div>
+          </label>
+
+          <label className="mt-4 flex flex-col gap-1.5 text-sm">
             <span className="text-foreground font-semibold">{t.mobileLabel}</span>
             <div className="input-interactive flex h-11 items-center gap-2 rounded-xl px-3.5">
               <span className="text-muted-foreground text-sm font-semibold">+91</span>
