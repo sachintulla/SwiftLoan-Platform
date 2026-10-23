@@ -26,7 +26,7 @@ export interface RefreshResult {
   mappedStatus: ApplicationStatus | null;
   error?: string;
   record?: Record<string, unknown> | null;
-  skipped?: 'no_user' | 'no_lead';
+  skipped?: 'no_user';
 }
 
 export async function refreshApplicationStatus(
@@ -41,8 +41,9 @@ export async function refreshApplicationStatus(
 
   const user = await prisma.user.findUnique({ where: { id: full.userId } });
   if (!user) return { ok: false, changed: false, status: full.status, mappedStatus: null, skipped: 'no_user' };
-  // No Aurix lead id ⇒ nothing to query the lender with.
-  if (!full.leadId) return { ok: true, changed: false, status: full.status, mappedStatus: null, skipped: 'no_lead' };
+  // Aurix's Fetch Lead accepts multiple identifiers (partner customer id + offer
+  // code), so a missing leadId is NOT a reason to skip — mirror the app's own
+  // Refresh button, which always attempts the call with whatever it has.
 
   // Pick the lender application / offer to also advance (explicit from the
   // caller, else the most recent applied one).
@@ -68,7 +69,7 @@ export async function refreshApplicationStatus(
     }
 
     const result = await fetchAurixLeads(
-      { partnerCustomerId: full.userId, applicationId: full.leadId, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
+      { partnerCustomerId: full.userId, applicationId: full.leadId ?? undefined, offerCode: offer?.offerCode, productType: aurixProductType(full.loanType) },
       token,
     );
     record = result.records[0] ?? null;
