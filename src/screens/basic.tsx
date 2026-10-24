@@ -100,20 +100,26 @@ export default function Basic() {
       const user = r.user;
       if (!user) return;
       initialUserRef.current = user;
+      // When the user has just chosen to replace the PAN on file with a different
+      // one, do NOT pre-fill PAN-derived identity (name/DOB/gender/address) from the
+      // old account — the new PAN belongs to someone else, so showing their data
+      // would be wrong. Non-identity fields (email, income, employment, etc.) still
+      // pre-fill as usual.
+      const allowIdentityPrefill = !state.clearedForNewPan;
       // Name: prefer explicit first/last, but fall back to splitting the fullName
       // saved by the "Tell us about yourself" screen, so the user never re-types it.
       const nameParts = (user.fullName || '').trim().split(/\s+/).filter(Boolean);
-      if (!state.basicFirst) {
+      if (allowIdentityPrefill && !state.basicFirst) {
         if (user.firstName) set({ basicFirst: user.firstName });
         else if (nameParts.length) set({ basicFirst: nameParts[0] });
       }
-      if (!state.basicLast) {
+      if (allowIdentityPrefill && !state.basicLast) {
         if (user.lastName) set({ basicLast: user.lastName });
         else if (nameParts.length > 1) set({ basicLast: nameParts.slice(1).join(' ') });
       }
       if (!state.basicEmail && user.email) set({ basicEmail: user.email });
-      if (!state.basicPin && user.pincode) set({ basicPin: user.pincode });
-      if (!state.aboutGender && user.gender) set({ aboutGender: user.gender });
+      if (allowIdentityPrefill && !state.basicPin && user.pincode) set({ basicPin: user.pincode });
+      if (allowIdentityPrefill && !state.aboutGender && user.gender) set({ aboutGender: user.gender });
       if (!state.basicIncome && user.monthlyIncome) set({ basicIncome: String(user.monthlyIncome) });
       if (!state.basicCompany && user.company) set({ basicCompany: user.company });
       // The amount slider defaults to a placeholder (150000), not empty, so
@@ -125,9 +131,9 @@ export default function Basic() {
       if (!state.basicQualification && user.qualification) set({ basicQualification: user.qualification });
       if (!state.basicLoanPurpose && user.loanPurpose) set({ basicLoanPurpose: user.loanPurpose });
       if (!state.optSalaryMode && user.salaryMode) set({ optSalaryMode: user.salaryMode });
-      if (!state.optAddr1 && user.addressLine1) set({ optAddr1: user.addressLine1 });
-      if (!state.optCity && user.city) set({ optCity: user.city });
-      if (!state.optState && user.state) set({ optState: user.state });
+      if (allowIdentityPrefill && !state.optAddr1 && user.addressLine1) set({ optAddr1: user.addressLine1 });
+      if (allowIdentityPrefill && !state.optCity && user.city) set({ optCity: user.city });
+      if (allowIdentityPrefill && !state.optState && user.state) set({ optState: user.state });
       if (!state.basicRes && user.residenceType) {
         const label = RES_TYPES.find(r => RES_TYPE_SLUG[r] === user.residenceType);
         if (label) set({ basicRes: label });
@@ -136,8 +142,8 @@ export default function Basic() {
         const label = EMPS.find(e => EMP_SLUG[e] === user.employment);
         if (label) set({ basicEmp: label });
       }
-      if (!state.optAddr2 && user.addressLine2) set({ optAddr2: user.addressLine2 });
-      if (!dob && user.dob) {
+      if (allowIdentityPrefill && !state.optAddr2 && user.addressLine2) set({ optAddr2: user.addressLine2 });
+      if (allowIdentityPrefill && !dob && user.dob) {
         const d = new Date(user.dob);
         setDob({ y: d.getFullYear(), m: d.getMonth(), d: d.getDate() });
       }

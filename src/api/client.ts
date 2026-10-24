@@ -222,6 +222,12 @@ export interface PanVerifyResult {
   prefill: PanPrefill;
   message?: string;
   source: 'cache' | 'aurix';
+  // Account already has a verified PAN on file, and whether the one just entered
+  // is the same one. When a DIFFERENT PAN is on file, the app asks before letting
+  // the mismatched PAN (and the old account's identity data) go forward.
+  panOnFile?: boolean;
+  samePanOnFile?: boolean;
+  maskedPanOnFile?: string | null;
 }
 
 export class ApiError extends Error {

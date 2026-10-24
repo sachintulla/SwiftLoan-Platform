@@ -140,6 +140,9 @@ export default function BasicPan() {
       go('basic');
     };
 
+    // Each attempt starts clean: only a confirmed PAN replace (below) suppresses
+    // the details step's identity pre-fill.
+    set({ clearedForNewPan: false });
     setBusy(true);
     setVerified(false);
     let succeeded = false;
@@ -149,6 +152,36 @@ export default function BasicPan() {
       const result = await api.verifyPan(pan);
       mergeApiContext({ panValidationResult: { ok: result.verified, ...(result.verified ? {} : { error: result.message }) } });
       if (!result.verified) {
+        // A DIFFERENT PAN is already linked to this number. Carrying the entered
+        // (unverified) PAN straight through would land the user on the details
+        // step pre-filled with the account's EXISTING identity — i.e. the old
+        // PAN's holder. Ask whether to replace; only then clear that identity and
+        // continue. If it's the same PAN on file (a flaky re-check), or no PAN is
+        // on file, fall through to manual entry as before.
+        if (result.panOnFile && result.samePanOnFile === false) {
+          const masked = result.maskedPanOnFile ?? '';
+          Alert.alert(
+            t.panReplaceTitle,
+            t.panReplaceBody.replace('{pan}', masked),
+            [
+              { text: t.panReplaceCancel, style: 'cancel' },
+              {
+                text: t.panReplaceConfirm,
+                onPress: () => {
+                  // Clear PAN-derived identity so the old holder's data is never
+                  // shown for the new PAN; the flag keeps basic.tsx from re-filling it.
+                  set({
+                    clearedForNewPan: true,
+                    basicFirst: '', basicLast: '', aboutGender: '', basicPin: '',
+                    optAddr1: '', optAddr2: '', optCity: '', optState: '',
+                  });
+                  continueManually();
+                },
+              },
+            ],
+          );
+          return;
+        }
         // The bureau returned no usable record for this PAN (e.g. "No record
         // found for the given input"). Continue to manual entry rather than block.
         continueManually();
