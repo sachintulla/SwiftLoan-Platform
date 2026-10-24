@@ -1,7 +1,7 @@
 'use client';
 
 import { createPortal } from 'react-dom';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Clock } from 'lucide-react';
 import { useCopy } from '@/lib/i18n';
 import { applyShellCopy } from '@/i18n/apply-shell';
@@ -37,6 +37,7 @@ export function AlertDialog({
   onConfirm,
   confirmLabel,
   cancelLabel,
+  illustration,
 }: {
   open: boolean;
   content: AlertContent | null;
@@ -46,6 +47,8 @@ export function AlertDialog({
   onConfirm?: () => void;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Replaces the tone icon with a custom visual (e.g. the PAN-swap animation). */
+  illustration?: ReactNode;
 }) {
   const okRef = useRef<HTMLButtonElement>(null);
   const copy = useCopy(applyShellCopy);
@@ -78,9 +81,13 @@ export function AlertDialog({
         aria-describedby={content.title ? 'alert-message' : undefined}
         className="animate-in fade-in zoom-in-95 slide-in-from-bottom-4 border-border bg-card relative w-full max-w-sm rounded-3xl border p-6 text-center shadow-[var(--shadow-float)] duration-200 sm:p-7"
       >
-        <span className={`${ring} mx-auto grid h-14 w-14 place-items-center rounded-full`}>
-          <Icon className={`${icon} h-7 w-7`} />
-        </span>
+        {illustration ? (
+          <div className="mb-1">{illustration}</div>
+        ) : (
+          <span className={`${ring} mx-auto grid h-14 w-14 place-items-center rounded-full`}>
+            <Icon className={`${icon} h-7 w-7`} />
+          </span>
+        )}
         {content.title && (
           <h2 id="alert-title" className="text-foreground mt-4 text-lg font-extrabold">
             {content.title}
