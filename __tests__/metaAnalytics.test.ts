@@ -17,7 +17,7 @@ function load(opts: { token?: string; linked?: boolean; demo?: boolean; allowDem
   (globalThis as any).SWIFTLOAN_META_CLIENT_TOKEN = opts.token ?? '';
   (globalThis as any).SWIFTLOAN_META_ALLOW_DEMO = opts.allowDemo ?? false;
   jest.doMock('../src/config/build', () => ({ UPSHOT_DEMO: opts.demo ?? false }));
-  jest.doMock('react-native', () => ({ NativeModules: opts.linked === false ? {} : { FBSettings: {} } }));
+  jest.doMock('react-native', () => ({ NativeModules: opts.linked === false ? {} : { FBSettings: settings } }));
   jest.doMock('react-native-fbsdk-next', () => ({ Settings: settings, AppEventsLogger: { logEvent } }), { virtual: true });
   return require('../src/analytics/meta');
 }

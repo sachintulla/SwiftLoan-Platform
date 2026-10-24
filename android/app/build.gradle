@@ -138,6 +138,10 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
+    // Meta SDK core, declared here only so MainApplication can call FacebookSdk.sdkInitialize()
+    // (react-native-fbsdk-next pulls the SDK in as a private `implementation`). Same version it resolves to.
+    implementation("com.facebook.android:facebook-core:18.3.0")
+
     // ML Kit on-device Latin text recognition — powers the "Upload PAN photo"
     // OCR (PanOcrModule). Bundled model, no network / Play Services download.
     implementation("com.google.mlkit:text-recognition:16.0.1")
