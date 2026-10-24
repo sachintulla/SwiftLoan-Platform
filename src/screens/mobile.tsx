@@ -261,16 +261,54 @@ export default function Mobile() {
   );
 
   return (
-    <Screen variant="plain" scroll padded={false} contentStyle={{ paddingTop: 0 }}>
+    <Screen
+      variant="plain"
+      scroll
+      padded={false}
+      contentStyle={{ paddingTop: 0 }}
+      // Pin the primary action to the bottom so it's always visible — the intro
+      // pitch merged under the form would otherwise push "Send OTP" below the fold.
+      footer={
+        !otpSent ? (
+          <PrimaryButton label={busy ? t.mobileSending : t.mobileSendOtp} disabled={!sendEnabled} onPress={sendOtp} />
+        ) : (
+          <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
+        )
+      }
+    >
       <LoginHero onBack={() => go('privacy')} />
 
-      <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
+      <View style={{ paddingHorizontal: 24, marginTop: 2 }}>
         {!otpSent ? (
           <>
+            {/* Intro pitch (merged in from the removed intro screen): why SwiftLoan +
+                the trust stats, shown FIRST — the "Enter your mobile number" section
+                sits below it, just above the pinned Send OTP button. */}
+            <View style={styles.introWrap}>
+              <View style={styles.introBadge}>
+                <Icon name="verified_user" size={15} color={colors.primary} />
+                <Text style={[font(700), { fontSize: 11.5, color: '#0B6E6F' }]}>{t.introBadge}</Text>
+              </View>
+              {INTRO_FEATURES.map((f, i) => (
+                <View
+                  key={f.titleKey}
+                  style={[styles.introFeat, i < INTRO_FEATURES.length - 1 && { borderBottomWidth: 1, borderBottomColor: 'rgba(120,150,148,0.16)' }]}
+                >
+                  <View style={[styles.introTile, { backgroundColor: f.tile }]}>
+                    <Icon name={f.icon} size={22} color={f.tint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[font(800), { fontSize: 15, color: colors.text, letterSpacing: -0.15 }]}>{t[f.titleKey]}</Text>
+                    <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: '#6E8080', marginTop: 2 }]}>{t[f.descKey]}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+
             {/* On-screen instructions ("enter your number…") are for the user's eyes: if the agent
                 sees them it reads them aloud instead of asking naturally. */}
             <VoiceHidden>
-              <Text style={styles.h1}>{t.mobileTitle}</Text>
+              <Text style={[styles.h1, { marginTop: 24 }]}>{t.mobileTitle}</Text>
               <Text style={styles.sub}>{t.mobileSub}</Text>
             </VoiceHidden>
 
@@ -302,49 +340,28 @@ export default function Mobile() {
               </Text>
             </Pressable>
 
+            {/* Trust stats row — placed between the consent and the encryption note. */}
+            <View style={styles.introStatCard}>
+              {[
+                { v: '15+', l: t.introStat1 },
+                { v: '2 min', l: t.introStat2 },
+                { v: '0', l: t.introStat3 },
+              ].map((s, idx) => (
+                <React.Fragment key={s.l}>
+                  {idx > 0 ? <View style={styles.introStatDiv} /> : null}
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={[font(800), { fontSize: 20, color: colors.primary }]}>{s.v}</Text>
+                    <Text style={[font(500), { fontSize: 11, color: '#6E8080', marginTop: 2, textAlign: 'center' }]}>{s.l}</Text>
+                  </View>
+                </React.Fragment>
+              ))}
+            </View>
+
             <View style={styles.secureNote}>
               <Icon name="verified_user" size={16} color={colors.mint} />
               <Text style={styles.secureText}>
                 {t.mobileSecureNote}
               </Text>
-            </View>
-
-            {/* Intro pitch, merged in from the removed intro screen: why SwiftLoan +
-                the trust stats, below the number entry so the entry stays up top. */}
-            <View style={styles.introWrap}>
-              <View style={styles.introBadge}>
-                <Icon name="verified_user" size={15} color={colors.primary} />
-                <Text style={[font(700), { fontSize: 11.5, color: '#0B6E6F' }]}>{t.introBadge}</Text>
-              </View>
-              {INTRO_FEATURES.map((f, i) => (
-                <View
-                  key={f.titleKey}
-                  style={[styles.introFeat, i < INTRO_FEATURES.length - 1 && { borderBottomWidth: 1, borderBottomColor: 'rgba(120,150,148,0.16)' }]}
-                >
-                  <View style={[styles.introTile, { backgroundColor: f.tile }]}>
-                    <Icon name={f.icon} size={22} color={f.tint} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[font(800), { fontSize: 15, color: colors.text, letterSpacing: -0.15 }]}>{t[f.titleKey]}</Text>
-                    <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: '#6E8080', marginTop: 2 }]}>{t[f.descKey]}</Text>
-                  </View>
-                </View>
-              ))}
-              <View style={styles.introStatCard}>
-                {[
-                  { v: '15+', l: t.introStat1 },
-                  { v: '2 min', l: t.introStat2 },
-                  { v: '0', l: t.introStat3 },
-                ].map((s, idx) => (
-                  <React.Fragment key={s.l}>
-                    {idx > 0 ? <View style={styles.introStatDiv} /> : null}
-                    <View style={{ flex: 1, alignItems: 'center' }}>
-                      <Text style={[font(800), { fontSize: 20, color: colors.primary }]}>{s.v}</Text>
-                      <Text style={[font(500), { fontSize: 11, color: '#6E8080', marginTop: 2, textAlign: 'center' }]}>{s.l}</Text>
-                    </View>
-                  </React.Fragment>
-                ))}
-              </View>
             </View>
           </>
         ) : (
@@ -426,12 +443,8 @@ export default function Mobile() {
           </View>
         ) : null}
 
-        <View style={{ height: 22 }} />
-        {!otpSent ? (
-          <PrimaryButton label={busy ? t.mobileSending : t.mobileSendOtp} disabled={!sendEnabled} onPress={sendOtp} />
-        ) : (
-          <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
-        )}
+        {/* The Send OTP / Verify button is pinned in the Screen footer (above),
+            so it stays visible at the bottom — no inline copy here. */}
       </View>
     </Screen>
   );
@@ -474,7 +487,7 @@ const styles = StyleSheet.create({
   },
   secureText: { ...font(500), flex: 1, fontSize: 11.5, lineHeight: 17, color: '#4A6360' },
   // Intro pitch merged into the mobile screen (below the number entry).
-  introWrap: { marginTop: 26 },
+  introWrap: { marginTop: 0 },
   introBadge: {
     flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 7,
     backgroundColor: 'rgba(7,159,160,0.1)', borderWidth: 1, borderColor: 'rgba(7,159,160,0.18)',
