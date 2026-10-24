@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, PanResponder, Platform, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Path } from 'react-native-svg';
 import { activateKeepAwake, deactivateKeepAwake } from '@sayem314/react-native-keep-awake';
 import Icon from '../../components/Icon';
 import { colors, font, navGradient } from '../../theme/tokens';
@@ -164,108 +163,96 @@ function RobotHead() {
 }
 
 /**
- * In-call "liquid ring" — translucent teal/mint ribbons (app theme) that wave around the avatar,
- * each a closed loop whose radius ripples with its own wave count, speed and
- * phase, so they cross and weave like a living ring, over a soft green glow
- * (green only — there is deliberately no dark/black line in the ring). Only rendered while a call is live; the idle avatar is
- * still and the animation loop is fully stopped.
- *
- * State-driven (this client has no PCM level access):
- *   connecting → nearly round, slowly rotating (dialling)
- *   listening  → gentle, slow undulation
- *   speaking   → deep, fast waves — the ring "talks" with Ruby
- *   executing  → calm waves with a warm gold ribbon (working on it)
+ * Soft green glow behind the FAB while a call is live — gives the sonar rings
+ * (SonarRings) something to radiate from. Gently pulses (a touch stronger while
+ * speaking). The old weaving "liquid ring" was removed in favour of the cleaner
+ * sonar ripple that matches the reference.
  */
-const RIBBONS: { k: number; speed: number; phase: number; width: number; color: string; opacity: number }[] = [
-  // App theme: primary teal, mint, and a light aqua tint of the primary.
-  { k: 5, speed: 1.0, phase: 0, width: 5, color: colors.primary, opacity: 0.28 },
-  { k: 6, speed: -1.35, phase: 1.3, width: 3.5, color: colors.mint, opacity: 0.45 },
-  { k: 4, speed: 0.8, phase: 2.6, width: 2.8, color: colors.primary, opacity: 0.42 },
-  { k: 7, speed: -1.1, phase: 4.1, width: 2, color: '#7FD6D0', opacity: 0.55 },
-];
-
-const MOTION: Record<'connecting' | 'listening' | 'speaking' | 'executingTool', { amp: number; tempo: number; spin: number }> = {
-  connecting: { amp: 0.8, tempo: 0.6, spin: 1.2 },
-  listening: { amp: 2.2, tempo: 0.9, spin: 0.25 },
-  speaking: { amp: 4.2, tempo: 2.4, spin: 0.5 },
-  executingTool: { amp: 1.8, tempo: 1.1, spin: 0.35 },
-};
-
-/** Closed wavy loop: r(θ) = R + A·sin(kθ + φ), sampled finely enough to read as a smooth curve. */
-function wavyPath(cx: number, cy: number, R: number, A: number, k: number, phase: number, rot: number): string {
-  const N = 96;
-  let d = '';
-  for (let i = 0; i <= N; i++) {
-    const t = (i / N) * Math.PI * 2;
-    const r = R + A * Math.sin(k * t + phase);
-    const x = cx + r * Math.cos(t + rot);
-    const y = cy + r * Math.sin(t + rot);
-    d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2);
-  }
-  return d + 'Z';
-}
-
 function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.AnimatedInterpolation<number> | Animated.Value }) {
   const live = status !== 'idle' && status !== 'ended';
+  const tool = status === 'executingTool';
   const show = useRef(new Animated.Value(0)).current;
-  const [t, setT] = useState(0);
-  // Eased amplitude/tempo so switching listening ⇄ speaking morphs, not snaps.
-  const motion = useRef({ amp: 0, tempo: 0, spin: 0 });
+  const beat = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(show, { toValue: live ? 1 : 0, duration: live ? 380 : 280, useNativeDriver: true }).start();
   }, [live, show]);
 
   useEffect(() => {
-    if (!live) return undefined;
-    let raf = 0;
-    let last = Date.now();
-    let clock = 0;
-    let lastPaint = 0;
-    const tick = () => {
-      const now = Date.now();
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      const target = MOTION[status as keyof typeof MOTION] ?? MOTION.listening;
-      const m = motion.current;
-      const ease = 1 - Math.pow(0.02, dt); // ~0.2s settle
-      m.amp += (target.amp - m.amp) * ease;
-      m.tempo += (target.tempo - m.tempo) * ease;
-      m.spin += (target.spin - m.spin) * ease;
-      clock += dt;
-      if (now - lastPaint >= 33) { lastPaint = now; setT(clock); } // ~30fps repaint
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [live, status]);
+    if (!live) { beat.stopAnimation(() => beat.setValue(0)); return undefined; }
+    const d = status === 'speaking' ? 520 : 1300; // breathes faster while talking
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(beat, { toValue: 1, duration: d, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(beat, { toValue: 0, duration: d, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [live, status, beat]);
 
-  if (!live && t === 0) return null;
-  const m = motion.current;
-  const tool = status === 'executingTool';
-  const S = GLOW_SIZE;
-  const c = S / 2;
-  // Geometry is in the ball's base (floating) size; the whole ring is then
-  // scaled with the ball (see `scale`), so it hugs it at every size.
-  const R = FAB_SIZE / 2 + 5;
-  const beat = 1 + (status === 'speaking' ? 0.08 : 0.03) * Math.sin(t * (status === 'speaking' ? 7 : 2.4));
+  if (!live) return null;
+  const blobScale = beat.interpolate({ inputRange: [0, 1], outputRange: [1, 1 + (status === 'speaking' ? 0.1 : 0.04)] });
 
   return (
     <Animated.View pointerEvents="none" style={[styles.glowWrap, { opacity: show, transform: [{ scale }] }]}>
-      <View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: beat }] }]} />
-      <Svg width={S} height={S}>
-        {RIBBONS.map((rb, idx) => (
-          <Path
-            key={idx}
-            d={wavyPath(c, c, R * beat, m.amp * (0.7 + 0.3 * ((idx % 2) + 1) / 2), rb.k, rb.phase + t * m.tempo * rb.speed, t * m.spin * (idx % 2 ? -1 : 1))}
-            stroke={tool && idx === 2 ? '#F4B45C' : rb.color}
-            strokeOpacity={rb.opacity}
-            strokeWidth={rb.width}
-            strokeLinejoin="round"
-            fill="none"
-          />
-        ))}
-      </Svg>
+      <Animated.View style={[styles.glowBlob, { shadowColor: tool ? '#F4B45C' : colors.primary, transform: [{ scale: blobScale }] }]} />
+    </Animated.View>
+  );
+}
+
+/**
+ * Sonar rings — concentric teal rings that expand outward from the avatar and fade,
+ * like the reference. Only while a call is live. The spread differs by turn:
+ *   speaking  → rings travel FAR and fast (Ruby is talking)
+ *   listening → rings stay CLOSE and gentle (less spread, waiting on the user)
+ * Native-driven (scale + opacity), staggered so it reads as a continuous ripple.
+ */
+const SONAR_COUNT = 3;
+function SonarRings({ status, scale }: { status: AgentStatus; scale: Animated.AnimatedInterpolation<number> | Animated.Value }) {
+  const live = status !== 'idle' && status !== 'ended';
+  const speaking = status === 'speaking';
+  const rings = useRef(Array.from({ length: SONAR_COUNT }, () => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    if (!live) {
+      rings.forEach((r) => { r.stopAnimation(() => r.setValue(0)); });
+      return undefined;
+    }
+    const dur = speaking ? 1500 : 2300; // speaking ripples faster
+    const loops = rings.map((r, i) => {
+      r.setValue(0);
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay((i * dur) / SONAR_COUNT),
+          Animated.timing(r, { toValue: 1, duration: dur, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        ]),
+      );
+    });
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+    // Restart with new pacing/spread when the turn flips listening ⇄ speaking.
+  }, [live, speaking, rings]);
+
+  if (!live) return null;
+  // Speaking spreads wide; listening stays tight (the requested difference).
+  const maxScale = speaking ? 2.9 : 1.85;
+  const startOpacity = speaking ? 0.5 : 0.4;
+
+  return (
+    <Animated.View pointerEvents="none" style={[styles.glowWrap, { transform: [{ scale }] }]}>
+      {rings.map((r, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            styles.sonarRing,
+            {
+              opacity: r.interpolate({ inputRange: [0, 1], outputRange: [startOpacity, 0] }),
+              transform: [{ scale: r.interpolate({ inputRange: [0, 1], outputRange: [1, maxScale] }) }],
+            },
+          ]}
+        />
+      ))}
     </Animated.View>
   );
 }
@@ -703,6 +690,9 @@ export default function VoiceWidget() {
           pointerEvents="none"
           style={[styles.entranceBurst, { opacity: burstOpacity, transform: [{ scale: burstScale }] }]}
         />
+        {/* Sonar ripple (reference video): expanding rings, wide while speaking,
+            tight while listening. Behind the glow/avatar so it radiates from under. */}
+        <SonarRings status={status} scale={Animated.multiply(sizeScale, entranceScale)} />
         {/* Same size transform as the ball (notch 70pt ⇄ floating 50/60pt),
             so the ring shrinks and grows with it instead of staying notch-sized. */}
         <SiriGlow status={status} scale={Animated.multiply(sizeScale, entranceScale)} />
@@ -793,6 +783,15 @@ const CALL_BTN_SIZE = 38;
 
 const styles = StyleSheet.create({
   glowWrap: { position: 'absolute', width: GLOW_SIZE, height: GLOW_SIZE, alignItems: 'center', justifyContent: 'center' },
+  // One sonar ring at rest hugs the ball; it scales up + fades as it radiates.
+  sonarRing: {
+    position: 'absolute',
+    width: FAB_SIZE + 6,
+    height: FAB_SIZE + 6,
+    borderRadius: (FAB_SIZE + 6) / 2,
+    borderWidth: 2.5,
+    borderColor: colors.primary,
+  },
   glowBlob: {
     position: 'absolute', width: FAB_SIZE + 12, height: FAB_SIZE + 12, borderRadius: (FAB_SIZE + 12) / 2,
     backgroundColor: 'rgba(7,159,160,0.14)', // primary, soft
