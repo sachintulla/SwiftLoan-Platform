@@ -109,7 +109,9 @@ export function LoginHero({ onBack }: { onBack?: () => void }) {
   useVoiceTarget(onBack ? 'Back' : undefined, { kind: 'button', onTap: onBack }, [onBack]);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const H = insets.top + 224;
+  // Compact header sized to its content (logo + tagline + illustration) — no dead
+  // band. The back arrow sits in the top inset; the row fills the rest.
+  const H = insets.top + 150;
   return (
     <View style={{ width, height: H }}>
       <LinearGradient
@@ -119,25 +121,25 @@ export function LoginHero({ onBack }: { onBack?: () => void }) {
         style={StyleSheet.absoluteFill}
       />
       {/* wave divider at the bottom */}
-      <Svg width={width} height={64} viewBox={`0 0 ${width} 64`} style={{ position: 'absolute', bottom: -1 }}>
-        <Path d={`M0 26 C ${width * 0.3} 2, ${width * 0.62} 58, ${width} 20 L ${width} 64 L 0 64 Z`} fill="#F7FBFA" />
+      <Svg width={width} height={36} viewBox={`0 0 ${width} 36`} style={{ position: 'absolute', bottom: -1 }}>
+        <Path d={`M0 16 C ${width * 0.3} 2, ${width * 0.62} 32, ${width} 12 L ${width} 36 L 0 36 Z`} fill="#F7FBFA" />
       </Svg>
 
       {onBack ? (
-        <Pressable onPress={onBack} hitSlop={10} style={[styles.back, { top: insets.top + 6 }]}>
+        <Pressable onPress={onBack} hitSlop={10} style={[styles.back, { top: insets.top + 4 }]}>
           <Icon name="arrow_back" size={24} color={colors.text} />
         </Pressable>
       ) : null}
 
-      <View style={[styles.heroRow, { paddingTop: insets.top + 46 }]}>
+      <View style={[styles.heroRow, { paddingTop: insets.top + 36 }]}>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <LogoMark size={40} style={{ borderRadius: 12 }} />
-            <Wordmark size={26} />
+            <LogoMark size={38} style={{ borderRadius: 12 }} />
+            <Wordmark size={25} />
           </View>
           <Text style={[font(500), styles.tagline]}>Smart loans. Swift solutions.</Text>
         </View>
-        <HeroIllustration size={150} />
+        <HeroIllustration size={116} />
       </View>
     </View>
   );
@@ -149,10 +151,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 20,
-    paddingRight: 8,
-    paddingBottom: 30,
+    paddingRight: 10,
+    paddingBottom: 18,
   },
-  tagline: { fontSize: 13.5, color: '#5A7873', marginTop: 10 },
+  tagline: { fontSize: 13.5, color: '#5A7873', marginTop: 8 },
   back: {
     position: 'absolute',
     left: 16,

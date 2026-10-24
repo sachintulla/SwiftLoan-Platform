@@ -285,6 +285,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
 
       const ref = makeRefId();
       const details = {
+        name: String(data.get("name") ?? "").trim() || undefined,
         phone: mobile,
         product: String(data.get("loanType") ?? "") || "Personal Loan",
         amountRupees: amount,

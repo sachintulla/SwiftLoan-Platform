@@ -26,7 +26,7 @@ export default function Privacy() {
     set({ privacyAccepted: true });
     // Continue where the boot flow would have gone: straight to home if already
     // signed in, otherwise into language selection / onboarding.
-    go(state.authUser ? 'home' : 'language');
+    go(state.authUser ? 'home' : 'mobile');
   };
 
   return (
