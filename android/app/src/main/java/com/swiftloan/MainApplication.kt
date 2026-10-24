@@ -41,31 +41,57 @@ class MainApplication : UpshotApplication(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
     loadReactNative(this)
-    logFcmTokenInDebug()
+    forwardFcmTokenToUpshot()
   }
 
   /**
-   * Debug-only: print the FCM registration token.
+   * Fetch the FCM registration token and hand it to Upshot at startup.
    *
-   * There is no way to read the token from JS (the RN Upshot module exposes no
-   * getter), and without it a push cannot be addressed to this handset — so
-   * verifying push end-to-end is otherwise impossible. Gated on BuildConfig.DEBUG
-   * so a release build never writes a device token to logcat, where any app with
-   * READ_LOGS could harvest it.
+   * Upshot only learns the token two other ways: its own fetch at init (which does
+   * not reliably reach the dashboard — devices showed "Device Push Token missing"),
+   * and SwiftLoanMessagingService.onNewToken, which fires only on ROTATION, not on a
+   * normal launch. So the initial token was never reported. We forward it the same
+   * way onNewToken does — setUserInfoBundle({gcmId}) — but the SDK may not be
+   * authenticated yet at onCreate (getBKInstance() == null), so retry briefly until
+   * it is. In debug we also log the token (there is no JS getter) so a push can be
+   * addressed to the handset; release builds never write it to logcat.
    */
-  private fun logFcmTokenInDebug() {
-    if (!BuildConfig.DEBUG) return
+  private fun forwardFcmTokenToUpshot() {
     try {
       com.google.firebase.messaging.FirebaseMessaging.getInstance().token
         .addOnCompleteListener { task ->
-          if (task.isSuccessful) {
-            android.util.Log.i("SwiftLoanPush", "FCM_TOKEN=${task.result}")
-          } else {
+          if (!task.isSuccessful) {
             android.util.Log.w("SwiftLoanPush", "FCM token fetch failed: ${task.exception?.message}")
+            return@addOnCompleteListener
           }
+          val token = task.result
+          if (token.isNullOrBlank()) return@addOnCompleteListener
+          if (BuildConfig.DEBUG) android.util.Log.i("SwiftLoanPush", "FCM_TOKEN=$token")
+          sendTokenToUpshot(token, 0)
         }
     } catch (e: Exception) {
       android.util.Log.w("SwiftLoanPush", "FCM token unavailable: ${e.message}")
+    }
+  }
+
+  /** Forward once the SDK is authenticated; retry up to ~15s, then give up (onNewToken still covers rotation). */
+  private fun sendTokenToUpshot(token: String, attempt: Int) {
+    val bk = com.brandkinesis.BrandKinesis.getBKInstance()
+    if (bk == null) {
+      if (attempt >= 10) {
+        android.util.Log.w("SwiftLoanPush", "Upshot not ready after retries; initial token not forwarded")
+        return
+      }
+      android.os.Handler(android.os.Looper.getMainLooper())
+        .postDelayed({ sendTokenToUpshot(token, attempt + 1) }, 1500)
+      return
+    }
+    try {
+      val info = android.os.Bundle().apply { putString("gcmId", token) }
+      bk.setUserInfoBundle(info, null)
+      android.util.Log.d("SwiftLoanPush", "FCM token forwarded to Upshot at startup")
+    } catch (e: Exception) {
+      android.util.Log.w("SwiftLoanPush", "could not forward FCM token at startup: ${e.message}")
     }
   }
 }

@@ -54,16 +54,43 @@ describe('network issue reporting', () => {
     expect(seen).toEqual([]);
   });
 
-  it('no connection at all is refused up front and reported as "offline"', async () => {
+  it('a false "isConnected: false" (iOS Simulator / handoff) does NOT block a working request', async () => {
+    // The device reports no connection, but the network actually works. The client
+    // must attempt the request anyway (no up-front refuse) and succeed silently.
     const { api, net, seen } = load();
     net({ isConnected: false, isInternetReachable: false });
-    (globalThis as any).fetch = jest.fn();
+    (globalThis as any).fetch = jest.fn().mockResolvedValue(ok({ status: 'ok' }));
+    await expect(api.health()).resolves.toEqual({ status: 'ok' });
+    expect((globalThis as any).fetch).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([]); // never falsely says "no internet"
+  });
+
+  it('isConnected false AND the request fails AND the probe also fails -> "offline"', async () => {
+    // Genuinely offline: the request is attempted (not refused up front), it fails,
+    // NetInfo still says disconnected, and the corroborating /health probe fails too.
+    const { api, net, seen } = load();
+    net({ isConnected: false, isInternetReachable: false });
+    (globalThis as any).fetch = jest.fn().mockRejectedValue(new TypeError('Network request failed'));
     jest.useFakeTimers();
     const p = api.health().catch((e: Error) => e);
-    await jest.advanceTimersByTimeAsync(2000);
-    const err = await p;
-    expect(String(err.message)).toMatch(/offline/);
-    expect((globalThis as any).fetch).not.toHaveBeenCalled();
+    await p; // caller gets the error immediately; diagnosis runs in the background
+    await jest.advanceTimersByTimeAsync(3000);
     expect(seen).toEqual(['offline']);
+  });
+
+  it('isConnected false but the request fails only because OUR server is down -> stays silent (probe would tell, no false "offline")', async () => {
+    // NetInfo wrongly reads disconnected, the request fails, but a probe of /health
+    // succeeds — the device clearly has internet, so no "no internet" banner.
+    const { api, net, seen } = load();
+    net({ isConnected: false, isInternetReachable: false });
+    (globalThis as any).fetch = jest
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Network request failed')) // the request
+      .mockResolvedValue({ ok: true, status: 200 }); // the /health probe answers
+    jest.useFakeTimers();
+    const p = api.health().catch((e: Error) => e);
+    await p;
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(seen).toEqual([]);
   });
 });
