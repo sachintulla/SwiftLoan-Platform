@@ -20,6 +20,14 @@ function isValidMobile(v: string): boolean {
   return /^[6-9]\d{9}$/.test(v) && !/^(\d)\1{9}$/.test(v);
 }
 
+// Merged in from the removed intro screen — the "why SwiftLoan" rows shown under
+// the number entry.
+const INTRO_FEATURES = [
+  { icon: 'bolt', tile: '#E1F3F3', tint: '#079FA0', titleKey: 'introFeat1Title', descKey: 'introFeat1Desc' },
+  { icon: 'handshake', tile: '#E3F6EE', tint: '#2FB183', titleKey: 'introFeat2Title', descKey: 'introFeat2Desc' },
+  { icon: 'lock', tile: '#E1F3F3', tint: '#079FA0', titleKey: 'introFeat3Title', descKey: 'introFeat3Desc' },
+] as const;
+
 export default function Mobile() {
   const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
   const t = useT();
@@ -254,7 +262,7 @@ export default function Mobile() {
 
   return (
     <Screen variant="plain" scroll padded={false} contentStyle={{ paddingTop: 0 }}>
-      <LoginHero onBack={() => go('intro')} />
+      <LoginHero onBack={() => go('privacy')} />
 
       <View style={{ paddingHorizontal: 24, marginTop: 22 }}>
         {!otpSent ? (
@@ -299,6 +307,44 @@ export default function Mobile() {
               <Text style={styles.secureText}>
                 {t.mobileSecureNote}
               </Text>
+            </View>
+
+            {/* Intro pitch, merged in from the removed intro screen: why SwiftLoan +
+                the trust stats, below the number entry so the entry stays up top. */}
+            <View style={styles.introWrap}>
+              <View style={styles.introBadge}>
+                <Icon name="verified_user" size={15} color={colors.primary} />
+                <Text style={[font(700), { fontSize: 11.5, color: '#0B6E6F' }]}>{t.introBadge}</Text>
+              </View>
+              {INTRO_FEATURES.map((f, i) => (
+                <View
+                  key={f.titleKey}
+                  style={[styles.introFeat, i < INTRO_FEATURES.length - 1 && { borderBottomWidth: 1, borderBottomColor: 'rgba(120,150,148,0.16)' }]}
+                >
+                  <View style={[styles.introTile, { backgroundColor: f.tile }]}>
+                    <Icon name={f.icon} size={22} color={f.tint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[font(800), { fontSize: 15, color: colors.text, letterSpacing: -0.15 }]}>{t[f.titleKey]}</Text>
+                    <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: '#6E8080', marginTop: 2 }]}>{t[f.descKey]}</Text>
+                  </View>
+                </View>
+              ))}
+              <View style={styles.introStatCard}>
+                {[
+                  { v: '15+', l: t.introStat1 },
+                  { v: '2 min', l: t.introStat2 },
+                  { v: '0', l: t.introStat3 },
+                ].map((s, idx) => (
+                  <React.Fragment key={s.l}>
+                    {idx > 0 ? <View style={styles.introStatDiv} /> : null}
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={[font(800), { fontSize: 20, color: colors.primary }]}>{s.v}</Text>
+                      <Text style={[font(500), { fontSize: 11, color: '#6E8080', marginTop: 2, textAlign: 'center' }]}>{s.l}</Text>
+                    </View>
+                  </React.Fragment>
+                ))}
+              </View>
             </View>
           </>
         ) : (
@@ -427,6 +473,21 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   secureText: { ...font(500), flex: 1, fontSize: 11.5, lineHeight: 17, color: '#4A6360' },
+  // Intro pitch merged into the mobile screen (below the number entry).
+  introWrap: { marginTop: 26 },
+  introBadge: {
+    flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 7,
+    backgroundColor: 'rgba(7,159,160,0.1)', borderWidth: 1, borderColor: 'rgba(7,159,160,0.18)',
+    borderRadius: 9999, paddingVertical: 6, paddingLeft: 10, paddingRight: 13, marginBottom: 10,
+  },
+  introFeat: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 13 },
+  introTile: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  introStatCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22,
+    paddingVertical: 16, paddingHorizontal: 8, marginTop: 14,
+  },
+  introStatDiv: { width: 1, height: 34, backgroundColor: 'rgba(120,150,148,0.2)' },
   editRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   otpRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 },
   otpBox: {

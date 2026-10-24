@@ -128,8 +128,12 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
 const PREV: Partial<Record<Screen, Screen>> = {
-  privacy: 'splash', language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
-  permissions: 'mobile', aboutyou: 'permissions',
+  // language / intro / aboutyou were removed from the onboarding flow — the
+  // privacy gate goes straight to mobile (which now carries the intro pitch), and
+  // after permissions we go straight Home (name comes from PAN). Their components
+  // stay registered but are unreachable.
+  privacy: 'splash', mobile: 'privacy', otp: 'mobile',
+  permissions: 'mobile',
   // PAN first (it verifies identity + pre-fills the details step), then
   // details, then the optional extras.
   basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
@@ -798,7 +802,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (state.authUser) api.setVoiceLanguage(state.voiceLang).catch(() => {});
   }, [state.voiceLang, state.authUser]);
 
-  // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
+  // Auto-transition: splash -> mobile/privacy (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
   useEffect(() => {
     clearAuto();
@@ -824,9 +828,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (state.screen === 'splash') {
-      // First launch → Privacy Policy consent; thereafter → language selection.
+      // First launch → Privacy Policy consent; thereafter → the mobile/login screen
+      // (the language and intro screens were removed from onboarding).
       timers.current.auto = setTimeout(
-        () => dispatch({ type: 'go', screen: stateRef.current.privacyAccepted ? 'language' : 'privacy' }),
+        () => dispatch({ type: 'go', screen: stateRef.current.privacyAccepted ? 'mobile' : 'privacy' }),
         2600,
       );
     }

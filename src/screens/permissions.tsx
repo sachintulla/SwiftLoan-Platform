@@ -39,7 +39,9 @@ export default function Permissions() {
       }
     } finally {
       setBusy(false);
-      go('aboutyou');
+      // 'aboutyou' (name) was removed from onboarding — the name now comes from PAN
+      // on the details step — so go straight to Home.
+      go('home');
     }
   };
 
