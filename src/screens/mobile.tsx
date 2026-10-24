@@ -180,7 +180,11 @@ export default function Mobile() {
       // Nothing to resume (or it was for someone else's number): forget it, so another visitor's phone number and
       // name never linger in memory.
       set({ resume: null, resumePrompt: null, resumeStage: null });
-      go(alreadyOnboarded ? 'home' : 'permissions');
+      // Skip the permissions screen entirely — go straight to the dashboard after OTP.
+      // Still register for push here (the permissions screen used to do it), so
+      // skipping that screen doesn't silently drop notification registration.
+      registerUpshotPush();
+      go('home');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
       markUrgentContext();

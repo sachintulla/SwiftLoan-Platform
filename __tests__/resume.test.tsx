@@ -174,10 +174,10 @@ describe('login routing for a resumed visitor', () => {
     expect(probe(getByTestId)[4]).toBe('offer_start_application');
   });
 
-  it('nothing to resume: the normal first-time flow (permissions)', async () => {
+  it('nothing to resume: straight to Home (permissions screen skipped)', async () => {
     jest.spyOn(api, 'journeyResume').mockResolvedValue(null);
     const { getByTestId } = await loginWith({});
-    await waitFor(() => expect(probe(getByTestId)[0]).toBe('permissions'));
+    await waitFor(() => expect(probe(getByTestId)[0]).toBe('home'));
     expect(probe(getByTestId)[3]).toBe('null');
   });
 
@@ -197,7 +197,7 @@ describe('login routing for a resumed visitor', () => {
   it('forgets the install link\'s data when it was for someone else\'s number', async () => {
     jest.spyOn(api, 'journeyResume').mockResolvedValue(null);
     const { getByTestId } = await loginWith({ resume: { ...RESUME, phone: '9123456789' } });
-    await waitFor(() => expect(probe(getByTestId)[0]).toBe('permissions'));
+    await waitFor(() => expect(probe(getByTestId)[0]).toBe('home'));
     // no stage and no leftover data
     expect(probe(getByTestId)[4]).toBe('null');
   });
@@ -205,6 +205,6 @@ describe('login routing for a resumed visitor', () => {
   it('the install link\'s hint is ignored when they log in with a different number', async () => {
     jest.spyOn(api, 'journeyResume').mockResolvedValue(null);
     const { getByTestId } = await loginWith({ resume: { ...RESUME, phone: '9123456789' } });
-    await waitFor(() => expect(probe(getByTestId)[0]).toBe('permissions'));
+    await waitFor(() => expect(probe(getByTestId)[0]).toBe('home'));
   });
 });
