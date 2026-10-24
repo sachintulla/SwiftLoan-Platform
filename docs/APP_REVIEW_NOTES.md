@@ -57,7 +57,11 @@ verification partner. The offers it shows are labelled **Sample Lender 1 / 2 / 3
 | Camera / photos | Used for a profile photo and for capturing a PAN card image. Neither is required to browse the app. |
 | Notifications | Application and repayment updates. Optional. |
 
-The app does not access contacts, SMS or location.
+The app does not access contacts or SMS, and SwiftLoan's own code never reads location. Info.plist carries
+`NSLocationWhenInUseUsageDescription` because (1) the bundled Upshot framework references CoreLocation APIs and App
+Store Connect (ITMS-90683) requires a purpose string — Upshot's location fetch is off — and (2) lender partner journeys
+shown in the in-app WebView (`src/screens/lenderweb.tsx`) may call `navigator.geolocation` for address/fraud checks,
+which makes iOS show its location prompt with this string. Not yet confirmed which partner pages actually do (2).
 
 ## 5. Account deletion
 

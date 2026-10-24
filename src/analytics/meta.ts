@@ -69,8 +69,24 @@ function sdk(): FbNative | null {
   resolved = true;
   // react-native-fbsdk-next reads NativeModules.FBSettings at import time; skip the require
   // entirely when the module isn't linked.
-  if (!(NativeModules as { FBSettings?: unknown })?.FBSettings) return null;
+  const fbSettings = (NativeModules as { FBSettings?: FbNative['Settings'] })?.FBSettings;
+  if (!fbSettings) return null;
   try {
+    // Importing react-native-fbsdk-next instantiates EVERY native module, and Android's
+    // FBAccessToken module needs an initialised Facebook SDK in its initialize() — but native
+    // auto-init is off, so without this the app crashes at launch ("The SDK has not been
+    // initialized"). Set the app + token and start the native SDK first, then require the JS.
+    // Android: the SDK's own startup init fails (no token in the manifest), so start it here, with
+    // the token, via a SYNCHRONOUS native call — it must finish before the require below. If it
+    // cannot start, leave Meta off rather than crash the app.
+    const initer = (NativeModules as { MetaSdkInit?: { start: (id: string, token: string) => boolean } }).MetaSdkInit;
+    if (initer && !initer.start(META_APP_ID, META_CLIENT_TOKEN)) return null;
+    fbSettings.setAppID(META_APP_ID);
+    fbSettings.setClientToken(META_CLIENT_TOKEN);
+    // Never the advertising ID; auto events = install / app activation only (what attribution needs).
+    fbSettings.setAdvertiserIDCollectionEnabled(false);
+    fbSettings.setAutoLogAppEventsEnabled(true);
+    fbSettings.initializeSDK();
     native = require('react-native-fbsdk-next') as FbNative;
   } catch {
     native = null;
@@ -103,14 +119,9 @@ export function initMeta(): boolean {
     return false;
   }
   try {
-    s.Settings.setAppID(META_APP_ID);
-    s.Settings.setClientToken(META_CLIENT_TOKEN);
-    // Belt and braces with the native config: never the advertising ID, never ATT-gated tracking.
-    s.Settings.setAdvertiserIDCollectionEnabled(false);
+    // App id, token, no-ad-id and the native init already ran inside sdk() (before the JS package
+    // loaded). iOS: never ATT-gated tracking.
     s.Settings.setAdvertiserTrackingEnabled(false).catch(() => undefined);
-    // Auto events = install / app activation only (what ad attribution needs); no manual param logging.
-    s.Settings.setAutoLogAppEventsEnabled(true);
-    s.Settings.initializeSDK();
     started = true;
     devLog('initialised', { demo: UPSHOT_DEMO });
     return true;
