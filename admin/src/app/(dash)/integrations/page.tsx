@@ -9,7 +9,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
 import { Card, StatusBadge, TableSkeleton, Empty, FilterChips } from '@/components/ui';
 
-type Provider = 'ello' | 'upshot' | 'voxvalley';
+type Provider = 'ello' | 'upshot' | 'voxvalley' | 'meta_whatsapp';
 
 interface Integration {
   provider: Provider;
@@ -26,12 +26,15 @@ const ESSENTIAL: Record<Provider, string[]> = {
   // sender and defaultTemplate are up front because a send fails without them,
   // and the failure ("no template") is far less obvious than a missing key.
   voxvalley: ['projectId', 'sender', 'defaultTemplate', 'defaultLanguage'],
+  // Meta's own id for the sending number (not the number itself) is what a send is addressed to.
+  meta_whatsapp: ['phoneNumberId', 'defaultTemplate', 'defaultLanguage'],
 };
 
 const META: Record<Provider, { title: string; sub: string; icon: string; requiredSecrets: string[] }> = {
   ello: { title: 'Voice calling (Ello)', sub: 'Places the outbound calls and powers the mic widgets.', icon: '☎', requiredSecrets: ['apiKey'] },
   upshot: { title: 'Messaging (Upshot)', sub: 'Sends push, WhatsApp, SMS and email nudges.', icon: '✉', requiredSecrets: ['apiKey'] },
   voxvalley: { title: 'WhatsApp (Voxvalley)', sub: 'Sends WhatsApp templates to customers from the dashboard and when they get stuck.', icon: '💬', requiredSecrets: ['authToken'] },
+  meta_whatsapp: { title: 'WhatsApp (Meta Cloud API)', sub: 'Sends WhatsApp templates straight through Meta. When this is on it is used instead of Voxvalley.', icon: '💬', requiredSecrets: ['accessToken'] },
 };
 
 function labelFor(key: string) {
@@ -45,7 +48,8 @@ const SUB_TABS = [
   { key: 'ello', label: '☎  Voice calling' },
   { key: 'agents', label: '🗣  Voice agents' },
   { key: 'upshot', label: '✉  Messaging' },
-  { key: 'voxvalley', label: '💬  WhatsApp' },
+  { key: 'voxvalley', label: '💬  WhatsApp (Vox)' },
+  { key: 'meta_whatsapp', label: '💬  WhatsApp (Meta)' },
   { key: 'api-keys', label: '🔑  API keys' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['key'];
@@ -104,6 +108,14 @@ export default function ConfigsPage() {
               provider="upshot"
               integration={list.find((i) => i.provider === 'upshot')}
               defaults={(defaults.upshot ?? {}) as Record<string, unknown>}
+              onSaved={() => mutate()}
+            />
+          )}
+          {tab === 'meta_whatsapp' && (
+            <ProviderCard
+              provider="meta_whatsapp"
+              integration={list.find((i) => i.provider === 'meta_whatsapp')}
+              defaults={(defaults.meta_whatsapp ?? {}) as Record<string, unknown>}
               onSaved={() => mutate()}
             />
           )}
@@ -255,7 +267,7 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
 
         <div>
           <div className="row between">
-            <label style={{ fontSize: 12.5, fontWeight: 600 }}>{provider === 'voxvalley' ? 'Auth token' : 'API key'}</label>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>{provider === 'voxvalley' ? 'Auth token' : provider === 'meta_whatsapp' ? 'Access token' : 'API key'}</label>
             {secretStored && (
               <button className="btn" style={{ padding: '3px 9px', fontSize: 11.5 }} onClick={() => setReplacingSecret((v) => !v)}>
                 {replacingSecret ? 'Cancel' : 'Replace'}
@@ -272,7 +284,7 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
               style={{ marginTop: 6 }}
               value={secret}
               onChange={(e) => { setSecret(e.target.value); setSaveMsg(null); }}
-              placeholder={provider === 'voxvalley' ? 'Paste the project auth token' : 'Paste the key'}
+              placeholder={provider === 'voxvalley' ? 'Paste the project auth token' : provider === 'meta_whatsapp' ? 'Paste the Meta access token' : 'Paste the key'}
             />
           )}
         </div>
