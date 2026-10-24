@@ -50,15 +50,18 @@ function VoiceFabGate() {
  * back still exits normally; every other screen navigates back in-app.
  */
 function BackHandlerBridge() {
-  const { state, back } = useStore();
+  const { state, back, set } = useStore();
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (state.screen === 'home' || state.screen === 'splash') return false;
+      // On the OTP view (mobile screen, otpSent=true) Back returns to the
+      // number-entry state rather than leaving the login for privacy.
+      if (state.screen === 'mobile' && state.otpSent) { set({ otpSent: false }); return true; }
       back();
       return true;
     });
     return () => sub.remove();
-  }, [state.screen, back]);
+  }, [state.screen, state.otpSent, back, set]);
   return null;
 }
 
