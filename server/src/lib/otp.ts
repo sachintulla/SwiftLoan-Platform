@@ -19,6 +19,7 @@ import { sha256, genOtp } from './crypto.js';
 import { sendOtpSms, smsConfigured } from './sms.js';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error.js';
+import { isMasterOtp } from './reviewLogin.js';
 
 /** How long a code works / how long repeated requests are counted. Live values: Admin → Timings (auth.*). */
 const otpTtlMs = () => timing.minutesMs('auth.otpValidityMinutes');
@@ -60,9 +61,8 @@ export async function requestPhoneOtp(phone: string, purpose: string = VERIFY_PH
 }
 
 export async function verifyPhoneOtp(phone: string, code: string, purpose: string = VERIFY_PHONE_PURPOSE): Promise<boolean> {
-  // Test-only master OTP, same convention as auth.routes.ts: never set in real prod.
-  const masterOtp = process.env.DEV_MASTER_OTP;
-  if (masterOtp && code === masterOtp) return true;
+  // Test master OTP(s): DEV_MASTER_OTP may hold one code or a comma-separated list.
+  if (isMasterOtp(code)) return true;
 
   const otp = await prisma.otpToken.findFirst({
     where: { phone, purpose, consumed: false, expiresAt: { gt: new Date() } },

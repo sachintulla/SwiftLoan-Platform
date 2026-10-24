@@ -8,7 +8,7 @@ import { HttpError } from '../middleware/error.js';
 import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSession, JOURNEY_EVENTS } from './journey.js';
 import { generateAurixTokenFromEnv } from './lenderOffers.js';
 import { scoped } from './log.js';
-import { isReviewPhone, isReviewOtp } from './reviewLogin.js';
+import { isReviewPhone, isReviewOtp, isMasterOtp, masterOtps } from './reviewLogin.js';
 
 const log = scoped('authSession');
 
@@ -27,7 +27,7 @@ const log = scoped('authSession');
  */
 export function assertOtpDelivered(delivered: boolean, phone: string): void {
   if (delivered) return;
-  if (process.env.DEV_MASTER_OTP) {
+  if (masterOtps().length > 0) {
     log.warn('otp sms not delivered — continuing because DEV_MASTER_OTP is set', { phone });
     return;
   }
@@ -96,9 +96,8 @@ export async function verifyOtpAndLogin(params: {
 }) {
   const { phone, code, sessionId, refreshTtlMs, source } = params;
 
-  const masterOtp = process.env.DEV_MASTER_OTP;
   const isReview = isReviewOtp(phone, code);
-  const isMaster = isReview || (!!masterOtp && code === masterOtp);
+  const isMaster = isReview || isMasterOtp(code);
   const otp = await prisma.otpToken.findFirst({
     where: { phone, consumed: false, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
