@@ -176,6 +176,10 @@ export interface AppState {
   // returned for it. In memory only (personal data) — revisiting Step 1
   // re-verifies from the server's PAN cache, which is free.
   panPrefill: { pan: string; prefill: PanPrefill; aadhaarLinked: boolean | null; applied?: boolean } | null;
+  // Set when the user confirmed replacing the PAN on file with a different one:
+  // the details step must NOT pre-fill identity (name/DOB/gender/address) from the
+  // old account, so the new PAN's holder isn't shown someone else's data.
+  clearedForNewPan: boolean;
   // detailed application
   appAmount: number; appTenure: number; appEmp: string; appResidence: string;
   appConsent: boolean; autoDebit: boolean;
@@ -296,7 +300,7 @@ export const initialState: AppState = {
   optMarital: '', optAltMobile: '', optAltEmail: '',
   optAddr1: '', optAddr2: '', optLandmark: '', optCity: '', optDistrict: '', optState: '',
   optSalaryMode: '', optObligations: '', optProfType: '', optCompanyEmail: '', optBusinessEmail: '',
-  panConsent: false, panNumber: '', panPrefill: null,
+  panConsent: false, panNumber: '', panPrefill: null, clearedForNewPan: false,
   appAmount: 150000, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
   appConsent: false, autoDebit: true,
   fareAmount: 150000, fareTenure: 24, fareRate: 16,
