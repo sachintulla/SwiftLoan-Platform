@@ -142,18 +142,22 @@ export default function Step2BasicsPage() {
         const user = res?.data?.user;
         requirePan(user?.panOnFile);
         if (!user) { if (handoff) applyPan(handoff.prefill); return; }
-        if (user.firstName) setFirstName(user.firstName);
-        if (user.lastName) setLastName(user.lastName);
-        if (user.dob) setDob(String(user.dob).slice(0, 10));
+        // The visitor replaced a different PAN on file: do NOT pre-fill PAN-derived
+        // identity (name/DOB/gender/address) from the old account — that's the
+        // previous PAN's holder. Non-identity fields still pre-fill.
+        const idOk = !handoff?.clearedForNewPan;
+        if (idOk && user.firstName) setFirstName(user.firstName);
+        if (idOk && user.lastName) setLastName(user.lastName);
+        if (idOk && user.dob) setDob(String(user.dob).slice(0, 10));
         const g = unslug(GENDERS, user.gender);
-        if (g) setGender(g);
+        if (idOk && g) setGender(g);
         if (user.qualification) setQualification(user.qualification);
         if (user.email) setEmail(user.email);
-        if (user.pincode) setPincode(user.pincode);
-        if (user.addressLine1) setAddr1(user.addressLine1);
-        if (user.addressLine2) setAddr2(user.addressLine2);
-        if (user.city) setCity(user.city);
-        if (user.state) setState(user.state);
+        if (idOk && user.pincode) setPincode(user.pincode);
+        if (idOk && user.addressLine1) setAddr1(user.addressLine1);
+        if (idOk && user.addressLine2) setAddr2(user.addressLine2);
+        if (idOk && user.city) setCity(user.city);
+        if (idOk && user.state) setState(user.state);
         const r = unslug(RESIDENCE, user.residenceType);
         if (r) setResidence(r);
         const e = unslug(EMPLOYMENT, user.employment);

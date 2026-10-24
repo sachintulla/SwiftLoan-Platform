@@ -75,6 +75,10 @@ export const applyFlowCopy = defineCopy({
       verifying: "Verifying…",
       verifyCta: "Verify PAN & continue →",
       fallbackError: "Something went wrong. Please try again.",
+      replaceTitle: "Replace PAN on file?",
+      replaceBody: "This number is already linked to PAN {pan}. Replace it with the PAN you just entered? Your saved name, date of birth and address will be cleared so you can enter the new details.",
+      replaceConfirm: "Replace",
+      replaceCancel: "Cancel",
     },
     // ── /apply/step-3 (optional details) ─────────────────────────────────────
     more: {
@@ -231,6 +235,10 @@ export const applyFlowCopy = defineCopy({
       verifying: "सत्यापित हो रहा है…",
       verifyCta: "PAN सत्यापित करें और जारी रखें →",
       fallbackError: "कुछ गड़बड़ हो गई। कृपया फिर से प्रयास करें।",
+      replaceTitle: "फ़ाइल पर मौजूद PAN बदलें?",
+      replaceBody: "यह नंबर पहले से PAN {pan} से जुड़ा है। क्या इसे अभी डाले गए PAN से बदलें? आपका सेव किया हुआ नाम, जन्म तिथि और पता हटा दिया जाएगा ताकि आप नई जानकारी भर सकें।",
+      replaceConfirm: "बदलें",
+      replaceCancel: "रद्द करें",
     },
     more: {
       stepLabel: "चरण 3 / 3",
@@ -380,6 +388,10 @@ export const applyFlowCopy = defineCopy({
       verifying: "ధృవీకరిస్తోంది…",
       verifyCta: "PAN ధృవీకరించి కొనసాగండి →",
       fallbackError: "ఏదో తప్పు జరిగింది. దయచేసి మళ్లీ ప్రయత్నించండి.",
+      replaceTitle: "ఫైల్‌లో ఉన్న PANను మార్చాలా?",
+      replaceBody: "ఈ నంబర్ ఇప్పటికే PAN {pan}తో లింక్ అయి ఉంది. మీరు ఇప్పుడు నమోదు చేసిన PANతో దీన్ని మార్చాలా? కొత్త వివరాలు నమోదు చేయడానికి మీ సేవ్ చేసిన పేరు, పుట్టిన తేదీ, చిరునామా తొలగించబడతాయి.",
+      replaceConfirm: "మార్చు",
+      replaceCancel: "రద్దు చేయి",
     },
     more: {
       stepLabel: "దశ 3 / 3",
