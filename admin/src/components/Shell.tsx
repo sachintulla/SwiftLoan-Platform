@@ -15,7 +15,6 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     // Leads used to be a separate nav entry for the same people; it is merged in
     // here (and /leads still redirects for old links).
     { href: '/customers', label: 'Customers', icon: '◉' },
-    { href: '/inquiries', label: 'Inquiries', icon: '✎' },
   ] },
   {
     section: 'Funnel',
