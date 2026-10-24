@@ -30,7 +30,23 @@ const TONE = {
  * inline line of red text. Esc, the OK button and the backdrop all close it;
  * focus moves to OK on open and page scroll is locked while it's up.
  */
-export function AlertDialog({ open, content, onClose }: { open: boolean; content: AlertContent | null; onClose: () => void }) {
+export function AlertDialog({
+  open,
+  content,
+  onClose,
+  onConfirm,
+  confirmLabel,
+  cancelLabel,
+}: {
+  open: boolean;
+  content: AlertContent | null;
+  onClose: () => void;
+  /** When provided, the dialog becomes a two-action confirm: a primary button runs
+   *  this, and a secondary button runs onClose. Omitted = the original single-OK alert. */
+  onConfirm?: () => void;
+  confirmLabel?: string;
+  cancelLabel?: string;
+}) {
   const okRef = useRef<HTMLButtonElement>(null);
   const copy = useCopy(applyShellCopy);
 
@@ -86,13 +102,31 @@ export function AlertDialog({ open, content, onClose }: { open: boolean; content
             ))}
           </ul>
         )}
-        <button
-          ref={okRef}
-          onClick={onClose}
-          className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
-        >
-          {content.okLabel ?? copy.ok}
-        </button>
+        {onConfirm ? (
+          <div className="mt-6 flex flex-col gap-2.5">
+            <button
+              ref={okRef}
+              onClick={onConfirm}
+              className="bg-brand-gradient text-primary-foreground w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
+            >
+              {confirmLabel ?? content.okLabel ?? copy.ok}
+            </button>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground w-full rounded-full px-6 py-3 text-sm font-bold transition-colors"
+            >
+              {cancelLabel ?? copy.cancel}
+            </button>
+          </div>
+        ) : (
+          <button
+            ref={okRef}
+            onClick={onClose}
+            className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
+          >
+            {content.okLabel ?? copy.ok}
+          </button>
+        )}
       </div>
     </div>,
     document.body,
