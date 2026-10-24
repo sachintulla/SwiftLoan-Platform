@@ -9,6 +9,7 @@ import { useStore, useT } from '../state/store';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { api, ApiError, isAuthed } from '../api/client';
 import { PanVerifyingLoader } from '../components/PanVerifyingLoader';
+import { PanReplaceModal } from '../components/PanReplaceModal';
 import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanResult } from '../utils/panOcr';
 
 // Real PAN structure, not just "5 letters + 4 digits + 1 letter" — that bare
@@ -34,6 +35,9 @@ export default function BasicPan() {
   // is chosen here: red when the PAN itself failed, amber when the service
   // couldn't be reached / retry is the answer.
   const [alert, setAlert] = React.useState<PanAlert | null>(null);
+  // Masked PAN already on file, shown in the "replace PAN?" confirm when the entered
+  // PAN is a different one. null = confirm hidden.
+  const [replaceMasked, setReplaceMasked] = React.useState<string | null>(null);
   const [scanning, setScanning] = React.useState(false);
   // Field highlight that pulses while the scanned PAN types itself in.
   const glow = React.useRef(new Animated.Value(0)).current;
@@ -159,27 +163,9 @@ export default function BasicPan() {
         // continue. If it's the same PAN on file (a flaky re-check), or no PAN is
         // on file, fall through to manual entry as before.
         if (result.panOnFile && result.samePanOnFile === false) {
-          const masked = result.maskedPanOnFile ?? '';
-          Alert.alert(
-            t.panReplaceTitle,
-            t.panReplaceBody.replace('{pan}', masked),
-            [
-              { text: t.panReplaceCancel, style: 'cancel' },
-              {
-                text: t.panReplaceConfirm,
-                onPress: () => {
-                  // Clear PAN-derived identity so the old holder's data is never
-                  // shown for the new PAN; the flag keeps basic.tsx from re-filling it.
-                  set({
-                    clearedForNewPan: true,
-                    basicFirst: '', basicLast: '', aboutGender: '', basicPin: '',
-                    optAddr1: '', optAddr2: '', optCity: '', optState: '',
-                  });
-                  continueManually();
-                },
-              },
-            ],
-          );
+          // A DIFFERENT PAN is already on file — show the animated "replace PAN?"
+          // confirm (PanReplaceModal). finally{} drops the loader so the form + modal show.
+          setReplaceMasked(result.maskedPanOnFile ?? '');
           return;
         }
         // The bureau returned no usable record for this PAN (e.g. "No record
@@ -209,6 +195,22 @@ export default function BasicPan() {
       // On success the loader stays up until it hands off to the details step.
       if (!succeeded) setBusy(false);
     }
+  };
+
+  // Confirmed replacing the different PAN on file: clear the old PAN-derived identity
+  // (the flag keeps basic.tsx from re-filling it), carry the new PAN forward, continue.
+  const onReplaceConfirmed = () => {
+    const pan = state.panNumber.trim().toUpperCase();
+    setReplaceMasked(null);
+    set({
+      clearedForNewPan: true,
+      basicFirst: '', basicLast: '', aboutGender: '', basicPin: '',
+      optAddr1: '', optAddr2: '', optCity: '', optState: '',
+      panNumber: pan,
+    });
+    if (state.applicationId) api.updateApplication(state.applicationId, { panNumber: pan }).catch(() => {});
+    showToast(t.panManualEntry);
+    go('basic');
   };
 
   // Only gates the button once a full, confidently-wrong PAN is typed — matches
@@ -306,6 +308,16 @@ export default function BasicPan() {
         <View style={{ height: 12 }} />
       </View>
       <PanAlertModal alert={alert} okLabel={t.panErrOk} onClose={() => setAlert(null)} />
+      <PanReplaceModal
+        visible={!!replaceMasked}
+        masked={replaceMasked ?? ''}
+        title={t.panReplaceTitle}
+        body={t.panReplaceBody.replace('{pan}', replaceMasked ?? '')}
+        replaceLabel={t.panReplaceConfirm}
+        cancelLabel={t.panReplaceCancel}
+        onReplace={onReplaceConfirmed}
+        onCancel={() => setReplaceMasked(null)}
+      />
     </Screen>
   );
 }

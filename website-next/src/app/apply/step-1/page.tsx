@@ -6,6 +6,7 @@ import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
+import { PanReplaceArt } from '@/components/apply/PanReplaceArt';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
 import { fetchMe, verifyPan, patchProfile } from '@/lib/applyApi';
 import { savePanHandoff, maskPan } from '@/lib/panPrefill';
@@ -263,6 +264,7 @@ export default function Step1PanPage() {
         onConfirm={proceedWithReplacement}
         confirmLabel={t.replaceConfirm}
         cancelLabel={t.replaceCancel}
+        illustration={replaceMasked ? <PanReplaceArt masked={replaceMasked} /> : undefined}
       />
     </ApplyShell>
   );
