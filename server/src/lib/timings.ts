@@ -279,6 +279,11 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'Calls each eligible customer once a day with their current status. Also gated by the master switch and the test-number allowlist above.',
     warn: 'A daily call to every customer is a lot of calls and spend; keep the test-number list set until proven.',
   },
+  {
+    key: 'calls.quietAfterMessageMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 15, min: 0, max: 720, env: 'CALLS_QUIET_AFTER_MESSAGE_MIN',
+    label: 'Quiet gap after a message before a call',
+    help: 'A drop-off call waits at least this long after the last push / SMS / WhatsApp nudge to the same customer, so the channels do not all land at once. The call simply retries on the next tick until the gap has passed. 0 disables the gap.',
+  },
 
   /* ───────────── E. Login and sessions ───────────── */
   {
