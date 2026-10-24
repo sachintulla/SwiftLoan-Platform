@@ -115,26 +115,48 @@ async function confirmServerUnreachable(): Promise<void> {
   if (!(await apiAnswers())) reportServerUnreachable();
 }
 
+/**
+ * After a request's fetch failed, decide IN THE BACKGROUND whether to show the
+ * "no internet" vs "can't reach SwiftLoan" banner — never block the caller (the
+ * original error is thrown immediately regardless).
+ *
+ * The hard part is "offline": NetInfo's `isConnected` is not trustworthy on its
+ * own. It reads false/null on the iOS Simulator even when the Mac is online, and
+ * on real devices it can momentarily read false during app foreground/resume,
+ * Wi-Fi↔cellular handoffs, or under some Android VPNs — all while the connection
+ * actually works. So we never declare "no internet" from that flag alone:
+ *   • connected (or unknown)      → treat as a server blip → confirmServerUnreachable()
+ *   • isConnected false, twice    → CONFIRM with a real probe of our own /health.
+ *       – probe answers → the device clearly HAS connectivity (false negative) → stay silent
+ *       – probe fails   → genuinely no connection → show the offline banner
+ */
+async function diagnoseNetwork(): Promise<void> {
+  const looksOffline = async () =>
+    NetInfo.fetch()
+      .then(st => st.isConnected === false)
+      .catch(() => false); // if the check itself fails, don't guess offline off of that alone
+  if (!(await looksOffline())) { void confirmServerUnreachable(); return; }
+  // A single instantaneous reading isn't enough — a momentary signal drop can look
+  // identical for under a second. Wait, re-check, then corroborate with a probe.
+  await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
+  if (!(await looksOffline())) { void confirmServerUnreachable(); return; }
+  if (!(await apiAnswers())) reportOfflineAttempt();
+  // else: NetInfo said offline but /health answered — a false negative; show nothing.
+}
+
 async function request<T = any>(method: string, path: string, body?: unknown, _retried = false, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
-    // Checked before dialing out, not after: this is the one place every
-    // user-facing screen (OTP, application, offers, loans…) goes through, so
-    // catching "no signal" here means those screens fail fast with a clear
-    // reason instead of sitting on a spinner for the full request timeout.
-    // Only a phone with NO connection at all is refused up front (isConnected ===
-    // false). `isInternetReachable` is NOT used here: it comes from probing our own
-    // /health endpoint, so it is unreliable — on the iOS Simulator it reports
-    // false/null even when the Mac is online, and on a network that blocks or
-    // re-signs HTTPS (office Wi-Fi with TLS inspection) it reads "unreachable" —
-    // and would make the app refuse every request as "no internet". In those cases
-    // we attempt the real request and report what actually happens.
-    const netState = await NetInfo.fetch();
-    if (netState.isConnected === false) {
-      throw new TypeError('offline: no internet connection');
-    }
+    // We do NOT pre-refuse on NetInfo's connectivity reading: `isConnected` is
+    // unreliable on the iOS Simulator (it reports false/null even when the Mac is
+    // online, which refused every request as "no internet"), and `isInternetReachable`
+    // is just as unreliable on networks that block/re-sign HTTPS (office Wi-Fi with
+    // TLS inspection). Instead we always attempt the real request and let the catch
+    // below decide — it re-checks connectivity AFTER an actual failure and only flags
+    // a sustained, confirmed outage, so a genuinely offline device still gets the
+    // banner, while a false NetInfo negative no longer blocks a working connection.
     res = await fetch(API_BASE + path, {
       method,
       headers: {
@@ -147,35 +169,13 @@ async function request<T = any>(method: string, path: string, body?: unknown, _r
   } catch (e: any) {
     // The fetch itself failed to reach anything — as opposed to reaching the
     // server and getting back an error response, which is handled below and
-    // isn't a connectivity problem. That said, a failed fetch is NOT proof the
-    // user has no internet: it just as often means this one server/host is
-    // slow, cold-starting, mid-restart, or (in local-dev builds pointed at a
-    // LAN IP) simply unreachable while the phone's real internet is fine.
-    // Re-check connectivity fresh, right now, rather than trusting the
-    // pre-flight check from a few seconds ago — only report "offline" to
-    // OfflineNotice if the device itself genuinely has none, so a slow/down
-    // backend doesn't get mislabeled as "no internet connection."
-    const looksOffline = async () =>
-      NetInfo.fetch()
-        .then(st => st.isConnected === false)
-        .catch(() => false); // if the connectivity check itself fails, don't guess offline off of that alone
-    if (await looksOffline()) {
-      // A single instantaneous reading isn't enough — a momentary signal drop
-      // (a step into a dead spot, a brief Wi-Fi hiccup) can look identical to
-      // this for under a second and shouldn't flag the whole app as offline.
-      // Wait briefly and confirm the device is STILL disconnected before
-      // actually reporting it, so only a real, sustained outage shows the banner.
-      await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
-      if (await looksOffline()) reportOfflineAttempt();
-      else void confirmServerUnreachable();
-    } else {
-      // Connected, yet the request itself failed. One failed request is often a blip
-      // (the radio waking up, a Wi-Fi handoff, a slow endpoint) and the next one works,
-      // so don't flash a scary banner for it: re-check the server in the background and
-      // only say "can't reach SwiftLoan securely" if it is STILL unreachable. This runs
-      // off to the side so the original error reaches the caller immediately.
-      void confirmServerUnreachable();
-    }
+    // isn't a connectivity problem. A failed fetch is NOT proof the user has no
+    // internet: it just as often means this one server/host is slow, cold-starting,
+    // mid-restart, or (in local-dev builds pointed at a LAN IP) simply unreachable
+    // while the phone's real internet is fine. Diagnose offline-vs-unreachable in
+    // the BACKGROUND so the original error reaches the caller immediately — a truly
+    // offline device no longer blocks every request on the connectivity check.
+    void diagnoseNetwork();
     // Normalize an abort into the same TypeError shape a network failure throws.
     if (e?.name === 'AbortError') throw new TypeError(`request timed out after ${timeoutMs}ms`);
     throw e;
