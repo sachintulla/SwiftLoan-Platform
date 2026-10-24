@@ -16,6 +16,10 @@ export interface PanHandoff {
   panMasked: string;
   prefill: PanPrefill;
   aadhaarLinked?: boolean | null;
+  /** Set when the visitor confirmed replacing a different PAN already on file:
+   *  Step 2 must NOT pre-fill identity (name/DOB/gender/address) from the old
+   *  account, so the new PAN's holder isn't shown someone else's details. */
+  clearedForNewPan?: boolean;
 }
 
 /** XXXXXX234A — only the last four characters survive. */

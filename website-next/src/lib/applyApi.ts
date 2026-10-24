@@ -248,6 +248,12 @@ export interface PanVerifyResult {
   prefill: PanPrefill;
   message?: string;
   source: 'cache' | 'aurix';
+  // The account already has a verified PAN on file, and whether the one just
+  // entered is the same. When a DIFFERENT PAN is on file, Step 1 asks before
+  // letting the mismatched PAN (and the old account's identity) go forward.
+  panOnFile?: boolean;
+  samePanOnFile?: boolean;
+  maskedPanOnFile?: string | null;
 }
 
 /**

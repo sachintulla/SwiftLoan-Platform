@@ -6,6 +6,7 @@ import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
+import { PanReplaceArt } from '@/components/apply/PanReplaceArt';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
 import { fetchMe, verifyPan, patchProfile } from '@/lib/applyApi';
 import { savePanHandoff, maskPan } from '@/lib/panPrefill';
@@ -38,6 +39,9 @@ export default function Step1PanPage() {
   const [alert, setAlert] = useState<AlertContent | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanNote, setScanNote] = useState('');
+  // Set to the masked PAN already on file when the entered PAN is a DIFFERENT one:
+  // we ask before replacing it (and clearing the old account's identity on Step 2).
+  const [replaceMasked, setReplaceMasked] = useState<string | null>(null);
   // Set once the API has verified the PAN: the loader finishes its ticks,
   // then goToDetails() moves on.
   const [verified, setVerified] = useState(false);
@@ -95,6 +99,14 @@ export default function Step1PanPage() {
       // runs for exactly as long as this takes, then finishes its ticks.
       const result = await verifyPan(pan);
       if (!result.verified) {
+        // A DIFFERENT PAN is already linked to this account. Continuing would land
+        // Step 2 pre-filled with the EXISTING identity — the old PAN's holder. Ask
+        // before replacing; only then clear that identity and go on. Same PAN on
+        // file (a flaky re-check) or none → fall through to manual entry as before.
+        if (result.panOnFile && result.samePanOnFile === false) {
+          setReplaceMasked(result.maskedPanOnFile ?? ''); // finally{} drops the loader
+          return;
+        }
         // PAN auto-fill is a best-effort BACKGROUND lookup — never block or alert the
         // applicant when the bureau can't verify. Attach the PAN they entered to their
         // profile (encrypted server-side; the raw PAN is never kept in the client
@@ -113,6 +125,17 @@ export default function Step1PanPage() {
       // On success the loader stays up until it hands off to Step 2.
       if (!succeeded) setLoading(false);
     }
+  };
+
+  // Confirmed replacing a different PAN already on file: clear the old identity on
+  // Step 2 (clearedForNewPan + empty prefill) and continue with the new PAN.
+  const proceedWithReplacement = async () => {
+    setReplaceMasked(null);
+    setLoading(true);
+    setVerified(false);
+    await patchProfile({ panNumber: pan }).catch(() => {});
+    savePanHandoff({ panMasked: maskPan(pan), prefill: {}, aadhaarLinked: null, clearedForNewPan: true });
+    setVerified(true); // loader completes → goToDetails
   };
 
   // While verifying, the loader replaces the form inside the same shell —
@@ -230,6 +253,19 @@ export default function Step1PanPage() {
         </button>
       </BottomBar>
       <AlertDialog open={!!alert} content={alert} onClose={() => setAlert(null)} />
+      <AlertDialog
+        open={!!replaceMasked}
+        content={
+          replaceMasked
+            ? { tone: 'warning', title: t.replaceTitle, message: t.replaceBody.replace('{pan}', replaceMasked) }
+            : null
+        }
+        onClose={() => setReplaceMasked(null)}
+        onConfirm={proceedWithReplacement}
+        confirmLabel={t.replaceConfirm}
+        cancelLabel={t.replaceCancel}
+        illustration={replaceMasked ? <PanReplaceArt masked={replaceMasked} /> : undefined}
+      />
     </ApplyShell>
   );
 }
