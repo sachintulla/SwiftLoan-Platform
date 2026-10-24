@@ -276,7 +276,9 @@ export default function Mobile() {
         )
       }
     >
-      <LoginHero onBack={() => go('privacy')} />
+      {/* On the OTP view, Back returns to the number-entry state (same screen,
+          otpSent=false) rather than leaving the login for the privacy screen. */}
+      <LoginHero onBack={() => { if (otpSent) { setErr(null); set({ otpSent: false }); } else { go('privacy'); } }} />
 
       <View style={{ paddingHorizontal: 24, marginTop: 2 }}>
         {!otpSent ? (
