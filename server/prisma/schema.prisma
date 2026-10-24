@@ -783,10 +783,6 @@ model Lead {
   convertedUserId String? // set when the lead becomes a real User
   transcript      Json? // optional richer context (turns, fields captured)
   claimedAt       DateTime? // set when the app first resolves the token
-  /// Set when the person behind this phone completed OTP (website /otp/verify).
-  /// A Lead with verifiedAt is a VERIFIED inquiry; null = unverified (anyone can
-  /// type any number, so an un-OTP'd inquiry is never treated as proven).
-  verifiedAt      DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -794,7 +790,6 @@ model Lead {
   @@index([source])
   @@index([createdAt])
   @@index([phone, createdAt])
-  @@index([verifiedAt])
 }
 
 // ─────────────────────── App downloads / attribution ───────────────────────

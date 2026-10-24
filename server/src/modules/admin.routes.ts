@@ -8,7 +8,6 @@ import { CHANNEL_LABELS } from '../lib/conversations.js';
 import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
 import { refreshApplicationStatus } from '../lib/statusRefresh.js';
 import { getReferralStatus, yubiEnabled } from '../lib/yubiReferral.js';
-import { rollupInquiries } from '../lib/inquiries.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('admin');
@@ -18,40 +17,6 @@ export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 adminRouter.use(requireActiveAdmin);
 adminRouter.use(auditAdmin);
-
-// GET /api/admin/inquiries/overview — website inquiry metrics, keyed by phone.
-// Each "enter your details" submission is one Lead; a returning customer with a
-// new amount/name is a new inquiry on the same phone. Verified = phone completed
-// OTP for that inquiry. ?days=N windows it (default 90).
-adminRouter.get('/inquiries/overview', ah(async (req, res) => {
-  const days = Math.min(Math.max(parseInt(String(req.query.days ?? ''), 10) || 90, 1), 365);
-  const since = new Date(Date.now() - days * 86_400_000);
-  const leads = await prisma.lead.findMany({
-    where: { source: 'website', createdAt: { gte: since } },
-    orderBy: { createdAt: 'desc' },
-    take: 10000, // bounded rollup; the tiles below stay exact via the same set
-    select: { phone: true, name: true, amount: true, verifiedAt: true, createdAt: true },
-  });
-  const rollup = rollupInquiries(leads);
-  const perDay = await prisma.$queryRaw<Array<{ d: string; n: bigint }>>`
-    SELECT to_char("createdAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS d, count(*)::bigint AS n
-    FROM "Lead" WHERE source = 'website' AND "createdAt" >= ${since} GROUP BY 1 ORDER BY d`;
-
-  return ok(res, {
-    windowDays: days,
-    totals: {
-      totalInquiries: rollup.totalInquiries,
-      verifiedInquiries: rollup.verifiedInquiries,
-      unverifiedInquiries: rollup.unverifiedInquiries,
-      uniqueInquirers: rollup.uniqueInquirers,
-      repeatInquirers: rollup.repeatInquirers,
-      amountChangers: rollup.amountChangers,
-    },
-    perDay: perDay.map((d) => ({ day: d.d, count: Number(d.n) })),
-    topInquirers: rollup.perPhone.slice(0, 50),
-    generatedAt: new Date().toISOString(),
-  });
-}));
 
 
 
