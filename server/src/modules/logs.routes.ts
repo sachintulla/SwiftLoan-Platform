@@ -80,10 +80,11 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .empty{padding:40px;text-align:center;color:var(--muted)}
 </style></head><body>
 <header>
-  <div><h1>SwiftLoan · API Logs</h1><div class="sub">Inbound (app ↔ API) &amp; outbound (API ↔ Aurix) · last 24h</div></div>
+  <div><h1>SwiftLoan · API Logs</h1><div class="sub">Inbound (app ↔ API) &amp; outbound (API ↔ Aurix / Yubi / Revasure) · last 24h</div></div>
   <div class="controls">
     <select id="direction"><option value="">All directions</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select>
-    <select id="target"><option value="">All targets</option><option value="aurix">Aurix</option><option value="swiftloan-api">SwiftLoan API</option></select>
+    <select id="target"><option value="">All targets</option><option value="aurix">Aurix</option><option value="yubi">Yubi</option><option value="revasure">Revasure</option><option value="swiftloan-api">SwiftLoan API</option></select>
+    <select id="limit"><option value="100">100</option><option value="300" selected>300</option><option value="500">500</option><option value="1000">1000 (max)</option></select>
     <input id="q" placeholder="filter URL…" size="16">
     <label class="sub"><input type="checkbox" id="auto" checked> auto</label>
     <button id="refresh">Refresh</button>
@@ -103,7 +104,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
     var dir=document.getElementById('direction').value; if(dir)p.set('direction',dir);
     var tg=document.getElementById('target').value; if(tg)p.set('target',tg);
     var q=document.getElementById('q').value.trim(); if(q)p.set('q',q);
-    p.set('limit','300'); if(key)p.set('key',key);
+    p.set('limit',document.getElementById('limit').value||'300'); if(key)p.set('key',key);
     try{
       var base=location.pathname.replace(/\\/+$/,'');var r=await fetch(base+'/data?'+p.toString()); var j=await r.json();
       var rows=(j.logs||[]);
@@ -126,7 +127,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
     }catch(e){document.getElementById('rows').innerHTML='<tr><td colspan="8" class="empty">Failed to load: '+esc(e.message)+'</td></tr>';}
   }
   document.getElementById('refresh').onclick=load;
-  ['direction','target'].forEach(function(id){document.getElementById(id).onchange=load;});
+  ['direction','target','limit'].forEach(function(id){document.getElementById(id).onchange=load;});
   document.getElementById('q').oninput=function(){clearTimeout(window._t);window._t=setTimeout(load,300);};
   setInterval(function(){if(document.getElementById('auto').checked)load();},5000);
   load();

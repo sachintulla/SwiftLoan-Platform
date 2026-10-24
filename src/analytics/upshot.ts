@@ -50,7 +50,11 @@ type UpshotNative = {
   setDispatchInterval?: (seconds: number) => void;
   createPageViewEvent?: (screen: string, callback: () => void) => void;
   createCustomEvent?: (name: string, payload: string, isTimed: boolean, callback: () => void) => void;
-  setUserProfile?: (profileJson: string) => void;
+  // iOS declares this with a REQUIRED RCTResponseSenderBlock callback (same as the
+  // event methods below). Omitting it makes the iOS bridge throw "argument must be
+  // a function. Got undefined", so the profile — including appuID / App UID — never
+  // lands. Always pass a callback.
+  setUserProfile?: (profileJson: string, callback: () => void) => void;
   getUserId?: () => Promise<string>;
   getUserDetails?: () => Promise<unknown>;
   disableUser?: (disable: boolean) => void;
@@ -270,7 +274,7 @@ function pushStageToProfile(): void {
   const stage = currentStage;
   if (!stage || !identifiedUserId) return;
   const appuID = identifiedUserId;
-  safe(() => sdk()?.setUserProfile?.(JSON.stringify({ appuID, stage })));
+  safe(() => sdk()?.setUserProfile?.(JSON.stringify({ appuID, stage }), __DEV__ ? accepted('profile:stage') : noop));
 }
 
 function setStage(stage: string | null | undefined): void {
@@ -370,6 +374,7 @@ export function upshotIdentify(user: {
         Country: 'India',
         Platform: PLATFORM,
       }),
+      __DEV__ ? accepted('profile:identify') : noop,
     ),
   );
   // Now there is a profile: attach the step the user is on (and keep it current from here).

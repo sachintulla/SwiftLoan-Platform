@@ -9,6 +9,8 @@ import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
 import { purgeExpiredClicks } from '../lib/referral.js';
 import { installReminderTickThrottled } from '../lib/installReminder.js';
+import { statusPoller } from '../lib/statusPoller.js';
+import { runDailyStatusCalls } from '../lib/statusCall.js';
 import { lenderNudgeTickThrottled } from '../lib/lenderNudge.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
@@ -169,15 +171,70 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'lender-nudge', fn: async () => { await lenderNudgeTickThrottled(); }, everyMs: 60_000 },
   // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
   { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
+  // Lender status poller: pulls each in-progress application's latest status
+  // from the lender. The 10-min tick only checks which applications are DUE;
+  // the actual cadence (default every 2h) and the 9am–7pm IST window are read
+  // live from Admin → Timings (status.pollEveryMinutes / status.window*).
+  { name: 'status-poll', fn: async () => { await statusPoller(); }, everyMs: 10 * 60_000 },
+
+  // Daily status call: rings each eligible customer once per IST day with where
+  // their application stands. The minute tick only finds who is due; the feature
+  // is off unless Admin → Timings calls.statusDailyEnabled + calls.nudgeEnabled,
+  // and (while testing) calls.allowedNumbers restricts who rings.
+  { name: 'status-call', fn: async () => { await runDailyStatusCalls(); }, everyMs: 60_000 },
 ];
 
 // Kill switch for every outbound-nudge path: the stall detectors that create
 // nudges and the workers that drain the dispatch queue. Admin-alert-only jobs
 // (idle / loan-stale / onboarding-stale) keep running.
-const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge']);
+const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge', 'status-call']);
 export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '');
 
 let timers: NodeJS.Timeout[] = [];
+
+/**
+ * In-memory heartbeat per job — lets the admin "Calls" page show whether the
+ * dialler jobs (and everything else) are actually ticking on schedule, i.e.
+ * whether Ruby is being triggered on a regular interval. In-process is enough:
+ * the jobs and the admin API run in the same Node process (in-process scheduler,
+ * and the BullMQ workers are started here too). Resets on restart, which is fine
+ * — "is it running right now?" is the question it answers.
+ */
+export interface JobHeartbeat {
+  name: string;
+  everyMs: number;
+  runs: number;
+  lastRunAt: string | null;
+  lastOkAt: string | null;
+  lastError: string | null;
+  lastDurationMs: number | null;
+}
+const heartbeats = new Map<string, JobHeartbeat>();
+
+export function getJobHeartbeats(): JobHeartbeat[] {
+  return [...heartbeats.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Run one job tick and record its heartbeat. Never throws. */
+async function runJobTracked(job: { name: string; fn: () => Promise<void>; everyMs: number }): Promise<void> {
+  const started = Date.now();
+  const hb: JobHeartbeat = heartbeats.get(job.name) ?? {
+    name: job.name, everyMs: job.everyMs, runs: 0, lastRunAt: null, lastOkAt: null, lastError: null, lastDurationMs: null,
+  };
+  hb.everyMs = job.everyMs;
+  try {
+    await job.fn();
+    hb.lastOkAt = new Date().toISOString();
+    hb.lastError = null;
+  } catch (e) {
+    hb.lastError = String((e as Error)?.message ?? e);
+  } finally {
+    hb.lastRunAt = new Date().toISOString();
+    hb.lastDurationMs = Date.now() - started;
+    hb.runs += 1;
+    heartbeats.set(job.name, hb);
+  }
+}
 
 // Start the maintenance jobs. Uses BullMQ if REDIS_URL is set, otherwise a simple
 // setInterval scheduler in-process (fine for a single API node / dev).
@@ -202,7 +259,7 @@ export async function startJobs() {
       for (const job of jobs) {
         const q = new Queue(job.name, { connection });
         await q.add(job.name, {}, { repeat: { every: job.everyMs }, removeOnComplete: true, removeOnFail: true });
-        new Worker(job.name, async () => { await job.fn().catch(() => {}); }, { connection });
+        new Worker(job.name, async () => { await runJobTracked(job); }, { connection });
       }
       console.log(`[jobs] BullMQ scheduler started (${jobs.length} jobs) on Redis`);
       return;
@@ -213,8 +270,8 @@ export async function startJobs() {
   // Fallback: in-process interval scheduler.
   timers = jobs.map((job) => {
     // Run once shortly after boot, then on the interval.
-    setTimeout(() => { job.fn().catch(() => {}); }, 10_000);
-    return setInterval(() => { job.fn().catch(() => {}); }, job.everyMs);
+    setTimeout(() => { void runJobTracked(job); }, 10_000);
+    return setInterval(() => { void runJobTracked(job); }, job.everyMs);
   });
   console.log(`[jobs] in-process scheduler started (${jobs.length} jobs, no Redis)`);
 }

@@ -19,6 +19,8 @@ import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from './callContext.js';
 import { agentIdFor } from './agents.js';
+import { isCallAllowed } from './callGate.js';
+import { timing } from './timings.js';
 import { directWhatsAppConfig, templateFor, sendStallWhatsApp, STALL_WA_MAX_AGE_HOURS } from './stallWhatsapp.js';
 import { directSmsConfig, smsFor, sendStallSms, STALL_SMS_MAX_AGE_HOURS } from './stallSms.js';
 
@@ -519,9 +521,33 @@ async function placeStallCall(
 ): Promise<boolean> {
   if (!customer.phone) return false;
 
+  // Master switch + test-number allowlist (Admin → Timings). Off by default, so
+  // enabling a voice rule never dials anyone until the switch is on; while a
+  // test list is set, only those numbers ring. Checked before the window so a
+  // disabled/!allowed number is simply skipped, never queued.
+  if (!isCallAllowed(customer.phone)) return false;
+
   // Never dial outside the window. Returning false (rather than consuming the
   // idempotency key) leaves them eligible when the window opens.
   if (!withinCallingHours(now)) return false;
+
+  // Let the quieter channels land first: if a push / SMS / WhatsApp nudge went to
+  // this customer in the last `calls.quietAfterMessageMinutes`, hold the call so
+  // the phone doesn't ring on top of a message. We DON'T claim the idempotency key
+  // (below), so the per-minute job simply retries and the call goes out once the
+  // gap has passed and no newer message has landed.
+  const quietMin = timing.num('calls.quietAfterMessageMinutes');
+  if (quietMin > 0) {
+    const quietSince = new Date(now.getTime() - quietMin * 60_000);
+    const recentMsg = await prisma.outboundRequest.count({
+      where: {
+        customerId: customer.id,
+        channel: { in: ['push', 'sms', 'whatsapp'] },
+        createdAt: { gte: quietSince },
+      },
+    });
+    if (recentMsg > 0) return false;
+  }
 
   const since = new Date(now.getTime() - DROPOFF_PHONE_COOLDOWN_HOURS * 3_600_000);
   const recentAny = await prisma.callAttempt.count({

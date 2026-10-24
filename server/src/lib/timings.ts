@@ -213,6 +213,23 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'See "Calling hours start". Set start 00:00 and end 23:59 to turn the window off.',
   },
 
+  /* ───────────── B2. Lender status polling ───────────── */
+  {
+    key: 'status.pollEveryMinutes', group: 'hours', kind: 'number', unit: 'minutes', def: 120, min: 30, max: 720, env: 'STATUS_POLL_MINUTES',
+    label: 'Status poll interval',
+    help: 'How often the backend pulls each in-progress loan application’s latest status from the lender. Default: every 2 hours.',
+  },
+  {
+    key: 'status.windowStart', group: 'hours', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 540, min: 0, max: 1439, env: 'STATUS_POLL_WINDOW_START',
+    label: 'Status poll hours start',
+    help: 'Automatic status polling runs only between this time and the end time (India time). Default 9:00am.',
+  },
+  {
+    key: 'status.windowEnd', group: 'hours', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 1140, min: 0, max: 1439, env: 'STATUS_POLL_WINDOW_END',
+    label: 'Status poll hours end',
+    help: 'See "Status poll hours start". Default 7:00pm; polling is skipped overnight.',
+  },
+
   /* ───────────── C. Website lead → automatic call ───────────── */
   {
     key: 'calls.firstDelaySeconds', group: 'calls', kind: 'number', unit: 'seconds', def: 20, min: 0, max: 600, env: 'IMMEDIATE_CALLBACK_DELAY_SECONDS',
@@ -244,6 +261,28 @@ export const TIMINGS: readonly TimingDef[] = [
     key: 'calls.perScan', group: 'calls', kind: 'number', unit: 'count', def: 25, min: 1, max: 200,
     label: 'Calls started per minute at most',
     help: 'Stops one bad batch from dialling a whole table at once.',
+  },
+  {
+    key: 'calls.nudgeEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false, env: 'CALLS_NUDGE_ENABLED',
+    label: 'Outbound nudge/status calls enabled',
+    help: 'Master switch for automatic drop-off (stuck-stage) calls and the daily status call. Off by default — nothing is dialled until this is on.',
+    warn: 'Turning this on lets the system ring real customers. Keep a test-number list set while testing.',
+  },
+  {
+    key: 'calls.allowedNumbers', group: 'calls', kind: 'phones', unit: 'none', def: [], maxItems: 200,
+    label: 'Call test-number allowlist',
+    help: 'When set, automatic calls (drop-off + daily status) only ring these numbers; everyone else is skipped. Leave empty to call all eligible customers.',
+  },
+  {
+    key: 'calls.statusDailyEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false, env: 'CALLS_STATUS_DAILY_ENABLED',
+    label: 'Daily status call enabled',
+    help: 'Calls each eligible customer once a day with their current status. Also gated by the master switch and the test-number allowlist above.',
+    warn: 'A daily call to every customer is a lot of calls and spend; keep the test-number list set until proven.',
+  },
+  {
+    key: 'calls.quietAfterMessageMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 15, min: 0, max: 720, env: 'CALLS_QUIET_AFTER_MESSAGE_MIN',
+    label: 'Quiet gap after a message before a call',
+    help: 'A drop-off call waits at least this long after the last push / SMS / WhatsApp nudge to the same customer, so the channels do not all land at once. The call simply retries on the next tick until the gap has passed. 0 disables the gap.',
   },
 
   /* ───────────── E. Login and sessions ───────────── */
@@ -297,9 +336,9 @@ export const TIMINGS: readonly TimingDef[] = [
     help: 'Offers are not fetched again from the lender within this time if the applicant\'s details did not change.',
   },
   {
-    key: 'pan.dailyLimit', group: 'tracking', kind: 'number', unit: 'count', def: 5, min: 1, max: 50, env: 'PAN_DAILY_LIMIT',
+    key: 'pan.dailyLimit', group: 'tracking', kind: 'number', unit: 'count', def: 0, min: 0, max: 50, env: 'PAN_DAILY_LIMIT',
     label: 'PAN checks per person per day',
-    help: 'Each check is a paid lender call; this stops one person from running many.',
+    help: 'Each check is a paid lender call. 0 = no limit (default). Set a positive number to cap how many one person can run per day.',
     warn: 'Every check costs money.',
   },
   {

@@ -6,6 +6,8 @@ import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, C
 import { normalisePhone } from '../lib/dialer.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
 import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
+import { refreshApplicationStatus } from '../lib/statusRefresh.js';
+import { getReferralStatus, yubiEnabled } from '../lib/yubiReferral.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('admin');
@@ -331,6 +333,35 @@ adminRouter.get('/loans/:id', ah(async (req, res) => {
   });
 
   return ok(res, { application: app, timeline }, 'Loan journey');
+}));
+
+// POST /api/admin/loans/:id/refresh-status — admin forces a live pull of this
+// application's status from the lender (same fetch as the app's Refresh button
+// and the scheduled poller) and persists any forward-only change. Write-role,
+// audited. Returns the mapped result; the page re-reads /loans/:id to show it.
+adminRouter.post('/loans/:id/refresh-status', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const r = await refreshApplicationStatus(req.params.id);
+  if (!r.ok && r.error === 'Application not found') throw new HttpError(404, 'Application not found');
+
+  // Also pull any Yubi (YMPL) referral this application proceeded with, so the
+  // admin's manual refresh covers every lender on the loan, not just Aurix.
+  if (yubiEnabled()) {
+    const refs = await prisma.partnerReferral.findMany({
+      where: { applicationId: req.params.id, provider: 'ympl', appliedAt: { not: null } },
+      select: { id: true, applicationId: true, userId: true },
+    });
+    for (const ref of refs) {
+      await getReferralStatus(ref.applicationId, ref.userId).catch(() => {});
+      await prisma.partnerReferral.update({ where: { id: ref.id }, data: { lastStatusCheckedAt: new Date() } }).catch(() => {});
+    }
+  }
+  return ok(res, {
+    changed: r.changed,
+    status: r.status,
+    mappedStatus: r.mappedStatus,
+    skipped: r.skipped ?? null,
+    error: r.error ?? null,
+  }, r.changed ? 'Status updated from lender' : r.error ? 'Could not reach the lender' : r.skipped === 'no_user' ? 'No customer on this application' : 'Already up to date — no change from the lender');
 }));
 
 // ─────────────────────────── onboarding ───────────────────────────

@@ -20,7 +20,7 @@ import {
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect, Path, G, Filter, FeGaussianBlur } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
@@ -528,6 +528,7 @@ export function BottomNav() {
   const W = width - 24; // navWrap has 12px padding each side
   const H = 66;
   const cornerR = 26;
+  const SHADOW_PAD = 30; // room for the blurred shadow to bleed on every side of the bar
   const cx = W / 2;
   // The notch is a true circle cut CONCENTRIC with the Ruby ball that nests in
   // it (VoiceWidget: 70pt ball, centre TAB_NOTCH_CENTER=65 above the bar's
@@ -592,15 +593,34 @@ export function BottomNav() {
       pointerEvents="box-none"
     >
       <View style={{ width: W, height: H }}>
-        <Svg width={W} height={H + 24} style={StyleSheet.absoluteFill}>
-          {/* Manual soft drop-shadow: layered, offset, semi-transparent copies
-              behind the bar — tinted with the app's teal so it matches the theme. */}
-          <Path d={barPath} fill={colors.primary} opacity={0.06} transform="translate(0 14)" />
-          <Path d={barPath} fill={colors.primary} opacity={0.08} transform="translate(0 10)" />
-          <Path d={barPath} fill={colors.primary} opacity={0.10} transform="translate(0 6)" />
-          <Path d={barPath} fill={colors.primary} opacity={0.12} transform="translate(0 3)" />
-          {/* The bar itself — hairline stroke so it always separates from the screen. */}
-          <Path d={barPath} fill="#FFFFFF" stroke={colors.line} strokeWidth={1} />
+        {/* The Svg is inflated by SHADOW_PAD on every side (and offset back by the
+            same) so the shadow can bleed up and sideways, not just down — giving the
+            bar an even, rounded "floating" shadow instead of a bottom-only one. */}
+        <Svg
+          width={W + SHADOW_PAD * 2}
+          height={H + SHADOW_PAD * 2}
+          style={{ position: 'absolute', left: -SHADOW_PAD, top: -SHADOW_PAD }}
+        >
+          <Defs>
+            {/* Real Gaussian blur so the shadow fades out softly instead of ending on a
+                hard silhouette edge. Region is enlarged well past the bbox so the blur
+                isn't clipped. FeGaussianBlur is natively supported (iOS + Android/Fabric). */}
+            <Filter id="navShadowSoft" x="-60%" y="-60%" width="220%" height="220%">
+              <FeGaussianBlur in="SourceGraphic" stdDeviation="9" />
+            </Filter>
+            <Filter id="navShadowTight" x="-40%" y="-40%" width="180%" height="180%">
+              <FeGaussianBlur in="SourceGraphic" stdDeviation="5" />
+            </Filter>
+          </Defs>
+          <G transform={`translate(${SHADOW_PAD} ${SHADOW_PAD})`}>
+            {/* Soft brand-green (mint) shadow — two blurred copies: a wide even halo on
+                every side, plus a slightly-lower, tighter one to ground the bar. Both are
+                blurred, so there is no sharp edge anywhere. */}
+            <Path d={barPath} fill={colors.mint} opacity={0.5} filter="url(#navShadowSoft)" transform="translate(0 2)" />
+            <Path d={barPath} fill={colors.mint} opacity={0.45} filter="url(#navShadowTight)" transform="translate(0 6)" />
+            {/* The bar itself — hairline stroke so it always separates from the screen. */}
+            <Path d={barPath} fill="#FFFFFF" stroke={colors.line} strokeWidth={1} />
+          </G>
         </Svg>
         <View style={styles.navRow}>
           {NAV_TABS.map(tab =>

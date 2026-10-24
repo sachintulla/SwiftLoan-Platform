@@ -242,6 +242,11 @@ model LoanApplication {
   // carries it, so subsequent journey webhooks match this application precisely.
   leadId String?
 
+  // Last time the backend pulled this application's live status from the lender
+  // (scheduled poller + admin "Pull latest status"). Throttles the poll so the
+  // lender isn't hammered; null = never polled.
+  lastStatusCheckedAt DateTime?
+
   // snapshot of applicant details at submission
   employment    EmploymentType?
   monthlyIncome Int?
@@ -267,6 +272,7 @@ model LoanApplication {
 
   @@index([userId, status])
   @@index([leadId])
+  @@index([status, lastStatusCheckedAt])
   @@index([userId, offersSignature])
 }
 
@@ -480,11 +486,13 @@ model PartnerReferral {
   appliedAt            DateTime?
   appliedLender        String? // lender the applicant proceeded with, if known
   lastStatus           String? // latest journeyStatus from Get Status (NEW_LEAD…)
+  lastStatusCheckedAt  DateTime? // last time the status poller pulled this from YMPL (throttle)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   @@index([applicationId])
   @@index([userId])
+  @@index([appliedAt, lastStatusCheckedAt])
 }
 
 // Revasure "Create Lead" integration — a THIRD lender group, run in parallel to

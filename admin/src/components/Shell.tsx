@@ -37,6 +37,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       // still resolves via a redirect for old links.
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
       { href: '/messages', label: 'Messages', icon: '✆' },
+      { href: '/calls', label: 'Calls', icon: '☎' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
     ],
   },

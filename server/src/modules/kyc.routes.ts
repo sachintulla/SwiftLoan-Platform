@@ -8,6 +8,8 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import type { KycMethod } from '@prisma/client';
 import { scoped } from '../lib/log.js';
 import { verifyPan, cachedPanForUser } from '../lib/panVerification.js';
+import { loadPan } from '../lib/storedPan.js';
+import { normalisePan } from '../lib/pii.js';
 import { markPanVerified } from '../lib/installReminder.js';
 
 const log = scoped('kyc');
@@ -29,13 +31,25 @@ kycRouter.post('/pan/verify',
   ah(async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    // Capture the PAN already on file BEFORE verifying — a successful verify of a
+    // different PAN would attach (replace) it, and we need the old one to tell the
+    // client "this number is linked to PAN ••••••234A" so it can ask before letting
+    // the entered PAN (and the old account's identity data) go forward mismatched.
+    const onFileBefore = await cachedPanForUser(user.id); // verified PAN on file (masked) or null
+    const onFilePanPlain = onFileBefore ? await loadPan(user.id) : ''; // in memory only, never returned
+    const enteredNorm = normalisePan(req.body.pan);
+
     const result = await verifyPan(user, req.body.pan);
     // Website drop-off recovery: remember step 1 is done, and the first name for the app's greeting.
     // A no-op unless this user has an active website reminder; never blocks the response.
     if (result.verified) markPanVerified(user.id, result.prefill?.firstName).catch(() => {});
+
+    const panOnFile = !!onFileBefore;
+    const samePanOnFile = panOnFile && !!onFilePanPlain && onFilePanPlain === enteredNorm;
     res.json({
       success: true,
-      data: result,
+      data: { ...result, panOnFile, samePanOnFile, maskedPanOnFile: onFileBefore?.maskedPan ?? null },
       message: result.verified ? 'PAN verified' : (result.message ?? 'PAN could not be verified'),
     });
   }));

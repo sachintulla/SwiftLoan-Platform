@@ -1,7 +1,7 @@
 'use client';
 
 import { createPortal } from 'react-dom';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Clock } from 'lucide-react';
 import { useCopy } from '@/lib/i18n';
 import { applyShellCopy } from '@/i18n/apply-shell';
@@ -30,7 +30,26 @@ const TONE = {
  * inline line of red text. Esc, the OK button and the backdrop all close it;
  * focus moves to OK on open and page scroll is locked while it's up.
  */
-export function AlertDialog({ open, content, onClose }: { open: boolean; content: AlertContent | null; onClose: () => void }) {
+export function AlertDialog({
+  open,
+  content,
+  onClose,
+  onConfirm,
+  confirmLabel,
+  cancelLabel,
+  illustration,
+}: {
+  open: boolean;
+  content: AlertContent | null;
+  onClose: () => void;
+  /** When provided, the dialog becomes a two-action confirm: a primary button runs
+   *  this, and a secondary button runs onClose. Omitted = the original single-OK alert. */
+  onConfirm?: () => void;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** Replaces the tone icon with a custom visual (e.g. the PAN-swap animation). */
+  illustration?: ReactNode;
+}) {
   const okRef = useRef<HTMLButtonElement>(null);
   const copy = useCopy(applyShellCopy);
 
@@ -62,9 +81,13 @@ export function AlertDialog({ open, content, onClose }: { open: boolean; content
         aria-describedby={content.title ? 'alert-message' : undefined}
         className="animate-in fade-in zoom-in-95 slide-in-from-bottom-4 border-border bg-card relative w-full max-w-sm rounded-3xl border p-6 text-center shadow-[var(--shadow-float)] duration-200 sm:p-7"
       >
-        <span className={`${ring} mx-auto grid h-14 w-14 place-items-center rounded-full`}>
-          <Icon className={`${icon} h-7 w-7`} />
-        </span>
+        {illustration ? (
+          <div className="mb-1">{illustration}</div>
+        ) : (
+          <span className={`${ring} mx-auto grid h-14 w-14 place-items-center rounded-full`}>
+            <Icon className={`${icon} h-7 w-7`} />
+          </span>
+        )}
         {content.title && (
           <h2 id="alert-title" className="text-foreground mt-4 text-lg font-extrabold">
             {content.title}
@@ -86,13 +109,31 @@ export function AlertDialog({ open, content, onClose }: { open: boolean; content
             ))}
           </ul>
         )}
-        <button
-          ref={okRef}
-          onClick={onClose}
-          className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
-        >
-          {content.okLabel ?? copy.ok}
-        </button>
+        {onConfirm ? (
+          <div className="mt-6 flex flex-col gap-2.5">
+            <button
+              ref={okRef}
+              onClick={onConfirm}
+              className="bg-brand-gradient text-primary-foreground w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
+            >
+              {confirmLabel ?? content.okLabel ?? copy.ok}
+            </button>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground w-full rounded-full px-6 py-3 text-sm font-bold transition-colors"
+            >
+              {cancelLabel ?? copy.cancel}
+            </button>
+          </div>
+        ) : (
+          <button
+            ref={okRef}
+            onClick={onClose}
+            className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
+          >
+            {content.okLabel ?? copy.ok}
+          </button>
+        )}
       </div>
     </div>,
     document.body,
