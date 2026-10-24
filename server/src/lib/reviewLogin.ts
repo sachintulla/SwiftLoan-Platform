@@ -36,6 +36,22 @@ export function isReviewPhone(phone: string): boolean {
   return reviewLogin()?.phone === phone;
 }
 
+/**
+ * Test master OTP(s). DEV_MASTER_OTP may hold a single code or a comma-separated
+ * list (e.g. "123456,123499"); any code in the list signs in ANY number. Dev/UAT
+ * and the current demo-prod build only — never ship this on a real production launch.
+ */
+export function masterOtps(): string[] {
+  return (process.env.DEV_MASTER_OTP ?? '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
+export function isMasterOtp(code: string): boolean {
+  return masterOtps().includes(code.trim());
+}
+
 /** True only for the configured reviewer number presenting the configured code. */
 export function isReviewOtp(phone: string, code: string): boolean {
   const cfg = reviewLogin();

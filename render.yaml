@@ -54,10 +54,11 @@ services:
       # so testers can log in without real SMS. Remove for a real production launch.
       - key: DEMO_LOGIN
         value: "true"
-      # DEMO_LOGIN above only surfaces the generated code as `devOtp`; the fixed
-      # master OTP is accepted solely via DEV_MASTER_OTP (lib/otp.ts, authSession.ts).
+      # DEMO_LOGIN above only surfaces the generated code as `devOtp`; the master
+      # OTP(s) are accepted solely via DEV_MASTER_OTP (lib/otp.ts, authSession.ts).
+      # Comma-separated list: any of these codes signs in ANY number (testing only).
       - key: DEV_MASTER_OTP
-        value: "123456"
+        value: "123456,123499"
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
