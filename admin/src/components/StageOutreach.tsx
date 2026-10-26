@@ -200,7 +200,7 @@ function ActivityRow({ stageKey, activity: a, ov, last, onSaved }: { stageKey: s
                 <span className="field-label">Ello agent</span>
                 <select className="input" value={role} onChange={(e) => { setRole(e.target.value); setMsg(null); }}>
                   <option value="">Website lead callback (default)</option>
-                  {ov.agentRoles.filter((r) => r.direction === 'outbound').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
+                  {ov.agentRoles.filter((r) => r.direction === 'outbound' && r.role !== 'leadCallback').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
                 </select>
               </label>
               <label style={{ display: 'grid', gap: 6, minWidth: 220 }}>
