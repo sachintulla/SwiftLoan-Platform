@@ -39,6 +39,7 @@ import { campaignsRouter } from './modules/campaigns.routes.js';
 import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
+import { stageOutreachRouter } from './modules/stageOutreach.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
 import { adminSupportRouter } from './modules/adminSupport.routes.js';
 import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
@@ -172,6 +173,7 @@ export function createApp() {
   app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
   app.use('/api/admin/stall-rules', stallRulesRouter);
+  app.use('/api/admin/stage-outreach', stageOutreachRouter);
   app.use('/api/admin/ops', adminOpsRouter);
   app.use('/api/admin/support', adminSupportRouter);
   app.use('/api/admin/referrals', adminReferralsRouter);

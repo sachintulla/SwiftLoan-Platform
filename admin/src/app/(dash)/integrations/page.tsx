@@ -8,6 +8,7 @@ import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
 import { Card, StatusBadge, TableSkeleton, Empty, FilterChips } from '@/components/ui';
+import StageOutreach from '@/components/StageOutreach';
 
 type Provider = 'ello' | 'upshot' | 'voxvalley' | 'meta_whatsapp';
 
@@ -50,6 +51,7 @@ const SUB_TABS = [
   { key: 'upshot', label: '✉  Messaging' },
   { key: 'voxvalley', label: '💬  WhatsApp (Vox)' },
   { key: 'meta_whatsapp', label: '💬  WhatsApp (Meta)' },
+  { key: 'stage-outreach', label: '📞  Stage outreach' },
   { key: 'api-keys', label: '🔑  API keys' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['key'];
@@ -127,6 +129,7 @@ export default function ConfigsPage() {
               onSaved={() => mutate()}
             />
           )}
+          {tab === 'stage-outreach' && <StageOutreach />}
           {tab === 'api-keys' && <ApiKeysPanel />}
         </div>
       )}

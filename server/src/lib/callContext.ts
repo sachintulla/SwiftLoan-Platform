@@ -64,6 +64,9 @@ export const LEAD_CALL_VARIABLES = [
   'lead_prior_inquiries',
   'lead_is_returning',
   'agent_purpose',
+  // Stage-specific instructions an admin writes on Configs → Stage outreach, with
+  // their own {variables} already filled in. Empty unless one is set for the stage.
+  'stage_brief',
   /**
    * The cross-channel conversation brief, pushed at dial time.
    *
@@ -216,6 +219,7 @@ export async function buildLeadCallContext(
     lead_prior_inquiries: priorCount ? String(priorCount) : '',
     lead_is_returning: priorCount > 0 ? 'yes' : 'no',
     agent_purpose: opts.purpose ?? 'website_lead_followup',
+    stage_brief: '',
     conversation_history: memory?.summary ?? '',
     conversation_count: memory?.conversationCount ? String(memory.conversationCount) : '',
     // Empty unless a stall rule triggered this call; compactContext() then drops
