@@ -9,6 +9,10 @@ export interface ConfirmationOptions {
   confirmLabel?: string;
   /** Defaults to the generic voice-confirm "Deny". */
   cancelLabel?: string;
+  /** Optional animated illustration at the top of the sheet. Used by the manual
+   *  destructive actions (logout / delete account) to signal what's about to
+   *  happen; voice confirmations leave it unset and stay text-only. */
+  art?: 'logout' | 'delete';
 }
 type ConfirmationRequest = { message: string; options?: ConfirmationOptions; resolve: (allowed: boolean) => void };
 type Listener = (req: ConfirmationRequest | null) => void;

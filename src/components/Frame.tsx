@@ -122,6 +122,7 @@ export function Screen({
   headerRight,
   footer,
   footerReserve,
+  statusBar,
   children,
 }: {
   variant?: 'app' | 'hero' | 'plain';
@@ -129,6 +130,9 @@ export function Screen({
   bottomNav?: boolean;
   padded?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Override the status-bar text colour (e.g. 'light-content' on a screen whose
+   *  top is a dark header band, where the variant default would be dark-on-dark). */
+  statusBar?: 'light-content' | 'dark-content';
   /** Pinned top bar (e.g. an AppHeader/back button) that stays fixed while content scrolls. */
   header?: React.ReactNode;
   /** Right-side action rendered in the collapsingTitle header (e.g. a HeaderCta). */
@@ -168,7 +172,7 @@ export function Screen({
   const kbLift = useKeyboardLift(insets.bottom);
   const Bg =
     variant === 'hero' ? HeroBackground : variant === 'plain' ? React.Fragment : AppBackground;
-  const barStyle = variant === 'hero' ? 'light-content' : 'dark-content';
+  const barStyle = statusBar ?? (variant === 'hero' ? 'light-content' : 'dark-content');
   const pad = padded ? { paddingHorizontal: 18 } : null;
   // A pinned header (explicit `header` or a `collapsingTitle`) already consumes
   // the top safe-area inset, so the scroll content starts with just a small gap
