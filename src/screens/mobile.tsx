@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Platform, Linking, Keyboard } from 'react-native';
+import { PRIVACY_POLICY_URL } from '../content/legal';
+import { getScroller } from '../feedback/agentFx';
 import { Screen } from '../components/Frame';
 import { LoginHero } from '../components/LoginHero';
 import Icon from '../components/Icon';
@@ -25,7 +27,6 @@ function isValidMobile(v: string): boolean {
 const INTRO_FEATURES = [
   { icon: 'bolt', tile: '#E1F3F3', tint: '#079FA0', titleKey: 'introFeat1Title', descKey: 'introFeat1Desc' },
   { icon: 'handshake', tile: '#E3F6EE', tint: '#2FB183', titleKey: 'introFeat2Title', descKey: 'introFeat2Desc' },
-  { icon: 'lock', tile: '#E1F3F3', tint: '#079FA0', titleKey: 'introFeat3Title', descKey: 'introFeat3Desc' },
 ] as const;
 
 export default function Mobile() {
@@ -41,6 +42,34 @@ export default function Mobile() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const hiddenOtpInput = useRef<TextInput>(null);
+  // The "I agree" consent row sits just below the phone field. On this New-Architecture
+  // build the Screen's generic focus-lift can't find the focused field, so lift the
+  // consent into view ourselves: when the keyboard opens on the number step, measure
+  // the consent and scroll the page so its bottom clears the keyboard (and the pinned
+  // Send OTP bar that lifts onto the keyboard's top edge).
+  const consentRef = useRef<View>(null);
+  useEffect(() => {
+    if (otpSent) return undefined;
+    const sub = Keyboard.addListener('keyboardDidShow', e => {
+      const kbTop = e.endCoordinates.screenY;
+      // Defer: the Screen adds its keyboard bottom-padding on this same event, so we
+      // measure and scroll only after that padding (the scroll room) has been applied.
+      setTimeout(() => {
+        const sc = getScroller('mobile');
+        const node = consentRef.current;
+        if (!sc || !node?.measureInWindow) return;
+        node.measureInWindow((_x, y, _w, h) => {
+          if (!Number.isFinite(y) || h <= 0) return;
+          // Keep the consent's bottom this far above the keyboard: the pinned Send OTP
+          // bar (~96pt) rides on the keyboard's top edge, plus a little breathing room.
+          const RESERVE = 108;
+          const delta = (y + h) - (kbTop - RESERVE);
+          if (delta > 0) sc.scrollToY(sc.getOffset() + delta);
+        });
+      }, 180);
+    });
+    return () => sub.remove();
+  }, [otpSent]);
 
   // Re-focus the hidden OTP field on tap. On Android, once the soft keyboard
   // is dismissed by the user (back button, swipe-down, tapping outside) the
@@ -266,6 +295,12 @@ export default function Mobile() {
       scroll
       padded={false}
       contentStyle={{ paddingTop: 0 }}
+      // On the number-entry step, the "I agree" consent sits just below the focused
+      // phone field. Reserve enough space above the keyboard (footer height + the
+      // hint + consent rows) so focusing the field scrolls the consent into view
+      // above the keyboard too — not just the field. The OTP step has nothing
+      // below its field, so the default footer reserve is fine there.
+      footerReserve={!otpSent ? 184 : undefined}
       // Pin the primary action to the bottom so it's always visible — the intro
       // pitch merged under the form would otherwise push "Send OTP" below the fold.
       footer={
@@ -276,9 +311,10 @@ export default function Mobile() {
         )
       }
     >
-      {/* On the OTP view, Back returns to the number-entry state (same screen,
-          otpSent=false) rather than leaving the login for the privacy screen. */}
-      <LoginHero onBack={() => { if (otpSent) { setErr(null); set({ otpSent: false }); } else { go('privacy'); } }} />
+      {/* No back button on the number-entry step: the privacy policy is shown once
+          (first launch) and accepted there, so the login never navigates back to it.
+          On the OTP step the back arrow stays, returning to number entry. */}
+      <LoginHero onBack={otpSent ? () => { setErr(null); set({ otpSent: false }); } : undefined} />
 
       <View style={{ paddingHorizontal: 24, marginTop: 2 }}>
         {!otpSent ? (
@@ -291,20 +327,23 @@ export default function Mobile() {
                 <Icon name="verified_user" size={15} color={colors.primary} />
                 <Text style={[font(700), { fontSize: 11.5, color: '#0B6E6F' }]}>{t.introBadge}</Text>
               </View>
-              {INTRO_FEATURES.map((f, i) => (
-                <View
-                  key={f.titleKey}
-                  style={[styles.introFeat, i < INTRO_FEATURES.length - 1 && { borderBottomWidth: 1, borderBottomColor: 'rgba(120,150,148,0.16)' }]}
-                >
-                  <View style={[styles.introTile, { backgroundColor: f.tile }]}>
-                    <Icon name={f.icon} size={22} color={f.tint} />
+              {/* Both value props merged into one compact card (icon + one line each)
+                  so the header stays light and the whole screen fits without crowding. */}
+              <View style={styles.introCard}>
+                {INTRO_FEATURES.map((f, i) => (
+                  <View
+                    key={f.titleKey}
+                    style={[styles.introFeat, i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(120,150,148,0.16)' }]}
+                  >
+                    <View style={[styles.introTile, { backgroundColor: f.tile }]}>
+                      <Icon name={f.icon} size={18} color={f.tint} />
+                    </View>
+                    <Text style={[font(700), { flex: 1, fontSize: 14, color: colors.text, letterSpacing: -0.1 }]} numberOfLines={1}>
+                      {t[f.titleKey]}
+                    </Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[font(800), { fontSize: 15, color: colors.text, letterSpacing: -0.15 }]}>{t[f.titleKey]}</Text>
-                    <Text style={[font(400), { fontSize: 12.5, lineHeight: 18, color: '#6E8080', marginTop: 2 }]}>{t[f.descKey]}</Text>
-                  </View>
-                </View>
-              ))}
+                ))}
+              </View>
             </View>
 
             {/* On-screen instructions ("enter your number…") are for the user's eyes: if the agent
@@ -332,17 +371,21 @@ export default function Mobile() {
               <Text style={[font(500), { fontSize: 12, color: colors.redDeep, marginTop: 4 }]}>{t.mobileErrInvalid}</Text>
             ) : null}
 
-            <Pressable style={styles.terms} onPress={() => set({ terms: !state.terms })}>
+            <Pressable ref={consentRef} style={styles.terms} onPress={() => set({ terms: !state.terms })}>
               <View style={[styles.box, state.terms && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
                 {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
               </View>
               <Text style={[font(500), { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSoft }]}>
-                {t.termsAgreePrefix} <Text style={{ color: colors.primary }}>{t.linkTerms}</Text> {t.termsAgreeMid}{' '}
-                <Text style={{ color: colors.primary }}>{t.linkPrivacy}</Text>{t.termsAgreeSuffix}
+                {t.termsAgreePrefix}{' '}
+                {/* Both the Terms of Service and the Privacy Policy open the hosted policy
+                    page. onPress on these inner Text spans opens the link and does not
+                    bubble to the row Pressable, so tapping a link never toggles consent. */}
+                <Text style={{ color: colors.primary }} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>{t.linkTerms}</Text> {t.termsAgreeMid}{' '}
+                <Text style={{ color: colors.primary }} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>{t.linkPrivacy}</Text>{t.termsAgreeSuffix}
               </Text>
             </Pressable>
 
-            {/* Trust stats row — placed between the consent and the encryption note. */}
+            {/* Trust stats row. */}
             <View style={styles.introStatCard}>
               {[
                 { v: '15+', l: t.introStat1 },
@@ -495,8 +538,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(7,159,160,0.1)', borderWidth: 1, borderColor: 'rgba(7,159,160,0.18)',
     borderRadius: 9999, paddingVertical: 6, paddingLeft: 10, paddingRight: 13, marginBottom: 10,
   },
-  introFeat: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 13 },
-  introTile: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  introCard: {
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 18,
+    paddingHorizontal: 14,
+  },
+  introFeat: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11 },
+  introTile: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   introStatCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.6)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 22,

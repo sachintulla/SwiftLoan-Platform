@@ -54,9 +54,14 @@ function BackHandlerBridge() {
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (state.screen === 'home' || state.screen === 'splash') return false;
-      // On the OTP view (mobile screen, otpSent=true) Back returns to the
-      // number-entry state rather than leaving the login for privacy.
-      if (state.screen === 'mobile' && state.otpSent) { set({ otpSent: false }); return true; }
+      if (state.screen === 'mobile') {
+        // On the OTP view (otpSent=true) Back returns to the number-entry state.
+        if (state.otpSent) { set({ otpSent: false }); return true; }
+        // Number-entry is a root screen: the privacy policy is accepted once at first
+        // launch and never shown again, so Back doesn't return to it — let Android
+        // background/exit the app as it would from Home.
+        return false;
+      }
       back();
       return true;
     });
