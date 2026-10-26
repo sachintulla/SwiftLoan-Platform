@@ -214,7 +214,7 @@ export default function Profile() {
   const logout = async () => {
     const allowed = await requestConfirmation(
       t.logoutConfirmMsg,
-      { confirmLabel: t.logout, cancelLabel: t.cancel },
+      { confirmLabel: t.logout, cancelLabel: t.cancel, art: 'logout' },
     );
     if (!allowed) return;
     await api.logout().catch(() => {});
@@ -225,7 +225,7 @@ export default function Profile() {
     if (!isAuthed()) { showToast(t.pleaseVerifyMobile); return; }
     const allowed = await requestConfirmation(
       t.deleteConfirmMsg,
-      { confirmLabel: t.deleteLabel, cancelLabel: t.cancel },
+      { confirmLabel: t.deleteLabel, cancelLabel: t.cancel, art: 'delete' },
     );
     if (!allowed) return;
     try {

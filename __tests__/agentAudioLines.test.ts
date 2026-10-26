@@ -102,8 +102,8 @@ describe('already_introduced', () => {
     (agent as any).handleMessage({ type: 'conversation-text', data: { text, source, is_interim: false } });
 
   it('is false for lines spoken during sign-in, true once a line is spoken on a signed-in screen', () => {
-    setCurrentScreen('language');
-    say('Which language would you like to continue in?');
+    setCurrentScreen('mobile');
+    say('Which mobile number would you like to use?');
     setCurrentScreen('otp');
     say('What is the OTP?');
     expect(agent.hasIntroducedThisCall()).toBe(false);

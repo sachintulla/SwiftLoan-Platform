@@ -1460,6 +1460,44 @@ await t('S152', 'schedule:default', 'a visitor gets at most 2 runs by default (n
   assert.equal(await prisma.journeyReminder.count({ where: { userId: w.user.id, status: 'active' } }), 0, 'no third run');
 });
 
+await t('S153', 'reminder:duplicates', 'concurrent pings after a drop-off leave exactly ONE active reminder (never two messages to one person)', async () => {
+  await isolateN(); const w = await webLogin();
+  await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { droppedAt: new Date(OPEN.getTime() - 60_000) } });
+  const results = await Promise.all(Array.from({ length: 6 }, () => rem.pingInstallReminder(w.user, OPEN).then(() => 'ok', (e) => String(e))));
+  assert.ok(results.every((r) => r === 'ok'), `a losing request must not throw: ${results.join(' | ')}`);
+  assert.equal(await prisma.journeyReminder.count({ where: { userId: w.user.id, status: 'active' } }), 1, 'one active row');
+  assert.equal(await prisma.journeyReminder.count({ where: { userId: w.user.id, status: 'stopped', stopReason: 'returned' } }), 1, 'the old run stopped once');
+  // The index itself refuses a second active row, whoever tries (a second server instance, a script).
+  const active = await prisma.journeyReminder.findFirstOrThrow({ where: { userId: w.user.id, status: 'active' } });
+  await assert.rejects(prisma.journeyReminder.create({ data: { userId: w.user.id, phone: w.phone, token: 'DUPTEST' + Date.now(), startAt: OPEN, nextCheckAt: OPEN } }), (e: any) => e.code === 'P2002');
+  // And arming (OTP verified again) on an active visitor still returns that same row.
+  const again = await rem.armInstallReminder(w.user, OPEN); assert.equal(again?.id, active.id);
+});
+
+await t('S154', 'reminder:duplicates', 'a request that read stale state (saw no active run) and loses the create returns the existing run instead of failing', async () => {
+  await isolateN(); const w = await webLogin();
+  const active = await prisma.journeyReminder.findFirstOrThrow({ where: { userId: w.user.id, status: 'active' } });
+  // The race itself: another request already created the run, but this one's first read ran before that and saw nothing.
+  const jr = prisma.journeyReminder as any; const real = jr.findFirst; let stale = true;
+  jr.findFirst = (...a: any[]) => { if (stale) { stale = false; return Promise.resolve(null); } return real.apply(jr, a); };
+  try {
+    const got = await rem.armInstallReminder(w.user, OPEN);
+    assert.equal(got?.id, active.id, 'returns the run that won');
+  } finally { jr.findFirst = real; }
+  assert.equal(await prisma.journeyReminder.count({ where: { userId: w.user.id, status: 'active' } }), 1);
+});
+
+await t('S155', 'reminder:duplicates', 'a verified visitor is never left on the short "never entered the code" run when that row was written first', async () => {
+  await isolateN();
+  const phone = newPhone(); const user = await prisma.user.create({ data: { phone } });
+  const un = await rem.armUnverifiedReminder(user, OPEN); assert.equal(un?.unverified, true);
+  const jr = prisma.journeyReminder as any; const real = jr.findFirst; let stale = true;
+  jr.findFirst = (...a: any[]) => { if (stale) { stale = false; return Promise.resolve(null); } return real.apply(jr, a); }; // verify's read missed the background-armed row
+  try { await rem.armInstallReminder(user, OPEN); } finally { jr.findFirst = real; }
+  const rows = await prisma.journeyReminder.findMany({ where: { userId: user.id, status: 'active' } });
+  assert.equal(rows.length, 1); assert.equal(rows[0]!.unverified, false); assert.equal(rows[0]!.lastStep, 'otp_only');
+});
+
 await isolateN(); await prisma.lenderPartner.deleteMany({ where: { name: { in: ['IDFC FIRST Bank', 'Hero FinCorp'] } } }).catch(() => undefined);
 
 /* ───────────── report ───────────── */

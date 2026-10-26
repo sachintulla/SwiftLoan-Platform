@@ -482,6 +482,7 @@ resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin 
 - **Job scheduling (`nextCheckAt`).** Each `JourneyReminder` row says when it next needs attention (next step due, or the 5-minute idle check);
   `installReminderTick` reads only rows that are due, page by page (migration `20261019130000_journey_reminder_next_check`). The first version read
   the 200 oldest active rows, so newer visitors starved once more than 200 were active.
+- **One active run per visitor.** Two concurrent website pings after a drop-off each created their own next-cycle row, so prod sent the same WhatsApp twice. Migration `20261026120000_journey_reminder_one_active` stops existing duplicates (keeps the oldest) and adds the partial unique index `JourneyReminder_one_active_per_user` (`userId` WHERE `status='active'`; migration-only, Prisma cannot express it, so `db push` will not create it — `run.sh` applies the SQL itself). `createReminder` catches the conflict and returns the run that won (promoting an `unverified` one to a normal run). Apply with `prisma migrate deploy`.
 - **Tests.** Server integration suite: `cd server && bash scripts/journey/run.sh` (89 checks against a throwaway DB and fake providers, nothing real is sent;
   it blanks the Aurix secret because a website login otherwise calls the lender UAT). Simulator seeds + inspector helper: `server/scripts/journey/`.
   Full report: `docs/JOURNEY_RESUME_TEST_REPORT.md`. Two lessons from it: `trackPost()` used to drop the anonymous `/attribution/claim` (install attribution

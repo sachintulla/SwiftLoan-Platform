@@ -207,6 +207,11 @@ const MAX_ONE_OFF_CHANGES = 2;
  */
 export const BUTTONS_ONLY_SCREENS = new Set<string>(['home']);
 
+/** True once `screen` has published its auto-discovered controls (even an empty set) — i.e. it has finished rendering. */
+export function hasPublishedGraph(screen: string): boolean {
+  return autoByScreen.has(screen);
+}
+
 /** Returns true when the set of addressable controls actually changed. */
 export function publishScreenGraph(
   screen: string,
@@ -421,13 +426,15 @@ export function getScreenHint(screen: string): Record<string, unknown> {
 export function buildPageContext(screen: string): Record<string, unknown> {
   const targets = listTargets(screen);
   const info = SCREEN_INFO[screen];
+  const hint = getScreenHint(screen);
   return {
-    ...getScreenHint(screen),
+    ...hint,
     page: screen,
     // Plain-language name + purpose, so the agent can tell the user where they are
     // (and never has to speak the internal id above). Omitted for unknown screens.
-    screen_title: info?.title,
-    screen_purpose: info?.purpose,
+    // A screen with two states under one id (mobile: number entry / OTP) supplies its own via the hint.
+    screen_title: (hint.screen_title as string | undefined) ?? info?.title,
+    screen_purpose: (hint.screen_purpose as string | undefined) ?? info?.purpose,
     // Include enough of the visible text that data-heavy screens (offers, loans)
     // convey their actual content — 12 lines cut off the offer list, leaving the
     // agent to fall back on example figures from its prompt.
@@ -469,6 +476,9 @@ export function buildPageContext(screen: string): Record<string, unknown> {
     //     '"aadhaar") and one thing they can do here. One sentence, genuinely warm, no script. ' +
     //     'Then stop and listen.',
     // },
-    available_actions: targets.map(describeTarget),
+    // The tab bar (Home / My Offers / My Loans / Profile) is the same on every main screen and the
+    // agent reaches those screens with navigate_screen (or a tap by name, resolved live) — so it is
+    // left out of what is sent on every page change. read_screen and tool results still list it.
+    available_actions: targets.filter(t => !t.fixed).map(describeTarget),
   };
 }

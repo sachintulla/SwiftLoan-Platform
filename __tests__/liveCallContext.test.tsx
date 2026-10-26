@@ -29,6 +29,8 @@ beforeEach(() => {
   (agent as any).socket = { readyState: 1, send: (m: any) => sent.push(m), close: jest.fn() };
   (agent as any).status = 'listening';
   (agent as any).lastSentPerScreen = new Map();
+  (agent as any).lastSentNormPerScreen = new Map();
+  (agent as any).lastSentIdentity = null;
   (agent as any).lastSentPage = null;
 });
 afterEach(() => {
@@ -59,47 +61,58 @@ const fullApp = () =>
     </>,
   );
 
+// The facts about the person/call (language, name, phone, account summary…) go out with the FIRST update of a call
+// and again only when they change — later screens must not repeat them.
+function expectIdentityOnlyOnFirstUpdate() {
+  const updates = sent.filter(m => m.type === 'client-tools-update').map(m => m.page_context);
+  expect(updates.length).toBeGreaterThan(1);
+  for (const k of ['agent_language', 'preferred_language', 'user_name', 'heard_intro_pitch']) expect(updates[0]).toHaveProperty(k);
+  expect(updates.slice(1).filter(u => 'agent_language' in u || 'authenticated_phone' in u)).toHaveLength(0);
+}
+
 function expectFullContext(ctx: any, screen: string, title: string) {
   expect(ctx).toBeTruthy();
   // Which page, in internal id and in plain words, and what it is for.
   expect(ctx.page).toBe(screen);
   expect(ctx.screen_title).toBe(title);
   expect(typeof ctx.screen_purpose).toBe('string');
-  // What is on it and what can be done.
-  expect(typeof ctx.screen_overview).toBe('string');
+  // What is on it and what can be done. The page text is left out when it only repeated the controls/title.
+  if ('screen_overview' in ctx) expect(typeof ctx.screen_overview).toBe('string');
   expect(Array.isArray(ctx.available_actions)).toBe(true);
-  // Standing facts about the user/session, on every update.
-  expect(ctx).toHaveProperty('agent_language');
-  expect(ctx).toHaveProperty('preferred_language');
-  expect(ctx).toHaveProperty('user_name');
-  expect(ctx).toHaveProperty('heard_intro_pitch');
+  // The tab bar is the same on every main screen and is not sent as controls.
+  const labels = ctx.available_actions.map((a: any) => a.label);
+  for (const tab of ['Home', 'My Offers', 'My Loans', 'Profile']) expect(labels).not.toContain(tab);
 }
 
 describe('page_context sent to the agent during a live call', () => {
   it('sign-in screens: pushed on every change and describes the CURRENT screen fully', async () => {
     fullApp();
-    for (const [screen, title] of [
+    const list: Array<[ScreenName, string]> = [
       ['language', 'Choose Language'],
       ['intro', 'Get Started'],
       ['mobile', 'Enter Mobile Number'],
-    ] as Array<[ScreenName, string]>) {
+    ];
+    for (const [screen, title] of list) {
       await goAndSettle(screen);
       expectFullContext(lastContext(), screen, title);
     }
+    expectIdentityOnlyOnFirstUpdate();
   });
 
   it('signed-in screens: same, including the app tabs', async () => {
     setTokens('fake-access-token');
     fullApp();
-    for (const [screen, title] of [
+    const list: Array<[ScreenName, string]> = [
       ['fare', 'My Offers'],
       ['profile', 'Profile'],
       ['loans', 'My Loans'],
       ['help', 'Help & Support'],
-    ] as Array<[ScreenName, string]>) {
+    ];
+    for (const [screen, title] of list) {
       await goAndSettle(screen);
       expectFullContext(lastContext(), screen, title);
     }
+    expectIdentityOnlyOnFirstUpdate();
   });
 
   it('a screen change is never silently dropped: each new page produces a new message, in order', async () => {

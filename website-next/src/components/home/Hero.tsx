@@ -6,7 +6,7 @@ import { fmtINR } from "@/lib/core";
 import { useCopy } from "@/lib/i18n";
 import { heroCopy } from "@/i18n/hero";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP } from "@/hooks/useLeadCapture";
-import { Input, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
+import { AmountInput, Input, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 const badgeIcons: LucideIcon[] = [TrendingUp, Clock, Lock];
 
@@ -72,7 +72,6 @@ export function Hero() {
         <Reveal delay={120} className="min-w-0">
           <div className="relative mx-auto w-full max-w-md lg:ml-auto lg:mr-0">
             <div className="bg-brand-gradient absolute -inset-3 rounded-[2.5rem] opacity-15 blur-3xl" aria-hidden />
-            <span className="border-primary/30 absolute -inset-1.5 rounded-[2.25rem] border-2 animate-soft-ping" aria-hidden />
 
             <form
               ref={formRef}
@@ -104,9 +103,13 @@ export function Hero() {
               <div className="min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <Label text={t.amountLabel} />
-                  <span className="text-primary text-lg font-extrabold">
-                    {amountTouched ? fmtINR(amount) : capT.amountUnselected}
-                  </span>
+                  <AmountInput
+                    amount={amount}
+                    touched={amountTouched}
+                    onCommit={handleAmountChange}
+                    placeholder={capT.amountUnselected}
+                    label={t.amountLabel}
+                  />
                 </div>
                 <Slider
                   className="mt-4"
