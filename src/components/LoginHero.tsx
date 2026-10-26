@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, {
   Defs, LinearGradient as SvgGrad, RadialGradient, Stop, Path, Rect, G, Circle, Ellipse,
@@ -101,16 +101,15 @@ export function HeroIllustration({ size = 160 }: { size?: number }) {
 }
 
 /**
- * The full login hero header: mint gradient with a soft wave bottom, the
- * SwiftLoan lockup + tagline on the left, and the illustration on the right.
+ * The compact OTP-step hero: mint gradient with a soft wave bottom, the SwiftLoan
+ * lockup + tagline on the left, the illustration on the right, and a back arrow
+ * that returns to number entry.
  */
 export function LoginHero({ onBack }: { onBack?: () => void }) {
   // The back arrow is a bare icon, so go_back could not find it on the login screen.
   useVoiceTarget(onBack ? 'Back' : undefined, { kind: 'button', onTap: onBack }, [onBack]);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  // Compact header sized to its content (logo + tagline + illustration) — no dead
-  // band. The back arrow sits in the top inset; the row fills the rest.
   const H = insets.top + 150;
   return (
     <View style={{ width, height: H }}>
@@ -145,7 +144,117 @@ export function LoginHero({ onBack }: { onBack?: () => void }) {
   );
 }
 
+/** The marketing feature chips that scroll under the step indicator. */
+const FEATURES: { icon: string; label: string }[] = [
+  { icon: 'bolt', label: 'Instant Approval in 3 Mins' },
+  { icon: 'description', label: '100% Paperless' },
+  { icon: 'savings', label: 'Lowest Rates' },
+];
+
+/**
+ * Dark welcome header for the number-entry step (matches the SwiftLoan onboarding
+ * mock): a deep-teal gradient carrying the SwiftLoan lockup + Help pill, the
+ * "Step 1 of 3" indicator and a scrollable strip of trust chips. The white form
+ * sheet (rendered by the screen) overlaps its rounded top below.
+ */
+export function WelcomeHero({
+  onBack,
+  badge,
+  showChips = true,
+}: {
+  onBack?: () => void;
+  badge?: { icon: string; label: string };
+  showChips?: boolean;
+}) {
+  // The back arrow is a bare icon, so the voice "go_back" tool can find it by name.
+  useVoiceTarget(onBack ? 'Back' : undefined, { kind: 'button', onTap: onBack }, [onBack]);
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const b = badge ?? { icon: 'storefront', label: 'Compare offers from top lenders' };
+  return (
+    <View style={{ width, paddingBottom: 30 }}>
+      <LinearGradient
+        colors={['#0A2C2E', '#0E3B3A', '#114440']}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 20 }}>
+        {onBack ? (
+          <Pressable onPress={onBack} hitSlop={10} style={styles.hdrBack}>
+            <Icon name="arrow_back" size={24} color="#fff" />
+          </Pressable>
+        ) : null}
+        {/* logo lockup + RBI badge */}
+        <View style={styles.hdrTop}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <LogoMark size={40} style={{ borderRadius: 12 }} />
+            <View>
+              <Text style={[font(800), { fontSize: 22, letterSpacing: -0.6 }]}>
+                <Text style={{ color: '#fff' }}>Swift</Text>
+                <Text style={{ color: colors.mint }}>Loan</Text>
+              </Text>
+              <Text style={[font(500), { fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: 0.3, marginTop: 1 }]}>
+                Digital Lending Marketplace
+              </Text>
+            </View>
+          </View>
+          <View style={styles.rbiPill}>
+            <Icon name="verified_user" size={14} color={colors.mint} />
+            <Text style={[font(600), { color: '#fff', fontSize: 12.5 }]}>RBI Regulated</Text>
+          </View>
+        </View>
+
+        {/* value badge (no step count — there is no real multi-step flow here) */}
+        <View style={styles.stepPill}>
+          <View style={styles.stepNum}>
+            <Icon name={b.icon} size={14} color="#06201F" />
+          </View>
+          <Text style={[font(600), { color: colors.mint, fontSize: 13 }]}>{b.label}</Text>
+        </View>
+
+        {/* trust chips (horizontal scroll) */}
+        {showChips ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginTop: 14, marginHorizontal: -20 }}
+            contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}
+          >
+            {FEATURES.map(f => (
+              <View key={f.label} style={styles.featChip}>
+                <Icon name={f.icon} size={15} color={colors.mint} />
+                <Text style={[font(600), { color: 'rgba(255,255,255,0.9)', fontSize: 12.5 }]}>{f.label}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  // Dark header
+  hdrBack: { width: 40, height: 40, justifyContent: 'center', marginLeft: -8, marginBottom: 2 },
+  hdrTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  rbiPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: 'rgba(47,177,131,0.12)', borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)',
+    borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13,
+  },
+  stepPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 9, alignSelf: 'flex-start', marginTop: 18,
+    backgroundColor: 'rgba(47,177,131,0.1)', borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)',
+    borderRadius: 999, paddingVertical: 6, paddingLeft: 6, paddingRight: 14,
+  },
+  stepNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
+  featChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12, paddingVertical: 9, paddingHorizontal: 13,
+  },
+  // OTP-step hero
   heroRow: {
     flex: 1,
     flexDirection: 'row',

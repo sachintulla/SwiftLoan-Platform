@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
-import { LogoLockup } from '../components/Logo';
+import { LogoMark } from '../components/Logo';
 import { VoiceHidden } from '../voice/screenGraph';
 // import { MarketLoanOffers } from '../components/MarketLoanOffers'; // "Available offers" catalog hidden for now
 import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
@@ -31,6 +33,7 @@ function minEmiOf(offer: Offer): number | null {
 
 export default function Home() {
   const t = useT();
+  const insets = useSafeAreaInsets();
   const { state, set, go, showToast } = useStore();
   const [offers, setOffers] = useState<Offer[]>([]);
   // The amount this user actually enquired about — pulled from their live
@@ -93,29 +96,57 @@ export default function Home() {
   };
 
   return (
-    <Screen scroll bottomNav padded>
-      {/* Top bar: brand lockup + notifications bell */}
-      <View style={styles.topBar}>
-        <LogoLockup size={26} />
-        <Pressable onPress={() => showToast(t.tSoon)} style={styles.bellBtn} accessibilityLabel="Notifications">
-          <Icon name="notifications" size={22} color={colors.text} />
-        </Pressable>
-      </View>
-
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <View style={styles.hero}>
-        {/* Ruby illustration + speech bubble, tucked into the top-right corner.
-            Absolutely positioned so the headline/subtitle/buttons flow full-width. */}
+    <Screen scroll bottomNav padded statusBar="light-content">
+      {/* Dark welcome header band — bleeds full-width and up under the status bar
+          so the dashboard shares the login screens' deep-teal theme. The content
+          below it stays on the light app background, unchanged. */}
+      <View style={[styles.headerBand, { marginTop: -(insets.top + 8), paddingTop: insets.top + 12 }]}>
+        <LinearGradient
+          colors={['#0A2C2E', '#0E3B3A', '#114440']}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Ruby illustration — anchored to the band's bottom-right so she stands
+            on the dark header (clipped cleanly at the band edge). Rendered before
+            the content so the "Ask Ruby" bubble and headline paint in front. */}
         <Pressable onPress={askRuby} style={styles.rubyWrap} accessibilityLabel="Ask Ruby for help">
           <Image source={require('../../assets/brand/ruby-hero.png')} style={styles.ruby} resizeMode="contain" />
         </Pressable>
-        <Pressable onPress={askRuby} style={styles.bubble} accessibilityLabel="Ask Ruby, your AI loan assistant — tap to talk">
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        {/* Top bar: brand lockup + subtitle | RBI badge + notifications bell */}
+        <View style={styles.topBar}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+            <LogoMark size={34} style={{ borderRadius: 11 }} />
             <View style={{ flex: 1 }}>
-              <Text style={[font(800), { fontSize: 13.5, color: colors.text }]}>{t.askRuby}</Text>
-              <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 1, lineHeight: 14 }]}>{t.askRubySub}</Text>
+              <Text style={[font(800), { fontSize: 20, letterSpacing: -0.5 }]}>
+                <Text style={{ color: '#fff' }}>Swift</Text>
+                <Text style={{ color: colors.mint }}>Loan</Text>
+              </Text>
+              <Text style={[font(500), styles.brandSub]} numberOfLines={1}>Digital Lending Marketplace</Text>
             </View>
-            <Icon name="chevron_right" size={16} color={colors.primary} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {/* RBI compliance badge (matches the login header) */}
+            <View style={styles.rbiPill}>
+              <Icon name="verified_user" size={13} color={colors.mint} />
+              <Text style={[font(600), { color: '#fff', fontSize: 12 }]}>RBI Regulated</Text>
+            </View>
+            <Pressable onPress={() => showToast(t.tSoon)} style={styles.bellBtn} accessibilityLabel="Notifications">
+              <Icon name="notifications" size={22} color="#fff" />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* ── Hero ─────────────────────────────────────────────────────────── */}
+        <View style={styles.hero}>
+        {/* Ruby speech bubble (the illustration is anchored to the band, behind). */}
+        <Pressable onPress={askRuby} style={styles.bubble} accessibilityLabel="Ask Ruby, your AI loan assistant — tap to talk">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[font(800), { fontSize: 15, letterSpacing: -0.3, color: colors.text }]}>{t.askRuby}</Text>
+              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 1, lineHeight: 15 }]}>{t.askRubySub}</Text>
+            </View>
+            <Icon name="chevron_right" size={17} color={colors.primary} />
           </View>
           <View style={styles.bubbleTail} />
         </Pressable>
@@ -146,8 +177,8 @@ export default function Home() {
                 <Icon name="chevron_right" size={14} color="#fff" />
               </Pressable>
               <Pressable onPress={changeAmount} style={styles.ghostBtn}>
-                <Icon name="edit" size={11} color={colors.primary} />
-                <Text style={[font(700), { fontSize: 10.5, color: colors.primary }]} numberOfLines={1}>{t.changeAmount}</Text>
+                <Icon name="edit" size={11} color="#fff" />
+                <Text style={[font(700), { fontSize: 10.5, color: '#fff' }]} numberOfLines={1}>{t.changeAmount}</Text>
               </Pressable>
             </>
           ) : (
@@ -158,6 +189,7 @@ export default function Home() {
           )}
         </View>
 
+        </View>
       </View>
 
       {/* ── Featured offers — sponsored lender ads, shown on login ──────── */}
@@ -277,37 +309,55 @@ function Metric({ label, value, last }: { label: string; value: string; last?: b
 }
 
 const styles = StyleSheet.create({
+  // Full-bleed dark header band (shares the login screens' deep-teal theme).
+  headerBand: {
+    position: 'relative',
+    marginHorizontal: -18,
+    paddingHorizontal: 18,
+    paddingBottom: 18,
+    borderBottomLeftRadius: 26,
+    borderBottomRightRadius: 26,
+    overflow: 'hidden',
+  },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  brandSub: { fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: 0.3, marginTop: 1 },
+  rbiPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(47,177,131,0.12)', borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)',
+    borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11,
+  },
   bellBtn: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
 
   hero: { marginTop: 6, position: 'relative' },
-  rubyWrap: { position: 'absolute', top: 4, right: -16, width: 138, height: 196, alignItems: 'flex-end', zIndex: 0 },
-  ruby: { width: 138, height: 196 },
+  // Anchored to the band's bottom-right; aspect matches the source (≈0.79) so
+  // 'contain' fills the box and she reaches the band's bottom edge.
+  rubyWrap: { position: 'absolute', bottom: -10, right: 5, width: 166, height: 210, zIndex: 0 },
+  ruby: { width: 166, height: 210 },
   bubble: {
-    position: 'absolute', top: 20, right: 64, width: 114, zIndex: 3,
+    position: 'absolute', top: 34, right: 84, width: 132, zIndex: 3,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
-    borderRadius: 15, paddingVertical: 9, paddingHorizontal: 11,
-    shadowColor: '#0A3F41', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 4,
+    borderRadius: 16, paddingVertical: 11, paddingHorizontal: 13,
+    shadowColor: '#0A3F41', shadowOpacity: 0.16, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 5,
   },
   // Tail on the right edge, pointing toward Ruby.
   bubbleTail: {
-    position: 'absolute', right: -6, top: 22, width: 12, height: 12,
+    position: 'absolute', right: -7, top: 30, width: 14, height: 14,
     backgroundColor: colors.surface, borderRightWidth: 1, borderTopWidth: 1, borderColor: colors.line,
     transform: [{ rotate: '45deg' }],
   },
-  welcomeText: { fontSize: 14.5, color: colors.primary, letterSpacing: -0.2, marginTop: 2 },
-  heroTitle: { fontSize: 13.5, lineHeight: 19, letterSpacing: -0.2, color: colors.text, marginTop: 6, marginRight: 205 },
-  heroSub: { fontSize: 12, lineHeight: 17, color: colors.textSoft, marginTop: 6, marginRight: 205 },
+  welcomeText: { fontSize: 14.5, color: colors.mint, letterSpacing: -0.2, marginTop: 2 },
+  heroTitle: { fontSize: 13.5, lineHeight: 19, letterSpacing: -0.2, color: '#fff', marginTop: 6, marginRight: 205 },
+  heroSub: { fontSize: 12, lineHeight: 17, color: 'rgba(255,255,255,0.72)', marginTop: 6, marginRight: 205 },
   heroBtns: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginRight: 107 },
   primaryBtn: {
     flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2,
-    backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 8, height: 30,
-    shadowColor: colors.primary, shadowOpacity: 0.28, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 3,
+    backgroundColor: colors.mint, borderRadius: 10, paddingHorizontal: 8, height: 30,
+    shadowColor: colors.mint, shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 3,
   },
   ghostBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5,
-    borderWidth: 1.5, borderColor: colors.primary, borderRadius: 10,
-    paddingHorizontal: 8, height: 30, justifyContent: 'center', backgroundColor: colors.surface,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.5)', borderRadius: 10,
+    paddingHorizontal: 8, height: 30, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)',
   },
   sectionTitle: { fontSize: 18, letterSpacing: -0.3, color: colors.text, marginTop: 22 },
   sectionSub: { fontSize: 12.5, color: colors.textSoft, marginTop: 2 },
