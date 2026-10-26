@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, useWindowDimensions, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, {
   Defs, LinearGradient as SvgGrad, RadialGradient, Stop, Path, Rect, G, Circle, Ellipse,
@@ -151,6 +151,51 @@ const FEATURES: { icon: string; label: string }[] = [
   { icon: 'savings', label: 'Lowest Rates' },
 ];
 
+// Animated.loop spins on Jest's faked 0 ms rAF clock, so the marquee is left
+// un-started under Jest (same guard the rest of the app uses).
+const UNDER_JEST = typeof process !== 'undefined' && !!(process as { env?: Record<string, string | undefined> }).env?.JEST_WORKER_ID;
+
+function FeatureChip({ f }: { f: { icon: string; label: string } }) {
+  return (
+    <View style={[styles.featChip, { marginRight: 10 }]}>
+      <Icon name={f.icon} size={15} color={colors.mint} />
+      <Text style={[font(600), { color: 'rgba(255,255,255,0.9)', fontSize: 12.5 }]}>{f.label}</Text>
+    </View>
+  );
+}
+
+/**
+ * The trust chips as a continuously scrolling marquee — the row glides right→left
+ * and loops seamlessly (two identical copies; when the first has fully scrolled
+ * off, the animation resets to 0 where the second copy sits, so there's no jump).
+ */
+function FeatureMarquee() {
+  const [setW, setSetW] = useState(0);
+  const x = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!setW || UNDER_JEST) return undefined;
+    x.setValue(0);
+    const anim = Animated.loop(
+      Animated.timing(x, { toValue: -setW, duration: setW * 24, easing: Easing.linear, useNativeDriver: true }),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [setW, x]);
+  return (
+    <View style={{ marginTop: 14, marginHorizontal: -20, overflow: 'hidden' }}>
+      <Animated.View style={{ flexDirection: 'row', paddingLeft: 20, transform: [{ translateX: x }] }}>
+        <View style={{ flexDirection: 'row' }} onLayout={e => setSetW(e.nativeEvent.layout.width)}>
+          {FEATURES.map(f => <FeatureChip key={f.label} f={f} />)}
+        </View>
+        {/* second identical copy for the seamless loop */}
+        <View style={{ flexDirection: 'row' }}>
+          {FEATURES.map(f => <FeatureChip key={`dup-${f.label}`} f={f} />)}
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
 /**
  * Dark welcome header for the number-entry step (matches the SwiftLoan onboarding
  * mock): a deep-teal gradient carrying the SwiftLoan lockup + Help pill, the
@@ -213,22 +258,8 @@ export function WelcomeHero({
           <Text style={[font(600), { color: colors.mint, fontSize: 13 }]}>{b.label}</Text>
         </View>
 
-        {/* trust chips (horizontal scroll) */}
-        {showChips ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginTop: 14, marginHorizontal: -20 }}
-            contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}
-          >
-            {FEATURES.map(f => (
-              <View key={f.label} style={styles.featChip}>
-                <Icon name={f.icon} size={15} color={colors.mint} />
-                <Text style={[font(600), { color: 'rgba(255,255,255,0.9)', fontSize: 12.5 }]}>{f.label}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        ) : null}
+        {/* trust chips — continuously scrolling marquee */}
+        {showChips ? <FeatureMarquee /> : null}
       </View>
     </View>
   );
