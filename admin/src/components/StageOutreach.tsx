@@ -1,19 +1,21 @@
 'use client';
-// ONE page to configure what the customer receives at every journey stage, on
-// every channel: WhatsApp, SMS, email, Ello call and push. For each follow-up you
-// set when it goes out, switch it on or off, and edit what it says and which
-// variables travel with it.
+// One page to configure what the customer receives at every journey stage, on
+// every channel (WhatsApp, SMS, email, Ello call, push).
+//
+// Layout: a journey rail on the left (pick the stage where customers stop) and,
+// on the right, that stage as a timeline: what goes out, in order, at what delay.
+// Click a step to edit it; only one editor is open at a time.
 //
 // Timing and on/off live on the stall rules (the same rows as Notification
 // Rules). WhatsApp templates and SMS overrides live in the Voxvalley settings and
 // the call's agent/brief in the Ello settings, where the senders already read
 // them, so this page never creates a second copy.
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
-import { Card, TableSkeleton, Callout } from '@/components/ui';
+import { TableSkeleton } from '@/components/ui';
 
-type Channel = 'push' | 'whatsapp' | 'sms' | 'email' | 'voice';
+type Channel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
 
 interface Activity {
   ruleId: string;
@@ -45,15 +47,32 @@ interface Overview {
 
 const KEY = '/api/admin/stage-outreach';
 const CHANNELS: Channel[] = ['whatsapp', 'sms', 'email', 'voice', 'push'];
-const CHANNEL_LABEL: Record<Channel, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', voice: 'Call (Ello)', push: 'Push' };
-const CHANNEL_TONE: Record<Channel, string> = { whatsapp: 'tone-green', sms: 'tone-blue', email: 'tone-amber', voice: 'tone-teal', push: 'tone-grey' };
+const CHANNEL_LABEL: Record<Channel, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', voice: 'Call (Ello)', push: 'Push notification' };
 const DEFAULT_DELAY: Record<Channel, number> = { whatsapp: 30, sms: 30, email: 30, voice: 60, push: 20 };
 
+const ICON_PATHS: Record<Channel, string[]> = {
+  whatsapp: ['M21 11.5a8.4 8.4 0 0 1-1.1 4.2A8.5 8.5 0 0 1 8.4 19.5L3 21l1.6-5.1A8.5 8.5 0 1 1 21 11.5z'],
+  sms: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
+  email: ['M3 5h18v14H3z', 'M3 7l9 6 9-6'],
+  voice: ['M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z'],
+  push: ['M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9', 'M13.7 21a2 2 0 0 1-3.4 0'],
+};
+
+function Icon({ channel }: { channel: Channel }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {ICON_PATHS[channel].map((d) => <path key={d} d={d} />)}
+    </svg>
+  );
+}
+
+const tone = (c: Channel) => ({ color: `var(--so-${c === 'voice' ? 'voice' : c})`, background: `var(--so-${c}-bg)` });
+
 function duration(mins: number): string {
-  if (!mins || mins < 1) return 'immediately';
+  if (!mins || mins < 1) return 'now';
   if (mins < 60) return `${mins} min`;
   if (mins % 1440 === 0) { const d = mins / 1440; return `${d} day${d === 1 ? '' : 's'}`; }
-  if (mins % 60 === 0) { const h = mins / 60; return `${h} hour${h === 1 ? '' : 's'}`; }
+  if (mins % 60 === 0) { const h = mins / 60; return `${h} hr`; }
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
@@ -64,195 +83,220 @@ function errText(e: unknown): string {
 export default function StageOutreach() {
   const { data, error, isLoading, mutate } = useSWR(KEY, swrFetcher);
   const ov = data?.data as Overview | undefined;
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+  const [openRule, setOpenRule] = useState<string | null>(null);
 
-  if (error) return <Card><div className="empty">Could not load stage outreach — {(error as Error).message}</div></Card>;
-  if (isLoading || !ov) return <Card><TableSkeleton rows={6} cols={2} /></Card>;
+  const totals = useMemo(() => {
+    const all = (ov?.stages ?? []).flatMap((s) => s.activities);
+    return { on: all.filter((a) => a.enabled).length, total: all.length, empty: (ov?.stages ?? []).filter((s) => !s.activities.some((a) => a.enabled)).length };
+  }, [ov]);
 
-  function openStage(key: string) {
-    setOpen((o) => ({ ...o, [key]: true }));
-    setTimeout(() => document.getElementById(`stage-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-  }
+  if (error) return <div className="card card-pad"><div className="empty">Could not load stage outreach: {(error as Error).message}</div></div>;
+  if (isLoading || !ov) return <div className="card card-pad"><TableSkeleton rows={6} cols={2} /></div>;
+
+  const current = ov.stages.find((s) => s.key === selected) ?? ov.stages.find((s) => s.activities.some((a) => a.enabled)) ?? ov.stages[0];
+  const number = ov.stages.findIndex((s) => s.key === current.key) + 1;
 
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      <Gates ov={ov} />
-      <HowTo />
-      <Matrix ov={ov} onOpen={openStage} />
-      {ov.stages.map((stage, i) => (
-        <StageCard
-          key={stage.key} index={i + 1} stage={stage} ov={ov}
-          open={!!open[stage.key]} onToggle={() => setOpen((o) => ({ ...o, [stage.key]: !o[stage.key] }))}
-          onSaved={() => mutate()}
+    <div className="so">
+      <div className="so-head">
+        <div>
+          <h2 className="so-title">Stage outreach</h2>
+          <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and how long after they stop. Website visitors and app users share these stages.</p>
+        </div>
+        <div className="so-stats">
+          <div className="so-stat"><b>{totals.on}</b><span>follow-ups on</span></div>
+          <div className="so-stat"><b>{totals.total - totals.on}</b><span>switched off</span></div>
+          <div className="so-stat"><b>{totals.empty}</b><span>stages with nothing on</span></div>
+        </div>
+      </div>
+
+      <Notes gates={ov.gates} />
+
+      <details className="so-guide">
+        <summary>How to set it up</summary>
+        <ol>
+          <li><b>Pick the stage</b> from the journey on the left.</li>
+          <li><b>Add a follow-up</b> on a channel the stage does not have yet: WhatsApp, SMS, Email, Call or Push.</li>
+          <li><b>Click the step</b> to set when it goes out and what it says. Calls also take the variables the Ello agent receives.</li>
+          <li><b>Switch it on.</b> New follow-ups start switched off, so nothing reaches a customer until you turn them on. Calls also need the Timings switch.</li>
+        </ol>
+      </details>
+
+      <div className="so-grid">
+        <Rail stages={ov.stages} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
+        <StagePanel
+          key={current.key} number={number} stage={current} ov={ov}
+          openRule={openRule} setOpenRule={setOpenRule} onChanged={() => mutate()}
         />
-      ))}
-      <VariableReference variables={ov.variables} />
+      </div>
+
+      <VariableDictionary variables={ov.variables} />
     </div>
   );
 }
 
-function Gates({ ov }: { ov: Overview }) {
-  const g = ov.gates;
-  const notes: Array<{ tone: 'amber' | 'blue' | 'red'; text: string }> = [];
-  if (!g.whatsappConnected) notes.push({ tone: 'amber', text: 'No WhatsApp provider is turned on (Vox or Meta), so WhatsApp steps will not send.' });
-  if (!g.smsConnected) notes.push({ tone: 'amber', text: 'The Vox SMS gateway is off, so SMS steps will not send.' });
-  if (!g.upshotConnected) notes.push({ tone: 'amber', text: 'Upshot is off, so email and push steps will not reach anyone (they are sent through Upshot).' });
-  if (!g.elloConnected) notes.push({ tone: 'amber', text: 'Ello voice is not connected, so calls cannot be placed.' });
-  if (!g.callsAutomatic) notes.push({ tone: 'blue', text: 'Automatic drop-off calls are switched off (Timings → calls.nudgeEnabled). No call rings a customer until that is on.' });
+function Notes({ gates: g }: { gates: Overview['gates'] }) {
+  const notes: Array<{ tone: '' | 'blue' | 'red'; text: string }> = [];
+  if (!g.whatsappConnected) notes.push({ tone: '', text: 'No WhatsApp provider is turned on (Vox or Meta), so WhatsApp steps will not send.' });
+  if (!g.smsConnected) notes.push({ tone: '', text: 'The Vox SMS gateway is off, so SMS steps will not send.' });
+  if (!g.upshotConnected) notes.push({ tone: '', text: 'Upshot is off, so email and push steps will not reach anyone (they go through Upshot).' });
+  if (!g.elloConnected) notes.push({ tone: '', text: 'Ello voice is not connected, so calls cannot be placed.' });
+  if (!g.callsAutomatic) notes.push({ tone: 'blue', text: 'Automatic drop-off calls are switched off (Timings, calls.nudgeEnabled). No call rings a customer until that is on.' });
   if (g.callsAutomatic && g.testNumbersOnly > 0) notes.push({ tone: 'blue', text: `Test mode: calls only go to the ${g.testNumbersOnly} allowed test number${g.testNumbersOnly === 1 ? '' : 's'}.` });
   if (g.nudgesDisabled) notes.push({ tone: 'red', text: 'NUDGES_DISABLED is set on this server, so stage follow-ups are paused here.' });
   if (!notes.length) return null;
+  const urgent = notes.some((n) => n.tone === 'red');
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      {notes.map((n) => <Callout key={n.text} tone={n.tone}>{n.text}</Callout>)}
-    </div>
+    <details className="so-guide so-notes-box" style={urgent ? { borderColor: '#f3b6b0' } : undefined}>
+      <summary>{notes.length} thing{notes.length === 1 ? '' : 's'} to know before anything is sent{urgent ? ' (action needed)' : ''}</summary>
+      <div className="so-notes" style={{ marginTop: 10, marginBottom: 0 }}>
+        {notes.map((n) => <div key={n.text} className={`so-note ${n.tone}`}><span aria-hidden>{n.tone === 'blue' ? 'ℹ' : '⚠'}</span><span>{n.text}</span></div>)}
+      </div>
+    </details>
   );
 }
 
-function HowTo() {
+function Rail({ stages, currentKey, onPick }: { stages: Stage[]; currentKey: string; onPick: (key: string) => void }) {
   return (
-    <Card title="Stage outreach" sub="Configure everything a customer receives, at every journey stage and on every channel, from this one page.">
-      <details>
-        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>How to configure it</summary>
-        <ol style={{ margin: '12px 0 0', paddingLeft: 20, display: 'grid', gap: 6, fontSize: 13.5 }}>
-          <li><b>Pick the stage</b> where the customer stops: website lead, app installed, OTP, application, offers, KYC. The grid below shows every stage and channel at a glance; click a cell to jump to it.</li>
-          <li><b>Add a follow-up</b> on any channel the stage does not have yet: WhatsApp, SMS, Email or Call. One per channel per stage.</li>
-          <li><b>Set the timing</b>: how many minutes after the customer stops it goes out.</li>
-          <li><b>Set the content</b>: the WhatsApp template and its variables, the registered SMS text, the Upshot event for email or push, or for a call the Ello agent and what it should talk about.</li>
-          <li><b>Switch it on and Save.</b> A new follow-up starts switched off, so nothing reaches a customer until you turn it on. Calls also need the Timings switch.</li>
-        </ol>
-        <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-          Website visitors and app users share these stages: the app&apos;s activity is mapped onto the same journey events, so one setup covers both. The scheduled install reminders sent to website visitors who leave early are separate and live on the Timings page.
-        </div>
-      </details>
-    </Card>
-  );
-}
-
-function Matrix({ ov, onOpen }: { ov: Overview; onOpen: (key: string) => void }) {
-  return (
-    <Card title="Everything at a glance" sub="Each cell shows whether that follow-up is on and how long after the customer stops it goes out. Click a cell to edit it.">
-      <div style={{ overflowX: 'auto' }}>
-        <table className="table" style={{ minWidth: 760 }}>
-          <thead>
-            <tr>
-              <th>Stage</th>
-              {CHANNELS.map((c) => <th key={c}>{CHANNEL_LABEL[c]}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {ov.stages.map((s, i) => (
-              <tr key={s.key}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{i + 1}. {s.label}</div>
-                  <div className="muted" style={{ fontSize: 11.5 }}>{s.surface}</div>
-                </td>
+    <nav className="so-rail" aria-label="Journey stages">
+      <div className="so-rail-title">Customer journey</div>
+      {stages.map((s, i) => (
+        <button key={s.key} type="button" className={`so-stage ${s.key === currentKey ? 'active' : ''}`} onClick={() => onPick(s.key)}>
+          <span className="so-stage-no">{i + 1}</span>
+          <span className="so-stage-body">
+            <span className="so-stage-name" style={{ display: 'block' }}>{s.label}</span>
+            <span className="so-stage-meta">
+              <span className="so-surface">{s.surface}</span>
+              <span className="so-dots">
                 {CHANNELS.map((c) => {
                   const a = s.activities.find((x) => x.channel === c);
-                  return (
-                    <td key={c}>
-                      {a ? (
-                        <button type="button" className={`badge ${a.enabled ? 'tone-green' : 'tone-grey'}`}
-                          style={{ cursor: 'pointer', border: 'none' }} onClick={() => onOpen(s.key)}>
-                          {a.enabled ? 'On' : 'Off'} · {duration(a.delayMinutes)}
-                        </button>
-                      ) : (
-                        <button type="button" className="muted" style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0 }} onClick={() => onOpen(s.key)} title="Not set up. Click to add.">+ add</button>
-                      )}
-                    </td>
-                  );
+                  return <i key={c} className={`so-dot ${a ? 'set' : ''} ${a?.enabled ? 'on' : ''}`} style={{ color: `var(--so-${c})` }} title={`${CHANNEL_LABEL[c]}: ${a ? (a.enabled ? 'on' : 'off') : 'not set up'}`} />;
                 })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </span>
+            </span>
+          </span>
+        </button>
+      ))}
+      <div className="so-rail-legend">
+        <span><i style={{ background: 'var(--text-dim)' }} />on</span>
+        <span><i style={{ border: '1.5px solid var(--text-dim)' }} />off</span>
+        <span><i style={{ border: '1.5px solid var(--border)' }} />not set up</span>
       </div>
-    </Card>
+    </nav>
   );
 }
 
-function StageCard({ index, stage, ov, open, onToggle, onSaved }: {
-  index: number; stage: Stage; ov: Overview; open: boolean; onToggle: () => void; onSaved: () => void;
+function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged }: {
+  number: number; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void;
 }) {
-  const on = stage.activities.filter((a) => a.enabled);
+  const steps = [...stage.activities].sort((a, b) => a.delayMinutes - b.delayMinutes);
+  const on = steps.filter((a) => a.enabled).length;
   return (
-    <div id={`stage-${stage.key}`}>
-      <Card
-        title={`${index}. ${stage.label}`}
-        sub={`${stage.description}  (${stage.surface})`}
-        right={
-          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-            <span className={`badge ${on.length ? 'tone-green' : 'tone-grey'}`}>{on.length} of {stage.activities.length} on</span>
-            <button className="btn" onClick={onToggle}>{open ? 'Close' : 'Edit'}</button>
-          </div>
-        }
-      >
-        {!open ? (
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            {stage.activities.length === 0 && <span className="muted" style={{ fontSize: 13 }}>No follow-ups yet. Click Edit to add one.</span>}
-            {stage.activities.map((a) => (
-              <span key={a.ruleId} className={`badge ${a.enabled ? CHANNEL_TONE[a.channel] : 'tone-grey'}`}>
-                {CHANNEL_LABEL[a.channel]} · {duration(a.delayMinutes)}{a.enabled ? '' : ' · off'}
-              </span>
-            ))}
-          </div>
+    <section className="so-panel">
+      <div className="so-panel-head">
+        <div className="so-panel-top">
+          <h3 className="so-panel-title">{number}. {stage.label}</h3>
+          <span className="so-chip">{stage.surface}</span>
+          <span className="so-chip" style={on ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{on} of {steps.length} on</span>
+        </div>
+        <p className="so-panel-desc">{stage.description}</p>
+      </div>
+
+      <div className="so-panel-body">
+        <div className="so-section">What the customer gets after they stop here</div>
+
+        {steps.length === 0 ? (
+          <div className="so-empty">Nothing is set up for this stage yet. Add a follow-up below.</div>
         ) : (
-          <div style={{ display: 'grid', gap: 0 }}>
-            {stage.activities.map((a, i) => (
-              <ActivityRow key={a.ruleId} stageKey={stage.key} activity={a} ov={ov} last={i === stage.activities.length - 1 && stage.missingChannels.length === 0} onSaved={onSaved} />
+          <div className="so-tl">
+            <div className="so-step">
+              <div className="so-when">0 min</div>
+              <div className="so-node origin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="3" /></svg></div>
+              <div className="so-origin-text">The customer stops here</div>
+            </div>
+            {steps.map((a) => (
+              <Step key={a.ruleId} stageKey={stage.key} a={a} ov={ov} open={openRule === a.ruleId}
+                onToggleOpen={() => setOpenRule(openRule === a.ruleId ? null : a.ruleId)} onChanged={onChanged} />
             ))}
-            <AddFollowUp stage={stage} onSaved={onSaved} />
           </div>
         )}
-      </Card>
-    </div>
+
+        <AddRow stage={stage} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
+      </div>
+    </section>
   );
 }
 
-function AddFollowUp({ stage, onSaved }: { stage: Stage; onSaved: () => void }) {
-  const [channel, setChannel] = useState<Channel | ''>('');
-  const [delay, setDelay] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  if (stage.missingChannels.length === 0) return null;
-  const chosen = (channel || stage.missingChannels[0]) as Channel;
-  const delayNum = delay.trim() === '' ? DEFAULT_DELAY[chosen] : Number(delay);
-  const valid = Number.isInteger(delayNum) && delayNum >= 1 && delayNum <= 20160;
+function summaryFor(a: Activity, ov: Overview): { text: string; warn?: string } {
+  if (a.channel === 'whatsapp') {
+    const w = a.whatsapp;
+    if (!w?.template) return { text: 'No template set. Falls back to the Upshot event.', warn: a.enabled ? 'Needs a template' : undefined };
+    return { text: `Template ${w.template} · ${w.placeholders.length} variable${w.placeholders.length === 1 ? '' : 's'}` };
+  }
+  if (a.channel === 'sms') {
+    const s = a.sms;
+    if (!s?.templateId) return { text: 'No SMS text set.', warn: a.enabled ? 'Needs text' : undefined };
+    return { text: `${s.customised ? 'Custom text for this stage' : 'Default registered text'} · template ${s.templateId}` };
+  }
+  if (a.channel === 'voice') {
+    const role = ov.agentRoles.find((r) => r.role === a.call?.agentRole)?.label ?? 'Website lead callback';
+    return { text: `${a.call?.assistantId ? `Agent ${a.call.assistantId}` : role} · ${a.call?.brief ? 'talking points set' : 'default talking points'}` };
+  }
+  return { text: `Fires Upshot event ${a.upshotEvent}` };
+}
 
-  async function add() {
-    setBusy(true); setMsg(null);
+function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
+  stageKey: string; a: Activity; ov: Overview; open: boolean; onToggleOpen: () => void; onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const sum = summaryFor(a, ov);
+
+  async function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    const next = !a.enabled;
+    if (next && a.channel === 'voice' && !window.confirm('Turn on calls at this stage? Customers who stop here will get a phone call from the Ello agent, once automatic calls are enabled in Timings.')) return;
+    setBusy(true); setErr(null);
     try {
-      await apiFetch(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel: chosen, delayMinutes: delayNum }) });
-      setChannel(''); setDelay('');
-      onSaved();
-    } catch (e) {
-      setMsg(errText(e));
+      await apiFetch(`/api/admin/stall-rules/${a.ruleId}`, { method: 'PATCH', body: JSON.stringify({ enabled: next }) });
+      onChanged();
+    } catch (er) {
+      setErr(errText(er));
     } finally { setBusy(false); }
   }
 
   return (
-    <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', paddingTop: 16 }}>
-      <span style={{ fontSize: 13, fontWeight: 600 }}>Add a follow-up</span>
-      <select className="input" style={{ width: 150 }} value={chosen} onChange={(e) => { setChannel(e.target.value as Channel); setDelay(''); }}>
-        {stage.missingChannels.map((c) => <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>)}
-      </select>
-      <span style={{ fontSize: 13 }}>after</span>
-      <input className="input" style={{ width: 80 }} inputMode="numeric" value={delay} placeholder={String(DEFAULT_DELAY[chosen])}
-        onChange={(e) => setDelay(e.target.value.replace(/[^0-9]/g, ''))} aria-label="Minutes" />
-      <span style={{ fontSize: 13 }}>min</span>
-      <button className="btn btn-primary" disabled={busy || !valid} onClick={add}>{busy ? 'Adding…' : 'Add (starts off)'}</button>
-      {msg && <span style={{ fontSize: 12.5, color: 'var(--danger, #c0392b)' }}>{msg}</span>}
+    <div className="so-step">
+      <div className="so-when">+ {duration(a.delayMinutes)}</div>
+      <div className={`so-node ${a.enabled ? '' : 'off'}`} style={{ color: `var(--so-${a.channel})` }}><Icon channel={a.channel} /></div>
+      <div className={`so-card ${open ? 'open' : ''} ${a.enabled ? '' : 'dim'}`}>
+        <div className="so-card-head" onClick={onToggleOpen} role="button" tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleOpen(); } }}>
+          <div className="so-card-main">
+            <div className="so-card-name">
+              {CHANNEL_LABEL[a.channel]}
+              {sum.warn && <span className="so-warn">{sum.warn}</span>}
+              {err && <span className="so-msg err">{err}</span>}
+            </div>
+            <div className="so-card-sum">{sum.text}{a.firedCount ? ` · ${a.firedCount} sent` : ''}</div>
+          </div>
+          <button type="button" className={`so-switch ${a.enabled ? 'on' : ''}`} disabled={busy} onClick={toggle}
+            aria-label={`${CHANNEL_LABEL[a.channel]} ${a.enabled ? 'on' : 'off'}`} aria-pressed={a.enabled} title={a.enabled ? 'On. Click to turn off' : 'Off. Click to turn on'} />
+          <svg className="so-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+        </div>
+        {open && <Editor stageKey={stageKey} a={a} ov={ov} onChanged={onChanged} />}
+      </div>
     </div>
   );
 }
 
-function ActivityRow({ stageKey, activity: a, ov, last, onSaved }: { stageKey: string; activity: Activity; ov: Overview; last: boolean; onSaved: () => void }) {
-  const [enabled, setEnabled] = useState(a.enabled);
+function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity; ov: Overview; onChanged: () => void }) {
   const [delay, setDelay] = useState(String(a.delayMinutes));
   const [upshotEvent, setUpshotEvent] = useState(a.upshotEvent);
   const [waTemplate, setWaTemplate] = useState(a.whatsapp?.template ?? '');
   const [waLanguage, setWaLanguage] = useState(a.whatsapp?.language ?? 'en');
-  const [waVars, setWaVars] = useState((a.whatsapp?.placeholders ?? []).join('\n'));
+  const [waVars, setWaVars] = useState<string[]>(a.whatsapp?.placeholders ?? []);
   const [smsId, setSmsId] = useState(a.sms?.templateId ?? '');
   const [smsBody, setSmsBody] = useState(a.sms?.body ?? '');
   const [role, setRole] = useState(a.call?.agentRole ?? '');
@@ -261,50 +305,48 @@ function ActivityRow({ stageKey, activity: a, ov, last, onSaved }: { stageKey: s
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const briefRef = useRef<HTMLTextAreaElement>(null);
-  const waRef = useRef<HTMLTextAreaElement>(null);
 
   const touch = () => setMsg(null);
   const delayNum = Number(delay);
   const delayValid = delay.trim() !== '' && Number.isInteger(delayNum) && delayNum >= 1 && delayNum <= 20160;
   const isUpshot = a.channel === 'email' || a.channel === 'push';
+  const waList = waVars.map((v) => v.trim()).filter(Boolean);
 
-  const ruleDirty = enabled !== a.enabled || delayNum !== a.delayMinutes || (isUpshot && upshotEvent.trim() !== a.upshotEvent);
-  const waVarList = waVars.split('\n').map((s) => s.trim()).filter(Boolean);
-  const waDirty = a.channel === 'whatsapp' && (waTemplate.trim() !== (a.whatsapp?.template ?? '') || waLanguage.trim() !== (a.whatsapp?.language ?? 'en') || waVarList.join('\n') !== (a.whatsapp?.placeholders ?? []).join('\n'));
+  const ruleDirty = delayNum !== a.delayMinutes || (isUpshot && upshotEvent.trim() !== a.upshotEvent);
+  const waDirty = a.channel === 'whatsapp' && (waTemplate.trim() !== (a.whatsapp?.template ?? '') || waLanguage.trim() !== (a.whatsapp?.language ?? 'en') || waList.join('\n') !== (a.whatsapp?.placeholders ?? []).join('\n'));
   const smsDirty = a.channel === 'sms' && (smsId.trim() !== (a.sms?.templateId ?? '') || smsBody.trim() !== (a.sms?.body ?? '').trim());
   const callDirty = a.channel === 'voice' && (role !== (a.call?.agentRole ?? '') || assistantId.trim() !== (a.call?.assistantId ?? '') || brief.trim() !== (a.call?.brief ?? ''));
   const dirty = ruleDirty || waDirty || smsDirty || callDirty;
-  const upshotValid = !isUpshot || upshotEvent.trim().length > 0;
+  const canSave = dirty && delayValid && (!isUpshot || upshotEvent.trim().length > 0);
 
-  function insertInto(ref: React.RefObject<HTMLTextAreaElement>, value: string, set: (v: string) => void, token: string, sep = '') {
-    const el = ref.current;
-    if (!el) { set(`${value}${sep}${token}`); return; }
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    set(value.slice(0, start) + token + value.slice(end));
+  function insertBrief(token: string) {
+    const el = briefRef.current;
+    if (!el) { setBrief((b) => `${b}${token}`); return; }
+    const s = el.selectionStart ?? brief.length;
+    const e = el.selectionEnd ?? brief.length;
+    setBrief(brief.slice(0, s) + token + brief.slice(e));
     touch();
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + token.length, start + token.length); });
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + token.length, s + token.length); });
   }
+
+  const sample = useMemo(() => Object.fromEntries(ov.variables.map((v) => [v.name, v.example])), [ov.variables]);
+  const preview = brief.replace(/\{([a-z][a-z0-9_]*)\}/gi, (_m, n: string) => sample[n] ?? '').replace(/[ \t]{2,}/g, ' ').trim();
+  const groups = useMemo(() => Array.from(new Set(ov.variables.map((v) => v.group))), [ov.variables]);
 
   async function save() {
     setSaving(true); setMsg(null);
     try {
       if (ruleDirty) {
-        await apiFetch(`/api/admin/stall-rules/${a.ruleId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ enabled, delayMinutes: delayNum, ...(isUpshot ? { upshotEvent: upshotEvent.trim() } : {}) }),
-        });
+        await apiFetch(`/api/admin/stall-rules/${a.ruleId}`, { method: 'PATCH', body: JSON.stringify({ delayMinutes: delayNum, ...(isUpshot ? { upshotEvent: upshotEvent.trim() } : {}) }) });
       }
-      if (waDirty) await apiFetch(`${KEY}/${stageKey}/whatsapp`, { method: 'PUT', body: JSON.stringify({ template: waTemplate.trim(), language: waLanguage.trim() || 'en', placeholders: waVarList }) });
+      if (waDirty) await apiFetch(`${KEY}/${stageKey}/whatsapp`, { method: 'PUT', body: JSON.stringify({ template: waTemplate.trim(), language: waLanguage.trim() || 'en', placeholders: waList }) });
       if (smsDirty) await apiFetch(`${KEY}/${stageKey}/sms`, { method: 'PUT', body: JSON.stringify({ templateId: smsId.trim(), body: smsBody }) });
       if (callDirty) await apiFetch(`${KEY}/${stageKey}/call`, { method: 'PUT', body: JSON.stringify({ agentRole: role || null, assistantId: assistantId.trim(), brief }) });
       setMsg({ ok: true, text: 'Saved' });
-      onSaved();
+      onChanged();
     } catch (e) {
       setMsg({ ok: false, text: errText(e) });
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   }
 
   async function remove() {
@@ -312,7 +354,7 @@ function ActivityRow({ stageKey, activity: a, ov, last, onSaved }: { stageKey: s
     setSaving(true);
     try {
       await apiFetch(`/api/admin/stall-rules/${a.ruleId}`, { method: 'DELETE' });
-      onSaved();
+      onChanged();
     } catch (e) {
       setMsg({ ok: false, text: errText(e) });
       setSaving(false);
@@ -320,164 +362,189 @@ function ActivityRow({ stageKey, activity: a, ov, last, onSaved }: { stageKey: s
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: 16, padding: '16px 0', borderBottom: last ? 'none' : '1px solid var(--border)' }}>
-      <div>
-        <span className={`badge ${CHANNEL_TONE[a.channel]}`}>{CHANNEL_LABEL[a.channel]}</span>
-        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{a.firedCount ? `${a.firedCount} sent so far` : 'Not sent yet'}</div>
-      </div>
-
-      <div style={{ display: 'grid', gap: 12 }}>
-        <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-          <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={enabled} onChange={(e) => { setEnabled(e.target.checked); touch(); }} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{enabled ? 'On' : 'Off'}</span>
-          </label>
-          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <span style={{ fontSize: 13 }}>Goes out after</span>
-            <input className="input" style={{ width: 90 }} inputMode="numeric" value={delay}
-              onChange={(e) => { setDelay(e.target.value.replace(/[^0-9]/g, '')); touch(); }} aria-label="Minutes after the customer stops" />
-            <span style={{ fontSize: 13 }}>min</span>
-            <span className="muted" style={{ fontSize: 12.5 }}>{delayValid ? `= ${duration(delayNum)} after they stop` : 'Enter 1 or more minutes'}</span>
+    <div className="so-editor">
+      <div className="so-fields">
+        <div className="so-field">
+          <label className="so-label" htmlFor={`d-${a.ruleId}`}>Goes out after the customer stops</label>
+          <div className="so-input-unit">
+            <input id={`d-${a.ruleId}`} className="input mono" inputMode="numeric" value={delay}
+              onChange={(e) => { setDelay(e.target.value.replace(/[^0-9]/g, '')); touch(); }} />
+            <span className="muted">minutes</span>
           </div>
+          <span className="so-hint">{delayValid ? `That is ${duration(delayNum)}.` : 'Enter 1 minute or more.'}</span>
         </div>
 
         {a.channel === 'whatsapp' && (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-              <label style={{ display: 'grid', gap: 6, minWidth: 240 }}>
-                <span className="field-label">Approved WhatsApp template name</span>
-                <input className="input mono" value={waTemplate} placeholder="e.g. offers_ready"
-                  onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
-              </label>
-              <label style={{ display: 'grid', gap: 6, width: 100 }}>
-                <span className="field-label">Language</span>
-                <input className="input mono" value={waLanguage} onChange={(e) => { setWaLanguage(e.target.value); touch(); }} />
-              </label>
+          <>
+            <div className="so-field">
+              <label className="so-label">Approved template name</label>
+              <input className="input mono" value={waTemplate} placeholder="e.g. offers_ready" onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
+              <span className="so-hint">Exactly as approved by Meta: lowercase letters, numbers, underscores.</span>
             </div>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="field-label">Variables, one per line, in order ({'{{1}}'}, {'{{2}}'}…)</span>
-              <textarea ref={waRef} className="input mono" rows={Math.max(2, Math.min(6, waVarList.length + 1))} value={waVars}
-                placeholder={'{name}\n{offerCount}\n{ref}'} onChange={(e) => { setWaVars(e.target.value); touch(); }} />
-            </label>
-            <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span className="field-label">Add:</span>
-              {ov.whatsappTokens.map((t) => (
-                <button key={t} type="button" className="btn" style={{ padding: '2px 8px', fontSize: 11.5, fontFamily: 'monospace' }}
-                  onClick={() => insertInto(waRef, waVars, setWaVars, waVars && !waVars.endsWith('\n') ? `\n${t}` : t)}>{t}</button>
-              ))}
+            <div className="so-field">
+              <label className="so-label">Language code</label>
+              <input className="input mono" style={{ maxWidth: 120 }} value={waLanguage} onChange={(e) => { setWaLanguage(e.target.value); touch(); }} />
             </div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              {waTemplate.trim() === '' ? 'No template: this step falls back to the Upshot event.' : 'A customer missing one of these values is skipped, never sent a blank. Leave the template empty to hand this step back to Upshot.'}
-              {a.whatsapp?.customised ? '' : ' Showing the shipped default.'}
+            <div className="so-field wide">
+              <span className="so-label">Values sent into the template, in order</span>
+              <div className="so-vars">
+                {waVars.length === 0 && <span className="so-hint">This template takes no variables.</span>}
+                {waVars.map((v, i) => (
+                  <div key={i} className="so-var">
+                    <span className="so-var-no">{`{{${i + 1}}}`}</span>
+                    <input className="input mono" value={v} onChange={(e) => { setWaVars(waVars.map((x, j) => (j === i ? e.target.value : x))); touch(); }} />
+                    <button type="button" className="so-x" aria-label={`Remove value ${i + 1}`} onClick={() => { setWaVars(waVars.filter((_, j) => j !== i)); touch(); }}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div className="so-tokens">
+                <span className="so-hint">Add:</span>
+                {ov.whatsappTokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => { setWaVars([...waVars, t]); touch(); }}>{t}</button>)}
+                <button type="button" className="so-token" onClick={() => { setWaVars([...waVars, '']); touch(); }}>+ custom text</button>
+              </div>
+              <span className="so-hint">A customer missing one of these values is skipped, never sent a blank. Clear the template name to hand this step back to Upshot.</span>
             </div>
-          </div>
+          </>
         )}
 
         {a.channel === 'sms' && (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <label style={{ display: 'grid', gap: 6, maxWidth: 320 }}>
-              <span className="field-label">DLT template ID</span>
+          <>
+            <div className="so-field">
+              <label className="so-label">DLT template ID</label>
               <input className="input mono" value={smsId} onChange={(e) => { setSmsId(e.target.value); touch(); }} />
-            </label>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="field-label">Exact registered text</span>
-              <textarea className="input" rows={4} maxLength={1000} value={smsBody} onChange={(e) => { setSmsBody(e.target.value); touch(); }} />
-            </label>
-            <div className="muted" style={{ fontSize: 12 }}>
-              India SMS must match the DLT registration character for character, so no variables are added. {a.sms?.customised ? 'This stage has its own text.' : 'This is the default text used at every stage; change it here to give this stage its own.'}
             </div>
-          </div>
+            <div className="so-field wide">
+              <label className="so-label">Exact registered text</label>
+              <textarea className="input" rows={4} maxLength={1000} value={smsBody} onChange={(e) => { setSmsBody(e.target.value); touch(); }} />
+              <span className="so-hint">
+                India SMS must match the DLT registration character for character, so no variables are added.{' '}
+                {a.sms?.customised ? 'This stage has its own text. Clear both fields to go back to the default.' : 'This is the default text used at every stage. Change it here to give this stage its own.'}
+              </span>
+            </div>
+          </>
         )}
 
         {isUpshot && (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label style={{ display: 'grid', gap: 6, maxWidth: 420 }}>
-              <span className="field-label">Upshot event to fire</span>
-              <input className="input mono" value={upshotEvent} onChange={(e) => { setUpshotEvent(e.target.value); touch(); }} />
-            </label>
-            <div className="muted" style={{ fontSize: 12.5 }}>
-              {a.channel === 'email' ? 'Email' : 'Push'} is sent through Upshot. Write the message there and attach it to this event. These details go with the event: name, phone, city, source, campaign, stage and minutes stuck.
-            </div>
+          <div className="so-field wide">
+            <label className="so-label">Upshot event to fire</label>
+            <input className="input mono" value={upshotEvent} onChange={(e) => { setUpshotEvent(e.target.value); touch(); }} />
+            <span className="so-hint">
+              {a.channel === 'email' ? 'Email' : 'Push'} is sent through Upshot: write the message there and attach it to this event. The event carries the customer&apos;s name, phone, city, source, campaign, stage and minutes stuck.
+            </span>
           </div>
         )}
 
         {a.channel === 'voice' && a.call && (
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-              <label style={{ display: 'grid', gap: 6, minWidth: 220 }}>
-                <span className="field-label">Ello agent</span>
-                <select className="input" value={role} onChange={(e) => { setRole(e.target.value); touch(); }}>
-                  <option value="">Website lead callback (default)</option>
-                  {ov.agentRoles.filter((r) => r.direction === 'outbound' && r.role !== 'leadCallback').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
-                </select>
-              </label>
-              <label style={{ display: 'grid', gap: 6, minWidth: 220 }}>
-                <span className="field-label">Or a specific agent ID (optional)</span>
-                <input className="input mono" value={assistantId} placeholder="Overrides the agent above"
-                  onChange={(e) => { setAssistantId(e.target.value); touch(); }} />
-              </label>
+          <>
+            <div className="so-field">
+              <label className="so-label">Ello agent</label>
+              <select className="input" value={role} onChange={(e) => { setRole(e.target.value); touch(); }}>
+                <option value="">Website lead callback (default)</option>
+                {ov.agentRoles.filter((r) => r.direction === 'outbound' && r.role !== 'leadCallback').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
+              </select>
             </div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              Calls agent: <span className="mono">{assistantId.trim() || a.call.effectiveAgentId || 'none configured'}</span>
+            <div className="so-field">
+              <label className="so-label">Or a specific agent ID</label>
+              <input className="input mono" value={assistantId} placeholder="Optional. Overrides the choice" onChange={(e) => { setAssistantId(e.target.value); touch(); }} />
+              <span className="so-hint">Calls <span className="mono">{assistantId.trim() || a.call.effectiveAgentId || 'no agent configured'}</span></span>
             </div>
-
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="field-label">What the agent should talk about at this stage</span>
+            <div className="so-field wide">
+              <label className="so-label">What the agent should talk about</label>
               <textarea ref={briefRef} className="input" rows={4} maxLength={ov.maxBriefLength} value={brief}
                 placeholder="e.g. Greet {lead_first_name}. They {stall_reason}. Offer to {stall_help}."
                 onChange={(e) => { setBrief(e.target.value); touch(); }} />
-              <span className="muted" style={{ fontSize: 12 }}>
-                {brief.length}/{ov.maxBriefLength}. Sent to the agent as <span className="mono">stage_brief</span>, with each {'{variable}'} replaced by the customer&apos;s real value.
-              </span>
-            </label>
-
-            <details>
-              <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Variables sent with this call ({ov.variables.length}). Click one to add it to the text above.</summary>
-              <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                {ov.variables.map((v) => (
-                  <button key={v.name} type="button" className="btn" title={`${v.description}. Example: ${v.example}`}
-                    style={{ padding: '2px 8px', fontSize: 11.5, fontFamily: 'monospace' }} onClick={() => insertInto(briefRef, brief, setBrief, `{${v.name}}`)}>
-                    {v.name}
-                  </button>
-                ))}
+              <span className="so-hint">{brief.length}/{ov.maxBriefLength}. Sent to the agent as <span className="mono">stage_brief</span> with each {'{variable}'} replaced by the customer&apos;s real value.</span>
+            </div>
+            {preview && (
+              <div className="so-field wide">
+                <div className="so-preview"><div className="so-preview-label">Preview with a sample customer</div>{preview}</div>
               </div>
-            </details>
-          </div>
+            )}
+            <div className="so-field wide">
+              <details>
+                <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Insert a variable ({ov.variables.length} available)</summary>
+                <div className="so-vargroups">
+                  {groups.map((g) => (
+                    <div key={g}>
+                      <div className="so-vargroup-name">{g}</div>
+                      <div className="so-tokens">
+                        {ov.variables.filter((v) => v.group === g).map((v) => (
+                          <button key={v.name} type="button" className="so-token" title={`${v.description}. Example: ${v.example}`} onClick={() => insertBrief(`{${v.name}}`)}>{v.name}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          </>
         )}
+      </div>
 
-        <div className="row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" disabled={!dirty || saving || !delayValid || !upshotValid} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="btn" disabled={saving} onClick={remove}>Remove</button>
-          {dirty && !msg && <span className="muted" style={{ fontSize: 12.5 }}>Unsaved changes</span>}
-          {msg && <span style={{ fontSize: 12.5, color: msg.ok ? 'var(--ok, #0d7a6f)' : 'var(--danger, #c0392b)' }}>{msg.text}</span>}
-        </div>
+      <div className="so-actions">
+        <button type="button" className="btn btn-primary" disabled={!canSave || saving} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button>
+        {dirty && !msg && <span className="so-hint">You have unsaved changes.</span>}
+        {msg && <span className={`so-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
+        <span className="so-spacer" />
+        <button type="button" className="so-link-danger" disabled={saving} onClick={remove}>Remove this follow-up</button>
       </div>
     </div>
   );
 }
 
-function VariableReference({ variables }: { variables: Variable[] }) {
+function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) => void }) {
+  const [busy, setBusy] = useState<Channel | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (stage.missingChannels.length === 0) return null;
+
+  async function add(channel: Channel) {
+    setBusy(channel); setMsg(null);
+    try {
+      const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel, delayMinutes: DEFAULT_DELAY[channel] }) });
+      onAdded((res.data as { ruleId: string }).ruleId);
+    } catch (e) {
+      setMsg(errText(e));
+    } finally { setBusy(null); }
+  }
+
+  return (
+    <div className="so-add">
+      <div className="so-section" style={{ marginTop: 22 }}>Add a follow-up at this stage</div>
+      <div className="so-add-row">
+        {stage.missingChannels.map((c) => (
+          <button key={c} type="button" className="so-add-btn" disabled={busy !== null} onClick={() => add(c)}>
+            <span style={{ color: `var(--so-${c})`, display: 'inline-flex' }}><Icon channel={c} /></span>
+            {busy === c ? 'Adding…' : `+ ${CHANNEL_LABEL[c]}`}
+          </button>
+        ))}
+      </div>
+      <div className="so-hint" style={{ marginTop: 8 }}>It starts switched off, about {duration(DEFAULT_DELAY[stage.missingChannels[0]])} after the customer stops. Change the timing and content, then switch it on.</div>
+      {msg && <div className="so-msg err" style={{ marginTop: 6 }}>{msg}</div>}
+    </div>
+  );
+}
+
+function VariableDictionary({ variables }: { variables: Variable[] }) {
   const groups = Array.from(new Set(variables.map((v) => v.group)));
   return (
-    <Card title="Every variable the Ello agent receives" sub="Sent with each call. The agent's prompt must use these exact names; run the agent sync after a new one is added.">
-      <details>
-        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Show all {variables.length} variables with examples</summary>
-        <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
-          {groups.map((g) => (
-            <div key={g}>
-              <div className="field-label" style={{ marginBottom: 6 }}>{g}</div>
-              <table className="table">
-                <thead><tr><th style={{ width: 220 }}>Variable</th><th>What it holds</th><th style={{ width: 260 }}>Example</th></tr></thead>
-                <tbody>
-                  {variables.filter((v) => v.group === g).map((v) => (
-                    <tr key={v.name}><td className="mono">{v.name}</td><td>{v.description}</td><td className="muted">{v.example}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
-        </div>
-      </details>
-    </Card>
+    <details className="so-guide" style={{ marginTop: 18 }}>
+      <summary>Every variable the Ello agent receives ({variables.length})</summary>
+      <div className="so-hint" style={{ margin: '8px 0 12px' }}>Sent with each call. The agent&apos;s prompt must use these exact names. After a new one is added, run the agent sync so Ello learns it.</div>
+      <div style={{ display: 'grid', gap: 16 }}>
+        {groups.map((g) => (
+          <div key={g}>
+            <div className="so-vargroup-name">{g}</div>
+            <table className="table">
+              <thead><tr><th style={{ width: 220 }}>Variable</th><th>What it holds</th><th style={{ width: 260 }}>Example</th></tr></thead>
+              <tbody>
+                {variables.filter((v) => v.group === g).map((v) => (
+                  <tr key={v.name}><td className="mono">{v.name}</td><td>{v.description}</td><td className="muted">{v.example}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
