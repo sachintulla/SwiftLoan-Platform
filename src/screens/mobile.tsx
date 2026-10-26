@@ -192,8 +192,15 @@ export default function Mobile() {
         }
       }
       if (resume && (dest === 'home_offer' || dest === 'step2')) {
-        // Only the OTP was done: Home, and offer to start the application (the agent asks it itself when on the call).
-        set({ resume, resumePrompt: 'start', resumeStage: 'offer_start_application' });
+        // Returning website visitor (OTP verified on the site, or PAN done without a usable
+        // on-file record). Don't interrupt with a "you already have an account" pop-up — just
+        // carry their first name so the dashboard greets them (their loan amount fills in from
+        // their own application, which Home fetches), keep the resume context for the voice
+        // agent, and land on Home with the normal "Apply for a loan" CTA.
+        set({
+          resume, resumePrompt: null, resumeStage: 'offer_start_application',
+          ...(resume.firstName ? { pdName: resume.firstName } : {}),
+        });
         registerUpshotPush();
         markUrgentContext();
         go('home');
