@@ -93,7 +93,21 @@ async function createReminder(
         },
       });
     } catch (e) {
-      if ((e as { code?: string }).code !== 'P2002') throw e; // only a token collision is worth retrying
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+      // Either the one-active-reminder-per-user index (a concurrent request armed this visitor first: use that row, so
+      // they are never messaged twice) or a token collision (retry with a new token).
+      const existing = await prisma.journeyReminder.findFirst({ where: { userId: user.id, status: 'active' } });
+      if (existing) {
+        // A verified visitor must never be left on the short "never entered the code" run because that one was written first
+        // (the request that asked for the OTP arms it in the background): promote it to a normal run.
+        if (existing.unverified && !unverified) {
+          return prisma.journeyReminder.update({
+            where: { id: existing.id },
+            data: { unverified: false, lastStep: 'otp_only', cycle, startAt, nextCheckAt: startAt, ...(firstName ? { firstName } : {}) },
+          });
+        }
+        return existing;
+      }
     }
   }
   return null;
