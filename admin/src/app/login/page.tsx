@@ -1,17 +1,13 @@
 'use client';
 import React, { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { login, apiFetch, ApiError } from '@/lib/api';
-
-const WRAP: React.CSSProperties = {
-  minHeight: '100vh', display: 'grid', placeItems: 'center',
-  background: 'linear-gradient(135deg,#0a3f41,#079fa0)',
-};
+import { login, apiFetch } from '@/lib/api';
+import { AuthScreen } from '@/components/AuthBackdrop';
 
 export default function LoginPage() {
   // useSearchParams needs a Suspense boundary during prerender.
   return (
-    <Suspense fallback={<div style={WRAP} />}>
+    <Suspense fallback={<AuthScreen>{null}</AuthScreen>}>
       <LoginInner />
     </Suspense>
   );
@@ -23,18 +19,17 @@ function LoginInner() {
   // /login?reason=idle is set by the 440 handler in lib/api.
   const idle = params.get('reason') === 'idle';
 
-  const [email, setEmail] = useState('admin@swiftloan.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [step, setStep] = useState<'credentials' | 'totp'>('credentials');
   const [useRecovery, setUseRecovery] = useState(false);
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
-  const [locked, setLocked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [forgot, setForgot] = useState(false);
 
   async function attempt(extra: { totp?: string; recoveryCode?: string } = {}) {
-    setErr(''); setLocked(false); setLoading(true);
+    setErr(''); setLoading(true);
     try {
       const res = await login({ email: email.trim(), password, ...extra });
       // 2FA challenge: HTTP 200, no tokens. Ask for the code instead of navigating.
@@ -45,10 +40,7 @@ function LoginInner() {
       }
       router.replace(res.mustChangePassword ? '/account?mustChange=1' : '/overview');
     } catch (e) {
-      const status = e instanceof ApiError ? e.status : 0;
-      const msg = (e as Error).message || 'Login failed';
-      if (status === 423) { setLocked(true); setErr(msg); setStep('credentials'); }
-      else setErr(msg);
+      setErr((e as Error).message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -63,14 +55,14 @@ function LoginInner() {
 
   if (forgot) {
     return (
-      <div style={WRAP}>
+      <AuthScreen>
         <ForgotPanel email={email} onBack={() => setForgot(false)} />
-      </div>
+      </AuthScreen>
     );
   }
 
   return (
-    <div style={WRAP}>
+    <AuthScreen>
       <form onSubmit={submit} className="card" style={{ width: 380, padding: 32 }}>
         <div className="row" style={{ gap: 10, marginBottom: 20 }}>
           <div className="brand-logo" style={{ width: 38, height: 38, fontSize: 18 }}>S</div>
@@ -121,7 +113,7 @@ function LoginInner() {
         )}
 
         {err && (
-          <div className={`badge ${locked ? 'tone-amber' : 'tone-red'}`} style={{ marginBottom: 12, whiteSpace: 'normal', textAlign: 'left' }}>
+          <div className="badge tone-red" style={{ marginBottom: 12, whiteSpace: 'normal', textAlign: 'left' }}>
             {err}
           </div>
         )}
@@ -142,12 +134,8 @@ function LoginInner() {
             Forgot password?
           </button>
         </div>
-
-        {step === 'credentials' && (
-          <p className="muted" style={{ fontSize: 11.5, marginTop: 14, marginBottom: 0, textAlign: 'center' }}>Demo: admin@swiftloan.com · admin123</p>
-        )}
       </form>
-    </div>
+    </AuthScreen>
   );
 }
 
