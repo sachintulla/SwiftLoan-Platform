@@ -305,7 +305,7 @@ export const STR: Record<string, Record<string, string>> = {
         loansEmptyMsg: 'Check your offers to apply — your applications will show up here to track.',
         loansCheckOffers: 'Check offers & apply', loansCheckOffersSub: 'See your offers and eligibility',
         // Offer cards (shared: offers.tsx + fare.tsx)
-        eligibleAmount: 'Eligible amount', processingFeeLabel: 'Processing fee', youReceiveLabel: 'You receive',
+        eligibleAmount: 'Eligible amount (up to)', processingFeeLabel: 'Processing fee', youReceiveLabel: 'You receive',
         disbursalTimeLabel: 'Disbursal time', disbursalSuffix: 'disbursal', instantWord: 'Instant', hrSuffix: 'hr',
         highMatchLabel: 'High match', rbiApprovedLabel: 'RBI Approved', partnerLenderLabel: 'Partner lender',
         lenderStatusApplied: 'Applied', lenderStatusUnderReview: 'Under review', lenderStatusDisbursed: 'Disbursed',
@@ -678,7 +678,7 @@ export const STR: Record<string, Record<string, string>> = {
         loansEmptyMsg: 'अप्लाई करने के लिए अपने ऑफर्स चेक करें — आपकी एप्लिकेशंस ट्रैक करने के लिए यहाँ दिखेंगी।',
         loansCheckOffers: 'ऑफर्स चेक करें और अप्लाई करें', loansCheckOffersSub: 'अपने ऑफर्स और एलिजिबिलिटी देखें',
         // Offer cards (shared: offers.tsx + fare.tsx)
-        eligibleAmount: 'एलिजिबल अमाउंट', processingFeeLabel: 'प्रोसेसिंग फीस', youReceiveLabel: 'आपको मिलेगा',
+        eligibleAmount: 'एलिजिबल अमाउंट (अधिकतम)', processingFeeLabel: 'प्रोसेसिंग फीस', youReceiveLabel: 'आपको मिलेगा',
         disbursalTimeLabel: 'डिस्बर्सल टाइम', disbursalSuffix: 'डिस्बर्सल', instantWord: 'इंस्टेंट', hrSuffix: 'घंटे',
         highMatchLabel: 'हाई मैच', rbiApprovedLabel: 'RBI अप्रूव्ड', partnerLenderLabel: 'पार्टनर लेंडर',
         lenderStatusApplied: 'अप्लाई किया', lenderStatusUnderReview: 'रिव्यू में', lenderStatusDisbursed: 'डिस्बर्स्ड',
@@ -1068,7 +1068,7 @@ export const STR: Record<string, Record<string, string>> = {
         loansEmptyMsg: 'అప్లై చేయడానికి మీ ఆఫర్స్ చెక్ చేయండి — మీ అప్లికేషన్స్ ట్రాక్ చేయడానికి ఇక్కడ కనిపిస్తాయి.',
         loansCheckOffers: 'ఆఫర్స్ చెక్ చేసి అప్లై చేయండి', loansCheckOffersSub: 'మీ ఆఫర్స్ మరియు ఎలిజిబిలిటీ చూడండి',
         // Offer cards (shared: offers.tsx + fare.tsx)
-        eligibleAmount: 'ఎలిజిబుల్ అమౌంట్', processingFeeLabel: 'ప్రాసెసింగ్ ఫీజు', youReceiveLabel: 'మీకు వచ్చేది',
+        eligibleAmount: 'ఎలిజిబుల్ అమౌంట్ (గరిష్టం)', processingFeeLabel: 'ప్రాసెసింగ్ ఫీజు', youReceiveLabel: 'మీకు వచ్చేది',
         disbursalTimeLabel: 'డిస్బర్సల్ టైమ్', disbursalSuffix: 'డిస్బర్సల్', instantWord: 'ఇన్‌స్టంట్', hrSuffix: 'గంటలు',
         highMatchLabel: 'హై మ్యాచ్', rbiApprovedLabel: 'RBI అప్రూవ్డ్', partnerLenderLabel: 'పార్టనర్ లెండర్',
         lenderStatusApplied: 'అప్లై చేశారు', lenderStatusUnderReview: 'రివ్యూలో ఉంది', lenderStatusDisbursed: 'డిస్బర్స్డ్',
