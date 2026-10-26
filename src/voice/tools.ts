@@ -10,11 +10,11 @@
 // auto-discovered from the rendered tree (screenGraph.ts) with controls that
 // register themselves via useVoiceTarget. So new screens and controls become
 // voice-addressable without adding tools.
-import { buildPageContext, describeTarget, findTarget, getCurrentScreen, getScreenHint, listTargets, waitForNextPublish } from './actionRegistry';
+import { buildPageContext, describeTarget, findTarget, getCurrentScreen, getScreenHint, hasPublishedGraph, listTargets, waitForNextPublish } from './actionRegistry';
 import type { TargetKind } from './actionRegistry';
 import type { AgentLike, JSONSchema } from './types';
 import { requestConfirmation } from './ui/confirmationBridge';
-import { agentApproach, agentPress, agentSettle, emitFx, slideTo, typeText } from '../feedback/agentFx';
+import { agentApproach, agentPress, agentSettle, emitFx, fxIsInstant, slideTo, typeText } from '../feedback/agentFx';
 import { playSound } from '../feedback/sounds';
 import { tabLabelForScreen } from '../components/navTabs';
 
@@ -84,6 +84,9 @@ interface PerformUiActionArgs {
   group?: string;
 }
 
+/** A control that is about consent/terms, never a screen's forward action (even if its text says "proceeding"). */
+const CONSENT_LABEL = /\b(agree|agreeing|terms|privacy|consent|policy)\b/i;
+
 /** Words that identify a screen's main forward action, for `continue_next`. */
 const FORWARD_WORDS = ['continue', 'next', 'get started', 'proceed', 'send otp', 'verify', 'submit', 'apply'];
 
@@ -102,7 +105,7 @@ let reviewConfirmed = false;
 const SKIP_LABEL = /skip|स्किप|స్కిప్/i;
 // First-run flow. While the user is on one of these, the agent must not navigate
 // elsewhere by itself (navigate_screen to home etc. skipped the whole onboarding).
-const ONBOARDING_SCREENS = new Set(['privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou']);
+const ONBOARDING_SCREENS = new Set(['privacy', 'mobile', 'otp', 'permissions']);
 
 // Filling the last digit of the OTP verifies and navigates by itself (mobile.tsx
 // auto-verifies at 6 digits), but the model habitually follows fill_field with
@@ -153,6 +156,9 @@ const screenMoved = (screen: string): { ok: false; reason: string; message: stri
 
 const anyPrimaryDisabled = (screen: string) => listTargets(screen).some(t => t.primary && t.disabled);
 
+/** What the last tool result listed for each screen, so the next one on the same screen lists only what changed. */
+const lastControlLines = new Map<string, string[]>();
+
 export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void {
   /**
    * Reports the state the app is ACTUALLY in after an action, rather than letting
@@ -164,12 +170,26 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   const settled = async (
     screenBefore: string,
     base: Record<string, unknown>,
-    opts: { primaryBusyBefore?: boolean } = {},
+    opts: { primaryBusyBefore?: boolean; alreadyWaited?: boolean } = {},
   ) => {
+    // The screen as it is right now (the action has just run, React has not re-rendered yet).
+    const startSig = describeScreen(screenBefore).join('\n');
     // Event-driven: resolve as soon as <Screen> re-publishes its graph (usually
     // one render, ~16-50ms) rather than always paying a fixed delay. The timeout
     // is only a floor for actions that trigger no re-render at all.
-    await waitForNextPublish(250);
+    // (Skipped when the caller already waited for the screen itself — that second wait only added delay.)
+    if (!opts.alreadyWaited) await waitForNextPublish(250);
+    // On a busy phone (the agent's own scroll/typing animations share the JS thread) the screen can take a second
+    // to show the change after the tap, and the 250 ms above timed out first: the result then reported the
+    // PREVIOUS action's state ("Residence type" still missing right after it was chosen) and the app followed
+    // with a separate update. So wait — event-free, bounded, and only while nothing has changed yet — for the
+    // state to actually change. Immediate when it already has; skipped in tests (no real renders there).
+    if (!opts.alreadyWaited && !fxIsInstant()) {
+      const until = Date.now() + 1200;
+      while (Date.now() < until && getCurrentScreen() === screenBefore && describeScreen(screenBefore).join('\n') === startSig) {
+        await new Promise<void>(r => setTimeout(r, 40));
+      }
+    }
     // A tap that starts real work (Send OTP, Continue -> save) first just flips the
     // main button to its busy/disabled state; the outcome (navigation, an error
     // toast) lands later. Reporting at 250ms said "tapped, still on this screen" and
@@ -184,6 +204,11 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       await waitForNextPublish(150);
     }
     const now = getCurrentScreen();
+    const lines = describeScreen(now);
+    const prevLines = lastControlLines.get(now);
+    lastControlLines.set(now, lines);
+    // Same screen as before the action, and we have already described it: report only what changed.
+    const onlyChanges = now === screenBefore && !!prevLines;
     // Trigger the page-context push HERE, synchronously before this function
     // returns, rather than leaving it to store.ts's/Frame.tsx's own effects.
     // Those fire on their own schedule and were consistently landing AFTER this
@@ -199,15 +224,23 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     // `immediate` is what makes that true: the plain form is debounced 900ms
     // (PAGE_CONTEXT_DEBOUNCE_MS), which delivered it AFTER she had already
     // answered the tool result — a second, standalone spoken turn.
-    agent.updatePageContext({ immediate: true });
+    // For a change on the same screen the result below already says what changed, so the page update that used to
+    // follow every action only repeated it (and, when the agent was mid-sentence, restarted its turn).
+    if (!(onlyChanges && agent.noteToolReported?.())) agent.updatePageContext({ immediate: true });
     const toast = actions.recentToast?.();
+    const missing = getScreenHint(now).missing_required_fields;
+    const before = new Set(prevLines ?? []);
     return {
       ...base,
       screen_after: now,
       navigated: now !== screenBefore,
       // What the app showed the user because of this action (usually why it failed).
       ...(toast ? { message_shown_to_user: toast } : {}),
-      controls_now: describeScreen(now).slice(0, 30),
+      // Arriving on a screen: the full list. Acting on it again: only the controls whose state changed since the
+      // last result (everything else is as the agent last read it).
+      ...(onlyChanges ? { controls_changed: lines.filter(l => !before.has(l)) } : { controls_now: lines.slice(0, 30) }),
+      // On forms: the mandatory fields still empty, so the agent never needs a separate update to learn what is left.
+      ...(Array.isArray(missing) ? { missing_required_fields: missing } : {}),
     };
   };
 
@@ -291,24 +324,24 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       }
     }
     if (!target && args.target === 'continue') {
-      for (const word of FORWARD_WORDS) {
-        target = findTarget(screen, word);
-        if (target?.onTap) break;
-      }
-      // FORWARD_WORDS is English-only, so it silently finds nothing once the
-      // user's selected language renders that same button as "OTP పంపండి" or
-      // "ప్రారంభించండి" — confirmed live (repeated continue_next -> not_found
-      // on Telugu screens whose primary CTA was clearly visible and tappable).
-      // Fall back to the PrimaryButton flagged `primary: true` at registration,
-      // which identifies the screen's main forward action by role, not by
-      // matching translated label text. No current screen renders more than one
-      // PrimaryButton at once (mobile.tsx's Send OTP / Verify pair is a ternary,
-      // never both), but if a future one did, prefer an enabled primary over a
-      // disabled one rather than grabbing whichever registered first — an
-      // enabled sibling is the one actually meant by "continue".
-      if (!target?.onTap) {
-        const primaries = listTargets(screen).filter(t => t.primary && t.onTap);
-        target = primaries.find(t => !t.disabled) ?? primaries[0] ?? target;
+      // The screen's own forward button is flagged `primary` at registration (PrimaryButton): that is the
+      // reliable, language-independent answer, so it goes FIRST. Matching words against labels used to
+      // come first, and "proceed" matched the consent row "By proceeding, you agree to our…" — so
+      // continue_next tapped the terms checkbox and UN-ticked it right after the agent had ticked it.
+      const primaries = listTargets(screen).filter(t => t.primary && t.onTap);
+      target = primaries.find(t => !t.disabled) ?? null;
+      if (!target) {
+        // No enabled primary: fall back to words — but never a consent / terms row or a checkbox-like control.
+        for (const word of FORWARD_WORDS) {
+          const found = findTarget(screen, word);
+          if (found?.onTap && found.kind !== 'consent' && !CONSENT_LABEL.test(found.label)) {
+            target = found;
+            break;
+          }
+        }
+        // FORWARD_WORDS is English-only, so it silently finds nothing once the button reads "OTP పంపండి" or
+        // "ప్రారంభించండి" (confirmed live). A disabled primary is still the screen's forward action: report it.
+        if (!target?.onTap) target = primaries[0] ?? target;
       }
     }
 
@@ -736,8 +769,27 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   const navDescription =
     'Navigate to a named app screen: home, loans, fare (My Offers), compare (compare offers), ' +
     'calculator, help, profile, basicpan (start an application), basic, handoff, status, repay, ' +
-    'disbursed, mobile, permissions, aboutyou, language, intro. ' +
+    'disbursed, referral, mobile. ' +
     'Prefer tapping a visible control when one exists.';
+
+  /** Waits (bounded) until `screen` is the current one AND has published its controls. */
+  const untilScreenReady = async (screen: string): Promise<void> => {
+    if (fxIsInstant()) return; // tests: no real renders to wait for
+    const nap = () => new Promise<void>(r => setTimeout(r, 25));
+    const becameCurrent = Date.now() + 2000;
+    while (Date.now() < becameCurrent && getCurrentScreen() !== screen) await nap();
+    // The tab bar registers its buttons the instant a main screen becomes current, so "has any control"
+    // is not enough: wait for the screen's own auto-discovered controls (a render or two later, ~1 s on a
+    // busy phone), otherwise the reply and the page_context go out half-empty and the full page follows.
+    const published = Date.now() + 1500;
+    while (Date.now() < published && getCurrentScreen() === screen && !hasPublishedGraph(screen)) await nap();
+    // Data screens (My Loans) publish an empty page first and their button ~200 ms later, once the data
+    // arrives. Wait only while the screen has no real control yet (just the page scroll), and stop the
+    // moment one appears — so a screen that already has its controls pays no extra delay at all.
+    const hasRealControl = () => listTargets(screen).some(t => !t.fixed && t.kind !== 'scroll');
+    const loading = Date.now() + 500;
+    while (Date.now() < loading && getCurrentScreen() === screen && !hasRealControl()) await nap();
+  };
 
   const navHandler = async ({ screen }: { screen: string }) => {
     const before = getCurrentScreen();
@@ -760,10 +812,18 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
       const tab = tabLabelForScreen(landed.landed);
       if (tab) emitFx('press', tab);
     }
+    // Wait for the destination screen itself before reporting. settled() only waits for the NEXT
+    // publish of ANY screen (and at most 250 ms), but the screen change commits after a render the
+    // phone can delay (the nav sound and press animation start here). Replying early said
+    // `screen_after: home, navigated: false` with Home's controls, and the context update went out
+    // for the new page with no controls registered yet — so the agent tapped a Home button that was
+    // gone, then had to call read_screen to recover.
+    const waitedForScreen = landed.landed !== before && !fxIsInstant();
+    if (landed.landed !== before) await untilScreenReady(landed.landed);
     // Report where the app REALLY is after the render commits — not the screen
     // that was requested, and not the previous screen's controls (which is what
     // describing the screen synchronously returned).
-    const result = await settled(before, { ok: true, requested: screen });
+    const result = await settled(before, { ok: true, requested: screen }, { alreadyWaited: waitedForScreen });
     return landed.landed !== landed.requested
       ? { ...result, redirected: true, note: `"${screen}" is not available right now; the app is on "${result.screen_after}".` }
       : result;

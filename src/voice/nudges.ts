@@ -75,7 +75,7 @@ const FUNNEL = new Set<Screen>(['basicpan', 'basic', 'moredetails']);
 const OFFERS = new Set<Screen>(['offers', 'fare', 'compare']);
 // Before login: the sign-in flow. 'splash' (auto-advances) and 'privacy' (the user
 // accepts the terms on their own; Ruby is hidden there) get no tip.
-const PRE_LOGIN = new Set<Screen>(['language', 'intro', 'mobile', 'otp']);
+const PRE_LOGIN = new Set<Screen>(['mobile', 'otp']);
 
 /** Tip language: the app language the user picked. Hinglish/Tenglish (and no
  *  choice yet) use the English tips, same fallback as the UI strings. */

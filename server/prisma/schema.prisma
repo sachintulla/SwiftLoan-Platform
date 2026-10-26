@@ -1782,6 +1782,8 @@ model JourneyReminder {
   @@index([status, nextCheckAt])
   @@index([userId])
   @@index([phone])
+  // Also in the DB, migration-only (Prisma can't express a partial index): UNIQUE (userId) WHERE status = 'active' —
+  // "JourneyReminder_one_active_per_user". createReminder() relies on it to stay safe under concurrent pings.
 }
 
 // Delivery tracking for outbound WhatsApp (and SMS) messages: one row per message the provider accepted, updated as

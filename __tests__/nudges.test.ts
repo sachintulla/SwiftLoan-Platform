@@ -10,13 +10,13 @@ describe('UC-N16 nudges', () => {
     expect(NUDGE_ROTATE_MS).toBe(3_000);
   });
   it('uses the pre-login tips on the sign-in screens when logged out', () => {
-    const c = nudgeFor('language', DEFAULT_TIMERS, false);
+    const c = nudgeFor('mobile', DEFAULT_TIMERS, false);
     expect(c?.reason).toBe('idle_prelogin');
     expect(c?.labels[0]).toBe("Need any help? I'm right here.");
     expect(nudgeFor('otp', DEFAULT_TIMERS, false)?.labels.length).toBeGreaterThan(1);
   });
   it('uses the same general tips once logged in (home, permissions, profile…)', () => {
-    const pre = nudgeFor('language', DEFAULT_TIMERS, false)?.labels;
+    const pre = nudgeFor('mobile', DEFAULT_TIMERS, false)?.labels;
     for (const s of ['home', 'permissions', 'profile', 'loans'] as const) {
       const c = nudgeFor(s, DEFAULT_TIMERS, true);
       expect(c?.reason).toBe('idle');
