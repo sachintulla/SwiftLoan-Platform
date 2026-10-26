@@ -8,8 +8,11 @@ import { Emitter } from './events';
 import { ToolRegistry } from './registry';
 import { ElloSocket } from './transport/ws';
 import { createVoiceSession } from './transport/sessionApi';
-import { vlog } from './log';
-import { BUTTONS_ONLY_SCREENS, getCurrentScreen } from './actionRegistry';
+import { vlog, vlogAlways } from './log';
+import { StallDetector, peakOfPcm16Base64 } from './stallDetector';
+import { normaliseContext, missingRequiredDelta, trimForSend, identityMap } from './pageContextDelta';
+import type { IdentityMap } from './pageContextDelta';
+import { BUTTONS_ONLY_SCREENS, getCurrentScreen, listTargets } from './actionRegistry';
 import { reportOfflineAttempt } from '../state/offlineBridge';
 import type {
   AgentEventMap,
@@ -57,10 +60,15 @@ const URGENT_COALESCE_MS = 120;
 const NEW_UTTERANCE_GAP_MS = 300;
 
 /** Screens before the dashboard: lines spoken here are the sign-in flow, not the introduction. */
-const ONBOARDING_SCREENS = new Set(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp', 'permissions', 'aboutyou']);
+const ONBOARDING_SCREENS = new Set(['splash', 'privacy', 'mobile', 'otp', 'permissions']);
 
-/** Placeholder text for a silent agent turn, e.g. "(No speech)" or "<no speech>{pause}". */
-const NO_SPEECH_MARKER = /^[\s(<[{]*no[\s_-]*speech\b|\{\s*pause\s*\}/i;
+/**
+ * Placeholder text for an agent turn with nothing to say, e.g. "(No speech)", "<no speech>{pause}",
+ * "[silence]" or "(silent)". Matched only as the whole placeholder (optional wrapper, the word,
+ * optional wrapper), so a real sentence that merely begins with "Silence" or "Pause" is not cut.
+ */
+const NO_SPEECH_MARKER =
+  /^[\s(<[{*_]*(?:no[\s_-]*speech|silence|silent|pause|quiet)[\s)>\]}*_.…-]*$|^[\s(<[{*_]*no[\s_-]*speech\b|\{\s*pause\s*\}/i;
 
 export class ElloAgent {
   conversationId: string | null = null;
@@ -98,6 +106,17 @@ export class ElloAgent {
   // cheap page-marker instead of the whole object again. Reset per call in
   // start(); the model can always call read_screen itself for specifics.
   private lastSentPerScreen = new Map<string, string>();
+  // The normalised form of the same thing — the baseline for sending only `missing_required_fields`
+  // when that is all that changed (pageContextDelta.ts). Reset together with lastSentPerScreen.
+  private lastSentNormPerScreen = new Map<string, any>();
+  // The identity block (language, name, phone, account summary…) is sent with the session start and
+  // again only when it changes — not on every screen (see trimForSend in pageContextDelta.ts).
+  private lastSentIdentity: IdentityMap | null = null;
+  // How many times a send has been put off because the screen's main button was mid-action.
+  private busyDeferrals = 0;
+  // Notices the server going silent while the user is plainly talking (see stallDetector.ts).
+  private stall = new StallDetector();
+  private stallTimer: ReturnType<typeof setInterval> | null = null;
   // Whether this call's first client-tools-update (the one that actually
   // matters — Gemini Live can't add function declarations mid-session, see
   // the comment on updatePageContext below) has already carried the tools
@@ -260,6 +279,20 @@ export class ElloAgent {
       this.deferredFlushUnsub = unsubscribe;
       return;
     }
+    // The main button is mid-action ("Sending…", "Starting…", "Verifying…": disabled, label ends in an
+    // ellipsis in every language). That is a one-second transient state with nothing the agent can act on,
+    // and every send is a turn — so wait for the real result instead (bounded: after ~2 s send anyway).
+    if (!urgent && this.busyDeferrals < 5 && this.mainButtonBusy()) {
+      this.busyDeferrals++;
+      vlog('page_context deferred — main button is busy, will send the result instead (try', this.busyDeferrals, ')');
+      if (this.pageContextFlushTimer) clearTimeout(this.pageContextFlushTimer);
+      this.pageContextFlushTimer = setTimeout(() => {
+        this.pageContextFlushTimer = null;
+        this.flushPageContext(false);
+      }, 400);
+      return;
+    }
+    this.busyDeferrals = 0;
     // Field name is "tools" here (native_orchestrator.py's on_client_tools_update
     // reads msg.get("tools")) — note this differs from voice-session-start's
     // own "client_tools" field below; that asymmetry is real, not a typo.
@@ -303,28 +336,8 @@ export class ElloAgent {
       vlog('page_context skipped — only button changes on', screenKey, 'which the agent already knows');
       return;
     }
-    const fingerprintOf = (c: any): string => {
-      const actions = Array.isArray(c.available_actions)
-        ? [...c.available_actions].sort((a: any, b: any) => {
-            const ka = `${a?.kind}|${a?.label}`;
-            const kb = `${b?.kind}|${b?.label}`;
-            return ka < kb ? -1 : ka > kb ? 1 : 0;
-          })
-        : c.available_actions;
-      let apiContext = c.api_context;
-      if (apiContext && typeof apiContext === 'object') {
-        const meaningful = Object.fromEntries(
-          Object.entries(apiContext).filter(([, v]) => !(Array.isArray(v) && v.length === 0)),
-        );
-        apiContext = Object.keys(meaningful).length ? meaningful : undefined;
-      }
-      // `seconds_ago` on a toast ticks every second; it is not a content change.
-      if (apiContext && typeof apiContext === 'object' && (apiContext as any).lastToast) {
-        apiContext = { ...(apiContext as any), lastToast: { message: (apiContext as any).lastToast.message } };
-      }
-      return JSON.stringify({ ...c, available_actions: actions, api_context: apiContext });
-    };
-    const fingerprint = fingerprintOf(ctx);
+    const norm = normaliseContext(ctx);
+    const fingerprint = JSON.stringify(norm);
     const unchanged = this.lastSentPerScreen.get(screenKey) === fingerprint;
     // Non-urgent, nothing changed, and we already told the model about this very
     // page: there is nothing to say, and even a bare marker can read as a new turn.
@@ -336,8 +349,19 @@ export class ElloAgent {
     // nothing changed, relying on the model remembering an older snapshot of that
     // screen — which it does not reliably do, so it described a revisited screen
     // from memory. (An unchanged repeat for the SAME page is skipped above.)
-    const payload = ctx;
-    if (!unchanged) this.lastSentPerScreen.set(screenKey, fingerprint);
+    //
+    // Exception: the agent has just filled/tapped a field on this same screen (it already has the new
+    // value from the tool result) and the only news is which mandatory fields are still missing — send
+    // just that list, not the whole screen again. A change of anything else still goes in full.
+    const slim = !urgent && this.lastSentPage === screenKey
+      ? missingRequiredDelta(this.lastSentNormPerScreen.get(screenKey), norm)
+      : null;
+    const { out: payload, identity } = trimForSend(slim ?? ctx, ctx, this.lastSentIdentity);
+    this.lastSentIdentity = identity;
+    if (!unchanged) {
+      this.lastSentPerScreen.set(screenKey, fingerprint);
+      this.lastSentNormPerScreen.set(screenKey, norm);
+    }
     this.lastSentPage = screenKey;
 
     const includeTools = !this.toolsSentThisSession;
@@ -347,7 +371,35 @@ export class ElloAgent {
       ...(includeTools ? { tools: this.registry.toWire() } : {}),
       page_context: payload,
     });
-    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[revisit, nothing changed] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
+    vlog('page_context sent (client-tools-update):', urgent ? '[urgent] ' : '', unchanged ? '[revisit, nothing changed] ' : '', slim ? '[only missing_required_fields] ' : '', includeTools ? '[+tools]' : '', JSON.stringify(payload));
+  }
+
+  /**
+   * A tool result carries the screen's live state itself (`controls_changed`, `missing_required_fields`), so the
+   * page update that used to follow every action is redundant: record that state as already reported, and the next
+   * flush for this screen sees "nothing changed" and stays quiet (it used to restart the agent's turn and made it
+   * repeat its question). Only the parts the result reports are baselined — anything else that changed (api data, a
+   * toast, new controls) still goes out. Returns false when nothing was sent for this screen yet (then send as usual).
+   */
+  noteToolReported(): boolean {
+    const ctx = this.pageContextFn?.() as any;
+    if (!ctx) return false;
+    const key = String(ctx.page ?? '');
+    const prev = this.lastSentNormPerScreen.get(key);
+    if (!prev) return false;
+    const norm = normaliseContext(ctx);
+    const REPORTED = new Set(['available_actions', 'missing_required_fields', 'screen_overview']);
+    const merged: any = {};
+    for (const k of Object.keys(norm)) merged[k] = REPORTED.has(k) ? norm[k] : prev[k];
+    this.lastSentNormPerScreen.set(key, merged);
+    this.lastSentPerScreen.set(key, JSON.stringify(merged));
+    this.lastSentPage = key;
+    return true;
+  }
+
+  /** A disabled button whose label ends in an ellipsis: the app's "Sending…" / "Verifying…" / "Starting…" busy state. */
+  private mainButtonBusy(): boolean {
+    return listTargets(getCurrentScreen()).some(t => t.kind === 'button' && t.disabled && /(…|\.\.\.)\s*$/.test(t.label));
   }
 
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void {
@@ -389,6 +441,8 @@ export class ElloAgent {
     this.agentTextSinceAudio = false;
     this.signedInLineSpoken = false;
     this.lastSentPerScreen.clear();
+    this.lastSentNormPerScreen.clear();
+    this.lastSentIdentity = null;
     this.lastSentPage = null;
     this.toolsSentThisSession = false;
 
@@ -462,6 +516,7 @@ export class ElloAgent {
       // api_context on purpose to force a generic first greeting; see git history if that needs
       // to come back.) `page` must stay non-empty: the backend's speak-first path is gated on it.
       const startPageContext = fullContext;
+      this.lastSentIdentity = identityMap(startPageContext);
       socket.send({
         type: 'voice-session-start',
         conversation_id: conversationId,
@@ -472,9 +527,21 @@ export class ElloAgent {
       vlog('page_context sent:', JSON.stringify(startPageContext));
 
       let sentChunks = 0;
+      this.stall.reset(Date.now());
+      if (this.stallTimer) clearInterval(this.stallTimer);
+      this.stallTimer = setInterval(() => {
+        if (!this.socket) return;
+        const now = Date.now();
+        if (this.stall.check(now)) this.onServerStall();
+        else if (this.status === 'listening' && this.inflight.size === 0 && !this.muted && getCurrentScreen() !== 'finding') {
+          const idle = this.stall.idleCheck(now);
+          if (idle !== null) this.onIdleCheckin(idle);
+        }
+      }, 3000);
       await this.mic.start(base64 => {
         // A stale capture callback must not keep feeding a session the user ended.
         if (cancelled() || this.muted) return;
+        this.stall.noteMicPeak(Date.now(), peakOfPcm16Base64(base64));
         // Field name is "data" (confirmed from ello-app's own
         // ello_websocket_manager.py: `data.get("data")`) — NOT "audio".
         this.socket?.send({ type: 'voice-audio-input', data: base64, sample_rate: 16000, channels: 1 });
@@ -544,6 +611,7 @@ export class ElloAgent {
     if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
     if (this.urgentFlushTimer) { clearTimeout(this.urgentFlushTimer); this.urgentFlushTimer = null; }
     if (this.deferredFlushUnsub) { this.deferredFlushUnsub(); this.deferredFlushUnsub = null; }
+    if (this.stallTimer) { clearInterval(this.stallTimer); this.stallTimer = null; }
     this.socket?.close();
     this.socket = null;
     this.conversationId = null;
@@ -565,7 +633,32 @@ export class ElloAgent {
   }
 
 
+  /**
+   * The server has sent nothing for 15 s although the user has been speaking up. Leave a trace that is safe in a
+   * release build (only the call's own id, no content) so Ello can find the session, and kick the session with a
+   * fresh page update: an update is a turn for the agent, so a quiet-but-alive session answers, and the user is not
+   * left talking to nothing. Reported at most once every 30 s.
+   */
+  private onServerStall(): void {
+    vlogAlways('STALL: server silent 15s+ while the user is speaking; conv=', this.conversationId ?? '?', 'status=', this.status);
+    if (this.status === 'listening' || this.status === 'speaking') this.flushPageContext(true);
+  }
+
+  /**
+   * Nobody has said anything for a while. The server never nudges on its own (seen: 25 s of quiet, no nudge), and the
+   * model only speaks when something reaches it, so a user who stopped to think was left in silence and assumed the
+   * call had dropped. A tiny update carrying `idle_seconds` is the cue for one short check-in line (the prompt says so).
+   */
+  private onIdleCheckin(idleSeconds: number): void {
+    vlog('idle check-in — quiet for', idleSeconds, 's');
+    this.socket?.send({
+      type: 'client-tools-update',
+      page_context: { page: getCurrentScreen(), idle_seconds: idleSeconds },
+    });
+  }
+
   private handleMessage(msg: any): void {
+    this.stall.noteServerFrame(Date.now());
     // Log every inbound frame type except the high-rate audio stream (counted
     // separately below) so a stalled pipeline shows exactly where it stopped.
     if (msg?.type !== 'voice-audio-output') {
@@ -613,6 +706,7 @@ export class ElloAgent {
         this.setStatus('listening');
         break;
       case 'conversation-text':
+        if (msg.data?.source === 'user') this.stall.noteUserActivity();
         if (msg.data?.source === 'agent' && !msg.data?.is_interim) this.agentTextSinceAudio = true;
         if (
           msg.data?.source === 'agent' && !msg.data?.is_interim &&
@@ -636,6 +730,7 @@ export class ElloAgent {
         });
         break;
       case 'client-tool-call':
+        this.stall.noteUserActivity();
         this.executeToolCall(msg.tool_call_id, msg.name, msg.args || {});
         break;
       case 'client-tool-cancel':

@@ -113,6 +113,8 @@ export interface AgentLike {
   unregisterTool(name: string): void;
   registerPageContext(fn: PageContextProvider): void;
   updatePageContext(opts?: { urgent?: boolean; immediate?: boolean }): void;
+  /** The tool result just built already reports this screen's current state: don't send it again as page context. Returns false when there is no baseline to rely on. */
+  noteToolReported?(): boolean;
   on<K extends keyof AgentEventMap>(event: K, fn: (payload: AgentEventMap[K]) => void): () => void;
   setMuted(muted: boolean): void;
   getStatus(): AgentStatus;
