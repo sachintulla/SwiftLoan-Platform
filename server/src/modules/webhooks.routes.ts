@@ -21,6 +21,7 @@ import {
 } from '../lib/callOutcome.js';
 import { rebuildSummary } from '../lib/conversations.js';
 import { recordImmediateCallbackAttemptOutcome } from '../lib/immediateCallback.js';
+import { sendConversationSummary } from '../lib/conversationSummary.js';
 
 /** A call that reached a human — the only kind worth inferring an outcome from. */
 function isConnected(status: CallStatus): boolean {
@@ -489,9 +490,24 @@ webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
     return s ? s.slice(0, max) : undefined;
   };
 
+  // What the agent wants the CUSTOMER to read afterwards (a WhatsApp recap), as
+  // distinct from `summary`, which is written for colleagues and never sent.
+  const customerSummary = str(b.customer_summary ?? b.customerSummary, 600);
+  const actionPlan = str(b.action_plan ?? b.actionPlan, 400);
+  const keepDetails = customerSummary || actionPlan
+    ? {
+        details: {
+          ...((attempt.details as Record<string, unknown> | null) ?? {}),
+          ...(customerSummary ? { customerSummary } : {}),
+          ...(actionPlan ? { actionPlan } : {}),
+        } as Prisma.InputJsonValue,
+      }
+    : {};
+
   const updated = await prisma.callAttempt.update({
     where: { id: attempt.id },
     data: {
+      ...keepDetails,
       ...(outcome ? { outcome, outcomeSource: 'agent', outcomeEvidence: null } : {}),
       ...(str(b.summary, 2000) ? { summary: str(b.summary, 2000) } : {}),
       ...(str(b.income_range ?? b.incomeRange) ? { incomeRange: str(b.income_range ?? b.incomeRange) } : {}),
@@ -533,6 +549,27 @@ webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
       },
     }).catch((e) => console.error('[webhook] journey write failed', e));
   }
+
+  // WhatsApp the customer a recap and action plan. Fire-and-forget: it never
+  // delays or fails the webhook, and it does nothing unless an admin has turned
+  // it on and named a template (Configs → Stage outreach → After every conversation).
+  void (async () => {
+    const stored = (updated.details as Record<string, unknown> | null) ?? {};
+    const cust = updated.customerId
+      ? await prisma.customer.findUnique({ where: { id: updated.customerId }, select: { name: true } }).catch(() => null)
+      : null;
+    await sendConversationSummary({
+      conversationId: updated.id,
+      phone: updated.phone,
+      customerId: updated.customerId,
+      customerName: cust?.name ?? null,
+      customerSummary: customerSummary ?? (typeof stored.customerSummary === 'string' ? stored.customerSummary : null),
+      actionPlan: actionPlan ?? (typeof stored.actionPlan === 'string' ? stored.actionPlan : null),
+      outcome: updated.outcome,
+      callbackAt: updated.callbackAt,
+      source: 'call',
+    });
+  })();
 
   return ok(
     res,

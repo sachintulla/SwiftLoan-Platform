@@ -172,6 +172,13 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     /** Public site, used to build the links inside templates. */
     siteUrl: 'https://www.swiftloan.ai',
     /**
+     * WhatsApp recap after every conversation (call, in-app agent, website agent):
+     * what was discussed and the action plan. Off until an admin names an approved
+     * template with variables. `{name}`, `{summary}`, `{actionPlan}`, `{callbackTime}`
+     * and `{outcome}` are filled per conversation. See lib/conversationSummary.ts.
+     */
+    conversationSummary: { enabled: false, template: '', language: 'en', placeholders: ['{name}', '{summary}', '{actionPlan}'] },
+    /**
      * Stuck-stage nudges: journey event the customer got stuck AT -> the approved
      * template to send and the values for its {{1}}, {{2}}… in order. `{name}`,
      * `{ref}`, `{offerCount}` and `{siteUrl}` are filled per customer; a customer

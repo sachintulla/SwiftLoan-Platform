@@ -24,6 +24,7 @@ import {
   OUTREACH_STAGES, OUTREACH_CHANNELS, VARIABLE_LIST, MAX_BRIEF_LENGTH, isOutreachStage, normalizeStageCalls,
   cleanWhatsApp, cleanSms, defaultCooldownMinutes, type OutreachChannel,
 } from '../lib/stageOutreach.js';
+import { normalizeSummaryConfig, SUMMARY_TOKENS } from '../lib/conversationSummary.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('stage-outreach');
@@ -130,6 +131,7 @@ stageOutreachRouter.get('/', ah(async (_req, res) => {
     whatsappTokens: ['{name}', '{ref}', '{offerCount}', '{siteUrl}'],
     agentRoles: AGENT_ROLES.map((role) => ({ role, ...AGENT_ROLE_INFO[role] })),
     maxBriefLength: MAX_BRIEF_LENGTH,
+    afterConversation: { ...normalizeSummaryConfig(vox.settings.conversationSummary), tokens: SUMMARY_TOKENS },
     gates: {
       callsAutomatic: timing.bool('calls.nudgeEnabled'),
       testNumbersOnly: timing.phones('calls.allowedNumbers').length,
@@ -236,4 +238,25 @@ stageOutreachRouter.put('/:stage/sms', requireRole(...CAN_ADMINISTER), validate(
   await upsertProviderConfig('voxvalley', { settings: { smsTemplates: next } }, adminName(req));
   log.info('stage sms saved', { stage: stage.key, cleared: blank, updatedBy: adminName(req) ?? null });
   return ok(res, { stage: stage.key, sms: next[stage.key] ?? null }, 'SMS saved');
+}));
+
+const summarySchema = z.object({
+  enabled: z.boolean(),
+  /** Blank is allowed while switched off; a switched-on summary needs a template. */
+  template: z.string().trim().max(100),
+  language: z.string().trim().max(10).optional(),
+  placeholders: z.array(z.string().max(200)).max(10).optional(),
+});
+
+// PUT /api/admin/stage-outreach/after-conversation — the WhatsApp recap sent after every conversation
+stageOutreachRouter.put('/after-conversation', requireRole(...CAN_ADMINISTER), validate(summarySchema), ah(async (req, res) => {
+  const body = req.body as z.infer<typeof summarySchema>;
+  if (body.template && !/^[a-z0-9_]{1,100}$/.test(body.template)) {
+    throw new HttpError(400, 'Template names use lowercase letters, numbers and underscores, for example conversation_summary');
+  }
+  if (body.enabled && !body.template) throw new HttpError(400, 'Enter the approved template name before switching this on');
+  const next = normalizeSummaryConfig({ ...body, placeholders: body.placeholders ?? undefined });
+  await upsertProviderConfig('voxvalley', { settings: { conversationSummary: next } }, adminName(req));
+  log.info('after-conversation saved', { enabled: next.enabled, template: next.template || null, updatedBy: adminName(req) ?? null });
+  return ok(res, { afterConversation: next }, 'Saved');
 }));

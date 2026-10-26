@@ -42,6 +42,7 @@ interface Overview {
   whatsappTokens: string[];
   agentRoles: AgentRole[];
   maxBriefLength: number;
+  afterConversation: { enabled: boolean; template: string; language: string; placeholders: string[]; tokens: string[] };
   gates: { callsAutomatic: boolean; testNumbersOnly: number; nudgesDisabled: boolean; elloConnected: boolean; whatsappConnected: boolean; upshotConnected: boolean; smsConnected: boolean };
 }
 
@@ -123,6 +124,8 @@ export default function StageOutreach() {
         </ol>
       </details>
 
+      <AfterConversation cfg={ov.afterConversation} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
+
       <div className="so-grid">
         <Rail stages={ov.stages} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
         <StagePanel
@@ -133,6 +136,107 @@ export default function StageOutreach() {
 
       <VariableDictionary variables={ov.variables} />
     </div>
+  );
+}
+
+/**
+ * The WhatsApp recap sent after every conversation (call, in-app agent, website
+ * agent): what was discussed and the action plan. Not tied to one stage, so it
+ * sits above the journey.
+ */
+function AfterConversation({ cfg, whatsappConnected, onChanged }: { cfg: Overview['afterConversation']; whatsappConnected: boolean; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(cfg.enabled);
+  const [template, setTemplate] = useState(cfg.template);
+  const [language, setLanguage] = useState(cfg.language);
+  const [vars, setVars] = useState<string[]>(cfg.placeholders);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const list = vars.map((v) => v.trim()).filter(Boolean);
+  const dirty = enabled !== cfg.enabled || template.trim() !== cfg.template || language.trim() !== cfg.language || list.join('\n') !== cfg.placeholders.join('\n');
+  const needsTemplate = enabled && !template.trim();
+  const touch = () => setMsg(null);
+
+  async function save() {
+    setSaving(true); setMsg(null);
+    try {
+      await apiFetch(`${KEY}/after-conversation`, { method: 'PUT', body: JSON.stringify({ enabled, template: template.trim(), language: language.trim() || 'en', placeholders: list }) });
+      setMsg({ ok: true, text: 'Saved' });
+      onChanged();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <section className="so-panel" style={{ marginBottom: 18 }}>
+      <div className="so-card-head" style={{ padding: '14px 20px' }} onClick={() => setOpen(!open)} role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open); } }}>
+        <span className="so-node" style={{ color: 'var(--so-whatsapp)', width: 34, height: 34 }}><Icon channel="whatsapp" /></span>
+        <div className="so-card-main">
+          <div className="so-card-name" style={{ fontSize: 15 }}>
+            After every conversation
+            <span className="so-chip" style={cfg.enabled ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{cfg.enabled ? `On · ${cfg.template}` : 'Off'}</span>
+          </div>
+          <div className="so-card-sum">WhatsApp the customer a recap of what was discussed and their action plan, after a call, or after talking to the in-app or website agent.</div>
+        </div>
+        <svg className="so-chev" style={{ transform: open ? 'rotate(90deg)' : undefined }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+      </div>
+
+      {open && (
+        <div className="so-editor" style={{ borderRadius: '0 0 var(--radius) var(--radius)' }}>
+          {!whatsappConnected && <div className="so-note">No WhatsApp provider is turned on (Vox or Meta), so this cannot send yet.</div>}
+          <div className="so-fields">
+            <div className="so-field wide">
+              <label className="row" style={{ gap: 10, cursor: 'pointer' }}>
+                <button type="button" className={`so-switch ${enabled ? 'on' : ''}`} aria-pressed={enabled} onClick={() => { setEnabled(!enabled); touch(); }} />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{enabled ? 'On: send a recap after each conversation' : 'Off'}</span>
+              </label>
+              {needsTemplate && <span className="so-msg err">Enter the approved template name before switching this on.</span>}
+            </div>
+            <div className="so-field">
+              <label className="so-label">Approved WhatsApp template name</label>
+              <input className="input mono" value={template} placeholder="e.g. conversation_summary" onChange={(e) => { setTemplate(e.target.value); touch(); }} />
+              <span className="so-hint">Create the template with variables in CPaaS (Vox Digitals) or Meta and get it approved, then enter its exact name here.</span>
+            </div>
+            <div className="so-field">
+              <label className="so-label">Language code</label>
+              <input className="input mono" style={{ maxWidth: 120 }} value={language} onChange={(e) => { setLanguage(e.target.value); touch(); }} />
+            </div>
+            <div className="so-field wide">
+              <span className="so-label">Values sent into the template, in order</span>
+              <div className="so-vars">
+                {vars.map((v, i) => (
+                  <div key={i} className="so-var">
+                    <span className="so-var-no">{`{{${i + 1}}}`}</span>
+                    <input className="input mono" value={v} onChange={(e) => { setVars(vars.map((x, j) => (j === i ? e.target.value : x))); touch(); }} />
+                    <button type="button" className="so-x" aria-label={`Remove value ${i + 1}`} onClick={() => { setVars(vars.filter((_, j) => j !== i)); touch(); }}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div className="so-tokens">
+                <span className="so-hint">Add:</span>
+                {cfg.tokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => { setVars([...vars, t]); touch(); }}>{t}</button>)}
+                <button type="button" className="so-token" onClick={() => { setVars([...vars, '']); touch(); }}>+ custom text</button>
+              </div>
+              <span className="so-hint">The count and order must match the approved template exactly. <b>{'{summary}'}</b> is what we discussed, <b>{'{actionPlan}'}</b> is what happens next, <b>{'{callbackTime}'}</b> is the agreed callback.</span>
+            </div>
+            <div className="so-field wide">
+              <div className="so-preview">
+                <div className="so-preview-label">What the agent must send</div>
+                Only the agent&apos;s <span className="mono">customer_summary</span> is sent, in the customer&apos;s own terms; add <span className="mono">action_plan</span> for the next steps. The internal <span className="mono">summary</span> written for colleagues is never sent. If the agent sends no customer summary, nothing goes out. Nothing is sent after a refusal, wrong number, voicemail or no answer, and in test mode only the allowed test numbers receive it. Each conversation sends once.
+              </div>
+            </div>
+          </div>
+          <div className="so-actions">
+            <button type="button" className="btn btn-primary" disabled={!dirty || saving || needsTemplate} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button>
+            {dirty && !msg && <span className="so-hint">You have unsaved changes.</span>}
+            {msg && <span className={`so-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
