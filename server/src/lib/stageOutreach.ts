@@ -14,21 +14,71 @@ import { LEAD_CALL_VARIABLES, type LeadCallVariable } from './callContext.js';
 import { AGENT_ROLES, type AgentRole } from './agents.js';
 import { getProviderConfig } from './integrations.js';
 
+export type Surface = 'Website' | 'Website and app' | 'App';
+
 export interface OutreachStage {
   /** The journey event the customer got stuck AT; also the stallTemplates key. */
   key: string;
   label: string;
   description: string;
+  /** Where the customer is when they stop. Journey events are shared, so a stage can cover both. */
+  surface: Surface;
+  /** The next step they did not take; a new follow-up added here watches for it. */
+  expectedEvent: string;
 }
 
-/** The same five stages the WhatsApp templates are keyed on (voxvalley.stallTemplates). */
+/**
+ * The whole customer journey, in order. Website visitors and app users share these
+ * events (the app's own telemetry is mapped onto them in appEventMap.ts), so one
+ * list configures both. The first stage and the five that have a WhatsApp template
+ * are the ones the dashboard shipped with; the rest give the app its own stages.
+ */
 export const OUTREACH_STAGES: readonly OutreachStage[] = [
-  { key: JOURNEY_EVENTS.LEAD_CAPTURED, label: 'Lead captured', description: 'Left their number on the website but has not installed the app.' },
-  { key: JOURNEY_EVENTS.OTP_VERIFIED, label: 'Signed in', description: 'Verified the OTP but never started an application.' },
-  { key: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED, label: 'Eligibility done', description: 'Finished the eligibility check but did not open the offers.' },
-  { key: JOURNEY_EVENTS.OFFER_VIEWED, label: 'Offers viewed', description: 'Saw their offers but did not choose one.' },
-  { key: JOURNEY_EVENTS.KYC_STARTED, label: 'KYC started', description: 'Started identity verification but did not finish it.' },
+  { key: JOURNEY_EVENTS.LEAD_CAPTURED, label: 'Lead captured', surface: 'Website', expectedEvent: JOURNEY_EVENTS.APP_INSTALLED, description: 'Left their number on the website but has not installed the app.' },
+  { key: JOURNEY_EVENTS.APP_INSTALLED, label: 'App installed', surface: 'App', expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED, description: 'Installed the app but never signed in.' },
+  { key: JOURNEY_EVENTS.OTP_REQUESTED, label: 'OTP requested', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED, description: 'Asked for an OTP but never entered it.' },
+  { key: JOURNEY_EVENTS.OTP_VERIFIED, label: 'Signed in', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED, description: 'Verified the OTP but never started an application.' },
+  { key: JOURNEY_EVENTS.ELIGIBILITY_STARTED, label: 'Application started', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED, description: 'Started the application form but did not finish it.' },
+  { key: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED, label: 'Eligibility done', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.OFFER_VIEWED, description: 'Finished the eligibility check but did not open the offers.' },
+  { key: JOURNEY_EVENTS.OFFER_VIEWED, label: 'Offers viewed', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED, description: 'Saw their offers but did not choose one.' },
+  { key: JOURNEY_EVENTS.OFFER_SELECTED, label: 'Offer chosen', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.KYC_STARTED, description: 'Chose an offer but did not start verification.' },
+  { key: JOURNEY_EVENTS.KYC_STARTED, label: 'KYC started', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.KYC_COMPLETED, description: 'Started identity verification but did not finish it.' },
 ];
+
+export type OutreachChannel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
+export const OUTREACH_CHANNELS: readonly OutreachChannel[] = ['whatsapp', 'sms', 'email', 'voice', 'push'];
+
+/** Cooldown a freshly added follow-up starts with: a call is a bigger intrusion than a message. */
+export function defaultCooldownMinutes(channel: OutreachChannel): number {
+  return channel === 'voice' ? 4320 : 1440;
+}
+
+/** A WhatsApp template for one stage, as stored in the Voxvalley settings. */
+export interface StageWhatsApp { template: string; language: string; placeholders: string[] }
+
+/** Template names are lowercase letters, digits and underscores (Meta's rule). */
+export function cleanWhatsApp(raw: unknown): StageWhatsApp | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const template = typeof r.template === 'string' ? r.template.trim() : '';
+  if (!/^[a-z0-9_]{1,100}$/.test(template)) return null;
+  const language = typeof r.language === 'string' && /^[a-zA-Z_]{2,10}$/.test(r.language.trim()) ? r.language.trim() : 'en';
+  const placeholders = Array.isArray(r.placeholders)
+    ? r.placeholders.filter((p): p is string => typeof p === 'string').map((p) => p.trim()).filter(Boolean).slice(0, 10).map((p) => p.slice(0, 200))
+    : [];
+  return { template, language, placeholders };
+}
+
+/** A per-stage SMS text, which must match what is registered on the DLT portal. */
+export interface StageSms { templateId: string; body: string }
+
+export function cleanSms(raw: unknown): StageSms | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const templateId = typeof r.templateId === 'string' ? r.templateId.trim().slice(0, 40) : '';
+  const body = typeof r.body === 'string' ? r.body.trim().slice(0, 1000) : '';
+  return templateId && body ? { templateId, body } : null;
+}
 
 export function isOutreachStage(key: string): boolean {
   return OUTREACH_STAGES.some((s) => s.key === key);

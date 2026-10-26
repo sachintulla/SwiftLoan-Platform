@@ -1,23 +1,36 @@
 import { describe, it, expect } from 'vitest';
 import {
-  OUTREACH_STAGES, VARIABLE_INFO, VARIABLE_LIST, MAX_BRIEF_LENGTH,
-  isOutreachStage, normalizeStageCalls, renderBrief,
+  OUTREACH_STAGES, OUTREACH_CHANNELS, VARIABLE_INFO, VARIABLE_LIST, MAX_BRIEF_LENGTH,
+  isOutreachStage, normalizeStageCalls, renderBrief, cleanWhatsApp, cleanSms, defaultCooldownMinutes,
 } from './stageOutreach.js';
 import { LEAD_CALL_VARIABLES } from './callContext.js';
 import { DEFAULT_SETTINGS } from './integrations.js';
 import { DEFAULT_STALL_RULES } from './stallRules.js';
 
 describe('outreach stages', () => {
-  it('are the same stages the WhatsApp templates are keyed on', () => {
-    const whatsappStages = Object.keys(DEFAULT_SETTINGS.voxvalley.stallTemplates);
-    expect(OUTREACH_STAGES.map((s) => s.key).sort()).toEqual(whatsappStages.sort());
+  it('cover every stage the WhatsApp templates are keyed on', () => {
+    const stages = OUTREACH_STAGES.map((s) => s.key);
+    for (const whatsappStage of Object.keys(DEFAULT_SETTINGS.voxvalley.stallTemplates)) {
+      expect(stages, whatsappStage).toContain(whatsappStage);
+    }
   });
 
-  it('each have a call rule shipped, so every WhatsApp stage can also ring', () => {
+  it('each have a call rule shipped, so every stage can also ring', () => {
     for (const s of OUTREACH_STAGES) {
       const hasCall = DEFAULT_STALL_RULES.some((r) => r.triggerEvent === s.key && r.channel === 'voice');
       expect(hasCall, s.key).toBe(true);
     }
+  });
+
+  it('list each stage once, and watch for a different step than the one they stopped at', () => {
+    const keys = OUTREACH_STAGES.map((s) => s.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const s of OUTREACH_STAGES) expect(s.expectedEvent, s.key).not.toBe(s.key);
+  });
+
+  it('offer every channel, with a longer cooldown for calls', () => {
+    expect([...OUTREACH_CHANNELS].sort()).toEqual(['email', 'push', 'sms', 'voice', 'whatsapp']);
+    expect(defaultCooldownMinutes('voice')).toBeGreaterThan(defaultCooldownMinutes('whatsapp'));
   });
 
   it('recognises only known stages', () => {
@@ -76,5 +89,32 @@ describe('renderBrief', () => {
     const out = renderBrief('Hi {lead_first_name}, about your {lead_product} loan {unknown_thing}.', { lead_first_name: 'Rahul' });
     expect(out).not.toMatch(/[{}]/);
     expect(out).toBe('Hi Rahul, about your loan.');
+  });
+});
+
+describe('cleanWhatsApp', () => {
+  it('accepts a Meta-style template name and trims the variables', () => {
+    expect(cleanWhatsApp({ template: ' offers_ready ', language: 'en', placeholders: [' {name} ', '', '{ref}'] }))
+      .toEqual({ template: 'offers_ready', language: 'en', placeholders: ['{name}', '{ref}'] });
+  });
+
+  it('defaults the language and rejects a bad template name', () => {
+    expect(cleanWhatsApp({ template: 'offers_ready', language: '!!' })?.language).toBe('en');
+    expect(cleanWhatsApp({ template: 'Offers Ready' })).toBeNull();
+    expect(cleanWhatsApp({ template: '' })).toBeNull();
+    expect(cleanWhatsApp(null)).toBeNull();
+  });
+
+  it('caps the number of variables', () => {
+    const out = cleanWhatsApp({ template: 'x', placeholders: Array.from({ length: 30 }, (_, i) => `v${i}`) });
+    expect(out?.placeholders).toHaveLength(10);
+  });
+});
+
+describe('cleanSms', () => {
+  it('needs both the DLT template ID and the text', () => {
+    expect(cleanSms({ templateId: '123', body: 'Hello' })).toEqual({ templateId: '123', body: 'Hello' });
+    expect(cleanSms({ templateId: '123', body: '  ' })).toBeNull();
+    expect(cleanSms({ templateId: '', body: 'Hello' })).toBeNull();
   });
 });
