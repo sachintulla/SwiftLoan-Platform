@@ -37,7 +37,7 @@ function VoiceFabGate() {
   const { state } = useStore();
   // Hidden on the first-launch Terms & Privacy screen: accepting them is the user's
   // own act, so the assistant isn't available there (and not on the splash before
-  // it). It appears on the language screen, right after "Accept & Continue".
+  // it). It appears on the mobile screen, right after "Accept & Continue".
   if (state.screen === 'splash' || state.screen === 'privacy') return null;
   return <VoiceWidget />;
 }
