@@ -12,6 +12,7 @@ import { api, ApiError } from '../api/client';
 import { upshotIdentify, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
+import { setScreenHint } from '../voice/actionRegistry';
 import { agent } from '../voice';
 import { parseResume, resumeDestination } from '../utils/resume';
 
@@ -128,7 +129,8 @@ export default function Mobile() {
       })();
       set({
         authUser: r.user,
-        otpSent: false,
+        // otpSent stays true until we navigate (reset alongside each go() below). Resetting it here
+        // flipped this screen back to "enter your number" for the 1-3 s the lookups below take.
         priorInquiries: r.priorInquiries,
         ...(callLive ? {} : { introPitchHeard: false }),
         savedApplicantDraft: null,
@@ -181,7 +183,7 @@ export default function Mobile() {
         const onFile = await api.panOnFile().catch(() => null);
         if (onFile?.onFile && onFile.maskedPan) {
           set({
-            resume, resumePrompt: null, resumeStage: 'resumed_at_step_2',
+            resume, resumePrompt: null, resumeStage: 'resumed_at_step_2', otpSent: false,
             panNumber: onFile.maskedPan,
             panPrefill: { pan: onFile.maskedPan, prefill: onFile.prefill ?? {}, aadhaarLinked: onFile.aadhaarLinked ?? null },
           });
@@ -198,7 +200,7 @@ export default function Mobile() {
         // their own application, which Home fetches), keep the resume context for the voice
         // agent, and land on Home with the normal "Apply for a loan" CTA.
         set({
-          resume, resumePrompt: null, resumeStage: 'offer_start_application',
+          resume, resumePrompt: null, resumeStage: 'offer_start_application', otpSent: false,
           ...(resume.firstName ? { pdName: resume.firstName } : {}),
         });
         registerUpshotPush();
@@ -208,7 +210,7 @@ export default function Mobile() {
       }
       // Nothing to resume (or it was for someone else's number): forget it, so another visitor's phone number and
       // name never linger in memory.
-      set({ resume: null, resumePrompt: null, resumeStage: null });
+      set({ resume: null, resumePrompt: null, resumeStage: null, otpSent: false });
       // Skip the permissions screen entirely — go straight to the dashboard after OTP.
       // Still register for push here (the permissions screen used to do it), so
       // skipping that screen doesn't silently drop notification registration.
@@ -274,6 +276,16 @@ export default function Mobile() {
   // the real hidden field falls back to the nearest preceding label-like text
   // ("Edit phone number"). Registering it explicitly here overrides that with
   // a correctly-labelled, directly fillable `field:OTP` target.
+  // The code-entry step is the same screen as number entry (`otpSent`), so tell the agent which one it is
+  // on — it was told "Enter Mobile Number / the user enters their mobile number" while waiting for a code.
+  useEffect(() => {
+    setScreenHint(
+      'mobile',
+      otpSent ? { screen_title: 'Verify OTP', screen_purpose: 'The user enters the OTP sent by SMS to verify their number.' } : null,
+    );
+    return () => setScreenHint('mobile', null);
+  }, [otpSent]);
+
   useVoiceTarget(
     otpSent ? 'OTP' : undefined,
     { kind: 'field', getValue: () => otpCode, setValue: v => onOtpChange(String(v)) },
@@ -344,13 +356,17 @@ export default function Mobile() {
             </Text>
           </VoiceHidden>
 
-          <Text style={styles.fieldLabel}>MOBILE NUMBER</Text>
+          {/* The real label string (shown uppercase by the style) so the agent addresses the field as "Mobile Number". */}
+          <Text style={styles.fieldLabel}>{t.mobileNumberLabel}</Text>
           <View style={[styles.phoneRow, mobileLen === 10 && !mobileInvalid && styles.phoneRowOk]}>
-            <View style={styles.ccBox}>
-              <Text style={{ fontSize: 18, marginRight: 6 }}>🇮🇳</Text>
-              <Text style={[font(700), { fontSize: 15, color: colors.text, marginRight: 2 }]}>+91</Text>
-              <Icon name="expand_more" size={18} color={colors.muted} />
-            </View>
+            {/* Flag + "+91" are decoration: hidden from the agent, or the flag emoji became the field's label. */}
+            <VoiceHidden>
+              <View style={styles.ccBox}>
+                <Text style={{ fontSize: 18, marginRight: 6 }}>🇮🇳</Text>
+                <Text style={[font(700), { fontSize: 15, color: colors.text, marginRight: 2 }]}>+91</Text>
+                <Icon name="expand_more" size={18} color={colors.muted} />
+              </View>
+            </VoiceHidden>
             <View style={styles.ccDivider} />
             <TextInput
               style={[styles.phoneInput, font(600)]}
@@ -365,23 +381,33 @@ export default function Mobile() {
               <View style={styles.okCircle}><Icon name="check" size={15} color="#fff" /></View>
             ) : null}
           </View>
-          <View style={styles.otpNote}>
-            <Icon name="lock" size={14} color={colors.mint} />
-            <Text style={styles.otpNoteText}>We'll send a 6-digit OTP to verify securely</Text>
-          </View>
+          {/* On-screen instruction for the user's eyes: hidden from the agent so it doesn't read it aloud. */}
+          <VoiceHidden>
+            <View style={styles.otpNote}>
+              <Icon name="lock" size={14} color={colors.mint} />
+              <Text style={styles.otpNoteText}>We'll send a 6-digit OTP to verify securely</Text>
+            </View>
+          </VoiceHidden>
           {mobileInvalid ? (
             <Text style={[font(500), { fontSize: 12, color: colors.redDeep, marginTop: 6 }]}>{t.mobileErrInvalid}</Text>
           ) : null}
 
-          {/* Soft-credit-check reassurance */}
-          <View style={styles.softCard}>
-            <View style={styles.softIcon}><Icon name="shield" size={18} color={colors.mint} /></View>
-            <Text style={styles.softText}>
-              <Text style={[font(700), { color: colors.text }]}>Soft Credit Check Only: </Text>
-              Checking your pre-approved limit does not affect your credit score. RBI regulated lending partners.
-            </Text>
-          </View>
+          {/* Soft-credit-check reassurance: fixed text for the user's eyes, hidden from the agent (it is sent on
+              every update of this screen and the agent's own pitch already covers it). */}
+          <VoiceHidden>
+            <View style={styles.softCard}>
+              <View style={styles.softIcon}><Icon name="shield" size={18} color={colors.mint} /></View>
+              <Text style={styles.softText}>
+                <Text style={[font(700), { color: colors.text }]}>Soft Credit Check Only: </Text>
+                Checking your pre-approved limit does not affect your credit score. RBI regulated lending partners.
+              </Text>
+            </View>
+          </VoiceHidden>
 
+          {/* Hidden from the agent: the explicit "Accept terms and privacy policy" consent target (registered
+              above) is the one control for this row. Left visible, the walker listed it a second time as the
+              button "By proceeding, you agree to our", which continue_next once mis-tapped (un-ticking terms). */}
+          <VoiceHidden>
           <Pressable ref={consentRef} style={styles.terms} onPress={() => set({ terms: !state.terms })}>
             <View style={[styles.box, state.terms && { backgroundColor: colors.mint, borderColor: colors.mint }]}>
               {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
@@ -395,6 +421,7 @@ export default function Mobile() {
               {' '}&amp; allow WhatsApp updates.
             </Text>
           </Pressable>
+          </VoiceHidden>
 
           {err ? (
             <View style={styles.errBox}>
@@ -470,10 +497,12 @@ export default function Mobile() {
               </VoiceHidden>
             </Pressable>
 
-            <View style={styles.secureNote}>
-              <Icon name="verified_user" size={16} color={colors.mint} />
-              <Text style={styles.secureText}>{t.otpSecureNote}</Text>
-            </View>
+            <VoiceHidden>
+              <View style={styles.secureNote}>
+                <Icon name="verified_user" size={16} color={colors.mint} />
+                <Text style={styles.secureText}>{t.otpSecureNote}</Text>
+              </View>
+            </VoiceHidden>
 
             {err ? (
               <View style={styles.errBox}>
@@ -504,7 +533,7 @@ const styles = StyleSheet.create({
   grab: { width: 44, height: 5, borderRadius: 3, backgroundColor: '#E2E9E7', alignSelf: 'center', marginBottom: 16 },
   h1: { ...font(800), fontSize: 27, letterSpacing: -0.6, color: colors.text },
   sub: { ...font(400), fontSize: 14.5, color: '#6E8080', marginTop: 8, lineHeight: 21 },
-  fieldLabel: { ...font(700), fontSize: 12, letterSpacing: 0.8, color: colors.textMid, marginTop: 22, marginBottom: 10 },
+  fieldLabel: { ...font(700), fontSize: 12, letterSpacing: 0.8, color: colors.textMid, marginTop: 22, marginBottom: 10, textTransform: 'uppercase' },
   phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
