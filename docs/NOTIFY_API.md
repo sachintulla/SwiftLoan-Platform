@@ -1,5 +1,7 @@
 # Notify API — `POST /api/notify`
 
+> **Machine-readable spec:** [`docs/notify-openapi.json`](./notify-openapi.json) (OpenAPI 3.0) — import it into Swagger UI / Postman / Insomnia for ready-made requests.
+
 One channel-agnostic endpoint to send a transactional notification (**SMS** or
 **WhatsApp**) to a single customer. Serves two callers with one contract:
 

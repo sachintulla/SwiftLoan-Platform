@@ -1,0 +1,139 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SwiftLoan Notify API",
+    "version": "1.0.0",
+    "description": "Send a transactional notification (SMS or WhatsApp) to a single customer. One endpoint for the admin dashboard and for third parties such as Ello (e.g. a post-call summary pushed to the customer). Every send is recorded for delivery tracking (Admin → Messages) and respects the customer's do-not-contact status."
+  },
+  "servers": [
+    { "url": "https://api.swiftloan.ai", "description": "Production" },
+    { "url": "http://localhost:4000", "description": "Local" }
+  ],
+  "tags": [{ "name": "Notifications" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Admin access token (dashboard). Header: `Authorization: Bearer <token>`."
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "Caller API key minted in the admin dashboard (POST /api/admin/api-keys). Used by third parties such as Ello. Header: `x-api-key: <key>`."
+      }
+    },
+    "schemas": {
+      "NotifyRequest": {
+        "type": "object",
+        "description": "Provide `customerId` OR `phone`, and `text` OR `templateName`.",
+        "properties": {
+          "customerId": { "type": "string", "description": "Target customer id. Use this or `phone`.", "example": "cus_7f3a2b" },
+          "phone": { "type": "string", "description": "10-digit Indian mobile. A lead row is resolved/created if needed.", "example": "9876543210" },
+          "channel": {
+            "type": "string",
+            "enum": ["sms", "whatsapp", "auto"],
+            "default": "auto",
+            "description": "`auto` tries WhatsApp, then falls back to SMS."
+          },
+          "text": { "type": "string", "maxLength": 4096, "description": "Free-text message. Required unless `templateName` is given.", "example": "Hi Sachin, following up on our call: your ₹2,00,000 offer at 18% is ready." },
+          "templateName": { "type": "string", "description": "Approved WhatsApp template name, or the DLT-registered SMS template id.", "example": "offers_ready" },
+          "language": { "type": "string", "description": "WhatsApp template language.", "example": "en" },
+          "placeholders": { "type": "array", "items": { "type": "string" }, "description": "WhatsApp template body variables, in order.", "example": ["Sachin", "https://swiftloan.ai/app"] },
+          "kind": { "type": "string", "maxLength": 40, "description": "Tag shown in Admin → Messages.", "example": "post_call_summary" }
+        }
+      },
+      "NotifyResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string", "example": "Notification sent" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "messageId": { "type": "string", "nullable": true, "example": "wamid.HBgM..." },
+              "channel": { "type": "string", "enum": ["sms", "whatsapp"], "example": "whatsapp" },
+              "status": { "type": "string", "enum": ["sent", "failed"], "example": "sent" },
+              "customerId": { "type": "string", "example": "cus_7f3a2b" }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "data": { "nullable": true, "example": null },
+          "message": { "type": "string", "example": "Customer is marked do-not-contact — refusing to send" },
+          "error": { "type": "string", "example": "Customer is marked do-not-contact — refusing to send" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }, { "apiKeyAuth": [] }],
+  "paths": {
+    "/api/notify": {
+      "post": {
+        "tags": ["Notifications"],
+        "summary": "Send a notification to a customer",
+        "description": "Authenticate with EITHER an admin bearer token OR an `x-api-key`. Rate-limited to 60 requests/min.",
+        "security": [{ "bearerAuth": [] }, { "apiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NotifyRequest" },
+              "examples": {
+                "elloPostCallSummary": {
+                  "summary": "Ello — post-call summary (auto channel, by phone)",
+                  "value": { "phone": "9876543210", "channel": "auto", "kind": "post_call_summary", "text": "Hi Sachin, following up on our call: your ₹2,00,000 offer at 18% is ready. Reply or tap the app to continue." }
+                },
+                "adminWhatsAppTemplate": {
+                  "summary": "Admin — WhatsApp template to a selected customer",
+                  "value": { "customerId": "cus_7f3a2b", "channel": "whatsapp", "templateName": "offers_ready", "language": "en", "placeholders": ["Sachin", "https://swiftloan.ai/app"] }
+                },
+                "adminSms": {
+                  "summary": "Admin — SMS (DLT template)",
+                  "value": { "phone": "9876543210", "channel": "sms", "templateName": "offers_ready", "text": "Your SwiftLoan offer is ready. Open the app to continue. - SwiftLoan" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted by the gateway.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NotifyResponse" },
+                "example": { "success": true, "message": "Notification sent", "data": { "messageId": "wamid.HBgM...", "channel": "whatsapp", "status": "sent", "customerId": "cus_7f3a2b" } }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing/invalid phone or body (need customerId|phone and text|templateName).",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "data": null, "message": "customerId or phone is required", "error": "customerId or phone is required" } } }
+          },
+          "401": {
+            "description": "No valid admin bearer token or API key.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "data": null, "message": "Provide an admin bearer token or an x-api-key", "error": "Provide an admin bearer token or an x-api-key" } } }
+          },
+          "404": {
+            "description": "Unknown customerId.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "data": null, "message": "Customer not found", "error": "Customer not found" } } }
+          },
+          "409": {
+            "description": "Customer is marked do-not-contact.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "data": null, "message": "Customer is marked do-not-contact — refusing to send", "error": "Customer is marked do-not-contact — refusing to send" } } }
+          },
+          "502": {
+            "description": "The SMS/WhatsApp gateway rejected the send. The attempted channel + error are in `data`.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "data": { "messageId": null, "channel": "whatsapp", "status": "failed", "customerId": "cus_7f3a2b" }, "message": "WhatsApp provider not configured", "error": "WhatsApp provider not configured" } } }
+          }
+        }
+      }
+    }
+  }
+}
