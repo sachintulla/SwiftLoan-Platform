@@ -125,6 +125,9 @@ export const JOURNEY_EVENTS = {
   // funnel
   ELIGIBILITY_STARTED: 'eligibility_started',
   ELIGIBILITY_COMPLETED: 'eligibility_completed',
+  // The eligibility check finished but produced no offers (a lender decline, or a technical
+  // fault). Distinct from OFFER_VIEWED, so "never received offers" is visible and actionable.
+  OFFERS_NOT_RECEIVED: 'offers_not_received',
   OFFER_VIEWED: 'offer_viewed',
   OFFER_SELECTED: 'offer_selected',
   KYC_STARTED: 'kyc_started',

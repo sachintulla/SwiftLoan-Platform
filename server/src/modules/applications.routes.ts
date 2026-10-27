@@ -10,6 +10,7 @@ import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { sendOffersNotice } from '../lib/offersNotice.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
 import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offersReuse.js';
@@ -394,6 +395,22 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
       metadata: { applicationId: app.id, offerCount: created.length },
     },
   ).catch(() => {});
+
+  // Nobody should be left wondering whether offers arrived. A check that ends with none
+  // is recorded as its own event (visible in the admin timeline and usable by stall
+  // rules) and, when an admin has switched it on, the customer is sent a WhatsApp saying
+  // so. Fire-and-forget: neither step can fail or slow the eligibility response.
+  if (created.length === 0) {
+    trackJourney(
+      { userId: req.user!.sub },
+      {
+        channel: 'app',
+        name: JOURNEY_EVENTS.OFFERS_NOT_RECEIVED,
+        metadata: { applicationId: app.id, offerCount: 0, reason: prequalifyReason ?? 'unknown' },
+      },
+    ).catch(() => {});
+    void sendOffersNotice({ applicationId: app.id, userId: req.user!.sub, reason: prequalifyReason });
+  }
 
   if (outcome?.lenderMessage) log.info('prequalify lender message (not shown to applicant)', { applicationId: app.id, reason: outcome.reason, lenderMessage: outcome.lenderMessage });
   log.info('prequalified', { applicationId: app.id, userId: req.user!.sub, offerCount: created.length, partnersAttempted: partners.length, aurixSucceededWithNoOffers, outcome: outcome?.kind ?? 'offers' });

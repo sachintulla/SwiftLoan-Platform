@@ -37,7 +37,8 @@ function parseDateParam(v: unknown): string | undefined {
 // contacts" picker so an admin can narrow a large segment down by name/phone
 // and an actual date range before selecting individuals. `since`/`until` are
 // YYYY-MM-DD; anything else is silently ignored rather than 500ing on a
-// malformed date.
+// malformed date. For the `rejected` segment, since/until apply to the latest
+// rejection time and each member also has `lender` and `reason`.
 segmentsRouter.get('/:key/members', ah(async (req, res) => {
   const { key } = req.params;
   if (!isSegmentKey(key)) return fail(res, 404, `Unknown segment "${key}"`);
@@ -48,7 +49,11 @@ segmentsRouter.get('/:key/members', ah(async (req, res) => {
 
   const members = await getSegmentMembers(key, { search, since, until });
   const total = members.length;
-  const pageRows = members.slice(skip, skip + take);
+  // The `rejected` segment also carries the lender that rejected and the reason
+  // they gave (both may be null); every other segment's rows are returned as-is.
+  const pageRows = members.slice(skip, skip + take).map((m) =>
+    key === 'rejected' ? { ...m, lender: m.lender ?? null, reason: m.reason ?? null } : m,
+  );
   return ok(res, { members: pageRows }, 'OK', paginate(page, pageSize, total));
 }));
 

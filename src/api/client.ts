@@ -773,6 +773,8 @@ export interface InstallClaim {
   referral: { code: string; referrer_name: string } | null;
   /** Set when the install matched the link of a website visitor who left their application unfinished. */
   resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null;
+  /** A same-network match (not proof): the link probably had a website journey. Carries no personal data. */
+  resume_hint?: boolean;
 }
 
 /**

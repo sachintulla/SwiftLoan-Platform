@@ -141,6 +141,7 @@ model User {
 
   @@index([createdAt])
   lenderNudges LenderNudge[]
+  appDropoffs AppDropoff[]
 }
 
 model OtpToken {
@@ -1518,6 +1519,18 @@ model AppConfig {
 
 // Admin-editable timings and limits (the "Timings" page). One row per setting that an admin has changed; a setting
 // with no row uses its environment value or the built-in default (lib/timings.ts is the single registry).
+// Phone numbers an admin has allowed to sign in with the ONE shared test code (env TEST_LOGIN_OTP).
+// For QA on the production build: the code works for these numbers only, never for anyone else.
+model TestLoginNumber {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  label     String?
+  active    Boolean  @default(true)
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model PlatformSetting {
   key       String   @id
   value     Json
@@ -1742,6 +1755,42 @@ model LenderNudge {
   @@index([userId])
 }
 
+/// Where a person stopped in the loan journey (website OR app) and the messages sent about it. One row per person per
+/// drop point; a person who moves on gets their old row stopped and a new one for the new point. Phase 1 is log-only.
+/// Also in the DB, migration-only (Prisma can't express a partial index): UNIQUE (userId) WHERE status = 'active'.
+model AppDropoff {
+  id         String    @id @default(uuid())
+  userId     String
+  customerId String?
+  phone      String
+  firstName  String?
+  /// pan_verified | application_filled | rejected | offers_not_applied (see lib/dropoffSteps.ts)
+  dropStatus String
+  /// Why the offers lookup found none (rejected only). For the admin; never shown to the customer.
+  reason     String?
+  /// The visitor's website reference ID, used as /dl?ref=<token>, only for someone who is not in the app yet.
+  token      String?
+  /// active | stopped | completed
+  status     String    @default("active")
+  /// progressed | applied | finished | do_not_contact | review_phone
+  stopReason String?
+  /// When they reached dropStatus: the schedule's offsets are counted from here.
+  startAt    DateTime
+  stepsSent  Int       @default(0)
+  lastSentAt DateTime?
+  nextCheckAt DateTime @default(now())
+  /// One entry per handled step: { step, channel, label, at, outcome: logged|sent|failed|skipped, reason?, message, withLink }.
+  history    Json      @default("[]")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextCheckAt])
+  @@index([userId, createdAt])
+  @@index([phone])
+}
+
 model JourneyReminder {
   id         String    @id @default(uuid())
   userId     String
@@ -1814,6 +1863,8 @@ model MessageDelivery {
   lastEventAt   DateTime?
   /// Every status callback received, newest last, capped: { at, status, raw status, code?, reason? }.
   events        Json      @default("[]")
+  /// What was sent and why: { language, category, placeholders[], trigger: { by, stage?, since?, step? } }. Null for sends recorded before this existed.
+  meta          Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

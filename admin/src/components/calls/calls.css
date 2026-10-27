@@ -1,0 +1,95 @@
+/* Calls page. Everything is scoped under .adm-calls and prefixed adm-calls-,
+   using the tokens from globals.css; nothing here changes another page. */
+
+.adm-calls { display: flex; flex-direction: column; gap: 16px; }
+
+/* header */
+.adm-calls-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.adm-calls-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.adm-calls-hint { font-size: 12.5px; color: var(--text-dim); }
+.adm-calls .btn[aria-pressed="true"] { background: var(--brand-ink); color: #fff; border-color: var(--brand-ink); }
+
+/* stat strip: every cell is a button that sets a filter */
+.adm-calls-stat { display: block; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 10px; padding: 4px 0; cursor: pointer; font: inherit; color: inherit; }
+.adm-calls-stat:hover { background: var(--surface-2); }
+.adm-calls-stat.is-active { background: var(--teal-bg); border-color: var(--brand); }
+.adm-calls .stat-cell-foot { color: var(--text-dim); }
+.adm-calls-statnote { margin: 12px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+/* toolbar */
+.adm-calls-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+.adm-calls-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.adm-calls-field > label { font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+.adm-calls-field select.input, .adm-calls-field input.input { min-height: 38px; }
+.adm-calls-search { flex: 1 1 240px; min-width: 200px; }
+.adm-calls-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.adm-calls-chips .chip-filter { min-height: 34px; }
+.adm-calls-chips .chip-filter[aria-pressed="true"] { background: var(--brand-ink); color: #fff; border-color: var(--brand-ink); }
+.adm-calls-dates { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.adm-calls-error { color: var(--red); font-size: 12.5px; margin: 6px 0 0; }
+.adm-calls-result { font-size: 12.5px; color: var(--text-dim); margin: 4px 0 12px; }
+
+/* call log */
+.adm-calls-table { width: 100%; border-collapse: collapse; }
+.adm-calls-table th { text-align: left; color: var(--text-dim); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.adm-calls-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; }
+.adm-calls-row { cursor: pointer; }
+.adm-calls-row:hover { background: var(--surface-2); }
+.adm-calls-row.is-open { background: var(--surface-2); }
+.adm-calls-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+.adm-calls-name { font-weight: 600; color: inherit; text-decoration: none; }
+.adm-calls-name:hover { text-decoration: underline; }
+.adm-calls-clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; color: var(--text-dim); margin-top: 6px; max-width: 340px; line-height: 1.45; }
+.adm-calls-chev { width: 36px; height: 36px; display: inline-grid; place-items: center; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; color: var(--text-dim); }
+.adm-calls-chev svg { transition: transform .15s; }
+.adm-calls-chev[aria-expanded="true"] svg { transform: rotate(180deg); }
+.adm-calls-detail-cell { background: var(--surface-2); padding: 4px 16px 16px !important; }
+.adm-calls-detail h4 { margin: 14px 0 4px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+.adm-calls-said { font-size: 13px; line-height: 1.55; white-space: pre-wrap; margin: 0; }
+.adm-calls-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.adm-calls-actions .btn { min-height: 36px; }
+.adm-calls-why { font-size: 12.5px; color: var(--text-dim); }
+.adm-calls-msg { font-size: 12.5px; margin-top: 8px; }
+.adm-calls-msg.ok { color: #0d7a6f; }
+.adm-calls-msg.err { color: var(--red); }
+
+/* breakdown cards */
+.adm-calls-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.adm-calls-bars { display: grid; gap: 10px; }
+.adm-calls-bar { display: grid; grid-template-columns: 110px minmax(0, 1fr) 40px; align-items: center; gap: 10px; font-size: 12.5px; }
+.adm-calls-bar .mini-bar { height: 8px; }
+.adm-calls-bar-n { text-align: right; font-weight: 700; }
+
+/* the schedule table inside the collapsed section */
+.adm-calls-jobs { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+.adm-calls-jobs th { text-align: left; font-size: 11.5px; color: var(--text-dim); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.adm-calls-jobs td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.adm-calls-link { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: inherit; text-decoration: underline; cursor: pointer; margin-left: 6px; }
+
+/* phones: rows become cards */
+@media (max-width: 700px) {
+  .adm-calls-two { grid-template-columns: minmax(0, 1fr); }
+  .adm-calls-bar { grid-template-columns: 84px minmax(0, 1fr) 36px; }
+  .adm-calls-table thead { display: none; }
+  .adm-calls-table, .adm-calls-table tbody { display: block; }
+  .adm-calls-table tr.adm-calls-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas:
+      "cust result" "outcome outcome" "when len" "why chev";
+    gap: 6px 12px; padding: 12px 4px; border-bottom: 1px solid var(--border);
+  }
+  .adm-calls-table tr.adm-calls-row > td { display: block; padding: 0; border: 0; }
+  .adm-calls-row .c-cust { grid-area: cust; }
+  .adm-calls-row .c-result { grid-area: result; text-align: right; }
+  .adm-calls-row .c-outcome { grid-area: outcome; }
+  .adm-calls-row .c-when { grid-area: when; }
+  .adm-calls-row .c-len { grid-area: len; text-align: right; }
+  .adm-calls-row .c-why { grid-area: why; }
+  .adm-calls-row .c-chev { grid-area: chev; text-align: right; }
+  .adm-calls-table tr.adm-calls-detailrow { display: block; }
+  .adm-calls-table tr.adm-calls-detailrow > td { display: block; }
+  .adm-calls-clip { max-width: none; }
+  .adm-calls-head-actions { width: 100%; }
+}
+
+/* a stat cell inside its button: keep the number block, drop the strip's own dividers */
+.adm-calls-stat .stat-cell { border-left: 0; padding: 6px 14px; }

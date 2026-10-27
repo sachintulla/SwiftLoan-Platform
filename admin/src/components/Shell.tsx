@@ -48,6 +48,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/integrations', label: 'Configs', icon: '⚙' },
       { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
       { href: '/timings', label: 'Timings', icon: '⏲', superAdminOnly: true },
+      { href: '/test-numbers', label: 'Test numbers', icon: '☎', superAdminOnly: true },
       ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
@@ -62,7 +63,7 @@ const TITLES: Record<string, string> = {
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
-  '/app-config': 'App Config', '/timings': 'Timings',
+  '/app-config': 'App Config', '/timings': 'Timings', '/test-numbers': 'Test numbers',
   '/notifications-rules': 'Notification Rules',
   '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans', '/prequalifying': 'Pre-Qualifying Offers',
 };

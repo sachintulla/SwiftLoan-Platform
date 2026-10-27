@@ -18,7 +18,7 @@
  */
 import { getProviderConfig } from './integrations.js';
 import { defaultCallbackUrl } from './messageCallback.js';
-import { recordSend } from './messageDelivery.js';
+import { recordSend, type TriggerInfo } from './messageDelivery.js';
 
 export interface WhatsAppResult {
   ok: boolean;
@@ -67,14 +67,25 @@ async function ready(): Promise<Backend | string> {
 /* ───────────────────────────── request builders ───────────────────────────── */
 
 /** Voxvalley fields every send needs, whatever the content type. */
-function voxEnvelope(r: Backend, phone: string, referenceId?: string) {
+/** The only categories Meta knows. Anything else is ignored rather than sent. */
+export const WHATSAPP_CATEGORIES = ['UTILITY', 'MARKETING', 'AUTHENTICATION'] as const;
+export type WhatsappCategory = (typeof WHATSAPP_CATEGORIES)[number];
+export function cleanCategory(v: unknown): WhatsappCategory | undefined {
+  const u = String(v ?? '').trim().toUpperCase();
+  return (WHATSAPP_CATEGORIES as readonly string[]).includes(u) ? (u as WhatsappCategory) : undefined;
+}
+
+function voxEnvelope(r: Backend, phone: string, referenceId?: string, category?: string) {
+  const messageCategory = cleanCategory(category) ?? cleanCategory(r.settings.messageCategory);
   return {
     projectid: String(r.settings.projectId),
     from: toMsisdn(String(r.settings.sender)),
     // Recipient goes out as +91XXXXXXXXXX, matching the working Vox request. The
     // docs' examples omit the '+', so `recipientPlus: false` restores that form.
-    to: `${r.settings.recipientPlus === false ? '' : '+'}${toMsisdn(phone)}`,
-    ...(r.settings.messageCategory ? { messageCategory: String(r.settings.messageCategory) } : {}),
+    // The admin form saves plain fields as text, so "false" must count as false too.
+    to: `${r.settings.recipientPlus === false || String(r.settings.recipientPlus).trim().toLowerCase() === 'false' ? '' : '+'}${toMsisdn(phone)}`,
+    // The template's own category wins; the card's category is only the fallback for templates that have none.
+    ...(messageCategory ? { messageCategory } : {}),
     ...(((r.settings.callbackUrl as string) || defaultCallbackUrl()) ? { callbackUrl: String((r.settings.callbackUrl as string) || defaultCallbackUrl()) } : {}),
     ...(referenceId ? { referenceId } : {}),
   };
@@ -141,15 +152,17 @@ async function post(r: Backend, payload: unknown): Promise<WhatsAppResult> {
 
 /** What a send is for, so the delivery list can say why a message went out. */
 export interface SendTrack {
-  /** install_reminder | stall | admin | test | other */
+  /** install_reminder | app_dropoff | applied_nudge | stall | admin | test | other */
   kind?: string;
   customerId?: string | null;
+  /** What fired this message (shown in Admin → WhatsApp → Sent messages). */
+  trigger?: TriggerInfo;
 }
 
 /** Remember the send (accepted or refused) so its delivery status can be followed. Never changes the result. */
 async function tracked(
   result: WhatsAppResult,
-  info: { phone: string; template?: string | null; referenceId?: string; track?: SendTrack },
+  info: { phone: string; template?: string | null; referenceId?: string; track?: SendTrack; language?: string; category?: string | null; placeholders?: string[] },
 ): Promise<WhatsAppResult> {
   await recordSend({
     channel: 'whatsapp',
@@ -162,6 +175,12 @@ async function tracked(
     customerId: info.track?.customerId ?? null,
     ok: result.ok,
     error: result.error ?? null,
+    meta: {
+      ...(info.language ? { language: info.language } : {}),
+      ...(info.category !== undefined ? { category: info.category } : {}),
+      ...(info.placeholders ? { placeholders: info.placeholders } : {}),
+      ...(info.track?.trigger ? { trigger: info.track.trigger } : {}),
+    },
   });
   return result;
 }
@@ -182,6 +201,8 @@ export async function sendWhatsAppTemplate(opts: {
   referenceId?: string;
   /** What this send is for (delivery tracking). */
   track?: SendTrack;
+  /** UTILITY | MARKETING | AUTHENTICATION for THIS template; falls back to the card's category. */
+  category?: string;
 }): Promise<WhatsAppResult> {
   const r = await ready();
   if (typeof r === 'string') return { ok: false, status: 0, error: r };
@@ -199,8 +220,13 @@ export async function sendWhatsAppTemplate(opts: {
       : {}),
   };
 
-  const envelope = r.kind === 'meta' ? metaEnvelope(opts.phone, opts.referenceId) : voxEnvelope(r, opts.phone, opts.referenceId);
-  return tracked(await post(r, { ...envelope, type: 'template', template }), { phone: opts.phone, template: templateName, referenceId: opts.referenceId, track: opts.track });
+  const envelope = r.kind === 'meta' ? metaEnvelope(opts.phone, opts.referenceId) : voxEnvelope(r, opts.phone, opts.referenceId, opts.category);
+  return tracked(await post(r, { ...envelope, type: 'template', template }), {
+    phone: opts.phone, template: templateName, referenceId: opts.referenceId, track: opts.track,
+    language: template.language.code,
+    category: r.kind === 'meta' ? null : (cleanCategory(opts.category) ?? cleanCategory(r.settings.messageCategory) ?? null),
+    placeholders,
+  });
 }
 
 /**

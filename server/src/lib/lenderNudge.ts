@@ -147,14 +147,17 @@ async function deliver(n: LenderNudge, step: ScheduleStep): Promise<DeliverResul
     return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'sms failed').slice(0, 200) };
   }
 
-  const wa = cfg.settings.appliedWhatsapp as { template?: string; language?: string; placeholders?: string[] } | undefined;
+  const wa = cfg.settings.appliedWhatsapp as { template?: string; language?: string; placeholders?: string[]; category?: string } | undefined;
   if (!wa?.template?.trim()) return { outcome: 'skipped', reason: 'whatsapp template not configured' };
   if (!(await whatsappConfigured())) return { outcome: 'skipped', reason: 'whatsapp not configured' };
   const placeholders = buildPlaceholders(wa.placeholders, { name: n.firstName ?? 'there', lender, link });
   if (!placeholders) return { outcome: 'skipped', reason: 'whatsapp placeholder missing' };
   const res = await sendWhatsAppTemplate({
-    phone: n.phone, templateName: wa.template, language: wa.language, placeholders, referenceId: `${n.id}:${step.index}`,
-    track: { kind: 'applied_nudge', customerId: n.customerId },
+    phone: n.phone, templateName: wa.template, language: wa.language, placeholders, category: wa.category, referenceId: `${n.id}:${step.index}`,
+    track: {
+      kind: 'applied_nudge', customerId: n.customerId,
+      trigger: { by: 'You applied with a lender', stage: `Applied with ${lender}`, since: n.startAt.toISOString(), step: `Message ${step.index + 1} · ${step.label}` },
+    },
   });
   return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'whatsapp failed').slice(0, 200) };
 }

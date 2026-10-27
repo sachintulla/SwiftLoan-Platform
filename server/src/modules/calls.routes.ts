@@ -4,8 +4,8 @@
  * runner and this ad-hoc trigger share one implementation.
  */
 import { Router } from 'express';
+import type { Response } from 'express';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { validate } from '../middleware/validate.js';
@@ -17,6 +17,14 @@ import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } fr
 import { agentIdFor } from '../lib/agents.js';
 import { getJobHeartbeats } from '../jobs/tracking.jobs.js';
 import { scoped } from '../lib/log.js';
+import { toCsv } from '../lib/csv.js';
+import { withinTestAllowlist } from '../lib/callGate.js';
+import { doNotContactCustomerIds, doNotContactPhones } from '../lib/doNotContact.js';
+import { auditExport, sendCsv, csvFilename } from '../lib/exportAudit.js';
+import {
+  buildCallWhere, activeCallFilters, followUpIds, purposesFor, toCallListItem, overviewRange,
+  CALL_LIST_SELECT, PHONE_CHANNELS,
+} from '../lib/callFilters.js';
 
 const log = scoped('calls');
 
@@ -25,13 +33,17 @@ callsRouter.use(requireAdmin);
 callsRouter.use(requireActiveAdmin);
 callsRouter.use(auditAdmin);
 
+// Filter rules (status, outcome, purpose, search, dates, follow-up) and the enums
+// they validate against live in lib/callFilters.ts, shared by the list, the stat
+// strip and the CSV export so all three always agree.
 
+/** Export cap, the same as the other CSV exports. */
+const EXPORT_LIMIT = 10_000;
 
-const CALL_STATUSES = ['queued', 'dialing', 'in_progress', 'completed', 'failed', 'no_answer', 'busy', 'cancelled'] as const;
-const CALL_OUTCOMES = [
-  'interested', 'not_interested', 'callback_requested', 'wrong_number',
-  'voicemail', 'unreachable', 'do_not_call', 'installed_app', 'other',
-] as const;
+/** An error that carries a machine-readable code in `data.code`, so the page can word it for the person. */
+function failCode(res: Response, status: number, code: string, message: string) {
+  return res.status(status).json({ success: false, data: { code }, message, error: message });
+}
 
 const customerSelect = { select: { id: true, name: true, phone: true } };
 
@@ -71,6 +83,24 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
 
     const dialPhone = normalisePhone(phone ?? customer.phone);
     if (!dialPhone) return fail(res, 400, 'No dialable phone number for this customer');
+
+    // Two hard stops that no admin can click past, both checked before anything
+    // is queued or dialled. Do-not-contact: the customer asked us to stop (stage
+    // "lost" or a past do_not_call outcome). Test allowlist: on a dev or staging
+    // box only the listed numbers may ring; a no-op when the list is empty.
+    const blocked = await doNotContactCustomerIds([customer.id]);
+    if (blocked.has(customer.id)) {
+      return failCode(res, 409, 'do_not_contact', 'This customer asked not to be contacted, so the call was not placed.');
+    }
+    // The number actually dialled can differ from the customer's own (a request may carry both a
+    // customerId and a phone), so check the number itself as well.
+    const blockedPhones = await doNotContactPhones([dialPhone]);
+    if (blockedPhones.size > 0) {
+      return failCode(res, 409, 'do_not_contact', 'This number belongs to someone who asked not to be contacted, so the call was not placed.');
+    }
+    if (!withinTestAllowlist(dialPhone)) {
+      return failCode(res, 403, 'not_on_test_allowlist', 'This number is not on the test allowlist, so the call was not placed.');
+    }
 
     if (campaignId) {
       const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true } });
@@ -140,51 +170,89 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
     return created(res, attempt, result.ok ? 'Call queued' : `Call failed: ${result.error ?? 'provider error'}`);
   }));
 
-// GET /api/admin/calls — paginated, newest first.
+// GET /api/admin/calls — paginated, newest first. Filters: status, outcome,
+// purpose, campaignId, search, from, to, answered, followUp (lib/callFilters.ts).
+// List rows carry only what the list shows: no transcript, raw payload, call
+// context or recording link. The full call is GET /:id.
 callsRouter.get('/', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
-  const status = req.query.status ? String(req.query.status) : undefined;
-  const outcome = req.query.outcome ? String(req.query.outcome) : undefined;
-  const campaignId = req.query.campaignId ? String(req.query.campaignId) : undefined;
-  const search = req.query.search ? String(req.query.search).replace(/\D/g, '') : '';
+  const q = req.query as Record<string, unknown>;
+  const ids = String(q.followUp ?? '') === '1' ? await followUpIds() : undefined;
+  const where = buildCallWhere(q, { followUpIds: ids });
 
-  const where: Prisma.CallAttemptWhereInput = {
-    // This table now also holds non-call conversations (website widget, in-app,
-    // admin) since the CallAttempt/Conversation merge — this endpoint is calls
-    // only.
-    channel: { in: ['phone_outbound', 'phone_inbound'] },
-    ...(status && (CALL_STATUSES as readonly string[]).includes(status)
-      ? { status: status as (typeof CALL_STATUSES)[number] } : {}),
-    ...(outcome && (CALL_OUTCOMES as readonly string[]).includes(outcome)
-      ? { outcome: outcome as (typeof CALL_OUTCOMES)[number] } : {}),
-    ...(campaignId ? { campaignId } : {}),
-    ...(search ? { phone: { contains: search } } : {}),
-  };
-
-  const [total, items] = await Promise.all([
+  const [total, rows] = await Promise.all([
     prisma.callAttempt.count({ where }),
     prisma.callAttempt.findMany({
       where,
-      include: { customer: customerSelect },
+      select: CALL_LIST_SELECT,
       orderBy: { queuedAt: 'desc' },
       skip,
       take,
     }),
   ]);
+  // callContext is left out of the select on purpose; the reason is read for just this page.
+  const purposes = await purposesFor(rows.map((r) => r.id));
+  const items = rows.map((r) => toCallListItem(r, purposes.get(r.id)));
 
   return ok(res, items, 'Calls', paginate(page, pageSize, total));
+}));
+
+// GET /api/admin/calls/export.csv — the same filters as the list, no paging.
+// Declared before '/:id' or "export.csv" would be read as a call id. Personal
+// data leaves the system here, so it needs a role that can write, and every
+// export is audited. The columns deliberately leave out the recording link, the
+// summary and the transcript.
+callsRouter.get('/export.csv', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const q = req.query as Record<string, unknown>;
+  const ids = String(q.followUp ?? '') === '1' ? await followUpIds() : undefined;
+  const where = buildCallWhere(q, { followUpIds: ids });
+
+  const [total, rows] = await Promise.all([
+    prisma.callAttempt.count({ where }),
+    prisma.callAttempt.findMany({
+      where,
+      orderBy: { queuedAt: 'desc' },
+      take: EXPORT_LIMIT,
+      select: {
+        id: true, phone: true, status: true, outcome: true, answered: true, durationSec: true, attempt: true,
+        queuedAt: true, endedAt: true, error: true, campaignId: true,
+        customer: { select: { name: true, firstSource: true } },
+        campaign: { select: { name: true, code: true } },
+      },
+    }),
+  ]);
+  const purposes = await purposesFor(rows.map((r) => r.id));
+
+  const csv = toCsv(
+    ['id', 'phone', 'customer', 'source', 'campaign', 'purpose', 'status', 'outcome',
+     'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error'],
+    rows.map((r) => [
+      r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code ?? r.campaign?.name,
+      purposes.get(r.id) || (r.campaignId ? 'campaign' : ''), r.status, r.outcome,
+      r.answered, r.durationSec, r.attempt, r.queuedAt, r.endedAt, r.error,
+    ]),
+  );
+  await auditExport(req, { name: 'calls', filters: activeCallFilters(q), rows: rows.length, truncated: total > rows.length });
+  return sendCsv(res, csvFilename('calls'), csv);
 }));
 
 // GET /api/admin/calls/overview — call volume + dialler-job heartbeats, so an
 // operator can see how many calls happened and whether the jobs (and thus Ruby,
 // the voice agent) are being triggered on their regular interval.
+// `from` / `to` (ISO) set the range for `summary` and `byOutcome`; the default is
+// today in IST. Every older field is unchanged.
 // MUST be declared before '/:id', or 'overview' is parsed as a call id.
-callsRouter.get('/overview', ah(async (_req, res) => {
+callsRouter.get('/overview', ah(async (req, res) => {
   const nowMs = Date.now();
   const since24 = new Date(nowMs - 24 * 3_600_000);
   const since7d = new Date(nowMs - 7 * 86_400_000);
+  const range = overviewRange(req.query as Record<string, unknown>, new Date(nowMs));
+  const inRange = { channel: { in: PHONE_CHANNELS }, queuedAt: { gte: range.from, lte: range.to } };
 
-  const [count24, count7d, byStatus, recent, purposeRows, perDayRows] = await Promise.all([
+  const [
+    count24, count7d, byStatus, recent, purposeRows, perDayRows,
+    placed, answeredCount, durationAgg, outcomeGroups, failedCount, notAnsweredCount, callbacksDue, followUps,
+  ] = await Promise.all([
     prisma.callAttempt.count({ where: { queuedAt: { gte: since24 } } }),
     prisma.callAttempt.count({ where: { queuedAt: { gte: since7d } } }),
     prisma.callAttempt.groupBy({ by: ['status'], where: { queuedAt: { gte: since7d } }, _count: { _all: true } }),
@@ -203,6 +271,19 @@ callsRouter.get('/overview', ah(async (_req, res) => {
     prisma.$queryRaw<Array<{ d: string; n: bigint }>>`
       SELECT to_char("queuedAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS d, count(*)::bigint AS n
       FROM "CallAttempt" WHERE "queuedAt" >= ${since7d} GROUP BY 1 ORDER BY d`,
+    // ── summary for the chosen range (phone calls only) ──
+    prisma.callAttempt.count({ where: inRange }),
+    prisma.callAttempt.count({ where: { ...inRange, answered: true } }),
+    prisma.callAttempt.aggregate({ where: { ...inRange, durationSec: { not: null } }, _avg: { durationSec: true } }),
+    prisma.callAttempt.groupBy({ by: ['outcome'], where: inRange, _count: { _all: true } }),
+    prisma.callAttempt.count({ where: { ...inRange, status: 'failed' } }),
+    prisma.callAttempt.count({ where: { ...inRange, status: { in: ['no_answer', 'busy'] } } }),
+    // Callbacks the customer asked for whose time has come. Not range-bound: an
+    // overdue callback matters whichever day it was asked for.
+    prisma.callAttempt.count({
+      where: { channel: { in: PHONE_CHANNELS }, outcome: 'callback_requested', callbackAt: { not: null, lte: new Date(nowMs) } },
+    }),
+    followUpIds(),
   ]);
 
   const CALL_JOBS = ['status-call', 'step-stall', 'stage-stall', 'lead-autocaller', 'immediate-callback', 'call-reconcile'];
@@ -224,7 +305,27 @@ callsRouter.get('/overview', ah(async (_req, res) => {
     };
   });
 
+  const outcomeCount = (o: string) => outcomeGroups.find((g) => g.outcome === o)?._count._all ?? 0;
+  const summary = {
+    placed,
+    answered: answeredCount,
+    answerRate: placed ? Math.round((answeredCount / placed) * 100) : 0,
+    avgDurationSec: durationAgg._avg.durationSec == null ? null : Math.round(durationAgg._avg.durationSec),
+    interested: outcomeCount('interested'),
+    callbacksDue,
+    doNotCall: outcomeCount('do_not_call'),
+    failed: failedCount,
+    notAnswered: notAnsweredCount,
+    // Not range-bound: see followUpIds() in lib/callFilters.ts for the definition.
+    needsFollowUp: followUps.length,
+  };
+
   return ok(res, {
+    range: { from: range.from.toISOString(), to: range.to.toISOString() },
+    summary,
+    byOutcome: outcomeGroups
+      .map((g) => ({ outcome: g.outcome ?? 'none', count: g._count._all }))
+      .sort((a, b) => b.count - a.count),
     totals: { last24h: count24, last7d: count7d },
     byStatus: byStatus.map((s) => ({ status: s.status ?? 'unknown', count: s._count._all })),
     byPurpose: purposeRows.map((p) => ({ purpose: p.purpose, count: Number(p.n) })),

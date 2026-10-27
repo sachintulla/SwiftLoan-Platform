@@ -11,6 +11,27 @@ import { mergeStatus, phoneKey, type DeliveryStatus, type StatusEvent } from './
 const log = scoped('delivery');
 const MAX_EVENTS = 25;
 
+/** What fired a message, in words an admin can read. */
+export interface TriggerInfo {
+  /** The job or person behind it: "Drop-off messages", "Install reminder", "Stuck-stage rule: <name>", "Sent by <email>". */
+  by: string;
+  /** The journey step the person had reached or was stuck at. */
+  stage?: string;
+  /** When they reached it / stopped there (ISO). */
+  since?: string;
+  /** Which message of the sequence this was, for example "Message 1 · +30m whatsapp". */
+  step?: string;
+}
+
+/** Stored on the delivery row (`meta`). */
+export interface MessageMeta {
+  language?: string;
+  category?: string | null;
+  /** The filled-in values of the template's {{1}}, {{2}}… in order. */
+  placeholders?: string[];
+  trigger?: TriggerInfo;
+}
+
 export interface SendRecord {
   channel: 'whatsapp' | 'sms';
   /** Provider's message id; null when the provider rejected the send outright. */
@@ -26,6 +47,8 @@ export interface SendRecord {
   status?: DeliveryStatus;
   /** The provider's error when it refused the send. */
   error?: string | null;
+  /** What was sent and why (shown in Admin → WhatsApp → Sent messages). */
+  meta?: MessageMeta | null;
 }
 
 type EventLog = { at: string; status: string | null; raw: string; code?: string | null; reason?: string | null };
@@ -41,6 +64,7 @@ export async function recordSend(s: SendRecord): Promise<void> {
     const known = {
       gtrid: s.gtrid ?? null, referenceId: s.referenceId ?? null, phone: phoneKey(s.phone), template: s.template ?? null,
       kind: s.kind ?? 'other', customerId: s.customerId ?? null,
+      ...(s.meta ? { meta: s.meta as unknown as Prisma.InputJsonValue } : {}),
     };
     const existing = s.providerRef ? await prisma.messageDelivery.findUnique({ where: { providerRef: s.providerRef } }) : null;
     if (existing) {

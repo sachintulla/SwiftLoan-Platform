@@ -20,7 +20,7 @@ import {
   loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
 } from './session';
 import { readInstallSignals } from '../utils/installSignals';
-import { parseResume, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
+import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
@@ -1094,8 +1094,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
         }
         // The install came from a website visitor's own link: offer to continue where they left off.
-        const resume = parseResume(claim.resume, 'link');
-        if (resume) dispatch({ type: 'set', patch: { resume, resumePrompt: 'welcome', resumeStage: 'pre_login' } });
+        // A same-network match (resume_hint) only lets the app ask "did you start one on our website?"; nothing about the person.
+        const patch = resumePatchFromClaim(claim);
+        if (patch) dispatch({ type: 'set', patch });
       })().catch(() => undefined);
       trackEvent('app_lifecycle', 'app_opened');
     }

@@ -1,0 +1,80 @@
+/* Reach-out buttons (components/SendActions.tsx). Everything is prefixed adm-send so it cannot clash with another page.
+   Colours come from the tokens in globals.css; the per-channel colours (--so-*) come from the `so` wrapper class. */
+
+/* ── panel: the bar under the Milestones stepper ── */
+.adm-send { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--border); }
+.adm-send .so-section { margin: 14px 0 4px; }
+.adm-send-help { margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); max-width: 640px; }
+.adm-send-help.tight { margin-top: 10px; margin-bottom: 0; }
+.adm-send-help code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; }
+
+.adm-send-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.adm-send-cell { flex: 1 1 150px; max-width: 220px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.adm-send-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 40px; }
+.adm-send-ico { flex: none; width: 15px; height: 15px; }
+.adm-send-note { font-size: 11.5px; line-height: 1.4; color: var(--text-dim); min-height: 16px; overflow-wrap: anywhere; }
+.adm-send-note.warn { color: #8a4b05; }
+
+.adm-send-banner { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.5; padding: 9px 12px; border-radius: 10px; margin: 0 0 12px; max-width: 640px; }
+.adm-send-banner.amber { background: var(--amber-bg); color: #7a4b06; }
+.adm-send-banner.red { background: var(--red-bg); color: #8f271d; }
+.adm-send-banner.grey { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
+.adm-send-banner.blue { background: var(--blue-bg); color: #10457e; }
+
+.adm-send-result { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; min-height: 22px; margin-top: 12px; font-size: 12.5px; }
+.adm-send-result.ok, .adm-send-text.ok { color: #0d7a6f; }
+.adm-send-result.err, .adm-send-text.err { color: #b42318; }
+.adm-send-link { border: none; background: none; padding: 4px 2px; min-height: 28px; font-size: 12.5px; font-weight: 600; color: var(--brand); text-decoration: underline; }
+
+/* ── recent messages ── */
+.adm-send-recent { margin: 18px 0 0; }
+.adm-send-recent h4 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+.adm-send-recent ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.adm-send-recent li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+.adm-send-recent li:first-child { border-top: none; }
+.adm-send-muted { color: var(--text-dim); font-size: 12px; }
+.adm-send-fail { flex-basis: 100%; color: #b42318; font-size: 12px; }
+.adm-send-manual { margin-top: 10px; font-size: 12px; color: var(--text-dim); display: grid; gap: 2px; }
+
+/* ── compact: a table row's Follow up actions ── */
+.adm-send-compact { margin: 0; padding: 0; border: none; }
+.adm-send-inline { display: flex; flex-wrap: wrap; gap: 6px; }
+.adm-send-small { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 10px; font-size: 12.5px; }
+.adm-send-menu { display: none; position: relative; }
+.adm-send-follow > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; cursor: pointer; }
+.adm-send-follow > summary::-webkit-details-marker { display: none; }
+.adm-send-follow-list { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; min-width: 200px; padding: 6px; display: grid; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); }
+.adm-send-follow-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 6px 10px; border: none; background: none; border-radius: 8px; text-align: left; font-size: 13px; font-weight: 500; color: var(--text); }
+.adm-send-follow-item:hover:not(:disabled) { background: var(--surface-2); }
+.adm-send-follow-item:disabled { color: var(--text-dim); cursor: not-allowed; }
+.adm-send-compact .adm-send-note { margin-top: 4px; }
+
+/* ── confirmation dialog ── */
+.adm-send-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 32, .55); }
+.adm-send-dialog { width: 100%; max-width: 480px; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 22px; }
+.adm-send-dialog h3 { margin: 0 0 12px; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.adm-send-facts { margin: 0 0 12px; display: grid; gap: 6px; font-size: 13px; }
+.adm-send-facts div { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; }
+.adm-send-facts dt { color: var(--text-dim); font-weight: 600; }
+.adm-send-facts dd { margin: 0; }
+.adm-send-preview { margin: 0 0 12px; }
+.adm-send-preview ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 2px; }
+.adm-send-preview .adm-send-muted { display: block; margin-top: 8px; }
+.adm-send-consequence { margin: 0 0 14px; font-size: 13px; line-height: 1.55; color: var(--text); }
+.adm-send-error { margin: 0 0 12px; font-size: 12.5px; color: #b42318; }
+.adm-send-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.adm-send-actions .btn { min-height: 40px; min-width: 96px; }
+.adm-send-actions .btn-red { background: var(--red); border-color: var(--red); color: #fff; }
+
+@media (max-width: 700px) {
+  .adm-send-inline { display: none; }
+  .adm-send-menu { display: block; }
+}
+@media (max-width: 480px) {
+  .adm-send-cell { flex-basis: 100%; max-width: none; }
+  .adm-send-dialog { padding: 18px; }
+  .adm-send-actions .btn { flex: 1 1 120px; }
+}
+@media (pointer: coarse) {
+  .adm-send-small { min-height: 36px; }
+}

@@ -28,6 +28,7 @@ import {
   CONVERSATION_CHANNELS,
 } from '../lib/conversations.js';
 import { mapOutcome } from './webhooks.routes.js';
+import { sendConversationSummary } from '../lib/conversationSummary.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
 import { resolveLookupAccess, NOT_VERIFIED_RESULT } from '../lib/lookupGrant.js';
@@ -160,6 +161,12 @@ conversationsRouter.post('/', ah(async (req, res) => {
   // never guessed. An invented disposition drives wrong follow-up.
   const outcome = b.outcome ? mapOutcome(String(b.outcome)) : null;
 
+  // The customer-facing recap and next steps for the WhatsApp summary. Distinct
+  // from `summary`, which is written for colleagues and is never sent.
+  const clip = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max) || undefined;
+  const customerSummary = clip(b.customer_summary ?? b.customerSummary, 600);
+  const actionPlan = clip(b.action_plan ?? b.actionPlan, 400);
+
   const durationSec = Number(b.duration_sec ?? b.durationSec);
   const startedAt = b.started_at ?? b.startedAt ? new Date(String(b.started_at ?? b.startedAt)) : undefined;
   const endedAt = b.ended_at ?? b.endedAt ? new Date(String(b.ended_at ?? b.endedAt)) : undefined;
@@ -177,7 +184,9 @@ conversationsRouter.post('/', ah(async (req, res) => {
       // Anything posted here came from the agent that held the conversation, so
       // it is authoritative — unlike our own transcript keyword-matching.
       outcomeSource: outcome ? 'agent' : null,
-      details: b.details ?? null,
+      details: customerSummary || actionPlan
+        ? { ...((b.details as Record<string, unknown> | null) ?? {}), ...(customerSummary ? { customerSummary } : {}), ...(actionPlan ? { actionPlan } : {}) }
+        : b.details ?? null,
       recordingUrl: b.recording_url ?? b.recordingUrl ?? null,
       startedAt: valid(startedAt),
       endedAt: valid(endedAt) ?? null,
@@ -203,6 +212,26 @@ conversationsRouter.post('/', ah(async (req, res) => {
         },
       }).catch((e) => log.error('do_not_call stage write failed', { phone: row.phone, error: String(e) }));
       log.warn('marked do_not_call — outreach stopped', { phone: row.phone });
+    }
+
+    // In-app and website agents have no end-of-call report, so this is where their
+    // recap goes out. Phone calls send from /ello/call-outcome-report instead, which
+    // carries the outcome and callback time; sending here too would race it.
+    if (channel !== 'phone_outbound' && channel !== 'phone_inbound') {
+      const cust = row.customerId
+        ? await prisma.customer.findUnique({ where: { id: row.customerId }, select: { name: true } }).catch(() => null)
+        : null;
+      void sendConversationSummary({
+        conversationId: row.id,
+        phone: row.phone,
+        customerId: row.customerId,
+        customerName: cust?.name ?? null,
+        customerSummary,
+        actionPlan,
+        outcome: row.outcome,
+        callbackAt: row.callbackAt,
+        source: channel === 'website_widget' ? 'website' : 'app',
+      });
     }
 
     log.info('save_conversation', { phone, channel, outcome: outcome ?? null, id: row.id });

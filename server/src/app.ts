@@ -34,12 +34,15 @@ import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { adminMessagesRouter } from './modules/adminMessages.routes.js';
 import { adminTimingsRouter } from './modules/adminTimings.routes.js';
+import { adminTestNumbersRouter } from './modules/adminTestNumbers.routes.js';
 import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
 import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
+import { stageOutreachRouter } from './modules/stageOutreach.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
+import { adminListActionsRouter } from './modules/adminListActions.routes.js';
 import { adminSupportRouter } from './modules/adminSupport.routes.js';
 import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
@@ -55,6 +58,9 @@ import { websiteAuthRouter } from './modules/websiteAuth.routes.js';
 import { websiteActivityRouter } from './modules/websiteActivity.routes.js';
 import { journeyRouter } from './modules/journey.routes.js';
 import { metaRouter } from './modules/meta.routes.js';
+import { adminOutreachRouter } from './modules/adminOutreach.routes.js';
+import { adminInstallsRouter } from './modules/adminInstalls.routes.js';
+import { adminNotificationCenterRouter } from './modules/adminNotificationCenter.routes.js';
 
 export function createApp() {
   const app = express();
@@ -169,11 +175,14 @@ export function createApp() {
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
   app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
+  app.use('/api/admin/test-numbers', adminTestNumbersRouter); // numbers that may sign in with the shared test code
   app.use('/api/admin/campaigns', campaignsRouter);
   app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
   app.use('/api/admin/stall-rules', stallRulesRouter);
+  app.use('/api/admin/stage-outreach', stageOutreachRouter);
   app.use('/api/admin/ops', adminOpsRouter);
+  app.use('/api/admin/list-actions', adminListActionsRouter); // CSV export + campaign from the Loans, Revasure and Yubi lists
   app.use('/api/admin/support', adminSupportRouter);
   app.use('/api/admin/referrals', adminReferralsRouter);
   app.use('/api/admin/conversations', adminConversationsRouter);
@@ -197,6 +206,9 @@ export function createApp() {
   app.use('/api/webhooks/yubi', webhookLimiter, yubiWebhookRouter); // PUBLIC — Yubi/YMPL posts referral status here
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
 
+  app.use('/api/admin/installs', adminInstallsRouter); // App Downloads: installs with the context that travelled with the link
+  app.use('/api/admin/notification-center', adminNotificationCenterRouter); // Notifications page: filters, counts, scoped mark-as-read
+  app.use('/api/admin/outreach', adminOutreachRouter); // Manual WhatsApp, SMS and push from the customer page
   app.use('/api/admin', adminRouter);
 
   // ── WS3: context handoff + app-download landing pages ──
