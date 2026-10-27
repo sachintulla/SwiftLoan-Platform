@@ -26,13 +26,19 @@ interface Activity {
   enabled: boolean;
   upshotEvent: string;
   firedCount: number;
-  whatsapp?: { template: string; language: string; placeholders: string[]; customised: boolean };
+  whatsapp?: { template: string; language: string; placeholders: string[]; customised: boolean; recommended: { name: string; language: string; placeholders: string[]; preview: string } | null };
   sms?: { templateId: string; body: string; customised: boolean };
   call?: { agentRole: string | null; assistantId: string; brief: string; effectiveAgentId: string | null };
 }
 interface Stage {
   key: string; label: string; description: string; surface: string;
   activities: Activity[]; missingChannels: Channel[];
+}
+type MessageKind = 'conversationSummary' | 'noOffers' | 'eligibilityRetry';
+interface CatalogTemplate {
+  name: string; category: string; language: string; purpose: string; target: string; usedBy: string;
+  body: string; footer: string; variables: string[]; examples: string[]; placeholders: string[];
+  replaces?: string; preview: string; meta: unknown;
 }
 interface Variable { name: string; group: string; description: string; example: string }
 interface AgentRole { role: string; label: string; direction: string }
@@ -42,7 +48,9 @@ interface Overview {
   whatsappTokens: string[];
   agentRoles: AgentRole[];
   maxBriefLength: number;
-  afterConversation: { enabled: boolean; template: string; language: string; placeholders: string[]; tokens: string[] };
+  messages: Record<MessageKind, { enabled: boolean; template: string; language: string; placeholders: string[]; tokens: string[] }>;
+  templates: CatalogTemplate[];
+  legacyTemplates: Array<{ name: string; issue: string; replacement: string }>;
   gates: { callsAutomatic: boolean; testNumbersOnly: number; nudgesDisabled: boolean; elloConnected: boolean; whatsappConnected: boolean; upshotConnected: boolean; smsConnected: boolean };
 }
 
@@ -124,7 +132,9 @@ export default function StageOutreach() {
         </ol>
       </details>
 
-      <AfterConversation cfg={ov.afterConversation} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
+      {(Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
+        <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
+      ))}
 
       <div className="so-grid">
         <Rail stages={ov.stages} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
@@ -134,17 +144,47 @@ export default function StageOutreach() {
         />
       </div>
 
+      <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />
+
       <VariableDictionary variables={ov.variables} />
     </div>
   );
 }
 
-/**
- * The WhatsApp recap sent after every conversation (call, in-app agent, website
- * agent): what was discussed and the action plan. Not tied to one stage, so it
- * sits above the journey.
- */
-function AfterConversation({ cfg, whatsappConnected, onChanged }: { cfg: Overview['afterConversation']; whatsappConnected: boolean; onChanged: () => void }) {
+/** The WhatsApp messages that are not tied to one journey stage. Each is off until a template is named. */
+const MESSAGE_META: Record<MessageKind, { target: string; title: string; summary: string; on: string; example: string; hint: string; rules: React.ReactNode }> = {
+  conversationSummary: {
+    target: 'summary',
+    title: 'After every conversation',
+    summary: 'WhatsApp the customer a recap of what was discussed and their action plan, after a call, or after talking to the in-app or website agent.',
+    on: 'On: send a recap after each conversation',
+    example: 'conversation_summary',
+    hint: '{summary} is what we discussed, {actionPlan} is what happens next, {callbackTime} is the agreed callback.',
+    rules: <>Only the agent&apos;s <span className="mono">customer_summary</span> is sent, in the customer&apos;s own terms; add <span className="mono">action_plan</span> for the next steps. The internal <span className="mono">summary</span> written for colleagues is never sent. If the agent sends no customer summary, nothing goes out. Nothing is sent after a refusal, wrong number, voicemail or no answer, and in test mode only the allowed test numbers receive it. Each conversation sends once.</>,
+  },
+  noOffers: {
+    target: 'noOffers',
+    title: 'When the eligibility check returns no offers',
+    summary: 'WhatsApp the customer that the check finished and no offers are available for their profile, so nobody is left wondering.',
+    on: 'On: tell the customer when no offers are available',
+    example: 'no_offers_update',
+    hint: '{ref} is the application reference and {guidance} is what the customer can do next. The lender\'s own wording is never sent.',
+    rules: <>Sent once per application, only when the lender made a real decision with no offers. It is also recorded as an <span className="mono">offers_not_received</span> event on the customer&apos;s timeline whether or not this is switched on. Nothing is sent for a duplicate number, to anyone who asked us to stop, or outside the allowed test numbers in test mode.</>,
+  },
+  eligibilityRetry: {
+    target: 'eligibilityRetry',
+    title: 'When the eligibility check could not complete',
+    summary: 'WhatsApp the customer that a technical issue stopped the check, that their details are saved and how to try again.',
+    on: 'On: tell the customer to try again after a technical issue',
+    example: 'eligibility_retry_update',
+    hint: '{ref} is the application reference and {link} opens the app to try again.',
+    rules: <>Sent once per application when the check fails for a technical reason, not when the lender declines. Same safeguards as the no-offers message.</>,
+  },
+};
+
+function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { kind: MessageKind; cfg: Overview['messages'][MessageKind]; templates: CatalogTemplate[]; whatsappConnected: boolean; onChanged: () => void }) {
+  const meta = MESSAGE_META[kind];
+  const catalog = templates.filter((t) => t.target === meta.target);
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(cfg.enabled);
   const [template, setTemplate] = useState(cfg.template);
@@ -161,7 +201,7 @@ function AfterConversation({ cfg, whatsappConnected, onChanged }: { cfg: Overvie
   async function save() {
     setSaving(true); setMsg(null);
     try {
-      await apiFetch(`${KEY}/after-conversation`, { method: 'PUT', body: JSON.stringify({ enabled, template: template.trim(), language: language.trim() || 'en', placeholders: list }) });
+      await apiFetch(`${KEY}/messages/${kind}`, { method: 'PUT', body: JSON.stringify({ enabled, template: template.trim(), language: language.trim() || 'en', placeholders: list }) });
       setMsg({ ok: true, text: 'Saved' });
       onChanged();
     } catch (e) {
@@ -176,10 +216,10 @@ function AfterConversation({ cfg, whatsappConnected, onChanged }: { cfg: Overvie
         <span className="so-node" style={{ color: 'var(--so-whatsapp)', width: 34, height: 34 }}><Icon channel="whatsapp" /></span>
         <div className="so-card-main">
           <div className="so-card-name" style={{ fontSize: 15 }}>
-            After every conversation
+            {meta.title}
             <span className="so-chip" style={cfg.enabled ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{cfg.enabled ? `On · ${cfg.template}` : 'Off'}</span>
           </div>
-          <div className="so-card-sum">WhatsApp the customer a recap of what was discussed and their action plan, after a call, or after talking to the in-app or website agent.</div>
+          <div className="so-card-sum">{meta.summary}</div>
         </div>
         <svg className="so-chev" style={{ transform: open ? 'rotate(90deg)' : undefined }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
       </div>
@@ -191,14 +231,20 @@ function AfterConversation({ cfg, whatsappConnected, onChanged }: { cfg: Overvie
             <div className="so-field wide">
               <label className="row" style={{ gap: 10, cursor: 'pointer' }}>
                 <button type="button" className={`so-switch ${enabled ? 'on' : ''}`} aria-pressed={enabled} onClick={() => { setEnabled(!enabled); touch(); }} />
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{enabled ? 'On: send a recap after each conversation' : 'Off'}</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{enabled ? meta.on : 'Off'}</span>
               </label>
               {needsTemplate && <span className="so-msg err">Enter the approved template name before switching this on.</span>}
             </div>
             <div className="so-field">
               <label className="so-label">Approved WhatsApp template name</label>
-              <input className="input mono" value={template} placeholder="e.g. conversation_summary" onChange={(e) => { setTemplate(e.target.value); touch(); }} />
-              <span className="so-hint">Create the template with variables in CPaaS (Vox Digitals) or Meta and get it approved, then enter its exact name here.</span>
+              <input className="input mono" value={template} placeholder={`e.g. ${meta.example}`} onChange={(e) => { setTemplate(e.target.value); touch(); }} />
+              <span className="so-hint">Submit the template below to CPaaS (Vox Digitals) as <b>Utility</b>, wait for approval, then enter its exact name here.</span>
+              {catalog.map((t) => (
+                <button key={t.name} type="button" className="so-token" style={{ justifySelf: 'start' }}
+                  onClick={() => { setTemplate(t.name); setLanguage(t.language); setVars(t.placeholders); touch(); }}>
+                  Use catalogue template {t.name}
+                </button>
+              ))}
             </div>
             <div className="so-field">
               <label className="so-label">Language code</label>
@@ -220,12 +266,12 @@ function AfterConversation({ cfg, whatsappConnected, onChanged }: { cfg: Overvie
                 {cfg.tokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => { setVars([...vars, t]); touch(); }}>{t}</button>)}
                 <button type="button" className="so-token" onClick={() => { setVars([...vars, '']); touch(); }}>+ custom text</button>
               </div>
-              <span className="so-hint">The count and order must match the approved template exactly. <b>{'{summary}'}</b> is what we discussed, <b>{'{actionPlan}'}</b> is what happens next, <b>{'{callbackTime}'}</b> is the agreed callback.</span>
+              <span className="so-hint">The count and order must match the approved template exactly. {meta.hint}</span>
             </div>
             <div className="so-field wide">
               <div className="so-preview">
-                <div className="so-preview-label">What the agent must send</div>
-                Only the agent&apos;s <span className="mono">customer_summary</span> is sent, in the customer&apos;s own terms; add <span className="mono">action_plan</span> for the next steps. The internal <span className="mono">summary</span> written for colleagues is never sent. If the agent sends no customer summary, nothing goes out. Nothing is sent after a refusal, wrong number, voicemail or no answer, and in test mode only the allowed test numbers receive it. Each conversation sends once.
+                <div className="so-preview-label">How it behaves</div>
+                {meta.rules}
               </div>
             </div>
           </div>
@@ -484,6 +530,15 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
               <label className="so-label">Approved template name</label>
               <input className="input mono" value={waTemplate} placeholder="e.g. offers_ready" onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
               <span className="so-hint">Exactly as approved by Meta: lowercase letters, numbers, underscores.</span>
+              {a.whatsapp?.recommended && waTemplate.trim() !== a.whatsapp.recommended.name && (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <button type="button" className="so-token" style={{ justifySelf: 'start' }}
+                    onClick={() => { const r = a.whatsapp!.recommended!; setWaTemplate(r.name); setWaLanguage(r.language); setWaVars(r.placeholders); touch(); }}>
+                    Use the utility template {a.whatsapp.recommended.name}
+                  </button>
+                  <span className="so-hint">Utility wording written for this stage: &ldquo;{a.whatsapp.recommended.preview}&rdquo; Switch to it once Meta has approved it as Utility.</span>
+                </div>
+              )}
             </div>
             <div className="so-field">
               <label className="so-label">Language code</label>
@@ -625,6 +680,62 @@ function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) =>
       <div className="so-hint" style={{ marginTop: 8 }}>It starts switched off, about {duration(DEFAULT_DELAY[stage.missingChannels[0]])} after the customer stops. Change the timing and content, then switch it on.</div>
       {msg && <div className="so-msg err" style={{ marginTop: 6 }}>{msg}</div>}
     </div>
+  );
+}
+
+/**
+ * Every WhatsApp message the system sends, written to Meta's Utility category, ready to
+ * submit through CPaaS (Vox Digitals) or Meta. Utility is about a customer's own request,
+ * so the wording is factual; Meta makes the final call on the category.
+ */
+function TemplateCatalog({ templates, legacy }: { templates: CatalogTemplate[]; legacy: Overview['legacyTemplates'] }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  async function copy(key: string, text: string) {
+    try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800); } catch { setCopied(null); }
+  }
+  return (
+    <details className="so-guide" style={{ marginTop: 18 }}>
+      <summary>WhatsApp template catalogue: {templates.length} Utility templates to submit</summary>
+      <div className="so-hint" style={{ margin: '8px 0 12px' }}>
+        Submit each as <b>Utility</b>, English. Copy the body and the sample values into CPaaS (Vox Digitals), or copy the Meta JSON. Meta decides the final category, so check what it assigns before you rely on a template: a reminder to finish an abandoned application can be re-categorised as marketing whatever it is submitted as.
+      </div>
+      <div style={{ display: 'grid', gap: 14 }}>
+        {templates.map((t) => (
+          <div key={t.name} className="so-card" style={{ padding: 14 }}>
+            <div className="so-card-name">
+              <span className="mono">{t.name}</span>
+              <span className="so-chip" style={{ background: 'var(--green-bg)', color: '#0b7a47' }}>{t.category}</span>
+              <span className="so-chip">{t.usedBy}</span>
+              {t.replaces && <span className="so-warn">replaces {t.replaces}</span>}
+            </div>
+            <div className="so-hint" style={{ marginTop: 4 }}>{t.purpose}</div>
+            <div className="so-preview" style={{ marginTop: 10 }}><div className="so-preview-label">Body (as submitted)</div>{t.body}</div>
+            <div className="so-preview" style={{ marginTop: 8 }}><div className="so-preview-label">Preview with the sample values</div>{t.preview}</div>
+            <table className="table" style={{ marginTop: 10 }}>
+              <thead><tr><th style={{ width: 60 }}>Variable</th><th>What it holds</th><th>Sample value</th><th>Filled by</th></tr></thead>
+              <tbody>
+                {t.variables.map((v, i) => (
+                  <tr key={v}><td className="mono">{`{{${i + 1}}}`}</td><td>{v}</td><td className="muted">{t.examples[i]}</td><td className="mono">{t.placeholders[i]}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <button type="button" className="btn" onClick={() => copy(`${t.name}:name`, t.name)}>{copied === `${t.name}:name` ? 'Copied' : 'Copy name'}</button>
+              <button type="button" className="btn" onClick={() => copy(`${t.name}:body`, t.body)}>{copied === `${t.name}:body` ? 'Copied' : 'Copy body'}</button>
+              <button type="button" className="btn" onClick={() => copy(`${t.name}:samples`, t.examples.join('\n'))}>{copied === `${t.name}:samples` ? 'Copied' : 'Copy sample values'}</button>
+              <button type="button" className="btn" onClick={() => copy(`${t.name}:json`, JSON.stringify(t.meta, null, 2))}>{copied === `${t.name}:json` ? 'Copied' : 'Copy Meta JSON'}</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="so-vargroup-name" style={{ marginTop: 18 }}>Older templates to retire</div>
+      <table className="table">
+        <thead><tr><th style={{ width: 220 }}>Template</th><th>Why</th><th>Use instead</th></tr></thead>
+        <tbody>
+          {legacy.map((l) => <tr key={l.name}><td className="mono">{l.name}</td><td>{l.issue}</td><td className="mono">{l.replacement}</td></tr>)}
+        </tbody>
+      </table>
+    </details>
   );
 }
 

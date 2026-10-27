@@ -25,6 +25,8 @@ import {
   cleanWhatsApp, cleanSms, defaultCooldownMinutes, type OutreachChannel,
 } from '../lib/stageOutreach.js';
 import { normalizeSummaryConfig, SUMMARY_TOKENS } from '../lib/conversationSummary.js';
+import { OFFERS_NOTICE_TOKENS } from '../lib/offersNotice.js';
+import { WHATSAPP_TEMPLATES, LEGACY_TEMPLATES, previewBody, toMetaPayload, recommendedForStage } from '../lib/whatsappTemplates.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('stage-outreach');
@@ -90,9 +92,14 @@ stageOutreachRouter.get('/', ah(async (_req, res) => {
       };
       if (r.channel === 'whatsapp') {
         const t = (savedWa[stage.key] ?? shippedWa[stage.key]) as Obj | undefined;
+        const rec = recommendedForStage(stage.key);
         return {
           ...base,
-          whatsapp: { template: String(t?.template ?? ''), language: String(t?.language ?? 'en'), placeholders: (t?.placeholders as string[] | undefined) ?? [], customised: stage.key in savedWa },
+          whatsapp: {
+            template: String(t?.template ?? ''), language: String(t?.language ?? 'en'), placeholders: (t?.placeholders as string[] | undefined) ?? [], customised: stage.key in savedWa,
+            // The utility-category template written for this stage (see lib/whatsappTemplates.ts), to switch to once Meta approves it.
+            recommended: rec ? { name: rec.name, language: rec.language, placeholders: rec.placeholders, preview: previewBody(rec) } : null,
+          },
         };
       }
       if (r.channel === 'sms') {
@@ -131,7 +138,14 @@ stageOutreachRouter.get('/', ah(async (_req, res) => {
     whatsappTokens: ['{name}', '{ref}', '{offerCount}', '{siteUrl}'],
     agentRoles: AGENT_ROLES.map((role) => ({ role, ...AGENT_ROLE_INFO[role] })),
     maxBriefLength: MAX_BRIEF_LENGTH,
-    afterConversation: { ...normalizeSummaryConfig(vox.settings.conversationSummary), tokens: SUMMARY_TOKENS },
+    // WhatsApp messages that are not tied to one stage: each is off until a template is named.
+    messages: {
+      conversationSummary: { ...normalizeSummaryConfig(vox.settings.conversationSummary), tokens: SUMMARY_TOKENS },
+      noOffers: { ...normalizeSummaryConfig(vox.settings.noOffers), tokens: OFFERS_NOTICE_TOKENS },
+      eligibilityRetry: { ...normalizeSummaryConfig(vox.settings.eligibilityRetry), tokens: OFFERS_NOTICE_TOKENS },
+    },
+    templates: WHATSAPP_TEMPLATES.map((t) => ({ ...t, preview: previewBody(t), meta: toMetaPayload(t) })),
+    legacyTemplates: LEGACY_TEMPLATES,
     gates: {
       callsAutomatic: timing.bool('calls.nudgeEnabled'),
       testNumbersOnly: timing.phones('calls.allowedNumbers').length,
@@ -248,15 +262,21 @@ const summarySchema = z.object({
   placeholders: z.array(z.string().max(200)).max(10).optional(),
 });
 
-// PUT /api/admin/stage-outreach/after-conversation — the WhatsApp recap sent after every conversation
-stageOutreachRouter.put('/after-conversation', requireRole(...CAN_ADMINISTER), validate(summarySchema), ah(async (req, res) => {
+/** The WhatsApp messages that are not tied to one stage, and the Voxvalley setting each lives in. */
+const MESSAGE_KINDS = ['conversationSummary', 'noOffers', 'eligibilityRetry'] as const;
+type MessageKind = (typeof MESSAGE_KINDS)[number];
+
+// PUT /api/admin/stage-outreach/messages/:kind — the recap after every conversation, and the two eligibility notices
+stageOutreachRouter.put('/messages/:kind', requireRole(...CAN_ADMINISTER), validate(summarySchema), ah(async (req, res) => {
+  const kind = req.params.kind as MessageKind;
+  if (!MESSAGE_KINDS.includes(kind)) throw new HttpError(404, 'Unknown message');
   const body = req.body as z.infer<typeof summarySchema>;
   if (body.template && !/^[a-z0-9_]{1,100}$/.test(body.template)) {
     throw new HttpError(400, 'Template names use lowercase letters, numbers and underscores, for example conversation_summary');
   }
   if (body.enabled && !body.template) throw new HttpError(400, 'Enter the approved template name before switching this on');
   const next = normalizeSummaryConfig({ ...body, placeholders: body.placeholders ?? undefined });
-  await upsertProviderConfig('voxvalley', { settings: { conversationSummary: next } }, adminName(req));
-  log.info('after-conversation saved', { enabled: next.enabled, template: next.template || null, updatedBy: adminName(req) ?? null });
-  return ok(res, { afterConversation: next }, 'Saved');
+  await upsertProviderConfig('voxvalley', { settings: { [kind]: next } }, adminName(req));
+  log.info('message saved', { kind, enabled: next.enabled, template: next.template || null, updatedBy: adminName(req) ?? null });
+  return ok(res, { kind, config: next }, 'Saved');
 }));

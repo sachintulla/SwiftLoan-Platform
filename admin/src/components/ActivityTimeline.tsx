@@ -56,6 +56,7 @@ const META: Record<string, Meta> = {
   pan_submitted: { icon: 'idCard', tone: 'blue', title: 'PAN submitted' },
   prequalify_started: { icon: 'search', tone: 'blue', title: 'Eligibility check started', detail: () => 'Looking up matching lender offers' },
   eligibility_completed: { icon: 'check', tone: 'green', title: 'Eligibility completed', detail: (m) => (typeof m.offerCount === 'number' ? `${m.offerCount} lender offer${m.offerCount === 1 ? '' : 's'} found` : undefined) },
+  offers_not_received: { icon: 'search', tone: 'amber', title: 'No offers received', detail: (m) => (str(m.reason) ? `The eligibility check returned no offers (${str(m.reason)})` : 'The eligibility check returned no offers') },
   offers_viewed: { icon: 'tag', tone: 'teal', title: 'Offers viewed' },
   offer_selected: { icon: 'star', tone: 'teal', title: 'Offer selected', detail: (m) => [str(m.lenderName), typeof m.apr === 'number' ? `${m.apr}% APR` : undefined].filter(Boolean).join(' · ') || undefined },
   kyc_started: { icon: 'scan', tone: 'blue', title: 'KYC started' },
