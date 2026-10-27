@@ -7,7 +7,7 @@ import { useStore } from '../src/state/store';
 import { setTokens } from '../src/api/client';
 import ResumePrompt from '../src/components/ResumePrompt';
 import { agent } from '../src/voice';
-import type { Resume } from '../src/utils/resume';
+import { hintResume, type Resume } from '../src/utils/resume';
 
 // The mic button only shows when the voice agent is configured; force that on for these tests.
 jest.mock('../src/api/client', () => ({
@@ -52,6 +52,17 @@ describe('"Take help from agent"', () => {
     expect(start).toHaveBeenCalledWith(); // no phone is handed to the agent session before login
   });
 
+  it('for a same-network guess it keeps the hint stage and pre-fills nothing', async () => {
+    const start = jest.spyOn(agent, 'start').mockResolvedValue(undefined);
+    const { getByText, getByTestId } = renderWithProviders(
+      <><Probe seed={{ resume: hintResume(), resumePrompt: 'welcome', resumeStage: 'pre_login_hint' }} go="language" /><ResumePrompt /></>,
+    );
+    await waitFor(() => expect(getByText('Take help from agent')).toBeTruthy());
+    fireEvent.press(getByText('Take help from agent'));
+    await waitFor(() => expect(probe(getByTestId).slice(0, 4)).toEqual(['mobile', '', 'false', 'pre_login_hint']));
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1)); // let its delayed start happen inside this test
+  });
+
   it('"Okay, continue" never starts the agent', async () => {
     const start = jest.spyOn(agent, 'start').mockResolvedValue(undefined);
     const { getByText } = renderWithProviders(
@@ -94,6 +105,12 @@ describe('what the voice agent is told (page_context.journey_resume)', () => {
     await waitFor(() => expect(pageContext().journey_resume?.stage).toBe(stage));
     expect(pageContext().journey_resume.phone_prefilled).toBe(prefilled);
     expect(JSON.stringify(pageContext())).not.toContain('9876543210');
+  });
+
+  it('for a same-network guess: stage pre_login_hint, no name, step unknown, nothing prefilled', async () => {
+    renderWithProviders(<Probe seed={{ resume: hintResume(), resumeStage: 'pre_login_hint' }} go="language" />);
+    await waitFor(() => expect(pageContext().journey_resume?.stage).toBe('pre_login_hint'));
+    expect(pageContext().journey_resume).toEqual({ stage: 'pre_login_hint', first_name: null, last_step: 'unknown', phone_prefilled: false });
   });
 
   it('is absent when there is nothing to resume', async () => {

@@ -352,6 +352,23 @@ await t('S34', 'claim', 'a same-IP guess is attributed but never carries a phone
   const c = await j('/api/attribution/claim', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ platform: 'android', os_version: '14' }) });
   assert.equal(c.body.data.matched, true, 'the IP match must actually happen so the rule is exercised'); assert.equal(c.body.data.method, 'ip_window');
   assert.equal(c.body.data.resume ?? null, null); assert.ok(!JSON.stringify(c.body).includes(w.phone));
+  assert.equal(c.body.data.resume_hint, true, 'but it says a website journey is likely, with nothing personal in it');
+  assert.ok(!JSON.stringify(c.body).includes(w.reminder!.token), 'the hint does not carry the link reference either');
+});
+await t('S34b', 'claim', 'the "likely journey" hint is only for a same-IP match whose link has a fresh journey', async () => {
+  const w = await webLogin(); const ip = '10.55.1.10';
+  // A same-IP match whose link is not a journey link (a friend-referral code, an unknown ref, none at all): no hint.
+  for (const [n, ref] of [['A', 'FRIENDCODE1'], ['B', null]] as const) {
+    await prisma.appClick.create({ data: { token: 'TSTHINT00' + n, ref, kind: 'campaign', platform: 'android', ipHash: hashClient(ip), uaHash: 'b', osVersion: '14', expiresAt: new Date(Date.now() + 3_600_000) } });
+    const c = await j('/api/attribution/claim', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ platform: 'android', os_version: '14' }) });
+    assert.equal(c.body.data.method, 'ip_window'); assert.equal(c.body.data.resume_hint, false, 'no journey behind ' + String(ref));
+  }
+  // A deterministic match carries the real resume instead, and no hint.
+  await prisma.appClick.create({ data: { token: 'TSTHINT00C', ref: w.reminder!.token, kind: 'campaign', platform: 'ios', ipHash: 'x', uaHash: 'b', expiresAt: new Date(Date.now() + 3_600_000) } });
+  const d = await post('/api/attribution/claim', { platform: 'ios', clipboard: 'swiftloan-ref:TSTHINT00C' });
+  assert.equal(d.body.data.method, 'clipboard'); assert.equal(d.body.data.resume_hint, false); assert.equal(d.body.data.resume.phone, w.phone);
+  // No click at all (organic install): no hint.
+  const e = await post('/api/attribution/claim', { platform: 'ios' }); assert.equal(e.body.data.matched, false); assert.equal(e.body.data.resume_hint, false);
 });
 await t('S35', 'claim', 'unknown or malformed tokens and refs are ignored (no resume, no error)', async () => {
   for (const clip of ['swiftloan-ref:NOSUCHCLICK', 'hello', 'swiftloan-ref:x', '']) { const c = await post('/api/attribution/claim', { platform: 'ios', clipboard: clip }); assert.equal(c.status, 200); assert.equal(c.body.data.resume ?? null, null); }
