@@ -14,7 +14,6 @@ Every WhatsApp message SwiftLoan sends, written for Meta's **Utility** category:
 | Stage nudge: signed in | Tells a customer who signed in that their loan application is waiting to be started. | `signin_application_pending` |
 | Website drop-off install reminders | Update that an application the customer started is incomplete, naming the step it stopped at. | `application_incomplete_update` |
 | Stage nudge: eligibility done, offers viewed | Update that the eligibility check is complete and how many offers are waiting to be viewed. | `offers_available_update` |
-| Stage nudge: KYC started | Asks the customer to complete a verification step needed for their application. | `document_request_update` |
 | Stage nudge: rejected by lender | Update that a lender did not approve the application and where the other options are. It does not give the lender's reason. | `application_not_approved_update` |
 | Lender-applied follow-up | Confirms an application was submitted to a lender and where to track it. | `loan_application_submitted` |
 | After every conversation (call, in-app and website agents) | Recap of what was discussed with a SwiftLoan agent and the agreed next steps. | `conversation_summary` |
@@ -246,65 +245,6 @@ Hi {{1}}, your loan eligibility check (Ref {{2}}) is complete and {{3}} offer(s)
             "SL-884021",
             "3",
             "https://www.swiftloan.ai/apply/offers"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "FOOTER",
-      "text": "SwiftLoan"
-    }
-  ]
-}
-```
-
-</details>
-
-## `document_request_update`
-
-- **Category:** UTILITY
-- **Language:** en
-- **Purpose:** Asks the customer to complete a verification step needed for their application.
-- **Sent by:** Stage nudge: KYC started
-- **Replaces:** `document_request`
-
-**Body**
-
-```
-Hi {{1}}, to continue your application (Ref {{2}}) we need you to complete: {{3}}. You can do this here: {{4}} Your information is handled securely.
-```
-
-**Footer:** SwiftLoan
-
-| Variable | Holds | Sample value | Filled by the code with |
-|---|---|---|---|
-| `{{1}}` | First name | Priya | `{name}` |
-| `{{2}}` | Application reference | SL-884021 | `{ref}` |
-| `{{3}}` | What is needed | your KYC details | `your KYC details (PAN and Aadhaar eKYC)` |
-| `{{4}}` | Link to continue | https://www.swiftloan.ai/apply | `{siteUrl}/apply` |
-
-**Preview with the sample values**
-
-> Hi Priya, to continue your application (Ref SL-884021) we need you to complete: your KYC details. You can do this here: https://www.swiftloan.ai/apply Your information is handled securely.
-
-<details><summary>Meta API JSON</summary>
-
-```json
-{
-  "name": "document_request_update",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
-    {
-      "type": "BODY",
-      "text": "Hi {{1}}, to continue your application (Ref {{2}}) we need you to complete: {{3}}. You can do this here: {{4}} Your information is handled securely.",
-      "example": {
-        "body_text": [
-          [
-            "Priya",
-            "SL-884021",
-            "your KYC details",
-            "https://www.swiftloan.ai/apply"
           ]
         ]
       }
@@ -608,7 +548,6 @@ Hi {{1}}, we could not complete your loan eligibility check (Ref {{2}}) because 
 | `install_app_resume` | Submitted as MARKETING (see docs/JOURNEY_RESUME_TEMPLATES.md) | application_incomplete_update |
 | `install_app_resume_step` | Submitted as MARKETING on 22 Oct | application_incomplete_update |
 | `offers_ready` | Category not confirmed as utility; wording is promotional | offers_available_update |
-| `document_request` | Category not confirmed as utility | document_request_update |
 | `loan_applied_install_app` | Listed as "to be approved"; wording asks to install the app | loan_application_submitted |
 
 Keep the old templates until the replacements are approved and switched on, then stop using them. Their category was set when they were submitted and cannot be changed.

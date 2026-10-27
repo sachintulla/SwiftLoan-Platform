@@ -208,11 +208,6 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
         template: 'offers_ready', language: 'en',
         placeholders: ['{name}', '{offerCount}', '{ref}', '{siteUrl}/apply/offers'],
       },
-      // Started eKYC and stopped.
-      kyc_started: {
-        template: 'document_request', language: 'en',
-        placeholders: ['{name}', '{ref}', 'your KYC details (PAN and Aadhaar eKYC)', '{siteUrl}/apply'],
-      },
     },
     /**
      * Install-link reminders (lib/installReminder.ts). Sending itself is still

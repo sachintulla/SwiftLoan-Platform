@@ -11,7 +11,6 @@ export const JOURNEY_ORDER = [
   'otp_requested', 'otp_verified',
   'eligibility_started', 'eligibility_completed',
   'offer_viewed', 'offer_selected',
-  'kyc_started', 'kyc_completed',
   'application_submitted', 'loan_approved', 'loan_rejected', 'loan_disbursed',
 ] as const;
 

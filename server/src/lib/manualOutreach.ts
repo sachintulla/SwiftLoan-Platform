@@ -69,7 +69,7 @@ export const STAGE_TO_OUTREACH: Record<string, string | null> = {
   eligibility_checked: 'eligibility_completed',
   offers_viewed: 'offer_viewed',
   offer_selected: 'offer_selected',
-  kyc_started: 'kyc_started',
+  kyc_started: null, // the product has no KYC stage, so there is no stage message for it
   kyc_completed: null,
   application_submitted: null,
   approved: null,
