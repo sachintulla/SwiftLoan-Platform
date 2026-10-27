@@ -14,6 +14,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui';
+import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '@/lib/eventEditor';
 
 type Channel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
 
@@ -38,7 +39,7 @@ type MessageKind = 'conversationSummary' | 'noOffers' | 'eligibilityRetry';
 interface CatalogTemplate {
   name: string; category: string; language: string; purpose: string; target: string; usedBy: string;
   body: string; footer: string; variables: string[]; examples: string[]; placeholders: string[];
-  replaces?: string; preview: string; meta: unknown;
+  replaces?: string; preview: string; meta: unknown; recommendedStages?: string[];
 }
 interface Variable { name: string; group: string; description: string; example: string }
 interface AgentRole { role: string; label: string; direction: string }
@@ -89,11 +90,16 @@ function errText(e: unknown): string {
   return e instanceof ApiError || e instanceof Error ? e.message : 'Could not save';
 }
 
-export default function StageOutreach() {
+/**
+ * `compact` is for the Notification Rules page: the same event editor without the WhatsApp
+ * message cards, the template catalogue and the variable dictionary, which stay on Stage outreach.
+ */
+export default function StageOutreach({ compact = false, startInAllChannels = false }: { compact?: boolean; startInAllChannels?: boolean } = {}) {
   const { data, error, isLoading, mutate } = useSWR(KEY, swrFetcher);
   const ov = data?.data as Overview | undefined;
   const [selected, setSelected] = useState<string | null>(null);
   const [openRule, setOpenRule] = useState<string | null>(null);
+  const [allMode, setAllMode] = useState(startInAllChannels);
 
   const totals = useMemo(() => {
     const all = (ov?.stages ?? []).flatMap((s) => s.activities);
@@ -110,8 +116,14 @@ export default function StageOutreach() {
     <div className="so">
       <div className="so-head">
         <div>
-          <h2 className="so-title">Stage outreach</h2>
-          <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and how long after they stop. Website visitors and app users share these stages.</p>
+          {compact ? (
+            <p className="so-sub" style={{ marginTop: 0 }}>Choose the event, which is the step where customers stop. Website visitors and app users share these events.</p>
+          ) : (
+            <>
+              <h2 className="so-title">Stage outreach</h2>
+              <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and how long after they stop. Website visitors and app users share these stages.</p>
+            </>
+          )}
         </div>
         <div className="so-stats">
           <div className="so-stat"><b>{totals.on}</b><span>follow-ups on</span></div>
@@ -132,21 +144,22 @@ export default function StageOutreach() {
         </ol>
       </details>
 
-      {(Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
+      {!compact && (Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
         <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
       ))}
 
-      <div className="so-grid">
+      <div className={`so-grid ${allMode ? 'stack' : ''}`}>
         <Rail stages={ov.stages} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
         <StagePanel
           key={current.key} number={number} stage={current} ov={ov}
           openRule={openRule} setOpenRule={setOpenRule} onChanged={() => mutate()}
+          allMode={allMode} setAllMode={setAllMode}
         />
       </div>
 
-      <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />
+      {!compact && <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />}
 
-      <VariableDictionary variables={ov.variables} />
+      {!compact && <VariableDictionary variables={ov.variables} />}
     </div>
   );
 }
@@ -337,8 +350,9 @@ function Rail({ stages, currentKey, onPick }: { stages: Stage[]; currentKey: str
   );
 }
 
-function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged }: {
-  number: number; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void;
+function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMode, setAllMode }: {
+  number: number; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
+  allMode: boolean; setAllMode: (v: boolean) => void;
 }) {
   const steps = [...stage.activities].sort((a, b) => a.delayMinutes - b.delayMinutes);
   const on = steps.filter((a) => a.enabled).length;
@@ -349,10 +363,20 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged }: {
           <h3 className="so-panel-title">{number}. {stage.label}</h3>
           <span className="so-chip">{stage.surface}</span>
           <span className="so-chip" style={on ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{on} of {steps.length} on</span>
+          <span className="so-spacer" />
+          <div className="ee-seg" role="group" aria-label="View">
+            <button type="button" className={!allMode ? 'active' : ''} aria-pressed={!allMode} onClick={() => setAllMode(false)}>Timeline</button>
+            <button type="button" className={allMode ? 'active' : ''} aria-pressed={allMode} onClick={() => setAllMode(true)}>All channels</button>
+          </div>
         </div>
         <p className="so-panel-desc">{stage.description}</p>
       </div>
 
+      {allMode ? (
+        <div className="so-panel-body">
+          <EventEditor key={stage.key} stage={stage} ov={ov} onSaved={onChanged} onClose={() => setAllMode(false)} />
+        </div>
+      ) : (
       <div className="so-panel-body">
         <div className="so-section">What the customer gets after they stop here</div>
 
@@ -374,6 +398,7 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged }: {
 
         <AddRow stage={stage} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
       </div>
+      )}
     </section>
   );
 }
@@ -646,6 +671,224 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
         {msg && <span className={`so-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
         <span className="so-spacer" />
         <button type="button" className="so-link-danger" disabled={saving} onClick={remove}>Remove this follow-up</button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────── One event, every channel, one Save ─────────────── */
+
+const UNIT_LABEL: Record<Unit, string> = { min: 'minutes', hr: 'hours', day: 'days' };
+const UNIT_ONE: Record<Unit, string> = { min: 'minute', hr: 'hour', day: 'day' };
+const unitText = (u: Unit, val: string) => (val === '1' ? UNIT_ONE[u] : UNIT_LABEL[u]);
+
+function makeDraft(a: Activity | undefined, ch: Channel, stageKey: string): ChDraft {
+  const delay = splitMinutes(a?.delayMinutes ?? DEFAULT_DELAY[ch]);
+  const cool = splitMinutes(a?.cooldownMinutes ?? (ch === 'voice' ? 4320 : 1440));
+  return {
+    enabled: a?.enabled ?? false,
+    delayVal: delay.val, delayUnit: delay.unit, coolVal: cool.val, coolUnit: cool.unit,
+    upshotEvent: a?.upshotEvent ?? `swiftloan_${stageKey}_${ch}`,
+    waTemplate: a?.whatsapp?.template ?? '', waLanguage: a?.whatsapp?.language ?? 'en', waVars: a?.whatsapp?.placeholders ?? [],
+    smsId: a?.sms?.templateId ?? '', smsBody: a?.sms?.body ?? '',
+    role: a?.call?.agentRole ?? '', assistantId: a?.call?.assistantId ?? '', brief: a?.call?.brief ?? '',
+  };
+}
+
+const ruleChanged = (d: ChDraft, b: ChDraft, upshot: boolean) =>
+  d.enabled !== b.enabled || toMinutes(d.delayVal, d.delayUnit) !== toMinutes(b.delayVal, b.delayUnit)
+  || toMinutes(d.coolVal, d.coolUnit) !== toMinutes(b.coolVal, b.coolUnit) || (upshot && d.upshotEvent.trim() !== b.upshotEvent);
+const waChanged = (d: ChDraft, b: ChDraft) =>
+  d.waTemplate.trim() !== b.waTemplate || d.waLanguage.trim() !== b.waLanguage || d.waVars.map((v) => v.trim()).filter(Boolean).join('\n') !== b.waVars.join('\n');
+const smsChanged = (d: ChDraft, b: ChDraft) => d.smsId.trim() !== b.smsId || d.smsBody.trim() !== b.smsBody.trim();
+const callChanged = (d: ChDraft, b: ChDraft) => d.role !== b.role || d.assistantId.trim() !== b.assistantId || d.brief.trim() !== b.brief;
+
+function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overview; onSaved: () => void | Promise<unknown>; onClose: () => void }) {
+  const [version, setVersion] = useState(0);
+  const baselines = useMemo(() => Object.fromEntries(CHANNELS.map((c) => [c, makeDraft(stage.activities.find((a) => a.channel === c), c, stage.key)])) as Record<Channel, ChDraft>, [stage]);
+  const [drafts, setDrafts] = useState<Record<Channel, ChDraft>>(baselines);
+  const [saving, setSaving] = useState(false);
+  const [results, setResults] = useState<Partial<Record<Channel, { ok: boolean; text: string }>>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const recommended = ov.templates.find((t) => t.target === 'stage' && t.recommendedStages?.includes(stage.key));
+  const set = (ch: Channel, patch: Partial<ChDraft>) => { setDrafts((d) => ({ ...d, [ch]: { ...d[ch], ...patch } })); setResults((r) => ({ ...r, [ch]: undefined })); setFormError(null); };
+  const activityOf = (ch: Channel) => stage.activities.find((a) => a.channel === ch);
+  const touched = (ch: Channel) => JSON.stringify(drafts[ch]) !== JSON.stringify(baselines[ch]);
+  const anyTouched = CHANNELS.some(touched);
+  const problems = CHANNELS.map((c) => [c, draftProblem(c, drafts[c], touched(c))] as const).filter(([, p]) => p);
+
+  const sentence = CHANNELS
+    .map((c) => {
+      const d = drafts[c];
+      if (!d.enabled) return activityOf(c) || touched(c) ? `${CHANNEL_LABEL[c]} off` : null;
+      return `${CHANNEL_LABEL[c]} after ${duration(toMinutes(d.delayVal, d.delayUnit))}`;
+    })
+    .filter(Boolean)
+    .join(', ');
+
+  async function saveAll() {
+    if (problems.length) { setFormError(problems[0][1]); return; }
+    if (drafts.voice.enabled && !baselines.voice.enabled && !window.confirm('Turn on calls at this stage? Customers who stop here will get a phone call from the Ello agent, once automatic calls are enabled in Timings.')) return;
+    setSaving(true); setResults({}); setFormError(null);
+    const out: Partial<Record<Channel, { ok: boolean; text: string }>> = {};
+    for (const ch of CHANNELS) {
+      if (!touched(ch)) continue;
+      const d = drafts[ch]; const b = baselines[ch]; const a = activityOf(ch);
+      const upshot = ch === 'email' || ch === 'push';
+      try {
+        let ruleId = a?.ruleId;
+        if (!ruleId) {
+          const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel: ch, delayMinutes: toMinutes(d.delayVal, d.delayUnit) }) });
+          ruleId = (res.data as { ruleId: string }).ruleId;
+        }
+        if (!a || ruleChanged(d, b, upshot)) {
+          await apiFetch(`/api/admin/stall-rules/${ruleId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: d.enabled, delayMinutes: toMinutes(d.delayVal, d.delayUnit), cooldownMinutes: toMinutes(d.coolVal, d.coolUnit), ...(upshot ? { upshotEvent: d.upshotEvent.trim() } : {}) }),
+          });
+        }
+        if (ch === 'whatsapp' && waChanged(d, b)) {
+          await apiFetch(`${KEY}/${stage.key}/whatsapp`, { method: 'PUT', body: JSON.stringify({ template: d.waTemplate.trim(), language: d.waLanguage.trim() || 'en', placeholders: d.waVars.map((v) => v.trim()).filter(Boolean) }) });
+        }
+        if (ch === 'sms' && smsChanged(d, b)) {
+          await apiFetch(`${KEY}/${stage.key}/sms`, { method: 'PUT', body: JSON.stringify({ templateId: d.smsId.trim(), body: d.smsBody }) });
+        }
+        if (ch === 'voice' && callChanged(d, b)) {
+          await apiFetch(`${KEY}/${stage.key}/call`, { method: 'PUT', body: JSON.stringify({ agentRole: d.role || null, assistantId: d.assistantId.trim(), brief: d.brief }) });
+        }
+        out[ch] = { ok: true, text: 'Saved' };
+      } catch (e) {
+        out[ch] = { ok: false, text: errText(e) };
+      }
+    }
+    setResults(out);
+    await onSaved();
+    // Reload the drafts from the saved data, keeping the messages for the channels that failed.
+    if (Object.values(out).every((r) => r?.ok)) setVersion((v) => v + 1);
+    setSaving(false);
+  }
+
+  return (
+    <div className="ee" key={version}>
+      <div className="ee-intro">
+        <b>Set up every channel for this event in one go.</b> Switch on the ones you want, choose when each goes out and what it says, then press <b>Save all</b>. Channels you leave off are not created and nothing is sent until a channel is on.
+      </div>
+
+      <div className="ee-grid">
+        {CHANNELS.map((ch) => {
+          const d = drafts[ch]; const a = activityOf(ch); const upshot = ch === 'email' || ch === 'push';
+          const problem = draftProblem(ch, d, touched(ch));
+          return (
+            <div key={ch} className={`ee-card ${d.enabled ? 'on' : ''}`}>
+              <div className="ee-card-head">
+                <span className="so-node" style={{ color: `var(--so-${ch})`, width: 30, height: 30 }}><Icon channel={ch} /></span>
+                <div className="ee-card-title">
+                  {CHANNEL_LABEL[ch]}
+                  <span className="so-hint">{a ? (a.firedCount ? `${a.firedCount} sent so far` : 'Not sent yet') : 'Not set up yet'}</span>
+                </div>
+                <button type="button" className={`so-switch ${d.enabled ? 'on' : ''}`} aria-pressed={d.enabled} aria-label={`${CHANNEL_LABEL[ch]} ${d.enabled ? 'on' : 'off'}`} onClick={() => set(ch, { enabled: !d.enabled })} />
+              </div>
+
+              <div className="ee-when">
+                <span>Send after</span>
+                <input className="input mono" inputMode="numeric" value={d.delayVal} aria-label={`${CHANNEL_LABEL[ch]}: how long after the customer stops`} onChange={(e) => set(ch, { delayVal: e.target.value.replace(/[^0-9]/g, '') })} />
+                <select className="input" value={d.delayUnit} aria-label="Unit" onChange={(e) => set(ch, { delayUnit: e.target.value as Unit })}>
+                  {(Object.keys(UNIT_LABEL) as Unit[]).map((u) => <option key={u} value={u}>{unitText(u, d.delayVal)}</option>)}
+                </select>
+                <span className="so-hint">after they stop</span>
+              </div>
+
+              {ch === 'whatsapp' && (
+                <div className="ee-fields">
+                  <label className="so-field"><span className="so-label">Approved template name</span>
+                    <input className="input mono" value={d.waTemplate} placeholder="e.g. offers_available_update" onChange={(e) => set(ch, { waTemplate: e.target.value })} /></label>
+                  {recommended && d.waTemplate.trim() !== recommended.name && (
+                    <button type="button" className="so-token" style={{ justifySelf: 'start' }} title={recommended.preview}
+                      onClick={() => set(ch, { waTemplate: recommended.name, waLanguage: recommended.language, waVars: recommended.placeholders })}>
+                      Use the utility template {recommended.name}
+                    </button>
+                  )}
+                  <div className="so-field"><span className="so-label">Values sent into the template, in order</span>
+                    <div className="so-vars">
+                      {d.waVars.length === 0 && <span className="so-hint">None yet.</span>}
+                      {d.waVars.map((v, i) => (
+                        <div key={i} className="so-var">
+                          <span className="so-var-no">{`{{${i + 1}}}`}</span>
+                          <input className="input mono" value={v} onChange={(e) => set(ch, { waVars: d.waVars.map((x, j) => (j === i ? e.target.value : x)) })} />
+                          <button type="button" className="so-x" aria-label={`Remove value ${i + 1}`} onClick={() => set(ch, { waVars: d.waVars.filter((_, j) => j !== i) })}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="so-tokens">
+                      {ov.whatsappTokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => set(ch, { waVars: [...d.waVars, t] })}>{t}</button>)}
+                      <button type="button" className="so-token" onClick={() => set(ch, { waVars: [...d.waVars, ''] })}>+ text</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {ch === 'sms' && (
+                <div className="ee-fields">
+                  <label className="so-field"><span className="so-label">DLT template ID</span>
+                    <input className="input mono" value={d.smsId} onChange={(e) => set(ch, { smsId: e.target.value })} /></label>
+                  <label className="so-field"><span className="so-label">Exact registered text</span>
+                    <textarea className="input" rows={3} maxLength={1000} value={d.smsBody} onChange={(e) => set(ch, { smsBody: e.target.value })} /></label>
+                  <span className="so-hint">Must match the DLT registration exactly, so no variables. Leave both empty to use the default text.</span>
+                </div>
+              )}
+
+              {upshot && (
+                <div className="ee-fields">
+                  <label className="so-field"><span className="so-label">Upshot event to fire</span>
+                    <input className="input mono" value={d.upshotEvent} onChange={(e) => set(ch, { upshotEvent: e.target.value })} /></label>
+                  <span className="so-hint">{ch === 'email' ? 'Email' : 'Push'} is sent through Upshot. Write the message there and attach it to this event.</span>
+                </div>
+              )}
+
+              {ch === 'voice' && (
+                <div className="ee-fields">
+                  <label className="so-field"><span className="so-label">Ello agent</span>
+                    <select className="input" value={d.role} onChange={(e) => set(ch, { role: e.target.value })}>
+                      <option value="">Website lead callback (default)</option>
+                      {ov.agentRoles.filter((r) => r.direction === 'outbound' && r.role !== 'leadCallback').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
+                    </select></label>
+                  <label className="so-field"><span className="so-label">Or a specific agent ID</span>
+                    <input className="input mono" value={d.assistantId} placeholder="Optional" onChange={(e) => set(ch, { assistantId: e.target.value })} /></label>
+                  <label className="so-field"><span className="so-label">What the agent should talk about</span>
+                    <textarea className="input" rows={3} maxLength={ov.maxBriefLength} value={d.brief} placeholder="e.g. Greet {lead_first_name}. They {stall_reason}. Offer to {stall_help}." onChange={(e) => set(ch, { brief: e.target.value })} /></label>
+                </div>
+              )}
+
+              <details className="ee-more">
+                <summary>More</summary>
+                <div className="ee-when" style={{ marginTop: 8 }}>
+                  <span>Do not repeat for</span>
+                  <input className="input mono" inputMode="numeric" value={d.coolVal} aria-label="Repeat protection" onChange={(e) => set(ch, { coolVal: e.target.value.replace(/[^0-9]/g, '') })} />
+                  <select className="input" value={d.coolUnit} aria-label="Unit" onChange={(e) => set(ch, { coolUnit: e.target.value as Unit })}>
+                    {(Object.keys(UNIT_LABEL) as Unit[]).map((u) => <option key={u} value={u}>{unitText(u, d.coolVal)}</option>)}
+                  </select>
+                </div>
+                <span className="so-hint">The same customer is not sent this again inside this window.</span>
+              </details>
+
+              {problem && <div className="so-msg err">{problem}</div>}
+              {results[ch] && <div className={`so-msg ${results[ch]!.ok ? 'ok' : 'err'}`}>{results[ch]!.text}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="ee-foot">
+        <div className="ee-summary"><div className="so-preview-label">What will happen</div>
+          {sentence ? <>When a customer stops at <b>{stage.label}</b>: {sentence}.</> : <>Nothing is set up for <b>{stage.label}</b> yet.</>}
+        </div>
+        <div className="so-actions ee-sticky">
+          <button type="button" className="btn btn-primary" disabled={!anyTouched || saving} onClick={saveAll}>{saving ? 'Saving…' : 'Save all'}</button>
+          <button type="button" className="btn" disabled={saving} onClick={onClose}>{anyTouched ? 'Discard and close' : 'Close'}</button>
+          {anyTouched && !saving && !formError && <span className="so-hint">You have unsaved changes.</span>}
+          {formError && <span className="so-msg err">{formError}</span>}
+        </div>
       </div>
     </div>
   );
