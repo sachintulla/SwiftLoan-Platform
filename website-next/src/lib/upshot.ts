@@ -37,6 +37,9 @@ export interface UpshotWebSdk {
   updateUserProfile?: (profile: Record<string, unknown>, cb?: (res?: unknown) => void) => unknown;
   createAttributionEvent?: (data: Record<string, string>) => unknown;
   getUserId?: () => string | null;
+  /** Registers `./upshot-service-worker.js`, asks the browser for permission and sends the push token to Upshot. */
+  subscribePush?: () => unknown;
+  unsubscribePush?: () => unknown;
 }
 
 /** Cap on calls held back while the SDK loads, so a blocked CDN cannot grow memory. */
@@ -233,6 +236,18 @@ export function upshotPageView(pathname: string): void {
  * silently strips spaces (and keeps case), so "PAN Verified", "PANVerified", "PAN_Verified" and
  * "pan_verified" were four different events. Letters, digits and `_` only; never invent a variant.
  */
+
+/**
+ * Web push: ask the browser for notification permission and hand the token to Upshot. The SDK only does this
+ * on its own at init when `subscribePush` is true (a prompt on first page load), so we call it by hand at
+ * chosen moments instead — see `lib/webPush.ts`, which decides WHEN.
+ */
+export function upshotSubscribePush(): void {
+  devLog('subscribePush');
+  run(() => {
+    sdk()?.subscribePush?.();
+  });
+}
 
 /** Attributes on every web event, so a campaign can segment web vs app consistently. */
 const COMMON = { platform: 'Web' } as const;

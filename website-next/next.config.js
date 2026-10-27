@@ -13,6 +13,20 @@ const nextConfig = {
     return [
       { source: '/logs', destination: `${API_ORIGIN}/logs` },
       { source: '/logs/:path*', destination: `${API_ORIGIN}/logs/:path*` },
+      // The Upshot SDK registers "./upshot-service-worker.js" relative to the CURRENT page, so on /apply/verify it asks
+      // for /apply/upshot-service-worker.js. Serve the one file from every path.
+      { source: '/:path+/upshot-service-worker.js', destination: '/upshot-service-worker.js' },
+    ];
+  },
+  async headers() {
+    return [
+      {
+        source: '/:path*/upshot-service-worker.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
     ];
   },
   async redirects() {

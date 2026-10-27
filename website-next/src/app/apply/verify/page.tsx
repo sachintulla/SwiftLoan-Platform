@@ -6,6 +6,7 @@ import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
 import { requestOtp, verifyOtp } from '@/lib/session';
+import { askForWebPush } from '@/lib/webPush';
 import { useCopy } from '@/lib/i18n';
 import { applyFlowCopy } from '@/i18n/apply-flow';
 
@@ -87,6 +88,8 @@ export default function VerifyOtpPage() {
     try {
       const result = await verifyOtp(phone, code);
       setApplicationId(result.applicationId);
+      // After the OTP: ask again if the visitor dismissed the first prompt (a no-op once they chose Allow / Block).
+      askForWebPush('after_otp');
       // replace, not push: once verified, this OTP screen is a spent
       // one-time gate — it can't be meaningfully "gone back to" (there's
       // nothing to re-verify), so it shouldn't stay in browser history.

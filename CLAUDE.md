@@ -177,6 +177,13 @@ Run `npm run prisma:push` after schema changes. Do NOT modify existing models:
 It is completely separate from the RN app and server/.
 It runs on port 4001 and talks to server/ at http://localhost:4000.
 
+### Money units in the admin (rupees vs paise)
+Loan-domain money is stored in **rupees**: `LoanApplication.amount`, `User.monthlyIncome`, `LoanApplication.monthlyIncome`, `Offer.amount/emi/processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`
+(so the overview's `totalDisbursedPaise` / `outstandingPaise` are rupee sums despite the name). Lead and pre-approval money is in **paise**: `Lead.amount`, `CampaignContact.amount`, `PrequalifyingOffer.amount`,
+`MarketLoanOffer.maxAmount`. Format with `inrRupees` / `inrCompactRupees` for the first group and `inr` / `inrCompact` for the second (`admin/src/lib/format.ts`). A test fails if an income, principal, EMI, outstanding or fee value is
+passed to the paise formatters. (Using `inr()` on a rupee field showed ₹2,000 for ₹2,00,000 and ₹510 for ₹51,000 on the All Users pages.)
+**`User.creditScore` is a database default of 750 for everyone** (no bureau is integrated), so the Credit Score shown in the admin and returned by `/users/me/credit-score` is not a real score.
+
 ### Global decisions for new work
 - All new API responses: { success, data, message, pagination?, error? }
 - Status colours (consistent across admin dashboard):
@@ -667,3 +674,26 @@ real sending (templates await Meta / Vox delivery), admin view, retiring the ove
 - `hasActiveInstallReminder` (stuck-stage SMS/WhatsApp stand-down) counts an active drop-off run only while `dropoff.sendEnabled` is on, so log-only never silences them.
 - Tests: `lib/dropoffSteps.test.ts` (pure rules, defaults, merge) and `cd server && bash scripts/journey/run-dropoff.sh` (throwaway DB, nothing real sent): `dropoff-check.mts` (13 log-only job checks) then `dropoff-send-check.mts` (the REAL send path against a fake local Vox server: exact template, placeholder order, link rule), then `dropoff-call-check.mts` (the no-offers call against a fake local Ello server: switches, test list, once per person, quiet gap, calling hours, no "duplicate" wording).
   Known and pre-existing: `scripts/journey/run.sh` ends with a lender-partner foreign-key message after all 155 checks pass (same on the untouched code).
+
+---
+
+## Website web push (Upshot token for the website)
+
+Built, **off by default** (`NEXT_PUBLIC_UPSHOT_WEB_PUSH=true` turns it on). `lib/webPush.ts` calls `upshot.subscribePush()` at two moments:
+the "Send OTP" tap (`apply/page.tsx`, before) and OTP accepted (`apply/verify/page.tsx`, after). The browser prompts only while permission is
+undecided, so the second ask only reaches a visitor who dismissed the first; Allow/Block are never asked twice. `init` keeps `subscribePush:false`
+(true = prompt on first page load). The SDK registers `./upshot-service-worker.js` relative to the CURRENT page, so `next.config.js` serves
+`public/upshot-service-worker.js` from every path. **Before enabling:** save the Firebase sender id / key in Upshot (Push Settings > Web) and replace
+that file (a minimal placeholder that shows notifications but reports nothing to Upshot) with Upshot's own; the docs also list `config.js` (gcmAPIKey)
+and `manifest.json` (gcm_sender_id) at the site root. Safari on iPhone only allows web push for a site added to the Home Screen. Not tested in a browser.
+
+---
+
+## Stage outreach: one timeline per stage (screens only)
+
+Configs → Stage outreach shows, for each journey stage, ONE time-ordered list: the stuck-stage rules plus the steps of the message jobs that run at that
+stage (website reminders, drop-off messages, "you applied", the no-offers call). `admin/src/lib/stageSequences.ts` (pure, tested) says which jobs belong to
+which stage; `components/StageTimeline.tsx` renders and edits them (saves through the same `/api/admin/timings`). **The sending jobs are unchanged**: it is
+only where the settings are edited. Schedules, their rules (gap / how late / how old / idle) and the no-offers call delay are edited on the stage and are hidden
+from the Timings page (`isStageTimingKey`); Timings keeps what applies to every stage (`*.sendEnabled`, test list, calling hours, call limits, login times, limits).
+A rule and a job both live within 15 min of each other on one stage shows a "Close together" warning (the two systems do not know about each other).

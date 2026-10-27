@@ -8,6 +8,7 @@ import { PrimaryButton } from '@/components/apply/primitives';
 import { useApply } from '@/lib/applyContext';
 import { fetchMe } from '@/lib/applyApi';
 import { bootstrapSession, requestOtp } from '@/lib/session';
+import { askForWebPush } from '@/lib/webPush';
 import { useCopy } from '@/lib/i18n';
 import { applyFlowCopy } from '@/i18n/apply-flow';
 
@@ -58,6 +59,8 @@ export default function ApplyPhonePage() {
     if (!valid || loading) return;
     setLoading(true);
     setError(null);
+    // Before the OTP: asked here, straight from the tap, because browsers only show the prompt for a user gesture.
+    askForWebPush('before_otp');
     try {
       await requestOtp(value);
       setPhone(value);
