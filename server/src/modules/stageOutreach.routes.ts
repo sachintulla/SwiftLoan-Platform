@@ -26,7 +26,8 @@ import {
 } from '../lib/stageOutreach.js';
 import { normalizeSummaryConfig, SUMMARY_TOKENS } from '../lib/conversationSummary.js';
 import { OFFERS_NOTICE_TOKENS } from '../lib/offersNotice.js';
-import { WHATSAPP_TEMPLATES, LEGACY_TEMPLATES, previewBody, toMetaPayload, recommendedForStage } from '../lib/whatsappTemplates.js';
+import { WHATSAPP_TEMPLATES, LEGACY_TEMPLATES, previewBody, toMetaPayload, recommendedForStage, templateByName } from '../lib/whatsappTemplates.js';
+import { categoryForTemplate, readLibrary } from '../lib/voxTemplates.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('stage-outreach');
@@ -229,7 +230,9 @@ stageOutreachRouter.put('/:stage/whatsapp', requireRole(...CAN_ADMINISTER), vali
   } else {
     const clean = cleanWhatsApp(body);
     if (!clean) throw new HttpError(400, 'Template names use lowercase letters, numbers and underscores, for example offers_ready');
-    entry = clean as unknown as Obj;
+    // Send the template's own category with it (Meta's decision if recorded, else the catalogue's), not the card's single default.
+    const category = categoryForTemplate(clean.template, readLibrary((await savedVoxSettings()).templateLibrary), templateByName(clean.template)?.category);
+    entry = { ...(clean as unknown as Obj), ...(category ? { category } : {}) };
   }
   await upsertProviderConfig('voxvalley', { settings: { stallTemplates: { ...saved, [stage.key]: entry } } }, adminName(req));
   log.info('stage whatsapp saved', { stage: stage.key, template: entry.template || null, updatedBy: adminName(req) ?? null });

@@ -585,3 +585,17 @@ button:focus-visible, a:focus-visible, .chip-filter:focus-visible, .tab-item:foc
 
 .ee-trigger { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .ee-trigger select.input { width: auto; min-width: 200px; flex: 1; }
+/* ── Signed-out screens: animated backdrop (see components/AuthBackdrop.tsx) ── */
+.ab-root { position: relative; min-height: 100vh; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(135deg, #0a3f41, #079fa0); }
+.ab-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.ab-content { position: relative; z-index: 1; }
+.ab-orb { position: absolute; border-radius: 50%; filter: blur(18px); animation: ab-drift ease-in-out infinite alternate; }
+.ab-halo { position: absolute; left: 50%; top: 50%; width: 460px; height: 460px; margin: -230px 0 0 -230px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(234,251,243,.34), rgba(234,251,243,0) 70%); animation: ab-pulse 3.6s ease-out infinite; }
+.ab-line { position: absolute; left: 0; height: 3px; border-radius: 3px; opacity: 0; transform: translateX(-30vw);
+  animation: ab-rush cubic-bezier(.22,.7,.25,1) infinite; }
+@keyframes ab-drift { from { transform: translateY(-22px); opacity: .55; } to { transform: translateY(26px); opacity: 1; } }
+@keyframes ab-pulse { 0% { transform: scale(.75); opacity: 0; } 15% { opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+@keyframes ab-rush { 0% { transform: translateX(-30vw); opacity: 0; } 12% { opacity: 1; } 55% { opacity: 1; } 100% { transform: translateX(115vw); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ab-orb, .ab-halo, .ab-line { animation: none; } .ab-line { display: none; } }

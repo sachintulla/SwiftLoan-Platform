@@ -753,7 +753,8 @@ describe('perform_ui_action on a real screen — end to end', () => {
     expect(res.ok).toBe(true);
     expect(played).toEqual(['select']);
     // …and the selection really landed (the controls the agent sees afterwards say so)
-    expect(res.controls_now).toContain('Gender (optional): Female (selected)');
+    // (the full list on arriving at a screen, or just the changed controls when it was already described)
+    expect(res.controls_now ?? res.controls_changed).toContain('Gender (optional): Female (selected)');
   });
 
   it('two actions issued together run one after the other, not interleaved', async () => {

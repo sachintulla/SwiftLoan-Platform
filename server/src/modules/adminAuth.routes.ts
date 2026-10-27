@@ -24,32 +24,10 @@ adminAuthRouter.post('/login', ah(async (req, res) => {
 
   const admin = await prisma.adminUser.findUnique({ where: { email } });
 
-  // Lockout is checked before the password, so a locked account cannot be
-  // probed for a valid password.
-  if (admin?.lockedUntil && admin.lockedUntil > new Date()) {
-    const mins = Math.ceil((admin.lockedUntil.getTime() - Date.now()) / 60_000);
-    log.warn('login blocked — account locked', { email, minutesLeft: mins });
-    return fail(res, 423, `Account locked. Try again in ${mins} minute(s).`);
-  }
-
+  // No account lockout: an admin may retry as often as needed. The per-IP
+  // rate limit on /api/admin/auth (app.ts) is the only throttle on this route.
   if (!admin || !admin.active || !(await compare(password, admin.passwordHash))) {
-    // Count failures against the account and lock after 5. The IP rate-limit
-    // alone does not stop credential stuffing spread across many addresses.
-    if (admin) {
-      const count = admin.failedLoginCount + 1;
-      await prisma.adminUser
-        .update({
-          where: { id: admin.id },
-          data: {
-            failedLoginCount: count,
-            lockedUntil: count >= 5 ? new Date(Date.now() + 15 * 60_000) : null,
-          },
-        })
-        .catch(() => undefined);
-      log.warn('login rejected — bad credentials', { email, failedLoginCount: count, nowLocked: count >= 5 });
-    } else {
-      log.warn('login rejected — unknown email', { email });
-    }
+    log.warn(admin ? 'login rejected — bad credentials' : 'login rejected — unknown email', { email });
     return fail(res, 401, 'Invalid credentials');
   }
 
@@ -93,7 +71,7 @@ adminAuthRouter.post('/login', ah(async (req, res) => {
   });
   await prisma.adminUser.update({
     where: { id: admin.id },
-    data: { lastLoginAt: new Date(), lastActivityAt: new Date(), failedLoginCount: 0, lockedUntil: null },
+    data: { lastLoginAt: new Date(), lastActivityAt: new Date() },
   });
 
   log.info('logged in', { adminId: admin.id, email: admin.email, role: admin.role });
@@ -187,8 +165,6 @@ adminAuthRouter.post('/reset-password', ah(async (req, res) => {
         passwordHash: await hash(next),
         mustChangePassword: false,
         passwordChangedAt: new Date(),
-        failedLoginCount: 0,
-        lockedUntil: null,
       },
     }),
     // Single-use.

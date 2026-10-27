@@ -31,6 +31,8 @@ export interface StallTemplate {
   language?: string;
   /** Each entry may contain {tokens}: name, ref, offerCount, siteUrl. */
   placeholders?: string[];
+  /** UTILITY | MARKETING | AUTHENTICATION for this template; blank = the card's category. */
+  category?: string;
 }
 
 export type StallTemplateMap = Record<string, StallTemplate>;
@@ -199,8 +201,12 @@ export async function sendStallWhatsApp(
     templateName: tpl.template,
     language: tpl.language,
     placeholders,
+    category: tpl.category,
     referenceId: claimId,
-    track: { kind: 'stall', customerId: customer.id },
+    track: {
+      kind: 'stall', customerId: customer.id,
+      trigger: { by: `Stuck-stage rule: ${rule.name}`, stage: rule.triggerEvent, since: new Date(now.getTime() - minutesStuck * 60_000).toISOString(), step: `Stuck for ${minutesStuck} min` },
+    },
   });
 
   await prisma.outboundRequest

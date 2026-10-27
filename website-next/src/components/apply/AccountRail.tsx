@@ -21,7 +21,7 @@ const NAV = [
 ] as const;
 
 function initials(name?: string) {
-  if (!name) return 'U';
+  if (!name) return '';
   return name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 }
 
@@ -70,7 +70,8 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [collapsed, toggleCollapsed] = useRailCollapsed();
   const t = useCopy(applyShellCopy);
-  const name = user?.fullName || user?.firstName || t.guestName;
+  // No name yet (first login) → leave it blank, no placeholder word or initial.
+  const name = (user?.fullName || user?.firstName || '').trim();
   const toggleLabel = collapsed ? t.openMenu : t.closeMenu;
 
   return (
@@ -109,7 +110,7 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <div className="truncate font-extrabold">{name}</div>
+              {name && <div className="truncate font-extrabold">{name}</div>}
               {user?.phone && <div className="text-xs text-white/60">+91 {user.phone}</div>}
             </div>
           )}
@@ -170,7 +171,8 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
   const [open, setOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const t = useCopy(applyShellCopy);
-  const name = user?.fullName || user?.firstName || t.guestName;
+  // No name yet (first login) → leave it blank, no placeholder word or initial.
+  const name = (user?.fullName || user?.firstName || '').trim();
 
   return (
     <div className="lg:hidden">
@@ -206,7 +208,7 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
                 {initials(name)}
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-extrabold">{name}</div>
+                {name && <div className="truncate text-sm font-extrabold">{name}</div>}
                 {user.phone && <div className="text-xs text-white/60">+91 {user.phone}</div>}
               </div>
             </div>

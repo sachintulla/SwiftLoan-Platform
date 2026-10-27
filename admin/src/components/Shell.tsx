@@ -37,6 +37,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       // still resolves via a redirect for old links.
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
       { href: '/messages', label: 'Messages', icon: '✆' },
+      { href: '/notify', label: 'Send Notification', icon: '➤' },
       { href: '/calls', label: 'Calls', icon: '☎' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
     ],
@@ -47,6 +48,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/integrations', label: 'Configs', icon: '⚙' },
       { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
       { href: '/timings', label: 'Timings', icon: '⏲', superAdminOnly: true },
+      { href: '/test-numbers', label: 'Test numbers', icon: '☎', superAdminOnly: true },
       ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
@@ -57,11 +59,11 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages',
+  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages', '/notify': 'Send Notification',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
-  '/app-config': 'App Config', '/timings': 'Timings',
+  '/app-config': 'App Config', '/timings': 'Timings', '/test-numbers': 'Test numbers',
   '/notifications-rules': 'Notification Rules',
   '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans', '/prequalifying': 'Pre-Qualifying Offers',
 };

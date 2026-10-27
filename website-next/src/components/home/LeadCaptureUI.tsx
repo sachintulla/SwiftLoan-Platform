@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Phone, X, type LucideIcon } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
@@ -16,6 +16,59 @@ export function Label({ text, required }: { text: string; required?: boolean | u
     <span className="text-muted-foreground text-xs font-bold tracking-[0.12em] uppercase">
       {text} {required && <span className="text-danger">*</span>}
     </span>
+  );
+}
+
+/**
+ * The loan amount as a typed field, shown where the slider's value used to be.
+ *
+ * Typing is free-form (digits only, shown in Indian grouping); the slider
+ * follows as soon as the number is inside the allowed range, and leaving the
+ * field clamps whatever is left to ₹10,000–₹50,00,000. It has no `name`, so the
+ * form's real `amount` value still comes from the hidden input beside it.
+ */
+export function AmountInput({
+  amount, touched, onCommit, placeholder, label, className = "text-lg",
+}: {
+  amount: number;
+  touched: boolean;
+  onCommit: (n: number) => void;
+  placeholder: string;
+  label: string;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (touched ? String(amount) : "");
+  const text = shown ? Number(shown).toLocaleString("en-IN") : "";
+
+  const finish = () => {
+    if (draft) onCommit(Math.min(AMOUNT_MAX, Math.max(AMOUNT_MIN, Number(draft))));
+    setDraft(null);
+  };
+
+  return (
+    <label className={`text-primary flex min-w-0 items-center justify-end gap-1 rounded-lg border border-transparent px-2 py-0.5 font-extrabold transition-colors hover:border-primary/30 focus-within:border-primary/50 focus-within:bg-primary/5 ${className}`}>
+      <span aria-hidden className={shown ? "" : "opacity-40"}>₹</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        aria-label={label}
+        placeholder={placeholder}
+        value={text}
+        size={Math.max(text.length, placeholder.length, 4)}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, "").replace(/^0+/, "").slice(0, 8);
+          setDraft(digits);
+          const n = Number(digits);
+          if (digits && n >= AMOUNT_MIN && n <= AMOUNT_MAX) onCommit(n);
+        }}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={finish}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+        className="placeholder:text-primary/50 min-w-0 bg-transparent text-right font-extrabold outline-none placeholder:font-bold"
+      />
+    </label>
   );
 }
 

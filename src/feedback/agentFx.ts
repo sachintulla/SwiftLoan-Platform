@@ -124,6 +124,11 @@ export function registerScroller(screen: string, s: Scroller): () => void {
     if (scrollers.get(screen) === s) scrollers.delete(screen);
   };
 }
+/** The scroll handle a `<Screen>` registered for a route, so a screen can scroll its own
+ *  content (e.g. to lift a field/consent above the keyboard on focus). */
+export function getScroller(screen: string): Scroller | undefined {
+  return scrollers.get(screen);
+}
 
 function measureWindow(ref: RefObject<View | null>): Promise<{ y: number; h: number } | null> {
   return new Promise(resolve => {

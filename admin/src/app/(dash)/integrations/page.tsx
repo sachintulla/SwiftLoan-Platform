@@ -7,8 +7,9 @@
 import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
-import { Card, StatusBadge, TableSkeleton, Empty, FilterChips } from '@/components/ui';
+import { Card, StatusBadge, TableSkeleton, Empty, FilterChips, Select } from '@/components/ui';
 import StageOutreach from '@/components/StageOutreach';
+import WhatsAppVox from './WhatsAppVox';
 
 type Provider = 'ello' | 'upshot' | 'voxvalley' | 'meta_whatsapp';
 
@@ -44,6 +45,9 @@ function labelFor(key: string) {
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
+
+/** Voxvalley settings that the WhatsApp page's message list owns (see WhatsAppVox.tsx). */
+const VOX_MESSAGE_KEYS = ['stallTemplates', 'installWhatsapp', 'appliedWhatsapp', 'dropoffMessages', 'templateLibrary'];
 
 const SUB_TABS = [
   { key: 'ello', label: '☎  Voice calling' },
@@ -122,11 +126,20 @@ export default function ConfigsPage() {
             />
           )}
           {tab === 'voxvalley' && (
-            <ProviderCard
-              provider="voxvalley"
-              integration={list.find((i) => i.provider === 'voxvalley')}
-              defaults={(defaults.voxvalley ?? {}) as Record<string, unknown>}
-              onSaved={() => mutate()}
+            // The messages (templates, variables, category) are managed in the WhatsApp page itself. The connection card keeps
+            // only the account settings, and must not save those message settings back (it would overwrite a fresh edit).
+            <WhatsAppVox
+              onChanged={() => mutate()}
+              onOpenStageOutreach={() => setTab('stage-outreach')}
+              connection={
+                <ProviderCard
+                  provider="voxvalley"
+                  integration={list.find((i) => i.provider === 'voxvalley')}
+                  defaults={(defaults.voxvalley ?? {}) as Record<string, unknown>}
+                  hiddenKeys={VOX_MESSAGE_KEYS}
+                  onSaved={() => mutate()}
+                />
+              }
             />
           )}
           {tab === 'stage-outreach' && <StageOutreach />}
@@ -139,10 +152,12 @@ export default function ConfigsPage() {
 
 /* ─────────────────────────── connection card ─────────────────────────── */
 
-function ProviderCard({ provider, integration, defaults, onSaved }: {
+function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSaved }: {
   provider: Provider;
   integration?: Integration;
   defaults: Record<string, unknown>;
+  /** Settings managed somewhere else on the page: not shown, and not saved back by this card. */
+  hiddenKeys?: string[];
   onSaved: () => void;
 }) {
   const meta = META[provider];
@@ -150,8 +165,10 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
   const advancedKeys = useMemo(() => {
     const set = new Set<string>([...Object.keys(defaults), ...Object.keys(integration?.settings ?? {})]);
     essentialKeys.forEach((k) => set.delete(k));
+    hiddenKeys.forEach((k) => set.delete(k));
     return Array.from(set);
-  }, [defaults, integration?.settings, essentialKeys]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaults, integration?.settings, essentialKeys, hiddenKeys.join(',')]);
 
   const allKeys = [...essentialKeys, ...advancedKeys];
 
@@ -309,6 +326,23 @@ function ProviderCard({ provider, integration, defaults, onSaved }: {
                       value={values[k] ?? ''}
                       onChange={(e) => setField(k, e.target.value)}
                     />
+                  ) : k === 'messageCategory' ? (
+                    <div style={{ marginTop: 6 }}>
+                      <Select<string>
+                        value={values[k] ?? ''}
+                        onChange={(v) => setField(k, v)}
+                        options={[{ value: '', label: 'Not set' }, { value: 'UTILITY', label: 'Utility' }, { value: 'MARKETING', label: 'Marketing' }, { value: 'AUTHENTICATION', label: 'Authentication' }]}
+                      />
+                      <div className="muted" style={{ fontSize: 11.5, marginTop: 5 }}>Only the fallback. Each template&apos;s own category (Messages tab) is sent when it has one.</div>
+                    </div>
+                  ) : k === 'recipientPlus' ? (
+                    <div style={{ marginTop: 6 }}>
+                      <Select<string>
+                        value={String(values[k] ?? 'true') === 'false' ? 'false' : 'true'}
+                        onChange={(v) => setField(k, v)}
+                        options={[{ value: 'true', label: 'Yes: +91XXXXXXXXXX' }, { value: 'false', label: 'No: 91XXXXXXXXXX' }]}
+                      />
+                    </div>
                   ) : /Body$/.test(k) || (values[k] ?? '').includes('\n') ? (
                     // An SMS body must match its DLT registration character for
                     // character; a one-line input would silently drop the line break.

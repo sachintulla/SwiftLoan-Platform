@@ -34,6 +34,7 @@ import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { adminMessagesRouter } from './modules/adminMessages.routes.js';
 import { adminTimingsRouter } from './modules/adminTimings.routes.js';
+import { adminTestNumbersRouter } from './modules/adminTestNumbers.routes.js';
 import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
 import { campaignsRouter } from './modules/campaigns.routes.js';
 import { segmentsRouter } from './modules/segments.routes.js';
@@ -46,6 +47,7 @@ import { adminSupportRouter } from './modules/adminSupport.routes.js';
 import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
+import { notifyRouter } from './modules/notify.routes.js';
 import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
 import { adminConversationsRouter } from './modules/adminConversations.routes.js';
 import { webhooksRouter } from './modules/webhooks.routes.js';
@@ -173,6 +175,7 @@ export function createApp() {
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
   app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
+  app.use('/api/admin/test-numbers', adminTestNumbersRouter); // numbers that may sign in with the shared test code
   app.use('/api/admin/campaigns', campaignsRouter);
   app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
@@ -191,6 +194,9 @@ export function createApp() {
   app.use('/api/voice', limiter(60_000, 20, 'Too many voice session requests'), voiceRouter);
   // WS10 — agent-facing conversation memory. Secret-authenticated (see the module).
   app.use('/api/conversations', limiter(60_000, 120, 'Too many conversation API requests'), conversationsRouter);
+  // Channel-agnostic transactional notify (SMS/WhatsApp) to one customer.
+  // Dual-auth (admin JWT or x-api-key) — used by the dashboard and by Ello post-call.
+  app.use('/api/notify', limiter(60_000, 60, 'Too many notify requests'), notifyRouter);
   // PUBLIC — an Upshot journey posts here to place a call. Every guard
   // (calling hours, cooldown, do-not-call) is enforced server-side.
   app.use('/api/webhooks/whatsapp', webhookLimiter, whatsappStatusRouter); // PUBLIC — the WhatsApp gateway posts delivery status here

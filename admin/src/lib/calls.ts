@@ -16,6 +16,7 @@ export const PURPOSE_LABELS: Record<string, string> = {
   immediate_callback_optin: 'Immediate callback',
   upshot_journey: 'Journey trigger',
   manual_dashboard_call: 'Called by an admin',
+  no_offers_followup: 'No offers found',
   campaign: 'Campaign',
 };
 
@@ -29,6 +30,7 @@ export const PURPOSE_OPTIONS: { value: string; label: string }[] = [
   { value: 'upshot_journey', label: PURPOSE_LABELS.upshot_journey },
   { value: 'campaign', label: PURPOSE_LABELS.campaign },
   { value: 'manual_dashboard_call', label: PURPOSE_LABELS.manual_dashboard_call },
+  { value: 'no_offers_followup', label: PURPOSE_LABELS.no_offers_followup },
 ];
 
 /** A reason we have not seen before reads as words (never a raw code); nothing recorded reads as such. */

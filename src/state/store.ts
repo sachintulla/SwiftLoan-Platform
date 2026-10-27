@@ -60,6 +60,9 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
 
+// Dropped from the onboarding flow (splash → privacy → mobile → OTP → home).
+const RETIRED_ONBOARDING_SCREENS: ReadonlySet<Screen> = new Set<Screen>(['language', 'intro', 'aboutyou', 'permissions']);
+
 /** Resolve a spoken/typed screen name to a canonical screen id, or null. */
 export function resolveScreenName(name: string): Screen | null {
   const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -382,9 +385,9 @@ const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 // app language while still pre-login, it navigated to `profile`, a screen
 // that requires a session it did not have).
 // `permissions` is deliberately NOT here: it is the first screen shown AFTER a
-// successful OTP (mobile.tsx → go('permissions') → aboutyou), i.e. the session
+// successful OTP (mobile.tsx → go('permissions') → home), i.e. the session
 // already exists when it is entered. Listing it redirected every new user
-// straight to home and skipped About You.
+// straight to home and skipped the permissions step.
 const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp']);
 
 /**
@@ -410,7 +413,8 @@ function guardScreen(screen: Screen): Screen {
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
 // Used only to emit fire-and-forget analytics; no effect on navigation.
 const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
-  language: 1, mobile: 2, otp: 3, permissions: 4, aboutyou: 5, home: 6,
+  // language / aboutyou left the flow, so the funnel now starts at the mobile screen.
+  mobile: 1, otp: 2, permissions: 3, home: 4,
 };
 const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
@@ -566,7 +570,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'back': {
       // `permissions` is the first screen after a successful OTP. Its back target
       // (`mobile`) is a pre-login screen the guard turns into `home`, so Back here
-      // used to silently skip About You. There is nowhere meaningful to go back to
+      // used to silently skip the permissions step. There is nowhere meaningful to go back to
       // once the session exists, so stay put (the screen has its own forward CTA).
       if (state.screen === 'permissions' && isAuthed()) return state;
       // The offers RESULT is a funnel endpoint: pressing back must return to
@@ -849,7 +853,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       navigateToScreen: (screenName: string) => {
         const target = resolveScreenName(screenName);
-        if (!target) return false;
+        // Removed from onboarding; the components stay registered but must not be reachable by voice.
+        if (!target || RETIRED_ONBOARDING_SCREENS.has(target)) return false;
         go(target);
         return { requested: target, landed: guardScreen(target) };
       },

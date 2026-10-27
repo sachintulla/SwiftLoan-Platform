@@ -121,6 +121,8 @@ export function Screen({
   collapsingTitle,
   headerRight,
   footer,
+  footerReserve,
+  statusBar,
   children,
 }: {
   variant?: 'app' | 'hero' | 'plain';
@@ -128,6 +130,9 @@ export function Screen({
   bottomNav?: boolean;
   padded?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Override the status-bar text colour (e.g. 'light-content' on a screen whose
+   *  top is a dark header band, where the variant default would be dark-on-dark). */
+  statusBar?: 'light-content' | 'dark-content';
   /** Pinned top bar (e.g. an AppHeader/back button) that stays fixed while content scrolls. */
   header?: React.ReactNode;
   /** Right-side action rendered in the collapsingTitle header (e.g. a HeaderCta). */
@@ -141,6 +146,14 @@ export function Screen({
   collapsingTitle?: string;
   /** Pinned bottom bar (e.g. a "Continue" CTA) that stays visible while content scrolls. */
   footer?: React.ReactNode;
+  /**
+   * How much space (pt) above the keyboard to keep clear of the focused field on
+   * focus, over and above the keyboard itself. Defaults to the pinned footer's
+   * own height (FOOTER_RESERVE). A screen whose consent / helper content sits
+   * BELOW the focused field (e.g. the mobile login's "I agree" row) passes a
+   * larger value so that content is scrolled above the keyboard too.
+   */
+  footerReserve?: number;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -151,14 +164,15 @@ export function Screen({
   // Footer screens handle keyboard avoidance manually (both platforms) so the focused
   // field is lifted above the keyboard AND the pinned footer.
   const manualKb = scroll && !!footer;
-  const kbPad = useAndroidKeyboardOverlap(rootRef, scrollRef, scrollOffsetRef, manualKb);
+  const kbReserve = footerReserve ?? FOOTER_RESERVE;
+  const kbPad = useAndroidKeyboardOverlap(rootRef, scrollRef, scrollOffsetRef, manualKb, kbReserve);
   // Drives the pinned footer CTA (Send OTP / Verify / Continue …) up as the
   // keyboard opens and back down as it closes — animated in sync with the
   // keyboard's own duration/curve, so the button rides up and down with it.
-  const kbLift = useKeyboardLift(insets.bottom);
+  const kbLift = useKeyboardLift(insets.bottom, rootRef);
   const Bg =
     variant === 'hero' ? HeroBackground : variant === 'plain' ? React.Fragment : AppBackground;
-  const barStyle = variant === 'hero' ? 'light-content' : 'dark-content';
+  const barStyle = statusBar ?? (variant === 'hero' ? 'light-content' : 'dark-content');
   const pad = padded ? { paddingHorizontal: 18 } : null;
   // A pinned header (explicit `header` or a `collapsingTitle`) already consumes
   // the top safe-area inset, so the scroll content starts with just a small gap
@@ -325,7 +339,7 @@ export function Screen({
       onScroll={e => onScrollY(e.nativeEvent.contentOffset.y)}
       scrollEventThrottle={16}
       style={{ flex: 1 }}
-      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle, kbPad > 0 && { paddingBottom: kbPad + (manualKb ? FOOTER_RESERVE : 0) + 24 }]}
+      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle, kbPad > 0 && { paddingBottom: kbPad + (manualKb ? kbReserve : 0) + 24 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // Keyboard handling for forms. Screens WITHOUT a pinned footer let iOS inset the
@@ -426,6 +440,10 @@ function useAndroidKeyboardOverlap(
   // Footer screens reserve the footer's height above the keyboard so the focused
   // field is lifted clear of both.
   enabled = false,
+  // How much to keep clear above the keyboard, over the keyboard itself. Defaults
+  // to the footer height; a screen with content below the focused field can ask
+  // for more so that content is lifted into view too.
+  reserveWhenEnabled = FOOTER_RESERVE,
 ): number {
   const [overlap, setOverlap] = useState(0);
   useEffect(() => {
@@ -435,7 +453,7 @@ function useAndroidKeyboardOverlap(
     // we can lift the focused field above both the keyboard and the footer.
     if (!ios && Platform.OS !== 'android') return undefined;
     if (ios && !enabled) return undefined;
-    const reserve = enabled ? FOOTER_RESERVE : 0;
+    const reserve = enabled ? reserveWhenEnabled : 0;
     const show = Keyboard.addListener('keyboardDidShow', e => {
       const kbTop = e.endCoordinates.screenY;
       rootRef.current?.measureInWindow((_x, y, _w, h) => {
@@ -454,7 +472,7 @@ function useAndroidKeyboardOverlap(
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => setOverlap(0));
     return () => { show.remove(); hide.remove(); };
-  }, [rootRef, scrollRef, offsetRef, enabled]);
+  }, [rootRef, scrollRef, offsetRef, enabled, reserveWhenEnabled]);
   return overlap;
 }
 
@@ -468,7 +486,7 @@ function useAndroidKeyboardOverlap(
  * WillChangeFrame — it also fires on dismiss and mid-gesture, which was animating
  * the footer back down while the keyboard was still up.
  */
-function useKeyboardLift(insetBottom: number): Animated.Value {
+function useKeyboardLift(insetBottom: number, rootRef: React.RefObject<View | null>): Animated.Value {
   const lift = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const ios = Platform.OS === 'ios';
@@ -484,11 +502,28 @@ function useKeyboardLift(insetBottom: number): Animated.Value {
     const show = Keyboard.addListener(showEvt, (e) => {
       const h = e?.endCoordinates?.height ?? 0;
       if (h <= 0) return; // ignore a stray show with no frame
-      animateTo(Math.max(0, h - insetBottom), e?.duration);
+      const target = Math.max(0, h - insetBottom);
+      if (ios) {
+        animateTo(target, e?.duration);
+        return;
+      }
+      // Android: where the window still resizes for the keyboard (adjustResize, pre-Android 15)
+      // the footer already sits on the keyboard, so lifting by its full height again threw it up
+      // over the form. Lift only by what the keyboard actually covers of this screen (0 if resized).
+      const kbTop = e?.endCoordinates?.screenY ?? 0;
+      const root = rootRef.current;
+      if (!root || !kbTop) {
+        animateTo(target, e?.duration);
+        return;
+      }
+      root.measureInWindow((_x, y, _w, rh) => {
+        const covered = Math.max(0, Math.round(y + rh - kbTop));
+        animateTo(Math.min(target, covered), e?.duration);
+      });
     });
     const hide = Keyboard.addListener(hideEvt, (e) => animateTo(0, e?.duration));
     return () => { show.remove(); hide.remove(); };
-  }, [lift, insetBottom]);
+  }, [lift, insetBottom, rootRef]);
   return lift;
 }
 
