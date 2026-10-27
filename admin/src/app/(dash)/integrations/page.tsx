@@ -130,7 +130,6 @@ export default function ConfigsPage() {
             // only the account settings, and must not save those message settings back (it would overwrite a fresh edit).
             <WhatsAppVox
               onChanged={() => mutate()}
-              onOpenStageOutreach={() => setTab('stage-outreach')}
               connection={
                 <ProviderCard
                   provider="voxvalley"

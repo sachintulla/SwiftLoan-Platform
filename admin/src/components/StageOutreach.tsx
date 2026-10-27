@@ -16,6 +16,7 @@ import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui';
 import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '@/lib/eventEditor';
 import { laterEvents } from '@/lib/eventLabels';
+import StageSequence from '@/components/StageSequence';
 
 type Channel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
 
@@ -390,6 +391,8 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMo
         )}
 
         <AddRow stage={stage} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
+
+        <StageSequence stageKey={stage.key} stages={ov.stages.map((x) => ({ key: x.key, label: x.label }))} />
       </div>
       )}
     </section>

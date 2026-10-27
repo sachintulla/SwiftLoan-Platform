@@ -8,7 +8,7 @@ import { Callout, ConfirmDialog, FilterChips, SearchBox, Select } from '@/compon
 import {
   CATEGORY_OPTIONS, CategoryChip, Chip, Field, STATUS_OPTIONS, StatusChip, cap,
   type Category, type TemplateFlag, type TemplateRow, type TemplatesPayload,
-} from './whatsappUi';
+} from '@/components/whatsapp/ui';
 
 type Filter = 'all' | 'inuse' | 'unused' | 'attention';
 

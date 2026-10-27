@@ -1,5 +1,5 @@
 'use client';
-// Every WhatsApp message we sent, one row each: who it went to, which template, what it said, when, what triggered it, and whether it arrived.
+// Every message we sent (WhatsApp and SMS), one row each: who it went to, which template, what it said, when, what triggered it, and whether it arrived.
 // Filter by status, trigger, template and date; search by mobile number. Data: GET /api/admin/messages (enriched with the text and trigger).
 import React, { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
@@ -7,7 +7,7 @@ import { swrFetcher } from '@/lib/api';
 import { FilterChips, Pagination, SearchBox, Select, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
-import { Chip, cap } from './whatsappUi';
+import { Chip, cap } from '@/components/whatsapp/ui';
 
 interface EventLog { at: string; status: string | null; raw: string; code?: string | null; reason?: string | null }
 interface Trigger { by: string; stage?: string; since?: string; step?: string }
@@ -126,8 +126,11 @@ function Detail({ m }: { m: Sent }) {
   );
 }
 
-export default function WhatsAppSent() {
+const CHANNELS = [{ key: '', label: 'All channels' }, { key: 'whatsapp', label: 'WhatsApp' }, { key: 'sms', label: 'SMS' }];
+
+export default function SentMessages() {
   const [status, setStatus] = useState('');
+  const [channel, setChannel] = useState('');
   const [kind, setKind] = useState('');
   const [template, setTemplate] = useState('');
   const [range, setRange] = useState('7d');
@@ -136,23 +139,24 @@ export default function WhatsAppSent() {
   const [openId, setOpenId] = useState<string | null>(null);
   const dSearch = useDebounced(search, 300);
 
-  useEffect(() => { setPage(1); }, [status, kind, template, range, dSearch]);
+  useEffect(() => { setPage(1); }, [status, channel, kind, template, range, dSearch]);
 
   const qs = new URLSearchParams({
-    channel: 'whatsapp', page: String(page), pageSize: '25',
+    page: String(page), pageSize: '25',
+    ...(channel ? { channel } : {}),
     ...(status === 'stuck' ? { stuck: '1' } : status ? { status } : {}),
     ...(kind ? { kind } : {}), ...(template ? { template } : {}), ...(range ? { range } : {}),
     ...(dSearch ? { search: dSearch } : {}),
   });
   const { data, isLoading } = useSWR(`/api/admin/messages?${qs.toString()}`, swrFetcher, { refreshInterval: 10000, keepPreviousData: true });
-  const { data: facetRes } = useSWR('/api/admin/messages/facets?channel=whatsapp', swrFetcher);
+  const { data: facetRes } = useSWR(`/api/admin/messages/facets${channel ? `?channel=${channel}` : ''}`, swrFetcher);
   const rows = (data?.data ?? []) as Sent[];
   const pg = data?.pagination as { page: number; totalPages: number; total?: number } | undefined;
   const facets = facetRes?.data as Facets | undefined;
 
   const kindOptions = useMemo(() => [{ value: '', label: 'All triggers' }, ...(facets?.kinds ?? []).map((k) => ({ value: k.kind, label: `${KIND_LABEL[k.kind] ?? k.kind} (${k.count})` }))], [facets]);
   const templateOptions = useMemo(() => [{ value: '', label: 'All templates' }, ...(facets?.templates ?? []).map((t) => ({ value: t.name, label: `${t.name} (${t.count})` }))], [facets]);
-  const filtered = !!(status || kind || template || dSearch);
+  const filtered = !!(status || channel || kind || template || dSearch);
 
   return (
     <div className="card card-pad" style={{ display: 'grid', gap: 14 }}>
@@ -160,23 +164,26 @@ export default function WhatsAppSent() {
         <div style={{ minWidth: 0, flex: '1 1 320px' }}>
           <h3 className="card-title" style={{ margin: 0 }}>Sent messages</h3>
           <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-            Every WhatsApp message we sent, and what happened to it. &quot;Accepted&quot; only means Vox took it: Delivered or Read means it reached the phone.
+            Every WhatsApp and SMS message we sent, and what happened to it. &quot;Accepted&quot; only means Vox took it: Delivered or Read means it reached the phone.
           </div>
         </div>
         <SearchBox value={search} onChange={setSearch} placeholder="Search a mobile number…" />
       </div>
 
-      <FilterChips value={status} onChange={setStatus} options={STATUS_FILTERS} />
+      <div className="row wrap" style={{ gap: 14 }}>
+        <FilterChips value={status} onChange={setStatus} options={STATUS_FILTERS} />
+        <FilterChips value={channel} onChange={setChannel} options={CHANNELS} />
+      </div>
       <div className="row wrap" style={{ gap: 12 }}>
         <div style={{ minWidth: 190 }}><Select<string> value={kind} onChange={setKind} options={kindOptions} /></div>
         <div style={{ minWidth: 230 }}><Select<string> value={template} onChange={setTemplate} options={templateOptions} /></div>
         <div style={{ minWidth: 160 }}><Select<string> value={range} onChange={setRange} options={RANGES} /></div>
-        {filtered && <button className="btn" onClick={() => { setStatus(''); setKind(''); setTemplate(''); setSearch(''); }}>Clear filters</button>}
+        {filtered && <button className="btn" onClick={() => { setStatus(''); setChannel(''); setKind(''); setTemplate(''); setSearch(''); }}>Clear filters</button>}
         <span className="muted" style={{ fontSize: 12.5, marginLeft: 'auto' }}>{pg?.total != null ? `${pg.total} message${pg.total === 1 ? '' : 's'}` : ''}</span>
       </div>
 
       {isLoading && !data ? <TableSkeleton rows={6} cols={6} /> : rows.length === 0 ? (
-        <div className="empty">{filtered || range ? 'No messages match these filters.' : 'No WhatsApp messages have been sent yet.'}</div>
+        <div className="empty">{filtered || range ? 'No messages match these filters.' : 'No messages have been sent yet.'}</div>
       ) : (
         <div className="table-wrap">
           <table className="data">
