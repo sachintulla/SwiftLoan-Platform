@@ -629,6 +629,13 @@ real sending (templates await Meta / Vox delivery), admin view, retiring the ove
   does not count as a call, so switching it on later still rings people who were only logged. Context sent to the agent: `reason: 'no_offers_followup'`,
   `no_offers_reason` = `already_registered` | `no_match` (the lender's word "duplicate" never reaches the agent), stall reason/channel. Prompt branch "G. No offers found" in
   `prompts/ello-outbound-prompt.updated.md` (edited locally; **paste into Ello by hand before enabling**).
+- **Per-stage schedules (Stage outreach → a stage → "Timing for this stage").** The website install reminder and the drop-off messages each have ONE shared schedule (Admin → Timings: `install.schedule`, `dropoff.schedule`); a stage
+  can now have its own copy instead. Stored as Timings settings `install.schedule.<stage>` (stages `otp_verified`, `eligibility_started`) and `dropoff.schedule.<stage>` (`eligibility_started`, `offer_viewed`), group `stage` (not a tab on the
+  Timings page; edited on Stage outreach through the same `/api/admin/timings` API). Their default is a copy of the shared default (so every default stays valid); a stage USES its own only when an admin SAVED one (`hasStageSchedule` / `stageScheduleRows`
+  in `timings.ts`), otherwise the shared schedule, exactly as before. Pure map in `lib/stageSchedules.ts` (website step / drop-off status → stage). Read in two places: `installReminder.ts configFor` (by the reminder's last step) and
+  `appDropoff.ts dropoffConfigFor` (by the run's status). Only the schedule is per stage: the gap between messages, "skip if too late", "how old is too old" and the sending switches stay shared; "asked for a code but never entered it" already has its own
+  schedule and "you applied" is a single stage. A run that is already waiting keeps its next check time, so a changed schedule applies from that next check (same as editing the shared one). Tests: `stageSchedules.test.ts`, `timings.test.ts`
+  (per-stage section) and `scripts/journey/stage-schedule-check.mts` (the real jobs; part of `run-dropoff.sh`).
 - **Where the WhatsApp pieces live (after the tab restructure).** Configs → **WhatsApp (Vox)** is the Vox integration only (`integrations/WhatsAppVox.tsx`): **Connection** (project, sender, token;
   the provider card without the message JSON, so it can never overwrite a fresh edit), **Templates** (the Vox template library) and **Send a test**. *What* is sent and *when* is set up on Configs → **Stage outreach**: under each
   stage, "What we send at this stage" (the drop-off, install-reminder and "you applied" messages: template, language, category, variables; `components/StageSequence.tsx` + `components/whatsapp/MessageSetup.tsx`; server

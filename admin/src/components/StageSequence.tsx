@@ -9,10 +9,58 @@ import { ConfirmDialog } from '@/components/ui';
 import { Control } from '@/components/timings/TimingControls';
 import { MessageRow } from '@/components/whatsapp/MessageSetup';
 import { Chip, type Catalog, type TemplatesPayload } from '@/components/whatsapp/ui';
-import { same, sensitive, show, toDraft, toValue, localError, type Draft, type Item } from '@/lib/timingsEdit';
+import { same, sensitive, show, toDraft, toValue, localError, rowsToUi, spanText, type Draft, type Item, type SchedRow } from '@/lib/timingsEdit';
 import { sequenceFor, stagesUsing } from '@/lib/stageSequences';
 
 interface StageRef { key: string; label: string }
+
+/** One schedule on a stage: the shared one (read-only here) or this stage's own. The other timing rules stay shared. */
+function StageSchedule({ shared, own, draft, customised, edited, problem, canEdit, others, onDraft, onUseOwn, onUseShared }: {
+  shared: Item; own: Item; draft: Draft; customised: boolean; edited: boolean; problem: string | null; canEdit: boolean; others: string[];
+  onDraft: (v: Draft) => void; onUseOwn: () => void; onUseShared: () => void;
+}) {
+  const rows = shared.effective as SchedRow[];
+  return (
+    <div className="tm-row tm-row-wide">
+      <div>
+        <div className="tm-label">{shared.label}</div>
+        <div className="tm-help">{shared.help}</div>
+        <div className="tm-help" style={{ marginTop: 6 }}>
+          {customised
+            ? 'This stage has its own schedule. The other stages are not affected.'
+            : `This stage uses the shared schedule${others.length ? `, which ${others.join(', ')} also use${others.length === 1 ? 's' : ''}. Changing the shared one on the Timings page changes all of them` : ''}.`}
+        </div>
+      </div>
+      <div className="tm-ctl">
+        {customised ? (
+          <>
+            <Control it={own} d={draft} bad={!!problem} onChange={onDraft} onSwitch={() => undefined} />
+            {problem && <div className="tm-err">{problem}</div>}
+            <div className="tm-meta">
+              {edited ? <span className="tm-chip tm-chip-edit">Edited</span> : <span className="tm-chip tm-chip-set">This stage only</span>}
+              {canEdit && <button type="button" className="tm-link" onClick={onUseShared}>Use the shared schedule</button>}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="tm-chips">
+              {rows.map((r, i) => (
+                <span key={i} className={`tm-sc ${r.channel === 'sms' ? 'tm-sc-sms' : 'tm-sc-wa'}`}>
+                  <b>{r.channel === 'sms' ? 'SMS' : 'WhatsApp'}</b>
+                  {r.afterMinutes === 0 ? 'right away' : `+${spanText(r.afterMinutes)}`}
+                </span>
+              ))}
+            </div>
+            <div className="tm-meta">
+              <span className="tm-chip tm-chip-set">Shared</span>
+              {canEdit && <button type="button" className="btn" onClick={onUseOwn}>Use a different schedule for this stage</button>}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function StageSequence({ stageKey, stages }: { stageKey: string; stages: StageRef[] }) {
   const seq = sequenceFor(stageKey);
@@ -40,7 +88,7 @@ export default function StageSequence({ stageKey, stages }: { stageKey: string; 
   useEffect(() => { setEdits({}); setErrors({}); setNotice(null); setOpenMsg(null); }, [stageKey]);
 
   const messages = seq.messages.map((k) => catalog?.items.find((i) => i.key === k)).filter((i): i is NonNullable<typeof i> => !!i);
-  const stageKeys = new Set(seq.timings.flatMap((g) => g.keys));
+  const stageKeys = new Set(seq.timings.flatMap((g) => g.keys.flatMap((k) => [k, `${k}.${stageKey}`])));
   const dirty = useMemo(() => {
     const out: Array<{ it: Item; value: unknown; bad: string | null }> = [];
     for (const [key, d] of Object.entries(edits)) {
@@ -78,7 +126,7 @@ export default function StageSequence({ stageKey, stages }: { stageKey: string; 
       setConfirm(null);
       setEdits((e) => { const n = { ...e }; delete n[it.key]; return n; });
       await mutateTim();
-      setNotice({ ok: true, text: `“${it.label}” is back to its default.` });
+      setNotice({ ok: true, text: it.group === 'stage' ? 'This stage uses the shared schedule again.' : `“${it.label}” is back to its default.` });
     } catch (e) { setConfirm(null); setNotice({ ok: false, text: (e as Error).message }); }
   }
 
@@ -130,6 +178,21 @@ export default function StageSequence({ stageKey, stages }: { stageKey: string; 
               {g.keys.map((key) => {
                 const it = byKey.get(key);
                 if (!it) return null;
+                const own = it.kind === 'schedule' ? byKey.get(`${key}.${stageKey}`) : undefined;
+                if (own) {
+                  const draftOwn = edits[own.key];
+                  const customised = own.source === 'override' || draftOwn !== undefined;
+                  const changedOwn = dirty.find((x) => x.it.key === own.key);
+                  return (
+                    <StageSchedule
+                      key={key} shared={it} own={own} draft={draftOwn ?? toDraft(own)} customised={customised} edited={!!changedOwn}
+                      problem={errors[own.key] ?? changedOwn?.bad ?? null} canEdit={canEdit} others={stagesUsing(key, stageKey).map(label)}
+                      onDraft={(v) => set(own.key, v)}
+                      onUseOwn={() => set(own.key, rowsToUi(it.effective as SchedRow[]))}
+                      onUseShared={() => (own.source === 'override' ? setConfirm({ reset: own }) : setEdits((e) => { const n = { ...e }; delete n[own.key]; return n; }))}
+                    />
+                  );
+                }
                 const d = edits[key] ?? toDraft(it);
                 const changed = dirty.find((x) => x.it.key === key);
                 const problem = errors[key] ?? changed?.bad ?? null;

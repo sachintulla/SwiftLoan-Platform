@@ -26,6 +26,7 @@ const GROUPS = [
   { key: 'calls', title: 'Website lead → automatic call', help: 'The AI call that follows a website lead who agreed to be called.' },
   { key: 'auth', title: 'Login and sessions', help: 'How long codes and logins last. These are security settings: change with care.' },
   { key: 'tracking', title: 'Tracking and limits', help: 'Install matching, reuse windows and per-person limits.' },
+  { key: 'stage', title: 'Per-stage schedules', help: 'A schedule for one journey stage instead of the shared one. Edited on Stage outreach.' },
 ];
 
 adminTimingsRouter.get('/', ah(async (_req, res) => {

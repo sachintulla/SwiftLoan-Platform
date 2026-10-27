@@ -28,7 +28,8 @@ import { buildPlaceholders } from './stallWhatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { JOURNEY_EVENTS } from './journey.js';
 import { scoped } from './log.js';
-import { timing } from './timings.js';
+import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
+import { installStageOf } from './stageSchedules.js';
 import { phoneKey } from './messageStatus.js';
 import {
   DEFAULT_STEP_LABELS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle,
@@ -280,9 +281,14 @@ async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | 
   return { reason, lastStep };
 }
 
-/** The rules for one row: the same as everyone's, except an unverified visitor has its own (short) schedule. */
-function configFor(r: Pick<JourneyReminder, 'unverified'>, cfg: ScheduleConfig): ScheduleConfig {
-  return r.unverified ? { ...cfg, steps: stepsFromRows(timing.schedule('install.unverifiedSchedule')) } : cfg;
+/**
+ * The rules for one row: the same as everyone's, except an unverified visitor has its own (short) schedule, and a visitor at a stage that has
+ * its own schedule (Configs → Stage outreach) uses that one. A stage with none keeps the shared schedule.
+ */
+export function configFor(r: Pick<JourneyReminder, 'unverified' | 'lastStep'>, cfg: ScheduleConfig): ScheduleConfig {
+  if (r.unverified) return { ...cfg, steps: stepsFromRows(timing.schedule('install.unverifiedSchedule')) };
+  const stage = installStageOf(r.lastStep);
+  return hasStageSchedule('install.schedule', stage) ? { ...cfg, steps: stepsFromRows(stageScheduleRows('install.schedule', stage)) } : cfg;
 }
 
 async function processReminder(r: JourneyReminder, now: Date, out: TickResult, baseCfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { TIMINGS, DEFAULT_SCHEDULE, checkTiming, defOf, effective, sourceOf, setOverrides, timing, describeTiming, isTimingKey } from './timings.js';
+import { TIMINGS, DEFAULT_SCHEDULE, checkTiming, defOf, effective, sourceOf, setOverrides, timing, describeTiming, isTimingKey, hasStageSchedule, stageScheduleRows } from './timings.js';
 
 afterEach(() => { setOverrides(new Map()); });
 
@@ -174,5 +174,53 @@ describe('reading', () => {
     expect(d).toMatchObject({ key: 'auth.accessTokenMinutes', effective: 15, source: 'default', min: 5, max: 120 });
     expect(JSON.stringify(d)).not.toMatch(/fromEnv/);
     expect(effective(defOf('install.idleMinutes'))).toBe(5);
+  });
+});
+
+describe('per-stage schedules', () => {
+  const KEY = 'dropoff.schedule.eligibility_started';
+  const own = [{ channel: 'whatsapp' as const, afterMinutes: 5 }];
+
+  it('are registered, in their own group, with a valid default (a copy of the shared default)', () => {
+    expect(isTimingKey(KEY)).toBe(true);
+    expect(defOf(KEY).group).toBe('stage');
+    expect(defOf(KEY).def).toEqual(defOf('dropoff.schedule').def);
+    expect(defOf('install.schedule.otp_verified').def).toEqual(defOf('install.schedule').def);
+  });
+
+  it('a stage with nothing saved uses the shared schedule', () => {
+    setOverrides(new Map());
+    expect(stageScheduleRows('dropoff.schedule', 'eligibility_started')).toEqual(timing.schedule('dropoff.schedule'));
+    expect(hasStageSchedule('dropoff.schedule', 'eligibility_started')).toBe(false);
+  });
+
+  it('a stage with a saved schedule uses its own, and only that stage', () => {
+    setOverrides(new Map<string, unknown>([[KEY, own]]));
+    expect(hasStageSchedule('dropoff.schedule', 'eligibility_started')).toBe(true);
+    expect(stageScheduleRows('dropoff.schedule', 'eligibility_started')).toEqual(own);
+    expect(stageScheduleRows('dropoff.schedule', 'offer_viewed')).toEqual(timing.schedule('dropoff.schedule'));
+    expect(stageScheduleRows('install.schedule', 'eligibility_started')).toEqual(timing.schedule('install.schedule'));
+    setOverrides(new Map());
+  });
+
+  it('editing the shared schedule does not touch a stage that has its own, and the other way round', () => {
+    const shared = [{ channel: 'sms' as const, afterMinutes: 99 }];
+    setOverrides(new Map<string, unknown>([[KEY, own], ['dropoff.schedule', shared]]));
+    expect(stageScheduleRows('dropoff.schedule', 'eligibility_started')).toEqual(own);
+    expect(stageScheduleRows('dropoff.schedule', 'offer_viewed')).toEqual(shared);
+    setOverrides(new Map());
+  });
+
+  it('no stage (or an unknown one) always gets the shared schedule', () => {
+    setOverrides(new Map<string, unknown>([[KEY, own]]));
+    expect(stageScheduleRows('dropoff.schedule', null)).toEqual(timing.schedule('dropoff.schedule'));
+    expect(stageScheduleRows('dropoff.schedule', 'no_such_stage')).toEqual(timing.schedule('dropoff.schedule'));
+    setOverrides(new Map());
+  });
+
+  it('validates like any schedule (at least one message, in time order)', () => {
+    expect(checkTiming(defOf(KEY), own).ok).toBe(true);
+    expect(checkTiming(defOf(KEY), []).ok).toBe(false);
+    expect(checkTiming(defOf(KEY), [{ channel: 'sms', afterMinutes: 60 }, { channel: 'sms', afterMinutes: 5 }]).ok).toBe(false);
   });
 });
