@@ -11,7 +11,7 @@ describe('readCatalog', () => {
     const keys = readCatalog({}, defaults).map((e) => e.key);
     for (const k of [
       'dropoff.continue.withLink', 'dropoff.continue.noLink', 'dropoff.apply_offers.withLink', 'dropoff.apply_offers.noLink',
-      'install.reminder', 'applied.nudge', 'stall.lead_captured', 'stall.otp_verified', 'stall.eligibility_completed', 'stall.offer_viewed', 'stall.kyc_started',
+      'install.reminder', 'applied.nudge', 'stall.lead_captured', 'stall.otp_verified', 'stall.eligibility_completed', 'stall.offer_viewed',
     ]) expect(keys).toContain(k);
     expect(new Set(keys).size).toBe(keys.length);
   });

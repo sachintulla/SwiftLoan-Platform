@@ -68,7 +68,6 @@ const STALL_LABELS: Record<string, { label: string; when: string }> = {
   otp_verified: { label: 'Stuck: signed in, never started', when: 'Signed in but never started an application.' },
   eligibility_completed: { label: 'Stuck: offers ready, never opened', when: 'The eligibility check finished but they never opened their offers.' },
   offer_viewed: { label: 'Stuck: saw offers, chose none', when: 'Viewed offers and picked none.' },
-  kyc_started: { label: 'Stuck: started KYC, stopped', when: 'Started eKYC and stopped.' },
 };
 
 const STALL_TOKENS = ['name', 'ref', 'offerCount', 'siteUrl'];
