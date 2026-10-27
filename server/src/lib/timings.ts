@@ -12,7 +12,9 @@
  * This file is pure (no database, no network) so the rules are unit-tested: timings.test.ts.
  */
 
-export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 'website';
+import { STAGE_LABELS, STAGE_SCHEDULE_STAGES, stageScheduleKey, type SharedSchedule } from './stageSchedules.js';
+
+export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 'website' | 'stage';
 export type TimingUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'count' | 'minuteOfDay' | 'none';
 
 export interface ScheduleRow {
@@ -114,7 +116,7 @@ function ttlToMinutes(raw: string): number | undefined {
   return Math.max(1, Math.round(seconds / 60));
 }
 
-export const TIMINGS: readonly TimingDef[] = [
+const BASE_TIMINGS: readonly TimingDef[] = [
   /* ───────────── A. Website drop-off → install reminders ───────────── */
   {
     key: 'install.sendEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false, env: 'INSTALL_REMINDER_SEND',
@@ -399,6 +401,30 @@ export const TIMINGS: readonly TimingDef[] = [
   },
 ];
 
+/**
+ * A stage's OWN copy of a shared schedule (see stageSchedules.ts). Its default is a copy of the shared default so that "every default is valid"
+ * holds; whether a stage has one is decided by whether an admin SAVED it (`sourceOf` is 'override'), never by its value. Group `stage` is not a
+ * tab on the Timings page: these are edited on Stage outreach, through the same API.
+ */
+function stageScheduleDefs(): ScheduleDef[] {
+  const out: ScheduleDef[] = [];
+  for (const shared of Object.keys(STAGE_SCHEDULE_STAGES) as SharedSchedule[]) {
+    const base = BASE_TIMINGS.find((d) => d.key === shared) as ScheduleDef;
+    for (const stage of STAGE_SCHEDULE_STAGES[shared]) {
+      const where = STAGE_LABELS[stage] ?? stage;
+      out.push({
+        key: stageScheduleKey(shared, stage), group: 'stage', kind: 'schedule', unit: 'minutes', def: base.def.map((r) => ({ ...r })),
+        maxRows: base.maxRows, maxMinutes: base.maxMinutes,
+        label: `${base.label} (${where})`,
+        help: `A schedule for “${where}” only. Until one is saved here, this stage uses “${base.label}”.`,
+      });
+    }
+  }
+  return out;
+}
+
+export const TIMINGS: readonly TimingDef[] = [...BASE_TIMINGS, ...stageScheduleDefs()];
+
 const BY_KEY = new Map(TIMINGS.map((d) => [d.key, d]));
 
 export function defOf(key: string): TimingDef {
@@ -509,6 +535,25 @@ function typed<T extends TimingValue>(key: string, kind: TimingDef['kind'][]): T
   const d = defOf(key);
   if (!kind.includes(d.kind)) throw new Error(`timing "${key}" is a ${d.kind}, not ${kind.join('/')}`);
   return effective(d) as T;
+}
+
+/**
+ * The schedule to use for a person at a stage: that stage's own if an admin saved one, else the shared one. `stage` null (a status that
+ * belongs to no stage) always uses the shared schedule.
+ */
+export function stageScheduleRows(shared: SharedSchedule, stage: string | null | undefined): ScheduleRow[] {
+  if (stage) {
+    const key = stageScheduleKey(shared, stage);
+    const d = BY_KEY.get(key);
+    if (d && sourceOf(d) === 'override') return effective(d) as ScheduleRow[];
+  }
+  return effective(defOf(shared)) as ScheduleRow[];
+}
+
+export function hasStageSchedule(shared: SharedSchedule, stage: string | null | undefined): boolean {
+  if (!stage) return false;
+  const d = BY_KEY.get(stageScheduleKey(shared, stage));
+  return !!d && sourceOf(d) === 'override';
 }
 
 /** Synchronous, cached reads. These are the only way server code should read a setting that is on the Timings page. */

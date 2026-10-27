@@ -24,7 +24,8 @@ import { sendWhatsAppTemplate, whatsappConfigured } from './whatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { withinCallingHours } from './leadCaller.js';
 import { scoped } from './log.js';
-import { timing } from './timings.js';
+import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
+import { dropoffStageOf } from './stageSchedules.js';
 import { alreadyInApp, notOnTestList, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
 import { placeNoOffersCalls } from './noOffersCall.js';
 import { buildInstallLink, nextAction, nextCheckTime, renderSmsBody, stepsFromRows, type ScheduleConfig, type ScheduleStep } from './reminderSchedule.js';
@@ -230,8 +231,11 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
   if (!msg.ok) return { outcome: 'skipped', reason: msg.reason };
   if (!(await whatsappConfigured())) return { outcome: 'skipped', reason: 'whatsapp not configured' };
   const res = await sendWhatsAppTemplate({
-    phone: r.phone, templateName: msg.template, language: msg.language, placeholders: msg.placeholders, referenceId: `${r.id}:${step.index}`,
-    track: { kind: 'app_dropoff', customerId: r.customerId },
+    phone: r.phone, templateName: msg.template, language: msg.language, placeholders: msg.placeholders, category: msg.category, referenceId: `${r.id}:${step.index}`,
+    track: {
+      kind: 'app_dropoff', customerId: r.customerId,
+      trigger: { by: 'Drop-off messages', stage: stepLabel, since: r.startAt.toISOString(), step: `Message ${step.index + 1} · ${step.label}` },
+    },
   });
   return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'whatsapp failed').slice(0, 200) };
 }
@@ -240,7 +244,14 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
 
 export interface AppDropoffTickResult { armed: number; scanned: number; stopped: number; handled: number; completed: number; calls: number }
 
-async function processRow(r: AppDropoff, now: Date, out: AppDropoffTickResult, cfg: ScheduleConfig): Promise<void> {
+/** The rules for one run: the shared ones, except a stage with its own schedule (Configs → Stage outreach) uses that. */
+export function dropoffConfigFor(status: string, base: ScheduleConfig): ScheduleConfig {
+  const stage = dropoffStageOf(status);
+  return hasStageSchedule('dropoff.schedule', stage) ? { ...base, steps: stepsFromRows(stageScheduleRows('dropoff.schedule', stage)) } : base;
+}
+
+async function processRow(r: AppDropoff, now: Date, out: AppDropoffTickResult, baseCfg: ScheduleConfig): Promise<void> {
+  const cfg = dropoffConfigFor(r.dropStatus, baseCfg);
   const loaded = await loadSnapshot(r.userId);
   const statusNow = loaded ? deriveDropoff(loaded.snapshot).status : null;
   const reason = dropoffStopReason({

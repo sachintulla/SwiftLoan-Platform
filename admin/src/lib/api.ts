@@ -236,7 +236,8 @@ export async function downloadFile(path: string, filename: string) {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try { const b = await res.json(); msg = b?.message || b?.error || msg; } catch { /* non-JSON error body */ }
-    if (res.status === 403) msg = msg === `HTTP 403` ? 'Exports are restricted to super_admin' : msg;
+    // Every download is an export, and exports need CAN_WRITE. The server's own 403 text names raw role keys, so say it in plain words.
+    if (res.status === 403) msg = 'Exports need an admin or super admin role';
     throw new ApiError(res.status, msg);
   }
   const blob = await res.blob();

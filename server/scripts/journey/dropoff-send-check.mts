@@ -26,11 +26,16 @@ import http from 'node:http';
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
   const port = (server.address() as { port: number }).port;
 
-  // ── configure the integration and switch drop-off sending ON (only here, in the throwaway database)
+  // ── configure the integration and switch drop-off sending ON (only here, in the throwaway database).
+  // The card's category is MARKETING; ONE template (the "already in the app, continue" one) has its own category, UTILITY.
+  const voxSettings = {
+    baseUrl: `http://127.0.0.1:${port}`, projectId: 'PRJTEST', sender: '917842712346', messageCategory: 'MARKETING',
+    dropoffMessages: { continue: { whatsapp: { noLink: { template: 'dropoff_continue_app', language: 'en', placeholders: ['{name}', '{step}'], category: 'UTILITY' } } } },
+  };
   await prisma.integrationConfig.upsert({
     where: { provider: 'voxvalley' },
-    update: { enabled: true, settings: { baseUrl: `http://127.0.0.1:${port}`, projectId: 'PRJTEST', sender: '917842712346' }, secrets: { authToken: 'test-token' } },
-    create: { provider: 'voxvalley', enabled: true, settings: { baseUrl: `http://127.0.0.1:${port}`, projectId: 'PRJTEST', sender: '917842712346' }, secrets: { authToken: 'test-token' } },
+    update: { enabled: true, settings: voxSettings, secrets: { authToken: 'test-token' } },
+    create: { provider: 'voxvalley', enabled: true, settings: voxSettings, secrets: { authToken: 'test-token' } },
   });
   const saved = await saveTimings({ 'dropoff.sendEnabled': true }, null);
   await refreshTimings();
@@ -93,11 +98,20 @@ import http from 'node:http';
   const ao = byTo(P.appOffers);
   check('already in the app, 2 offers → dropoff_apply_offers_app with just the name, NO link', ao?.template?.name === 'dropoff_apply_offers_app' && params(ao).length === 1 && params(ao)[0] === 'Arun' && !JSON.stringify(ao).includes('/dl?ref='), JSON.stringify(params(ao)));
 
+  check('a template with its own category sends THAT category (Utility), not the card default', app?.messageCategory === 'UTILITY', String(app?.messageCategory));
+  check('a template with no category of its own falls back to the card category (Marketing)', web?.messageCategory === 'MARKETING' && wo?.messageCategory === 'MARKETING' && ao?.messageCategory === 'MARKETING', JSON.stringify([web?.messageCategory, wo?.messageCategory, ao?.messageCategory]));
+
   const histOf = async (phone: string) => ((await prisma.appDropoff.findMany({ where: { phone } }))[0]?.history as any[]) ?? [];
   const no = await histOf(P.noOffers);
   check('"already registered" counts as no offers, and nothing is sent until its template is switched on', (await prisma.appDropoff.findFirst({ where: { phone: P.noOffers } }))?.dropStatus === 'rejected' && no[0]?.outcome === 'skipped' && no[0]?.reason === 'whatsapp template not configured', JSON.stringify(no[0]));
   const nt = await histOf(P.webNoToken);
   check('website user with no link to carry → skipped, never sent without it', nt.length === 0 || (nt[0]?.outcome === 'skipped'), JSON.stringify(nt[0] ?? 'not armed'));
+
+  // What each sent message records for Admin → WhatsApp → Sent messages: the filled-in values, language, category and what triggered it.
+  const rec = await prisma.messageDelivery.findFirst({ where: { kind: 'app_dropoff', phone: P.webPan } });
+  const meta = (rec?.meta ?? {}) as any;
+  check('a sent message records its values, language and category', JSON.stringify(meta.placeholders) === JSON.stringify(['Priya', 'Basic details', 'http://localhost:4000/dl?ref=TOKPAN1']) && meta.language === 'en' && meta.category === 'MARKETING', JSON.stringify(meta));
+  check('it also records what triggered it (job, step reached, since when, which message of the sequence)', meta.trigger?.by === 'Drop-off messages' && meta.trigger?.stage === 'Basic details' && !!meta.trigger?.since && /^Message 1 · /.test(meta.trigger?.step ?? ''), JSON.stringify(meta.trigger));
 
   const rows = await prisma.messageDelivery.count({ where: { kind: 'app_dropoff' } });
   check('each send is recorded for the Messages page (kind app_dropoff)', rows === 4, `rows ${rows}`);

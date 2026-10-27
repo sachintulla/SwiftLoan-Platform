@@ -1863,6 +1863,8 @@ model MessageDelivery {
   lastEventAt   DateTime?
   /// Every status callback received, newest last, capped: { at, status, raw status, code?, reason? }.
   events        Json      @default("[]")
+  /// What was sent and why: { language, category, placeholders[], trigger: { by, stage?, since?, step? } }. Null for sends recorded before this existed.
+  meta          Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

@@ -134,6 +134,8 @@ export interface TemplateRef {
   template?: string;
   language?: string;
   placeholders?: string[];
+  /** UTILITY | MARKETING | AUTHENTICATION, as Meta approved this template; blank = the card's category. */
+  category?: string;
 }
 export interface SmsRef {
   templateId?: string;
@@ -213,7 +215,7 @@ export function fillTokens(spec: readonly string[] | undefined, vars: Record<str
   return values;
 }
 
-export type ResolvedWhatsapp = { ok: true; template: string; language?: string; placeholders: string[] } | { ok: false; reason: string };
+export type ResolvedWhatsapp = { ok: true; template: string; language?: string; placeholders: string[]; category?: string } | { ok: false; reason: string };
 
 /** The template and its filled placeholders for one drop-off message, or why it cannot be sent. Pure. */
 export function resolveWhatsappMessage(
@@ -226,7 +228,7 @@ export function resolveWhatsappMessage(
   if (!ref) return { ok: false, reason: 'whatsapp template not configured' };
   const placeholders = fillTokens(ref.placeholders, vars);
   if (!placeholders) return { ok: false, reason: 'whatsapp placeholder missing' };
-  return { ok: true, template: ref.template!, language: ref.language, placeholders };
+  return { ok: true, template: ref.template!, language: ref.language, placeholders, category: ref.category };
 }
 
 /** The configured WhatsApp template for a message, in the right link variant; null when not set up yet. */

@@ -2,14 +2,19 @@
 // The single people list. "Leads" used to be a second list of the same humans;
 // Customer is the superset (every lead resolves to one, but a phone-in customer
 // never had a lead), so this is now the only list and /leads redirects here.
-import React, { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
-import { swrFetcher, downloadFile } from '@/lib/api';
+import { swrFetcher, downloadFile, getAdmin } from '@/lib/api';
 import { Card, Stat, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo, num, inrRupees } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
-import { PERIODS, computeRange, type Period } from '@/lib/period';
+import { PERIODS, computeRange } from '@/lib/period';
+import {
+  parseCustomerFilters, serialiseCustomerFilters, hasCustomerFilters, customerListQuery, customerExportQuery,
+  stalledOptionsFor, canExport, type CustomerFilters,
+} from '@/lib/customerFilters';
 
 const SOURCES = [
   { key: '', label: 'All sources' }, { key: 'website', label: 'Website' }, { key: 'campaign', label: 'Campaign' },
@@ -43,25 +48,39 @@ function initials(name?: string | null, phone?: string | null): string {
   return phone ? phone.slice(-2) : '?';
 }
 
+// useSearchParams needs a Suspense boundary or a production build fails on this
+// page; the real page is below.
 export default function CustomersPage() {
+  return (
+    <Suspense fallback={<div className="page"><div className="skeleton" style={{ height: 58 }} /></div>}>
+      <Customers />
+    </Suspense>
+  );
+}
+
+function Customers() {
   const router = useRouter();
-  const [stage, setStage] = useState('');
-  const [source, setSource] = useState('');
-  const [campaignId, setCampaignId] = useState('');
-  const [search, setSearch] = useState('');
-  const [period, setPeriod] = useState<Period>('all');
-  const [cFrom, setCFrom] = useState('');
-  const [cTo, setCTo] = useState('');
+  // Filters start from the address bar (stage, source, campaignId, search,
+  // stalledMinutes, period) and are written back to it as they change, so a
+  // filtered view survives a reload and /customers?stalledMinutes=60 (the old
+  // Onboarding page's redirect) lands on the inactive customers.
+  const searchParams = useSearchParams();
+  const [filters, setFilters] = useState<CustomerFilters>(() => parseCustomerFilters(searchParams));
   const [page, setPage] = useState(1);
+  const { stage, source, campaignId, search, stalledMinutes, period, from: cFrom, to: cTo } = filters;
+  const change = (patch: Partial<CustomerFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+
+  useEffect(() => {
+    const q = serialiseCustomerFilters(filters);
+    window.history.replaceState(null, '', q ? `?${q}` : window.location.pathname);
+  }, [filters]);
+
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => { setRole(getAdmin()?.role ?? null); }, []);
+  const mayExport = canExport(role);
 
   const range = useMemo(() => computeRange(period, cFrom, cTo), [period, cFrom, cTo]);
-  const qs = new URLSearchParams({
-    page: String(page), pageSize: '25',
-    ...(stage ? { stage } : {}), ...(source ? { source } : {}),
-    ...(campaignId ? { campaignId } : {}), ...(search ? { search } : {}),
-    ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}),
-  });
-  const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers?${qs.toString()}`, swrFetcher);
+  const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers?${customerListQuery(filters, range, page)}`, swrFetcher);
   const rows = asArray<CustomerRow>(data?.data);
   const pg = data?.pagination;
 
@@ -70,7 +89,7 @@ export default function CustomersPage() {
   const campaigns = asArray<{ id: string; name: string; code: string }>(campRes?.data);
   const campaignName = useMemo(() => new Map(campaigns.map((x) => [x.id, x.name])), [campaigns]);
 
-  const reset = () => { setStage(''); setSource(''); setCampaignId(''); setSearch(''); setPeriod('all'); setCFrom(''); setCTo(''); setPage(1); };
+  const reset = () => { setFilters(parseCustomerFilters('')); setPage(1); };
 
   // Page-scoped roll-ups — the labels say "of the N shown" so a total that only
   // covers this page is never read as a total across every customer.
@@ -78,17 +97,16 @@ export default function CustomersPage() {
   const requestedTotal = rows.reduce((sum, r) => sum + (r.loanAmount ?? 0), 0);
   const callsTotal = rows.reduce((sum, r) => sum + (r.callCount ?? 0), 0);
 
-  // CSV export mirrors the filters the table is showing (the endpoint supports
-  // stage / source / campaignId only — search and stalled stay UI-side).
+  // CSV export follows every filter the table is showing: stage, source,
+  // campaign, search, inactivity and the joined dates. Same builder as the list
+  // (lib/customerFilters.ts), minus paging.
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState('');
   async function exportCsv() {
     setExporting(true); setExportErr('');
     try {
-      const eq = new URLSearchParams({
-        ...(stage ? { stage } : {}), ...(source ? { source } : {}), ...(campaignId ? { campaignId } : {}),
-      });
-      const suffix = eq.toString() ? `?${eq.toString()}` : '';
+      const eq = customerExportQuery(filters, range);
+      const suffix = eq ? `?${eq}` : '';
       await downloadFile(`/api/admin/ops/export/customers.csv${suffix}`, `customers-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (e) {
       setExportErr((e as Error).message || 'Export failed');
@@ -97,7 +115,7 @@ export default function CustomersPage() {
     }
   }
 
-  const filtered = Boolean(stage || source || campaignId || search || period !== 'all');
+  const filtered = hasCustomerFilters(filters);
 
   return (
     <div className="page">
@@ -109,9 +127,19 @@ export default function CustomersPage() {
             how long they have been stuck and everything we have ever said to them.
           </p>
         </div>
-        <div className="row" style={{ gap: 10 }}>
-          {exportErr && <span style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
-          <button className="btn" disabled={exporting} onClick={exportCsv}>{exporting ? 'Exporting…' : 'Export CSV'}</button>
+        <div className="row wrap" style={{ gap: 10 }}>
+          {exportErr && <span role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
+          {!mayExport && role !== null && (
+            <span id="customers-export-note" className="muted" style={{ fontSize: 12 }}>Exports need an admin or super admin</span>
+          )}
+          <button
+            className="btn"
+            disabled={exporting || (role !== null && !mayExport)}
+            aria-describedby={!mayExport && role !== null ? 'customers-export-note' : undefined}
+            onClick={exportCsv}
+          >
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
         </div>
       </div>
 
@@ -137,45 +165,57 @@ export default function CustomersPage() {
         {/* Joined date-range filter */}
         <div style={{ marginBottom: 12 }}>
           <div className="muted" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Joined</div>
-          <FilterChips options={PERIODS} value={period} onChange={(v) => { setPeriod(v); setPage(1); }} />
+          <FilterChips options={PERIODS} value={period} onChange={(v) => change({ period: v })} />
           {period === 'custom' && (
             <div className="row wrap" style={{ gap: 12, marginTop: 10, alignItems: 'center' }}>
               <label className="muted" style={{ fontSize: 13 }}>From&nbsp;
-                <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => { setCFrom(e.target.value); setPage(1); }} className="input" />
+                <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => change({ from: e.target.value })} className="input" />
               </label>
               <label className="muted" style={{ fontSize: 13 }}>To&nbsp;
-                <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => { setCTo(e.target.value); setPage(1); }} className="input" />
+                <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => change({ to: e.target.value })} className="input" />
               </label>
             </div>
           )}
         </div>
 
-        {/* one toolbar: search first (what people reach for), then the three
+        {/* one toolbar: search first (what people reach for), then the
             narrowing filters, then a reset that only exists when it can do
-            something. The inactivity chips lived here and are gone. */}
+            something. "Inactive for" is the inactivity filter the old chips
+            offered; it takes the same stalledMinutes the API already supports. */}
         <div className="toolbar">
           <div className="toolbar-search">
-            <SearchBox value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="Search name, phone or email…" />
+            <SearchBox value={search} onChange={(v) => change({ search: v })} placeholder="Search name, phone or email…" />
           </div>
           <div style={{ width: 176 }}>
             <Select
               value={stage}
-              onChange={(v) => { setStage(v); setPage(1); }}
+              onChange={(v) => change({ stage: v })}
               options={[{ value: '', label: 'All stages' }, ...STAGES.map((x) => ({ value: x.key, label: x.label }))]}
             />
           </div>
           <div style={{ width: 150 }}>
             <Select
               value={source}
-              onChange={(v) => { setSource(v); setPage(1); }}
+              onChange={(v) => change({ source: v })}
               options={SOURCES.map((x) => ({ value: x.key, label: x.label }))}
             />
           </div>
           <div style={{ width: 176 }}>
             <Select
               value={campaignId}
-              onChange={(v) => { setCampaignId(v); setPage(1); }}
+              onChange={(v) => change({ campaignId: v })}
               options={[{ value: '', label: 'All campaigns' }, ...campaigns.map((x) => ({ value: x.id, label: x.name }))]}
+            />
+          </div>
+          <div style={{ width: 190 }}>
+            <Select
+              value={stalledMinutes}
+              onChange={(v) => change({ stalledMinutes: v })}
+              placeholder="Inactive for"
+              options={stalledOptionsFor(stalledMinutes).map((o) => ({
+                value: o.value,
+                label: o.value ? `Inactive for ${o.label}` : 'Inactive for: any time',
+              }))}
             />
           </div>
           {filtered && <button className="btn" onClick={reset}>Clear</button>}
@@ -214,7 +254,10 @@ export default function CustomersPage() {
                     <div className="row" style={{ gap: 10 }}>
                       <span className="avatar-sm" aria-hidden>{initials(c.name, c.phone)}</span>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600 }}>{c.name || <span className="muted">Unknown</span>}</div>
+                        {/* a real link, so the row can be reached and opened from the keyboard; the row click stays as a mouse shortcut */}
+                        <Link href={`/customers/${c.id}`} onClick={(e) => e.stopPropagation()} style={{ fontWeight: 600, color: 'inherit', textDecoration: 'none' }}>
+                          {c.name || <span className="muted">Unknown</span>}
+                        </Link>
                         <div className="muted" style={{ fontSize: 11.5 }}>
                           <span className="mono">{c.phone || 'no phone'}</span>
                           {' · '}

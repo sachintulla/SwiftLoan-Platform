@@ -1,140 +1,206 @@
 'use client';
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { Card, StatCard, StatusBadge, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { num, pct, dateTimeStr } from '@/lib/format';
-import { stageLabel } from '@/components/journey';
-import { DonutChart } from '@/components/charts';
+import { Card, Stat, Select, FilterChips, Pagination, TableSkeleton, Callout } from '@/components/ui';
+import { num } from '@/lib/format';
+import { useDebounced } from '@/lib/hooks';
+import { STAGES, stageLabel } from '@/components/journey';
 import AppBuilds from '@/components/AppBuilds';
+import InstallsTable from '@/components/installs/InstallsTable';
+import '@/components/installs/installs.css';
+import {
+  INSTALL_PERIODS, DEFAULT_INSTALL_PERIOD, EMPTY_INSTALL_FILTERS, computeInstallRange, rangeError, buildInstallsQuery, hasActiveFilters,
+  listState, emptyNoneText, percentOf, barWidth, sentByLabel, platformLabel, SENT_BY_OPTIONS, CHANNEL_OPTIONS, PLATFORM_OPTIONS,
+  type InstallPeriod, type InstallFilters, type InstallsPayload,
+} from '@/lib/installs';
 
-interface Row {
-  id: string; platform: string; source: string; campaignId?: string; referrer?: string | null;
-  matchMethod?: string | null; contextLoaded: boolean; installedAt: string;
-  userId?: string | null; userName?: string | null; userPhone?: string | null; stage?: string | null;
+const PAGE_SIZE = 20;
+const STAGE_OPTIONS = [{ value: '', label: 'Any stage' }, ...STAGES.map((s) => ({ value: s.key, label: s.label }))];
+
+function BarList({ title, rows }: { title: string; rows: { label: string; count: number }[] }) {
+  const max = Math.max(0, ...rows.map((r) => r.count));
+  return (
+    <div>
+      <h4>{title}</h4>
+      {rows.length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>No installs in this period.</p> : rows.map((r) => (
+        <div key={r.label} className="adm-inst-bar-row">
+          <span>{r.label}</span>
+          <div className="mini-bar" aria-hidden="true"><span style={{ width: `${barWidth(r.count, max)}%` }} /></div>
+          <span className="adm-inst-bar-count">{num(r.count)}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
-interface Payload {
-  rows: Row[];
-  bySource: { source: string; count: number }[];
-  byPlatform: { platform: string; count: number }[];
-  contextInstalls: number; organicInstalls: number;
-}
 
-type Period = 'today' | 'yesterday' | '7d' | '30d' | 'custom' | 'all';
-const PERIODS: { key: Period; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: '7d', label: 'Last 7 days' },
-  { key: '30d', label: 'Last 30 days' },
-  { key: 'custom', label: 'Date range' },
-  { key: 'all', label: 'All time' },
-];
-
-const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
-
-// Ranges are computed in the viewer's own timezone (so "Today" = the admin's
-// local/IST day) and sent to the API as ISO instants.
-function computeRange(period: Period, cFrom: string, cTo: string): { from?: string; to?: string } {
-  const now = new Date();
-  if (period === 'all') return {};
-  if (period === 'today') return { from: startOfDay(now).toISOString(), to: now.toISOString() };
-  if (period === 'yesterday') {
-    const s = startOfDay(now); const y = new Date(s); y.setDate(y.getDate() - 1);
-    return { from: y.toISOString(), to: s.toISOString() };
-  }
-  if (period === '7d') { const f = new Date(now); f.setDate(f.getDate() - 7); return { from: f.toISOString(), to: now.toISOString() }; }
-  if (period === '30d') { const f = new Date(now); f.setDate(f.getDate() - 30); return { from: f.toISOString(), to: now.toISOString() }; }
-  // custom
-  const out: { from?: string; to?: string } = {};
-  if (cFrom) out.from = new Date(`${cFrom}T00:00:00`).toISOString();
-  if (cTo) out.to = new Date(`${cTo}T23:59:59.999`).toISOString();
-  return out;
+function FilterSelect({ id, label, value, onChange, options }: {
+  id: string; label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="adm-inst-field" role="group" aria-labelledby={id}>
+      <span id={id} className="adm-inst-label">{label}</span>
+      <Select value={value} onChange={onChange} options={options} />
+    </div>
+  );
 }
 
 export default function DownloadsPage() {
   const [page, setPage] = useState(1);
-  const [period, setPeriod] = useState<Period>('today');
+  const [period, setPeriod] = useState<InstallPeriod>(DEFAULT_INSTALL_PERIOD);
   const [cFrom, setCFrom] = useState('');
   const [cTo, setCTo] = useState('');
+  const [filters, setFilters] = useState<InstallFilters>(EMPTY_INSTALL_FILTERS);
+  // The box shows what is typed; the request waits for a short pause so it is not sent on every keystroke.
+  const [searchText, setSearchText] = useState('');
+  const search = useDebounced(searchText, 300);
 
-  const range = useMemo(() => computeRange(period, cFrom, cTo), [period, cFrom, cTo]);
-  const qs = useMemo(() => {
-    const p = new URLSearchParams({ page: String(page), pageSize: '20' });
-    if (range.from) p.set('from', range.from);
-    if (range.to) p.set('to', range.to);
-    return p.toString();
-  }, [page, range]);
+  useEffect(() => {
+    setFilters((f) => (f.search === search ? f : { ...f, search }));
+    setPage(1);
+  }, [search]);
 
-  const { data, isLoading } = useSWR(`/api/admin/downloads?${qs}`, swrFetcher);
-  const p = data?.data as Payload | undefined;
+  const dateError = period === 'custom' ? rangeError(cFrom, cTo) : null;
+  const range = useMemo(() => computeInstallRange(period, cFrom, cTo), [period, cFrom, cTo]);
+  const qs = useMemo(() => buildInstallsQuery(filters, range, page, PAGE_SIZE), [filters, range, page]);
+
+  const { data, error, isLoading, mutate } = useSWR(dateError ? null : `/api/admin/installs?${qs}`, swrFetcher, {
+    keepPreviousData: true,
+    refreshInterval: 60_000,
+  });
+  const p = data?.data as InstallsPayload | undefined;
   const pg = data?.pagination;
-  const total = (p?.contextInstalls ?? 0) + (p?.organicInstalls ?? 0);
-  const contextPct = total ? Math.round(((p?.contextInstalls ?? 0) / total) * 100) : 0;
-  const onPeriod = (v: Period) => { setPeriod(v); setPage(1); };
+  const active = hasActiveFilters(filters) || !!searchText.trim();
+  const state = listState({ loading: isLoading, error, total: pg?.total ?? 0, filtersActive: active });
+
+  const setFilter = (patch: Partial<InstallFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const onPeriod = (v: InstallPeriod) => { setPeriod(v); setPage(1); };
+  const clearFilters = () => { setSearchText(''); setFilters(EMPTY_INSTALL_FILTERS); setPage(1); };
+
+  const stats = p?.stats;
+  const periodLabel = INSTALL_PERIODS.find((x) => x.key === period)?.label.toLowerCase() ?? 'this period';
+  const pctFoot = (n: number) => (stats ? `${percentOf(n, stats.total)}% of installs` : undefined);
 
   return (
     <div className="page">
-      <h1 className="page-title">App Downloads &amp; Attribution</h1>
-      <p className="page-sub">Who installed the app today, yesterday or in a date range — with each customer&rsquo;s current stage.</p>
+      <h1 className="page-title">App Downloads</h1>
+      <p className="page-sub">Who installed the app, the details we sent with the link, and what to do next.</p>
 
-      <div style={{ marginTop: 16 }}><AppBuilds /></div>
-
-      {/* Period filter */}
-      <Card title="Installs by period">
-        <FilterChips options={PERIODS} value={period} onChange={onPeriod} />
-        {period === 'custom' && (
-          <div className="row wrap" style={{ gap: 12, marginTop: 12, alignItems: 'center' }}>
-            <label className="muted" style={{ fontSize: 13 }}>From&nbsp;
-              <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => { setCFrom(e.target.value); setPage(1); }} className="input" />
-            </label>
-            <label className="muted" style={{ fontSize: 13 }}>To&nbsp;
-              <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => { setCTo(e.target.value); setPage(1); }} className="input" />
-            </label>
+      <div className="adm-inst-stack">
+        <Card>
+          <div className="stat-strip adm-inst-stat-wrap">
+            <Stat label="Installs" value={stats ? num(stats.total) : '-'} foot={`In ${periodLabel}`} />
+            <Stat label="With customer details" value={stats ? num(stats.withContext) : '-'} foot={pctFoot(stats?.withContext ?? 0)} />
+            <Stat label="Without details" value={stats ? num(stats.withoutContext) : '-'} foot={pctFoot(stats?.withoutContext ?? 0)} />
+            <Stat label="Reached the next step since install" value={stats ? num(stats.reachedNextStep) : '-'} foot={pctFoot(stats?.reachedNextStep ?? 0)} />
+            <Stat label="Not signed in yet" value={stats ? num(stats.notSignedIn) : '-'} foot={pctFoot(stats?.notSignedIn ?? 0)} />
           </div>
+        </Card>
+
+        <Card>
+          <div className="adm-inst-filters">
+            <div role="group" aria-label="Period">
+              <FilterChips options={INSTALL_PERIODS} value={period} onChange={onPeriod} />
+            </div>
+
+            {period === 'custom' && (
+              <div>
+                <div className="adm-inst-dates">
+                  <div className="adm-inst-field">
+                    <label htmlFor="adm-inst-from">From</label>
+                    <input id="adm-inst-from" type="date" className="input" value={cFrom} max={cTo || undefined}
+                      aria-invalid={!!dateError} aria-describedby={dateError ? 'adm-inst-date-err' : undefined}
+                      onChange={(e) => { setCFrom(e.target.value); setPage(1); }} />
+                  </div>
+                  <div className="adm-inst-field">
+                    <label htmlFor="adm-inst-to">To</label>
+                    <input id="adm-inst-to" type="date" className="input" value={cTo} min={cFrom || undefined}
+                      aria-invalid={!!dateError} aria-describedby={dateError ? 'adm-inst-date-err' : undefined}
+                      onChange={(e) => { setCTo(e.target.value); setPage(1); }} />
+                  </div>
+                </div>
+                {dateError && <p id="adm-inst-date-err" className="adm-inst-err" role="alert" style={{ marginTop: 6 }}>{dateError}</p>}
+              </div>
+            )}
+
+            <div className="toolbar">
+              <div className="adm-inst-field toolbar-search" style={{ flex: '1 1 240px' }}>
+                <label htmlFor="adm-inst-search">Search</label>
+                <input id="adm-inst-search" type="search" className="input" value={searchText} placeholder="Search by name or mobile"
+                  onChange={(e) => setSearchText(e.target.value)} autoComplete="off" />
+              </div>
+              <FilterSelect id="adm-inst-stage" label="Stage" value={filters.stage} onChange={(v) => setFilter({ stage: v })} options={STAGE_OPTIONS} />
+              <FilterSelect id="adm-inst-by" label="Sent by" value={filters.sentBy} onChange={(v) => setFilter({ sentBy: v })} options={SENT_BY_OPTIONS} />
+              <FilterSelect id="adm-inst-channel" label="Channel" value={filters.channel} onChange={(v) => setFilter({ channel: v })} options={CHANNEL_OPTIONS} />
+              <FilterSelect id="adm-inst-platform" label="Platform" value={filters.platform} onChange={(v) => setFilter({ platform: v })} options={PLATFORM_OPTIONS} />
+            </div>
+
+            <div className="row wrap" style={{ gap: 16 }}>
+              <label className="adm-inst-check">
+                <input type="checkbox" checked={filters.followUp} onChange={(e) => setFilter({ followUp: e.target.checked })} />
+                Only installs that have not moved on yet
+              </label>
+              {active && <button type="button" className="btn" onClick={clearFilters}>Clear filters</button>}
+            </div>
+          </div>
+        </Card>
+
+        {p?.truncated && (
+          <Callout tone="amber">Showing the newest 2,000 installs in this period. Choose a shorter period to see the rest.</Callout>
         )}
-      </Card>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', marginTop: 16 }}>
-        <StatCard label="Installs (selected)" value={num(total)} icon="⭳" tone="blue" />
-        <StatCard label="Context Installs" value={num(p?.contextInstalls)} icon="◉" tone="teal" foot={`${pct(contextPct)} of installs`} />
-        <StatCard label="Organic Installs" value={num(p?.organicInstalls)} icon="○" tone="grey" />
+        <Card title="Installs">
+          {dateError ? (
+            <div className="empty-state"><p>Fix the date range above to see installs.</p></div>
+          ) : (
+            <>
+              {state === 'loaded' && pg && (
+                <p className="adm-inst-result" aria-live="polite">
+                  {active
+                    ? `${num(pg.total)} ${pg.total === 1 ? 'install matches' : 'installs match'} these filters.`
+                    : `${num(pg.total)} ${pg.total === 1 ? 'install' : 'installs'} in ${periodLabel}.`}
+                </p>
+              )}
+              {state === 'loading' && <div aria-busy="true"><TableSkeleton rows={8} cols={6} /></div>}
+              {state === 'error' && (
+                <div className="empty-state" role="alert">
+                  <h3>Could not load installs</h3>
+                  <p>{(error as Error)?.message || 'Something went wrong.'}</p>
+                  <button type="button" className="btn" onClick={() => { void mutate(); }}>Retry</button>
+                </div>
+              )}
+              {state === 'empty_filtered' && (
+                <div className="empty-state">
+                  <h3>No installs match these filters.</h3>
+                  <p>Try a longer period or remove a filter.</p>
+                  <button type="button" className="btn" onClick={clearFilters}>Clear filters</button>
+                </div>
+              )}
+              {state === 'empty_none' && (
+                <div className="empty-state"><h3>{emptyNoneText(period)}</h3></div>
+              )}
+              {state === 'loaded' && p && (
+                <InstallsTable rows={p.rows} stageName={stageLabel} onChanged={() => { void mutate(); }} />
+              )}
+              {pg && state === 'loaded' && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={setPage} />}
+            </>
+          )}
+        </Card>
+
+        <Card title="Where installs came from" sub={`Every install in ${periodLabel}, before the filters above.`}>
+          {p ? (
+            <div className="adm-inst-bars">
+              <BarList title="How the link reached them" rows={p.bySource.map((s) => ({ label: sentByLabel(s.source), count: s.count }))} />
+              <BarList title="Platform" rows={p.byPlatform.map((s) => ({ label: platformLabel(s.platform), count: s.count }))} />
+            </div>
+          ) : error ? <p className="muted" style={{ margin: 0 }}>Not available while installs cannot be loaded.</p> : <TableSkeleton rows={4} cols={2} />}
+        </Card>
+
+        <details className="so-guide adm-inst-guide">
+          <summary>Share the app: download links and link generator</summary>
+          <div><AppBuilds /></div>
+        </details>
       </div>
-
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16, alignItems: 'start' }}>
-        <Card title="By source">{p ? <DonutChart data={p.bySource} nameKey="source" valueKey="count" /> : <TableSkeleton rows={4} cols={2} />}</Card>
-        <Card title="By platform">{p ? <DonutChart data={p.byPlatform} nameKey="platform" valueKey="count" /> : <TableSkeleton rows={2} cols={2} />}</Card>
-      </div>
-
-      <Card title="Installs">
-        {isLoading ? <TableSkeleton /> : !p || p.rows.length === 0 ? <Empty label="No installs in this period" /> : (
-          <div className="table-wrap"><table className="data">
-            <thead><tr>
-              <th>Customer</th><th>Current stage</th><th>Platform</th><th>Source</th><th>Campaign</th><th>Matched by</th><th>Context</th><th>Installed</th>
-            </tr></thead>
-            <tbody>{p.rows.map((r) => (
-              <tr key={r.id}>
-                <td>
-                  {r.userId ? (
-                    <Link href={`/users/${r.userId}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                      <div style={{ fontWeight: 600 }}>{r.userName || 'Unnamed user'}</div>
-                      {r.userPhone && <div className="mono muted" style={{ fontSize: 12 }}>{r.userPhone}</div>}
-                    </Link>
-                  ) : <span className="muted">Not matched</span>}
-                </td>
-                <td>{r.stage ? <StatusBadge status={r.stage} label={stageLabel(r.stage)} /> : <span className="muted">—</span>}</td>
-                <td style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.platform}</td>
-                <td><span className="badge tone-grey">{r.source}</span></td>
-                <td className="mono muted">{r.campaignId || '—'}</td>
-                <td className="muted">{r.matchMethod ? r.matchMethod.replace('_', ' ') : '—'}</td>
-                <td>{r.contextLoaded ? <StatusBadge status="converted" label="Context" /> : <StatusBadge status="not_started" label="Organic" />}</td>
-                <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTimeStr(r.installedAt)}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
-        )}
-        {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={setPage} />}
-      </Card>
     </div>
   );
 }

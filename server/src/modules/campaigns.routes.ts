@@ -155,6 +155,40 @@ async function uniqueCode(base: string): Promise<string> {
   return `${base}-${Date.now().toString(36)}`;
 }
 
+/**
+ * Create a campaign in draft. Nothing is dialled until someone starts it.
+ *
+ * Shared by POST / (the campaign form) and the "start a campaign from this list"
+ * action in adminListActions.routes.ts. A P2002 (code already taken) is left to
+ * the caller, which decides how to report it.
+ */
+export async function createDraftCampaign(input: {
+  name: string;
+  /** Attribution code. Generated from the name when omitted. */
+  code?: string;
+  concurrency?: number;
+  assistantId?: string | null;
+  note?: string | null;
+  createdBy?: string | null;
+  /** Already-mapped schedule fields (see scheduleData). */
+  schedule?: Record<string, any>;
+}) {
+  const code = input.code ?? (await uniqueCode(slugifyCode(input.name)));
+  const campaign = await prisma.campaign.create({
+    data: {
+      name: input.name,
+      code,
+      concurrency: input.concurrency ?? 1,
+      assistantId: input.assistantId ?? null,
+      note: input.note ?? null,
+      createdBy: input.createdBy ?? null,
+      ...(input.schedule ?? {}),
+    },
+  });
+  log.info('campaign created', { id: campaign.id, name: campaign.name, code: campaign.code, createdBy: input.createdBy ?? null });
+  return campaign;
+}
+
 /** Map validated body fields onto Prisma data, omitting anything not supplied. */
 function scheduleData(b: Record<string, any>) {
   const d: Record<string, any> = {};
@@ -245,18 +279,15 @@ campaignsRouter.post('/', requireRole(...CAN_WRITE),
     const code = b.code ?? (await uniqueCode(slugifyCode(b.name)));
 
     try {
-      const campaign = await prisma.campaign.create({
-        data: {
-          name: b.name,
-          code,
-          concurrency: b.concurrency ?? 1,
-          assistantId: b.assistantId ?? null,
-          note: b.note ?? null,
-          createdBy: req.admin?.sub ?? null,
-          ...scheduleData(b),
-        },
+      const campaign = await createDraftCampaign({
+        name: b.name,
+        code,
+        concurrency: b.concurrency,
+        assistantId: b.assistantId,
+        note: b.note,
+        createdBy: req.admin?.sub ?? null,
+        schedule: scheduleData(b),
       });
-      log.info('campaign created', { id: campaign.id, name: campaign.name, code: campaign.code, createdBy: req.admin?.sub ?? null });
       return created(res, campaign, 'Campaign created');
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -509,7 +540,7 @@ function parseAmount(v: unknown): number | null {
 }
 
 // POST /api/admin/campaigns/:id/contacts/upload  (multipart, field name "file")
-campaignsRouter.post('/:id/contacts/upload', upload.single('file'), ah(async (req, res) => {
+campaignsRouter.post('/:id/contacts/upload', requireRole(...CAN_WRITE), upload.single('file'), ah(async (req, res) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
   if (!campaign) return fail(res, 404, 'Campaign not found');
 

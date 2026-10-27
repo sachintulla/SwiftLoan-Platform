@@ -149,3 +149,10 @@ Built the call that the "no offers" message promises. It reuses the existing Ell
 test-number list. Own switch `dropoff.noOffersCallEnabled` (off by default: it only records "would call"). One call per person, 45 minutes after they got no offers, in calling hours.
 The agent is told `already_registered` or `no_match` (never the lender's wording). Checked end to end against a fake Ello server (`dropoff-call-check.mts`, 18 checks).
 **Before switching on:** paste prompt branch G into Ello, set the call test-number list, then reword the WhatsApp message to say the SwiftLoan assistant will call.
+
+## 13. WhatsApp admin page (27 Oct 2026)
+
+Admin → Configs → WhatsApp (Vox) now lists every WhatsApp message (templates, variables, category, on/off, sending or log-only) and edits them in place, with a Connection tab and a
+Send-a-test tab. Category is per template. Drop-off templates can be changed (for example to the Utility ones once Meta approves them) without a deploy. See `CLAUDE.md`.
+
+Update: the Templates tab is the team's own template library (add, edit, remove by hand; nothing is pulled from Vox because its Templates API rejects our token). Messages can pick from it.

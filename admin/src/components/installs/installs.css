@@ -1,0 +1,87 @@
+/* App Downloads page. Prefix adm-inst-. Tokens come from globals.css. */
+
+.adm-inst-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+.adm-inst-stack { display: grid; gap: 16px; margin-top: 16px; }
+
+/* filter toolbar */
+.adm-inst-filters { display: grid; gap: 12px; }
+.adm-inst-filters .toolbar { margin-bottom: 0; }
+.adm-inst-field { display: flex; flex-direction: column; gap: 4px; min-width: 150px; flex: 0 1 180px; }
+.adm-inst-field > label, .adm-inst-label { font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+.adm-inst-dates { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.adm-inst-dates .adm-inst-field { flex: 0 1 170px; }
+.adm-inst-err { color: #b42318; font-size: 12.5px; margin: 0; }
+.adm-inst-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; min-height: 36px; cursor: pointer; }
+.adm-inst-check input { width: 18px; height: 18px; accent-color: var(--brand); }
+.adm-inst-result { font-size: 12.5px; color: var(--text-dim); margin: 0 0 10px; }
+
+/* table */
+.adm-inst-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.adm-inst-table th {
+  text-align: left; color: var(--text-dim); font-weight: 600; font-size: 11.5px; text-transform: uppercase;
+  letter-spacing: .04em; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2);
+}
+.adm-inst-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.adm-inst-table tbody tr.adm-inst-row:hover { background: var(--surface-2); cursor: pointer; }
+.adm-inst-table tr.adm-inst-open { background: var(--surface-2); }
+.adm-inst-table tr.adm-inst-open td { border-bottom-color: transparent; }
+
+.adm-inst-cust { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.adm-inst-name { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+a.adm-inst-name:hover { color: var(--brand); text-decoration: underline; }
+.adm-inst-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+.adm-inst-sub.mono { font-size: 12px; }
+.adm-inst-note { font-size: 11.5px; color: var(--text-dim); margin-top: 4px; }
+.adm-inst-time { white-space: nowrap; }
+
+.adm-inst-chevron {
+  flex: none; width: 28px; height: 28px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
+  display: inline-grid; place-items: center; color: var(--text-dim); padding: 0;
+}
+.adm-inst-chevron:hover { color: var(--text); border-color: #c5ccd6; }
+.adm-inst-chevron svg { width: 14px; height: 14px; transition: transform .15s; }
+.adm-inst-chevron[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+.adm-inst-next { min-width: 170px; }
+
+/* expanded detail */
+.adm-inst-detail td { padding: 4px 12px 18px 52px; background: var(--surface-2); }
+.adm-inst-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 28px; }
+.adm-inst-detail-grid .fact-row { grid-template-columns: minmax(96px, 38%) 1fr; }
+.adm-inst-detail h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); }
+
+/* where installs came from */
+.adm-inst-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px 40px; }
+.adm-inst-bar-row { display: grid; grid-template-columns: minmax(110px, 38%) 1fr 44px; align-items: center; gap: 12px; padding: 5px 0; font-size: 13px; }
+.adm-inst-bar-row .mini-bar { height: 8px; }
+.adm-inst-bar-count { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.adm-inst-bars h4 { margin: 0 0 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); }
+
+.adm-inst-stat-wrap .stat-cell-foot { color: var(--text-dim); }
+
+.adm-inst-guide { margin-top: 18px; }
+.adm-inst-guide > div { margin-top: 12px; }
+
+/* phone and small tablet: each row becomes a card */
+@media (max-width: 700px) {
+  .adm-inst-table, .adm-inst-table tbody { display: block; }
+  .adm-inst-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .adm-inst-table tr.adm-inst-row {
+    display: grid; gap: 8px; padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+  }
+  .adm-inst-table tr.adm-inst-row td { display: block; padding: 0; border: 0; }
+  .adm-inst-table td[data-label]:not(:first-child)::before {
+    content: attr(data-label); display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 2px;
+  }
+  .adm-inst-table tr.adm-inst-detail { display: block; margin: -4px 0 10px; border: 1px solid var(--border); border-radius: 12px; }
+  .adm-inst-table tr.adm-inst-detail td { display: block; padding: 12px; border: 0; }
+  .adm-inst-table tr.adm-inst-open { background: var(--surface); }
+  .adm-inst-field, .adm-inst-dates .adm-inst-field { flex: 1 1 100%; }
+  .adm-inst-bar-row { grid-template-columns: minmax(90px, 36%) 1fr 36px; }
+}
+.adm-inst-detail .fact-value.is-empty { color: var(--text-dim); }

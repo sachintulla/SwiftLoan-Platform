@@ -99,6 +99,15 @@ This tool is the only source of a trustworthy outcome.
 | `employment` | string | no | `salaried or self_employed, only if stated` |
 | `preferred_channel` | string | no | `whatsapp, sms or email` |
 | `callback_at` | string | no | `ISO 8601 timestamp, only if they asked to be called back. Must be in the future.` |
+| `customer_summary` | string | no | `Two short sentences for the CUSTOMER to read on WhatsApp, in the second person: what you discussed, e.g. "We talked about a Rs 3 lakh personal loan and your offers." Plain text, no line breaks. Leave out if nothing useful was discussed.` |
+| `action_plan` | string | no | `One short sentence on what happens next, e.g. "Open the SwiftLoan app tonight to pick an offer." If omitted, a standard next step is used.` |
+
+> **WhatsApp recap.** When "After every conversation" is switched on in Configs →
+> Stage outreach, the customer gets a WhatsApp built from `customer_summary` and
+> `action_plan`. `summary` (written for colleagues) is never sent, and if
+> `customer_summary` is missing nothing is sent. Nothing goes out after
+> `not_interested`, `do_not_call`, `wrong_number`, `voicemail` or `unreachable`.
+> The in-app and website agents send the same two fields to `save_conversation`.
 
 **Messages:** none. This is bookkeeping — the customer should hear nothing.
 
