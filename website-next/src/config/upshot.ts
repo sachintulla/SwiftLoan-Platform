@@ -42,3 +42,10 @@ export const UPSHOT_SDK_URL =
  * own init response (`endPoints`), so an Indian account is routed without help.
  */
 export const UPSHOT_DATA_REGION = process.env.NEXT_PUBLIC_UPSHOT_DATA_REGION || '';
+
+/**
+ * Web push switch. Off until the Upshot web app has its Firebase sender id / key saved (Push Settings > Web)
+ * and `public/upshot-service-worker.js` is Upshot's own file. Turning it on makes the site ask visitors for
+ * notification permission at the OTP steps (`lib/webPush.ts`).
+ */
+export const UPSHOT_WEB_PUSH_ENABLED = process.env.NEXT_PUBLIC_UPSHOT_WEB_PUSH === 'true';

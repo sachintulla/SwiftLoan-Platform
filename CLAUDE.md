@@ -667,3 +667,15 @@ real sending (templates await Meta / Vox delivery), admin view, retiring the ove
 - `hasActiveInstallReminder` (stuck-stage SMS/WhatsApp stand-down) counts an active drop-off run only while `dropoff.sendEnabled` is on, so log-only never silences them.
 - Tests: `lib/dropoffSteps.test.ts` (pure rules, defaults, merge) and `cd server && bash scripts/journey/run-dropoff.sh` (throwaway DB, nothing real sent): `dropoff-check.mts` (13 log-only job checks) then `dropoff-send-check.mts` (the REAL send path against a fake local Vox server: exact template, placeholder order, link rule), then `dropoff-call-check.mts` (the no-offers call against a fake local Ello server: switches, test list, once per person, quiet gap, calling hours, no "duplicate" wording).
   Known and pre-existing: `scripts/journey/run.sh` ends with a lender-partner foreign-key message after all 155 checks pass (same on the untouched code).
+
+---
+
+## Website web push (Upshot token for the website)
+
+Built, **off by default** (`NEXT_PUBLIC_UPSHOT_WEB_PUSH=true` turns it on). `lib/webPush.ts` calls `upshot.subscribePush()` at two moments:
+the "Send OTP" tap (`apply/page.tsx`, before) and OTP accepted (`apply/verify/page.tsx`, after). The browser prompts only while permission is
+undecided, so the second ask only reaches a visitor who dismissed the first; Allow/Block are never asked twice. `init` keeps `subscribePush:false`
+(true = prompt on first page load). The SDK registers `./upshot-service-worker.js` relative to the CURRENT page, so `next.config.js` serves
+`public/upshot-service-worker.js` from every path. **Before enabling:** save the Firebase sender id / key in Upshot (Push Settings > Web) and replace
+that file (a minimal placeholder that shows notifications but reports nothing to Upshot) with Upshot's own; the docs also list `config.js` (gcmAPIKey)
+and `manifest.json` (gcm_sender_id) at the site root. Safari on iPhone only allows web push for a site added to the Home Screen. Not tested in a browser.
