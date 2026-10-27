@@ -686,3 +686,14 @@ undecided, so the second ask only reaches a visitor who dismissed the first; All
 `public/upshot-service-worker.js` from every path. **Before enabling:** save the Firebase sender id / key in Upshot (Push Settings > Web) and replace
 that file (a minimal placeholder that shows notifications but reports nothing to Upshot) with Upshot's own; the docs also list `config.js` (gcmAPIKey)
 and `manifest.json` (gcm_sender_id) at the site root. Safari on iPhone only allows web push for a site added to the Home Screen. Not tested in a browser.
+
+---
+
+## Stage outreach: one timeline per stage (screens only)
+
+Configs → Stage outreach shows, for each journey stage, ONE time-ordered list: the stuck-stage rules plus the steps of the message jobs that run at that
+stage (website reminders, drop-off messages, "you applied", the no-offers call). `admin/src/lib/stageSequences.ts` (pure, tested) says which jobs belong to
+which stage; `components/StageTimeline.tsx` renders and edits them (saves through the same `/api/admin/timings`). **The sending jobs are unchanged**: it is
+only where the settings are edited. Schedules, their rules (gap / how late / how old / idle) and the no-offers call delay are edited on the stage and are hidden
+from the Timings page (`isStageTimingKey`); Timings keeps what applies to every stage (`*.sendEnabled`, test list, calling hours, call limits, login times, limits).
+A rule and a job both live within 15 min of each other on one stage shows a "Close together" warning (the two systems do not know about each other).

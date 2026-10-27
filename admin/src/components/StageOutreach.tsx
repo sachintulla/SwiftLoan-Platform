@@ -16,9 +16,8 @@ import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui';
 import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '@/lib/eventEditor';
 import { laterEvents } from '@/lib/eventLabels';
-import StageSequence from '@/components/StageSequence';
-
-type Channel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
+import StageTimeline from '@/components/StageTimeline';
+import { CHANNEL_LABEL, Icon, duration, tone, type Channel } from '@/components/stageOutreachUi';
 
 interface Activity {
   ruleId: string;
@@ -61,34 +60,7 @@ interface Overview {
 
 const KEY = '/api/admin/stage-outreach';
 const CHANNELS: Channel[] = ['whatsapp', 'sms', 'email', 'voice', 'push'];
-const CHANNEL_LABEL: Record<Channel, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', voice: 'Call (Ello)', push: 'Push notification' };
 const DEFAULT_DELAY: Record<Channel, number> = { whatsapp: 30, sms: 30, email: 30, voice: 60, push: 20 };
-
-const ICON_PATHS: Record<Channel, string[]> = {
-  whatsapp: ['M21 11.5a8.4 8.4 0 0 1-1.1 4.2A8.5 8.5 0 0 1 8.4 19.5L3 21l1.6-5.1A8.5 8.5 0 1 1 21 11.5z'],
-  sms: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
-  email: ['M3 5h18v14H3z', 'M3 7l9 6 9-6'],
-  voice: ['M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z'],
-  push: ['M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9', 'M13.7 21a2 2 0 0 1-3.4 0'],
-};
-
-function Icon({ channel }: { channel: Channel }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {ICON_PATHS[channel].map((d) => <path key={d} d={d} />)}
-    </svg>
-  );
-}
-
-const tone = (c: Channel) => ({ color: `var(--so-${c === 'voice' ? 'voice' : c})`, background: `var(--so-${c}-bg)` });
-
-function duration(mins: number): string {
-  if (!mins || mins < 1) return 'now';
-  if (mins < 60) return `${mins} min`;
-  if (mins % 1440 === 0) { const d = mins / 1440; return `${d} day${d === 1 ? '' : 's'}`; }
-  if (mins % 60 === 0) { const h = mins / 60; return `${h} hr`; }
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
-}
 
 function errText(e: unknown): string {
   return e instanceof ApiError || e instanceof Error ? e.message : 'Could not save';
@@ -374,25 +346,17 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMo
       <div className="so-panel-body">
         <div className="so-section">What the customer gets after they stop here</div>
 
-        {steps.length === 0 ? (
-          <div className="so-empty">Nothing is set up for this stage yet. Add a follow-up below.</div>
-        ) : (
-          <div className="so-tl">
-            <div className="so-step">
-              <div className="so-when">0 min</div>
-              <div className="so-node origin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="3" /></svg></div>
-              <div className="so-origin-text">The customer stops here</div>
-            </div>
-            {steps.map((a) => (
-              <Step key={a.ruleId} stageKey={stage.key} a={a} ov={ov} open={openRule === a.ruleId}
-                onToggleOpen={() => setOpenRule(openRule === a.ruleId ? null : a.ruleId)} onChanged={onChanged} />
-            ))}
-          </div>
-        )}
+        <StageTimeline
+          stageKey={stage.key}
+          stages={ov.stages.map((x) => ({ key: x.key, label: x.label }))}
+          rules={steps.map((a) => ({
+            key: a.ruleId, afterMinutes: a.delayMinutes, enabled: a.enabled, channel: a.channel, label: CHANNEL_LABEL[a.channel],
+            node: <Step key={a.ruleId} stageKey={stage.key} a={a} ov={ov} open={openRule === a.ruleId} onToggleOpen={() => setOpenRule(openRule === a.ruleId ? null : a.ruleId)} onChanged={onChanged} />,
+          }))}
+        />
 
         <AddRow stage={stage} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
 
-        <StageSequence stageKey={stage.key} stages={ov.stages.map((x) => ({ key: x.key, label: x.label }))} />
       </div>
       )}
     </section>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui';
 import { Control } from '@/components/timings/TimingControls';
+import { isStageTimingKey } from '@/lib/stageSequences';
 import {
   localError, same, show, sensitive, spanText, toDraft, toValue,
   type Draft, type Item, type Kind, type SchedRow, type Source, type UiRow, type TimeUnit,
@@ -14,11 +15,11 @@ import {
  * come from the server (GET /api/admin/timings); this page only knows how to edit each kind of value. Confirmations use
  * the admin's own dialog, never the browser's. */
 
-interface Tab { id: string; title: string; groups: string[]; intro: string; sections?: Array<{ title: string; keys: string[] }> }
+interface Tab { id: string; title: string; groups: string[]; intro: string; sections?: Array<{ title: string; keys: string[] }>; /** Some of this tab's settings now live on the stages (Stage outreach). */ moved?: boolean }
 const TABS: Tab[] = [
   {
-    id: 'reminders', title: 'Install reminders', groups: ['install', 'website'],
-    intro: 'When someone leaves the website part-way, or has applied to a lender, how and when we bring them to the app.',
+    id: 'reminders', title: 'Install reminders', groups: ['install', 'website'], moved: true,
+    intro: 'The switches and test list for the website reminders, drop-off messages and "you applied" messages, and the background jobs behind them.',
     sections: [
       { title: 'Sending', keys: ['install.sendEnabled', 'install.allowedNumbers'] },
       { title: 'When to remind', keys: ['install.idleMinutes', 'install.schedule', 'install.minGapMinutes', 'install.maxLateHours', 'install.maxCycles'] },
@@ -28,7 +29,7 @@ const TABS: Tab[] = [
     ],
   },
   { id: 'hours', title: 'Calling hours', groups: ['hours'], intro: 'One window, in India time, shared by the reminders, the stuck-stage nudges and every automatic call.' },
-  { id: 'calls', title: 'Lead calls', groups: ['calls'], intro: 'The automatic call that follows a website lead who agreed to be called.' },
+  { id: 'calls', title: 'Lead calls', groups: ['calls'], moved: true, intro: 'The switches and limits for automatic calls (the website-lead call and the no-offers call).' },
   { id: 'auth', title: 'Login & sessions', groups: ['auth'], intro: 'Security settings. New codes and new logins use the new values; people already signed in keep their current session.' },
   { id: 'tracking', title: 'Tracking & limits', groups: ['tracking'], intro: 'How long install links, offers and referrals stay valid, and the per-person limits.' },
 ];
@@ -123,10 +124,11 @@ export default function TimingsPage() {
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
 
   function sectionsOf(t: Tab): Array<{ title: string | null; items: Item[] }> {
-    const all = (payload?.items ?? []).filter((i) => t.groups.includes(i.group));
+    // Timing that belongs to one stage (schedules, the rules around them, the no-offers call wait) is edited on Stage outreach, not here.
+    const all = (payload?.items ?? []).filter((i) => t.groups.includes(i.group) && !isStageTimingKey(i.key));
     const listed = new Set((t.sections ?? []).flatMap((s) => s.keys));
     const out: Array<{ title: string | null; items: Item[] }> = (t.sections ?? [])
-      .map((s) => ({ title: s.title as string | null, items: s.keys.map((k) => byKey.get(k)).filter((x): x is Item => !!x) }))
+      .map((s) => ({ title: s.title as string | null, items: s.keys.filter((k) => !isStageTimingKey(k)).map((k) => byKey.get(k)).filter((x): x is Item => !!x) }))
       .filter((s) => s.items.length);
     const rest = all.filter((i) => !listed.has(i.key));
     if (rest.length) out.push({ title: out.length ? 'More' : null, items: rest });
@@ -171,7 +173,14 @@ export default function TimingsPage() {
           <div className="skeleton" style={{ height: 320, borderRadius: 14 }} />
         ) : payload ? (
           <div className="tm-panel">
-            <div className="tm-intro">{current.intro}</div>
+            <div className="tm-intro">
+              {current.intro}
+              {current.moved && (
+                <div style={{ marginTop: 6 }}>
+                  <b>When each message goes out, and the rules around it, are set per stage</b> on <Link href="/integrations" style={{ textDecoration: 'underline' }}>Configs → Stage outreach</Link>.
+                </div>
+              )}
+            </div>
             {sectionsOf(current).map((sec, si) => (
               <div key={si}>
                 {sec.title && <div className="tm-sec">{sec.title}</div>}
