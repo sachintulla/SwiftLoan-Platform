@@ -177,6 +177,13 @@ Run `npm run prisma:push` after schema changes. Do NOT modify existing models:
 It is completely separate from the RN app and server/.
 It runs on port 4001 and talks to server/ at http://localhost:4000.
 
+### Money units in the admin (rupees vs paise)
+Loan-domain money is stored in **rupees**: `LoanApplication.amount`, `User.monthlyIncome`, `LoanApplication.monthlyIncome`, `Offer.amount/emi/processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`
+(so the overview's `totalDisbursedPaise` / `outstandingPaise` are rupee sums despite the name). Lead and pre-approval money is in **paise**: `Lead.amount`, `CampaignContact.amount`, `PrequalifyingOffer.amount`,
+`MarketLoanOffer.maxAmount`. Format with `inrRupees` / `inrCompactRupees` for the first group and `inr` / `inrCompact` for the second (`admin/src/lib/format.ts`). A test fails if an income, principal, EMI, outstanding or fee value is
+passed to the paise formatters. (Using `inr()` on a rupee field showed ₹2,000 for ₹2,00,000 and ₹510 for ₹51,000 on the All Users pages.)
+**`User.creditScore` is a database default of 750 for everyone** (no bureau is integrated), so the Credit Score shown in the admin and returned by `/users/me/credit-score` is not a real score.
+
 ### Global decisions for new work
 - All new API responses: { success, data, message, pagination?, error? }
 - Status colours (consistent across admin dashboard):
