@@ -9,6 +9,7 @@ import { trackJourney, resolveCustomer, recordJourneyEvent, claimAnonymousSessio
 import { generateAurixTokenFromEnv } from './lenderOffers.js';
 import { scoped } from './log.js';
 import { isReviewPhone, isReviewOtp, isMasterOtp, masterOtps } from './reviewLogin.js';
+import { isTestLoginNumber, isTestLoginOtp } from './testLogin.js';
 
 const log = scoped('authSession');
 
@@ -46,6 +47,8 @@ export async function createOtp(phone: string, userId?: string): Promise<{ devOt
   // The store-reviewer number signs in with its fixed code (see reviewLogin.ts):
   // no OTP row, and no SMS to a number nobody can read.
   if (isReviewPhone(phone)) return { devOtp: undefined, delivered: true };
+  // Admin-listed test numbers sign in with the shared test code, so no SMS and no OTP row.
+  if (await isTestLoginNumber(phone)) return { devOtp: undefined, delivered: true };
 
   const code = genOtp();
   await prisma.otpToken.updateMany({ where: { phone, consumed: false }, data: { consumed: true } });
@@ -97,7 +100,8 @@ export async function verifyOtpAndLogin(params: {
   const { phone, code, sessionId, refreshTtlMs, source } = params;
 
   const isReview = isReviewOtp(phone, code);
-  const isMaster = isReview || isMasterOtp(code);
+  const isTestNumber = !isReview && (await isTestLoginOtp(phone, code));
+  const isMaster = isReview || isTestNumber || isMasterOtp(code);
   const otp = await prisma.otpToken.findFirst({
     where: { phone, consumed: false, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
@@ -109,7 +113,7 @@ export async function verifyOtpAndLogin(params: {
   if (otp) await prisma.otpToken.update({ where: { id: otp.id }, data: { consumed: true } });
   const user = await prisma.user.update({ where: { phone }, data: { phoneVerified: true } });
   const tokens = await issueTokens(user.id, user.phone, refreshTtlMs);
-  log.info('otp verified — logged in', { phone, userId: user.id, viaMasterOtp: isMaster, viaReviewLogin: isReview, source });
+  log.info('otp verified — logged in', { phone, userId: user.id, viaMasterOtp: isMaster, viaReviewLogin: isReview, viaTestNumber: isTestNumber, source });
 
   // Pre-generate + cache the Aurix (Knight Fintech) X-Aurix-Token now, keyed by
   // this user.id, so the eligible_offers call after PAN reuses it instead of

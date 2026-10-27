@@ -94,6 +94,16 @@ export const DEFAULT_APPLIED_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
   { channel: 'whatsapp', afterMinutes: 24 * 60 },
 ]);
 
+/**
+ * Someone who stopped at a step in the loan journey (website or app): lean on purpose. WhatsApp 30 minutes after they
+ * reached the step, an SMS the next day, one last WhatsApp on day 3. Offsets count from when they reached the step.
+ */
+export const DEFAULT_DROPOFF_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
+  { channel: 'whatsapp', afterMinutes: 30 },
+  { channel: 'sms', afterMinutes: 24 * 60 },
+  { channel: 'whatsapp', afterMinutes: 3 * 24 * 60 },
+]);
+
 /** "900" or "15m" / "2h" / "7d" → minutes (the env format ACCESS_TTL has always used: seconds or a suffixed duration). */
 function ttlToMinutes(raw: string): number | undefined {
   const m = raw.trim().match(/^(\d+)\s*([smhd]?)$/i);
@@ -195,6 +205,47 @@ export const TIMINGS: readonly TimingDef[] = [
     key: 'applied.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
     label: 'Only for applications made in the last',
     help: 'Older applications are never nudged, so switching this on does not message everyone who applied in the past.',
+  },
+  /* ── Stopped at a step (website or app): "you dropped at <step>" (lib/appDropoff.ts, docs/APP_DROPOFF_PLAN.md) ── */
+  {
+    key: 'dropoff.sendEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the "you dropped at a step" messages for real',
+    help: 'Off: the job only records what it would send (see Admin → Drop-offs once built, or the server log). On: real WhatsApp and SMS go out. Needs the four message templates registered and approved first.',
+    warn: 'Turning this on messages everyone who stops at a step, unless the test-number list above is filled in.',
+  },
+  {
+    key: 'dropoff.schedule', group: 'install', kind: 'schedule', unit: 'minutes',
+    def: DEFAULT_DROPOFF_SCHEDULE.map((r) => ({ ...r })),
+    maxRows: 10, maxMinutes: 14 * 1440,
+    label: 'Messages after someone stops at a step',
+    help: 'Counted from the moment they reached the step they stopped at (so the first row is how long we wait before the first message). Quiet hours and the minimum gap still apply.',
+  },
+  {
+    key: 'dropoff.minGapMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 30, min: 0, max: 1440,
+    label: 'Minimum gap between two drop-off messages',
+    help: 'A message that would follow the previous one by less than this waits.',
+  },
+  {
+    key: 'dropoff.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    label: 'Skip a drop-off message that is this late',
+    help: 'A message that could not go out on time (quiet hours, an outage) is skipped, not sent, after this long.',
+  },
+  {
+    key: 'dropoff.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
+    label: 'Only for people who reached the step in the last',
+    help: 'Older drop-offs are never messaged, so switching this on does not message everyone who stopped in the past.',
+  },
+  /* ── Drop-off: the Ello agent rings someone whose offers lookup found none (lib/noOffersCall.ts) ── */
+  {
+    key: 'dropoff.noOffersCallEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false,
+    label: 'Call people who got no offers',
+    help: 'Off: the job only records that it WOULD call. On: the Ello agent rings a person whose offers lookup found none, once, after the wait below. It also needs the master call switch ("calls.nudgeEnabled") and it respects the call test-number list.',
+    warn: 'Turning this on rings real customers. Only do it once the Ello agent prompt has the "no offers" section and the call test-number list is set for the first run.',
+  },
+  {
+    key: 'dropoff.noOffersCallDelayMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 45, min: 5, max: 1440,
+    label: 'Wait before the no-offers call',
+    help: 'Counted from when they got no offers. The default (45) lets the WhatsApp message (first one at 30 minutes) land first. Calling hours and the quiet gap after a message still apply.',
   },
   {
     key: 'website.pingEverySeconds', group: 'website', kind: 'number', unit: 'seconds', def: 60, min: 15, max: 900,

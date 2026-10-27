@@ -576,3 +576,59 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
   SAME cycle number. Still gated by `install.sendEnabled` and the test-number list. **Not built yet (needed before a wide rollout): STOP/opt-out handling for
   WhatsApp and SMS replies, and an NCPR/DND scrub for SMS.**
 
+
+---
+
+## Test numbers (QA sign-in on the production build)
+
+Admin → **Test numbers** (`admin/src/app/(dash)/test-numbers`, API `/api/admin/test-numbers`, `modules/adminTestNumbers.routes.ts`) lists phone
+numbers (table `TestLoginNumber`, migration `20261027120000_test_login_numbers`, additive; apply with `prisma migrate deploy`) that sign in to the
+app/website with ONE shared code, env `TEST_LOGIN_OTP` (exactly 6 digits; unset = off). Super admins change the list; every change is audited.
+- `lib/testLogin.ts`: the code is honoured ONLY for a listed, **active** number (unlike `DEV_MASTER_OTP`, which signs in any number), so it is safe in
+  prod. No cache: removing/switching off a number takes effect on its next sign-in. The code is env-only, never returned by the API or shown in admin.
+- Wired in `authSession.ts`: `createOtp` skips the SMS + OTP row for a listed number; `verifyOtpAndLogin` accepts the shared code. Not wired into the
+  website lead-phone proof (`otp.ts verifyPhoneOtp`), on purpose.
+- NOT a sandbox (unlike the store-reviewer account): PAN checks, lender calls and the one-Revasure-lead-per-number allowance are real. Install/lender
+  reminders are not suppressed for these numbers either.
+- Tests: `lib/testLogin.test.ts`; also run against a throwaway DB on 2026-10-27 (add/duplicate/invalid/role gate, listed vs unlisted vs switched-off).
+
+
+---
+
+## "You dropped here" messages for website AND app (phase 1 built; log-only)
+
+Plan + sign-off: `docs/APP_DROPOFF_PLAN.md` (step list: `docs/JOURNEY_STEPS_TO_TRACK.md`). Built: rules, table, job, timings. NOT yet: message
+real sending (templates await Meta / Vox delivery), admin view, retiring the overlapping stuck-stage SMS rules, a follow-up list for "no offers".
+- **Where someone stopped is READ from data both channels already write, not from new events** (`lib/dropoffSteps.ts` `deriveDropoff`, pure and
+  tested): `User.panOnFile` → `pan_verified`; a `LoanApplication` in draft/pan_pending/prequalifying → `application_filled`; `rejected` (with
+  `prequalifyReason`) → `rejected`; `offers_ready` with offers and no lender application → `offers_not_applied`; a `LenderApplication` →
+  `applied` (the "you applied" sequence owns it); `failed` is a technical error and is NEVER messaged as "no offers". Step 3 (skip/continue) saves
+  nothing, by design. The website and app agree because only stored data decides, not the channel.
+- **Link rule** (`includeAppLink`): the app link (`/dl?ref=<token>`) goes to someone NOT in the app yet (`alreadyInApp`), whichever page they dropped
+  from; someone already in the app gets none; the "no offers, our team will call you" message never carries it.
+- **Table `AppDropoff`** (migration `20261027130000_app_dropoff`, additive; apply with `prisma migrate deploy`, partial unique index = one active run
+  per person, migration-only like `JourneyReminder`). Job `app-dropoff` (every minute, in `NUDGE_JOBS`, `lib/appDropoff.ts`) arms a run for people who
+  reached a messageable step in the last `dropoff.maxAgeHours` (24), at most one run per person per drop point per 14 days, ends a run the moment the
+  person moves on / applies / goes do-not-contact (armed AND ticked), and never overlaps the website install reminder or a "you applied" sequence.
+- **Admin → Timings** (`dropoff.*`): `dropoff.sendEnabled` (**off**: the job only writes what it would send into the row's `history`),
+  `dropoff.schedule` (default WhatsApp +30 min, SMS +1 day, WhatsApp +3 days, counted from when they reached the step), `minGapMinutes`, `maxLateHours`,
+  `maxAgeHours`; it shares the test-number list (`install.allowedNumbers`) and job throttle with the install reminders.
+- **Message texts** (WhatsApp only; owner said ignore SMS for now): shipped defaults in `dropoffSteps.ts` `DEFAULT_DROPOFF_MESSAGES`, merged UNDER the Voxvalley setting
+  `dropoffMessages` one link-variant at a time (saved wins; a blank `template` switches that variant off), so new defaults reach environments that already saved the form.
+  Approved templates used (Marketing is fine; Meta decides the category, docs/JOURNEY_RESUME_TEMPLATES.md §6): `continue` → with link `install_app_resume_step`
+  ({name},{step},{link}), without `dropoff_continue_app` ({name},{step}); `apply_offers` → with link `offers_ready` ({name},{offerCount},{ref},{link}), without
+  `dropoff_apply_offers_app` ({name}). Placeholder count and order must match the template. Tokens: `{name}`, `{step}`, `{link}`, `{ref}`, `{offerCount}`.
+  **`no_offers` is deliberately NOT a default**: its approved text (`dropoff_no_offers_callback`) promises a call. The call now exists (next bullet), but keep the message off
+  until the call is switched on and the wording says the SwiftLoan assistant (not "a team") will call. Until then it is recorded as skipped ("whatsapp template not configured"). Turn it on by saving
+  `no_offers.whatsapp.noLink = {"template":"dropoff_no_offers_callback","placeholders":["{name}"]}`.
+- **"No offers" follow-up CALL** (`lib/noOffersCall.ts`, run from the end of `appDropoffTick`, isolated so a failure never stops the messages): the existing Ello
+  `leadCallback` agent (`placeCall`, no new agent) rings a person whose lookup found no offers, once, `dropoff.noOffersCallDelayMinutes` (45) after they got none.
+  Own switch `dropoff.noOffersCallEnabled` (**off**: records one "would call" entry in the run's `history`, nothing is dialled); it ALSO needs the master `calls.nudgeEnabled`
+  and respects `calls.allowedNumbers`, calling hours, do-not-contact and `calls.quietAfterMessageMinutes` (a logged/sent WhatsApp before it counts, so ticks closer than that wait).
+  The `OutboundRequest` (kind `no_offers_call`, key `noffers:<run id>`) is claimed BEFORE dialling; one call per person ever; a failed dial is recorded and NOT retried; a "would call" entry
+  does not count as a call, so switching it on later still rings people who were only logged. Context sent to the agent: `reason: 'no_offers_followup'`,
+  `no_offers_reason` = `already_registered` | `no_match` (the lender's word "duplicate" never reaches the agent), stall reason/channel. Prompt branch "G. No offers found" in
+  `prompts/ello-outbound-prompt.updated.md` (edited locally; **paste into Ello by hand before enabling**).
+- `hasActiveInstallReminder` (stuck-stage SMS/WhatsApp stand-down) counts an active drop-off run only while `dropoff.sendEnabled` is on, so log-only never silences them.
+- Tests: `lib/dropoffSteps.test.ts` (pure rules, defaults, merge) and `cd server && bash scripts/journey/run-dropoff.sh` (throwaway DB, nothing real sent): `dropoff-check.mts` (13 log-only job checks) then `dropoff-send-check.mts` (the REAL send path against a fake local Vox server: exact template, placeholder order, link rule), then `dropoff-call-check.mts` (the no-offers call against a fake local Ello server: switches, test list, once per person, quiet gap, calling hours, no "duplicate" wording).
+  Known and pre-existing: `scripts/journey/run.sh` ends with a lender-partner foreign-key message after all 155 checks pass (same on the untouched code).
