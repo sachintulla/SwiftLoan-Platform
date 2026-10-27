@@ -36,9 +36,12 @@ export default function ResumePrompt() {
 
   const close = (patch: Record<string, unknown> = {}) => set({ resumePrompt: null, ...patch });
 
+  // A same-network guess knows no number: leave the login empty (the person types their own).
+  const isHint = resume.source === 'hint';
+
   const prefillAndOpenLogin = (patch: Record<string, unknown> = {}) => {
     // The consent box is the person's own act: it stays unticked (the agent asks before ticking it).
-    set({ resumePrompt: null, mobileVal: resume.phone, terms: false, otpSent: false, ...patch });
+    set({ resumePrompt: null, ...(isHint ? {} : { mobileVal: resume.phone }), terms: false, otpSent: false, ...patch });
     go('mobile');
   };
 
@@ -49,7 +52,7 @@ export default function ResumePrompt() {
 
   const onAgent = () => {
     trackEvent('funnel', 'resume_agent', state.screen, { last_step: resume.lastStep });
-    prefillAndOpenLogin({ resumeStage: 'pre_login' });
+    prefillAndOpenLogin({ resumeStage: isHint ? 'pre_login_hint' : 'pre_login' });
     // Give the screen a beat to show the pre-filled login before the agent starts talking about it.
     setTimeout(() => {
       agent.start().then(() => {
@@ -76,9 +79,9 @@ export default function ResumePrompt() {
   };
 
   const welcome = resumePrompt === 'welcome';
-  const title = welcome ? t.resumeTitle : t.resumeStartTitle;
+  const title = welcome ? (isHint ? t.resumeHintTitle : t.resumeTitle) : t.resumeStartTitle;
   const body = welcome
-    ? (resume.firstName ? t.resumeBodyNamed.replace('{name}', resume.firstName) : t.resumeBody)
+    ? (isHint ? t.resumeHintBody : resume.firstName ? t.resumeBodyNamed.replace('{name}', resume.firstName) : t.resumeBody)
     : t.resumeStartBody;
 
   return (

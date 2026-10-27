@@ -40,6 +40,7 @@ dlRouter.get('/dl', ah(async (req, res) => {
 
   const target = storeUrl(stores.ios, click);
   const clip = formatClipboard(click.token);
+  const debug = req.query.debug === '1'; // ?debug=1 shows whether the copy worked and holds the page for a few seconds before leaving
   res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/><title>Get SwiftLoan</title>
 <style>body{margin:0;font-family:-apple-system,sans-serif;background:linear-gradient(160deg,#0A3F41,#079FA0);min-height:100vh;display:grid;place-items:center;padding:22px}
@@ -47,14 +48,23 @@ dlRouter.get('/dl', ah(async (req, res) => {
 h1{font-size:21px;margin:0 0 8px;color:#0A3F41}p{color:#5b6b6b;font-size:14px;line-height:1.5;margin:0 0 20px}
 a{display:block;background:#079FA0;color:#fff;text-decoration:none;font-weight:700;padding:14px;border-radius:12px}small{display:block;color:#8a9a9a;margin-top:14px;font-size:11px}</style></head>
 <body><div class="c"><h1>Get the SwiftLoan app</h1><p>Install it, then open it — we'll pick up your invite automatically.</p>
-<a id="go" href="${esc(target)}">Continue to install</a><small>SwiftLoan • Fast · Fair · Secure</small></div>
+<a id="go" href="${esc(target)}">Continue to install</a><small>SwiftLoan • Fast · Fair · Secure</small><pre id="dbg" style="text-align:left;font-size:11px;white-space:pre-wrap;color:#333"></pre></div>
 <script>
 (function(){var go=document.getElementById('go'),clip=${JSON.stringify(clip)},url=${JSON.stringify(target)};
 go.addEventListener('click',function(e){e.preventDefault();
-function next(){location.href=url}
-try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(clip).then(next,next);return}}catch(_){}
-try{var t=document.createElement('textarea');t.value=clip;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t)}catch(_){}
-next()})})();
+var debug=${debug ? 'true' : 'false'},dbg=document.getElementById('dbg'),notes=[];
+function note(m){notes.push(m);if(debug&&dbg)dbg.textContent=notes.join('\\n')}
+function next(){if(debug){setTimeout(function(){location.href=url},8000)}else{location.href=url}}
+// execCommand needs to run inside the tap, so the fallback is also used when the async API is missing or rejects
+// (in-app browsers such as WhatsApp's reject writeText); a rejection used to skip it and send them off with nothing copied.
+function legacy(){try{var t=document.createElement('textarea');t.value=clip;t.setAttribute('readonly','');t.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(t);t.focus();t.select();t.setSelectionRange(0,clip.length);var ok=document.execCommand('copy');document.body.removeChild(t);note('execCommand copy: '+ok);return ok}catch(e){note('execCommand error: '+e);return false}}
+var done=false;function once(){if(!done){done=true;next()}}
+note('secure context: '+window.isSecureContext+', clipboard api: '+!!(navigator.clipboard&&navigator.clipboard.writeText));
+try{if(navigator.clipboard&&navigator.clipboard.writeText){
+  // Copy with the legacy path right away (still inside the tap), then also try the async API before leaving.
+  legacy();
+  navigator.clipboard.writeText(clip).then(function(){note('writeText: ok');once()},function(e){note('writeText rejected: '+e);once()});setTimeout(once,600);return}}catch(_){}
+legacy();next()})})();
 </script></body></html>`);
 }));
 
@@ -89,6 +99,10 @@ attributionRouter.post(
     // left off". Only for a DETERMINISTIC match (Play referrer / clipboard token): a same-IP guess could be a
     // different person, and this carries a phone number and a name.
     const resume = result.method === 'play_referrer' || result.method === 'clipboard' ? await resumeForToken(result.clickRef) : null;
+    // A same-IP match (exactly one candidate click) may still be a different person, so it carries NO phone, name or
+    // step: only a yes/no that the matched link belongs to a fresh website journey. The app words it as a question and
+    // the real details come after OTP login (GET /journey/resume, keyed on the signed-in account).
+    const resumeHint = result.method === 'ip_window' && !!(await resumeForToken(result.clickRef));
     return ok(res, {
       matched: result.matched,
       method: result.method,
@@ -96,6 +110,7 @@ attributionRouter.post(
       source: result.source,
       referral: result.referral && { code: result.referral.code, referrer_name: result.referral.referrerName },
       resume: resumeToWire(resume),
+      resume_hint: resumeHint,
     }, result.matched ? 'Install attributed' : 'Install recorded');
   }),
 );
