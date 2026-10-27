@@ -5,7 +5,6 @@ import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
 import { timeAgo, num, StatusTone } from '@/lib/format';
 import { NUDGES_DISABLED } from '@/lib/flags';
-import StageOutreach from '@/components/StageOutreach';
 
 type Channel = 'push' | 'whatsapp' | 'sms' | 'email' | 'voice';
 
@@ -56,33 +55,6 @@ function durationLabel(mins: number) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-/** What each journey event means, in the words an operator would use. The codes stay on the server. */
-const EVENT_LABEL: Record<string, string> = {
-  lead_captured: 'Left their number on the website',
-  website_visit: 'Visited the website',
-  website_form_started: 'Started the website form',
-  phone_verified: 'Verified their phone on the website',
-  app_installed: 'Installed the app',
-  app_opened: 'Opened the app',
-  language_selected: 'Chose a language',
-  otp_requested: 'Asked for an OTP',
-  otp_verified: 'Verified the OTP',
-  eligibility_started: 'Started the application',
-  eligibility_completed: 'Finished the eligibility check',
-  offers_not_received: 'Got no offers',
-  offer_viewed: 'Viewed their offers',
-  offer_selected: 'Chose an offer',
-  kyc_started: 'Started KYC',
-  kyc_completed: 'Finished KYC',
-  application_submitted: 'Submitted the application',
-  loan_approved: 'Was approved',
-  loan_rejected: 'Was rejected',
-  loan_disbursed: 'Received the loan',
-  call_completed: 'Finished a call with an agent',
-  callback_requested: 'Asked for a callback',
-};
-const eventLabel = (code: string) => EVENT_LABEL[code] ?? (code.charAt(0).toUpperCase() + code.slice(1).replace(/_/g, ' '));
-
 interface FormState {
   name: string;
   triggerEvent: string;
@@ -108,11 +80,6 @@ function StallRulesView() {
   const payload = data?.data as StallRule[] | { rules?: StallRule[]; events?: string[] } | undefined;
   const rules: StallRule[] = Array.isArray(payload) ? payload : (payload?.rules ?? []);
   const events: string[] = Array.isArray(payload) ? [] : (Array.isArray(payload?.events) ? payload!.events! : []);
-
-  // The nine journey stages are configured in the event editor above. Only rules outside them are listed below.
-  const outreach = useSWR('/api/admin/stage-outreach', swrFetcher);
-  const stageKeys = new Set(((outreach.data?.data as { stages?: Array<{ key: string }> } | undefined)?.stages ?? []).map((s) => s.key));
-  const otherRules = stageKeys.size ? rules.filter((r) => !stageKeys.has(r.triggerEvent)) : [];
 
   const [editing, setEditing] = useState<StallRule | null>(null);
   const [creating, setCreating] = useState(false);
@@ -212,15 +179,16 @@ function StallRulesView() {
         <div>
           <h1 className="page-title">Notification Rules</h1>
           <p className="page-sub">
-            Decide what a customer receives when they stop at a step. Pick the event below, then set push,
-            WhatsApp, SMS, email and call together: when each goes out, what it says, and whether it is on.
-            Nothing is sent until you switch a channel on.
+            Inactivity rules watch for a customer who did one step but never reached the next one in time,
+            and fire a named event into Upshot. This screen only fires the event — the actual message copy,
+            creative and delivery channel live on the Upshot dashboard, configured against the event name below.
           </p>
         </div>
         <div className="row" style={{ gap: 10 }}>
-          <button className="btn" disabled={runningAll || rules.length === 0} onClick={runAll} title="Check right now who is stuck and queue their messages">
+          <button className="btn" disabled={runningAll || rules.length === 0} onClick={runAll}>
             {runningAll ? 'Running…' : 'Run all rules now'}
           </button>
+          <button className="btn btn-primary" onClick={() => { setCreating(true); setEditing(null); }}>+ New rule</button>
         </div>
       </div>
 
@@ -240,18 +208,12 @@ function StallRulesView() {
         />
       )}
 
-      {/* ---- the event editor: every channel for one event, one Save ---- */}
-      <div style={{ marginTop: 16 }}>
-        <StageOutreach compact startInAllChannels />
-      </div>
-
-      {/* ---- rules outside the journey stages ---- */}
+      {/* ---- rules table ---- */}
       {/* .card has no margin of its own and .page has no gap — every block spaces itself. */}
-      <div style={{ marginTop: 24 }}>
+      <div style={{ marginTop: 16 }}>
       <Card
-        title="Other rules"
-        sub="Rules for steps that are not one of the journey stages above. Each fires one Upshot event, and the message itself is written in Upshot."
-        right={<button className="btn" onClick={() => { setCreating(true); setEditing(null); }}>+ Custom rule</button>}
+        title="Rules"
+        sub="Evaluated on a schedule. A rule only fires again for the same customer after its cooldown."
       >
         {error ? (
           <div className="empty">
@@ -263,22 +225,20 @@ function StallRulesView() {
         ) : rules.length === 0 ? (
           <div className="empty">
             <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'left' }}>
-              <b>No rules exist yet.</b>
+              <b>No inactivity rules yet.</b>
               <p style={{ marginTop: 8 }}>
-                The standard rules for every journey stage can be created in one click. After that,
-                use the event editor above to switch channels on and set what they say.
+                An inactivity rule says: <i>“if a customer did step X but hasn&apos;t done step Y within N minutes,
+                fire this Upshot event.”</i> Upshot then sends the push or WhatsApp nudge using whatever
+                content you have configured there for that event name.
               </p>
               <div className="row" style={{ gap: 10, marginTop: 14 }}>
                 <button className="btn btn-primary" disabled={seeding} onClick={seedDefaults}>
-                  {seeding ? 'Creating…' : 'Create the standard rules'}
+                  {seeding ? 'Seeding…' : 'Seed default rules'}
                 </button>
+                <button className="btn" onClick={() => setCreating(true)}>Create one manually</button>
               </div>
               {seedErr && <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 10 }}>{seedErr}</div>}
             </div>
-          </div>
-        ) : otherRules.length === 0 ? (
-          <div className="empty" style={{ padding: '24px 20px' }}>
-            Every rule is already set up in the event editor above. Use <b>+ Custom rule</b> for a step that is not one of the journey stages.
           </div>
         ) : (
           <div className="table-wrap"><table className="data">
@@ -286,7 +246,7 @@ function StallRulesView() {
               <th>On</th><th>Name</th><th>Rule</th><th>Delay</th><th>Upshot event</th>
               <th>Channel</th><th>Fired</th><th>Last fired</th><th></th>
             </tr></thead>
-            <tbody>{otherRules.map((r) => (
+            <tbody>{rules.map((r) => (
               <React.Fragment key={r.id}>
                 <tr>
                   <td>
@@ -299,10 +259,9 @@ function StallRulesView() {
                     />
                   </td>
                   <td><b>{r.name}</b></td>
-                  <td style={{ fontSize: 13 }}>
-                    <b>{eventLabel(r.triggerEvent)}</b>
-                    <span className="muted">, but has not</span>{' '}
-                    <b>{eventLabel(r.expectedEvent).toLowerCase()}</b>
+                  <td style={{ fontSize: 12.5 }}>
+                    did <span className="mono" style={{ fontWeight: 600 }}>{r.triggerEvent}</span>
+                    {' '}but not <span className="mono" style={{ fontWeight: 600 }}>{r.expectedEvent}</span>
                   </td>
                   <td className="mono">{durationLabel(r.delayMinutes)}</td>
                   <td className="mono" style={{ fontSize: 12 }}>{r.upshotEvent}</td>
@@ -384,10 +343,10 @@ function RuleForm({ rule, events, onClose, onSaved }: {
   const missing = useMemo(() => {
     const m: string[] = [];
     if (!form.name.trim()) m.push('Name');
-    if (!form.triggerEvent) m.push('When the customer has');
-    if (!form.expectedEvent) m.push('but has not yet');
+    if (!form.triggerEvent) m.push('Trigger event');
+    if (!form.expectedEvent) m.push('Expected event');
     if (!form.upshotEvent.trim()) m.push('Upshot event name');
-    if (delay <= 0) m.push('How long to wait');
+    if (delay <= 0) m.push('Delay minutes');
     return m;
   }, [form, delay]);
 
@@ -395,7 +354,7 @@ function RuleForm({ rule, events, onClose, onSaved }: {
 
   async function save() {
     if (sameEvent) {
-      setFieldErrors({ expectedEvent: 'Choose a different step from the first one.' });
+      setFieldErrors({ expectedEvent: 'The expected event must be different from the trigger event.' });
       return;
     }
     setSaving(true);
@@ -444,13 +403,13 @@ function RuleForm({ rule, events, onClose, onSaved }: {
         <label style={{ fontSize: 12.5, fontWeight: 600 }}>{label} <span style={{ color: 'var(--red)' }}>*</span></label>
         {hasVocab ? (
           <select
-            className="input"
+            className="input mono"
             style={{ marginTop: 6, borderColor: err ? 'var(--red)' : undefined }}
             value={form[k]}
             onChange={(e) => set(k, e.target.value)}
           >
-            <option value="">Choose a step…</option>
-            {events.map((ev) => <option key={ev} value={ev}>{eventLabel(ev)}</option>)}
+            <option value="">Select an event…</option>
+            {events.map((ev) => <option key={ev} value={ev}>{ev}</option>)}
           </select>
         ) : (
           <input
@@ -469,8 +428,8 @@ function RuleForm({ rule, events, onClose, onSaved }: {
   return (
     <div style={{ marginTop: 16 }}>
     <Card
-      title={rule ? `Edit rule: ${rule.name}` : 'New custom rule'}
-      sub="Fires one Upshot event when a customer stops at a step. The message itself is written in Upshot."
+      title={rule ? `Edit rule — ${rule.name}` : 'New inactivity rule'}
+      sub="The Upshot event name is the contract with the Upshot dashboard — the message body is authored there."
       right={<button className="btn" onClick={onClose}>Close</button>}
     >
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
@@ -479,13 +438,13 @@ function RuleForm({ rule, events, onClose, onSaved }: {
           <input className="input" style={{ marginTop: 6 }} value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="OTP requested but not verified" />
         </div>
 
-        <EventPicker k="triggerEvent" label="When the customer has" />
-        <EventPicker k="expectedEvent" label="but has not yet" />
+        <EventPicker k="triggerEvent" label="Trigger event (what they did)" />
+        <EventPicker k="expectedEvent" label="Expected event (what they never did)" />
 
         <div>
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Wait (minutes) <span style={{ color: 'var(--red)' }}>*</span></label>
+          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Delay (minutes) <span style={{ color: 'var(--red)' }}>*</span></label>
           <input className="input mono" type="number" min={1} style={{ marginTop: 6 }} value={form.delayMinutes} onChange={(e) => set('delayMinutes', e.target.value)} />
-          <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>How long after they stop before this is sent.</div>
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>How long to wait before calling them stuck.</div>
         </div>
 
         <div>
@@ -502,30 +461,30 @@ function RuleForm({ rule, events, onClose, onSaved }: {
         </div>
 
         <div>
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Do not repeat for (minutes)</label>
+          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Cooldown (minutes)</label>
           <input className="input mono" type="number" min={0} style={{ marginTop: 6 }} value={form.cooldownMinutes} onChange={(e) => set('cooldownMinutes', e.target.value)} />
-          <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>The same customer is not sent this again inside this window.</div>
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>Don&apos;t nudge the same customer again inside this window.</div>
         </div>
       </div>
 
       <label className="row" style={{ gap: 8, marginTop: 16, cursor: 'pointer' }}>
         <input type="checkbox" checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />
         <span style={{ fontSize: 13, fontWeight: 600 }}>Enabled</span>
-        <span className="muted" style={{ fontSize: 12 }}>· switched off, nothing is sent</span>
+        <span className="muted" style={{ fontSize: 12 }}>· a paused rule is never evaluated</span>
       </label>
 
       {/* live plain-English summary */}
       <div style={{ marginTop: 16, padding: 14, background: 'var(--grey-bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13, lineHeight: 1.6 }}>
-        After a customer <b>{form.triggerEvent ? eventLabel(form.triggerEvent).toLowerCase() : '…'}</b>{' '}
-        and has not <b>{form.expectedEvent ? eventLabel(form.expectedEvent).toLowerCase() : '…'}</b>{' '}
-        for <b>{durationLabel(delay)}</b>, send the Upshot event{' '}
+        If a customer does <b>{form.triggerEvent || '…'}</b>{' '}
+        but hasn&apos;t done <b>{form.expectedEvent || '…'}</b>{' '}
+        within <b>{durationLabel(delay)}</b>, send the Upshot event{' '}
         <span className="mono">{form.upshotEvent || '…'}</span> ({form.channel}).
-        {cooldown > 0 && <> It is not repeated for {durationLabel(cooldown)}.</>}
+        {cooldown > 0 && <> Don&apos;t repeat for {durationLabel(cooldown)}.</>}
       </div>
 
       {sameEvent && (
         <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 10 }}>
-          The two steps must be different.
+          The trigger and expected events must be different.
         </div>
       )}
       {missing.length > 0 && (

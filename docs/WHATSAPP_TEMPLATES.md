@@ -15,6 +15,7 @@ Every WhatsApp message SwiftLoan sends, written for Meta's **Utility** category:
 | Website drop-off install reminders | Update that an application the customer started is incomplete, naming the step it stopped at. | `application_incomplete_update` |
 | Stage nudge: eligibility done, offers viewed | Update that the eligibility check is complete and how many offers are waiting to be viewed. | `offers_available_update` |
 | Stage nudge: KYC started | Asks the customer to complete a verification step needed for their application. | `document_request_update` |
+| Stage nudge: rejected by lender | Update that a lender did not approve the application and where the other options are. It does not give the lender's reason. | `application_not_approved_update` |
 | Lender-applied follow-up | Confirms an application was submitted to a lender and where to track it. | `loan_application_submitted` |
 | After every conversation (call, in-app and website agents) | Recap of what was discussed with a SwiftLoan agent and the agreed next steps. | `conversation_summary` |
 | Eligibility check returned no offers | Update that the eligibility check finished and no offers are available for the profile. | `no_offers_update` |
@@ -304,6 +305,62 @@ Hi {{1}}, to continue your application (Ref {{2}}) we need you to complete: {{3}
             "SL-884021",
             "your KYC details",
             "https://www.swiftloan.ai/apply"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "FOOTER",
+      "text": "SwiftLoan"
+    }
+  ]
+}
+```
+
+</details>
+
+## `application_not_approved_update`
+
+- **Category:** UTILITY
+- **Language:** en
+- **Purpose:** Update that a lender did not approve the application and where the other options are. It does not give the lender's reason.
+- **Sent by:** Stage nudge: rejected by lender
+
+**Body**
+
+```
+Hi {{1}}, your loan application (Ref {{2}}) was not approved by the lender. This does not affect your other options in the SwiftLoan app, which you can review here: {{3}} If you have questions, reply to this message.
+```
+
+**Footer:** SwiftLoan
+
+| Variable | Holds | Sample value | Filled by the code with |
+|---|---|---|---|
+| `{{1}}` | First name | Priya | `{name}` |
+| `{{2}}` | Application reference | SL-884021 | `{ref}` |
+| `{{3}}` | Link to review other options | https://www.swiftloan.ai/apply/offers | `{siteUrl}/apply/offers` |
+
+**Preview with the sample values**
+
+> Hi Priya, your loan application (Ref SL-884021) was not approved by the lender. This does not affect your other options in the SwiftLoan app, which you can review here: https://www.swiftloan.ai/apply/offers If you have questions, reply to this message.
+
+<details><summary>Meta API JSON</summary>
+
+```json
+{
+  "name": "application_not_approved_update",
+  "language": "en",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hi {{1}}, your loan application (Ref {{2}}) was not approved by the lender. This does not affect your other options in the SwiftLoan app, which you can review here: {{3}} If you have questions, reply to this message.",
+      "example": {
+        "body_text": [
+          [
+            "Priya",
+            "SL-884021",
+            "https://www.swiftloan.ai/apply/offers"
           ]
         ]
       }

@@ -43,6 +43,8 @@ export const OUTREACH_STAGES: readonly OutreachStage[] = [
   { key: JOURNEY_EVENTS.OFFER_VIEWED, label: 'Offers viewed', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED, description: 'Saw their offers but did not choose one.' },
   { key: JOURNEY_EVENTS.OFFER_SELECTED, label: 'Offer chosen', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.KYC_STARTED, description: 'Chose an offer but did not start verification.' },
   { key: JOURNEY_EVENTS.KYC_STARTED, label: 'KYC started', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.KYC_COMPLETED, description: 'Started identity verification but did not finish it.' },
+  // A lender turned the application down. The follow-up waits for the customer to choose another offer.
+  { key: JOURNEY_EVENTS.LOAN_REJECTED, label: 'Rejected by lender', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED, description: 'A lender turned down their application and they have not chosen another offer.' },
 ];
 
 export type OutreachChannel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';

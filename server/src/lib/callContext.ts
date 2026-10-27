@@ -273,6 +273,10 @@ export const STALL_REASONS: Record<string, string> = {
   [`${'offer_viewed'}→${'offer_selected'}`]:
     'looked at your loan offers but did not choose one',
 
+  // ── a lender turned the application down ──
+  [`${'loan_rejected'}→${'offer_selected'}`]:
+    'had an application turned down by a lender and have not chosen another offer yet',
+
   // ── after choosing an offer ──
   [`${'offer_selected'}→${'kyc_started'}`]:
     'chose a loan offer but did not start the verification step',
@@ -318,6 +322,9 @@ export const STALL_HELP: Record<string, string> = {
 
   [`${'offer_viewed'}→${'offer_selected'}`]:
     'help them compare the offers — what the EMI, tenure and processing fee actually mean — and answer questions about any lender. Do NOT quote or promise a rate yourself',
+
+  [`${'loan_rejected'}→${'offer_selected'}`]:
+    'acknowledge it kindly, explain that one lender not offering a loan does not affect the other available options, and offer to go through those. Never discuss why the lender declined, never promise that another lender will approve, and do NOT quote a rate yourself',
 
   [`${'offer_selected'}→${'kyc_started'}`]:
     'explain what verification involves and roughly how long it takes, and reassure them documents are handled securely',

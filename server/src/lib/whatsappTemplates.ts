@@ -111,6 +111,17 @@ export const WHATSAPP_TEMPLATES: readonly WhatsAppTemplate[] = [
     replaces: 'document_request',
   },
   {
+    name: 'application_not_approved_update',
+    category: 'UTILITY', language: 'en',
+    purpose: 'Update that a lender did not approve the application and where the other options are. It does not give the lender\'s reason.',
+    target: 'stage', usedBy: 'Stage nudge: rejected by lender', recommendedStages: ['loan_rejected'],
+    body: 'Hi {{1}}, your loan application (Ref {{2}}) was not approved by the lender. This does not affect your other options in the SwiftLoan app, which you can review here: {{3}} If you have questions, reply to this message.',
+    footer: FOOTER,
+    variables: ['First name', 'Application reference', 'Link to review other options'],
+    examples: ['Priya', 'SL-884021', 'https://www.swiftloan.ai/apply/offers'],
+    placeholders: ['{name}', '{ref}', '{siteUrl}/apply/offers'],
+  },
+  {
     name: 'loan_application_submitted',
     category: 'UTILITY', language: 'en',
     purpose: 'Confirms an application was submitted to a lender and where to track it.',

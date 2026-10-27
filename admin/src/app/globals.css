@@ -582,3 +582,6 @@ button:focus-visible, a:focus-visible, .chip-filter:focus-visible, .tab-item:foc
 .so-grid.stack .so-rail-title, .so-grid.stack .so-rail-legend { display: none; }
 .so-grid.stack .so-stage { width: auto; flex: none; }
 .ee-grid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+
+.ee-trigger { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.ee-trigger select.input { width: auto; min-width: 200px; flex: 1; }

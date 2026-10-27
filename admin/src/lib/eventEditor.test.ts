@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { splitMinutes, toMinutes, draftProblem, type ChDraft } from './eventEditor';
 
 const base: ChDraft = {
-  enabled: false, delayVal: '30', delayUnit: 'min', coolVal: '1', coolUnit: 'day',
+  enabled: false, expectedEvent: 'offer_selected', delayVal: '30', delayUnit: 'min', coolVal: '1', coolUnit: 'day',
   upshotEvent: 'swiftloan_offer_viewed_push', waTemplate: '', waLanguage: 'en', waVars: [],
   smsId: '', smsBody: '', role: '', assistantId: '', brief: '',
 };

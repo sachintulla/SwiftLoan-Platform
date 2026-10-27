@@ -21,6 +21,8 @@ export const toMinutes = (val: string, unit: Unit) => Number(val) * UNIT_MIN[uni
 
 export interface ChDraft {
   enabled: boolean;
+  /** The step the customer has not yet done; the notification is skipped once they do it. */
+  expectedEvent: string;
   delayVal: string; delayUnit: Unit;
   coolVal: string; coolUnit: Unit;
   upshotEvent: string;

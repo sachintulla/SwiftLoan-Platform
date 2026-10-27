@@ -329,6 +329,17 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     enabled: false,
   },
   {
+    name: 'CALL — rejected by a lender',
+    triggerEvent: JOURNEY_EVENTS.LOAN_REJECTED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    // Give them a while before ringing about a refusal. The wording is gentle and never discusses why.
+    delayMinutes: 120,
+    upshotEvent: 'swiftloan_rejected_by_lender_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
     name: 'CALL — installed the app but never signed in',
     triggerEvent: JOURNEY_EVENTS.APP_INSTALLED,
     expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED,

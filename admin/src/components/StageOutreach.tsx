@@ -15,6 +15,7 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui';
 import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '@/lib/eventEditor';
+import { laterEvents } from '@/lib/eventLabels';
 
 type Channel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
 
@@ -25,6 +26,8 @@ interface Activity {
   delayMinutes: number;
   cooldownMinutes: number;
   enabled: boolean;
+  /** The step the customer has not yet done; the notification is skipped once they do it. */
+  expectedEvent: string;
   upshotEvent: string;
   firedCount: number;
   whatsapp?: { template: string; language: string; placeholders: string[]; customised: boolean; recommended: { name: string; language: string; placeholders: string[]; preview: string } | null };
@@ -32,7 +35,7 @@ interface Activity {
   call?: { agentRole: string | null; assistantId: string; brief: string; effectiveAgentId: string | null };
 }
 interface Stage {
-  key: string; label: string; description: string; surface: string;
+  key: string; label: string; description: string; surface: string; expectedEvent: string;
   activities: Activity[]; missingChannels: Channel[];
 }
 type MessageKind = 'conversationSummary' | 'noOffers' | 'eligibilityRetry';
@@ -90,16 +93,12 @@ function errText(e: unknown): string {
   return e instanceof ApiError || e instanceof Error ? e.message : 'Could not save';
 }
 
-/**
- * `compact` is for the Notification Rules page: the same event editor without the WhatsApp
- * message cards, the template catalogue and the variable dictionary, which stay on Stage outreach.
- */
-export default function StageOutreach({ compact = false, startInAllChannels = false }: { compact?: boolean; startInAllChannels?: boolean } = {}) {
+export default function StageOutreach() {
   const { data, error, isLoading, mutate } = useSWR(KEY, swrFetcher);
   const ov = data?.data as Overview | undefined;
   const [selected, setSelected] = useState<string | null>(null);
   const [openRule, setOpenRule] = useState<string | null>(null);
-  const [allMode, setAllMode] = useState(startInAllChannels);
+  const [allMode, setAllMode] = useState(false);
 
   const totals = useMemo(() => {
     const all = (ov?.stages ?? []).flatMap((s) => s.activities);
@@ -116,14 +115,8 @@ export default function StageOutreach({ compact = false, startInAllChannels = fa
     <div className="so">
       <div className="so-head">
         <div>
-          {compact ? (
-            <p className="so-sub" style={{ marginTop: 0 }}>Choose the event, which is the step where customers stop. Website visitors and app users share these events.</p>
-          ) : (
-            <>
-              <h2 className="so-title">Stage outreach</h2>
-              <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and how long after they stop. Website visitors and app users share these stages.</p>
-            </>
-          )}
+          <h2 className="so-title">Stage outreach</h2>
+          <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and when it is triggered. Website visitors and app users share these stages.</p>
         </div>
         <div className="so-stats">
           <div className="so-stat"><b>{totals.on}</b><span>follow-ups on</span></div>
@@ -144,7 +137,7 @@ export default function StageOutreach({ compact = false, startInAllChannels = fa
         </ol>
       </details>
 
-      {!compact && (Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
+      {(Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
         <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
       ))}
 
@@ -157,9 +150,9 @@ export default function StageOutreach({ compact = false, startInAllChannels = fa
         />
       </div>
 
-      {!compact && <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />}
+      <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />
 
-      {!compact && <VariableDictionary variables={ov.variables} />}
+      <VariableDictionary variables={ov.variables} />
     </div>
   );
 }
@@ -468,6 +461,7 @@ function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
 
 function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity; ov: Overview; onChanged: () => void }) {
   const [delay, setDelay] = useState(String(a.delayMinutes));
+  const [expected, setExpected] = useState(a.expectedEvent);
   const [upshotEvent, setUpshotEvent] = useState(a.upshotEvent);
   const [waTemplate, setWaTemplate] = useState(a.whatsapp?.template ?? '');
   const [waLanguage, setWaLanguage] = useState(a.whatsapp?.language ?? 'en');
@@ -487,7 +481,7 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
   const isUpshot = a.channel === 'email' || a.channel === 'push';
   const waList = waVars.map((v) => v.trim()).filter(Boolean);
 
-  const ruleDirty = delayNum !== a.delayMinutes || (isUpshot && upshotEvent.trim() !== a.upshotEvent);
+  const ruleDirty = delayNum !== a.delayMinutes || expected !== a.expectedEvent || (isUpshot && upshotEvent.trim() !== a.upshotEvent);
   const waDirty = a.channel === 'whatsapp' && (waTemplate.trim() !== (a.whatsapp?.template ?? '') || waLanguage.trim() !== (a.whatsapp?.language ?? 'en') || waList.join('\n') !== (a.whatsapp?.placeholders ?? []).join('\n'));
   const smsDirty = a.channel === 'sms' && (smsId.trim() !== (a.sms?.templateId ?? '') || smsBody.trim() !== (a.sms?.body ?? '').trim());
   const callDirty = a.channel === 'voice' && (role !== (a.call?.agentRole ?? '') || assistantId.trim() !== (a.call?.assistantId ?? '') || brief.trim() !== (a.call?.brief ?? ''));
@@ -512,7 +506,7 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
     setSaving(true); setMsg(null);
     try {
       if (ruleDirty) {
-        await apiFetch(`/api/admin/stall-rules/${a.ruleId}`, { method: 'PATCH', body: JSON.stringify({ delayMinutes: delayNum, ...(isUpshot ? { upshotEvent: upshotEvent.trim() } : {}) }) });
+        await apiFetch(`/api/admin/stall-rules/${a.ruleId}`, { method: 'PATCH', body: JSON.stringify({ delayMinutes: delayNum, ...(expected !== a.expectedEvent ? { expectedEvent: expected } : {}), ...(isUpshot ? { upshotEvent: upshotEvent.trim() } : {}) }) });
       }
       if (waDirty) await apiFetch(`${KEY}/${stageKey}/whatsapp`, { method: 'PUT', body: JSON.stringify({ template: waTemplate.trim(), language: waLanguage.trim() || 'en', placeholders: waList }) });
       if (smsDirty) await apiFetch(`${KEY}/${stageKey}/sms`, { method: 'PUT', body: JSON.stringify({ templateId: smsId.trim(), body: smsBody }) });
@@ -539,6 +533,7 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
   return (
     <div className="so-editor">
       <div className="so-fields">
+        <TriggerPicker stageKey={stageKey} stageLabel={ov.stages.find((x) => x.key === stageKey)?.label ?? stageKey} value={expected} onChange={(v) => { setExpected(v); touch(); }} label="The step the customer has not yet done" />
         <div className="so-field">
           <label className="so-label" htmlFor={`d-${a.ruleId}`}>Goes out after the customer stops</label>
           <div className="so-input-unit">
@@ -676,17 +671,35 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
   );
 }
 
+/** When a notification triggers: the step the customer reached (the stage) and the step they have not yet done. */
+function TriggerPicker({ stageKey, stageLabel, value, onChange, label }: { stageKey: string; stageLabel: string; value: string; onChange: (v: string) => void; label: string }) {
+  const options = laterEvents(stageKey, value);
+  return (
+    <div className="so-field wide">
+      <span className="so-label">When it triggers</span>
+      <div className="ee-trigger">
+        <span>When the customer reaches <b>{stageLabel}</b> but has not yet reached</span>
+        <select className="input" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+      <span className="so-hint">Customers who have already done this are skipped. It then goes out after the time you set.</span>
+    </div>
+  );
+}
+
 /* ─────────────── One event, every channel, one Save ─────────────── */
 
 const UNIT_LABEL: Record<Unit, string> = { min: 'minutes', hr: 'hours', day: 'days' };
 const UNIT_ONE: Record<Unit, string> = { min: 'minute', hr: 'hour', day: 'day' };
 const unitText = (u: Unit, val: string) => (val === '1' ? UNIT_ONE[u] : UNIT_LABEL[u]);
 
-function makeDraft(a: Activity | undefined, ch: Channel, stageKey: string): ChDraft {
+function makeDraft(a: Activity | undefined, ch: Channel, stageKey: string, stageExpected: string): ChDraft {
   const delay = splitMinutes(a?.delayMinutes ?? DEFAULT_DELAY[ch]);
   const cool = splitMinutes(a?.cooldownMinutes ?? (ch === 'voice' ? 4320 : 1440));
   return {
     enabled: a?.enabled ?? false,
+    expectedEvent: a?.expectedEvent ?? stageExpected,
     delayVal: delay.val, delayUnit: delay.unit, coolVal: cool.val, coolUnit: cool.unit,
     upshotEvent: a?.upshotEvent ?? `swiftloan_${stageKey}_${ch}`,
     waTemplate: a?.whatsapp?.template ?? '', waLanguage: a?.whatsapp?.language ?? 'en', waVars: a?.whatsapp?.placeholders ?? [],
@@ -696,7 +709,7 @@ function makeDraft(a: Activity | undefined, ch: Channel, stageKey: string): ChDr
 }
 
 const ruleChanged = (d: ChDraft, b: ChDraft, upshot: boolean) =>
-  d.enabled !== b.enabled || toMinutes(d.delayVal, d.delayUnit) !== toMinutes(b.delayVal, b.delayUnit)
+  d.enabled !== b.enabled || d.expectedEvent !== b.expectedEvent || toMinutes(d.delayVal, d.delayUnit) !== toMinutes(b.delayVal, b.delayUnit)
   || toMinutes(d.coolVal, d.coolUnit) !== toMinutes(b.coolVal, b.coolUnit) || (upshot && d.upshotEvent.trim() !== b.upshotEvent);
 const waChanged = (d: ChDraft, b: ChDraft) =>
   d.waTemplate.trim() !== b.waTemplate || d.waLanguage.trim() !== b.waLanguage || d.waVars.map((v) => v.trim()).filter(Boolean).join('\n') !== b.waVars.join('\n');
@@ -705,7 +718,7 @@ const callChanged = (d: ChDraft, b: ChDraft) => d.role !== b.role || d.assistant
 
 function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overview; onSaved: () => void | Promise<unknown>; onClose: () => void }) {
   const [version, setVersion] = useState(0);
-  const baselines = useMemo(() => Object.fromEntries(CHANNELS.map((c) => [c, makeDraft(stage.activities.find((a) => a.channel === c), c, stage.key)])) as Record<Channel, ChDraft>, [stage]);
+  const baselines = useMemo(() => Object.fromEntries(CHANNELS.map((c) => [c, makeDraft(stage.activities.find((a) => a.channel === c), c, stage.key, stage.expectedEvent)])) as Record<Channel, ChDraft>, [stage]);
   const [drafts, setDrafts] = useState<Record<Channel, ChDraft>>(baselines);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Partial<Record<Channel, { ok: boolean; text: string }>>>({});
@@ -745,7 +758,7 @@ function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overvi
         if (!a || ruleChanged(d, b, upshot)) {
           await apiFetch(`/api/admin/stall-rules/${ruleId}`, {
             method: 'PATCH',
-            body: JSON.stringify({ enabled: d.enabled, delayMinutes: toMinutes(d.delayVal, d.delayUnit), cooldownMinutes: toMinutes(d.coolVal, d.coolUnit), ...(upshot ? { upshotEvent: d.upshotEvent.trim() } : {}) }),
+            body: JSON.stringify({ enabled: d.enabled, expectedEvent: d.expectedEvent, delayMinutes: toMinutes(d.delayVal, d.delayUnit), cooldownMinutes: toMinutes(d.coolVal, d.coolUnit), ...(upshot ? { upshotEvent: d.upshotEvent.trim() } : {}) }),
           });
         }
         if (ch === 'whatsapp' && waChanged(d, b)) {
@@ -789,6 +802,8 @@ function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overvi
                 </div>
                 <button type="button" className={`so-switch ${d.enabled ? 'on' : ''}`} aria-pressed={d.enabled} aria-label={`${CHANNEL_LABEL[ch]} ${d.enabled ? 'on' : 'off'}`} onClick={() => set(ch, { enabled: !d.enabled })} />
               </div>
+
+              <div className="ee-fields"><TriggerPicker stageKey={stage.key} stageLabel={stage.label} value={d.expectedEvent} onChange={(v) => set(ch, { expectedEvent: v })} label={CHANNEL_LABEL[ch] + ": the step the customer has not yet done"} /></div>
 
               <div className="ee-when">
                 <span>Send after</span>
