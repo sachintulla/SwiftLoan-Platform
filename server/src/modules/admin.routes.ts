@@ -8,6 +8,9 @@ import { CHANNEL_LABELS } from '../lib/conversations.js';
 import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
 import { refreshApplicationStatus } from '../lib/statusRefresh.js';
 import { getReferralStatus, yubiEnabled } from '../lib/yubiReferral.js';
+import {
+  buildLoanWhere, buildRevasureWhere, buildYubiWhere, findUserIdsBySearch, personsByUserId, redactRevasurePayload, searchTerm,
+} from '../lib/listFilters.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('admin');
@@ -273,21 +276,12 @@ adminRouter.get('/active-users', ah(async (req, res) => {
 
 // ─────────────────────────── loans / pipeline ───────────────────────────
 
-// GET /api/admin/loans?status=&search=&page=&pageSize=
+// GET /api/admin/loans?status=&search=&lenderResult=any|approved|disbursed|rejected|in_progress&from=&to=&page=&pageSize=
+// The filters are built by buildLoanWhere, the same function the CSV export and
+// "start a campaign" use, so a file or campaign always matches the list.
 adminRouter.get('/loans', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
-  const status = req.query.status ? String(req.query.status) : undefined;
-  const search = req.query.search ? String(req.query.search).trim() : undefined;
-
-  const where: Record<string, unknown> = {};
-  if (status && (APP_STATUSES as readonly string[]).includes(status)) where.status = status;
-  if (search) {
-    where.OR = [
-      { ref: { contains: search, mode: 'insensitive' } },
-      { user: { fullName: { contains: search, mode: 'insensitive' } } },
-      { user: { phone: { contains: search } } },
-    ];
-  }
+  const where = buildLoanWhere(req.query as Record<string, unknown>);
 
   const [rows, total] = await Promise.all([
     prisma.loanApplication.findMany({
@@ -577,59 +571,94 @@ adminRouter.get('/downloads', ah(async (req, res) => {
 
 // ─────────────────────────── revasure leads ───────────────────────────
 
-// GET /api/admin/revasure?status=&page=&pageSize=
-// Leads pushed to Revasure (third lender group, fired in parallel at prequalify)
-// with the recorded request/response. status: success|duplicate|ineligible|failed|pending
+// GET /api/admin/revasure?status=&search=&from=&to=&page=&pageSize=
+// Leads pushed to Revasure (third lender group, fired in parallel at prequalify).
+// status: success|duplicate|ineligible|failed|pending. search matches the source or
+// Revasure lead id, or the customer's name or mobile. from/to filter on updatedAt.
+// Rows carry the customer but never the stored request or response bodies (those
+// hold applicant details); the detail route below returns them, redacted.
+// byStatus follows search and dates but not the status param, so the stat strip
+// still shows every status for the slice being looked at.
 adminRouter.get('/revasure', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
-  const status = req.query.status ? String(req.query.status) : undefined;
-  const where: Record<string, unknown> = {};
-  if (status) where.status = status;
+  const q = req.query as Record<string, unknown>;
+  const matchedUserIds = await findUserIdsBySearch(searchTerm(q));
+  const where = buildRevasureWhere(q, matchedUserIds);
 
   const [rows, total, byStatus] = await Promise.all([
-    prisma.revasureLead.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take }),
+    prisma.revasureLead.findMany({
+      where, orderBy: { updatedAt: 'desc' }, skip, take,
+      select: {
+        id: true, applicationId: true, userId: true, sourceLeadId: true, leadId: true, status: true,
+        httpStatus: true, message: true, lastError: true, createdAt: true, updatedAt: true,
+      },
+    }),
     prisma.revasureLead.count({ where }),
-    prisma.revasureLead.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.revasureLead.groupBy({
+      by: ['status'],
+      where: buildRevasureWhere({ ...q, status: undefined }, matchedUserIds),
+      _count: { _all: true },
+    }),
   ]);
+  const people = await personsByUserId(rows.map((r) => r.userId));
   return ok(res, {
-    rows,
+    rows: rows.map((r) => ({ ...r, customer: people.get(r.userId) ?? null })),
     byStatus: byStatus.map((g) => ({ status: g.status, count: g._count._all })),
   }, 'Revasure leads', paginate(page, pageSize, total));
 }));
 
-// GET /api/admin/revasure/:id — one lead's full request/response
+// GET /api/admin/revasure/:id — one lead's request/response, for support.
+// Sensitive keys (PAN, Aadhaar, OTP, tokens, passwords) are dropped at any depth.
 adminRouter.get('/revasure/:id', ah(async (req, res) => {
   const lead = await prisma.revasureLead.findUnique({ where: { id: req.params.id } });
   if (!lead) return res.status(404).json({ success: false, message: 'Not found' });
-  return ok(res, { lead }, 'Revasure lead');
+  return ok(res, {
+    lead: {
+      ...lead,
+      requestBody: redactRevasurePayload(lead.requestBody),
+      responseBody: redactRevasurePayload(lead.responseBody),
+    },
+  }, 'Revasure lead');
 }));
 
 // ─────────────────────────── yubi (YMPL) referrals ───────────────────────────
 
-// GET /api/admin/yubi?applied=1&status=&page=&pageSize=
+// GET /api/admin/yubi?applied=1&status=&search=&from=&to=&page=&pageSize=
 // Yubi partner referrals. applied=1 (default) = only those the customer actually
-// proceeded with (appliedAt set) — the ones that count as an application. Joins
-// the customer so the operator can see who applied via Yubi.
+// proceeded with (appliedAt set) — the ones that count as an application. search
+// matches the customer's name or mobile; from/to filter on appliedAt. Joins the
+// customer so the operator can see who applied via Yubi, and returns customerId so
+// the page can link to /customers/{id}. byStatus follows search and dates but not
+// the status param. The stored create/auth payloads and the short-lived redirect
+// URL are left out of the rows: they can hold tokens and the page never shows them.
 adminRouter.get('/yubi', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
-  const appliedOnly = req.query.applied !== '0' && req.query.applied !== 'false';
-  const status = req.query.status ? String(req.query.status) : undefined;
-  const where: Record<string, unknown> = {};
-  if (appliedOnly) where.appliedAt = { not: null };
-  if (status) where.lastStatus = status;
+  const q = req.query as Record<string, unknown>;
+  const matchedUserIds = await findUserIdsBySearch(searchTerm(q));
+  const where = buildYubiWhere(q, matchedUserIds);
 
   const [rows, total, byStatus] = await Promise.all([
-    prisma.partnerReferral.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take }),
+    prisma.partnerReferral.findMany({
+      where, orderBy: { updatedAt: 'desc' }, skip, take,
+      omit: { rawCreate: true, rawAuth: true, redirectUrl: true },
+    }),
     prisma.partnerReferral.count({ where }),
-    prisma.partnerReferral.groupBy({ by: ['lastStatus'], where: { appliedAt: { not: null } }, _count: { _all: true } }),
+    prisma.partnerReferral.groupBy({
+      by: ['lastStatus'],
+      where: buildYubiWhere({ ...q, status: undefined, applied: '1' }, matchedUserIds),
+      _count: { _all: true },
+    }),
   ]);
   // Attach the customer (plain-FK model, no relation).
-  const userIds = [...new Set(rows.map((r) => r.userId))];
-  const users = userIds.length
-    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, phone: true } })
-    : [];
-  const byId = Object.fromEntries(users.map((u) => [u.id, u]));
-  const withUser = rows.map((r) => ({ ...r, user: byId[r.userId] || null }));
+  const people = await personsByUserId(rows.map((r) => r.userId));
+  const withUser = rows.map((r) => {
+    const p = people.get(r.userId);
+    return {
+      ...r,
+      customerId: p?.id ?? null,
+      user: p ? { id: r.userId, fullName: p.name, phone: p.phone } : null,
+    };
+  });
   return ok(res, {
     rows: withUser,
     byStatus: byStatus.map((g) => ({ status: g.lastStatus || 'applied', count: g._count._all })),

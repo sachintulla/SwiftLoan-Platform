@@ -1,165 +1,263 @@
 'use client';
+// Calls: a call log first and a health monitor second. Stat strip (each cell
+// sets a filter), an overdue notice that only appears when needed, filters, a
+// paginated log whose rows open to what was said and the transcript, the
+// by-day and by-reason breakdowns, and the scheduler table folded away.
+import React, { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { swrFetcher } from '@/lib/api';
-import { StatCard, Card, TableSkeleton, Empty, StatusBadge, Callout } from '@/components/ui';
-import { num, timeAgo, dateTimeStr } from '@/lib/format';
+import { swrFetcher, downloadFile, getAdmin } from '@/lib/api';
+import { Card, Pagination } from '@/components/ui';
+import { num, timeAgo } from '@/lib/format';
+import { useDebounced } from '@/lib/hooks';
+import {
+  DEFAULT_FILTERS, STATUS_CHIPS, RANGE_OPTIONS, PURPOSE_OPTIONS, OUTCOME_OPTIONS,
+  callQuery, rangeError, hasActiveFilters, filterSummary, CALL_AGAIN_ROLE, EXPORT_ROLES,
+  type CallFilters, type JobHeartbeat, type OverviewSummary,
+} from '@/lib/calls';
+import CallsLog, { type CallListItem } from '@/components/calls/CallsLog';
+import { CallsStatStrip, OverdueNotice, CallsBreakdown, ScheduleGuide, SCHEDULE_ID } from '@/components/calls/CallsStats';
+import '@/components/calls/calls.css';
 
-interface JobHb {
-  name: string; everyMs: number; runs: number;
-  lastRunAt: string | null; lastOkAt: string | null; lastError: string | null; lastDurationMs: number | null;
-  isCallJob: boolean; healthy: boolean; overdueMs: number | null;
-}
-interface RecentCall {
-  id: string; phone: string; status: string | null; answered: boolean; outcome: string | null;
-  purpose: string | null; name: string | null; queuedAt: string | null; startedAt: string | null;
-  providerConversationId: string | null; error: string | null; summary: string | null;
-}
 interface Overview {
-  totals: { last24h: number; last7d: number };
-  byStatus: { status: string; count: number }[];
+  summary: OverviewSummary;
   byPurpose: { purpose: string; count: number }[];
   perDay: { day: string; count: number }[];
-  recent: RecentCall[];
-  jobs: JobHb[];
+  jobs: JobHeartbeat[];
   generatedAt: string;
 }
 
-const PURPOSE_LABEL: Record<string, string> = {
-  app_dropoff_followup: 'Stuck-stage (drop-off)',
-  daily_status_update: 'Daily status',
-  website_lead_followup: 'Website lead callback',
-  immediate_callback_optin: 'Immediate callback',
-  '(unknown)': 'Other / campaign',
-};
-function purposeLabel(p: string | null): string {
-  if (!p) return 'Other / campaign';
-  return PURPOSE_LABEL[p] ?? p;
-}
-function everyLabel(ms: number): string {
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `every ${m}m`;
-  return `every ${Math.round(m / 60)}h`;
-}
+const PAGE_SIZE = 20;
+const REFRESH_MS = 30_000;
 
 export default function CallsPage() {
-  const { data: res, isLoading } = useSWR('/api/admin/calls/overview', swrFetcher, { refreshInterval: 10000 });
-  const data = res?.data as Overview | undefined;
+  const [filters, setFilters] = useState<CallFilters>(DEFAULT_FILTERS);
+  const [page, setPage] = useState(1);
+  const [paused, setPaused] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => { setRole(getAdmin()?.role ?? null); }, []);
+  const isSuperAdmin = role === CALL_AGAIN_ROLE;
+  const mayExport = role !== null && EXPORT_ROLES.includes(role);
 
-  const byStatus = (s: string) => data?.byStatus.find((x) => x.status === s)?.count ?? 0;
-  const callJobs = (data?.jobs ?? []).filter((j) => j.isCallJob);
-  const anyUnhealthy = callJobs.some((j) => !j.healthy);
-  const maxDay = Math.max(1, ...(data?.perDay ?? []).map((d) => d.count));
+  // Typing in search waits a moment so each keystroke is not a request.
+  const debouncedSearch = useDebounced(filters.search, 300);
+  const queryFilters = { ...filters, search: debouncedSearch };
+  const dateErr = rangeError(filters);
+  const qs = callQuery(queryFilters).toString();
+
+  // Updates stop while Pause is on and while a row is open, so the list does
+  // not move under someone who is reading it.
+  const refreshing = !paused && !openId;
+  const refreshInterval = refreshing ? REFRESH_MS : 0;
+
+  const listKey = `/api/admin/calls?${qs}${qs ? '&' : ''}page=${page}&pageSize=${PAGE_SIZE}`;
+  const list = useSWR(dateErr ? null : listKey, swrFetcher, { refreshInterval, keepPreviousData: true });
+  const overview = useSWR('/api/admin/calls/overview', swrFetcher, { refreshInterval });
+  const items = (list.data?.data as CallListItem[] | undefined) ?? [];
+  const pg = list.data?.pagination;
+  const ov = overview.data?.data as Overview | undefined;
+  const filtered = hasActiveFilters(filters);
+
+  // Re-render now and then so "Updated 2m ago" stays true between refreshes.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 15_000);
+    return () => clearInterval(t);
+  }, []);
+
+  function change(patch: Partial<CallFilters>) {
+    setFilters((f) => ({ ...f, ...patch }));
+    setPage(1);
+    setOpenId(null);
+  }
+  const clear = () => { setFilters(DEFAULT_FILTERS); setPage(1); setOpenId(null); };
+  const refreshAll = () => { void list.mutate(); void overview.mutate(); };
+
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState('');
+  async function exportCsv() {
+    setExporting(true); setExportErr('');
+    try {
+      const q = callQuery(filters).toString();
+      await downloadFile(`/api/admin/calls/export.csv${q ? `?${q}` : ''}`, `calls-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (e) {
+      setExportErr((e as Error).message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const scheduleRef = useRef<HTMLDivElement>(null);
+  function seeJobs() {
+    setScheduleOpen(true);
+    setTimeout(() => scheduleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  }
+
+  const total = pg?.total ?? 0;
+  const loadingList = list.isLoading && !list.data;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+    <div className="adm-calls">
+      <div className="adm-calls-head">
         <div>
-          <h1 style={{ margin: 0 }}>Calls</h1>
-          <div className="muted" style={{ fontSize: 13 }}>
-            Outbound voice calls (Ruby) and whether the dialler jobs are running on schedule.
-            {data?.generatedAt ? ` Updated ${timeAgo(data.generatedAt)}.` : ''}
-          </div>
+          <h1 className="page-title">Calls</h1>
+          <p className="page-sub">
+            Every call the voice agent has placed and what came of it.
+            {ov?.generatedAt ? ` Updated ${timeAgo(ov.generatedAt)}.` : ''}
+          </p>
+        </div>
+        <div className="adm-calls-head-actions">
+          {openId && !paused && <span className="adm-calls-hint">Updates are paused while a call is open.</span>}
+          <button type="button" className="btn" onClick={refreshAll}>Refresh</button>
+          <button type="button" className="btn" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
+            {paused ? 'Resume updates' : 'Pause updates'}
+          </button>
         </div>
       </div>
 
-      {/* Tiles */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <StatCard label="Calls · last 24h" value={num(data?.totals.last24h ?? 0)} icon="✆" tone="teal" />
-        <StatCard label="Calls · last 7 days" value={num(data?.totals.last7d ?? 0)} icon="✆" tone="blue" />
-        <StatCard label="Completed (7d)" value={num(byStatus('completed'))} icon="✓" tone="green" />
-        <StatCard label="In progress (7d)" value={num(byStatus('dialing') + byStatus('in_progress'))} icon="…" tone="amber" />
-        <StatCard label="Failed (7d)" value={num(byStatus('failed') + byStatus('no_answer') + byStatus('busy'))} icon="✕" tone="red" />
-      </div>
+      <CallsStatStrip
+        summary={ov?.summary}
+        loading={overview.isLoading}
+        error={Boolean(overview.error)}
+        onRetry={() => overview.mutate()}
+        filters={filters}
+        onPick={change}
+      />
 
-      {/* Job health — is Ruby being triggered on a regular interval? */}
-      <Card title="Dialler jobs — are they triggering on schedule?" sub="In-memory heartbeat since the API last started. Healthy = ran within 2.5× its interval.">
-        {anyUnhealthy && (
-          <Callout tone="amber" icon="⚠">
-            One or more call jobs haven&apos;t ticked recently. If the API just restarted, give it a minute; otherwise the scheduler may be stalled.
-          </Callout>
-        )}
-        {isLoading ? (
-          <TableSkeleton rows={4} cols={5} />
-        ) : callJobs.length === 0 ? (
-          <Empty label="No heartbeat yet — the jobs haven't run since the last restart." />
-        ) : (
-          <table className="table">
-            <thead><tr><th>Job</th><th>Interval</th><th>Last run</th><th>Runs</th><th>Health</th></tr></thead>
-            <tbody>
-              {callJobs.map((j) => (
-                <tr key={j.name}>
-                  <td style={{ fontFamily: 'var(--mono, monospace)' }}>{j.name}</td>
-                  <td className="muted">{everyLabel(j.everyMs)}</td>
-                  <td title={j.lastRunAt ? dateTimeStr(j.lastRunAt) : ''}>
-                    {j.lastRunAt ? timeAgo(j.lastRunAt) : '—'}
-                    {j.lastError ? <span style={{ color: 'var(--red)', marginLeft: 6 }} title={j.lastError}>· error</span> : null}
-                  </td>
-                  <td>{num(j.runs)}</td>
-                  <td><StatusBadge status={j.healthy ? 'active' : 'pending'} label={j.healthy ? 'healthy' : 'overdue'} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
+      <OverdueNotice jobs={ov?.jobs} onSeeDetails={seeJobs} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        {/* By purpose */}
-        <Card title="Calls by purpose (7d)">
-          {isLoading ? <TableSkeleton rows={4} cols={2} /> : (data?.byPurpose.length ? (
-            <table className="table">
-              <tbody>
-                {data.byPurpose.map((p) => (
-                  <tr key={p.purpose}><td>{purposeLabel(p.purpose)}</td><td style={{ textAlign: 'right', fontWeight: 700 }}>{num(p.count)}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <Empty label="No calls in the last 7 days." />)}
-        </Card>
-
-        {/* Per day */}
-        <Card title="Calls per day (IST, 7d)">
-          {isLoading ? <TableSkeleton rows={4} cols={2} /> : (data?.perDay.length ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {data.perDay.map((d) => (
-                <div key={d.day} className="row" style={{ gap: 8, alignItems: 'center' }}>
-                  <span className="muted" style={{ width: 92, fontSize: 12 }}>{d.day}</span>
-                  <div style={{ flex: 1, background: 'var(--line, #eee)', borderRadius: 4, height: 14 }}>
-                    <div style={{ width: `${(d.count / maxDay) * 100}%`, background: 'var(--teal, #079FA0)', height: '100%', borderRadius: 4 }} />
-                  </div>
-                  <span style={{ width: 32, textAlign: 'right', fontWeight: 700 }}>{d.count}</span>
-                </div>
-              ))}
-            </div>
-          ) : <Empty label="No calls in the last 7 days." />)}
-        </Card>
-      </div>
-
-      {/* Recent calls */}
-      <Card title="Recent calls" sub="Most recent 25 outbound calls (last 7 days).">
-        {isLoading ? (
-          <TableSkeleton rows={8} cols={6} />
-        ) : data?.recent.length ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="table">
-              <thead><tr><th>When</th><th>Phone</th><th>Name</th><th>Purpose</th><th>Status</th><th>Outcome</th><th>Conversation</th></tr></thead>
-              <tbody>
-                {data.recent.map((c) => (
-                  <tr key={c.id}>
-                    <td title={c.queuedAt ? dateTimeStr(c.queuedAt) : ''}>{c.queuedAt ? timeAgo(c.queuedAt) : '—'}</td>
-                    <td style={{ fontFamily: 'var(--mono, monospace)' }}>{c.phone}</td>
-                    <td>{c.name ?? '—'}</td>
-                    <td>{purposeLabel(c.purpose)}</td>
-                    <td><StatusBadge status={c.status ?? 'unknown'} /></td>
-                    <td className="muted">{c.outcome ?? (c.answered ? 'answered' : '—')}{c.error ? <span style={{ color: 'var(--red)' }} title={c.error}> · error</span> : null}</td>
-                    <td className="muted" style={{ fontSize: 12 }}>{c.providerConversationId ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <Card>
+        {/* filters */}
+        <div className="adm-calls-toolbar">
+          <div className="adm-calls-field adm-calls-search">
+            <label htmlFor="calls-search">Search by mobile or name</label>
+            <input
+              id="calls-search"
+              className="input"
+              value={filters.search}
+              placeholder="Mobile number or customer name"
+              onChange={(e) => change({ search: e.target.value })}
+            />
           </div>
-        ) : <Empty label="No calls yet." />}
+          <div className="adm-calls-field" style={{ minWidth: 170 }}>
+            <label htmlFor="calls-outcome">Outcome</label>
+            <select id="calls-outcome" className="input" value={filters.outcome} onChange={(e) => change({ outcome: e.target.value })}>
+              {OUTCOME_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="adm-calls-field" style={{ minWidth: 170 }}>
+            <label htmlFor="calls-why">Why we called</label>
+            <select id="calls-why" className="input" value={filters.purpose} onChange={(e) => change({ purpose: e.target.value })}>
+              {PURPOSE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          {filtered && <button type="button" className="btn" onClick={clear}>Clear filters</button>}
+        </div>
+
+        <div className="adm-calls-toolbar" style={{ alignItems: 'center' }}>
+          <div className="adm-calls-chips" role="group" aria-label="Filter by result">
+            {STATUS_CHIPS.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className="chip-filter"
+                aria-pressed={filters.view === c.key}
+                onClick={() => change({ view: c.key })}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <div className="adm-calls-chips" role="group" aria-label="Filter by date">
+            {RANGE_OPTIONS.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className="chip-filter"
+                aria-pressed={filters.range === r.key}
+                onClick={() => change({ range: r.key })}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {filters.range === 'custom' && (
+          <div className="adm-calls-dates" style={{ marginBottom: 12 }}>
+            <div className="adm-calls-field">
+              <label htmlFor="calls-from">From</label>
+              <input
+                id="calls-from" type="date" className="input" value={filters.from} max={filters.to || undefined}
+                aria-invalid={dateErr ? true : undefined} aria-describedby={dateErr ? 'calls-date-err' : undefined}
+                onChange={(e) => change({ from: e.target.value })}
+              />
+            </div>
+            <div className="adm-calls-field">
+              <label htmlFor="calls-to">To</label>
+              <input
+                id="calls-to" type="date" className="input" value={filters.to} min={filters.from || undefined}
+                aria-invalid={dateErr ? true : undefined} aria-describedby={dateErr ? 'calls-date-err' : undefined}
+                onChange={(e) => change({ to: e.target.value })}
+              />
+            </div>
+          </div>
+        )}
+        {dateErr && <p id="calls-date-err" role="alert" className="adm-calls-error">{dateErr}</p>}
+
+        {/* the log */}
+        <div className="row between wrap" style={{ gap: 10, alignItems: 'flex-end' }}>
+          <div>
+            <h3 className="card-title">Call log</h3>
+            <p className="adm-calls-result" aria-live="polite">
+              {list.error && !list.data ? '' : `${num(total)} call${total === 1 ? '' : 's'}. ${filterSummary(filters)}`}
+            </p>
+          </div>
+          <div className="row wrap" style={{ gap: 10 }}>
+            {!mayExport && role !== null && <span id="calls-export-note" className="adm-calls-why">Exports need an admin or super admin</span>}
+            <button
+              type="button"
+              className="btn"
+              disabled={exporting || !mayExport || Boolean(dateErr)}
+              aria-describedby={!mayExport && role !== null ? 'calls-export-note' : undefined}
+              onClick={exportCsv}
+            >
+              {exporting ? 'Exporting...' : 'Export CSV'}
+            </button>
+          </div>
+        </div>
+        {exportErr && <p role="alert" className="adm-calls-error" style={{ marginTop: 0 }}>{exportErr}</p>}
+
+        {list.error && !list.data ? (
+          <div className="empty" role="alert">
+            Could not load calls - {(list.error as Error).message}
+            <div><button type="button" className="btn" style={{ marginTop: 12 }} onClick={() => list.mutate()}>Retry</button></div>
+          </div>
+        ) : !loadingList && items.length === 0 ? (
+          <div className="empty-state">
+            <h3>{filtered ? 'No calls match these filters.' : 'No calls yet.'}</h3>
+            <p>{filtered ? 'Nothing in this slice. Try a wider date range or clear a filter.' : 'They appear here as soon as the voice agent places one.'}</p>
+            {filtered && <button type="button" className="btn" onClick={clear}>Clear filters</button>}
+          </div>
+        ) : (
+          <CallsLog
+            items={items}
+            loading={loadingList}
+            openId={openId}
+            onOpen={setOpenId}
+            isSuperAdmin={isSuperAdmin}
+            onCalled={refreshAll}
+          />
+        )}
+        {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={(p) => { setPage(p); setOpenId(null); }} />}
       </Card>
+
+      <CallsBreakdown perDay={ov?.perDay} byPurpose={ov?.byPurpose} loading={overview.isLoading && !ov} />
+
+      <div ref={scheduleRef} id={`${SCHEDULE_ID}-wrap`}>
+        <ScheduleGuide jobs={ov?.jobs} loading={overview.isLoading && !ov} open={scheduleOpen} onToggle={setScheduleOpen} />
+      </div>
     </div>
   );
 }

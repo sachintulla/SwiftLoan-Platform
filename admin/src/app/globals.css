@@ -550,3 +550,6 @@ table.data tbody tr:last-child td { border-bottom: none; }
   .so-tl::before { left: 73px; }
   .so-step { grid-template-columns: 48px 32px minmax(0, 1fr); }
 }
+
+/* adm-focus: keyboard focus was invisible on buttons, links, chips and tabs. Only shown for keyboard use (focus-visible), never on a mouse click. */
+button:focus-visible, a:focus-visible, .chip-filter:focus-visible, .tab-item:focus-visible, .select-trigger:focus-visible, .select-option:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }

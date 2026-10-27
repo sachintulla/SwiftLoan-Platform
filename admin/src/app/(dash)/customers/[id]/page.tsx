@@ -12,7 +12,9 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, Stat, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout } from '@/components/ui';
-import { JourneyTracker, stageLabel, stalledLabel, StageProgress, STAGE_CALL_STEPS, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
+import { JourneyTracker, stageLabel, stalledLabel, StageProgress, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
+import SendActions from '@/components/SendActions';
+import { withoutInstallLinks, type OutreachOptions } from '@/lib/outreach';
 import { ApplicationOffers } from '@/components/ApplicationOffers';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
@@ -190,9 +192,6 @@ function asArray<T>(x: unknown): T[] {
   return Array.isArray(items) ? (items as T[]) : [];
 }
 
-/** A dial result, keyed by which button produced it. */
-interface CallState { busy: string | null; key: string | null; ok: boolean; text: string }
-
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -200,6 +199,11 @@ export default function CustomerDetail() {
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers/${id}`, swrFetcher);
   const d = (data?.data ?? {}) as Detail;
   const c = d.customer;
+
+  // What the Reach out bar can do for this customer. The same key the bar itself reads, so it is one request.
+  // Here it also drives the "Do not contact" badge and keeps app-link rows out of the nudge counts.
+  const { data: outreachRes } = useSWR(id ? `/api/admin/outreach/customers/${id}/options` : null, swrFetcher, { revalidateOnFocus: false });
+  const outreach = (outreachRes?.data as OutreachOptions | undefined) ?? null;
 
   const [deleting, setDeleting] = useState(false);
   async function deleteCustomer() {
@@ -236,51 +240,13 @@ export default function CustomerDetail() {
   const [nudging, setNudging] = useState(false);
   const [nudgeResult, setNudgeResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const [call, setCall] = useState<CallState>({ busy: null, key: null, ok: false, text: '' });
   const [leadBusy, setLeadBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState('journey');
   const [showSystem, setShowSystem] = useState(false);
 
-  /**
-   * Place a real outbound call, right now.
-   *
-   * Confirmed first, deliberately: this rings an actual person's phone within
-   * seconds and cannot be undone. When `stage` is given the server turns it into
-   * the exact drop-off wording, so the agent opens with "you started your KYC
-   * but did not finish it" instead of a generic follow-up.
-   */
-  async function placeCall(key: string, about: string, steps?: { lastStep: string; expectedStep: string }) {
-    const phone = c?.phone;
-    const who = c?.name || 'this customer';
-    if (!phone) return;
-    if (!window.confirm(`Call ${who} on ${phone} about ${about}?\n\nThis places a real phone call.`)) return;
-
-    setCall({ busy: key, key, ok: false, text: '' });
-    try {
-      const res = await apiFetch<{ status?: string; error?: string; id?: string }>(
-        '/api/admin/calls/trigger',
-        { method: 'POST', body: JSON.stringify({ phone, ...(steps ?? {}) }) },
-      );
-      const r = res.data ?? {};
-      // A provider failure still returns a CallAttempt row (status `failed`), so
-      // report what actually happened rather than assuming success from a 2xx.
-      const failed = r.status === 'failed';
-      setCall({
-        busy: null, key, ok: !failed,
-        text: failed
-          ? `Call failed — ${r.error || 'the provider rejected it'}`
-          : `Calling ${phone} about ${about}. The result appears under Voice calls below.`,
-      });
-      await mutate();
-    } catch (e) {
-      const msg = (e as Error).message || 'Could not place the call';
-      setCall({
-        busy: null, key, ok: false,
-        text: /403/.test(msg) ? 'Only a super admin can place calls.' : msg,
-      });
-    }
-  }
+  // Placing a call, and sending a WhatsApp, SMS or push, now live in components/SendActions.tsx
+  // (the Reach out bar under the Milestones stepper), with a confirmation that shows what will go out.
 
   async function updateLead(leadId: string, patch: { status?: string; note?: string }) {
     setLeadBusy(leadId);
@@ -317,11 +283,11 @@ export default function CustomerDetail() {
   const loans = user?.loans ?? [];
   const sessions = d.sessions ?? [];
   const notifications = d.notifications ?? [];
-  const nudgeSummary = d.nudgeSummary;
+  // App-link rows are bookkeeping for the installs page, not messages sent to the customer, so they are not counted here.
+  const nudgeSummary = withoutInstallLinks(d.nudgeSummary, outreach?.installLinks);
   const stalled = c.stalledMinutes ?? d.dropOff?.stalledMinutes ?? null;
   // The most recent enquiry is what they actually asked us for.
   const lead = leads[0];
-  const noPhone = !c.phone;
 
   // The one application that actually reached "application_submitted" (if
   // any) — everything else that only got to offers_ready was abandoned when
@@ -349,15 +315,6 @@ export default function CustomerDetail() {
     ...(loans.length ? [{ key: 'loans', label: 'Loans', count: loans.length }] : []),
   ];
 
-  const callResult = call.text ? (
-    <span
-      className={`badge ${call.ok ? 'tone-green' : 'tone-red'}`}
-      style={{ whiteSpace: 'normal', maxWidth: 300, textAlign: 'left', lineHeight: 1.45 }}
-    >
-      {call.text}
-    </span>
-  ) : null;
-
   // The API never returns a PAN (stored encrypted, env-only key) — only whether one is on file.
   const panOnFile = !!user?.panOnFile;
   const deviceLine = [d.device?.os, d.device?.model, d.device?.appVersion ? `v${d.device.appVersion}` : null].filter(Boolean).join(' · ');
@@ -373,7 +330,7 @@ export default function CustomerDetail() {
       <div className="row between wrap" style={{ marginBottom: 14, gap: 10 }}>
         <button className="btn" onClick={() => router.push('/customers')}>← Back to customers</button>
         <button className="btn" style={{ color: 'var(--red)', borderColor: 'var(--red)' }} disabled={deleting} onClick={deleteCustomer} title="Permanently erase this customer and all their data (super-admin only)">
-          {deleting ? 'Deleting…' : '🗑 Delete customer'}
+          {deleting ? 'Deleting…' : 'Delete customer'}
         </button>
       </div>
 
@@ -391,6 +348,9 @@ export default function CustomerDetail() {
               <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
                 <h1 className="page-title" style={{ fontSize: 20 }}>{c.name || c.phone || 'Unknown customer'}</h1>
                 <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
+                {outreach?.doNotContact.blocked && (
+                  <span className="badge tone-red" title="They asked us to stop. Messages and calls are switched off.">Do not contact</span>
+                )}
                 {stalled != null && stalled >= 15 && (
                   <span className={`badge ${stalled > 1440 ? 'tone-red' : 'tone-amber'}`}>Stalled {stalledLabel(stalled)}</span>
                 )}
@@ -537,28 +497,20 @@ export default function CustomerDetail() {
       </div>
 
       {activeTab === 'journey' && (() => {
-        const currentStep = (d.stageProgress ?? []).find((s) => s.stage === c.currentStage);
-        const currentCallSteps = currentStep ? STAGE_CALL_STEPS[currentStep.stage] : undefined;
-        const currentLabel = currentStep ? (currentStep.label || stageLabel(currentStep.stage)) : null;
         const sessionMinutes = Math.round(sessions.reduce((sum, s) => sum + (s.durationSec ?? 0), 0) / 60);
         return (
           <div style={{ marginTop: 18, display: 'grid', gap: 16 }}>
             <Card title="Milestones" sub="Where they got to. Colour + shape tell confirmed from inferred.">
-              {call.key && call.key !== 'whole' && callResult && (
-                <div style={{ marginBottom: 12 }}>{callResult}</div>
-              )}
               <JourneyTracker steps={d.stageProgress ?? []} currentStage={c.currentStage} stalledMinutes={stalled} />
-              {currentCallSteps && (
-                <button
-                  className="btn btn-primary"
-                  style={{ marginTop: 14 }}
-                  disabled={noPhone || call.busy === currentStep!.stage}
-                  title={noPhone ? 'This customer has no phone number' : `Call about "${currentLabel}"`}
-                  onClick={() => placeCall(currentStep!.stage, `“${currentLabel}”`, currentCallSteps)}
-                >
-                  {call.busy === currentStep!.stage ? 'Dialling…' : `📞 Call about “${currentLabel}”`}
-                </button>
-              )}
+              {/* Push, SMS, WhatsApp and Call about the stage they are at. Each asks for confirmation first,
+                  and the server enforces every rule, so this is a convenience and not the protection. */}
+              <SendActions
+                variant="panel"
+                customerId={c.id}
+                customerName={c.name}
+                stage={c.currentStage}
+                onDone={() => { void mutate(); }}
+              />
             </Card>
 
             <Card
@@ -832,6 +784,9 @@ export default function CustomerDetail() {
             <button className="btn btn-primary" disabled={nudging} onClick={sendNudge}>{nudging ? 'Sending…' : 'Send nudge'}</button>
             {nudgeResult && <span style={{ fontSize: 12.5, color: nudgeResult.ok ? 'var(--green)' : 'var(--red)' }}>{nudgeResult.text}</span>}
           </div>
+          <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: '12px 0 0' }}>
+            This queues a push through Upshot. To send a WhatsApp or SMS, use Reach out on the Journey tab.
+          </p>
         </Card>
         )}
       </div>
