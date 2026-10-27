@@ -99,18 +99,6 @@ export const WHATSAPP_TEMPLATES: readonly WhatsAppTemplate[] = [
     replaces: 'offers_ready',
   },
   {
-    name: 'document_request_update',
-    category: 'UTILITY', language: 'en',
-    purpose: 'Asks the customer to complete a verification step needed for their application.',
-    target: 'stage', usedBy: 'Stage nudge: KYC started', recommendedStages: ['kyc_started'],
-    body: 'Hi {{1}}, to continue your application (Ref {{2}}) we need you to complete: {{3}}. You can do this here: {{4}} Your information is handled securely.',
-    footer: FOOTER,
-    variables: ['First name', 'Application reference', 'What is needed', 'Link to continue'],
-    examples: ['Priya', 'SL-884021', 'your KYC details', 'https://www.swiftloan.ai/apply'],
-    placeholders: ['{name}', '{ref}', 'your KYC details (PAN and Aadhaar eKYC)', '{siteUrl}/apply'],
-    replaces: 'document_request',
-  },
-  {
     name: 'application_not_approved_update',
     category: 'UTILITY', language: 'en',
     purpose: 'Update that a lender did not approve the application and where the other options are. It does not give the lender\'s reason.',
@@ -174,7 +162,6 @@ export const LEGACY_TEMPLATES: ReadonlyArray<{ name: string; issue: string; repl
   { name: 'install_app_resume', issue: 'Submitted as MARKETING (see docs/JOURNEY_RESUME_TEMPLATES.md)', replacement: 'application_incomplete_update' },
   { name: 'install_app_resume_step', issue: 'Submitted as MARKETING on 22 Oct', replacement: 'application_incomplete_update' },
   { name: 'offers_ready', issue: 'Category not confirmed as utility; wording is promotional', replacement: 'offers_available_update' },
-  { name: 'document_request', issue: 'Category not confirmed as utility', replacement: 'document_request_update' },
   { name: 'loan_applied_install_app', issue: 'Listed as "to be approved"; wording asks to install the app', replacement: 'loan_application_submitted' },
 ];
 

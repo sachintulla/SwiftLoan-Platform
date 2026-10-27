@@ -101,7 +101,7 @@ const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
 
 const customer = {
   id: 'cust-1', name: 'Asha Verma', phone: '9876543210', userId: 'user-1',
-  currentStage: 'kyc_started', stageEnteredAt: minsAgo(500),
+  currentStage: 'eligibility_checked', stageEnteredAt: minsAgo(500),
 } as any;
 const admin = { id: 'adm-1', email: 'priya@example.test', role: 'admin' };
 const superAdmin = { id: 'adm-9', email: 'boss@example.test', role: 'super_admin' };
@@ -109,24 +109,24 @@ const superAdmin = { id: 'adm-9', email: 'boss@example.test', role: 'super_admin
 const waConfig = {
   siteUrl: 'https://site.example.test',
   map: {
-    kyc_started: { template: 'finish_kyc', language: 'en', placeholders: ['{name}', '{ref}'] },
+    eligibility_completed: { template: 'finish_kyc', language: 'en', placeholders: ['{name}', '{ref}'] },
     app_installed: { template: 'get_started', language: 'en', placeholders: ['{name}', '{appLink}'] },
   },
 };
 const smsSettings = {
   smsTemplateId: 'T-DEFAULT', smsBody: 'Default text',
-  smsTemplates: { kyc_started: { templateId: 'T-KYC', body: 'Finish your KYC today' } },
+  smsTemplates: { eligibility_completed: { templateId: 'T-KYC', body: 'Finish your KYC today' } },
 };
 
 function guard(over: Record<string, any> = {}) {
   return {
-    customer: { phone: '9876543210', currentStage: 'kyc_started' },
+    customer: { phone: '9876543210', currentStage: 'eligibility_checked' },
     dnc: false, allowlisted: true, role: 'admin', inWindow: true,
     recent: { ...M.NO_RECENT }, now: NOW, ...over,
   } as any;
 }
 const waInput = (over: Record<string, any> = {}) => ({
-  ...guard(over), customer: { ...customer, ...(over.customer ?? {}) }, stageKey: 'kyc_started', cfg: waConfig as any,
+  ...guard(over), customer: { ...customer, ...(over.customer ?? {}) }, stageKey: 'eligibility_completed', cfg: waConfig as any,
   vars: { name: 'Asha', ref: 'SL-1001', offerCount: 3, siteUrl: 'https://site.example.test', appLink: '(link created when sent)' },
   ...(over.cfg !== undefined ? { cfg: over.cfg } : {}),
   ...(over.stageKey !== undefined ? { stageKey: over.stageKey } : {}),
@@ -170,7 +170,8 @@ describe('resolveOutreachStage', () => {
     expect(M.resolveOutreachStage('eligibility_checked')).toBe('eligibility_completed');
     expect(M.resolveOutreachStage('offers_viewed')).toBe('offer_viewed');
     expect(M.resolveOutreachStage('offer_selected')).toBe('offer_selected');
-    expect(M.resolveOutreachStage('kyc_started')).toBe('kyc_started');
+    expect(M.resolveOutreachStage('eligibility_checked')).toBe('eligibility_completed');
+    expect(M.resolveOutreachStage('eligibility_completed')).toBeNull();
   });
 
   it('has nothing to say at the end of the journey', () => {
@@ -189,8 +190,8 @@ describe('firstBlock guard order', () => {
     const all = guard({ customer: { phone: null, currentStage: 'lost' }, dnc: true, allowlisted: false, role: 'analyst' });
     expect(M.firstBlock('whatsapp', all, null)).toBe('no_phone');
     expect(M.firstBlock('whatsapp', { ...all, customer: { phone: '9876543210', currentStage: 'lost' } }, null)).toBe('do_not_contact');
-    expect(M.firstBlock('whatsapp', { ...all, customer: { phone: '9876543210', currentStage: 'kyc_started' }, dnc: false }, null)).toBe('not_on_test_allowlist');
-    expect(M.firstBlock('whatsapp', { ...all, customer: { phone: '9876543210', currentStage: 'kyc_started' }, dnc: false, allowlisted: true }, null)).toBe('forbidden');
+    expect(M.firstBlock('whatsapp', { ...all, customer: { phone: '9876543210', currentStage: 'eligibility_checked' }, dnc: false }, null)).toBe('not_on_test_allowlist');
+    expect(M.firstBlock('whatsapp', { ...all, customer: { phone: '9876543210', currentStage: 'eligibility_checked' }, dnc: false, allowlisted: true }, null)).toBe('forbidden');
   });
 
   it('puts the message check before calling hours, hours before repeat, repeat before the daily cap', () => {
@@ -313,7 +314,7 @@ describe('buildManualVars', () => {
 
 describe('planSms', () => {
   const input = (over: Record<string, any> = {}) => ({
-    ...guard(over), stageKey: 'kyc_started', settings: smsSettings,
+    ...guard(over), stageKey: 'eligibility_completed', settings: smsSettings,
     ...(over.settings !== undefined ? { settings: over.settings } : {}),
     ...(over.stageKey !== undefined ? { stageKey: over.stageKey } : {}),
   });
@@ -340,7 +341,7 @@ describe('planSms', () => {
 describe('planPush', () => {
   const input = (over: Record<string, any> = {}) => ({
     ...guard(over),
-    customer: { phone: '9876543210', currentStage: 'kyc_started', userId: 'user-1', ...(over.customer ?? {}) },
+    customer: { phone: '9876543210', currentStage: 'eligibility_checked', userId: 'user-1', ...(over.customer ?? {}) },
     eventName: 'kyc_nudge',
   });
 
@@ -348,7 +349,7 @@ describe('planPush', () => {
     const plan = M.planPush(input());
     expect(plan.available).toBe(true);
     expect(plan.preview).toMatchObject({ kind: 'push', eventName: 'kyc_nudge' });
-    expect((plan.preview as any).summary).toContain('KYC started');
+    expect((plan.preview as any).summary).toContain('Eligibility checked');
   });
 
   it('cannot be delivered to a customer who is not signed in to the app', () => {
@@ -419,8 +420,8 @@ describe('sendManualWhatsApp', () => {
     expect(arg).toMatchObject({ phone: '9876543210', templateName: 'finish_kyc', language: 'en', placeholders: ['Asha', 'SL-1001'], track: { kind: 'admin', customerId: 'cust-1' } });
     const claim = (prismaMock.outboundRequest.create.mock.calls as any)[0][0].data;
     expect(claim).toMatchObject({ kind: 'whatsapp_template', channel: 'whatsapp', status: 'pending' });
-    expect(claim.payload).toMatchObject({ source: 'admin', sentBy: { id: 'adm-1', email: 'priya@example.test' }, stageKey: 'kyc_started', template: 'finish_kyc', channel: 'whatsapp' });
-    expect(claim.idempotencyKey).toMatch(/^admin_wa:cust-1:kyc_started:\d+$/);
+    expect(claim.payload).toMatchObject({ source: 'admin', sentBy: { id: 'adm-1', email: 'priya@example.test' }, stageKey: 'eligibility_completed', template: 'finish_kyc', channel: 'whatsapp' });
+    expect(claim.idempotencyKey).toMatch(/^admin_wa:cust-1:eligibility_completed:\d+$/);
   });
 
   it('on success: marks the row sent, sets lastNudgedAt and records NUDGE_SENT from the admin', async () => {
@@ -585,14 +586,14 @@ describe('sendManualPush', () => {
   it('queues the stage event, tags it as an admin send and answers queued', async () => {
     const out = await M.sendManualPush(customer, admin, {}, NOW);
     expect(out).toMatchObject({ ok: true, data: { channel: 'push', status: 'queued', outboundRequestId: 'ev-1', messageId: null, sentAt: null } });
-    expect(dispatchMock.nudge).toHaveBeenCalledWith(customer, 'kyc_started');
+    expect(dispatchMock.nudge).toHaveBeenCalledWith(customer, 'eligibility_checked');
     expect((prismaMock.outboundRequest.update.mock.calls as any)[0][0].data.payload).toMatchObject({ eventName: 'kyc_nudge', source: 'admin', sentBy: { id: 'adm-1' } });
     expect(prismaMock.customer.update).toHaveBeenCalledWith({ where: { id: 'cust-1' }, data: { lastNudgedAt: NOW } });
   });
 
   it('refuses when push is switched off on this server, and queues nothing', async () => {
     h.nudgesOff = true;
-    expect(M.planPush({ ...guard(), customer: { phone: '9876543210', currentStage: 'kyc_started', userId: 'user-1' }, eventName: 'kyc_nudge' }))
+    expect(M.planPush({ ...guard(), customer: { phone: '9876543210', currentStage: 'eligibility_checked', userId: 'user-1' }, eventName: 'kyc_nudge' }))
       .toMatchObject({ available: false, code: 'nudges_disabled', reason: 'Push is switched off on this server' });
     expect(await M.sendManualPush(customer, admin, {}, NOW)).toMatchObject({ ok: false, status: 409, code: 'nudges_disabled', message: 'Push is switched off on this server' });
     expect(await M.sendManualPush(customer, superAdmin, { confirmRepeat: true, overrideHours: true }, NOW)).toMatchObject({ ok: false, code: 'nudges_disabled' });

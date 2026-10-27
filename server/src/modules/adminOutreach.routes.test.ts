@@ -66,7 +66,7 @@ beforeAll(async () => {
 afterAll(async () => { await new Promise((r) => server.close(r)); });
 
 const customer = {
-  id: 'cust-1', name: 'Asha Verma', phone: '9876543210', userId: 'user-1', currentStage: 'kyc_started',
+  id: 'cust-1', name: 'Asha Verma', phone: '9876543210', userId: 'user-1', currentStage: 'eligibility_checked',
   stageEnteredAt: new Date('2026-10-25T10:00:00Z'),
 };
 
@@ -103,8 +103,8 @@ describe('GET /customers/:id/options', () => {
 
   it('describes the customer, the stage and every channel', async () => {
     const body = await (await get('/customers/cust-1/options', 'super_admin')).json();
-    expect(body.data.customer).toMatchObject({ id: 'cust-1', currentStage: 'kyc_started', stageLabel: 'KYC started' });
-    expect(body.data.outreachStage).toBe('kyc_started');
+    expect(body.data.customer).toMatchObject({ id: 'cust-1', currentStage: 'eligibility_checked', stageLabel: 'Eligibility checked' });
+    expect(body.data.outreachStage).toBe('eligibility_completed');
     expect(body.data.terminal).toBe(false);
     expect(body.data.doNotContact).toEqual({ blocked: false, reason: null });
     expect(body.data.role).toEqual({ canMessage: true, canCall: true });
