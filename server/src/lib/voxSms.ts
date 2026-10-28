@@ -11,6 +11,7 @@
  */
 import { getProviderConfig } from './integrations.js';
 import { recordSend } from './messageDelivery.js';
+import { smsCredentials } from './smsCredentials.js';
 
 export interface SmsResult {
   ok: boolean;
@@ -43,8 +44,7 @@ async function sendVoxSmsRaw(opts: { phone: string; body?: string; templateId?: 
   if (!cfg.enabled) return { ok: false, status: 0, error: 'Voxvalley integration is disabled' };
 
   const url = String(cfg.settings.smsUrl || '');
-  const token = String((cfg.secrets as any).authToken ?? (cfg.secrets as any).apiKey ?? '');
-  const projectId = String(cfg.settings.projectId || '');
+  const { token, projectId } = smsCredentials(cfg.settings, cfg.secrets as Record<string, unknown>);
   const from = String(opts.from || cfg.settings.smsSender || '');
   const templateId = String(opts.templateId || cfg.settings.smsTemplateId || '');
   const body = String(opts.body || cfg.settings.smsBody || '');
@@ -92,10 +92,6 @@ async function sendVoxSmsRaw(opts: { phone: string; body?: string; templateId?: 
 /** True when the SMS gateway is configured well enough to attempt a send. */
 export async function smsConfigured(): Promise<boolean> {
   const cfg = await getProviderConfig('voxvalley');
-  return Boolean(
-    cfg.enabled &&
-      cfg.settings.smsUrl &&
-      cfg.settings.projectId &&
-      (((cfg.secrets as any).authToken ?? (cfg.secrets as any).apiKey) as string | undefined),
-  );
+  const { token, projectId } = smsCredentials(cfg.settings, cfg.secrets as Record<string, unknown>);
+  return Boolean(cfg.enabled && cfg.settings.smsUrl && projectId && token);
 }

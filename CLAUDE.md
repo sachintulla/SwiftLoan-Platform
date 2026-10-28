@@ -717,3 +717,13 @@ templates, schedules and rules stay stored under the stage key. **Basic details 
   per side is a separate step.
 - Tests: `server/src/lib/{surface,stageFlows}.test.ts`, `admin/src/lib/stageFlows.test.ts`, and `cd server && bash scripts/journey/run-stage-surface.sh` (throwaway DB: builds the
   previous schema, applies the migration, checks `db push` has nothing left to change, then runs the engine check).
+
+---
+
+## SMS credentials: sending SMS as the OTP project (`smsUseOtpCredentials`)
+
+WhatsApp is on one Vox project (the one in the Voxvalley integration, `PRJ…926983001`) and the **login OTP SMS** on another (env `VOX_PROJECT_ID`, `VOX_AUTH_TOKEN`; sender GMPE).
+The marketing/nudge SMS sender (**PTSLA**), its DLT templates and the SMS route are on the **OTP project**, so Vox refuses SMS sent as the WhatsApp project
+(`Error mapping routing strategy`, "No senders are available"). Setting `smsUseOtpCredentials: true` in the Voxvalley settings makes `lib/voxSms.ts` send SMS with the OTP
+project's token and ID (`lib/smsCredentials.ts`, pure and tested; falls back to the integration's own pair if the env pair is incomplete, never mixes them). WhatsApp is untouched.
+Default is off, so nothing changes until it is set. The OTP itself (`lib/sms.ts`) is a separate env-driven path and requests no delivery receipts (`VOX_DLR_URL` unset).
