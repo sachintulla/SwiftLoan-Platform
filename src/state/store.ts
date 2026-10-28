@@ -24,7 +24,7 @@ import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, typ
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
-import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
@@ -759,6 +759,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setTokens(tokens.accessToken, tokens.refreshToken);
       try {
         const { user }: any = await api.me();
+        // A restored session never passes through the OTP screen, so identify here too — otherwise
+        // an already-signed-in user keeps a device token on Upshot but no App UID, name or email.
+        if (user?.id) upshotIdentify({ userId: String(user.id), phone: user.phone, name: user.fullName, email: user.email });
         dispatch({
           type: 'set',
           patch: {
