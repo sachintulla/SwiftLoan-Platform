@@ -79,11 +79,6 @@ export default function StageOutreach() {
   const [allMode, setAllMode] = useState(false);
   const [flow, setFlow] = useState<FlowKey>('app');
 
-  const totals = useMemo(() => {
-    const all = (ov?.stages ?? []).flatMap((s) => s.activities);
-    return { on: all.filter((a) => a.enabled).length, total: all.length, empty: (ov?.stages ?? []).filter((s) => !s.activities.some((a) => a.enabled)).length };
-  }, [ov]);
-
   if (error) return <div className="card card-pad"><div className="empty">Could not load stage outreach: {(error as Error).message}</div></div>;
   if (isLoading || !ov) return <div className="card card-pad"><TableSkeleton rows={6} cols={2} /></div>;
 
@@ -98,35 +93,16 @@ export default function StageOutreach() {
       <div className="so-head">
         <div>
           <h2 className="so-title">Stage outreach</h2>
-          <p className="so-sub">Pick App or Website, then the step where customers stop. Set what they receive, on which channel, and when. A follow-up marked &quot;App and website&quot; applies to both.</p>
+          <p className="so-sub">Pick App or Website, then the step where customers stop. Set what they receive, on which channel, and when. A follow-up marked &quot;App and website&quot; applies to both. New follow-ups start switched off, so nothing is sent until you turn them on.</p>
           <div className="ee-seg" role="group" aria-label="Flow" style={{ marginTop: 10 }}>
             {FLOWS.map((f) => (
               <button key={f} type="button" className={flow === f ? 'active' : ''} aria-pressed={flow === f} onClick={() => { setFlow(f); setSelected(null); setOpenRule(null); }}>{FLOW_LABEL[f]}</button>
             ))}
           </div>
         </div>
-        <div className="so-stats">
-          <div className="so-stat"><b>{totals.on}</b><span>follow-ups on</span></div>
-          <div className="so-stat"><b>{totals.total - totals.on}</b><span>switched off</span></div>
-          <div className="so-stat"><b>{totals.empty}</b><span>stages with nothing on</span></div>
-        </div>
       </div>
 
       <Notes gates={ov.gates} />
-
-      <details className="so-guide">
-        <summary>How to set it up</summary>
-        <ol>
-          <li><b>Pick the stage</b> from the journey on the left.</li>
-          <li><b>Add a follow-up</b> on a channel the stage does not have yet: WhatsApp, SMS, Email, Call or Push.</li>
-          <li><b>Click the step</b> to set when it goes out and what it says. Calls also take the variables the Ello agent receives.</li>
-          <li><b>Switch it on.</b> New follow-ups start switched off, so nothing reaches a customer until you turn them on. Calls also need the Timings switch.</li>
-        </ol>
-      </details>
-
-      {(Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
-        <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
-      ))}
 
       <div className={`so-grid ${allMode ? 'stack' : ''}`}>
         <Rail title={`${FLOW_LABEL[flow]} journey`} stages={shown} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
@@ -136,6 +112,13 @@ export default function StageOutreach() {
           allMode={allMode} setAllMode={setAllMode}
         />
       </div>
+
+      <details className="so-guide">
+        <summary>Other messages (not tied to a step)</summary>
+        <div style={{ marginTop: 10 }}>
+          <MessageCard kind="conversationSummary" cfg={ov.messages.conversationSummary} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
+        </div>
+      </details>
 
       <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />
 
@@ -358,6 +341,15 @@ function StagePanel({ number, stage, flow, ov, openRule, setOpenRule, onChanged,
         </div>
       ) : (
       <div className="so-panel-body">
+        {stage.key === 'eligibility_completed' && (
+          <>
+            <div className="so-section">Right when the check ends (sent at once, not after a wait)</div>
+            {(['noOffers', 'eligibilityRetry'] as MessageKind[]).map((kind) => (
+              <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={onChanged} />
+            ))}
+          </>
+        )}
+
         <div className="so-section">What the customer gets after they stop here</div>
 
         <StageTimeline
@@ -908,7 +900,7 @@ function AddRow({ stage, flow, onAdded }: { stage: Stage; flow: FlowKey; onAdded
 
   return (
     <div className="so-add">
-      <div className="so-section" style={{ marginTop: 22 }}>Add a {FLOW_LABEL[flow].toLowerCase()} follow-up at this step</div>
+      <div className="so-section" style={{ marginTop: 22 }}>Add {flow === 'app' ? 'an app' : 'a website'} follow-up at this step</div>
       <div className="so-add-row">
         {stage.missingChannels.map((c) => (
           <button key={c} type="button" className="so-add-btn" disabled={busy !== null} onClick={() => add(c)}>
