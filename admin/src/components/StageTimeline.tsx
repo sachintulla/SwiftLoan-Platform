@@ -18,7 +18,7 @@ import { Chip, type Catalog, type TemplatesPayload } from '@/components/whatsapp
 import { CHANNEL_LABEL, Icon, duration, type Channel } from '@/components/stageOutreachUi';
 import { same, sensitive, show, toDraft, toValue, localError, rowsToUi, uiToRows, spanText, type Draft, type Item, type SchedRow, type UiRow } from '@/lib/timingsEdit';
 import {
-  byTime, findOverlaps, jobSteps, ownScheduleKey, sequenceFor, stagesUsing,
+  byTime, findOverlaps, jobSteps, ownScheduleKey, sequenceForFlow, stagesUsing,
   type JobStep, type SequenceSource, type TimelineEntry,
 } from '@/lib/stageSequences';
 
@@ -81,8 +81,8 @@ function StageSchedule({ shared, own, draft, customised, edited, problem, canEdi
   );
 }
 
-export default function StageTimeline({ stageKey, stages, rules }: { stageKey: string; stages: StageRef[]; rules: RuleEntry[] }) {
-  const seq = sequenceFor(stageKey);
+export default function StageTimeline({ stageKey, flow, stages, rules }: { stageKey: string; flow: 'app' | 'website'; stages: StageRef[]; rules: RuleEntry[] }) {
+  const seq = sequenceForFlow(stageKey, flow);
   const label = (k: string) => stages.find((s) => s.key === k)?.label ?? k;
 
   const { data: cRes, mutate: mutateCat } = useSWR('/api/admin/whatsapp/catalog', swrFetcher);
@@ -145,7 +145,7 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
     const v = d !== undefined ? Number(d) : Number(it.effective);
     return Number.isFinite(v) ? v : null;
   };
-  const jobs: JobStep[] = jobSteps(stageKey, rowsFor, isOn, minutesOf);
+  const jobs: JobStep[] = jobSteps(stageKey, rowsFor, isOn, minutesOf, flow);
 
   const ruleEntries: Array<TimelineEntry & { node: React.ReactNode }> = rules.map((r) => ({
     key: `rule:${r.key}`, group: 'rule' as const, channel: r.channel, afterMinutes: r.afterMinutes, live: r.enabled, label: r.label, node: r.node,

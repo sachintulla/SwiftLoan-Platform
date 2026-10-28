@@ -301,6 +301,7 @@ function StagePanel({ stage, flow, ov, openRule, setOpenRule, onChanged }: {
 
         <StageTimeline
           stageKey={stage.key}
+          flow={flow}
           stages={ov.stages.map((x) => ({ key: x.key, label: x.label }))}
           rules={steps.map((a) => ({
             key: a.ruleId, afterMinutes: a.delayMinutes, enabled: a.enabled, channel: a.channel, label: CHANNEL_LABEL[a.channel],
