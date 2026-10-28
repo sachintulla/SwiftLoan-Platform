@@ -25,7 +25,6 @@ import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
 import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
-import { UPSHOT_DEMO } from '../config/build';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
@@ -1106,13 +1105,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     initMeta();
     if (initUpshot()) {
       upshotEvent('app_opened', { platform: UPSHOT_PLATFORM });
-      // Demo/test builds only (pointed at a dev or local backend): ask for push
-      // permission at launch so a test push can be sent without walking through
-      // onboarding to the Permissions screen. Production builds keep asking only there.
-      if (UPSHOT_DEMO) registerUpshotPush();
-      // Note: the notification permission (registerUpshotPush) is NOT requested
-      // here. It's requested from the 'Allow permissions' onboarding screen
-      // (permissions.tsx) so nothing prompts the user before they reach it.
+      // Register for push at first launch, on every build, with no login: the device
+      // token must reach Upshot right after install, not only once the user signs in.
+      // (Android's token is also sent natively at launch — MainApplication.kt. On iOS this
+      // is what triggers the permission prompt and the APNs token. The Permissions screen
+      // and post-OTP calls stay as harmless repeats.)
+      registerUpshotPush();
     }
     const sub = RNAppState.addEventListener('change', (s) => {
       if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
