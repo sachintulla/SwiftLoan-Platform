@@ -27,10 +27,13 @@ function toE164(phone: string): string {
 
 export async function sendVoxSms(opts: { phone: string; body?: string; templateId?: string; from?: string; track?: { kind?: string; customerId?: string | null } }): Promise<SmsResult> {
   const result = await sendVoxSmsRaw(opts);
+  // Keep the exact text that went out, so the admin can show it (the text comes from settings unless the caller supplied it).
+  const text = String(opts.body || (await getProviderConfig('voxvalley').catch(() => null))?.settings?.smsBody || '');
   // Remember it for the Messages list. The SMS gateway gives no delivery callback here, so "sent" means "the gateway accepted it".
   await recordSend({
     channel: 'sms', providerRef: result.ok ? result.messageId ?? null : null, phone: opts.phone, template: opts.templateId ?? null,
     kind: opts.track?.kind ?? 'other', customerId: opts.track?.customerId ?? null, ok: result.ok, status: 'sent', error: result.error ?? null,
+    ...(text ? { meta: { text } } : {}),
   });
   return result;
 }

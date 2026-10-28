@@ -280,6 +280,58 @@ export function Menu({ trigger, items }: { trigger: React.ReactNode; items: Menu
   );
 }
 
+/** A centred popup with a title bar and a close button; the body scrolls. Esc or a click outside closes it. */
+export function Modal({ title, onClose, children, width = 640 }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode; width?: number }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" className="card" style={{ width: '100%', maxWidth: width, maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+        <div className="row between" style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', gap: 12, alignItems: 'center' }}>
+          <div style={{ fontWeight: 700, fontSize: 15, minWidth: 0 }}>{title}</div>
+          <button type="button" className="btn" aria-label="Close" onClick={onClose} style={{ padding: '4px 10px', fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 20, overflowY: 'auto' }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** A clear expand arrow: points right, turns down when open. Use instead of the small text arrows. */
+export function Chevron({ open, size = 20 }: { open: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+      style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><path d="M9 6l6 6-6 6" /></svg>
+  );
+}
+
+/** "Showing 1 - 10 of 18", rows per page, and first / previous / next / last. For lists that page in the browser or on the server. */
+export function PagerBar({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize?: (n: number) => void }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(page, totalPages);
+  const from = total === 0 ? 0 : (cur - 1) * pageSize + 1;
+  const to = Math.min(cur * pageSize, total);
+  return (
+    <div className="pager-bar">
+      <span className="muted">Showing {from} - {to} of {total}</span>
+      <span style={{ flex: 1 }} />
+      {onPageSize && (
+        <select className="input" style={{ width: 'auto' }} aria-label="Rows per page" value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))}>
+          {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      )}
+      <button type="button" className="btn" disabled={cur <= 1} onClick={() => onPage(1)} aria-label="First page">«</button>
+      <button type="button" className="btn" disabled={cur <= 1} onClick={() => onPage(cur - 1)} aria-label="Previous page">‹</button>
+      <span className="muted">Page {cur} of {totalPages}</span>
+      <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => onPage(cur + 1)} aria-label="Next page">›</button>
+      <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => onPage(totalPages)} aria-label="Last page">»</button>
+    </div>
+  );
+}
+
 export function Pagination({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
   if (totalPages <= 1) return null;
   return (

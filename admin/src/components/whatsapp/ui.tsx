@@ -26,6 +26,9 @@ export interface TemplateRow {
   proposed: boolean;
   usedBy: { key: string; label: string; on: boolean; category: string }[];
   flags: TemplateFlag[];
+  /** Real sends with this template, and the time of the latest one. */
+  sent: number;
+  lastSentAt: string | null;
 }
 export interface TemplatesPayload { items: TemplateRow[]; prefilled: boolean; prefilledFrom: string }
 

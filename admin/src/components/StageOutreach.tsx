@@ -14,10 +14,10 @@ import React, { useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui';
-import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '@/lib/eventEditor';
 import { laterEvents } from '@/lib/eventLabels';
 import StageTimeline from '@/components/StageTimeline';
-import { CHANNEL_LABEL, Icon, duration, tone, type Channel } from '@/components/stageOutreachUi';
+import { CHANNEL_LABEL, Icon, duration, type Channel } from '@/components/stageOutreachUi';
+import { FLOWS, FLOW_LABEL, stagesForFlow, type FlowKey, type FlowStep, type RuleSurface } from '@/lib/stageFlows';
 
 interface Activity {
   ruleId: string;
@@ -30,6 +30,8 @@ interface Activity {
   expectedEvent: string;
   upshotEvent: string;
   firedCount: number;
+  /** Who it applies to: both, only the app, or only the website. */
+  surface?: RuleSurface;
   whatsapp?: { template: string; language: string; placeholders: string[]; customised: boolean; recommended: { name: string; language: string; placeholders: string[]; preview: string } | null };
   sms?: { templateId: string; body: string; customised: boolean };
   call?: { agentRole: string | null; assistantId: string; brief: string; effectiveAgentId: string | null };
@@ -48,6 +50,8 @@ interface Variable { name: string; group: string; description: string; example: 
 interface AgentRole { role: string; label: string; direction: string }
 interface Overview {
   stages: Stage[];
+  /** The App and Website journeys, each in its own order and words. */
+  flows: Record<FlowKey, FlowStep[]>;
   variables: Variable[];
   whatsappTokens: string[];
   agentRoles: AgentRole[];
@@ -71,61 +75,47 @@ export default function StageOutreach() {
   const ov = data?.data as Overview | undefined;
   const [selected, setSelected] = useState<string | null>(null);
   const [openRule, setOpenRule] = useState<string | null>(null);
-  const [allMode, setAllMode] = useState(false);
-
-  const totals = useMemo(() => {
-    const all = (ov?.stages ?? []).flatMap((s) => s.activities);
-    return { on: all.filter((a) => a.enabled).length, total: all.length, empty: (ov?.stages ?? []).filter((s) => !s.activities.some((a) => a.enabled)).length };
-  }, [ov]);
+  const [flow, setFlow] = useState<FlowKey>('app');
 
   if (error) return <div className="card card-pad"><div className="empty">Could not load stage outreach: {(error as Error).message}</div></div>;
   if (isLoading || !ov) return <div className="card card-pad"><TableSkeleton rows={6} cols={2} /></div>;
 
-  const current = ov.stages.find((s) => s.key === selected) ?? ov.stages.find((s) => s.activities.some((a) => a.enabled)) ?? ov.stages[0];
-  const number = ov.stages.findIndex((s) => s.key === current.key) + 1;
+  // The tab decides which steps are listed, what they are called, and which follow-ups show.
+  const flowStages = stagesForFlow(flow, ov.flows?.[flow] ?? [], ov.stages);
+  const shown = flowStages.length ? flowStages : ov.stages;
+  const current = shown.find((s) => s.key === selected) ?? shown.find((s) => s.activities.some((a) => a.enabled)) ?? shown[0];
 
   return (
     <div className="so">
-      <div className="so-head">
-        <div>
-          <h2 className="so-title">Stage outreach</h2>
-          <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and when it is triggered. Website visitors and app users share these stages.</p>
-        </div>
-        <div className="so-stats">
-          <div className="so-stat"><b>{totals.on}</b><span>follow-ups on</span></div>
-          <div className="so-stat"><b>{totals.total - totals.on}</b><span>switched off</span></div>
-          <div className="so-stat"><b>{totals.empty}</b><span>stages with nothing on</span></div>
-        </div>
+      <div className="so-flows" role="tablist" aria-label="App or website">
+        {FLOWS.map((f) => {
+          const list = stagesForFlow(f, ov.flows?.[f] ?? [], ov.stages);
+          const on = list.reduce((n, st) => n + st.activities.filter((a) => a.enabled).length, 0);
+          return (
+            <button key={f} type="button" role="tab" aria-selected={flow === f} className={`so-flow ${flow === f ? 'active' : ''}`}
+              onClick={() => { setFlow(f); setSelected(null); setOpenRule(null); }}>
+              <span className="so-flow-ico" aria-hidden>{f === 'app' ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18" /></svg>
+              )}</span>
+              <span className="so-flow-text">
+                <b>{FLOW_LABEL[f]}</b>
+                <span>{list.length} steps · {on} follow-up{on === 1 ? '' : 's'} on</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      <Notes gates={ov.gates} />
-
-      <details className="so-guide">
-        <summary>How to set it up</summary>
-        <ol>
-          <li><b>Pick the stage</b> from the journey on the left.</li>
-          <li><b>Add a follow-up</b> on a channel the stage does not have yet: WhatsApp, SMS, Email, Call or Push.</li>
-          <li><b>Click the step</b> to set when it goes out and what it says. Calls also take the variables the Ello agent receives.</li>
-          <li><b>Switch it on.</b> New follow-ups start switched off, so nothing reaches a customer until you turn them on. Calls also need the Timings switch.</li>
-        </ol>
-      </details>
-
-      {(Object.keys(MESSAGE_META) as MessageKind[]).map((kind) => (
-        <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
-      ))}
-
-      <div className={`so-grid ${allMode ? 'stack' : ''}`}>
-        <Rail stages={ov.stages} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
+      <div className="so-grid">
+        <Rail title={`${FLOW_LABEL[flow]} journey`} stages={shown} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
         <StagePanel
-          key={current.key} number={number} stage={current} ov={ov}
+          key={`${flow}:${current.key}`} flow={flow} stage={current} ov={ov}
           openRule={openRule} setOpenRule={setOpenRule} onChanged={() => mutate()}
-          allMode={allMode} setAllMode={setAllMode}
         />
       </div>
 
-      <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />
-
-      <VariableDictionary variables={ov.variables} />
     </div>
   );
 }
@@ -163,7 +153,6 @@ const MESSAGE_META: Record<MessageKind, { target: string; title: string; summary
 
 function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { kind: MessageKind; cfg: Overview['messages'][MessageKind]; templates: CatalogTemplate[]; whatsappConnected: boolean; onChanged: () => void }) {
   const meta = MESSAGE_META[kind];
-  const catalog = templates.filter((t) => t.target === meta.target);
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(cfg.enabled);
   const [template, setTemplate] = useState(cfg.template);
@@ -217,20 +206,14 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
             <div className="so-field">
               <label className="so-label">Approved WhatsApp template name</label>
               <input className="input mono" value={template} placeholder={`e.g. ${meta.example}`} onChange={(e) => { setTemplate(e.target.value); touch(); }} />
-              <span className="so-hint">Submit the template below to CPaaS (Vox Digitals) as <b>Utility</b>, wait for approval, then enter its exact name here.</span>
-              {catalog.map((t) => (
-                <button key={t.name} type="button" className="so-token" style={{ justifySelf: 'start' }}
-                  onClick={() => { setTemplate(t.name); setLanguage(t.language); setVars(t.placeholders); touch(); }}>
-                  Use catalogue template {t.name}
-                </button>
-              ))}
+              <span className="so-hint">Exactly as approved in Vox: lowercase letters, numbers, underscores.</span>
             </div>
             <div className="so-field">
-              <label className="so-label">Language code</label>
+              <label className="so-label">Language</label>
               <input className="input mono" style={{ maxWidth: 120 }} value={language} onChange={(e) => { setLanguage(e.target.value); touch(); }} />
             </div>
             <div className="so-field wide">
-              <span className="so-label">Values sent into the template, in order</span>
+              <span className="so-label">Values</span>
               <div className="so-vars">
                 {vars.map((v, i) => (
                   <div key={i} className="so-var">
@@ -247,12 +230,6 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
               </div>
               <span className="so-hint">The count and order must match the approved template exactly. {meta.hint}</span>
             </div>
-            <div className="so-field wide">
-              <div className="so-preview">
-                <div className="so-preview-label">How it behaves</div>
-                {meta.rules}
-              </div>
-            </div>
           </div>
           <div className="so-actions">
             <button type="button" className="btn btn-primary" disabled={!dirty || saving || needsTemplate} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button>
@@ -265,31 +242,10 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
   );
 }
 
-function Notes({ gates: g }: { gates: Overview['gates'] }) {
-  const notes: Array<{ tone: '' | 'blue' | 'red'; text: string }> = [];
-  if (!g.whatsappConnected) notes.push({ tone: '', text: 'No WhatsApp provider is turned on (Vox or Meta), so WhatsApp steps will not send.' });
-  if (!g.smsConnected) notes.push({ tone: '', text: 'The Vox SMS gateway is off, so SMS steps will not send.' });
-  if (!g.upshotConnected) notes.push({ tone: '', text: 'Upshot is off, so email and push steps will not reach anyone (they go through Upshot).' });
-  if (!g.elloConnected) notes.push({ tone: '', text: 'Ello voice is not connected, so calls cannot be placed.' });
-  if (!g.callsAutomatic) notes.push({ tone: 'blue', text: 'Automatic drop-off calls are switched off (Timings, calls.nudgeEnabled). No call rings a customer until that is on.' });
-  if (g.callsAutomatic && g.testNumbersOnly > 0) notes.push({ tone: 'blue', text: `Test mode: calls only go to the ${g.testNumbersOnly} allowed test number${g.testNumbersOnly === 1 ? '' : 's'}.` });
-  if (g.nudgesDisabled) notes.push({ tone: 'red', text: 'NUDGES_DISABLED is set on this server, so stage follow-ups are paused here.' });
-  if (!notes.length) return null;
-  const urgent = notes.some((n) => n.tone === 'red');
-  return (
-    <details className="so-guide so-notes-box" style={urgent ? { borderColor: '#f3b6b0' } : undefined}>
-      <summary>{notes.length} thing{notes.length === 1 ? '' : 's'} to know before anything is sent{urgent ? ' (action needed)' : ''}</summary>
-      <div className="so-notes" style={{ marginTop: 10, marginBottom: 0 }}>
-        {notes.map((n) => <div key={n.text} className={`so-note ${n.tone}`}><span aria-hidden>{n.tone === 'blue' ? 'ℹ' : '⚠'}</span><span>{n.text}</span></div>)}
-      </div>
-    </details>
-  );
-}
-
-function Rail({ stages, currentKey, onPick }: { stages: Stage[]; currentKey: string; onPick: (key: string) => void }) {
+function Rail({ title, stages, currentKey, onPick }: { title: string; stages: Stage[]; currentKey: string; onPick: (key: string) => void }) {
   return (
     <nav className="so-rail" aria-label="Journey stages">
-      <div className="so-rail-title">Customer journey</div>
+      <div className="so-rail-title">{title}</div>
       {stages.map((s, i) => (
         <button key={s.key} type="button" className={`so-stage ${s.key === currentKey ? 'active' : ''}`} onClick={() => onPick(s.key)}>
           <span className="so-stage-no">{i + 1}</span>
@@ -316,9 +272,8 @@ function Rail({ stages, currentKey, onPick }: { stages: Stage[]; currentKey: str
   );
 }
 
-function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMode, setAllMode }: {
-  number: number; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
-  allMode: boolean; setAllMode: (v: boolean) => void;
+function StagePanel({ stage, flow, ov, openRule, setOpenRule, onChanged }: {
+  flow: FlowKey; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
 }) {
   const steps = [...stage.activities].sort((a, b) => a.delayMinutes - b.delayMinutes);
   const on = steps.filter((a) => a.enabled).length;
@@ -326,24 +281,22 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMo
     <section className="so-panel">
       <div className="so-panel-head">
         <div className="so-panel-top">
-          <h3 className="so-panel-title">{number}. {stage.label}</h3>
-          <span className="so-chip">{stage.surface}</span>
-          <span className="so-chip" style={on ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{on} of {steps.length} on</span>
-          <span className="so-spacer" />
-          <div className="ee-seg" role="group" aria-label="View">
-            <button type="button" className={!allMode ? 'active' : ''} aria-pressed={!allMode} onClick={() => setAllMode(false)}>Timeline</button>
-            <button type="button" className={allMode ? 'active' : ''} aria-pressed={allMode} onClick={() => setAllMode(true)}>All channels</button>
-          </div>
+          <h3 className="so-panel-title">{stage.label}</h3>
+          <span className="so-chip" style={on ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{on} on</span>
         </div>
         <p className="so-panel-desc">{stage.description}</p>
       </div>
 
-      {allMode ? (
-        <div className="so-panel-body">
-          <EventEditor key={stage.key} stage={stage} ov={ov} onSaved={onChanged} onClose={() => setAllMode(false)} />
-        </div>
-      ) : (
       <div className="so-panel-body">
+        {stage.key === 'eligibility_completed' && (
+          <>
+            <div className="so-section">Right when the check ends (sent at once, not after a wait)</div>
+            {(['noOffers', 'eligibilityRetry'] as MessageKind[]).map((kind) => (
+              <MessageCard key={kind} kind={kind} cfg={ov.messages[kind]} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={onChanged} />
+            ))}
+          </>
+        )}
+
         <div className="so-section">What the customer gets after they stop here</div>
 
         <StageTimeline
@@ -355,30 +308,25 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMo
           }))}
         />
 
-        <AddRow stage={stage} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
+        <AddRow stage={stage} flow={flow} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
 
       </div>
-      )}
     </section>
   );
 }
 
-function summaryFor(a: Activity, ov: Overview): { text: string; warn?: string } {
+function summaryFor(a: Activity, _ov: Overview): { text: string; warn?: string } {
   if (a.channel === 'whatsapp') {
     const w = a.whatsapp;
-    if (!w?.template) return { text: 'No template set. Falls back to the Upshot event.', warn: a.enabled ? 'Needs a template' : undefined };
-    return { text: `Template ${w.template} · ${w.placeholders.length} variable${w.placeholders.length === 1 ? '' : 's'}` };
+    if (!w?.template) return { text: 'No template', warn: a.enabled ? 'Needs a template' : undefined };
+    return { text: w.template };
   }
   if (a.channel === 'sms') {
-    const s = a.sms;
-    if (!s?.templateId) return { text: 'No SMS text set.', warn: a.enabled ? 'Needs text' : undefined };
-    return { text: `${s.customised ? 'Custom text for this stage' : 'Default registered text'} · template ${s.templateId}` };
+    if (!a.sms?.templateId) return { text: 'No text', warn: a.enabled ? 'Needs text' : undefined };
+    return { text: 'Text message' };
   }
-  if (a.channel === 'voice') {
-    const role = ov.agentRoles.find((r) => r.role === a.call?.agentRole)?.label ?? 'Website lead callback';
-    return { text: `${a.call?.assistantId ? `Agent ${a.call.assistantId}` : role} · ${a.call?.brief ? 'talking points set' : 'default talking points'}` };
-  }
-  return { text: `Fires Upshot event ${a.upshotEvent}` };
+  if (a.channel === 'voice') return { text: 'Phone call' };
+  return { text: a.channel === 'email' ? 'Email' : 'Push notification' };
 }
 
 function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
@@ -411,6 +359,7 @@ function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
           <div className="so-card-main">
             <div className="so-card-name">
               {CHANNEL_LABEL[a.channel]}
+              {(a.surface ?? 'all') === 'all' && <span className="so-chip" style={{ marginLeft: 8, fontWeight: 500 }} title="Applies to the app and the website">Both</span>}
               {sum.warn && <span className="so-warn">{sum.warn}</span>}
               {err && <span className="so-msg err">{err}</span>}
             </div>
@@ -465,8 +414,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + token.length, s + token.length); });
   }
 
-  const sample = useMemo(() => Object.fromEntries(ov.variables.map((v) => [v.name, v.example])), [ov.variables]);
-  const preview = brief.replace(/\{([a-z][a-z0-9_]*)\}/gi, (_m, n: string) => sample[n] ?? '').replace(/[ \t]{2,}/g, ' ').trim();
   const groups = useMemo(() => Array.from(new Set(ov.variables.map((v) => v.group))), [ov.variables]);
 
   async function save() {
@@ -500,32 +447,22 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
   return (
     <div className="so-editor">
       <div className="so-fields">
-        <TriggerPicker stageKey={stageKey} stageLabel={ov.stages.find((x) => x.key === stageKey)?.label ?? stageKey} value={expected} onChange={(v) => { setExpected(v); touch(); }} label="The step the customer has not yet done" />
+        <TriggerPicker stageKey={stageKey} stageLabel={ov.stages.find((x) => x.key === stageKey)?.label ?? stageKey} value={expected} onChange={(v) => { setExpected(v); touch(); }} label="Skip once they reach" />
         <div className="so-field">
-          <label className="so-label" htmlFor={`d-${a.ruleId}`}>Goes out after the customer stops</label>
+          <label className="so-label" htmlFor={`d-${a.ruleId}`}>Send after</label>
           <div className="so-input-unit">
             <input id={`d-${a.ruleId}`} className="input mono" inputMode="numeric" value={delay}
               onChange={(e) => { setDelay(e.target.value.replace(/[^0-9]/g, '')); touch(); }} />
             <span className="muted">minutes</span>
           </div>
-          <span className="so-hint">{delayValid ? `That is ${duration(delayNum)}.` : 'Enter 1 minute or more.'}</span>
+          {!delayValid && <span className="so-hint">Enter 1 minute or more.</span>}
         </div>
 
         {a.channel === 'whatsapp' && (
           <>
             <div className="so-field">
-              <label className="so-label">Approved template name</label>
-              <input className="input mono" value={waTemplate} placeholder="e.g. offers_ready" onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
-              <span className="so-hint">Exactly as approved by Meta: lowercase letters, numbers, underscores.</span>
-              {a.whatsapp?.recommended && waTemplate.trim() !== a.whatsapp.recommended.name && (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <button type="button" className="so-token" style={{ justifySelf: 'start' }}
-                    onClick={() => { const r = a.whatsapp!.recommended!; setWaTemplate(r.name); setWaLanguage(r.language); setWaVars(r.placeholders); touch(); }}>
-                    Use the utility template {a.whatsapp.recommended.name}
-                  </button>
-                  <span className="so-hint">Utility wording written for this stage: &ldquo;{a.whatsapp.recommended.preview}&rdquo; Switch to it once Meta has approved it as Utility.</span>
-                </div>
-              )}
+              <label className="so-label">Template</label>
+              <input className="input mono" value={waTemplate} onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
             </div>
             <div className="so-field">
               <label className="so-label">Language code</label>
@@ -534,7 +471,7 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
             <div className="so-field wide">
               <span className="so-label">Values sent into the template, in order</span>
               <div className="so-vars">
-                {waVars.length === 0 && <span className="so-hint">This template takes no variables.</span>}
+                {waVars.length === 0 && <span className="so-hint">None</span>}
                 {waVars.map((v, i) => (
                   <div key={i} className="so-var">
                     <span className="so-var-no">{`{{${i + 1}}}`}</span>
@@ -548,7 +485,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
                 {ov.whatsappTokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => { setWaVars([...waVars, t]); touch(); }}>{t}</button>)}
                 <button type="button" className="so-token" onClick={() => { setWaVars([...waVars, '']); touch(); }}>+ custom text</button>
               </div>
-              <span className="so-hint">A customer missing one of these values is skipped, never sent a blank. Clear the template name to hand this step back to Upshot.</span>
             </div>
           </>
         )}
@@ -556,16 +492,13 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
         {a.channel === 'sms' && (
           <>
             <div className="so-field">
-              <label className="so-label">DLT template ID</label>
+              <label className="so-label">Template ID</label>
               <input className="input mono" value={smsId} onChange={(e) => { setSmsId(e.target.value); touch(); }} />
             </div>
             <div className="so-field wide">
-              <label className="so-label">Exact registered text</label>
+              <label className="so-label">Text</label>
               <textarea className="input" rows={4} maxLength={1000} value={smsBody} onChange={(e) => { setSmsBody(e.target.value); touch(); }} />
-              <span className="so-hint">
-                India SMS must match the DLT registration character for character, so no variables are added.{' '}
-                {a.sms?.customised ? 'This stage has its own text. Clear both fields to go back to the default.' : 'This is the default text used at every stage. Change it here to give this stage its own.'}
-              </span>
+              <span className="so-hint">{a.sms?.customised ? 'Own text for this step' : 'Default text'}</span>
             </div>
           </>
         )}
@@ -574,9 +507,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
           <div className="so-field wide">
             <label className="so-label">Upshot event to fire</label>
             <input className="input mono" value={upshotEvent} onChange={(e) => { setUpshotEvent(e.target.value); touch(); }} />
-            <span className="so-hint">
-              {a.channel === 'email' ? 'Email' : 'Push'} is sent through Upshot: write the message there and attach it to this event. The event carries the customer&apos;s name, phone, city, source, campaign, stage and minutes stuck.
-            </span>
           </div>
         )}
 
@@ -590,22 +520,16 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
               </select>
             </div>
             <div className="so-field">
-              <label className="so-label">Or a specific agent ID</label>
-              <input className="input mono" value={assistantId} placeholder="Optional. Overrides the choice" onChange={(e) => { setAssistantId(e.target.value); touch(); }} />
+              <label className="so-label">Agent ID (optional)</label>
+              <input className="input mono" value={assistantId} onChange={(e) => { setAssistantId(e.target.value); touch(); }} />
               <span className="so-hint">Calls <span className="mono">{assistantId.trim() || a.call.effectiveAgentId || 'no agent configured'}</span></span>
             </div>
             <div className="so-field wide">
-              <label className="so-label">What the agent should talk about</label>
+              <label className="so-label">Talking points</label>
               <textarea ref={briefRef} className="input" rows={4} maxLength={ov.maxBriefLength} value={brief}
-                placeholder="e.g. Greet {lead_first_name}. They {stall_reason}. Offer to {stall_help}."
                 onChange={(e) => { setBrief(e.target.value); touch(); }} />
-              <span className="so-hint">{brief.length}/{ov.maxBriefLength}. Sent to the agent as <span className="mono">stage_brief</span> with each {'{variable}'} replaced by the customer&apos;s real value.</span>
+              <span className="so-hint">{brief.length}/{ov.maxBriefLength}</span>
             </div>
-            {preview && (
-              <div className="so-field wide">
-                <div className="so-preview"><div className="so-preview-label">Preview with a sample customer</div>{preview}</div>
-              </div>
-            )}
             <div className="so-field wide">
               <details>
                 <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Insert a variable ({ov.variables.length} available)</summary>
@@ -643,240 +567,18 @@ function TriggerPicker({ stageKey, stageLabel, value, onChange, label }: { stage
   const options = laterEvents(stageKey, value);
   return (
     <div className="so-field wide">
-      <span className="so-label">When it triggers</span>
+      <span className="so-label">Stop sending when</span>
       <div className="ee-trigger">
-        <span>When the customer reaches <b>{stageLabel}</b> but has not yet reached</span>
+        <span>Skip if they reach</span>
         <select className="input" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
           {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
-      <span className="so-hint">Customers who have already done this are skipped. It then goes out after the time you set.</span>
     </div>
   );
 }
 
-/* ─────────────── One event, every channel, one Save ─────────────── */
-
-const UNIT_LABEL: Record<Unit, string> = { min: 'minutes', hr: 'hours', day: 'days' };
-const UNIT_ONE: Record<Unit, string> = { min: 'minute', hr: 'hour', day: 'day' };
-const unitText = (u: Unit, val: string) => (val === '1' ? UNIT_ONE[u] : UNIT_LABEL[u]);
-
-function makeDraft(a: Activity | undefined, ch: Channel, stageKey: string, stageExpected: string): ChDraft {
-  const delay = splitMinutes(a?.delayMinutes ?? DEFAULT_DELAY[ch]);
-  const cool = splitMinutes(a?.cooldownMinutes ?? (ch === 'voice' ? 4320 : 1440));
-  return {
-    enabled: a?.enabled ?? false,
-    expectedEvent: a?.expectedEvent ?? stageExpected,
-    delayVal: delay.val, delayUnit: delay.unit, coolVal: cool.val, coolUnit: cool.unit,
-    upshotEvent: a?.upshotEvent ?? `swiftloan_${stageKey}_${ch}`,
-    waTemplate: a?.whatsapp?.template ?? '', waLanguage: a?.whatsapp?.language ?? 'en', waVars: a?.whatsapp?.placeholders ?? [],
-    smsId: a?.sms?.templateId ?? '', smsBody: a?.sms?.body ?? '',
-    role: a?.call?.agentRole ?? '', assistantId: a?.call?.assistantId ?? '', brief: a?.call?.brief ?? '',
-  };
-}
-
-const ruleChanged = (d: ChDraft, b: ChDraft, upshot: boolean) =>
-  d.enabled !== b.enabled || d.expectedEvent !== b.expectedEvent || toMinutes(d.delayVal, d.delayUnit) !== toMinutes(b.delayVal, b.delayUnit)
-  || toMinutes(d.coolVal, d.coolUnit) !== toMinutes(b.coolVal, b.coolUnit) || (upshot && d.upshotEvent.trim() !== b.upshotEvent);
-const waChanged = (d: ChDraft, b: ChDraft) =>
-  d.waTemplate.trim() !== b.waTemplate || d.waLanguage.trim() !== b.waLanguage || d.waVars.map((v) => v.trim()).filter(Boolean).join('\n') !== b.waVars.join('\n');
-const smsChanged = (d: ChDraft, b: ChDraft) => d.smsId.trim() !== b.smsId || d.smsBody.trim() !== b.smsBody.trim();
-const callChanged = (d: ChDraft, b: ChDraft) => d.role !== b.role || d.assistantId.trim() !== b.assistantId || d.brief.trim() !== b.brief;
-
-function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overview; onSaved: () => void | Promise<unknown>; onClose: () => void }) {
-  const [version, setVersion] = useState(0);
-  const baselines = useMemo(() => Object.fromEntries(CHANNELS.map((c) => [c, makeDraft(stage.activities.find((a) => a.channel === c), c, stage.key, stage.expectedEvent)])) as Record<Channel, ChDraft>, [stage]);
-  const [drafts, setDrafts] = useState<Record<Channel, ChDraft>>(baselines);
-  const [saving, setSaving] = useState(false);
-  const [results, setResults] = useState<Partial<Record<Channel, { ok: boolean; text: string }>>>({});
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const recommended = ov.templates.find((t) => t.target === 'stage' && t.recommendedStages?.includes(stage.key));
-  const set = (ch: Channel, patch: Partial<ChDraft>) => { setDrafts((d) => ({ ...d, [ch]: { ...d[ch], ...patch } })); setResults((r) => ({ ...r, [ch]: undefined })); setFormError(null); };
-  const activityOf = (ch: Channel) => stage.activities.find((a) => a.channel === ch);
-  const touched = (ch: Channel) => JSON.stringify(drafts[ch]) !== JSON.stringify(baselines[ch]);
-  const anyTouched = CHANNELS.some(touched);
-  const problems = CHANNELS.map((c) => [c, draftProblem(c, drafts[c], touched(c))] as const).filter(([, p]) => p);
-
-  const sentence = CHANNELS
-    .map((c) => {
-      const d = drafts[c];
-      if (!d.enabled) return activityOf(c) || touched(c) ? `${CHANNEL_LABEL[c]} off` : null;
-      return `${CHANNEL_LABEL[c]} after ${duration(toMinutes(d.delayVal, d.delayUnit))}`;
-    })
-    .filter(Boolean)
-    .join(', ');
-
-  async function saveAll() {
-    if (problems.length) { setFormError(problems[0][1]); return; }
-    if (drafts.voice.enabled && !baselines.voice.enabled && !window.confirm('Turn on calls at this stage? Customers who stop here will get a phone call from the Ello agent, once automatic calls are enabled in Timings.')) return;
-    setSaving(true); setResults({}); setFormError(null);
-    const out: Partial<Record<Channel, { ok: boolean; text: string }>> = {};
-    for (const ch of CHANNELS) {
-      if (!touched(ch)) continue;
-      const d = drafts[ch]; const b = baselines[ch]; const a = activityOf(ch);
-      const upshot = ch === 'email' || ch === 'push';
-      try {
-        let ruleId = a?.ruleId;
-        if (!ruleId) {
-          const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel: ch, delayMinutes: toMinutes(d.delayVal, d.delayUnit) }) });
-          ruleId = (res.data as { ruleId: string }).ruleId;
-        }
-        if (!a || ruleChanged(d, b, upshot)) {
-          await apiFetch(`/api/admin/stall-rules/${ruleId}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ enabled: d.enabled, expectedEvent: d.expectedEvent, delayMinutes: toMinutes(d.delayVal, d.delayUnit), cooldownMinutes: toMinutes(d.coolVal, d.coolUnit), ...(upshot ? { upshotEvent: d.upshotEvent.trim() } : {}) }),
-          });
-        }
-        if (ch === 'whatsapp' && waChanged(d, b)) {
-          await apiFetch(`${KEY}/${stage.key}/whatsapp`, { method: 'PUT', body: JSON.stringify({ template: d.waTemplate.trim(), language: d.waLanguage.trim() || 'en', placeholders: d.waVars.map((v) => v.trim()).filter(Boolean) }) });
-        }
-        if (ch === 'sms' && smsChanged(d, b)) {
-          await apiFetch(`${KEY}/${stage.key}/sms`, { method: 'PUT', body: JSON.stringify({ templateId: d.smsId.trim(), body: d.smsBody }) });
-        }
-        if (ch === 'voice' && callChanged(d, b)) {
-          await apiFetch(`${KEY}/${stage.key}/call`, { method: 'PUT', body: JSON.stringify({ agentRole: d.role || null, assistantId: d.assistantId.trim(), brief: d.brief }) });
-        }
-        out[ch] = { ok: true, text: 'Saved' };
-      } catch (e) {
-        out[ch] = { ok: false, text: errText(e) };
-      }
-    }
-    setResults(out);
-    await onSaved();
-    // Reload the drafts from the saved data, keeping the messages for the channels that failed.
-    if (Object.values(out).every((r) => r?.ok)) setVersion((v) => v + 1);
-    setSaving(false);
-  }
-
-  return (
-    <div className="ee" key={version}>
-      <div className="ee-intro">
-        <b>Set up every channel for this event in one go.</b> Switch on the ones you want, choose when each goes out and what it says, then press <b>Save all</b>. Channels you leave off are not created and nothing is sent until a channel is on.
-      </div>
-
-      <div className="ee-grid">
-        {CHANNELS.map((ch) => {
-          const d = drafts[ch]; const a = activityOf(ch); const upshot = ch === 'email' || ch === 'push';
-          const problem = draftProblem(ch, d, touched(ch));
-          return (
-            <div key={ch} className={`ee-card ${d.enabled ? 'on' : ''}`}>
-              <div className="ee-card-head">
-                <span className="so-node" style={{ color: `var(--so-${ch})`, width: 30, height: 30 }}><Icon channel={ch} /></span>
-                <div className="ee-card-title">
-                  {CHANNEL_LABEL[ch]}
-                  <span className="so-hint">{a ? (a.firedCount ? `${a.firedCount} sent so far` : 'Not sent yet') : 'Not set up yet'}</span>
-                </div>
-                <button type="button" className={`so-switch ${d.enabled ? 'on' : ''}`} aria-pressed={d.enabled} aria-label={`${CHANNEL_LABEL[ch]} ${d.enabled ? 'on' : 'off'}`} onClick={() => set(ch, { enabled: !d.enabled })} />
-              </div>
-
-              <div className="ee-fields"><TriggerPicker stageKey={stage.key} stageLabel={stage.label} value={d.expectedEvent} onChange={(v) => set(ch, { expectedEvent: v })} label={CHANNEL_LABEL[ch] + ": the step the customer has not yet done"} /></div>
-
-              <div className="ee-when">
-                <span>Send after</span>
-                <input className="input mono" inputMode="numeric" value={d.delayVal} aria-label={`${CHANNEL_LABEL[ch]}: how long after the customer stops`} onChange={(e) => set(ch, { delayVal: e.target.value.replace(/[^0-9]/g, '') })} />
-                <select className="input" value={d.delayUnit} aria-label="Unit" onChange={(e) => set(ch, { delayUnit: e.target.value as Unit })}>
-                  {(Object.keys(UNIT_LABEL) as Unit[]).map((u) => <option key={u} value={u}>{unitText(u, d.delayVal)}</option>)}
-                </select>
-                <span className="so-hint">after they stop</span>
-              </div>
-
-              {ch === 'whatsapp' && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">Approved template name</span>
-                    <input className="input mono" value={d.waTemplate} placeholder="e.g. offers_available_update" onChange={(e) => set(ch, { waTemplate: e.target.value })} /></label>
-                  {recommended && d.waTemplate.trim() !== recommended.name && (
-                    <button type="button" className="so-token" style={{ justifySelf: 'start' }} title={recommended.preview}
-                      onClick={() => set(ch, { waTemplate: recommended.name, waLanguage: recommended.language, waVars: recommended.placeholders })}>
-                      Use the utility template {recommended.name}
-                    </button>
-                  )}
-                  <div className="so-field"><span className="so-label">Values sent into the template, in order</span>
-                    <div className="so-vars">
-                      {d.waVars.length === 0 && <span className="so-hint">None yet.</span>}
-                      {d.waVars.map((v, i) => (
-                        <div key={i} className="so-var">
-                          <span className="so-var-no">{`{{${i + 1}}}`}</span>
-                          <input className="input mono" value={v} onChange={(e) => set(ch, { waVars: d.waVars.map((x, j) => (j === i ? e.target.value : x)) })} />
-                          <button type="button" className="so-x" aria-label={`Remove value ${i + 1}`} onClick={() => set(ch, { waVars: d.waVars.filter((_, j) => j !== i) })}>×</button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="so-tokens">
-                      {ov.whatsappTokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => set(ch, { waVars: [...d.waVars, t] })}>{t}</button>)}
-                      <button type="button" className="so-token" onClick={() => set(ch, { waVars: [...d.waVars, ''] })}>+ text</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {ch === 'sms' && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">DLT template ID</span>
-                    <input className="input mono" value={d.smsId} onChange={(e) => set(ch, { smsId: e.target.value })} /></label>
-                  <label className="so-field"><span className="so-label">Exact registered text</span>
-                    <textarea className="input" rows={3} maxLength={1000} value={d.smsBody} onChange={(e) => set(ch, { smsBody: e.target.value })} /></label>
-                  <span className="so-hint">Must match the DLT registration exactly, so no variables. Leave both empty to use the default text.</span>
-                </div>
-              )}
-
-              {upshot && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">Upshot event to fire</span>
-                    <input className="input mono" value={d.upshotEvent} onChange={(e) => set(ch, { upshotEvent: e.target.value })} /></label>
-                  <span className="so-hint">{ch === 'email' ? 'Email' : 'Push'} is sent through Upshot. Write the message there and attach it to this event.</span>
-                </div>
-              )}
-
-              {ch === 'voice' && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">Ello agent</span>
-                    <select className="input" value={d.role} onChange={(e) => set(ch, { role: e.target.value })}>
-                      <option value="">Website lead callback (default)</option>
-                      {ov.agentRoles.filter((r) => r.direction === 'outbound' && r.role !== 'leadCallback').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
-                    </select></label>
-                  <label className="so-field"><span className="so-label">Or a specific agent ID</span>
-                    <input className="input mono" value={d.assistantId} placeholder="Optional" onChange={(e) => set(ch, { assistantId: e.target.value })} /></label>
-                  <label className="so-field"><span className="so-label">What the agent should talk about</span>
-                    <textarea className="input" rows={3} maxLength={ov.maxBriefLength} value={d.brief} placeholder="e.g. Greet {lead_first_name}. They {stall_reason}. Offer to {stall_help}." onChange={(e) => set(ch, { brief: e.target.value })} /></label>
-                </div>
-              )}
-
-              <details className="ee-more">
-                <summary>More</summary>
-                <div className="ee-when" style={{ marginTop: 8 }}>
-                  <span>Do not repeat for</span>
-                  <input className="input mono" inputMode="numeric" value={d.coolVal} aria-label="Repeat protection" onChange={(e) => set(ch, { coolVal: e.target.value.replace(/[^0-9]/g, '') })} />
-                  <select className="input" value={d.coolUnit} aria-label="Unit" onChange={(e) => set(ch, { coolUnit: e.target.value as Unit })}>
-                    {(Object.keys(UNIT_LABEL) as Unit[]).map((u) => <option key={u} value={u}>{unitText(u, d.coolVal)}</option>)}
-                  </select>
-                </div>
-                <span className="so-hint">The same customer is not sent this again inside this window.</span>
-              </details>
-
-              {problem && <div className="so-msg err">{problem}</div>}
-              {results[ch] && <div className={`so-msg ${results[ch]!.ok ? 'ok' : 'err'}`}>{results[ch]!.text}</div>}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="ee-foot">
-        <div className="ee-summary"><div className="so-preview-label">What will happen</div>
-          {sentence ? <>When a customer stops at <b>{stage.label}</b>: {sentence}.</> : <>Nothing is set up for <b>{stage.label}</b> yet.</>}
-        </div>
-        <div className="so-actions ee-sticky">
-          <button type="button" className="btn btn-primary" disabled={!anyTouched || saving} onClick={saveAll}>{saving ? 'Saving…' : 'Save all'}</button>
-          <button type="button" className="btn" disabled={saving} onClick={onClose}>{anyTouched ? 'Discard and close' : 'Close'}</button>
-          {anyTouched && !saving && !formError && <span className="so-hint">You have unsaved changes.</span>}
-          {formError && <span className="so-msg err">{formError}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) => void }) {
+function AddRow({ stage, flow, onAdded }: { stage: Stage; flow: FlowKey; onAdded: (ruleId: string) => void }) {
   const [busy, setBusy] = useState<Channel | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   if (stage.missingChannels.length === 0) return null;
@@ -884,7 +586,7 @@ function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) =>
   async function add(channel: Channel) {
     setBusy(channel); setMsg(null);
     try {
-      const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel, delayMinutes: DEFAULT_DELAY[channel] }) });
+      const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel, delayMinutes: DEFAULT_DELAY[channel], surface: flow }) });
       onAdded((res.data as { ruleId: string }).ruleId);
     } catch (e) {
       setMsg(errText(e));
@@ -893,7 +595,7 @@ function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) =>
 
   return (
     <div className="so-add">
-      <div className="so-section" style={{ marginTop: 22 }}>Add a follow-up at this stage</div>
+      <div className="so-section" style={{ marginTop: 22 }}>Add a follow-up</div>
       <div className="so-add-row">
         {stage.missingChannels.map((c) => (
           <button key={c} type="button" className="so-add-btn" disabled={busy !== null} onClick={() => add(c)}>
@@ -902,89 +604,8 @@ function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) =>
           </button>
         ))}
       </div>
-      <div className="so-hint" style={{ marginTop: 8 }}>It starts switched off, about {duration(DEFAULT_DELAY[stage.missingChannels[0]])} after the customer stops. Change the timing and content, then switch it on.</div>
       {msg && <div className="so-msg err" style={{ marginTop: 6 }}>{msg}</div>}
     </div>
   );
 }
 
-/**
- * Every WhatsApp message the system sends, written to Meta's Utility category, ready to
- * submit through CPaaS (Vox Digitals) or Meta. Utility is about a customer's own request,
- * so the wording is factual; Meta makes the final call on the category.
- */
-function TemplateCatalog({ templates, legacy }: { templates: CatalogTemplate[]; legacy: Overview['legacyTemplates'] }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  async function copy(key: string, text: string) {
-    try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800); } catch { setCopied(null); }
-  }
-  return (
-    <details className="so-guide" style={{ marginTop: 18 }}>
-      <summary>WhatsApp template catalogue: {templates.length} Utility templates to submit</summary>
-      <div className="so-hint" style={{ margin: '8px 0 12px' }}>
-        Submit each as <b>Utility</b>, English. Copy the body and the sample values into CPaaS (Vox Digitals), or copy the Meta JSON. Meta decides the final category, so check what it assigns before you rely on a template: a reminder to finish an abandoned application can be re-categorised as marketing whatever it is submitted as.
-      </div>
-      <div style={{ display: 'grid', gap: 14 }}>
-        {templates.map((t) => (
-          <div key={t.name} className="so-card" style={{ padding: 14 }}>
-            <div className="so-card-name">
-              <span className="mono">{t.name}</span>
-              <span className="so-chip" style={{ background: 'var(--green-bg)', color: '#0b7a47' }}>{t.category}</span>
-              <span className="so-chip">{t.usedBy}</span>
-              {t.replaces && <span className="so-warn">replaces {t.replaces}</span>}
-            </div>
-            <div className="so-hint" style={{ marginTop: 4 }}>{t.purpose}</div>
-            <div className="so-preview" style={{ marginTop: 10 }}><div className="so-preview-label">Body (as submitted)</div>{t.body}</div>
-            <div className="so-preview" style={{ marginTop: 8 }}><div className="so-preview-label">Preview with the sample values</div>{t.preview}</div>
-            <table className="table" style={{ marginTop: 10 }}>
-              <thead><tr><th style={{ width: 60 }}>Variable</th><th>What it holds</th><th>Sample value</th><th>Filled by</th></tr></thead>
-              <tbody>
-                {t.variables.map((v, i) => (
-                  <tr key={v}><td className="mono">{`{{${i + 1}}}`}</td><td>{v}</td><td className="muted">{t.examples[i]}</td><td className="mono">{t.placeholders[i]}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:name`, t.name)}>{copied === `${t.name}:name` ? 'Copied' : 'Copy name'}</button>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:body`, t.body)}>{copied === `${t.name}:body` ? 'Copied' : 'Copy body'}</button>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:samples`, t.examples.join('\n'))}>{copied === `${t.name}:samples` ? 'Copied' : 'Copy sample values'}</button>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:json`, JSON.stringify(t.meta, null, 2))}>{copied === `${t.name}:json` ? 'Copied' : 'Copy Meta JSON'}</button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="so-vargroup-name" style={{ marginTop: 18 }}>Older templates to retire</div>
-      <table className="table">
-        <thead><tr><th style={{ width: 220 }}>Template</th><th>Why</th><th>Use instead</th></tr></thead>
-        <tbody>
-          {legacy.map((l) => <tr key={l.name}><td className="mono">{l.name}</td><td>{l.issue}</td><td className="mono">{l.replacement}</td></tr>)}
-        </tbody>
-      </table>
-    </details>
-  );
-}
-
-function VariableDictionary({ variables }: { variables: Variable[] }) {
-  const groups = Array.from(new Set(variables.map((v) => v.group)));
-  return (
-    <details className="so-guide" style={{ marginTop: 18 }}>
-      <summary>Every variable the Ello agent receives ({variables.length})</summary>
-      <div className="so-hint" style={{ margin: '8px 0 12px' }}>Sent with each call. The agent&apos;s prompt must use these exact names. After a new one is added, run the agent sync so Ello learns it.</div>
-      <div style={{ display: 'grid', gap: 16 }}>
-        {groups.map((g) => (
-          <div key={g}>
-            <div className="so-vargroup-name">{g}</div>
-            <table className="table">
-              <thead><tr><th style={{ width: 220 }}>Variable</th><th>What it holds</th><th style={{ width: 260 }}>Example</th></tr></thead>
-              <tbody>
-                {variables.filter((v) => v.group === g).map((v) => (
-                  <tr key={v.name}><td className="mono">{v.name}</td><td>{v.description}</td><td className="muted">{v.example}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-    </details>
-  );
-}

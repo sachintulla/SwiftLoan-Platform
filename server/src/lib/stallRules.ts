@@ -33,7 +33,7 @@ const MAX_PER_RULE = 200;
  * the funnel already exposes; the operator can edit, disable or add to them
  * from the dashboard.
  */
-export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'updatedAt' | 'lastFiredAt' | 'firedCount'>> = [
+export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'updatedAt' | 'lastFiredAt' | 'firedCount' | 'surface'>> = [
   {
     name: 'OTP requested but not verified',
     triggerEvent: JOURNEY_EVENTS.OTP_REQUESTED,
@@ -357,10 +357,11 @@ export async function seedStallRules(): Promise<number> {
   for (const r of DEFAULT_STALL_RULES) {
     const exists = await prisma.stallRule.findUnique({
       where: {
-        triggerEvent_expectedEvent_channel: {
+        triggerEvent_expectedEvent_channel_surface: {
           triggerEvent: r.triggerEvent,
           expectedEvent: r.expectedEvent,
           channel: r.channel,
+          surface: 'all',
         },
       },
     });
@@ -369,6 +370,16 @@ export async function seedStallRules(): Promise<number> {
     created++;
   }
   return created;
+}
+
+/**
+ * The channel filter for a rule's `surface`. The website records its events with channel 'website'; the app (and anything
+ * not from the website) counts as 'app'. 'all' adds no filter, which is how every rule behaved before surfaces existed.
+ */
+export function surfaceFilter(surface: string | null | undefined): { channel?: string | { not: string } } {
+  if (surface === 'website') return { channel: 'website' };
+  if (surface === 'app') return { channel: { not: 'website' } };
+  return {};
 }
 
 /**
@@ -398,6 +409,8 @@ export async function evaluateRule(rule: StallRule, now: Date = new Date()): Pro
   const triggers = await prisma.journeyEvent.findMany({
     where: {
       name: rule.triggerEvent,
+      // A rule limited to one side only counts triggers that came from that side ('all' counts every trigger).
+      ...surfaceFilter(rule.surface),
       // Direct WhatsApp only reaches people who stalled recently — see
       // STALL_WA_MAX_AGE_HOURS — so enabling a rule never messages the backlog.
       occurredAt: maxAgeHours
