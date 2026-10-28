@@ -164,7 +164,6 @@ const MESSAGE_META: Record<MessageKind, { target: string; title: string; summary
 
 function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { kind: MessageKind; cfg: Overview['messages'][MessageKind]; templates: CatalogTemplate[]; whatsappConnected: boolean; onChanged: () => void }) {
   const meta = MESSAGE_META[kind];
-  const catalog = templates.filter((t) => t.target === meta.target);
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(cfg.enabled);
   const [template, setTemplate] = useState(cfg.template);
@@ -218,13 +217,7 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
             <div className="so-field">
               <label className="so-label">Approved WhatsApp template name</label>
               <input className="input mono" value={template} placeholder={`e.g. ${meta.example}`} onChange={(e) => { setTemplate(e.target.value); touch(); }} />
-              <span className="so-hint">Submit the template below to CPaaS (Vox Digitals) as <b>Utility</b>, wait for approval, then enter its exact name here.</span>
-              {catalog.map((t) => (
-                <button key={t.name} type="button" className="so-token" style={{ justifySelf: 'start' }}
-                  onClick={() => { setTemplate(t.name); setLanguage(t.language); setVars(t.placeholders); touch(); }}>
-                  Use catalogue template {t.name}
-                </button>
-              ))}
+              <span className="so-hint">Exactly as approved in Vox: lowercase letters, numbers, underscores.</span>
             </div>
             <div className="so-field">
               <label className="so-label">Language code</label>
@@ -247,12 +240,6 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
                 <button type="button" className="so-token" onClick={() => { setVars([...vars, '']); touch(); }}>+ custom text</button>
               </div>
               <span className="so-hint">The count and order must match the approved template exactly. {meta.hint}</span>
-            </div>
-            <div className="so-field wide">
-              <div className="so-preview">
-                <div className="so-preview-label">How it behaves</div>
-                {meta.rules}
-              </div>
             </div>
           </div>
           <div className="so-actions">
@@ -507,15 +494,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
               <label className="so-label">Approved template name</label>
               <input className="input mono" value={waTemplate} placeholder="e.g. offers_ready" onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
               <span className="so-hint">Exactly as approved by Meta: lowercase letters, numbers, underscores.</span>
-              {a.whatsapp?.recommended && waTemplate.trim() !== a.whatsapp.recommended.name && (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <button type="button" className="so-token" style={{ justifySelf: 'start' }}
-                    onClick={() => { const r = a.whatsapp!.recommended!; setWaTemplate(r.name); setWaLanguage(r.language); setWaVars(r.placeholders); touch(); }}>
-                    Use the utility template {a.whatsapp.recommended.name}
-                  </button>
-                  <span className="so-hint">Utility wording written for this stage: &ldquo;{a.whatsapp.recommended.preview}&rdquo; Switch to it once Meta has approved it as Utility.</span>
-                </div>
-              )}
             </div>
             <div className="so-field">
               <label className="so-label">Language code</label>
@@ -681,7 +659,6 @@ function EventEditor({ stage, flow, ov, onSaved, onClose }: { stage: Stage; flow
   const [results, setResults] = useState<Partial<Record<Channel, { ok: boolean; text: string }>>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
-  const recommended = ov.templates.find((t) => t.target === 'stage' && t.recommendedStages?.includes(stage.key));
   const set = (ch: Channel, patch: Partial<ChDraft>) => { setDrafts((d) => ({ ...d, [ch]: { ...d[ch], ...patch } })); setResults((r) => ({ ...r, [ch]: undefined })); setFormError(null); };
   const activityOf = (ch: Channel) => stage.activities.find((a) => a.channel === ch);
   const touched = (ch: Channel) => JSON.stringify(drafts[ch]) !== JSON.stringify(baselines[ch]);
@@ -775,12 +752,6 @@ function EventEditor({ stage, flow, ov, onSaved, onClose }: { stage: Stage; flow
                 <div className="ee-fields">
                   <label className="so-field"><span className="so-label">Approved template name</span>
                     <input className="input mono" value={d.waTemplate} placeholder="e.g. offers_available_update" onChange={(e) => set(ch, { waTemplate: e.target.value })} /></label>
-                  {recommended && d.waTemplate.trim() !== recommended.name && (
-                    <button type="button" className="so-token" style={{ justifySelf: 'start' }} title={recommended.preview}
-                      onClick={() => set(ch, { waTemplate: recommended.name, waLanguage: recommended.language, waVars: recommended.placeholders })}>
-                      Use the utility template {recommended.name}
-                    </button>
-                  )}
                   <div className="so-field"><span className="so-label">Values sent into the template, in order</span>
                     <div className="so-vars">
                       {d.waVars.length === 0 && <span className="so-hint">None yet.</span>}

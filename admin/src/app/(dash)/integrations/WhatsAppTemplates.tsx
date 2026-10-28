@@ -165,11 +165,6 @@ export default function WhatsAppTemplates({
           {rows.filter((r) => !r.inLibrary && !r.proposed).length} template{rows.filter((r) => !r.inLibrary && !r.proposed).length === 1 ? ' is' : 's are'} used by a message but not in this list yet. Open it and add its category and approval.
         </Callout>
       )}
-      {rows.some((r) => r.proposed) && (
-        <div className="muted" style={{ fontSize: 12.5 }}>
-          {rows.filter((r) => r.proposed).length} proposed templates come from the template catalogue used by Stage outreach. Submit them in Vox, then open one here to record its category and approval.
-        </div>
-      )}
 
       <div className="row between wrap" style={{ gap: 12 }}>
         <FilterChips<Filter>
@@ -208,7 +203,7 @@ export default function WhatsAppTemplates({
                     ))}
                   </span>
                   <span style={{ flex: '0 0 auto', display: 'grid', gap: 6, justifyItems: 'start', minWidth: 120 }}>
-                    {r.proposed ? <Chip tone="blue" title="From the template catalogue. Not submitted or recorded yet.">Proposed</Chip> : !r.inLibrary ? <Chip tone="amber" title="A message uses this template, but it is not in the list yet.">Not added yet</Chip> : r.category || r.status ? (
+                    {!r.inLibrary ? <Chip tone="amber" title="A message uses this template, but it is not in the list yet.">Not added yet</Chip> : r.category || r.status ? (
                       <><CategoryChip value={r.category || null} /><StatusChip status={r.status || null} /></>
                     ) : <Chip tone="grey" title="Category and approval not recorded yet.">Not recorded</Chip>}
                     <span className="muted" style={{ fontSize: 11.5 }}>{r.language}{r.body ? ` · ${r.variables} variable${r.variables === 1 ? '' : 's'}` : ''}</span>
