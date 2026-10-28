@@ -141,13 +141,11 @@ export default function Home() {
         <View style={styles.hero}>
         {/* Ruby speech bubble (the illustration is anchored to the band, behind). */}
         <Pressable onPress={askRuby} style={styles.bubble} accessibilityLabel="Ask Ruby, your AI loan assistant — tap to talk">
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[font(800), { fontSize: 15, letterSpacing: -0.3, color: colors.text }]}>{t.askRuby}</Text>
-              <Text style={[font(500), { fontSize: 11, color: colors.textSoft, marginTop: 1, lineHeight: 15 }]}>{t.askRubySub}</Text>
-            </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[font(800), { flex: 1, fontSize: 15, letterSpacing: -0.3, color: colors.text }]}>{t.askRuby}</Text>
             <Icon name="chevron_right" size={17} color={colors.primary} />
           </View>
+          {/* Cone tail on the right edge, pointing toward Ruby. */}
           <View style={styles.bubbleTail} />
         </Pressable>
 
@@ -334,19 +332,23 @@ const styles = StyleSheet.create({
   rubyWrap: { position: 'absolute', bottom: -10, right: 5, width: 166, height: 210, zIndex: 0 },
   ruby: { width: 166, height: 210 },
   bubble: {
-    position: 'absolute', top: 34, right: 84, width: 132, zIndex: 3,
+    position: 'absolute', top: 44, right: 84, width: 132, zIndex: 3,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
-    borderRadius: 16, paddingVertical: 11, paddingHorizontal: 13,
+    borderRadius: 14, paddingVertical: 8, paddingHorizontal: 13,
     shadowColor: '#0A3F41', shadowOpacity: 0.16, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 5,
   },
   // Tail on the right edge, pointing toward Ruby.
+  // Right-pointing triangle "cone" tail, flush with the bubble's right edge and
+  // vertically centred, so it reads as a speech bubble pointing at Ruby.
   bubbleTail: {
-    position: 'absolute', right: -7, top: 30, width: 14, height: 14,
-    backgroundColor: colors.surface, borderRightWidth: 1, borderTopWidth: 1, borderColor: colors.line,
-    transform: [{ rotate: '45deg' }],
+    position: 'absolute', right: -6, top: 17,
+    width: 0, height: 0, backgroundColor: 'transparent',
+    borderTopWidth: 7, borderBottomWidth: 7, borderLeftWidth: 11,
+    borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: colors.surface,
+    transform: [{ rotate: '25deg' }],
   },
   welcomeText: { fontSize: 14.5, color: colors.mint, letterSpacing: -0.2, marginTop: 2 },
-  heroTitle: { fontSize: 13.5, lineHeight: 19, letterSpacing: -0.2, color: '#fff', marginTop: 6, marginRight: 205 },
+  heroTitle: { fontSize: 13.5, lineHeight: 19, letterSpacing: -0.2, color: '#fff', marginTop: 6, marginRight: 232 },
   heroSub: { fontSize: 12, lineHeight: 17, color: 'rgba(255,255,255,0.72)', marginTop: 6, marginRight: 205 },
   heroBtns: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginRight: 107 },
   primaryBtn: {
