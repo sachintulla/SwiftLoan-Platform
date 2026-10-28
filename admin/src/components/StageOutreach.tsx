@@ -127,9 +127,6 @@ export default function StageOutreach() {
         </div>
       </details>
 
-      <TemplateCatalog templates={ov.templates} legacy={ov.legacyTemplates} />
-
-      <VariableDictionary variables={ov.variables} />
     </div>
   );
 }
@@ -901,83 +898,3 @@ function AddRow({ stage, flow, onAdded }: { stage: Stage; flow: FlowKey; onAdded
   );
 }
 
-/**
- * Every WhatsApp message the system sends, written to Meta's Utility category, ready to
- * submit through CPaaS (Vox Digitals) or Meta. Utility is about a customer's own request,
- * so the wording is factual; Meta makes the final call on the category.
- */
-function TemplateCatalog({ templates, legacy }: { templates: CatalogTemplate[]; legacy: Overview['legacyTemplates'] }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  async function copy(key: string, text: string) {
-    try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800); } catch { setCopied(null); }
-  }
-  return (
-    <details className="so-guide" style={{ marginTop: 18 }}>
-      <summary>WhatsApp template catalogue: {templates.length} Utility templates to submit</summary>
-      <div className="so-hint" style={{ margin: '8px 0 12px' }}>
-        Submit each as <b>Utility</b>, English. Copy the body and the sample values into CPaaS (Vox Digitals), or copy the Meta JSON. Meta decides the final category, so check what it assigns before you rely on a template: a reminder to finish an abandoned application can be re-categorised as marketing whatever it is submitted as.
-      </div>
-      <div style={{ display: 'grid', gap: 14 }}>
-        {templates.map((t) => (
-          <div key={t.name} className="so-card" style={{ padding: 14 }}>
-            <div className="so-card-name">
-              <span className="mono">{t.name}</span>
-              <span className="so-chip" style={{ background: 'var(--green-bg)', color: '#0b7a47' }}>{t.category}</span>
-              <span className="so-chip">{t.usedBy}</span>
-              {t.replaces && <span className="so-warn">replaces {t.replaces}</span>}
-            </div>
-            <div className="so-hint" style={{ marginTop: 4 }}>{t.purpose}</div>
-            <div className="so-preview" style={{ marginTop: 10 }}><div className="so-preview-label">Body (as submitted)</div>{t.body}</div>
-            <div className="so-preview" style={{ marginTop: 8 }}><div className="so-preview-label">Preview with the sample values</div>{t.preview}</div>
-            <table className="table" style={{ marginTop: 10 }}>
-              <thead><tr><th style={{ width: 60 }}>Variable</th><th>What it holds</th><th>Sample value</th><th>Filled by</th></tr></thead>
-              <tbody>
-                {t.variables.map((v, i) => (
-                  <tr key={v}><td className="mono">{`{{${i + 1}}}`}</td><td>{v}</td><td className="muted">{t.examples[i]}</td><td className="mono">{t.placeholders[i]}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:name`, t.name)}>{copied === `${t.name}:name` ? 'Copied' : 'Copy name'}</button>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:body`, t.body)}>{copied === `${t.name}:body` ? 'Copied' : 'Copy body'}</button>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:samples`, t.examples.join('\n'))}>{copied === `${t.name}:samples` ? 'Copied' : 'Copy sample values'}</button>
-              <button type="button" className="btn" onClick={() => copy(`${t.name}:json`, JSON.stringify(t.meta, null, 2))}>{copied === `${t.name}:json` ? 'Copied' : 'Copy Meta JSON'}</button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="so-vargroup-name" style={{ marginTop: 18 }}>Older templates to retire</div>
-      <table className="table">
-        <thead><tr><th style={{ width: 220 }}>Template</th><th>Why</th><th>Use instead</th></tr></thead>
-        <tbody>
-          {legacy.map((l) => <tr key={l.name}><td className="mono">{l.name}</td><td>{l.issue}</td><td className="mono">{l.replacement}</td></tr>)}
-        </tbody>
-      </table>
-    </details>
-  );
-}
-
-function VariableDictionary({ variables }: { variables: Variable[] }) {
-  const groups = Array.from(new Set(variables.map((v) => v.group)));
-  return (
-    <details className="so-guide" style={{ marginTop: 18 }}>
-      <summary>Every variable the Ello agent receives ({variables.length})</summary>
-      <div className="so-hint" style={{ margin: '8px 0 12px' }}>Sent with each call. The agent&apos;s prompt must use these exact names. After a new one is added, run the agent sync so Ello learns it.</div>
-      <div style={{ display: 'grid', gap: 16 }}>
-        {groups.map((g) => (
-          <div key={g}>
-            <div className="so-vargroup-name">{g}</div>
-            <table className="table">
-              <thead><tr><th style={{ width: 220 }}>Variable</th><th>What it holds</th><th style={{ width: 260 }}>Example</th></tr></thead>
-              <tbody>
-                {variables.filter((v) => v.group === g).map((v) => (
-                  <tr key={v.name}><td className="mono">{v.name}</td><td>{v.description}</td><td className="muted">{v.example}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-    </details>
-  );
-}
