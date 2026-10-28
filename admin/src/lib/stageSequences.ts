@@ -101,7 +101,7 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
     sources: [],
     call: { id: 'nooffers', label: 'Call when the lender finds no offers', audience: 'App and website', delayKey: 'dropoff.noOffersCallDelayMinutes', switches: ['dropoff.noOffersCallEnabled', 'calls.nudgeEnabled'] },
     rules: [],
-    note: 'The WhatsApp for "no offers" is the notice at the top of this page ("When the eligibility check returns no offers").',
+    note: 'The "no offers" and "could not complete" WhatsApp notices, at the top of this step, go out the moment the check ends.',
   },
   offer_viewed: {
     sources: [{ ...DROPOFF, messages: ['dropoff.apply_offers.withLink', 'dropoff.apply_offers.noLink'] }],

@@ -10,6 +10,7 @@ import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { surfaceOf } from '../lib/surface.js';
 import { sendOffersNotice } from '../lib/offersNotice.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
@@ -390,7 +391,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
   trackJourney(
     { userId: req.user!.sub },
     {
-      channel: 'app',
+      channel: surfaceOf(req),
       name: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
       metadata: { applicationId: app.id, offerCount: created.length },
     },
@@ -404,7 +405,7 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
     trackJourney(
       { userId: req.user!.sub },
       {
-        channel: 'app',
+        channel: surfaceOf(req),
         name: JOURNEY_EVENTS.OFFERS_NOT_RECEIVED,
         metadata: { applicationId: app.id, offerCount: 0, reason: prequalifyReason ?? 'unknown' },
       },
@@ -503,6 +504,16 @@ applicationsRouter.post('/:id/alt-offer/applied',
 applicationsRouter.get('/:id/offers', ah(async (req, res) => {
   const app = await owned(req.user!.sub, req.params.id);
   const offers = await prisma.offer.findMany({ where: { applicationId: app.id }, include: { partner: true, emiOptions: true }, orderBy: { apr: 'asc' } });
+    // The app records "offers viewed" when its Offers screen opens; the website records it here, once per application.
+  if (surfaceOf(req) === 'website' && offers.length > 0) {
+    void (async () => {
+      const seen = await prisma.journeyEvent.findFirst({
+        where: { name: JOURNEY_EVENTS.OFFER_VIEWED, customer: { userId: req.user!.sub }, metadata: { path: ['applicationId'], equals: app.id } },
+        select: { id: true },
+      });
+      if (!seen) await trackJourney({ userId: req.user!.sub }, { channel: 'website', name: JOURNEY_EVENTS.OFFER_VIEWED, metadata: { applicationId: app.id, offerCount: offers.length } });
+    })().catch(() => {});
+  }
   res.json({ offers });
 }));
 
@@ -532,7 +543,7 @@ applicationsRouter.post('/:id/offers/:offerId/select',
     trackJourney(
       { userId: req.user!.sub },
       {
-        channel: 'app',
+        channel: surfaceOf(req),
         name: JOURNEY_EVENTS.OFFER_SELECTED,
         metadata: {
           applicationId: app.id,
@@ -622,7 +633,7 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   trackJourney(
     { userId: req.user!.sub },
     {
-      channel: 'app',
+      channel: surfaceOf(req),
       name: JOURNEY_EVENTS.OFFER_SELECTED,
       metadata: { applicationId: app.id, offerId: existing.id, lenderApplicationId: lenderApp.id, lenderName: lenderApp.lenderName, apr: lenderApp.apr, applied: true },
     },
@@ -742,7 +753,7 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   trackJourney(
     { userId: req.user!.sub },
     {
-      channel: 'app',
+      channel: surfaceOf(req),
       name: JOURNEY_EVENTS.APPLICATION_SUBMITTED,
       metadata: { applicationId: app.id },
     },
