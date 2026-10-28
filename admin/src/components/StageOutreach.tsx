@@ -14,11 +14,10 @@ import React, { useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui';
-import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '@/lib/eventEditor';
 import { laterEvents } from '@/lib/eventLabels';
 import StageTimeline from '@/components/StageTimeline';
-import { CHANNEL_LABEL, Icon, duration, tone, type Channel } from '@/components/stageOutreachUi';
-import { FLOWS, FLOW_LABEL, SURFACE_LABEL, stagesForFlow, type FlowKey, type FlowStep, type RuleSurface } from '@/lib/stageFlows';
+import { CHANNEL_LABEL, Icon, duration, type Channel } from '@/components/stageOutreachUi';
+import { FLOWS, FLOW_LABEL, stagesForFlow, type FlowKey, type FlowStep, type RuleSurface } from '@/lib/stageFlows';
 
 interface Activity {
   ruleId: string;
@@ -76,7 +75,6 @@ export default function StageOutreach() {
   const ov = data?.data as Overview | undefined;
   const [selected, setSelected] = useState<string | null>(null);
   const [openRule, setOpenRule] = useState<string | null>(null);
-  const [allMode, setAllMode] = useState(false);
   const [flow, setFlow] = useState<FlowKey>('app');
 
   if (error) return <div className="card card-pad"><div className="empty">Could not load stage outreach: {(error as Error).message}</div></div>;
@@ -86,7 +84,6 @@ export default function StageOutreach() {
   const flowStages = stagesForFlow(flow, ov.flows?.[flow] ?? [], ov.stages);
   const shown = flowStages.length ? flowStages : ov.stages;
   const current = shown.find((s) => s.key === selected) ?? shown.find((s) => s.activities.some((a) => a.enabled)) ?? shown[0];
-  const number = shown.findIndex((s) => s.key === current.key) + 1;
 
   return (
     <div className="so">
@@ -111,12 +108,11 @@ export default function StageOutreach() {
         })}
       </div>
 
-      <div className={`so-grid ${allMode ? 'stack' : ''}`}>
+      <div className="so-grid">
         <Rail title={`${FLOW_LABEL[flow]} journey`} stages={shown} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
         <StagePanel
-          key={`${flow}:${current.key}`} number={number} flow={flow} stage={current} ov={ov}
+          key={`${flow}:${current.key}`} flow={flow} stage={current} ov={ov}
           openRule={openRule} setOpenRule={setOpenRule} onChanged={() => mutate()}
-          allMode={allMode} setAllMode={setAllMode}
         />
       </div>
 
@@ -276,9 +272,8 @@ function Rail({ title, stages, currentKey, onPick }: { title: string; stages: St
   );
 }
 
-function StagePanel({ number, stage, flow, ov, openRule, setOpenRule, onChanged, allMode, setAllMode }: {
-  number: number; flow: FlowKey; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
-  allMode: boolean; setAllMode: (v: boolean) => void;
+function StagePanel({ stage, flow, ov, openRule, setOpenRule, onChanged }: {
+  flow: FlowKey; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
 }) {
   const steps = [...stage.activities].sort((a, b) => a.delayMinutes - b.delayMinutes);
   const on = steps.filter((a) => a.enabled).length;
@@ -286,23 +281,12 @@ function StagePanel({ number, stage, flow, ov, openRule, setOpenRule, onChanged,
     <section className="so-panel">
       <div className="so-panel-head">
         <div className="so-panel-top">
-          <h3 className="so-panel-title">{number}. {stage.label}</h3>
-          <span className="so-chip">{stage.surface}</span>
-          <span className="so-chip" style={on ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{on} of {steps.length} on</span>
-          <span className="so-spacer" />
-          <div className="ee-seg" role="group" aria-label="View">
-            <button type="button" className={!allMode ? 'active' : ''} aria-pressed={!allMode} onClick={() => setAllMode(false)}>Timeline</button>
-            <button type="button" className={allMode ? 'active' : ''} aria-pressed={allMode} onClick={() => setAllMode(true)}>All channels</button>
-          </div>
+          <h3 className="so-panel-title">{stage.label}</h3>
+          <span className="so-chip" style={on ? { background: 'var(--green-bg)', color: '#0b7a47' } : undefined}>{on} on</span>
         </div>
         <p className="so-panel-desc">{stage.description}</p>
       </div>
 
-      {allMode ? (
-        <div className="so-panel-body">
-          <EventEditor key={stage.key} stage={stage} flow={flow} ov={ov} onSaved={onChanged} onClose={() => setAllMode(false)} />
-        </div>
-      ) : (
       <div className="so-panel-body">
         {stage.key === 'eligibility_completed' && (
           <>
@@ -327,27 +311,22 @@ function StagePanel({ number, stage, flow, ov, openRule, setOpenRule, onChanged,
         <AddRow stage={stage} flow={flow} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
 
       </div>
-      )}
     </section>
   );
 }
 
-function summaryFor(a: Activity, ov: Overview): { text: string; warn?: string } {
+function summaryFor(a: Activity, _ov: Overview): { text: string; warn?: string } {
   if (a.channel === 'whatsapp') {
     const w = a.whatsapp;
-    if (!w?.template) return { text: 'No template set. Falls back to the Upshot event.', warn: a.enabled ? 'Needs a template' : undefined };
-    return { text: `Template ${w.template} · ${w.placeholders.length} variable${w.placeholders.length === 1 ? '' : 's'}` };
+    if (!w?.template) return { text: 'No template', warn: a.enabled ? 'Needs a template' : undefined };
+    return { text: w.template };
   }
   if (a.channel === 'sms') {
-    const s = a.sms;
-    if (!s?.templateId) return { text: 'No SMS text set.', warn: a.enabled ? 'Needs text' : undefined };
-    return { text: `${s.customised ? 'Custom text for this stage' : 'Default registered text'} · template ${s.templateId}` };
+    if (!a.sms?.templateId) return { text: 'No text', warn: a.enabled ? 'Needs text' : undefined };
+    return { text: 'Text message' };
   }
-  if (a.channel === 'voice') {
-    const role = ov.agentRoles.find((r) => r.role === a.call?.agentRole)?.label ?? 'Website lead callback';
-    return { text: `${a.call?.assistantId ? `Agent ${a.call.assistantId}` : role} · ${a.call?.brief ? 'talking points set' : 'default talking points'}` };
-  }
-  return { text: `Fires Upshot event ${a.upshotEvent}` };
+  if (a.channel === 'voice') return { text: 'Phone call' };
+  return { text: a.channel === 'email' ? 'Email' : 'Push notification' };
 }
 
 function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
@@ -380,7 +359,7 @@ function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
           <div className="so-card-main">
             <div className="so-card-name">
               {CHANNEL_LABEL[a.channel]}
-              <span className="so-chip" style={{ marginLeft: 8, fontWeight: 500 }}>{SURFACE_LABEL[a.surface ?? 'all']}</span>
+              {(a.surface ?? 'all') === 'all' && <span className="so-chip" style={{ marginLeft: 8, fontWeight: 500 }} title="Applies to the app and the website">Both</span>}
               {sum.warn && <span className="so-warn">{sum.warn}</span>}
               {err && <span className="so-msg err">{err}</span>}
             </div>
@@ -470,9 +449,9 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
   return (
     <div className="so-editor">
       <div className="so-fields">
-        <TriggerPicker stageKey={stageKey} stageLabel={ov.stages.find((x) => x.key === stageKey)?.label ?? stageKey} value={expected} onChange={(v) => { setExpected(v); touch(); }} label="The step the customer has not yet done" />
+        <TriggerPicker stageKey={stageKey} stageLabel={ov.stages.find((x) => x.key === stageKey)?.label ?? stageKey} value={expected} onChange={(v) => { setExpected(v); touch(); }} label="Skip once they reach" />
         <div className="so-field">
-          <label className="so-label" htmlFor={`d-${a.ruleId}`}>Goes out after the customer stops</label>
+          <label className="so-label" htmlFor={`d-${a.ruleId}`}>Send after</label>
           <div className="so-input-unit">
             <input id={`d-${a.ruleId}`} className="input mono" inputMode="numeric" value={delay}
               onChange={(e) => { setDelay(e.target.value.replace(/[^0-9]/g, '')); touch(); }} />
@@ -604,227 +583,12 @@ function TriggerPicker({ stageKey, stageLabel, value, onChange, label }: { stage
   const options = laterEvents(stageKey, value);
   return (
     <div className="so-field wide">
-      <span className="so-label">When it triggers</span>
+      <span className="so-label">Stop sending when</span>
       <div className="ee-trigger">
-        <span>When the customer reaches <b>{stageLabel}</b> but has not yet reached</span>
+        <span>Skip if they reach</span>
         <select className="input" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
           {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-      </div>
-      <span className="so-hint">Customers who have already done this are skipped. It then goes out after the time you set.</span>
-    </div>
-  );
-}
-
-/* ─────────────── One event, every channel, one Save ─────────────── */
-
-const UNIT_LABEL: Record<Unit, string> = { min: 'minutes', hr: 'hours', day: 'days' };
-const UNIT_ONE: Record<Unit, string> = { min: 'minute', hr: 'hour', day: 'day' };
-const unitText = (u: Unit, val: string) => (val === '1' ? UNIT_ONE[u] : UNIT_LABEL[u]);
-
-function makeDraft(a: Activity | undefined, ch: Channel, stageKey: string, stageExpected: string): ChDraft {
-  const delay = splitMinutes(a?.delayMinutes ?? DEFAULT_DELAY[ch]);
-  const cool = splitMinutes(a?.cooldownMinutes ?? (ch === 'voice' ? 4320 : 1440));
-  return {
-    enabled: a?.enabled ?? false,
-    expectedEvent: a?.expectedEvent ?? stageExpected,
-    delayVal: delay.val, delayUnit: delay.unit, coolVal: cool.val, coolUnit: cool.unit,
-    upshotEvent: a?.upshotEvent ?? `swiftloan_${stageKey}_${ch}`,
-    waTemplate: a?.whatsapp?.template ?? '', waLanguage: a?.whatsapp?.language ?? 'en', waVars: a?.whatsapp?.placeholders ?? [],
-    smsId: a?.sms?.templateId ?? '', smsBody: a?.sms?.body ?? '',
-    role: a?.call?.agentRole ?? '', assistantId: a?.call?.assistantId ?? '', brief: a?.call?.brief ?? '',
-  };
-}
-
-const ruleChanged = (d: ChDraft, b: ChDraft, upshot: boolean) =>
-  d.enabled !== b.enabled || d.expectedEvent !== b.expectedEvent || toMinutes(d.delayVal, d.delayUnit) !== toMinutes(b.delayVal, b.delayUnit)
-  || toMinutes(d.coolVal, d.coolUnit) !== toMinutes(b.coolVal, b.coolUnit) || (upshot && d.upshotEvent.trim() !== b.upshotEvent);
-const waChanged = (d: ChDraft, b: ChDraft) =>
-  d.waTemplate.trim() !== b.waTemplate || d.waLanguage.trim() !== b.waLanguage || d.waVars.map((v) => v.trim()).filter(Boolean).join('\n') !== b.waVars.join('\n');
-const smsChanged = (d: ChDraft, b: ChDraft) => d.smsId.trim() !== b.smsId || d.smsBody.trim() !== b.smsBody.trim();
-const callChanged = (d: ChDraft, b: ChDraft) => d.role !== b.role || d.assistantId.trim() !== b.assistantId || d.brief.trim() !== b.brief;
-
-function EventEditor({ stage, flow, ov, onSaved, onClose }: { stage: Stage; flow: FlowKey; ov: Overview; onSaved: () => void | Promise<unknown>; onClose: () => void }) {
-  const [version, setVersion] = useState(0);
-  const baselines = useMemo(() => Object.fromEntries(CHANNELS.map((c) => [c, makeDraft(stage.activities.find((a) => a.channel === c), c, stage.key, stage.expectedEvent)])) as Record<Channel, ChDraft>, [stage]);
-  const [drafts, setDrafts] = useState<Record<Channel, ChDraft>>(baselines);
-  const [saving, setSaving] = useState(false);
-  const [results, setResults] = useState<Partial<Record<Channel, { ok: boolean; text: string }>>>({});
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const set = (ch: Channel, patch: Partial<ChDraft>) => { setDrafts((d) => ({ ...d, [ch]: { ...d[ch], ...patch } })); setResults((r) => ({ ...r, [ch]: undefined })); setFormError(null); };
-  const activityOf = (ch: Channel) => stage.activities.find((a) => a.channel === ch);
-  const touched = (ch: Channel) => JSON.stringify(drafts[ch]) !== JSON.stringify(baselines[ch]);
-  const anyTouched = CHANNELS.some(touched);
-  const problems = CHANNELS.map((c) => [c, draftProblem(c, drafts[c], touched(c))] as const).filter(([, p]) => p);
-
-  const sentence = CHANNELS
-    .map((c) => {
-      const d = drafts[c];
-      if (!d.enabled) return activityOf(c) || touched(c) ? `${CHANNEL_LABEL[c]} off` : null;
-      return `${CHANNEL_LABEL[c]} after ${duration(toMinutes(d.delayVal, d.delayUnit))}`;
-    })
-    .filter(Boolean)
-    .join(', ');
-
-  async function saveAll() {
-    if (problems.length) { setFormError(problems[0][1]); return; }
-    if (drafts.voice.enabled && !baselines.voice.enabled && !window.confirm('Turn on calls at this stage? Customers who stop here will get a phone call from the Ello agent, once automatic calls are enabled in Timings.')) return;
-    setSaving(true); setResults({}); setFormError(null);
-    const out: Partial<Record<Channel, { ok: boolean; text: string }>> = {};
-    for (const ch of CHANNELS) {
-      if (!touched(ch)) continue;
-      const d = drafts[ch]; const b = baselines[ch]; const a = activityOf(ch);
-      const upshot = ch === 'email' || ch === 'push';
-      try {
-        let ruleId = a?.ruleId;
-        if (!ruleId) {
-          const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel: ch, delayMinutes: toMinutes(d.delayVal, d.delayUnit), surface: flow }) });
-          ruleId = (res.data as { ruleId: string }).ruleId;
-        }
-        if (!a || ruleChanged(d, b, upshot)) {
-          await apiFetch(`/api/admin/stall-rules/${ruleId}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ enabled: d.enabled, expectedEvent: d.expectedEvent, delayMinutes: toMinutes(d.delayVal, d.delayUnit), cooldownMinutes: toMinutes(d.coolVal, d.coolUnit), ...(upshot ? { upshotEvent: d.upshotEvent.trim() } : {}) }),
-          });
-        }
-        if (ch === 'whatsapp' && waChanged(d, b)) {
-          await apiFetch(`${KEY}/${stage.key}/whatsapp`, { method: 'PUT', body: JSON.stringify({ template: d.waTemplate.trim(), language: d.waLanguage.trim() || 'en', placeholders: d.waVars.map((v) => v.trim()).filter(Boolean) }) });
-        }
-        if (ch === 'sms' && smsChanged(d, b)) {
-          await apiFetch(`${KEY}/${stage.key}/sms`, { method: 'PUT', body: JSON.stringify({ templateId: d.smsId.trim(), body: d.smsBody }) });
-        }
-        if (ch === 'voice' && callChanged(d, b)) {
-          await apiFetch(`${KEY}/${stage.key}/call`, { method: 'PUT', body: JSON.stringify({ agentRole: d.role || null, assistantId: d.assistantId.trim(), brief: d.brief }) });
-        }
-        out[ch] = { ok: true, text: 'Saved' };
-      } catch (e) {
-        out[ch] = { ok: false, text: errText(e) };
-      }
-    }
-    setResults(out);
-    await onSaved();
-    // Reload the drafts from the saved data, keeping the messages for the channels that failed.
-    if (Object.values(out).every((r) => r?.ok)) setVersion((v) => v + 1);
-    setSaving(false);
-  }
-
-  return (
-    <div className="ee" key={version}>
-      <div className="ee-intro">
-        <b>Set up every channel for this event in one go.</b> Switch on the ones you want, choose when each goes out and what it says, then press <b>Save all</b>. Channels you leave off are not created and nothing is sent until a channel is on.
-      </div>
-
-      <div className="ee-grid">
-        {CHANNELS.map((ch) => {
-          const d = drafts[ch]; const a = activityOf(ch); const upshot = ch === 'email' || ch === 'push';
-          const problem = draftProblem(ch, d, touched(ch));
-          return (
-            <div key={ch} className={`ee-card ${d.enabled ? 'on' : ''}`}>
-              <div className="ee-card-head">
-                <span className="so-node" style={{ color: `var(--so-${ch})`, width: 30, height: 30 }}><Icon channel={ch} /></span>
-                <div className="ee-card-title">
-                  {CHANNEL_LABEL[ch]}
-                  <span className="so-hint">{a ? (a.firedCount ? `${a.firedCount} sent so far` : 'Not sent yet') : 'Not set up yet'}</span>
-                </div>
-                <button type="button" className={`so-switch ${d.enabled ? 'on' : ''}`} aria-pressed={d.enabled} aria-label={`${CHANNEL_LABEL[ch]} ${d.enabled ? 'on' : 'off'}`} onClick={() => set(ch, { enabled: !d.enabled })} />
-              </div>
-
-              <div className="ee-fields"><TriggerPicker stageKey={stage.key} stageLabel={stage.label} value={d.expectedEvent} onChange={(v) => set(ch, { expectedEvent: v })} label={CHANNEL_LABEL[ch] + ": the step the customer has not yet done"} /></div>
-
-              <div className="ee-when">
-                <span>Send after</span>
-                <input className="input mono" inputMode="numeric" value={d.delayVal} aria-label={`${CHANNEL_LABEL[ch]}: how long after the customer stops`} onChange={(e) => set(ch, { delayVal: e.target.value.replace(/[^0-9]/g, '') })} />
-                <select className="input" value={d.delayUnit} aria-label="Unit" onChange={(e) => set(ch, { delayUnit: e.target.value as Unit })}>
-                  {(Object.keys(UNIT_LABEL) as Unit[]).map((u) => <option key={u} value={u}>{unitText(u, d.delayVal)}</option>)}
-                </select>
-                <span className="so-hint">after they stop</span>
-              </div>
-
-              {ch === 'whatsapp' && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">Approved template name</span>
-                    <input className="input mono" value={d.waTemplate} placeholder="e.g. offers_available_update" onChange={(e) => set(ch, { waTemplate: e.target.value })} /></label>
-                  <div className="so-field"><span className="so-label">Values sent into the template, in order</span>
-                    <div className="so-vars">
-                      {d.waVars.length === 0 && <span className="so-hint">None yet.</span>}
-                      {d.waVars.map((v, i) => (
-                        <div key={i} className="so-var">
-                          <span className="so-var-no">{`{{${i + 1}}}`}</span>
-                          <input className="input mono" value={v} onChange={(e) => set(ch, { waVars: d.waVars.map((x, j) => (j === i ? e.target.value : x)) })} />
-                          <button type="button" className="so-x" aria-label={`Remove value ${i + 1}`} onClick={() => set(ch, { waVars: d.waVars.filter((_, j) => j !== i) })}>×</button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="so-tokens">
-                      {ov.whatsappTokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => set(ch, { waVars: [...d.waVars, t] })}>{t}</button>)}
-                      <button type="button" className="so-token" onClick={() => set(ch, { waVars: [...d.waVars, ''] })}>+ text</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {ch === 'sms' && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">DLT template ID</span>
-                    <input className="input mono" value={d.smsId} onChange={(e) => set(ch, { smsId: e.target.value })} /></label>
-                  <label className="so-field"><span className="so-label">Exact registered text</span>
-                    <textarea className="input" rows={3} maxLength={1000} value={d.smsBody} onChange={(e) => set(ch, { smsBody: e.target.value })} /></label>
-                  <span className="so-hint">Must match the DLT registration exactly, so no variables. Leave both empty to use the default text.</span>
-                </div>
-              )}
-
-              {upshot && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">Upshot event to fire</span>
-                    <input className="input mono" value={d.upshotEvent} onChange={(e) => set(ch, { upshotEvent: e.target.value })} /></label>
-                  <span className="so-hint">{ch === 'email' ? 'Email' : 'Push'} is sent through Upshot. Write the message there and attach it to this event.</span>
-                </div>
-              )}
-
-              {ch === 'voice' && (
-                <div className="ee-fields">
-                  <label className="so-field"><span className="so-label">Ello agent</span>
-                    <select className="input" value={d.role} onChange={(e) => set(ch, { role: e.target.value })}>
-                      <option value="">Website lead callback (default)</option>
-                      {ov.agentRoles.filter((r) => r.direction === 'outbound' && r.role !== 'leadCallback').map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
-                    </select></label>
-                  <label className="so-field"><span className="so-label">Or a specific agent ID</span>
-                    <input className="input mono" value={d.assistantId} placeholder="Optional" onChange={(e) => set(ch, { assistantId: e.target.value })} /></label>
-                  <label className="so-field"><span className="so-label">What the agent should talk about</span>
-                    <textarea className="input" rows={3} maxLength={ov.maxBriefLength} value={d.brief} placeholder="e.g. Greet {lead_first_name}. They {stall_reason}. Offer to {stall_help}." onChange={(e) => set(ch, { brief: e.target.value })} /></label>
-                </div>
-              )}
-
-              <details className="ee-more">
-                <summary>More</summary>
-                <div className="ee-when" style={{ marginTop: 8 }}>
-                  <span>Do not repeat for</span>
-                  <input className="input mono" inputMode="numeric" value={d.coolVal} aria-label="Repeat protection" onChange={(e) => set(ch, { coolVal: e.target.value.replace(/[^0-9]/g, '') })} />
-                  <select className="input" value={d.coolUnit} aria-label="Unit" onChange={(e) => set(ch, { coolUnit: e.target.value as Unit })}>
-                    {(Object.keys(UNIT_LABEL) as Unit[]).map((u) => <option key={u} value={u}>{unitText(u, d.coolVal)}</option>)}
-                  </select>
-                </div>
-                <span className="so-hint">The same customer is not sent this again inside this window.</span>
-              </details>
-
-              {problem && <div className="so-msg err">{problem}</div>}
-              {results[ch] && <div className={`so-msg ${results[ch]!.ok ? 'ok' : 'err'}`}>{results[ch]!.text}</div>}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="ee-foot">
-        <div className="ee-summary"><div className="so-preview-label">What will happen</div>
-          {sentence ? <>When a customer stops at <b>{stage.label}</b>: {sentence}.</> : <>Nothing is set up for <b>{stage.label}</b> yet.</>}
-        </div>
-        <div className="so-actions ee-sticky">
-          <button type="button" className="btn btn-primary" disabled={!anyTouched || saving} onClick={saveAll}>{saving ? 'Saving…' : 'Save all'}</button>
-          <button type="button" className="btn" disabled={saving} onClick={onClose}>{anyTouched ? 'Discard and close' : 'Close'}</button>
-          {anyTouched && !saving && !formError && <span className="so-hint">You have unsaved changes.</span>}
-          {formError && <span className="so-msg err">{formError}</span>}
-        </div>
       </div>
     </div>
   );
@@ -847,7 +611,7 @@ function AddRow({ stage, flow, onAdded }: { stage: Stage; flow: FlowKey; onAdded
 
   return (
     <div className="so-add">
-      <div className="so-section" style={{ marginTop: 22 }}>Add {flow === 'app' ? 'an app' : 'a website'} follow-up at this step</div>
+      <div className="so-section" style={{ marginTop: 22 }}>Add a follow-up</div>
       <div className="so-add-row">
         {stage.missingChannels.map((c) => (
           <button key={c} type="button" className="so-add-btn" disabled={busy !== null} onClick={() => add(c)}>
@@ -856,7 +620,6 @@ function AddRow({ stage, flow, onAdded }: { stage: Stage; flow: FlowKey; onAdded
           </button>
         ))}
       </div>
-      <div className="so-hint" style={{ marginTop: 8 }}>It starts switched off, about {duration(DEFAULT_DELAY[stage.missingChannels[0]])} after the customer stops. Change the timing and content, then switch it on.</div>
       {msg && <div className="so-msg err" style={{ marginTop: 6 }}>{msg}</div>}
     </div>
   );
