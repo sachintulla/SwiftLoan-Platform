@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, ApiError } from '@/lib/api';
-import { ConfirmDialog, Select } from '@/components/ui';
+import { ConfirmDialog, Select, Chevron } from '@/components/ui';
 import {
   CATEGORY_OPTIONS, CategoryChip, Chip, Dot, Field, TOKEN_HELP, cap, fillSample,
   type Catalog, type Category, type Group, type Item, type Spec, type TemplateRow,
@@ -212,7 +212,7 @@ export function MessageRow({ it, cardCategory, open, canEdit, templates, onToggl
             <span style={{ color: it.on ? 'var(--text)' : 'var(--text-dim)' }}>{it.on ? 'On' : 'Off'}</span>
           </span>
           {it.source === 'saved' && <span className="muted" style={{ fontSize: 11.5 }} title="Changed in this dashboard">edited</span>}
-          <span className="muted" aria-hidden style={{ fontSize: 12 }}>{open ? '▾' : '▸'}</span>
+          <span className="muted" aria-hidden style={{ display: 'inline-flex' }}><Chevron open={open} /></span>
         </span>
       </button>
       {open && (

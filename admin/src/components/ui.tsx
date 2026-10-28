@@ -280,6 +280,14 @@ export function Menu({ trigger, items }: { trigger: React.ReactNode; items: Menu
   );
 }
 
+/** A clear expand arrow: points right, turns down when open. Use instead of the small text arrows. */
+export function Chevron({ open, size = 20 }: { open: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+      style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><path d="M9 6l6 6-6 6" /></svg>
+  );
+}
+
 /** "Showing 1 - 10 of 18", rows per page, and first / previous / next / last. For lists that page in the browser or on the server. */
 export function PagerBar({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize?: (n: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));

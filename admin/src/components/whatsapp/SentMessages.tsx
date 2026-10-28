@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { FilterChips, PagerBar, SearchBox, Select, TableSkeleton } from '@/components/ui';
+import { Chevron, FilterChips, PagerBar, SearchBox, Select, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import { Chip, cap } from '@/components/whatsapp/ui';
@@ -195,7 +195,7 @@ export default function SentMessages() {
           <div className="table-wrap">
             <table className="data dark-table">
               <thead>
-                <tr><th>Sent</th><th>To</th><th>Message</th><th>Status</th><th style={{ width: 28 }} /></tr>
+                <tr><th>Sent</th><th>To</th><th>Message</th><th>Status</th><th style={{ width: 44 }} /></tr>
               </thead>
               <tbody>
                 {rows.map((m) => {
@@ -219,7 +219,9 @@ export default function SentMessages() {
                           <DeliveryChip m={m} />
                           {m.status === 'failed' && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, maxWidth: 200 }}>{(m.failureReason ?? '').slice(0, 60)}</div>}
                         </td>
-                        <td className="muted" aria-hidden>{open ? '▾' : '▸'}</td>
+                        <td className="muted" aria-hidden style={{ textAlign: 'right' }}>
+                          <Chevron open={open} />
+                        </td>
                       </tr>
                       {open && (
                         <tr style={{ cursor: 'default' }}>
