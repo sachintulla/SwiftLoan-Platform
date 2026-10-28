@@ -739,14 +739,19 @@ export default function VoiceWidget() {
           </Animated.View>
         ) : null}
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
-          <Animated.View style={[styles.fabRing, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
-            <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
-              {showRuby ? (
-                <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabAvatar} resizeMode="cover" />
-              ) : (
+          <Animated.View style={[styles.fabRing, showRuby && styles.fabRingBare, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
+            {showRuby ? (
+              // Ruby as a free-standing person — no coloured circle behind her, just
+              // the transparent cutout floating on the screen (a soft shadow keeps
+              // her legible over light content).
+              <View style={styles.fabPerson}>
+                <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabPersonImg} resizeMode="contain" />
+              </View>
+            ) : (
+              <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
                 <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
-              )}
-            </LinearGradient>
+              </LinearGradient>
+            )}
           </Animated.View>
         </Pressable>
       </View>
@@ -934,6 +939,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   fabAvatar: { width: '100%', height: '100%', borderRadius: (FAB_SIZE - 3) / 2 },
+  // Ruby-as-person FAB: no circular ring/background, just the floating cutout.
+  fabRingBare: { borderWidth: 0, backgroundColor: 'transparent', shadowOpacity: 0, elevation: 0 },
+  fabPerson: { width: FAB_SIZE, height: FAB_SIZE, alignItems: 'center', justifyContent: 'center' },
+  fabPersonImg: {
+    width: '122%', height: '122%',
+    shadowColor: '#0A3F41', shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
+  },
   eqRow: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 22 },
   eqBar: { width: 3.5, borderRadius: 2 },
   robotFace: {
