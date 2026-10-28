@@ -90,19 +90,26 @@ export default function StageOutreach() {
 
   return (
     <div className="so">
-      <div className="so-head">
-        <div>
-          <h2 className="so-title">Stage outreach</h2>
-          <p className="so-sub">Pick App or Website, then the step where customers stop. Set what they receive, on which channel, and when. A follow-up marked &quot;App and website&quot; applies to both. New follow-ups start switched off, so nothing is sent until you turn them on.</p>
-          <div className="ee-seg" role="group" aria-label="Flow" style={{ marginTop: 10 }}>
-            {FLOWS.map((f) => (
-              <button key={f} type="button" className={flow === f ? 'active' : ''} aria-pressed={flow === f} onClick={() => { setFlow(f); setSelected(null); setOpenRule(null); }}>{FLOW_LABEL[f]}</button>
-            ))}
-          </div>
-        </div>
+      <div className="so-flows" role="tablist" aria-label="App or website">
+        {FLOWS.map((f) => {
+          const list = stagesForFlow(f, ov.flows?.[f] ?? [], ov.stages);
+          const on = list.reduce((n, st) => n + st.activities.filter((a) => a.enabled).length, 0);
+          return (
+            <button key={f} type="button" role="tab" aria-selected={flow === f} className={`so-flow ${flow === f ? 'active' : ''}`}
+              onClick={() => { setFlow(f); setSelected(null); setOpenRule(null); }}>
+              <span className="so-flow-ico" aria-hidden>{f === 'app' ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18" /></svg>
+              )}</span>
+              <span className="so-flow-text">
+                <b>{FLOW_LABEL[f]}</b>
+                <span>{list.length} steps · {on} follow-up{on === 1 ? '' : 's'} on</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
-
-      <Notes gates={ov.gates} />
 
       <div className={`so-grid ${allMode ? 'stack' : ''}`}>
         <Rail title={`${FLOW_LABEL[flow]} journey`} stages={shown} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
@@ -259,27 +266,6 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
         </div>
       )}
     </section>
-  );
-}
-
-function Notes({ gates: g }: { gates: Overview['gates'] }) {
-  const notes: Array<{ tone: '' | 'blue' | 'red'; text: string }> = [];
-  if (!g.whatsappConnected) notes.push({ tone: '', text: 'No WhatsApp provider is turned on (Vox or Meta), so WhatsApp steps will not send.' });
-  if (!g.smsConnected) notes.push({ tone: '', text: 'The Vox SMS gateway is off, so SMS steps will not send.' });
-  if (!g.upshotConnected) notes.push({ tone: '', text: 'Upshot is off, so email and push steps will not reach anyone (they go through Upshot).' });
-  if (!g.elloConnected) notes.push({ tone: '', text: 'Ello voice is not connected, so calls cannot be placed.' });
-  if (!g.callsAutomatic) notes.push({ tone: 'blue', text: 'Automatic drop-off calls are switched off (Timings, calls.nudgeEnabled). No call rings a customer until that is on.' });
-  if (g.callsAutomatic && g.testNumbersOnly > 0) notes.push({ tone: 'blue', text: `Test mode: calls only go to the ${g.testNumbersOnly} allowed test number${g.testNumbersOnly === 1 ? '' : 's'}.` });
-  if (g.nudgesDisabled) notes.push({ tone: 'red', text: 'NUDGES_DISABLED is set on this server, so stage follow-ups are paused here.' });
-  if (!notes.length) return null;
-  const urgent = notes.some((n) => n.tone === 'red');
-  return (
-    <details className="so-guide so-notes-box" style={urgent ? { borderColor: '#f3b6b0' } : undefined}>
-      <summary>{notes.length} thing{notes.length === 1 ? '' : 's'} to know before anything is sent{urgent ? ' (action needed)' : ''}</summary>
-      <div className="so-notes" style={{ marginTop: 10, marginBottom: 0 }}>
-        {notes.map((n) => <div key={n.text} className={`so-note ${n.tone}`}><span aria-hidden>{n.tone === 'blue' ? 'ℹ' : '⚠'}</span><span>{n.text}</span></div>)}
-      </div>
-    </details>
   );
 }
 
