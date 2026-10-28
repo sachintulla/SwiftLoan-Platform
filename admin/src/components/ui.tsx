@@ -280,6 +280,30 @@ export function Menu({ trigger, items }: { trigger: React.ReactNode; items: Menu
   );
 }
 
+/** "Showing 1 - 10 of 18", rows per page, and first / previous / next / last. For lists that page in the browser or on the server. */
+export function PagerBar({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize?: (n: number) => void }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(page, totalPages);
+  const from = total === 0 ? 0 : (cur - 1) * pageSize + 1;
+  const to = Math.min(cur * pageSize, total);
+  return (
+    <div className="pager-bar">
+      <span className="muted">Showing {from} - {to} of {total}</span>
+      <span style={{ flex: 1 }} />
+      {onPageSize && (
+        <select className="input" style={{ width: 'auto' }} aria-label="Rows per page" value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))}>
+          {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      )}
+      <button type="button" className="btn" disabled={cur <= 1} onClick={() => onPage(1)} aria-label="First page">«</button>
+      <button type="button" className="btn" disabled={cur <= 1} onClick={() => onPage(cur - 1)} aria-label="Previous page">‹</button>
+      <span className="muted">Page {cur} of {totalPages}</span>
+      <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => onPage(cur + 1)} aria-label="Next page">›</button>
+      <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => onPage(totalPages)} aria-label="Last page">»</button>
+    </div>
+  );
+}
+
 export function Pagination({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
   if (totalPages <= 1) return null;
   return (

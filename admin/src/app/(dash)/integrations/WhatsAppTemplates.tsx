@@ -4,7 +4,7 @@
 // and the page can warn about a category that disagrees or a template that is not approved yet.
 import React, { useMemo, useState } from 'react';
 import { apiFetch, ApiError } from '@/lib/api';
-import { ConfirmDialog, FilterChips, SearchBox, Select } from '@/components/ui';
+import { ConfirmDialog, FilterChips, PagerBar, SearchBox, Select } from '@/components/ui';
 import { dateTimeStr, num } from '@/lib/format';
 import {
   CATEGORY_OPTIONS, CategoryChip, Chip, Field, STATUS_OPTIONS, StatusChip, cap,
@@ -142,8 +142,6 @@ export default function WhatsAppTemplates({
   const totalPages = Math.max(1, Math.ceil(shown.length / pageSize));
   const cur = Math.min(page, totalPages);
   const pageRows = shown.slice((cur - 1) * pageSize, cur * pageSize);
-  const from = shown.length === 0 ? 0 : (cur - 1) * pageSize + 1;
-  const to = Math.min(cur * pageSize, shown.length);
 
   if (loading && !data) return <div className="card card-pad muted">Loading templates…</div>;
   if (!data) return <div className="card card-pad muted">Could not load the templates.</div>;
@@ -183,7 +181,7 @@ export default function WhatsAppTemplates({
       ) : (
         <>
           <div className="table-wrap">
-            <table className="data tpl-table">
+            <table className="data dark-table">
               <thead>
                 <tr><th>Template</th><th>Category</th><th>Language</th><th>Status</th><th>Sent</th><th>Last sent</th><th style={{ textAlign: 'right' }}>Action</th></tr>
               </thead>
@@ -205,7 +203,7 @@ export default function WhatsAppTemplates({
                         <td>{num(r.sent)}</td>
                         <td className="muted" title={r.lastSentAt ? dateTimeStr(r.lastSentAt) : undefined}>{r.lastSentAt ? dateTimeStr(r.lastSentAt) : '-'}</td>
                         <td style={{ textAlign: 'right' }}>
-                          <button type="button" className="btn tpl-act" aria-label={open ? 'Close' : canEdit ? 'Open and edit' : 'Open'} aria-expanded={open}
+                          <button type="button" className="btn row-act" aria-label={open ? 'Close' : canEdit ? 'Open and edit' : 'Open'} aria-expanded={open}
                             onClick={(e) => { e.stopPropagation(); setOpenName(open ? null : r.name); setAdding(null); }}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
                           </button>
@@ -232,18 +230,7 @@ export default function WhatsAppTemplates({
               </tbody>
             </table>
           </div>
-          <div className="tpl-pager">
-            <span className="muted">Showing {from} - {to} of {shown.length}</span>
-            <span style={{ flex: 1 }} />
-            <select className="input" style={{ width: 'auto' }} aria-label="Rows per page" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
-              {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <button type="button" className="btn" disabled={cur <= 1} onClick={() => setPage(1)} aria-label="First page">«</button>
-            <button type="button" className="btn" disabled={cur <= 1} onClick={() => setPage(cur - 1)} aria-label="Previous page">‹</button>
-            <span className="muted">Page {cur} of {totalPages}</span>
-            <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => setPage(cur + 1)} aria-label="Next page">›</button>
-            <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => setPage(totalPages)} aria-label="Last page">»</button>
-          </div>
+          <PagerBar page={cur} pageSize={pageSize} total={shown.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1); }} />
         </>
       )}
     </div>
