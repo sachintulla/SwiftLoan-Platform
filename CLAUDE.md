@@ -587,6 +587,23 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
 
 ---
 
+## Lender's own words, admin only (`LenderApplication.lenderNote`)
+
+KFT's status push carries `journey.reason` ("Unknown error." …). It used to be dropped unless it held a decision word, so an application stuck at a
+lender step looked like a normal "In progress" (app: In Progress / Applied; admin: handoff). `lib/lenderNote.ts` now keeps it in
+`LenderApplication.lenderNote` + `lenderNoteAt` (migration `20261028130000_lender_application_note`, additive and idempotent; apply with `prisma migrate deploy`).
+- **NOT `failureReason`**: the customer app shows `failureReason` in red on the status screen, whatever the status. `lenderNote` is omitted from EVERY query by
+  default (`lib/prisma.ts` `omit.lenderApplication`, also through `include`), so no customer payload can carry it; the admin reads it only through an explicit
+  `select` / `omit: { lenderNote: false }` (`attachLenderNotes` puts it on each applied offer for `/admin/loans/:id` and `/customers/:id`; the user profile adds it to
+  the "Applications across lenders" rows).
+- Rules (`lenderNoteChange`, pure, tested): a non-empty, non-benign reason is stored as `"<reason> (at <step>)"` (300 chars max); the same text again does not move
+  `lenderNoteAt`; an event with no reason leaves it; the lender moving on (under review / approved / disbursed / closed) clears it. It is recorded whether or not the
+  status moves, and never fails the webhook. Shown in admin as an amber "Lender note" box on the lender timeline (`LenderTrack`).
+- Not backfilled: a reason KFT sent before this shipped was not stored anywhere; it appears when the lender pushes again.
+- Tests: `lib/lenderNote.test.ts`, and `cd server && DATABASE_URL=<throwaway> tsx scripts/journey/lender-note-check.mts` (12 checks, needs a server on :4020).
+
+---
+
 ## Test numbers (QA sign-in on the production build)
 
 Admin → **Test numbers** (`admin/src/app/(dash)/test-numbers`, API `/api/admin/test-numbers`, `modules/adminTestNumbers.routes.ts`) lists phone

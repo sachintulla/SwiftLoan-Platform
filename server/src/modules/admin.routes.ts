@@ -12,6 +12,7 @@ import {
   buildLoanWhere, buildRevasureWhere, buildYubiWhere, findUserIdsBySearch, personsByUserId, redactRevasurePayload, searchTerm,
 } from '../lib/listFilters.js';
 import { scoped } from '../lib/log.js';
+import { attachLenderNotes } from '../lib/lenderNote.js';
 
 const log = scoped('admin');
 
@@ -319,6 +320,8 @@ adminRouter.get('/loans/:id', ah(async (req, res) => {
     },
   });
   if (!app) throw new HttpError(404, 'Application not found');
+  // The lender's own words (admin only) ride on each offer so the lender timelines can show them.
+  (app as any).offers = await attachLenderNotes(app.offers);
 
   // Timeline of loan-step events for this application/loan.
   const timeline = await prisma.activityEvent.findMany({
@@ -740,6 +743,7 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
       where: { application: { userId } },
       orderBy: { appliedAt: 'desc' },
       include: { offer: { select: { lenderName: true, apr: true, amount: true } } },
+      omit: { lenderNote: false, lenderNoteAt: false }, // admin-only columns, hidden everywhere else
     }),
     // Yubi: referrals the customer actually proceeded with (appliedAt set).
     prisma.partnerReferral.findMany({
@@ -765,6 +769,7 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
       lender: a.lenderName || a.offer?.lenderName || 'Knight Fintech partner',
       amount: a.amount, apr: a.apr ?? a.offer?.apr ?? null,
       status: a.status, appliedAt: a.appliedAt, ref: a.id,
+      lenderNote: a.lenderNote ?? null, lenderNoteAt: a.lenderNoteAt ?? null,
     })),
     ...partnerReferrals.map((p) => ({
       lenderGroup: 'yubi', provider: 'ympl',

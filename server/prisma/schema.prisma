@@ -447,6 +447,11 @@ model LenderApplication {
   // KFT/Aurix ids used to match inbound status webhooks to THIS application.
   kftApplicationId String?
   failureReason    String?
+  /// The lender's own words from its latest status push (`journey.reason`), e.g. "Unknown error. (at lender selection)".
+  /// ADMIN ONLY: hidden from every query by default (lib/prisma.ts omit) so it never reaches the customer app, which
+  /// shows `failureReason` in red. Cleared when the lender moves on. Read it with an explicit `select` (lib/lenderNote.ts).
+  lenderNote       String?
+  lenderNoteAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

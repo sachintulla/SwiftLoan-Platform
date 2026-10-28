@@ -18,6 +18,7 @@ import { nudgeCustomer } from '../lib/dispatch.js';
 import { NEXT_ACTION_BY_STAGE, nextActionFor } from '../lib/nextAction.js';
 import { eraseCustomer } from '../lib/customerErasure.js';
 import { scoped } from '../lib/log.js';
+import { attachLenderNotes } from '../lib/lenderNote.js';
 
 const log = scoped('customers');
 
@@ -299,6 +300,11 @@ customersRouter.get('/:id', ah(async (req, res) => {
       ? prisma.lead.findMany({ where: { phone: customer.phone }, orderBy: { createdAt: 'desc' } })
       : Promise.resolve([]),
   ]);
+
+  // The lender's own words (admin only) ride on each applied offer, so the lender timelines can show them.
+  if (user) {
+    for (const a of user.applications) (a as any).offers = await attachLenderNotes(a.offers);
+  }
 
   // Every app session the person has had (phone + OS shown in their profile
   // comes from the latest one). Falls back to nothing if they have only ever
