@@ -697,3 +697,23 @@ which stage; `components/StageTimeline.tsx` renders and edits them (saves throug
 only where the settings are edited. Schedules, their rules (gap / how late / how old / idle) and the no-offers call delay are edited on the stage and are hidden
 from the Timings page (`isStageTimingKey`); Timings keeps what applies to every stage (`*.sendEnabled`, test list, calling hours, call limits, login times, limits).
 A rule and a job both live within 15 min of each other on one stage shows a "Close together" warning (the two systems do not know about each other).
+
+---
+
+## Stage outreach: App and Website flows (separate steps, separate rules)
+
+Configs → Stage outreach has an **App** tab and a **Website** tab, each listing the real steps in order (`FLOW_STEPS` in `server/src/lib/stageOutreach.ts`, returned
+as `flows` by `GET /api/admin/stage-outreach`; the admin maps them with `admin/src/lib/stageFlows.ts`). A step is a plain-words name for a stage (journey event), so
+templates, schedules and rules stay stored under the stage key. **Basic details and More details are one step** on both sides.
+- **Sides on rules.** `StallRule.surface` (`all` | `app` | `website`, default `all`; migration `20261028120000_stall_rule_surface`, additive and idempotent; unique key is
+  now trigger + expected + channel + surface). `evaluateRule` counts only trigger events from that side (`surfaceFilter` in `stallRules.ts`: website = event channel
+  `website`, app = anything else); moving on from EITHER side still counts as moving on. Existing rules are `all`, so nothing changed until someone picks a side.
+  A follow-up added on a tab is created for that side; one for `all` shows on both tabs with an "App and website" label.
+- **Which side an event came from.** Both front ends call the same API, so routes used to tag every event `app`. The website now sends `X-SwiftLoan-Surface: website`
+  from `authFetch` (`website-next/src/lib/session.ts`); `surfaceOf(req)` (`server/src/lib/surface.ts`) reads it (no header = app). The website also records the two events it
+  never had: **application started** when its PAN is verified (the app's Basic details screen opens right after PAN, so both mean "on Basic details") and **offers viewed**
+  when it first loads an application's offers. Before this, a website visitor could never satisfy an "offers viewed" rule.
+- **Still shared across both sides:** the WhatsApp/SMS template and schedule stored per stage (`stallTemplates`, `smsTemplates`, `install.schedule.<stage>` …). Splitting those
+  per side is a separate step.
+- Tests: `server/src/lib/{surface,stageFlows}.test.ts`, `admin/src/lib/stageFlows.test.ts`, and `cd server && bash scripts/journey/run-stage-surface.sh` (throwaway DB: builds the
+  previous schema, applies the migration, checks `db push` has nothing left to change, then runs the engine check).

@@ -16,6 +16,10 @@ import { getProviderConfig } from './integrations.js';
 
 export type Surface = 'Website' | 'Website and app' | 'App';
 
+/** Which customers a rule applies to. 'all' keeps the behaviour every rule had before sides existed. */
+export type RuleSurface = 'all' | 'app' | 'website';
+export const RULE_SURFACES: readonly RuleSurface[] = ['all', 'app', 'website'];
+
 export interface OutreachStage {
   /** The journey event the customer got stuck AT; also the stallTemplates key. */
   key: string;
@@ -45,6 +49,53 @@ export const OUTREACH_STAGES: readonly OutreachStage[] = [
   // A lender turned the application down. The follow-up waits for the customer to choose another offer.
   { key: JOURNEY_EVENTS.LOAN_REJECTED, label: 'Rejected by lender', surface: 'Website and app', expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED, description: 'A lender turned down their application and they have not chosen another offer.' },
 ];
+
+/* ───────────────────────────── the two flows ─────────────────────────────
+ * The customer does different things on the website and in the app, so Stage outreach shows two lists in the order each
+ * flow really goes. Both sit on the same journey events (the website and the app now record the same ones), so a step
+ * here is a plain-words name for one of the stages above. "Basic details" and "More details" are one step on purpose.
+ */
+export type FlowKey = 'app' | 'website';
+
+export interface FlowStep {
+  /** The stage (journey event) this step stands on; the rules, templates and schedules are stored under it. */
+  key: string;
+  label: string;
+  description: string;
+}
+
+export const FLOW_STEPS: Readonly<Record<FlowKey, readonly FlowStep[]>> = Object.freeze({
+  app: [
+    { key: JOURNEY_EVENTS.APP_INSTALLED, label: 'Install the app', description: 'Installed the app but never signed in.' },
+    { key: JOURNEY_EVENTS.OTP_REQUESTED, label: 'Sign in: mobile number and OTP', description: 'Asked for an OTP but never entered it. Accepting the privacy policy comes just before this and is not tracked.' },
+    { key: JOURNEY_EVENTS.OTP_VERIFIED, label: 'PAN verification', description: 'Signed in but did not verify their PAN (stopped on Home or on the PAN screen).' },
+    { key: JOURNEY_EVENTS.ELIGIBILITY_STARTED, label: 'Basic details', description: 'PAN verified, then stopped on Basic details. The optional More details is part of this same step.' },
+    { key: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED, label: 'Fetching offers', description: 'The lender check finished but they did not open the offers.' },
+    { key: JOURNEY_EVENTS.OFFER_VIEWED, label: 'Selecting an offer', description: 'Opened the offers but did not choose one.' },
+    { key: JOURNEY_EVENTS.OFFER_SELECTED, label: 'Applying', description: 'Chose an offer but did not submit the application.' },
+    { key: JOURNEY_EVENTS.LOAN_REJECTED, label: 'Rejected by a lender', description: 'A lender turned down the application and they have not chosen another offer.' },
+  ],
+  website: [
+    { key: JOURNEY_EVENTS.LEAD_CAPTURED, label: 'Enquiry form', description: 'Left their number on the website but has not installed the app.' },
+    { key: JOURNEY_EVENTS.OTP_REQUESTED, label: 'Sign in: mobile number and OTP', description: 'Asked for an OTP on the website but never entered it.' },
+    { key: JOURNEY_EVENTS.OTP_VERIFIED, label: 'Step 1: PAN verification', description: 'Verified the OTP but did not verify their PAN.' },
+    { key: JOURNEY_EVENTS.ELIGIBILITY_STARTED, label: 'Steps 2 and 3: Basic details', description: 'PAN verified, then stopped on Basic details. The optional extra details (step 3) are part of this same step.' },
+    { key: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED, label: 'Finding offers', description: 'The lender check finished but they did not open the offers.' },
+    { key: JOURNEY_EVENTS.OFFER_VIEWED, label: 'Choosing an offer', description: 'Opened the offers but did not choose one.' },
+    { key: JOURNEY_EVENTS.OFFER_SELECTED, label: 'Compare and apply', description: 'Chose an offer but did not submit the application.' },
+    { key: JOURNEY_EVENTS.LOAN_REJECTED, label: 'Rejected by a lender', description: 'A lender turned down the application and they have not chosen another offer.' },
+  ],
+});
+
+/** The stage keys a flow covers, in its own order. */
+export function flowKeys(flow: FlowKey): string[] {
+  return FLOW_STEPS[flow].map((x) => x.key);
+}
+
+/** True when a rule limited to `surface` belongs on the `flow` tab ('all' belongs on both). */
+export function ruleBelongsTo(surface: string | null | undefined, flow: FlowKey): boolean {
+  return !surface || surface === 'all' || surface === flow;
+}
 
 export type OutreachChannel = 'whatsapp' | 'sms' | 'email' | 'voice' | 'push';
 export const OUTREACH_CHANNELS: readonly OutreachChannel[] = ['whatsapp', 'sms', 'email', 'voice', 'push'];

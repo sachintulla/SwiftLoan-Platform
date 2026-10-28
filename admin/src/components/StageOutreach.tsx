@@ -18,6 +18,7 @@ import { splitMinutes, toMinutes, draftProblem, type Unit, type ChDraft } from '
 import { laterEvents } from '@/lib/eventLabels';
 import StageTimeline from '@/components/StageTimeline';
 import { CHANNEL_LABEL, Icon, duration, tone, type Channel } from '@/components/stageOutreachUi';
+import { FLOWS, FLOW_LABEL, SURFACE_LABEL, stagesForFlow, type FlowKey, type FlowStep, type RuleSurface } from '@/lib/stageFlows';
 
 interface Activity {
   ruleId: string;
@@ -30,6 +31,8 @@ interface Activity {
   expectedEvent: string;
   upshotEvent: string;
   firedCount: number;
+  /** Who it applies to: both, only the app, or only the website. */
+  surface?: RuleSurface;
   whatsapp?: { template: string; language: string; placeholders: string[]; customised: boolean; recommended: { name: string; language: string; placeholders: string[]; preview: string } | null };
   sms?: { templateId: string; body: string; customised: boolean };
   call?: { agentRole: string | null; assistantId: string; brief: string; effectiveAgentId: string | null };
@@ -48,6 +51,8 @@ interface Variable { name: string; group: string; description: string; example: 
 interface AgentRole { role: string; label: string; direction: string }
 interface Overview {
   stages: Stage[];
+  /** The App and Website journeys, each in its own order and words. */
+  flows: Record<FlowKey, FlowStep[]>;
   variables: Variable[];
   whatsappTokens: string[];
   agentRoles: AgentRole[];
@@ -72,6 +77,7 @@ export default function StageOutreach() {
   const [selected, setSelected] = useState<string | null>(null);
   const [openRule, setOpenRule] = useState<string | null>(null);
   const [allMode, setAllMode] = useState(false);
+  const [flow, setFlow] = useState<FlowKey>('app');
 
   const totals = useMemo(() => {
     const all = (ov?.stages ?? []).flatMap((s) => s.activities);
@@ -81,15 +87,23 @@ export default function StageOutreach() {
   if (error) return <div className="card card-pad"><div className="empty">Could not load stage outreach: {(error as Error).message}</div></div>;
   if (isLoading || !ov) return <div className="card card-pad"><TableSkeleton rows={6} cols={2} /></div>;
 
-  const current = ov.stages.find((s) => s.key === selected) ?? ov.stages.find((s) => s.activities.some((a) => a.enabled)) ?? ov.stages[0];
-  const number = ov.stages.findIndex((s) => s.key === current.key) + 1;
+  // The tab decides which steps are listed, what they are called, and which follow-ups show.
+  const flowStages = stagesForFlow(flow, ov.flows?.[flow] ?? [], ov.stages);
+  const shown = flowStages.length ? flowStages : ov.stages;
+  const current = shown.find((s) => s.key === selected) ?? shown.find((s) => s.activities.some((a) => a.enabled)) ?? shown[0];
+  const number = shown.findIndex((s) => s.key === current.key) + 1;
 
   return (
     <div className="so">
       <div className="so-head">
         <div>
           <h2 className="so-title">Stage outreach</h2>
-          <p className="so-sub">Choose the stage where customers stop. Then set what they receive, on which channel, and when it is triggered. Website visitors and app users share these stages.</p>
+          <p className="so-sub">Pick App or Website, then the step where customers stop. Set what they receive, on which channel, and when. A follow-up marked &quot;App and website&quot; applies to both.</p>
+          <div className="ee-seg" role="group" aria-label="Flow" style={{ marginTop: 10 }}>
+            {FLOWS.map((f) => (
+              <button key={f} type="button" className={flow === f ? 'active' : ''} aria-pressed={flow === f} onClick={() => { setFlow(f); setSelected(null); setOpenRule(null); }}>{FLOW_LABEL[f]}</button>
+            ))}
+          </div>
         </div>
         <div className="so-stats">
           <div className="so-stat"><b>{totals.on}</b><span>follow-ups on</span></div>
@@ -115,9 +129,9 @@ export default function StageOutreach() {
       ))}
 
       <div className={`so-grid ${allMode ? 'stack' : ''}`}>
-        <Rail stages={ov.stages} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
+        <Rail title={`${FLOW_LABEL[flow]} journey`} stages={shown} currentKey={current.key} onPick={(k) => { setSelected(k); setOpenRule(null); }} />
         <StagePanel
-          key={current.key} number={number} stage={current} ov={ov}
+          key={`${flow}:${current.key}`} number={number} flow={flow} stage={current} ov={ov}
           openRule={openRule} setOpenRule={setOpenRule} onChanged={() => mutate()}
           allMode={allMode} setAllMode={setAllMode}
         />
@@ -286,10 +300,10 @@ function Notes({ gates: g }: { gates: Overview['gates'] }) {
   );
 }
 
-function Rail({ stages, currentKey, onPick }: { stages: Stage[]; currentKey: string; onPick: (key: string) => void }) {
+function Rail({ title, stages, currentKey, onPick }: { title: string; stages: Stage[]; currentKey: string; onPick: (key: string) => void }) {
   return (
     <nav className="so-rail" aria-label="Journey stages">
-      <div className="so-rail-title">Customer journey</div>
+      <div className="so-rail-title">{title}</div>
       {stages.map((s, i) => (
         <button key={s.key} type="button" className={`so-stage ${s.key === currentKey ? 'active' : ''}`} onClick={() => onPick(s.key)}>
           <span className="so-stage-no">{i + 1}</span>
@@ -316,8 +330,8 @@ function Rail({ stages, currentKey, onPick }: { stages: Stage[]; currentKey: str
   );
 }
 
-function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMode, setAllMode }: {
-  number: number; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
+function StagePanel({ number, stage, flow, ov, openRule, setOpenRule, onChanged, allMode, setAllMode }: {
+  number: number; flow: FlowKey; stage: Stage; ov: Overview; openRule: string | null; setOpenRule: (id: string | null) => void; onChanged: () => void | Promise<unknown>;
   allMode: boolean; setAllMode: (v: boolean) => void;
 }) {
   const steps = [...stage.activities].sort((a, b) => a.delayMinutes - b.delayMinutes);
@@ -340,7 +354,7 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMo
 
       {allMode ? (
         <div className="so-panel-body">
-          <EventEditor key={stage.key} stage={stage} ov={ov} onSaved={onChanged} onClose={() => setAllMode(false)} />
+          <EventEditor key={stage.key} stage={stage} flow={flow} ov={ov} onSaved={onChanged} onClose={() => setAllMode(false)} />
         </div>
       ) : (
       <div className="so-panel-body">
@@ -355,7 +369,7 @@ function StagePanel({ number, stage, ov, openRule, setOpenRule, onChanged, allMo
           }))}
         />
 
-        <AddRow stage={stage} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
+        <AddRow stage={stage} flow={flow} onAdded={(id) => { onChanged(); setOpenRule(id); }} />
 
       </div>
       )}
@@ -411,6 +425,7 @@ function Step({ stageKey, a, ov, open, onToggleOpen, onChanged }: {
           <div className="so-card-main">
             <div className="so-card-name">
               {CHANNEL_LABEL[a.channel]}
+              <span className="so-chip" style={{ marginLeft: 8, fontWeight: 500 }}>{SURFACE_LABEL[a.surface ?? 'all']}</span>
               {sum.warn && <span className="so-warn">{sum.warn}</span>}
               {err && <span className="so-msg err">{err}</span>}
             </div>
@@ -683,7 +698,7 @@ const waChanged = (d: ChDraft, b: ChDraft) =>
 const smsChanged = (d: ChDraft, b: ChDraft) => d.smsId.trim() !== b.smsId || d.smsBody.trim() !== b.smsBody.trim();
 const callChanged = (d: ChDraft, b: ChDraft) => d.role !== b.role || d.assistantId.trim() !== b.assistantId || d.brief.trim() !== b.brief;
 
-function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overview; onSaved: () => void | Promise<unknown>; onClose: () => void }) {
+function EventEditor({ stage, flow, ov, onSaved, onClose }: { stage: Stage; flow: FlowKey; ov: Overview; onSaved: () => void | Promise<unknown>; onClose: () => void }) {
   const [version, setVersion] = useState(0);
   const baselines = useMemo(() => Object.fromEntries(CHANNELS.map((c) => [c, makeDraft(stage.activities.find((a) => a.channel === c), c, stage.key, stage.expectedEvent)])) as Record<Channel, ChDraft>, [stage]);
   const [drafts, setDrafts] = useState<Record<Channel, ChDraft>>(baselines);
@@ -719,7 +734,7 @@ function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overvi
       try {
         let ruleId = a?.ruleId;
         if (!ruleId) {
-          const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel: ch, delayMinutes: toMinutes(d.delayVal, d.delayUnit) }) });
+          const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel: ch, delayMinutes: toMinutes(d.delayVal, d.delayUnit), surface: flow }) });
           ruleId = (res.data as { ruleId: string }).ruleId;
         }
         if (!a || ruleChanged(d, b, upshot)) {
@@ -876,7 +891,7 @@ function EventEditor({ stage, ov, onSaved, onClose }: { stage: Stage; ov: Overvi
   );
 }
 
-function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) => void }) {
+function AddRow({ stage, flow, onAdded }: { stage: Stage; flow: FlowKey; onAdded: (ruleId: string) => void }) {
   const [busy, setBusy] = useState<Channel | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   if (stage.missingChannels.length === 0) return null;
@@ -884,7 +899,7 @@ function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) =>
   async function add(channel: Channel) {
     setBusy(channel); setMsg(null);
     try {
-      const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel, delayMinutes: DEFAULT_DELAY[channel] }) });
+      const res = await apiFetch<{ ruleId: string }>(`${KEY}/${stage.key}/activities`, { method: 'POST', body: JSON.stringify({ channel, delayMinutes: DEFAULT_DELAY[channel], surface: flow }) });
       onAdded((res.data as { ruleId: string }).ruleId);
     } catch (e) {
       setMsg(errText(e));
@@ -893,7 +908,7 @@ function AddRow({ stage, onAdded }: { stage: Stage; onAdded: (ruleId: string) =>
 
   return (
     <div className="so-add">
-      <div className="so-section" style={{ marginTop: 22 }}>Add a follow-up at this stage</div>
+      <div className="so-section" style={{ marginTop: 22 }}>Add a {FLOW_LABEL[flow].toLowerCase()} follow-up at this step</div>
       <div className="so-add-row">
         {stage.missingChannels.map((c) => (
           <button key={c} type="button" className="so-add-btn" disabled={busy !== null} onClick={() => add(c)}>

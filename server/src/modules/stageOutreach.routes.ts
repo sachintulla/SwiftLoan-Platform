@@ -22,7 +22,7 @@ import { timing } from '../lib/timings.js';
 import { nudgesDisabled } from '../jobs/tracking.jobs.js';
 import {
   OUTREACH_STAGES, OUTREACH_CHANNELS, VARIABLE_LIST, MAX_BRIEF_LENGTH, isOutreachStage, normalizeStageCalls,
-  cleanWhatsApp, cleanSms, defaultCooldownMinutes, type OutreachChannel,
+  cleanWhatsApp, cleanSms, defaultCooldownMinutes, FLOW_STEPS, RULE_SURFACES, type OutreachChannel, type RuleSurface,
 } from '../lib/stageOutreach.js';
 import { normalizeSummaryConfig, SUMMARY_TOKENS } from '../lib/conversationSummary.js';
 import { OFFERS_NOTICE_TOKENS } from '../lib/offersNotice.js';
@@ -90,6 +90,7 @@ stageOutreachRouter.get('/', ah(async (_req, res) => {
         upshotEvent: r.upshotEvent,
         lastFiredAt: r.lastFiredAt,
         firedCount: r.firedCount,
+        surface: r.surface,
       };
       if (r.channel === 'whatsapp') {
         const t = (savedWa[stage.key] ?? shippedWa[stage.key]) as Obj | undefined;
@@ -135,6 +136,8 @@ stageOutreachRouter.get('/', ah(async (_req, res) => {
 
   return ok(res, {
     stages,
+    // The two customer flows in their own order; each step names the stage its rules are stored under.
+    flows: FLOW_STEPS,
     variables: VARIABLE_LIST,
     whatsappTokens: ['{name}', '{ref}', '{offerCount}', '{siteUrl}'],
     agentRoles: AGENT_ROLES.map((role) => ({ role, ...AGENT_ROLE_INFO[role] })),
@@ -163,22 +166,25 @@ stageOutreachRouter.get('/', ah(async (_req, res) => {
 const addSchema = z.object({
   channel: z.enum(OUTREACH_CHANNELS as unknown as [OutreachChannel, ...OutreachChannel[]]),
   delayMinutes: z.number().int().min(1).max(20160),
+  /** Who it applies to. Left out = both, which is how every earlier follow-up behaves. */
+  surface: z.enum(RULE_SURFACES as unknown as [RuleSurface, ...RuleSurface[]]).default('all'),
 });
 
 const CHANNEL_NAME: Record<OutreachChannel, string> = { whatsapp: 'WHATSAPP', sms: 'SMS', email: 'EMAIL', voice: 'CALL', push: 'PUSH' };
 
 stageOutreachRouter.post('/:stage/activities', requireRole(...CAN_ADMINISTER), validate(addSchema), ah(async (req, res) => {
   const stage = stageOr404(req.params.stage);
-  const { channel, delayMinutes } = req.body as z.infer<typeof addSchema>;
+  const { channel, delayMinutes, surface } = req.body as z.infer<typeof addSchema>;
   try {
     const rule = await prisma.stallRule.create({
       data: {
-        name: `${CHANNEL_NAME[channel]} — ${stage.label.toLowerCase()}: ${stage.description.replace(/\.$/, '').toLowerCase()}`.slice(0, 120),
+        name: `${CHANNEL_NAME[channel]}${surface === 'all' ? '' : ` (${surface})`} — ${stage.label.toLowerCase()}: ${stage.description.replace(/\.$/, '').toLowerCase()}`.slice(0, 120),
         triggerEvent: stage.key,
         expectedEvent: stage.expectedEvent,
         delayMinutes,
-        upshotEvent: `swiftloan_${stage.key}_${channel}`,
+        upshotEvent: `swiftloan_${stage.key}_${channel}${surface === 'all' ? '' : `_${surface}`}`,
         channel,
+        surface,
         cooldownMinutes: defaultCooldownMinutes(channel),
         enabled: false, // a new follow-up never reaches a customer until someone switches it on
       },
@@ -186,7 +192,7 @@ stageOutreachRouter.post('/:stage/activities', requireRole(...CAN_ADMINISTER), v
     log.info('activity added', { stage: stage.key, channel, updatedBy: adminName(req) ?? null });
     return created(res, { ruleId: rule.id }, 'Follow-up added');
   } catch (e: any) {
-    if (e?.code === 'P2002') throw new HttpError(409, `This stage already has a ${channel} follow-up`);
+    if (e?.code === 'P2002') throw new HttpError(409, `This step already has a ${channel} follow-up${surface === 'all' ? '' : ` for the ${surface}`}`);
     throw e;
   }
 }));

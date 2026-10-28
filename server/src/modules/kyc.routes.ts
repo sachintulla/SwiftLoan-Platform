@@ -11,6 +11,7 @@ import { verifyPan, cachedPanForUser } from '../lib/panVerification.js';
 import { loadPan } from '../lib/storedPan.js';
 import { normalisePan } from '../lib/pii.js';
 import { markPanVerified } from '../lib/installReminder.js';
+import { surfaceOf } from '../lib/surface.js';
 
 const log = scoped('kyc');
 
@@ -44,6 +45,11 @@ kycRouter.post('/pan/verify',
     // Website drop-off recovery: remember step 1 is done, and the first name for the app's greeting.
     // A no-op unless this user has an active website reminder; never blocks the response.
     if (result.verified) markPanVerified(user.id, result.prefill?.firstName).catch(() => {});
+    // The app counts "application started" when its Basic details screen opens, which is right after PAN is verified.
+    // The website has no such screen event, so a verified PAN is its equivalent: both now mean "on Basic details".
+    if (result.verified && surfaceOf(req) === 'website') {
+      trackJourney({ userId: user.id }, { channel: 'website', name: JOURNEY_EVENTS.ELIGIBILITY_STARTED, metadata: { step: 'pan_verified' } }).catch(() => {});
+    }
 
     const panOnFile = !!onFileBefore;
     const samePanOnFile = panOnFile && !!onFilePanPlain && onFilePanPlain === enteredNorm;

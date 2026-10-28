@@ -1485,6 +1485,8 @@ model StallRule {
   /// Don't re-fire the same rule for the same customer inside this window.
   cooldownMinutes Int             @default(1440)
   enabled         Boolean         @default(true)
+  /// Who this rule applies to: 'all' (website and app), 'app' or 'website'. Matched against the channel of the event that triggers it.
+  surface         String          @default("all")
   /// Observability, so the dashboard can show whether a rule ever matches.
   lastFiredAt     DateTime?
   firedCount      Int             @default(0)
@@ -1496,7 +1498,7 @@ model StallRule {
   /// and a (later, longer-cooldown) voice rule — push at 15 minutes, call at 45 if
   /// they still have not moved. With the old two-column key the voice rule
   /// collided with the push one and could never be created.
-  @@unique([triggerEvent, expectedEvent, channel])
+  @@unique([triggerEvent, expectedEvent, channel, surface])
   @@index([enabled])
 }
 

@@ -129,6 +129,8 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<a
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        // Tells the server this is the website, so the journey events it records are tagged 'website' (not 'app').
+        'X-SwiftLoan-Surface': 'website',
         ...(init.headers || {}),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
