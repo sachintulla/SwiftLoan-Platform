@@ -205,6 +205,9 @@ export interface LenderOffer {
   rejectedAt?: string | null;
   disbursedAt?: string | null;
   failureReason?: string | null;
+  // The lender's own words from its latest status push (admin only; never sent to the customer app).
+  lenderNote?: string | null;
+  lenderNoteAt?: string | null;
 }
 
 const ts = (v?: string | null) => (v ? `${dateStr(v)} · ${timeStr(v)}` : null);
@@ -264,6 +267,15 @@ export function LenderTrack({ offer: o }: { offer: LenderOffer }) {
         </div>
       </div>
       {detail && <div className="muted" style={{ fontSize: 12, marginBottom: 10, marginLeft: 40 }}>{detail}</div>}
+
+      {/* what the lender itself reported (e.g. "Unknown error."): admin-only, the customer never sees it */}
+      {o.lenderNote && (
+        <div style={{ margin: '0 0 10px 40px', padding: '8px 10px', borderRadius: 8, background: 'var(--amber-bg, #fff6e5)', border: '1px solid var(--amber, #f79009)', fontSize: 12.5 }}>
+          <b>Lender note:</b> {o.lenderNote}
+          {o.lenderNoteAt && <span className="muted"> · {ts(o.lenderNoteAt)}</span>}
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>Reported by the lender. The customer does not see this.</div>
+        </div>
+      )}
 
       {/* timestamped vertical timeline */}
       <div style={{ marginLeft: 8 }}>

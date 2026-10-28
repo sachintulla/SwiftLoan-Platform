@@ -35,6 +35,7 @@ import { ok, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
 import { advanceReferral } from '../lib/referral.js';
+import { lenderNoteChange, recordLenderNote } from '../lib/lenderNote.js';
 
 const log = scoped('aurix-webhook');
 
@@ -259,6 +260,18 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     // "Rejected" post-redirection outcome maps to the right terminal status.
     ? mapJourney(state, jStatus, `${reason} ${postLenderStatus}`)
     : mapFlatStatus(String(body.Status ?? body.status ?? ''));
+
+  // Keep the lender's own words (journey.reason) for the admin, whether or not the status moves: an application stuck at a
+  // lender step ("Unknown error.") used to look like a normal "In progress". Admin-only column, never shown to the customer.
+  await recordLenderNote(
+    {
+      applicationId: application.id,
+      kftApplicationId: data.application_id != null ? String(data.application_id) : null,
+      offerId: offerCodeMatch?.id ?? null,
+      lenderName: data.lender_name ?? data.lenderName ?? null,
+    },
+    lenderNoteChange({ state, reason, mapped }),
+  );
 
   if (!mapped) {
     return ok(res, { matched: true, applicationId: application.id, statusUnchanged: true }, 'No status change for this event');
