@@ -3,6 +3,7 @@ package com.swiftloan.push
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
+import com.brandkinesis.BKUserInfo
 import com.brandkinesis.BrandKinesis
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -42,7 +43,7 @@ class SwiftLoanMessagingService : FirebaseMessagingService() {
     super.onNewToken(token)
     try {
       val bk = BrandKinesis.getBKInstance() ?: return
-      val info = Bundle().apply { putString("gcmId", token) }
+      val info = Bundle().apply { putString(BKUserInfo.BKExternalIds.GCM, token) }
       bk.setUserInfoBundle(info, null)
       Log.d(TAG, "FCM token forwarded to Upshot")
     } catch (e: Exception) {
