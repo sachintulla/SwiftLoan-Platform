@@ -120,13 +120,6 @@ export default function StageOutreach() {
         />
       </div>
 
-      <details className="so-guide">
-        <summary>Other messages (not tied to a step)</summary>
-        <div style={{ marginTop: 10 }}>
-          <MessageCard kind="conversationSummary" cfg={ov.messages.conversationSummary} templates={ov.templates} whatsappConnected={ov.gates.whatsappConnected} onChanged={() => mutate()} />
-        </div>
-      </details>
-
     </div>
   );
 }
