@@ -92,7 +92,7 @@ export default function UserProfile() {
             <tbody>{u.lenderApplications.map((a: any, i: number) => (
               <tr key={a.ref || i}>
                 <td>{LENDER_GROUP_LABEL[a.lenderGroup] || humanStatus(a.lenderGroup)}</td>
-                <td>{a.lender || '—'}</td>
+                <td>{a.lender || '—'}{a.lenderNote && <div style={{ fontSize: 11.5, color: 'var(--amber, #b54708)' }} title={a.lenderNoteAt ? dateStr(a.lenderNoteAt) : undefined}>Lender note: {a.lenderNote}</div>}</td>
                 <td className="mono">{a.amount != null ? inrRupees(a.amount) : '—'}</td>
                 <td><StatusBadge status={a.status} /></td>
                 <td className="muted" title={dateStr(a.appliedAt)}>{timeAgo(a.appliedAt)}</td>
