@@ -7,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { leadFormCopy } from "@/i18n/lead-form";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, appStoreUrl } from "@/hooks/useLeadCapture";
-import { Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
+import { AmountInput, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 type LeadFormText = (typeof leadFormCopy)["en"];
 
@@ -140,7 +140,6 @@ export function LeadForm() {
         <Reveal delay={140} className="min-w-0">
           <div className="relative mx-auto w-full max-w-lg">
             <div className="bg-brand-gradient absolute -inset-4 rounded-[2.5rem] opacity-20 blur-3xl" />
-            <span className="border-primary/40 absolute -inset-2 rounded-[2.75rem] border-2 animate-soft-ping" aria-hidden />
             <div className="glass relative overflow-hidden rounded-3xl p-7 shadow-[var(--shadow-float)] ring-1 ring-primary/15 sm:p-10">
               {panel === "form" ? (
                 <form ref={formRef} onSubmit={onSubmit} onChange={handleFormChange} className="flex flex-col gap-7">
@@ -167,9 +166,7 @@ export function LeadForm() {
                   <div className="block min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <Label text={t.amountLabel} required />
-                      <span className="text-primary text-xl font-extrabold">
-                        {amountTouched ? fmtINR(amount) : t.amountUnselected}
-                      </span>
+                      <AmountInput amount={amount} touched={amountTouched} onCommit={handleAmountChange} placeholder={t.amountUnselected} label={t.amountLabel} className="text-xl" />
                     </div>
                     <Slider
                       className="mt-5"

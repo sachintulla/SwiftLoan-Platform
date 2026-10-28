@@ -172,6 +172,21 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     /** Public site, used to build the links inside templates. */
     siteUrl: 'https://www.swiftloan.ai',
     /**
+     * WhatsApp recap after every conversation (call, in-app agent, website agent):
+     * what was discussed and the action plan. Off until an admin names an approved
+     * template with variables. `{name}`, `{summary}`, `{actionPlan}`, `{callbackTime}`
+     * and `{outcome}` are filled per conversation. See lib/conversationSummary.ts.
+     */
+    conversationSummary: { enabled: false, template: '', language: 'en', placeholders: ['{name}', '{summary}', '{actionPlan}'] },
+    /**
+     * WhatsApp when the eligibility check returns no offers: `noOffers` for a genuine
+     * decline, `eligibilityRetry` for a technical fault. Off until a template is named.
+     * `{name}`, `{ref}`, `{guidance}` and `{link}` are filled per application.
+     * See lib/offersNotice.ts.
+     */
+    noOffers: { enabled: false, template: '', language: 'en', placeholders: ['{name}', '{ref}', '{guidance}'] },
+    eligibilityRetry: { enabled: false, template: '', language: 'en', placeholders: ['{name}', '{ref}', '{link}'] },
+    /**
      * Stuck-stage nudges: journey event the customer got stuck AT -> the approved
      * template to send and the values for its {{1}}, {{2}}… in order. `{name}`,
      * `{ref}`, `{offerCount}` and `{siteUrl}` are filled per customer; a customer
@@ -192,11 +207,6 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
       offer_viewed: {
         template: 'offers_ready', language: 'en',
         placeholders: ['{name}', '{offerCount}', '{ref}', '{siteUrl}/apply/offers'],
-      },
-      // Started eKYC and stopped.
-      kyc_started: {
-        template: 'document_request', language: 'en',
-        placeholders: ['{name}', '{ref}', 'your KYC details (PAN and Aadhaar eKYC)', '{siteUrl}/apply'],
       },
     },
     /**

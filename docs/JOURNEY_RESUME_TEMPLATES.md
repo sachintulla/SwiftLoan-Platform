@@ -155,3 +155,34 @@ previous lender's; a message more than 12 h late is skipped; only applications f
 
 Always inside 09:00-21:00 IST. Change any of them in Admin → Timings; a schedule already saved there overrides these defaults until you press Reset.
 
+
+## 6. "You dropped here" templates in Vox (status on 27 Oct 2026)
+
+Rule agreed with the owner: **every drop-off template should be Utility**. The Vox portal cannot edit a template (its second row icon is "Clone",
+which makes a new one), so these were created new. **Meta sets the final category and can change it while reviewing**: it did for two of them.
+
+| Template | Used for | Link? | Submitted as | Meta's decision |
+|---|---|---|---|---|
+| `dropoff_no_offers_callback` | no offers, "we will call you" | no | Utility | **Utility, approved** |
+| `dropoff_applied_app` | you applied, check status in the app | no | Utility | **Utility, approved** |
+| `dropoff_applied_link` | you applied, check status with the link | yes | Utility | pending |
+| `dropoff_offers_ready_link` | offers ready, review and apply with the link | yes | Utility | pending |
+| `dropoff_apply_offers_app` | offers waiting, open the app and apply | no | Utility | changed to **Marketing**, approved |
+| `dropoff_continue_app` (+ two `_copy` entries made by someone else) | continue, no link | no | Utility | changed to **Marketing**, approved |
+
+Why Meta moves some to Marketing: wording that mainly invites the person to come back or take an action ("open the app and continue", "review and apply")
+reads as Marketing. Wording that reports on something they already did ("you applied with <lender>", "we could not find offers") stays Utility. The approved
+Utility `application_pending_reminder` works because it names the application reference and a specific pending step.
+
+Reused as they are (website flow, with link): `install_app_resume_step` (continue; Marketing, in use), and for the earlier stuck-stage rules `marketing_check_rate`.
+
+**What the code uses today (approved templates, Marketing included; owner's decision 27 Oct).** These are the shipped defaults, so nothing needs saving in the dashboard:
+
+| Message | Website user (not in the app, gets the link) | Already in the app (no link) |
+|---|---|---|
+| Continue your application | `install_app_resume_step` ({name}, {step}, {link}) | `dropoff_continue_app` ({name}, {step}) |
+| Offers waiting, none applied | `offers_ready` ({name}, {offerCount}, {ref}, {link}) | `dropoff_apply_offers_app` ({name}) |
+| No offers, "we will call you" | not used | `dropoff_no_offers_callback` ({name}): **off until the Ello follow-up call exists** |
+
+The newer Utility templates (`dropoff_pending_step_app`, `dropoff_offers_ready_link`, `dropoff_applied_link`) are still in Meta's review and are not wired in. Once approved
+they can replace the Marketing ones by saving `dropoffMessages` in Admin → Configs → Voxvalley (a saved variant wins over the default).

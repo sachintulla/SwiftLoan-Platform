@@ -53,11 +53,14 @@ describe('UC-N3 back-stack fallback (prevMap)', () => {
     ['finding', 'moredetails'],
     ['offers', 'home'],
     ['handoff', 'offers'],
-    ['language', 'splash'],
-    ['intro', 'language'],
-    ['mobile', 'intro'],
+    // language / intro / aboutyou were removed from onboarding: privacy → mobile
+    // (mobile carries the intro pitch) and permissions → home (name from PAN).
+    // The removed screens are no longer in PREV, so back() falls through to home.
+    ['mobile', 'privacy'],
     ['permissions', 'mobile'],
-    ['aboutyou', 'permissions'],
+    ['language', 'home'],
+    ['intro', 'home'],
+    ['aboutyou', 'home'],
     ['loans', 'home'],
     ['fare', 'home'],
   ];

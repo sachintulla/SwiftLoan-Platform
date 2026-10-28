@@ -296,7 +296,7 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
               </div>
             )}
             <p className="muted" style={{ fontSize: 11.5, marginTop: 12 }}>
-              Anyone who ever said <b>don&apos;t call</b> is always excluded.
+              Anyone who ever said <b>do not call</b> is always excluded, except in Not interested.
             </p>
           </div>
         )}
@@ -305,6 +305,7 @@ export default function CampaignBuilder({ campaign, onSaved, onCancel }: {
           <SegmentPickerModal
             segmentKey={pickerSegment.key}
             label={pickerSegment.label}
+            segmentCount={pickerSegment.count}
             initialSelected={segmentOverrides[pickerSegment.key] ?? null}
             onClose={() => setPickerSegment(null)}
             onConfirm={(phones) => setSegmentOverrides((prev) => ({ ...prev, [pickerSegment.key]: phones }))}

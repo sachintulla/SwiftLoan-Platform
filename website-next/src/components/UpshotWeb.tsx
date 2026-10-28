@@ -135,8 +135,8 @@ export default function UpshotWeb() {
             appVersion: '1.0',
             buildVersion: '1',
             deeplinkRedirection: false,
-            // Push is opt-in and needs a service worker + VAPID setup; enabling
-            // it here would fire a permission prompt on first page load.
+            // Stays false on purpose: true makes the SDK prompt on first page load. Web push is
+            // requested at the OTP steps instead (lib/webPush.ts -> upshot.subscribePush()).
             subscribePush: false,
             retainSession: false,
           },

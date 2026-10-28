@@ -9,6 +9,7 @@ import com.swiftloan.voice.VoiceAudioPackage
 import com.swiftloan.panocr.PanOcrPackage
 import com.swiftloan.uisound.UiSoundPackage
 import com.swiftloan.attribution.InstallReferrerPackage
+import com.swiftloan.meta.MetaSdkInitPackage
 import com.upshotreactlibrary.UpshotApplication
 
 /**
@@ -34,6 +35,7 @@ class MainApplication : UpshotApplication(), ReactApplication {
           add(PanOcrPackage())
           add(UiSoundPackage())
           add(InstallReferrerPackage())
+          add(MetaSdkInitPackage())
         },
     )
   }

@@ -5,7 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP } from "@/hooks/useLeadCapture";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
-import { Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
+import { AmountInput, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
 
 /**
  * The header's and hero's "Check eligibility" buttons open THIS instead of
@@ -92,9 +92,7 @@ export function QuickCheckModal() {
             <div className="block min-w-0">
               <div className="flex items-center justify-between gap-2">
                 <Label text={t.amountLabel} required />
-                <span className="text-primary text-xl font-extrabold">
-                  {amountTouched ? fmtINR(amount) : t.amountUnselected}
-                </span>
+                <AmountInput amount={amount} touched={amountTouched} onCommit={handleAmountChange} placeholder={t.amountUnselected} label={t.amountLabel} className="text-xl" />
               </div>
               <Slider
                 className="mt-5"

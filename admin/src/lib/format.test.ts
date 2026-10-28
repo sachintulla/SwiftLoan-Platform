@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { inr, inrCompact, num, pct, timeAgo, dateStr, statusTone, humanStatus } from './format';
+import { inr, inrCompact, num, pct, timeAgo, dateStr, statusTone, humanStatus, inrRupees, inrCompactRupees } from './format';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 describe('inr', () => {
   it('formats paise as rupees', () => {
@@ -102,5 +104,51 @@ describe('humanStatus', () => {
     expect(humanStatus(false as unknown as string)).toBe('—'); // falsy, short-circuits before the type check
     expect(() => humanStatus(42 as unknown as string)).not.toThrow();
     expect(humanStatus(42 as unknown as string)).toBe('42');
+  });
+});
+
+describe('rupees vs paise (the bug that showed ₹2,000 for ₹2,00,000 and ₹510 for ₹51,000)', () => {
+  it('inrRupees shows a rupee value as it is, in Indian grouping', () => {
+    expect(inrRupees(200000)).toBe('₹2,00,000');
+    expect(inrRupees(51000)).toBe('₹51,000');
+    expect(inrRupees(null)).toBe('₹0');
+  });
+
+  it('inr treats its input as paise, so it is only for paise fields', () => {
+    expect(inr(25200000)).toBe('₹2,52,000'); // a Lead.amount in paise
+    expect(inr(200000)).toBe('₹2,000'); // what you get by using it on a rupee field: wrong by 100x
+  });
+
+  it('inrCompactRupees is the compact form of a rupee value', () => {
+    expect(inrCompactRupees(51000)).toBe('₹51.0K');
+    expect(inrCompactRupees(200000)).toBe('₹2.00L');
+    expect(inrCompactRupees(25000000)).toBe('₹2.50Cr');
+    expect(inrCompactRupees(750)).toBe('₹750');
+    expect(inrCompactRupees(null)).toBe('₹0');
+  });
+
+  it('inrCompact (paise) agrees with inrCompactRupees once the unit is converted', () => {
+    expect(inrCompact(20000000)).toBe(inrCompactRupees(200000));
+    expect(inrCompact(null)).toBe('₹0');
+  });
+});
+
+describe('guard: rupee fields are never formatted as paise', () => {
+  // Fields stored in RUPEES (see the list at the top of format.ts). A line that formats one of them with inr()/inrCompact() is the bug above.
+  const RUPEE_FIELDS = /\b(monthlyIncome|principal|emiAmount|outstanding|processingFee)\b/;
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? (f === 'node_modules' || f === '.next' ? [] : walk(p)) : /\.(tsx?|jsx?)$/.test(f) && !/\.test\./.test(f) ? [p] : [];
+    });
+
+  it('no admin screen passes an income, principal, EMI, outstanding or fee value to the paise formatters', () => {
+    const offenders: string[] = [];
+    for (const file of walk(join(__dirname, '..'))) {
+      readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+        if (/\binr(Compact)?\(/.test(line) && RUPEE_FIELDS.test(line) && !/export function/.test(line)) offenders.push(`${file.split('/src/')[1]}:${i + 1}  ${line.trim().slice(0, 110)}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

@@ -1,5 +1,9 @@
 // Formatting + status-colour helpers shared across the dashboard.
-// Amounts from the API are in PAISE (existing server convention).
+//
+// MONEY COMES IN TWO UNITS. Pick the formatter by the FIELD, not by habit (using the wrong one shows an amount 100x too small):
+//   RUPEES (use inrRupees / inrCompactRupees): LoanApplication.amount, User.monthlyIncome, LoanApplication.monthlyIncome,
+//     Offer.amount / emi / processingFee, Loan.principal / emiAmount / outstanding (so the overview's "…Paise" sums too), Repayment.amount.
+//   PAISE  (use inr / inrCompact): Lead.amount, CampaignContact.amount, PrequalifyingOffer.amount, MarketLoanOffer.maxAmount (pre-approved plans).
 
 export function inr(paise: number | null | undefined): string {
   if (paise == null) return '₹0';
@@ -10,7 +14,13 @@ export function inr(paise: number | null | undefined): string {
 // Compact for stat tiles: ₹1.2L, ₹3.4Cr
 export function inrCompact(paise: number | null | undefined): string {
   if (paise == null) return '₹0';
-  const r = paise / 100;
+  return inrCompactRupees(paise / 100);
+}
+
+/** Compact, for a value that is ALREADY in rupees (see the list at the top of this file). */
+export function inrCompactRupees(rupees: number | null | undefined): string {
+  if (rupees == null) return '₹0';
+  const r = rupees;
   if (r >= 1e7) return '₹' + (r / 1e7).toFixed(2) + 'Cr';
   if (r >= 1e5) return '₹' + (r / 1e5).toFixed(2) + 'L';
   if (r >= 1e3) return '₹' + (r / 1e3).toFixed(1) + 'K';

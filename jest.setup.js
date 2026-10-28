@@ -43,6 +43,8 @@ jest.mock('react-native-svg', () => {
     LinearGradient: stub('SvgLinearGradient'),
     G: stub('G'),
     Ellipse: stub('Ellipse'),
+    Filter: stub('Filter'),
+    FeGaussianBlur: stub('FeGaussianBlur'),
   };
 });
 

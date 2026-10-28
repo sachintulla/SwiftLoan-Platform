@@ -1,25 +1,33 @@
 'use client';
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import useSWR from 'swr';
-import { swrFetcher } from '@/lib/api';
-import { Card, StatCard, StatusBadge, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { num, dateStr, timeAgo } from '@/lib/format';
+import { swrFetcher, getAdmin } from '@/lib/api';
+import { Card, Stat, StatusBadge, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
+import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
+import { num, dateTimeStr, timeAgo } from '@/lib/format';
+import { useDebounced } from '@/lib/hooks';
+import {
+  buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel,
+  REVASURE_STATUS_LABEL, type FilterLabels,
+} from '@/lib/lists';
+import '@/components/listActions.css';
+
+interface Customer { id: string | null; name: string | null; phone: string | null }
 
 interface RevasureLead {
   id: string;
   applicationId: string | null;
   userId: string | null;
   sourceLeadId: string | null;
-  basketId: string | null;
   status: string;
   httpStatus: number | null;
   leadId: string | null;
   message: string | null;
-  requestBody: unknown;
-  responseBody: unknown;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+  customer: Customer | null;
 }
 
 interface Payload {
@@ -27,22 +35,25 @@ interface Payload {
   byStatus: { status: string; count: number }[];
 }
 
+interface LeadDetail {
+  lead: Omit<RevasureLead, 'customer'> & { requestBody: unknown; responseBody: unknown };
+}
+
 // Revasure lead status → the admin tone palette (global convention):
 //   success = green, duplicate = teal, ineligible/failed = red, pending = amber.
 // StatusBadge derives its colour from statusTone(status), so map each raw status
 // to a tone-carrying keyword and keep the human label — exactly how the downloads
 // page renders context/organic badges.
-const STATUS_BADGE: Record<string, { tone: string; label: string }> = {
-  success: { tone: 'approved', label: 'Success' },
-  duplicate: { tone: 'converted', label: 'Duplicate' },
-  ineligible: { tone: 'rejected', label: 'Ineligible' },
-  failed: { tone: 'failed', label: 'Failed' },
-  pending: { tone: 'pending', label: 'Pending' },
+const STATUS_TONE: Record<string, string> = {
+  success: 'approved',
+  duplicate: 'converted',
+  ineligible: 'rejected',
+  failed: 'failed',
+  pending: 'pending',
 };
 
 function RevasureStatus({ status }: { status: string }) {
-  const m = STATUS_BADGE[status] ?? { tone: status, label: status };
-  return <StatusBadge status={m.tone} label={m.label} />;
+  return <StatusBadge status={STATUS_TONE[status] ?? status} label={REVASURE_STATUS_LABEL[status] ?? status} />;
 }
 
 const STATUS_FILTERS: { key: string; label: string }[] = [
@@ -54,82 +65,229 @@ const STATUS_FILTERS: { key: string; label: string }[] = [
   { key: 'pending', label: 'Pending' },
 ];
 
+const FILTER_LABELS: FilterLabels = {
+  status: { name: 'status', value: (v) => REVASURE_STATUS_LABEL[v] ?? v },
+  search: { name: 'search' },
+  from: { name: 'from', value: dayLabel },
+  to: { name: 'to', value: dayLabel },
+};
+
 function pretty(v: unknown): string {
   if (v == null) return '—';
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }
 
+/** The technical detail for one lead, fetched only when its row is opened. */
+function LeadDetailPanel({ id, panelId, colSpan }: { id: string; panelId: string; colSpan: number }) {
+  const { data, error, isLoading, mutate } = useSWR(`/api/admin/revasure/${id}`, swrFetcher);
+  const lead = (data?.data as LeadDetail | undefined)?.lead;
+  return (
+    <tr className="adm-detail-row" id={panelId}>
+      <td colSpan={colSpan}>
+        <div className="adm-detail">
+          <p className="adm-detail-title">Technical detail for support. Do not share outside the team.</p>
+          {error ? (
+            <div role="alert">
+              <span className="adm-err-text">Could not load the detail - {(error as Error).message}</span>{' '}
+              <button type="button" className="btn adm-btn-sm" onClick={() => mutate()}>Retry</button>
+            </div>
+          ) : isLoading || !lead ? (
+            <div className="skeleton" style={{ height: 90 }} aria-busy="true" />
+          ) : (
+            <>
+              <div className="adm-detail-facts">
+                <span>HTTP status <b className="mono">{lead.httpStatus ?? '—'}</b></span>
+                <span>Source lead ID <b className="mono">{lead.sourceLeadId || '—'}</b></span>
+                <span>Created <b>{dateTimeStr(lead.createdAt)}</b></span>
+              </div>
+              {(lead.message || lead.lastError) && (
+                <div style={{ fontSize: 13 }}>
+                  {lead.message && <div><b>Message:</b> {lead.message}</div>}
+                  {lead.lastError && <div><b>Last error:</b> <span className="adm-err-text">{lead.lastError}</span></div>}
+                </div>
+              )}
+              <div className="adm-detail-grid">
+                <div>
+                  <div className="adm-detail-pane-label">Request</div>
+                  <pre className="mono">{pretty(lead.requestBody)}</pre>
+                </div>
+                <div>
+                  <div className="adm-detail-pane-label">Response</div>
+                  <pre className="mono">{pretty(lead.responseBody)}</pre>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export default function RevasurePage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>('');
+  const [search, setSearch] = useState('');
+  const [fromDay, setFromDay] = useState('');
+  const [toDay, setToDay] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const [role, setRole] = useState<string | undefined>(undefined);
+  useEffect(() => { setRole(getAdmin()?.role || undefined); }, []);
 
-  const q = status ? `&status=${status}` : '';
-  const { data, isLoading } = useSWR(`/api/admin/revasure?page=${page}&pageSize=20${q}`, swrFetcher);
+  const debouncedSearch = useDebounced(search.trim(), 350);
+  const searchPending = search.trim() !== debouncedSearch;
+  const rangeProblem = dateRangeProblem(fromDay, toDay);
+
+  const filters = useMemo<Record<string, string>>(() => {
+    const f: Record<string, string> = {};
+    if (status) f.status = status;
+    if (debouncedSearch) f.search = debouncedSearch;
+    const from = dayBoundIso(fromDay, 'start');
+    const to = dayBoundIso(toDay, 'end');
+    if (from) f.from = from;
+    if (to) f.to = to;
+    return f;
+  }, [status, debouncedSearch, fromDay, toDay]);
+
+  const qs = buildListQuery({ ...filters, page, pageSize: 20 });
+  const { data, error, isLoading, mutate } = useSWR(`/api/admin/revasure?${qs}`, swrFetcher);
   const p = data?.data as Payload | undefined;
   const pg = data?.pagination;
 
   const count = (s: string) => p?.byStatus.find((b) => b.status === s)?.count ?? 0;
+  const dated = Boolean(fromDay || toDay);
+  const statFoot = dated ? 'for this date range' : 'across all dates';
+
+  const described = describeFilters({ status, search: debouncedSearch, from: fromDay, to: toDay }, FILTER_LABELS);
+  const filtered = Boolean(status || search.trim() || fromDay || toDay);
+
+  const reset = () => { setStatus(''); setSearch(''); setFromDay(''); setToDay(''); setPage(1); setOpen(null); };
+  const setFilter = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPage(1); setOpen(null); };
+  // A stat cell is a shortcut to that status; pressing the active one again clears it.
+  const pickStatus = (s: string) => { setStatus((cur) => (cur === s ? '' : s)); setPage(1); setOpen(null); };
+
+  const STATS: { key: string; label: string }[] = STATUS_FILTERS.filter((s) => s.key);
+  const rows = p?.rows ?? [];
 
   return (
     <div className="page">
-      <h1 className="page-title">Revasure Leads</h1>
-      <p className="page-sub">Leads pushed to Revasure (fired in parallel at prequalify) with the recorded request / response.</p>
-
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', marginTop: 16 }}>
-        <StatCard label="Success" value={num(count('success'))} icon="✓" tone="green" />
-        <StatCard label="Duplicate" value={num(count('duplicate'))} icon="⇋" tone="teal" />
-        <StatCard label="Ineligible" value={num(count('ineligible'))} icon="∅" tone="red" />
-        <StatCard label="Failed" value={num(count('failed'))} icon="⚠" tone="red" />
-        <StatCard label="Pending" value={num(count('pending'))} icon="⋯" tone="amber" />
+      <div className="row between wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="page-title">Revasure Leads</h1>
+          <p className="page-sub">Customers whose details were sent to Revasure when they were prequalified, and what Revasure replied.</p>
+        </div>
+        <ListActions kind="revasure" filters={filters} total={searchPending || isLoading ? undefined : pg?.total} filterSummary={described} role={role} />
       </div>
 
-      <Card title="Leads" right={
-        <FilterChips options={STATUS_FILTERS} value={status} onChange={(v) => { setStatus(v); setPage(1); setOpen(null); }} />
-      }>
-        {isLoading ? <TableSkeleton /> : !p || p.rows.length === 0 ? <Empty /> : (
-          <div className="table-wrap"><table className="data">
-            <thead><tr><th>Source Lead ID</th><th>Revasure Lead ID</th><th>Status</th><th>HTTP</th><th>Message</th><th>Updated</th><th></th></tr></thead>
-            <tbody>{p.rows.map((r) => (
-              <Fragment key={r.id}>
-                <tr>
-                  <td className="mono muted">{r.sourceLeadId || '—'}</td>
-                  <td className="mono">{r.leadId || '—'}</td>
-                  <td><RevasureStatus status={r.status} /></td>
-                  <td className="mono muted">{r.httpStatus ?? '—'}</td>
-                  <td className="muted" style={{ maxWidth: 260 }}>{r.message || r.lastError || '—'}</td>
-                  <td className="muted" title={dateStr(r.updatedAt)}>{timeAgo(r.updatedAt)}</td>
-                  <td>
-                    <button className="btn" style={{ fontSize: 12, padding: '4px 9px' }} onClick={() => setOpen(open === r.id ? null : r.id)}>
-                      {open === r.id ? 'Hide' : 'View'}
-                    </button>
-                  </td>
-                </tr>
-                {open === r.id && (
-                  <tr>
-                    <td colSpan={7} style={{ background: 'var(--surface-2, var(--bg))' }}>
-                      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start', padding: '4px 2px' }}>
-                        <div>
-                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Request body</div>
-                          <pre className="mono" style={{ fontSize: 11.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, maxHeight: 320, overflow: 'auto' }}>{pretty(r.requestBody)}</pre>
-                        </div>
-                        <div>
-                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Response body</div>
-                          <pre className="mono" style={{ fontSize: 11.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, maxHeight: 320, overflow: 'auto' }}>{pretty(r.responseBody)}</pre>
-                        </div>
-                      </div>
-                      {r.lastError && (
-                        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Last error: <span style={{ color: 'var(--red)' }}>{r.lastError}</span></div>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}</tbody>
-          </table></div>
+      <Card className="mt-16">
+        {isLoading && !p ? <div className="skeleton" style={{ height: 58 }} aria-busy="true" /> : (
+          <div className="adm-stats" role="group" aria-label="Filter by status">
+            {STATS.map((s) => (
+              <button key={s.key} type="button" className="adm-stat-btn" aria-pressed={status === s.key} onClick={() => pickStatus(s.key)}>
+                <Stat label={s.label} value={num(count(s.key))} foot={statFoot} />
+              </button>
+            ))}
+          </div>
         )}
-        {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={setPage} />}
       </Card>
+
+      <div className="mt-16">
+        <Card>
+          <div className="adm-filters">
+            <label className="adm-field adm-grow">
+              <span>Search</span>
+              <input
+                type="search"
+                className="input"
+                value={search}
+                aria-label="Search leads"
+                placeholder="Search by customer, mobile or lead id"
+                onChange={(e) => { setSearch(e.target.value); setPage(1); setOpen(null); }}
+              />
+            </label>
+            <label className="adm-field adm-field-date">
+              <span>From</span>
+              <input type="date" className="input" value={fromDay} max={toDay || undefined} aria-describedby={rangeProblem ? 'rev-range-msg' : undefined} onChange={(e) => setFilter(setFromDay)(e.target.value)} />
+            </label>
+            <label className="adm-field adm-field-date">
+              <span>To</span>
+              <input type="date" className="input" value={toDay} min={fromDay || undefined} aria-describedby={rangeProblem ? 'rev-range-msg' : undefined} onChange={(e) => setFilter(setToDay)(e.target.value)} />
+            </label>
+            {filtered && <button type="button" className="adm-link-btn" onClick={reset}>Clear filters</button>}
+          </div>
+          {rangeProblem && <p className="adm-fieldmsg" id="rev-range-msg" role="alert">{rangeProblem}</p>}
+
+          <div className="adm-chips" role="group" aria-label="Filter by status">
+            <FilterChips options={STATUS_FILTERS} value={status} onChange={setFilter(setStatus)} />
+          </div>
+
+          <ExportNote />
+          <p className="adm-resultline" aria-live="polite">
+            {pg && !error ? resultLine(pg.total, 'lead', 'leads', described) : ''}
+          </p>
+
+          {error ? (
+            <ListError what="Revasure leads" error={error} onRetry={() => mutate()} />
+          ) : isLoading ? (
+            <div aria-busy="true"><TableSkeleton rows={8} cols={6} /></div>
+          ) : rows.length === 0 ? (
+            <ListEmpty
+              filtered={filtered}
+              filteredText="No leads match these filters."
+              noneTitle="No leads have been sent to Revasure yet."
+              noneBody="They appear here after a customer is prequalified."
+              onClear={reset}
+            />
+          ) : (
+            <div className="table-wrap"><table className="data adm-table">
+              <thead><tr><th>Customer</th><th>Status</th><th>What happened</th><th>Revasure lead ID</th><th>Updated</th><th><span className="adm-sr">Details</span></th></tr></thead>
+              <tbody>{rows.map((r) => {
+                const isOpen = open === r.id;
+                const panelId = `rev-detail-${r.id}`;
+                const text = r.message || r.lastError || '';
+                return (
+                  <Fragment key={r.id}>
+                    <tr className={isOpen ? 'adm-row-open' : undefined} style={{ cursor: 'default' }}>
+                      <td data-label="Customer">
+                        {r.customer?.id ? (
+                          <Link className="adm-cell-link" href={`/customers/${r.customer.id}`}>
+                            <div className="adm-name">{r.customer.name || 'Unknown'}</div>
+                            <div className="adm-sub mono">{r.customer.phone || '—'}</div>
+                          </Link>
+                        ) : (
+                          <div>
+                            <div className="adm-name">{r.customer?.name || 'Not matched to a customer'}</div>
+                            <div className="adm-sub mono">{r.customer?.phone || '—'}</div>
+                          </div>
+                        )}
+                      </td>
+                      <td data-label="Status"><RevasureStatus status={r.status} /></td>
+                      <td data-label="What happened">
+                        {text ? <span className="adm-clamp2" title={text}>{text}</span> : <span className="muted">—</span>}
+                      </td>
+                      <td data-label="Revasure lead ID" className="mono">{r.leadId || '—'}</td>
+                      <td data-label="Updated" className="muted" title={dateTimeStr(r.updatedAt)}>{timeAgo(r.updatedAt)}</td>
+                      <td data-label="">
+                        <button
+                          type="button"
+                          className="btn adm-btn-sm"
+                          aria-expanded={isOpen}
+                          aria-controls={isOpen ? panelId : undefined}
+                          onClick={() => setOpen(isOpen ? null : r.id)}
+                        >
+                          {isOpen ? 'Hide details' : 'Details'}
+                        </button>
+                      </td>
+                    </tr>
+                    {isOpen && <LeadDetailPanel id={r.id} panelId={panelId} colSpan={6} />}
+                  </Fragment>
+                );
+              })}</tbody>
+            </table></div>
+          )}
+          {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={(n) => { setPage(n); setOpen(null); }} />}
+        </Card>
+      </div>
     </div>
   );
 }

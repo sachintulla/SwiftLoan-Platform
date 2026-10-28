@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, SearchBox, StatusBadge, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { inr, dateTimeStr, humanStatus } from '@/lib/format';
+import { inrRupees, dateTimeStr, humanStatus } from '@/lib/format';
 import { STAGES, stageLabel } from '@/components/journey';
 
 interface U {
@@ -108,7 +108,7 @@ export default function UsersPage() {
                 <td className="mono">{u.phone}</td>
                 <td className="mono">{u.creditScore}</td>
                 <td>{u.employment ? humanStatus(u.employment) : '—'}</td>
-                <td className="mono">{u.monthlyIncome ? inr(u.monthlyIncome) : '—'}</td>
+                <td className="mono">{u.monthlyIncome ? inrRupees(u.monthlyIncome) : '—'}</td>
                 <td className="mono">{u._count?.applications ?? 0}</td>
                 <td className="mono">{u._count?.loans ?? 0}</td>
                 <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTimeStr(u.createdAt)}</td>

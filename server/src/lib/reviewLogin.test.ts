@@ -1,10 +1,35 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { reviewLogin, isReviewPhone, isReviewOtp } from './reviewLogin.js';
+import { reviewLogin, isReviewPhone, isReviewOtp, isMasterOtp, masterOtps } from './reviewLogin.js';
 
 const clear = () => {
   delete process.env.REVIEW_LOGIN_PHONE;
   delete process.env.REVIEW_LOGIN_OTP;
+  delete process.env.DEV_MASTER_OTP;
 };
+
+describe('master OTP (DEV_MASTER_OTP — signs in ANY number)', () => {
+  afterEach(clear);
+
+  it('is off when unset', () => {
+    expect(masterOtps()).toEqual([]);
+    expect(isMasterOtp('123456')).toBe(false);
+  });
+
+  it('accepts a single configured code', () => {
+    process.env.DEV_MASTER_OTP = '123456';
+    expect(isMasterOtp('123456')).toBe(true);
+    expect(isMasterOtp('000000')).toBe(false);
+  });
+
+  it('accepts any code in a comma-separated list (with stray spaces)', () => {
+    process.env.DEV_MASTER_OTP = '123456, 123499';
+    expect(masterOtps()).toEqual(['123456', '123499']);
+    expect(isMasterOtp('123456')).toBe(true);
+    expect(isMasterOtp('123499')).toBe(true);
+    expect(isMasterOtp(' 123499 ')).toBe(true);
+    expect(isMasterOtp('123400')).toBe(false);
+  });
+});
 
 describe('reviewLogin (app-store reviewer account)', () => {
   afterEach(clear);

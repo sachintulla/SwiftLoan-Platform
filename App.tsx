@@ -37,7 +37,7 @@ function VoiceFabGate() {
   const { state } = useStore();
   // Hidden on the first-launch Terms & Privacy screen: accepting them is the user's
   // own act, so the assistant isn't available there (and not on the splash before
-  // it). It appears on the language screen, right after "Accept & Continue".
+  // it). It appears on the mobile screen, right after "Accept & Continue".
   if (state.screen === 'splash' || state.screen === 'privacy') return null;
   return <VoiceWidget />;
 }
@@ -50,15 +50,23 @@ function VoiceFabGate() {
  * back still exits normally; every other screen navigates back in-app.
  */
 function BackHandlerBridge() {
-  const { state, back } = useStore();
+  const { state, back, set } = useStore();
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (state.screen === 'home' || state.screen === 'splash') return false;
+      if (state.screen === 'mobile') {
+        // On the OTP view (otpSent=true) Back returns to the number-entry state.
+        if (state.otpSent) { set({ otpSent: false }); return true; }
+        // Number-entry is a root screen: the privacy policy is accepted once at first
+        // launch and never shown again, so Back doesn't return to it — let Android
+        // background/exit the app as it would from Home.
+        return false;
+      }
       back();
       return true;
     });
     return () => sub.remove();
-  }, [state.screen, back]);
+  }, [state.screen, state.otpSent, back, set]);
   return null;
 }
 

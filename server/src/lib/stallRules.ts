@@ -19,7 +19,9 @@ import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from './callContext.js';
 import { agentIdFor } from './agents.js';
+import { stageCallSetting, renderBrief } from './stageOutreach.js';
 import { isCallAllowed } from './callGate.js';
+import { timing } from './timings.js';
 import { directWhatsAppConfig, templateFor, sendStallWhatsApp, STALL_WA_MAX_AGE_HOURS } from './stallWhatsapp.js';
 import { directSmsConfig, smsFor, sendStallSms, STALL_SMS_MAX_AGE_HOURS } from './stallSms.js';
 
@@ -304,6 +306,39 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     cooldownMinutes: 4320,
     enabled: false,
   },
+  // The two WhatsApp stages that had no call twin. With these, every stage that has
+  // a WhatsApp follow-up can also have a call (see Configs → Stage outreach).
+  {
+    name: 'CALL — website lead never installed the app',
+    triggerEvent: JOURNEY_EVENTS.LEAD_CAPTURED,
+    expectedEvent: JOURNEY_EVENTS.APP_INSTALLED,
+    delayMinutes: 60,
+    upshotEvent: 'swiftloan_lead_no_install_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — eligibility done but offers not opened',
+    triggerEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_VIEWED,
+    delayMinutes: 30,
+    upshotEvent: 'swiftloan_offers_not_viewed_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
+  {
+    name: 'CALL — rejected by a lender',
+    triggerEvent: JOURNEY_EVENTS.LOAN_REJECTED,
+    expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED,
+    // Give them a while before ringing about a refusal. The wording is gentle and never discusses why.
+    delayMinutes: 120,
+    upshotEvent: 'swiftloan_rejected_by_lender_call',
+    channel: 'voice',
+    cooldownMinutes: 4320,
+    enabled: false,
+  },
   {
     name: 'CALL — installed the app but never signed in',
     triggerEvent: JOURNEY_EVENTS.APP_INSTALLED,
@@ -530,6 +565,24 @@ async function placeStallCall(
   // idempotency key) leaves them eligible when the window opens.
   if (!withinCallingHours(now)) return false;
 
+  // Let the quieter channels land first: if a push / SMS / WhatsApp nudge went to
+  // this customer in the last `calls.quietAfterMessageMinutes`, hold the call so
+  // the phone doesn't ring on top of a message. We DON'T claim the idempotency key
+  // (below), so the per-minute job simply retries and the call goes out once the
+  // gap has passed and no newer message has landed.
+  const quietMin = timing.num('calls.quietAfterMessageMinutes');
+  if (quietMin > 0) {
+    const quietSince = new Date(now.getTime() - quietMin * 60_000);
+    const recentMsg = await prisma.outboundRequest.count({
+      where: {
+        customerId: customer.id,
+        channel: { in: ['push', 'sms', 'whatsapp'] },
+        createdAt: { gte: quietSince },
+      },
+    });
+    if (recentMsg > 0) return false;
+  }
+
   const since = new Date(now.getTime() - DROPOFF_PHONE_COOLDOWN_HOURS * 3_600_000);
   const recentAny = await prisma.callAttempt.count({
     where: { phone: customer.phone, queuedAt: { gte: since } },
@@ -588,10 +641,18 @@ async function placeStallCall(
     }),
   );
 
+  // Per-stage choices made on Configs → Stage outreach: which agent rings, and the
+  // stage brief it speaks to (with this customer's own values filled in).
+  const stageCall = await stageCallSetting(rule.triggerEvent);
+  if (stageCall?.brief) {
+    const brief = renderBrief(stageCall.brief, context);
+    if (brief) context.stage_brief = brief;
+  }
+
   const result = await placeCall({
     customerId: customer.id,
     phone: customer.phone,
-    assistantId: await agentIdFor('leadCallback'),
+    assistantId: stageCall?.assistantId || (await agentIdFor(stageCall?.agentRole ?? 'leadCallback')),
     metadata: { ...context, reason: 'app_dropoff_followup', rule: rule.name },
   });
 

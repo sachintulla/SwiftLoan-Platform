@@ -20,12 +20,16 @@ import {
 import type { AgentStatus } from '../voice/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Svg, { Defs, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect, Path, G, Filter, FeGaussianBlur } from 'react-native-svg';
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
 import { useStore, Screen as ScreenName, TAB_SCREENS } from '../state/store';
 import { publishScreenGraph, registerTarget, clearScreenGraph } from '../voice/actionRegistry';
+
+// Approx height of the pinned footer bar (padding + a 48–56pt CTA). Reserved on
+// footer screens so the keyboard lifts the focused field above the footer too.
+const FOOTER_RESERVE = 88;
 
 /** Pure so it's directly unit-testable without mounting a ScrollView. */
 export function scrollDelta(amount: 'small' | 'page', direction: 'up' | 'down' = 'down'): number {
@@ -117,6 +121,8 @@ export function Screen({
   collapsingTitle,
   headerRight,
   footer,
+  footerReserve,
+  statusBar,
   children,
 }: {
   variant?: 'app' | 'hero' | 'plain';
@@ -124,6 +130,9 @@ export function Screen({
   bottomNav?: boolean;
   padded?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Override the status-bar text colour (e.g. 'light-content' on a screen whose
+   *  top is a dark header band, where the variant default would be dark-on-dark). */
+  statusBar?: 'light-content' | 'dark-content';
   /** Pinned top bar (e.g. an AppHeader/back button) that stays fixed while content scrolls. */
   header?: React.ReactNode;
   /** Right-side action rendered in the collapsingTitle header (e.g. a HeaderCta). */
@@ -137,6 +146,14 @@ export function Screen({
   collapsingTitle?: string;
   /** Pinned bottom bar (e.g. a "Continue" CTA) that stays visible while content scrolls. */
   footer?: React.ReactNode;
+  /**
+   * How much space (pt) above the keyboard to keep clear of the focused field on
+   * focus, over and above the keyboard itself. Defaults to the pinned footer's
+   * own height (FOOTER_RESERVE). A screen whose consent / helper content sits
+   * BELOW the focused field (e.g. the mobile login's "I agree" row) passes a
+   * larger value so that content is scrolled above the keyboard too.
+   */
+  footerReserve?: number;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -144,24 +161,38 @@ export function Screen({
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
   const rootRef = useRef<View>(null);
-  const kbPad = useAndroidKeyboardOverlap(rootRef, scrollRef, scrollOffsetRef);
+  // Footer screens handle keyboard avoidance manually (both platforms) so the focused
+  // field is lifted above the keyboard AND the pinned footer.
+  const manualKb = scroll && !!footer;
+  const kbReserve = footerReserve ?? FOOTER_RESERVE;
+  const kbPad = useAndroidKeyboardOverlap(rootRef, scrollRef, scrollOffsetRef, manualKb, kbReserve);
+  // Drives the pinned footer CTA (Send OTP / Verify / Continue …) up as the
+  // keyboard opens and back down as it closes — animated in sync with the
+  // keyboard's own duration/curve, so the button rides up and down with it.
+  const kbLift = useKeyboardLift(insets.bottom, rootRef);
   const Bg =
     variant === 'hero' ? HeroBackground : variant === 'plain' ? React.Fragment : AppBackground;
-  const barStyle = variant === 'hero' ? 'light-content' : 'dark-content';
+  const barStyle = statusBar ?? (variant === 'hero' ? 'light-content' : 'dark-content');
   const pad = padded ? { paddingHorizontal: 18 } : null;
   // A pinned header (explicit `header` or a `collapsingTitle`) already consumes
   // the top safe-area inset, so the scroll content starts with just a small gap
   // (no double top padding).
   const hasPinnedHeader = header != null || collapsingTitle != null;
   const contentTopPad = hasPinnedHeader ? 8 : insets.top + 8;
-
   // Collapsing-title fade: 0 while at the top (large title visible), 1 once
   // scrolled past it, so the pinned header shows the title instead of empty space.
   const titleAnim = useRef(new Animated.Value(0)).current;
   const titleShown = useRef(false);
   const lastTickY = useRef(0);
+  // Opaque status-bar mask: 0 at the top (content/hero shows under the bar as
+  // designed), fading to 1 as the page scrolls up so text never collides with the
+  // clock/battery. Only used on screens without a pinned header.
+  const topScrim = useRef(new Animated.Value(0)).current;
   const onScrollY = (y: number) => {
     scrollOffsetRef.current = y;
+    if (!hasPinnedHeader && insets.top > 0) {
+      topScrim.setValue(Math.min(1, Math.max(0, y / insets.top)));
+    }
     // Test mode: one soft swipe per ~260px the user scrolls (the agent plays its own whoosh).
     if (Math.abs(y - lastTickY.current) > 260) {
       lastTickY.current = y;
@@ -308,15 +339,15 @@ export function Screen({
       onScroll={e => onScrollY(e.nativeEvent.contentOffset.y)}
       scrollEventThrottle={16}
       style={{ flex: 1 }}
-      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle, kbPad > 0 && { paddingBottom: kbPad + 24 }]}
+      contentContainerStyle={[{ paddingTop: contentTopPad }, pad, bottomPad, contentStyle, kbPad > 0 && { paddingBottom: kbPad + (manualKb ? kbReserve : 0) + 24 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      // Keyboard handling for forms: iOS insets the scroll content by the
-      // keyboard height (so the focused field stays visible and the form no
-      // longer jumps/scrolls the whole way). Android: adjustResize, plus
-      // useAndroidKeyboardOverlap for edge-to-edge devices where it no longer resizes.
-      // `false` keeps our explicit paddingTop from being overridden by the OS.
-      automaticallyAdjustKeyboardInsets={true}
+      // Keyboard handling for forms. Screens WITHOUT a pinned footer let iOS inset the
+      // scroll content automatically. Footer screens handle it manually (the hook's
+      // `enabled` path) so the focused field is lifted above BOTH the keyboard and the
+      // footer — iOS's own contentInset gets overwritten by the auto keyboard inset,
+      // so it can't reserve the footer height on its own.
+      automaticallyAdjustKeyboardInsets={!manualKb}
       automaticallyAdjustContentInsets={false}
       contentInsetAdjustmentBehavior="never"
       keyboardDismissMode="interactive"
@@ -345,7 +376,7 @@ export function Screen({
             the app/hero variants) so the flex:1 scroll area pushes it to the
             bottom. Placed as a sibling of Bg it floated to the top. */}
         {footer ? (
-          <View
+          <Animated.View
             style={{
               paddingHorizontal: 18,
               paddingTop: 10,
@@ -353,12 +384,33 @@ export function Screen({
               borderTopWidth: StyleSheet.hairlineWidth,
               borderTopColor: 'rgba(10,63,65,0.12)',
               backgroundColor: colors.paper,
+              // Rides up with the keyboard (and back down on dismiss). kbLift is the
+              // keyboard height minus the home-indicator inset, so the bar lands flush
+              // on the keyboard's top edge rather than floating above it.
+              transform: [{ translateY: Animated.multiply(kbLift, -1) }],
             }}
           >
             {footer}
-          </View>
+          </Animated.View>
         ) : null}
       </Bg>
+      {/* Status-bar mask: once the page scrolls up, an opaque band under the clock/
+          battery stops text colliding with them. Transparent at the top so the hero
+          still bleeds under the bar as designed. Only on headerless screens. */}
+      {scroll && !hasPinnedHeader && insets.top > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: insets.top,
+            backgroundColor: variant === 'hero' ? colors.inkDeep : colors.paper,
+            opacity: topScrim,
+          }}
+        />
+      ) : null}
       {/* The tab bar is rendered once at the app root (App.tsx) as a persistent,
           sliding element — no longer per-screen — so it can animate down/up
           across navigations while the FAB rolls between corner and notch. */}
@@ -385,31 +437,94 @@ function useAndroidKeyboardOverlap(
   rootRef: React.RefObject<View | null>,
   scrollRef: React.RefObject<ScrollView | null>,
   offsetRef: React.MutableRefObject<number>,
+  // Footer screens reserve the footer's height above the keyboard so the focused
+  // field is lifted clear of both.
+  enabled = false,
+  // How much to keep clear above the keyboard, over the keyboard itself. Defaults
+  // to the footer height; a screen with content below the focused field can ask
+  // for more so that content is lifted into view too.
+  reserveWhenEnabled = FOOTER_RESERVE,
 ): number {
   const [overlap, setOverlap] = useState(0);
   useEffect(() => {
-    if (Platform.OS !== 'android') return undefined;
+    const ios = Platform.OS === 'ios';
+    // Android always runs here (window not resized on edge-to-edge builds); iOS runs
+    // only for footer screens (which turn off automaticallyAdjustKeyboardInsets) so
+    // we can lift the focused field above both the keyboard and the footer.
+    if (!ios && Platform.OS !== 'android') return undefined;
+    if (ios && !enabled) return undefined;
+    const reserve = enabled ? reserveWhenEnabled : 0;
     const show = Keyboard.addListener('keyboardDidShow', e => {
       const kbTop = e.endCoordinates.screenY;
       rootRef.current?.measureInWindow((_x, y, _w, h) => {
         const covered = Math.max(0, Math.round(y + h - kbTop));
         setOverlap(covered);
         if (covered <= 0) return;
-        // Keep the focused field visible above the keyboard.
+        // Keep the focused field visible above the keyboard (and the footer, on
+        // footer screens that reserve space for it).
         const input = TextInput.State.currentlyFocusedInput?.();
         if (!input) return;
-        requestAnimationFrame(() => {
-          (input as any).measureInWindow?.((_ix: number, iy: number, _iw: number, ih: number) => {
-            const gap = iy + ih + 16 - kbTop;
-            if (gap > 0) scrollRef.current?.scrollTo({ y: offsetRef.current + gap, animated: true });
-          });
+        (input as any).measureInWindow?.((_ix: number, iy: number, _iw: number, ih: number) => {
+          const gap = iy + ih + 16 + reserve - kbTop;
+          if (gap > 0) scrollRef.current?.scrollTo({ y: offsetRef.current + gap, animated: true });
         });
       });
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => setOverlap(0));
     return () => { show.remove(); hide.remove(); };
-  }, [rootRef, scrollRef, offsetRef]);
+  }, [rootRef, scrollRef, offsetRef, enabled, reserveWhenEnabled]);
   return overlap;
+}
+
+/**
+ * An Animated.Value that tracks how far a pinned footer should lift so it sits
+ * flush on top of the keyboard — the keyboard height minus the home-indicator
+ * inset (which the keyboard already covers). It animates with the keyboard's own
+ * duration (and iOS easing), so the footer rides UP as the keyboard opens and
+ * back DOWN as it closes, in sync. iOS uses WillShow/WillHide (fire just before
+ * the animation); Android uses DidShow/DidHide. We deliberately do NOT listen to
+ * WillChangeFrame — it also fires on dismiss and mid-gesture, which was animating
+ * the footer back down while the keyboard was still up.
+ */
+function useKeyboardLift(insetBottom: number, rootRef: React.RefObject<View | null>): Animated.Value {
+  const lift = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const showEvt = ios ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = ios ? 'keyboardWillHide' : 'keyboardDidHide';
+    const animateTo = (to: number, duration?: number) =>
+      Animated.timing(lift, {
+        toValue: to,
+        duration: duration && duration > 0 ? duration : 250,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    const show = Keyboard.addListener(showEvt, (e) => {
+      const h = e?.endCoordinates?.height ?? 0;
+      if (h <= 0) return; // ignore a stray show with no frame
+      const target = Math.max(0, h - insetBottom);
+      if (ios) {
+        animateTo(target, e?.duration);
+        return;
+      }
+      // Android: where the window still resizes for the keyboard (adjustResize, pre-Android 15)
+      // the footer already sits on the keyboard, so lifting by its full height again threw it up
+      // over the form. Lift only by what the keyboard actually covers of this screen (0 if resized).
+      const kbTop = e?.endCoordinates?.screenY ?? 0;
+      const root = rootRef.current;
+      if (!root || !kbTop) {
+        animateTo(target, e?.duration);
+        return;
+      }
+      root.measureInWindow((_x, y, _w, rh) => {
+        const covered = Math.max(0, Math.round(y + rh - kbTop));
+        animateTo(Math.min(target, covered), e?.duration);
+      });
+    });
+    const hide = Keyboard.addListener(hideEvt, (e) => animateTo(0, e?.duration));
+    return () => { show.remove(); hide.remove(); };
+  }, [lift, insetBottom, rootRef]);
+  return lift;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -528,6 +643,7 @@ export function BottomNav() {
   const W = width - 24; // navWrap has 12px padding each side
   const H = 66;
   const cornerR = 26;
+  const SHADOW_PAD = 30; // room for the blurred shadow to bleed on every side of the bar
   const cx = W / 2;
   // The notch is a true circle cut CONCENTRIC with the Ruby ball that nests in
   // it (VoiceWidget: 70pt ball, centre TAB_NOTCH_CENTER=65 above the bar's
@@ -592,15 +708,34 @@ export function BottomNav() {
       pointerEvents="box-none"
     >
       <View style={{ width: W, height: H }}>
-        <Svg width={W} height={H + 24} style={StyleSheet.absoluteFill}>
-          {/* Manual soft drop-shadow: layered, offset, semi-transparent copies
-              behind the bar — tinted with the app's teal so it matches the theme. */}
-          <Path d={barPath} fill={colors.primary} opacity={0.06} transform="translate(0 14)" />
-          <Path d={barPath} fill={colors.primary} opacity={0.08} transform="translate(0 10)" />
-          <Path d={barPath} fill={colors.primary} opacity={0.10} transform="translate(0 6)" />
-          <Path d={barPath} fill={colors.primary} opacity={0.12} transform="translate(0 3)" />
-          {/* The bar itself — hairline stroke so it always separates from the screen. */}
-          <Path d={barPath} fill="#FFFFFF" stroke={colors.line} strokeWidth={1} />
+        {/* The Svg is inflated by SHADOW_PAD on every side (and offset back by the
+            same) so the shadow can bleed up and sideways, not just down — giving the
+            bar an even, rounded "floating" shadow instead of a bottom-only one. */}
+        <Svg
+          width={W + SHADOW_PAD * 2}
+          height={H + SHADOW_PAD * 2}
+          style={{ position: 'absolute', left: -SHADOW_PAD, top: -SHADOW_PAD }}
+        >
+          <Defs>
+            {/* Real Gaussian blur so the shadow fades out softly instead of ending on a
+                hard silhouette edge. Region is enlarged well past the bbox so the blur
+                isn't clipped. FeGaussianBlur is natively supported (iOS + Android/Fabric). */}
+            <Filter id="navShadowSoft" x="-60%" y="-60%" width="220%" height="220%">
+              <FeGaussianBlur in="SourceGraphic" stdDeviation="9" />
+            </Filter>
+            <Filter id="navShadowTight" x="-40%" y="-40%" width="180%" height="180%">
+              <FeGaussianBlur in="SourceGraphic" stdDeviation="5" />
+            </Filter>
+          </Defs>
+          <G transform={`translate(${SHADOW_PAD} ${SHADOW_PAD})`}>
+            {/* Soft brand-green (mint) shadow — two blurred copies: a wide even halo on
+                every side, plus a slightly-lower, tighter one to ground the bar. Both are
+                blurred, so there is no sharp edge anywhere. */}
+            <Path d={barPath} fill={colors.mint} opacity={0.5} filter="url(#navShadowSoft)" transform="translate(0 2)" />
+            <Path d={barPath} fill={colors.mint} opacity={0.45} filter="url(#navShadowTight)" transform="translate(0 6)" />
+            {/* The bar itself — hairline stroke so it always separates from the screen. */}
+            <Path d={barPath} fill="#FFFFFF" stroke={colors.line} strokeWidth={1} />
+          </G>
         </Svg>
         <View style={styles.navRow}>
           {NAV_TABS.map(tab =>

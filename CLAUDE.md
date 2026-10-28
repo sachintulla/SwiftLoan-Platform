@@ -177,6 +177,13 @@ Run `npm run prisma:push` after schema changes. Do NOT modify existing models:
 It is completely separate from the RN app and server/.
 It runs on port 4001 and talks to server/ at http://localhost:4000.
 
+### Money units in the admin (rupees vs paise)
+Loan-domain money is stored in **rupees**: `LoanApplication.amount`, `User.monthlyIncome`, `LoanApplication.monthlyIncome`, `Offer.amount/emi/processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`
+(so the overview's `totalDisbursedPaise` / `outstandingPaise` are rupee sums despite the name). Lead and pre-approval money is in **paise**: `Lead.amount`, `CampaignContact.amount`, `PrequalifyingOffer.amount`,
+`MarketLoanOffer.maxAmount`. Format with `inrRupees` / `inrCompactRupees` for the first group and `inr` / `inrCompact` for the second (`admin/src/lib/format.ts`). A test fails if an income, principal, EMI, outstanding or fee value is
+passed to the paise formatters. (Using `inr()` on a rupee field showed ₹2,000 for ₹2,00,000 and ₹510 for ₹51,000 on the All Users pages.)
+**`User.creditScore` is a database default of 750 for everyone** (no bureau is integrated), so the Credit Score shown in the admin and returned by `/users/me/credit-score` is not a real score.
+
 ### Global decisions for new work
 - All new API responses: { success, data, message, pagination?, error? }
 - Status colours (consistent across admin dashboard):
@@ -477,11 +484,13 @@ resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin 
   context for that token; if there is none it asks `POST /api/attribution/resume` (public, throttled to 20/min per IP because it returns a phone number +
   first name; same payload as the claim/login) and, if a fresh journey exists and nobody is signed in, shows the same pre-login pop-up ("Okay, continue"
   opens the login with the number filled in, consent unticked). Nothing generates such a link yet: SMS/WhatsApp carry the https `/dl` link.
+  **Same-network match (`resume_hint`).** The iOS clipboard hand-off is unreliable (the page must be tapped inside a browser that allows copying, and iOS asks "Allow Paste"), so an install matched only by IP (`ip_window`, exactly one candidate click whose link has a fresh journey) gets `resume: null` plus `resume_hint: true` from `/attribution/claim`: no phone, name, step or link reference. The app (`resumePatchFromClaim`, `hintResume()` in `utils/resume.ts`) asks "Did you start an application on our website?" with the login left EMPTY, and the agent gets stage `pre_login_hint` (`first_name` null, `last_step: "unknown"`, `phone_prefilled: false`) and must not claim an unfinished application. After OTP, `GET /journey/resume` (the signed-in account's own journey) decides: real stage if it is theirs, otherwise the hint is dropped. Tests: integration S34/S34b, `__tests__/resume*.test.tsx`.
   The voice agent gets `page_context.journey_resume` (`stage`, `first_name`, `last_step`; no phone). Prompt: section F + a Name Rule exception in
   `prompts/ello-inapp-copilot-prompt.md` (edited locally; paste into Ello by hand).
 - **Job scheduling (`nextCheckAt`).** Each `JourneyReminder` row says when it next needs attention (next step due, or the 5-minute idle check);
   `installReminderTick` reads only rows that are due, page by page (migration `20261019130000_journey_reminder_next_check`). The first version read
   the 200 oldest active rows, so newer visitors starved once more than 200 were active.
+- **One active run per visitor.** Two concurrent website pings after a drop-off each created their own next-cycle row, so prod sent the same WhatsApp twice. Migration `20261026120000_journey_reminder_one_active` stops existing duplicates (keeps the oldest) and adds the partial unique index `JourneyReminder_one_active_per_user` (`userId` WHERE `status='active'`; migration-only, Prisma cannot express it, so `db push` will not create it — `run.sh` applies the SQL itself). `createReminder` catches the conflict and returns the run that won (promoting an `unverified` one to a normal run). Apply with `prisma migrate deploy`.
 - **Tests.** Server integration suite: `cd server && bash scripts/journey/run.sh` (89 checks against a throwaway DB and fake providers, nothing real is sent;
   it blanks the Aurix secret because a website login otherwise calls the lender UAT). Simulator seeds + inspector helper: `server/scripts/journey/`.
   Full report: `docs/JOURNEY_RESUME_TEST_REPORT.md`. Two lessons from it: `trackPost()` used to drop the anonymous `/attribution/claim` (install attribution
@@ -575,3 +584,116 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
   SAME cycle number. Still gated by `install.sendEnabled` and the test-number list. **Not built yet (needed before a wide rollout): STOP/opt-out handling for
   WhatsApp and SMS replies, and an NCPR/DND scrub for SMS.**
 
+
+---
+
+## Test numbers (QA sign-in on the production build)
+
+Admin → **Test numbers** (`admin/src/app/(dash)/test-numbers`, API `/api/admin/test-numbers`, `modules/adminTestNumbers.routes.ts`) lists phone
+numbers (table `TestLoginNumber`, migration `20261027120000_test_login_numbers`, additive; apply with `prisma migrate deploy`) that sign in to the
+app/website with ONE shared code, env `TEST_LOGIN_OTP` (exactly 6 digits; unset = off). Super admins change the list; every change is audited.
+- `lib/testLogin.ts`: the code is honoured ONLY for a listed, **active** number (unlike `DEV_MASTER_OTP`, which signs in any number), so it is safe in
+  prod. No cache: removing/switching off a number takes effect on its next sign-in. The code is env-only, never returned by the API or shown in admin.
+- Wired in `authSession.ts`: `createOtp` skips the SMS + OTP row for a listed number; `verifyOtpAndLogin` accepts the shared code. Not wired into the
+  website lead-phone proof (`otp.ts verifyPhoneOtp`), on purpose.
+- NOT a sandbox (unlike the store-reviewer account): PAN checks, lender calls and the one-Revasure-lead-per-number allowance are real. Install/lender
+  reminders are not suppressed for these numbers either.
+- Tests: `lib/testLogin.test.ts`; also run against a throwaway DB on 2026-10-27 (add/duplicate/invalid/role gate, listed vs unlisted vs switched-off).
+
+
+---
+
+## "You dropped here" messages for website AND app (phase 1 built; log-only)
+
+Plan + sign-off: `docs/APP_DROPOFF_PLAN.md` (step list: `docs/JOURNEY_STEPS_TO_TRACK.md`). Built: rules, table, job, timings. NOT yet: message
+real sending (templates await Meta / Vox delivery), admin view, retiring the overlapping stuck-stage SMS rules, a follow-up list for "no offers".
+- **Where someone stopped is READ from data both channels already write, not from new events** (`lib/dropoffSteps.ts` `deriveDropoff`, pure and
+  tested): `User.panOnFile` → `pan_verified`; a `LoanApplication` in draft/pan_pending/prequalifying → `application_filled`; `rejected` (with
+  `prequalifyReason`) → `rejected`; `offers_ready` with offers and no lender application → `offers_not_applied`; a `LenderApplication` →
+  `applied` (the "you applied" sequence owns it); `failed` is a technical error and is NEVER messaged as "no offers". Step 3 (skip/continue) saves
+  nothing, by design. The website and app agree because only stored data decides, not the channel.
+- **Link rule** (`includeAppLink`): the app link (`/dl?ref=<token>`) goes to someone NOT in the app yet (`alreadyInApp`), whichever page they dropped
+  from; someone already in the app gets none; the "no offers, our team will call you" message never carries it.
+- **Table `AppDropoff`** (migration `20261027130000_app_dropoff`, additive; apply with `prisma migrate deploy`, partial unique index = one active run
+  per person, migration-only like `JourneyReminder`). Job `app-dropoff` (every minute, in `NUDGE_JOBS`, `lib/appDropoff.ts`) arms a run for people who
+  reached a messageable step in the last `dropoff.maxAgeHours` (24), at most one run per person per drop point per 14 days, ends a run the moment the
+  person moves on / applies / goes do-not-contact (armed AND ticked), and never overlaps the website install reminder or a "you applied" sequence.
+- **Admin → Timings** (`dropoff.*`): `dropoff.sendEnabled` (**off**: the job only writes what it would send into the row's `history`),
+  `dropoff.schedule` (default WhatsApp +30 min, SMS +1 day, WhatsApp +3 days, counted from when they reached the step), `minGapMinutes`, `maxLateHours`,
+  `maxAgeHours`; it shares the test-number list (`install.allowedNumbers`) and job throttle with the install reminders.
+- **Message texts** (WhatsApp only; owner said ignore SMS for now): shipped defaults in `dropoffSteps.ts` `DEFAULT_DROPOFF_MESSAGES`, merged UNDER the Voxvalley setting
+  `dropoffMessages` one link-variant at a time (saved wins; a blank `template` switches that variant off), so new defaults reach environments that already saved the form.
+  Approved templates used (Marketing is fine; Meta decides the category, docs/JOURNEY_RESUME_TEMPLATES.md §6): `continue` → with link `install_app_resume_step`
+  ({name},{step},{link}), without `dropoff_continue_app` ({name},{step}); `apply_offers` → with link `offers_ready` ({name},{offerCount},{ref},{link}), without
+  `dropoff_apply_offers_app` ({name}). Placeholder count and order must match the template. Tokens: `{name}`, `{step}`, `{link}`, `{ref}`, `{offerCount}`.
+  **`no_offers` is deliberately NOT a default**: its approved text (`dropoff_no_offers_callback`) promises a call. The call now exists (next bullet), but keep the message off
+  until the call is switched on and the wording says the SwiftLoan assistant (not "a team") will call. Until then it is recorded as skipped ("whatsapp template not configured"). Turn it on by saving
+  `no_offers.whatsapp.noLink = {"template":"dropoff_no_offers_callback","placeholders":["{name}"]}`.
+- **"No offers" follow-up CALL** (`lib/noOffersCall.ts`, run from the end of `appDropoffTick`, isolated so a failure never stops the messages): the existing Ello
+  `leadCallback` agent (`placeCall`, no new agent) rings a person whose lookup found no offers, once, `dropoff.noOffersCallDelayMinutes` (45) after they got none.
+  Own switch `dropoff.noOffersCallEnabled` (**off**: records one "would call" entry in the run's `history`, nothing is dialled); it ALSO needs the master `calls.nudgeEnabled`
+  and respects `calls.allowedNumbers`, calling hours, do-not-contact and `calls.quietAfterMessageMinutes` (a logged/sent WhatsApp before it counts, so ticks closer than that wait).
+  The `OutboundRequest` (kind `no_offers_call`, key `noffers:<run id>`) is claimed BEFORE dialling; one call per person ever; a failed dial is recorded and NOT retried; a "would call" entry
+  does not count as a call, so switching it on later still rings people who were only logged. Context sent to the agent: `reason: 'no_offers_followup'`,
+  `no_offers_reason` = `already_registered` | `no_match` (the lender's word "duplicate" never reaches the agent), stall reason/channel. Prompt branch "G. No offers found" in
+  `prompts/ello-outbound-prompt.updated.md` (edited locally; **paste into Ello by hand before enabling**).
+- **Per-stage schedules (Stage outreach → a stage → "Timing for this stage").** The website install reminder and the drop-off messages each have ONE shared schedule (Admin → Timings: `install.schedule`, `dropoff.schedule`); a stage
+  can now have its own copy instead. Stored as Timings settings `install.schedule.<stage>` (stages `otp_verified`, `eligibility_started`) and `dropoff.schedule.<stage>` (`eligibility_started`, `offer_viewed`), group `stage` (not a tab on the
+  Timings page; edited on Stage outreach through the same `/api/admin/timings` API). Their default is a copy of the shared default (so every default stays valid); a stage USES its own only when an admin SAVED one (`hasStageSchedule` / `stageScheduleRows`
+  in `timings.ts`), otherwise the shared schedule, exactly as before. Pure map in `lib/stageSchedules.ts` (website step / drop-off status → stage). Read in two places: `installReminder.ts configFor` (by the reminder's last step) and
+  `appDropoff.ts dropoffConfigFor` (by the run's status). Only the schedule is per stage: the gap between messages, "skip if too late", "how old is too old" and the sending switches stay shared; "asked for a code but never entered it" already has its own
+  schedule and "you applied" is a single stage. A run that is already waiting keeps its next check time, so a changed schedule applies from that next check (same as editing the shared one). Tests: `stageSchedules.test.ts`, `timings.test.ts`
+  (per-stage section) and `scripts/journey/stage-schedule-check.mts` (the real jobs; part of `run-dropoff.sh`).
+- **Where the WhatsApp pieces live (after the tab restructure).** Configs → **WhatsApp (Vox)** is the Vox integration only (`integrations/WhatsAppVox.tsx`): **Connection** (project, sender, token;
+  the provider card without the message JSON, so it can never overwrite a fresh edit), **Templates** (the Vox template library) and **Send a test**. *What* is sent and *when* is set up on Configs → **Stage outreach**: under each
+  stage, "What we send at this stage" (the drop-off, install-reminder and "you applied" messages: template, language, category, variables; `components/StageSequence.tsx` + `components/whatsapp/MessageSetup.tsx`; server
+  `lib/whatsappCatalog.ts`, `GET|PUT|DELETE /api/admin/whatsapp/catalog`) and "Timing for this stage" (the Timings settings that belong to that stage, edited with the SAME editors as the Timings page,
+  `components/timings/TimingControls.tsx` + `lib/timingsEdit.ts`; which stage owns which message/setting is the pure map `admin/src/lib/stageSequences.ts`, unit-tested). A setting shared by several stages says so ("Also used by …").
+  Calling hours, login times and limits that belong to no stage stay on the Timings page. What was SENT is the sidebar **Messages** page (below).
+- **Sent messages** (the sidebar **Messages** page, `components/whatsapp/SentMessages.tsx`, with its delivery warnings and tiles above): ONE table of every WhatsApp message we sent: When, To (number + name), Template, the filled-in Message, Triggered by (job, step reached, since when, which
+  message of the sequence), Delivery (Delivered/Read/Sent/Queued/Failed/No report) and a one-line Status; click a row for the event timeline, the values and the Vox id. Filters: status, trigger, template, date range, and a
+  search by mobile number. API: `GET /api/admin/messages` (now with `template`, `range=24h|7d|30d` and each row enriched with `name`, `text`, `variables`, `language`, `category`, `trigger`) and `GET /api/admin/messages/facets`.
+  What makes it possible: every send now stores `MessageDelivery.meta` = `{ language, category, placeholders[], trigger: { by, stage?, since?, step? } }` (migration `20261027140000_message_delivery_context`, additive and
+  idempotent; apply with `prisma migrate deploy`), set from `sendWhatsAppTemplate` (`track.trigger` is passed by drop-off, install reminder, "you applied", stuck-stage and the admin send). The Message column needs the template TEXT
+  to be recorded in the Templates tab (`{{n}}` filled from the stored values); until it is, the row shows the values sent. Messages sent before this column existed show "Not recorded".
+- **Built on the `feat/admin-dashboard-improvements` branch's rules (Veerendra).** Stage outreach is the one place that says what goes out at each stage and when: its own stuck-stage follow-ups plus (added here) the
+  drop-off / reminder / "you applied" messages and their timings for that stage. The "no offers" WhatsApp is their eligibility notice (`lib/offersNotice.ts`, Stage outreach → "When the eligibility check returns no offers"),
+  not a drop-off message (my parallel row was removed); my Ello no-offers CALL (`no_offers_followup`, own switch, off) stays and is labelled on their Calls page (`admin/src/lib/calls.ts` + server `callFilters.ts`; their test requires
+  every call reason to have a label). Their template catalogue (`lib/whatsappTemplates.ts`, all written as Utility) shows in the Templates tab as **Proposed** next to the recorded ones. **Category:** Stage outreach saves each stage
+  template's category (`categoryForTemplate`: what the Templates tab records as Meta's decision, else the catalogue's) and the sender passes it, so a Utility template chosen there goes out as Utility, not as the card's single default.
+- **Templates tab = the team's own template library** (`lib/voxTemplates.ts`, 15 tests; `GET /api/admin/whatsapp/templates`, `PUT|DELETE …/templates/:name`, super admin to change). It is a RECORD of the
+  templates that exist in Vox/Meta (name, language, category, approval status, text with `{{1}}…`, note), added by hand with **+ Add template**; adding one does NOT create it in Vox, and removing one does
+  not delete it in Vox. Stored as `templateLibrary` in the Voxvalley settings (hidden from the Connection card so it is never overwritten). The first read fills it once from `STARTER_TEMPLATES` (our notes of
+  27 Oct 2026, to be checked against Vox). Nothing is pulled from Vox: its Templates API (`…/templates/getTemplates`) answers 401 to the token that sends fine (probed 27 Oct 2026), so a live list is not possible
+  until Vox enables it. The tab merges the library with the templates the messages use: a template a message uses but nobody added shows "Not added yet"; flags: a message's own category that differs from the
+  template's, and a template in use that is recorded as not approved. The message editor has a "Pick from your templates" list (fills name, language, category) and warns when the template text's variable count
+  differs from the message's.
+- **Per-template category.** `category` (UTILITY | MARKETING | AUTHENTICATION) is stored on each template entry and sent as `messageCategory` with THAT template
+  (`sendWhatsAppTemplate({category})`, passed by drop-off, install, applied and stuck-stage); the card's `messageCategory` is only the fallback. Before this every send carried
+  the card's single category, so a Utility template went out labelled Marketing. Also fixed: a saved `recipientPlus` of the text "false" now really drops the `+`.
+- `hasActiveInstallReminder` (stuck-stage SMS/WhatsApp stand-down) counts an active drop-off run only while `dropoff.sendEnabled` is on, so log-only never silences them.
+- Tests: `lib/dropoffSteps.test.ts` (pure rules, defaults, merge) and `cd server && bash scripts/journey/run-dropoff.sh` (throwaway DB, nothing real sent): `dropoff-check.mts` (13 log-only job checks) then `dropoff-send-check.mts` (the REAL send path against a fake local Vox server: exact template, placeholder order, link rule), then `dropoff-call-check.mts` (the no-offers call against a fake local Ello server: switches, test list, once per person, quiet gap, calling hours, no "duplicate" wording).
+  Known and pre-existing: `scripts/journey/run.sh` ends with a lender-partner foreign-key message after all 155 checks pass (same on the untouched code).
+
+---
+
+## Website web push (Upshot token for the website)
+
+Built, **off by default** (`NEXT_PUBLIC_UPSHOT_WEB_PUSH=true` turns it on). `lib/webPush.ts` calls `upshot.subscribePush()` at two moments:
+the "Send OTP" tap (`apply/page.tsx`, before) and OTP accepted (`apply/verify/page.tsx`, after). The browser prompts only while permission is
+undecided, so the second ask only reaches a visitor who dismissed the first; Allow/Block are never asked twice. `init` keeps `subscribePush:false`
+(true = prompt on first page load). The SDK registers `./upshot-service-worker.js` relative to the CURRENT page, so `next.config.js` serves
+`public/upshot-service-worker.js` from every path. **Before enabling:** save the Firebase sender id / key in Upshot (Push Settings > Web) and replace
+that file (a minimal placeholder that shows notifications but reports nothing to Upshot) with Upshot's own; the docs also list `config.js` (gcmAPIKey)
+and `manifest.json` (gcm_sender_id) at the site root. Safari on iPhone only allows web push for a site added to the Home Screen. Not tested in a browser.
+
+---
+
+## Stage outreach: one timeline per stage (screens only)
+
+Configs → Stage outreach shows, for each journey stage, ONE time-ordered list: the stuck-stage rules plus the steps of the message jobs that run at that
+stage (website reminders, drop-off messages, "you applied", the no-offers call). `admin/src/lib/stageSequences.ts` (pure, tested) says which jobs belong to
+which stage; `components/StageTimeline.tsx` renders and edits them (saves through the same `/api/admin/timings`). **The sending jobs are unchanged**: it is
+only where the settings are edited. Schedules, their rules (gap / how late / how old / idle) and the no-offers call delay are edited on the stage and are hidden
+from the Timings page (`isStageTimingKey`); Timings keeps what applies to every stage (`*.sendEnabled`, test list, calling hours, call limits, login times, limits).
+A rule and a job both live within 15 min of each other on one stage shows a "Close together" warning (the two systems do not know about each other).

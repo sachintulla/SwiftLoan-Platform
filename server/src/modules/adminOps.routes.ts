@@ -8,11 +8,13 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
 import {
-  requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_ADMINISTER,
+  requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_ADMINISTER, CAN_WRITE,
 } from '../middleware/adminAuth.js';
 import { reconcileStaleCalls, CALL_STALE_MINUTES } from '../lib/callReconcile.js';
 import { scoped } from '../lib/log.js';
 import { toCsv } from '../lib/csv.js';
+import { auditExport, sendCsv, csvFilename } from '../lib/exportAudit.js';
+import { EXPORT_LIMIT, buildCustomerExportWhere, qStr } from '../lib/listFilters.js';
 
 const log = scoped('admin-ops');
 
@@ -51,28 +53,20 @@ adminOpsRouter.get('/audit', requireRole(...CAN_ADMINISTER), ah(async (req, res)
 
 /* ─────────────────────────── CSV export ─────────────────────────── */
 
-function sendCsv(res: import('express').Response, filename: string, csv: string) {
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  // BOM so Excel reads UTF-8 correctly — without it Indian names with
-  // non-ASCII characters render as mojibake.
-  return res.send('﻿' + csv);
-}
+// Both exports need CAN_WRITE (the analyst role cannot take customer data out) and are
+// audited: auditAdmin skips GET, so each export records itself with auditExport.
 
-/** Export cap — a full table dump would time out and blow memory. */
-const EXPORT_LIMIT = 10_000;
+// GET /api/admin/ops/export/customers.csv?stage=&source=&campaignId=&search=&from=&to=&stalledMinutes=
+// Follows every filter the Customers page has, through the same builder rules as the list.
+adminOpsRouter.get('/export/customers.csv', requireRole(...CAN_WRITE), ah(async (req, res) => {
+  const q = req.query as Record<string, unknown>;
+  const where = buildCustomerExportWhere(q);
 
-// GET /api/admin/ops/export/customers.csv
-adminOpsRouter.get('/export/customers.csv', ah(async (req, res) => {
-  const q = req.query as Record<string, string | undefined>;
-  const where: Record<string, unknown> = {};
-  if (q.stage) where.currentStage = q.stage;
-  if (q.source) where.firstSource = q.source;
-  if (q.campaignId) where.campaignId = q.campaignId;
-
-  const rows = await prisma.customer.findMany({
-    where, orderBy: { lastActivityAt: 'desc' }, take: EXPORT_LIMIT,
+  const found = await prisma.customer.findMany({
+    where, orderBy: { lastActivityAt: 'desc' }, take: EXPORT_LIMIT + 1,
   });
+  const truncated = found.length > EXPORT_LIMIT;
+  const rows = found.slice(0, EXPORT_LIMIT);
 
   const csv = toCsv(
     ['id', 'name', 'phone', 'email', 'city', 'source', 'campaign', 'stage',
@@ -82,34 +76,58 @@ adminOpsRouter.get('/export/customers.csv', ah(async (req, res) => {
       c.currentStage, c.stageEnteredAt, c.lastActivityAt, c.firstSeenAt, c.utmSource, c.utmCampaign,
     ]),
   );
-  return sendCsv(res, `customers-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  await auditExport(req, {
+    name: 'customers',
+    filters: pickDefined(q, ['stage', 'source', 'campaignId', 'search', 'from', 'to', 'stalledMinutes']),
+    rows: rows.length,
+    truncated,
+  });
+  return sendCsv(res, csvFilename('customers'), csv);
 }));
 
-// GET /api/admin/ops/export/calls.csv
-adminOpsRouter.get('/export/calls.csv', ah(async (req, res) => {
+// GET /api/admin/ops/export/calls.csv?status=&campaignId=
+adminOpsRouter.get('/export/calls.csv', requireRole(...CAN_WRITE), ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const where: Record<string, unknown> = { channel: { in: ['phone_outbound', 'phone_inbound'] } };
   if (q.status) where.status = q.status;
   if (q.campaignId) where.campaignId = q.campaignId;
 
-  const rows = await prisma.callAttempt.findMany({
+  const found = await prisma.callAttempt.findMany({
     where,
     orderBy: { queuedAt: 'desc' },
-    take: EXPORT_LIMIT,
+    take: EXPORT_LIMIT + 1,
     include: { customer: { select: { name: true, firstSource: true } }, campaign: { select: { name: true, code: true } } },
   });
+  const truncated = found.length > EXPORT_LIMIT;
+  const rows = found.slice(0, EXPORT_LIMIT);
 
   const csv = toCsv(
     ['id', 'phone', 'customer', 'source', 'campaign', 'status', 'outcome',
-     'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error', 'recordingUrl'],
+     'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error'],
     rows.map((r) => [
       r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code,
       r.status, r.outcome, r.answered, r.durationSec, r.attempt,
-      r.queuedAt, r.endedAt, r.error, r.recordingUrl,
+      r.queuedAt, r.endedAt, r.error,
     ]),
   );
-  return sendCsv(res, `calls-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  await auditExport(req, {
+    name: 'calls_legacy',
+    filters: pickDefined(q, ['status', 'campaignId']),
+    rows: rows.length,
+    truncated,
+  });
+  return sendCsv(res, csvFilename('calls'), csv);
 }));
+
+/** The named query params that were actually set, for the audit record. */
+function pickDefined(q: Record<string, unknown>, keys: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = qStr(q[k]);
+    if (v) out[k] = v;
+  }
+  return out;
+}
 
 /* ─────────────────── stale-call reconciliation ─────────────────── */
 

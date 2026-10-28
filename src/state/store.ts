@@ -20,7 +20,7 @@ import {
   loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
 } from './session';
 import { readInstallSignals } from '../utils/installSignals';
-import { parseResume, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
+import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
@@ -59,6 +59,9 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   referral: 'referral', referrals: 'referral', referafriend: 'referral', invitefriends: 'referral', invite: 'referral',
   applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
+
+// Dropped from the onboarding flow (splash → privacy → mobile → OTP → home).
+const RETIRED_ONBOARDING_SCREENS: ReadonlySet<Screen> = new Set<Screen>(['language', 'intro', 'aboutyou', 'permissions']);
 
 /** Resolve a spoken/typed screen name to a canonical screen id, or null. */
 export function resolveScreenName(name: string): Screen | null {
@@ -128,8 +131,12 @@ const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', te:
 // Parent screen for the hardware/back-arrow, ported from the bundle's prevMap plus the
 // onboarding back handlers (backToLanguage/backToIntro/…).
 const PREV: Partial<Record<Screen, Screen>> = {
-  privacy: 'splash', language: 'splash', intro: 'language', mobile: 'intro', otp: 'mobile',
-  permissions: 'mobile', aboutyou: 'permissions',
+  // language / intro / aboutyou were removed from the onboarding flow — the
+  // privacy gate goes straight to mobile (which now carries the intro pitch), and
+  // after permissions we go straight Home (name comes from PAN). Their components
+  // stay registered but are unreachable.
+  privacy: 'splash', mobile: 'privacy', otp: 'mobile',
+  permissions: 'mobile',
   // PAN first (it verifies identity + pre-fills the details step), then
   // details, then the optional extras.
   basicpan: 'home', basic: 'basicpan', moredetails: 'basic', finding: 'moredetails',
@@ -378,9 +385,9 @@ const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 // app language while still pre-login, it navigated to `profile`, a screen
 // that requires a session it did not have).
 // `permissions` is deliberately NOT here: it is the first screen shown AFTER a
-// successful OTP (mobile.tsx → go('permissions') → aboutyou), i.e. the session
+// successful OTP (mobile.tsx → go('permissions') → home), i.e. the session
 // already exists when it is entered. Listing it redirected every new user
-// straight to home and skipped About You.
+// straight to home and skipped the permissions step.
 const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp']);
 
 /**
@@ -406,7 +413,8 @@ function guardScreen(screen: Screen): Screen {
 // WS4 tracking maps — screen → funnel event, and onboarding step numbers.
 // Used only to emit fire-and-forget analytics; no effect on navigation.
 const ONBOARDING_STEPS: Partial<Record<Screen, number>> = {
-  language: 1, mobile: 2, otp: 3, permissions: 4, aboutyou: 5, home: 6,
+  // language / aboutyou left the flow, so the funnel now starts at the mobile screen.
+  mobile: 1, otp: 2, permissions: 3, home: 4,
 };
 const FUNNEL_EVENTS: Partial<Record<Screen, string>> = {
   basic: 'application_started', basicpan: 'pan_submitted', finding: 'prequalify_started',
@@ -562,7 +570,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'back': {
       // `permissions` is the first screen after a successful OTP. Its back target
       // (`mobile`) is a pre-login screen the guard turns into `home`, so Back here
-      // used to silently skip About You. There is nowhere meaningful to go back to
+      // used to silently skip the permissions step. There is nowhere meaningful to go back to
       // once the session exists, so stay put (the screen has its own forward CTA).
       if (state.screen === 'permissions' && isAuthed()) return state;
       // The offers RESULT is a funnel endpoint: pressing back must return to
@@ -798,7 +806,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (state.authUser) api.setVoiceLanguage(state.voiceLang).catch(() => {});
   }, [state.voiceLang, state.authUser]);
 
-  // Auto-transition: splash -> language (2.6s). The finding -> offers transition is
+  // Auto-transition: splash -> mobile/privacy (2.6s). The finding -> offers transition is
   // owned by the finding screen so it can run the real prequalify() call first.
   useEffect(() => {
     clearAuto();
@@ -824,9 +832,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (state.screen === 'splash') {
-      // First launch → Privacy Policy consent; thereafter → language selection.
+      // First launch → Privacy Policy consent; thereafter → the mobile/login screen
+      // (the language and intro screens were removed from onboarding).
       timers.current.auto = setTimeout(
-        () => dispatch({ type: 'go', screen: stateRef.current.privacyAccepted ? 'language' : 'privacy' }),
+        () => dispatch({ type: 'go', screen: stateRef.current.privacyAccepted ? 'mobile' : 'privacy' }),
         2600,
       );
     }
@@ -844,7 +853,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       navigateToScreen: (screenName: string) => {
         const target = resolveScreenName(screenName);
-        if (!target) return false;
+        // Removed from onboarding; the components stay registered but must not be reachable by voice.
+        if (!target || RETIRED_ONBOARDING_SCREENS.has(target)) return false;
         go(target);
         return { requested: target, landed: guardScreen(target) };
       },
@@ -1084,8 +1094,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
         }
         // The install came from a website visitor's own link: offer to continue where they left off.
-        const resume = parseResume(claim.resume, 'link');
-        if (resume) dispatch({ type: 'set', patch: { resume, resumePrompt: 'welcome', resumeStage: 'pre_login' } });
+        // A same-network match (resume_hint) only lets the app ask "did you start one on our website?"; nothing about the person.
+        const patch = resumePatchFromClaim(claim);
+        if (patch) dispatch({ type: 'set', patch });
       })().catch(() => undefined);
       trackEvent('app_lifecycle', 'app_opened');
     }

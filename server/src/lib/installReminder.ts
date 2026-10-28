@@ -28,7 +28,8 @@ import { buildPlaceholders } from './stallWhatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { JOURNEY_EVENTS } from './journey.js';
 import { scoped } from './log.js';
-import { timing } from './timings.js';
+import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
+import { installStageOf } from './stageSchedules.js';
 import { phoneKey } from './messageStatus.js';
 import {
   DEFAULT_STEP_LABELS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle,
@@ -93,7 +94,21 @@ async function createReminder(
         },
       });
     } catch (e) {
-      if ((e as { code?: string }).code !== 'P2002') throw e; // only a token collision is worth retrying
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+      // Either the one-active-reminder-per-user index (a concurrent request armed this visitor first: use that row, so
+      // they are never messaged twice) or a token collision (retry with a new token).
+      const existing = await prisma.journeyReminder.findFirst({ where: { userId: user.id, status: 'active' } });
+      if (existing) {
+        // A verified visitor must never be left on the short "never entered the code" run because that one was written first
+        // (the request that asked for the OTP arms it in the background): promote it to a normal run.
+        if (existing.unverified && !unverified) {
+          return prisma.journeyReminder.update({
+            where: { id: existing.id },
+            data: { unverified: false, lastStep: 'otp_only', cycle, startAt, nextCheckAt: startAt, ...(firstName ? { firstName } : {}) },
+          });
+        }
+        return existing;
+      }
     }
   }
   return null;
@@ -221,14 +236,17 @@ async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastSte
     return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'sms failed').slice(0, 200) };
   }
 
-  const wa = cfg.settings.installWhatsapp as { template?: string; language?: string; placeholders?: string[] } | undefined;
+  const wa = cfg.settings.installWhatsapp as { template?: string; language?: string; placeholders?: string[]; category?: string } | undefined;
   if (!wa?.template?.trim()) return { outcome: 'skipped', reason: 'whatsapp template not configured' };
   if (!(await whatsappConfigured())) return { outcome: 'skipped', reason: 'whatsapp not configured' };
   const placeholders = buildPlaceholders(wa.placeholders, { name: r.firstName ?? 'there', link, step: stepLabel });
   if (!placeholders) return { outcome: 'skipped', reason: 'whatsapp placeholder missing' };
   const res = await sendWhatsAppTemplate({
-    phone: r.phone, templateName: wa.template, language: wa.language, placeholders, referenceId: `${r.id}:${step.index}`,
-    track: { kind: 'install_reminder', customerId: r.customerId },
+    phone: r.phone, templateName: wa.template, language: wa.language, placeholders, category: wa.category, referenceId: `${r.id}:${step.index}`,
+    track: {
+      kind: 'install_reminder', customerId: r.customerId,
+      trigger: { by: 'Install reminder (website drop-off)', stage: stepLabel, since: r.startAt.toISOString(), step: `Message ${step.index + 1} · ${step.label}` },
+    },
   });
   return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'whatsapp failed').slice(0, 200) };
 }
@@ -263,9 +281,14 @@ async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | 
   return { reason, lastStep };
 }
 
-/** The rules for one row: the same as everyone's, except an unverified visitor has its own (short) schedule. */
-function configFor(r: Pick<JourneyReminder, 'unverified'>, cfg: ScheduleConfig): ScheduleConfig {
-  return r.unverified ? { ...cfg, steps: stepsFromRows(timing.schedule('install.unverifiedSchedule')) } : cfg;
+/**
+ * The rules for one row: the same as everyone's, except an unverified visitor has its own (short) schedule, and a visitor at a stage that has
+ * its own schedule (Configs → Stage outreach) uses that one. A stage with none keeps the shared schedule.
+ */
+export function configFor(r: Pick<JourneyReminder, 'unverified' | 'lastStep'>, cfg: ScheduleConfig): ScheduleConfig {
+  if (r.unverified) return { ...cfg, steps: stepsFromRows(timing.schedule('install.unverifiedSchedule')) };
+  const stage = installStageOf(r.lastStep);
+  return hasStageSchedule('install.schedule', stage) ? { ...cfg, steps: stepsFromRows(stageScheduleRows('install.schedule', stage)) } : cfg;
 }
 
 async function processReminder(r: JourneyReminder, now: Date, out: TickResult, baseCfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {
