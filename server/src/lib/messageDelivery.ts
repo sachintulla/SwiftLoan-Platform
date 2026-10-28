@@ -30,6 +30,8 @@ export interface MessageMeta {
   /** The filled-in values of the template's {{1}}, {{2}}… in order. */
   placeholders?: string[];
   trigger?: TriggerInfo;
+  /** SMS only: the exact text that was sent (an SMS has no template body to rebuild it from). */
+  text?: string;
 }
 
 export interface SendRecord {

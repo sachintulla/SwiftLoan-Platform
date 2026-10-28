@@ -50,7 +50,7 @@ async function enrich<T extends { customerId: string | null; template: string | 
       category: meta.category ?? null,
       variables: meta.placeholders ?? null,
       trigger: meta.trigger ?? null,
-      text: body && body.trim() ? renderTemplateText(body, meta.placeholders ?? []) : null,
+      text: meta.text ? meta.text : body && body.trim() ? renderTemplateText(body, meta.placeholders ?? []) : null,
     };
   });
 }

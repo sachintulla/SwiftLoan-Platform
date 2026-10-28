@@ -280,6 +280,26 @@ export function Menu({ trigger, items }: { trigger: React.ReactNode; items: Menu
   );
 }
 
+/** A centred popup with a title bar and a close button; the body scrolls. Esc or a click outside closes it. */
+export function Modal({ title, onClose, children, width = 640 }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode; width?: number }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,32,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" className="card" style={{ width: '100%', maxWidth: width, maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+        <div className="row between" style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', gap: 12, alignItems: 'center' }}>
+          <div style={{ fontWeight: 700, fontSize: 15, minWidth: 0 }}>{title}</div>
+          <button type="button" className="btn" aria-label="Close" onClick={onClose} style={{ padding: '4px 10px', fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 20, overflowY: 'auto' }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 /** A clear expand arrow: points right, turns down when open. Use instead of the small text arrows. */
 export function Chevron({ open, size = 20 }: { open: boolean; size?: number }) {
   return (

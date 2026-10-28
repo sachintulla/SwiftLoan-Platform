@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { Chevron, FilterChips, PagerBar, SearchBox, Select, TableSkeleton } from '@/components/ui';
+import { FilterChips, Modal, PagerBar, SearchBox, Select, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import { Chip, cap } from '@/components/whatsapp/ui';
@@ -83,50 +83,57 @@ function MessageCell({ m }: { m: Sent }) {
   return <span className="muted" style={{ fontSize: 12.5 }}>Not recorded</span>;
 }
 
-function Detail({ m }: { m: Sent }) {
+const SECTION: React.CSSProperties = { fontSize: 11.5, fontWeight: 650, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-dim)', margin: '18px 0 8px' };
+
+function KV({ k, children }: { k: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', padding: '4px 4px 8px' }}>
-      <div>
-        <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>Why it was sent</div>
-        <div style={{ marginTop: 6 }}><TriggerCell m={m} /></div>
-        <div className="muted" style={{ marginTop: 10, fontSize: 12.5 }}>{statusDetail(m)}</div>
-      </div>
-      <div>
-        <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>Message</div>
-        <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>
-          {m.text ?? <span className="muted">The template text is not recorded, so the message cannot be shown. Add it on the Templates tab.</span>}
-        </div>
-        {m.variables && m.variables.length > 0 && (
-          <div style={{ marginTop: 10, display: 'grid', gap: 3 }}>
-            {m.variables.map((v, i) => (
-              <div key={i} style={{ fontSize: 12.5, display: 'flex', gap: 8 }}>
-                <span className="mono muted" style={{ width: 38, flexShrink: 0 }}>{`{{${i + 1}}}`}</span>
-                <span style={{ wordBreak: 'break-all' }}>{v}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-          {m.template ?? '—'}{m.language ? ` · ${m.language}` : ''}{m.category ? ` · ${cap(m.category)}` : ''}
-        </div>
-      </div>
-      <div>
-        <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>What happened</div>
-        {m.events.length === 0 ? <div className="muted" style={{ marginTop: 6, fontSize: 12.5 }}>No reports received.</div> : (
-          <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
-            {m.events.map((e, i) => (
-              <div key={i} style={{ fontSize: 12.5, display: 'flex', gap: 10 }}>
-                <span className="muted" style={{ width: 130, flexShrink: 0 }}>{dateTimeStr(e.at)}</span>
-                <span>{e.raw}{e.status ? ` → ${e.status}` : ''}{e.reason ? ` (${e.reason})` : ''}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="muted mono" style={{ marginTop: 12, fontSize: 11.5, wordBreak: 'break-all' }}>
-          {m.providerRef ? `Vox id ${m.providerRef}` : 'No Vox id (refused)'}{m.referenceId ? ` · ref ${m.referenceId}` : ''}
-        </div>
-      </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, padding: '7px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+      <span className="muted">{k}</span>
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{children}</span>
     </div>
+  );
+}
+
+function MessagePopup({ m, onClose }: { m: Sent; onClose: () => void }) {
+  return (
+    <Modal onClose={onClose} width={620} title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>{niceName(m.template, m.channel)} <DeliveryChip m={m} /></span>}>
+      <KV k="Number"><span className="mono">{phoneStr(m.phone)}</span>{m.name ? ` · ${m.name}` : ''}</KV>
+      <KV k="Channel">{m.channel === 'sms' ? 'SMS' : 'WhatsApp'}</KV>
+      <KV k="Sent">{dateTimeStr(m.sentAt ?? m.createdAt)} <span className="muted">({timeAgo(m.sentAt ?? m.createdAt)})</span></KV>
+      <KV k="Status">{statusDetail(m)}</KV>
+      <KV k="Why">{m.trigger ? [m.trigger.by, m.trigger.stage && `at ${m.trigger.stage}`, m.trigger.step].filter(Boolean).join(' · ') : (KIND_LABEL[m.kind] ?? m.kind)}</KV>
+      {m.trigger?.since && <KV k="Customer stopped">{dateTimeStr(m.trigger.since)}</KV>}
+      {m.template && m.channel !== 'sms' && <KV k="Template"><span className="mono">{m.template}</span>{m.language ? ` · ${m.language}` : ''}{m.category ? ` · ${cap(m.category)}` : ''}</KV>}
+
+      <div style={SECTION}>Message</div>
+      {m.text ? (
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+      ) : m.variables && m.variables.length > 0 ? (
+        <div style={{ display: 'grid', gap: 4 }}>
+          {m.variables.map((v, i) => (
+            <div key={i} style={{ fontSize: 13, display: 'flex', gap: 10 }}>
+              <span className="mono muted" style={{ width: 40, flexShrink: 0 }}>{`{{${i + 1}}}`}</span>
+              <span style={{ wordBreak: 'break-all' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      ) : <div className="muted" style={{ fontSize: 13 }}>Not recorded</div>}
+
+      <div style={SECTION}>What happened</div>
+      {m.events.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>No reports received yet</div> : (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {m.events.map((e, i) => (
+            <div key={i} style={{ fontSize: 13, display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10 }}>
+              <span className="muted">{dateTimeStr(e.at)}</span>
+              <span>{e.raw}{e.status ? ` → ${e.status}` : ''}{e.reason ? ` (${e.reason})` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="muted mono" style={{ marginTop: 18, fontSize: 11.5, wordBreak: 'break-all' }}>
+        {m.providerRef ? `Vox ID ${m.providerRef}` : 'No Vox ID (refused)'}{m.referenceId ? ` · ref ${m.referenceId}` : ''}
+      </div>
+    </Modal>
   );
 }
 
@@ -150,7 +157,7 @@ export default function SentMessages() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [more, setMore] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<Sent | null>(null);
   const dSearch = useDebounced(search, 300);
 
   useEffect(() => { setPage(1); }, [status, channel, kind, template, range, dSearch, pageSize]);
@@ -198,39 +205,32 @@ export default function SentMessages() {
           <div className="table-wrap">
             <table className="data brand-table">
               <thead>
-                <tr><th>Number</th><th>Message</th><th>Status</th><th>Sent time</th><th style={{ width: 44 }} /></tr>
+                <tr><th>Number</th><th>Message</th><th>Status</th><th>Sent time</th><th style={{ width: 70, textAlign: 'right' }}>Action</th></tr>
               </thead>
               <tbody>
-                {rows.map((m) => {
-                  const open = openId === m.id;
-                  return (
-                    <React.Fragment key={m.id}>
-                      <tr onClick={() => setOpenId(open ? null : m.id)}>
-                        <td style={{ whiteSpace: 'nowrap' }} className="mono">{phoneStr(m.phone)}</td>
-                        <td style={{ fontWeight: 600 }}>{niceName(m.template, m.channel)}</td>
-                        <td>
-                          <DeliveryChip m={m} />
-                          {m.status === 'failed' && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, maxWidth: 200 }}>{(m.failureReason ?? '').slice(0, 60)}</div>}
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap' }} title={timeAgo(m.sentAt ?? m.createdAt)}>{dateTimeStr(m.sentAt ?? m.createdAt)}</td>
-                        <td className="muted" aria-hidden style={{ textAlign: 'right' }}>
-                          <Chevron open={open} />
-                        </td>
-                      </tr>
-                      {open && (
-                        <tr style={{ cursor: 'default' }}>
-                          <td colSpan={5} style={{ background: 'var(--surface-2)' }}><Detail m={m} /></td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                {rows.map((m) => (
+                  <tr key={m.id} onClick={() => setViewing(m)}>
+                    <td style={{ whiteSpace: 'nowrap' }} className="mono">{phoneStr(m.phone)}</td>
+                    <td style={{ fontWeight: 600 }}>{niceName(m.template, m.channel)}</td>
+                    <td>
+                      <DeliveryChip m={m} />
+                      {m.status === 'failed' && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, maxWidth: 200 }}>{(m.failureReason ?? '').slice(0, 60)}</div>}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }} title={timeAgo(m.sentAt ?? m.createdAt)}>{dateTimeStr(m.sentAt ?? m.createdAt)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button type="button" className="btn row-act" aria-label="View message" onClick={(e) => { e.stopPropagation(); setViewing(m); }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
           <PagerBar page={pg?.page ?? page} pageSize={pageSize} total={pg?.total ?? rows.length} onPage={setPage} onPageSize={setPageSize} />
         </>
       )}
+      {viewing && <MessagePopup m={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
