@@ -132,6 +132,9 @@ function Detail({ m }: { m: Sent }) {
 
 const CHANNELS = [{ value: '', label: 'All channels' }, { value: 'whatsapp', label: 'WhatsApp' }, { value: 'sms', label: 'SMS' }];
 
+/** dropoff_continue_app -> Dropoff Continue App (the way Vox lists it). */
+const niceName = (t: string | null, channel: string): string => (channel === 'sms' ? 'Text Message' : t ? t.split(/[_\s]+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '-');
+
 /** "WhatsApp · Drop-off · Basic details": how it went and why, in one short line. */
 function whyLine(m: Sent): string {
   return [m.channel === 'sms' ? 'SMS' : 'WhatsApp', KIND_LABEL[m.kind] ?? m.kind, m.trigger?.stage].filter(Boolean).join(' · ');
@@ -193,9 +196,9 @@ export default function SentMessages() {
       ) : (
         <>
           <div className="table-wrap">
-            <table className="data dark-table">
+            <table className="data brand-table">
               <thead>
-                <tr><th>Sent</th><th>To</th><th>Message</th><th>Status</th><th style={{ width: 44 }} /></tr>
+                <tr><th>Number</th><th>Message</th><th>Status</th><th>Sent time</th><th style={{ width: 44 }} /></tr>
               </thead>
               <tbody>
                 {rows.map((m) => {
@@ -203,22 +206,13 @@ export default function SentMessages() {
                   return (
                     <React.Fragment key={m.id}>
                       <tr onClick={() => setOpenId(open ? null : m.id)}>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <div>{dateTimeStr(m.sentAt ?? m.createdAt)}</div>
-                          <div className="muted" style={{ fontSize: 11.5 }}>{timeAgo(m.sentAt ?? m.createdAt)}</div>
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <div className="mono">{phoneStr(m.phone)}</div>
-                          {m.name && <div className="muted" style={{ fontSize: 11.5 }}>{m.name}</div>}
-                        </td>
-                        <td>
-                          <div className="mono" style={{ overflowWrap: 'anywhere' }}>{m.channel === 'sms' ? 'Text message' : m.template ?? '-'}</div>
-                          <div className="muted" style={{ fontSize: 11.5 }}>{whyLine(m)}</div>
-                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }} className="mono">{phoneStr(m.phone)}</td>
+                        <td style={{ fontWeight: 600 }}>{niceName(m.template, m.channel)}</td>
                         <td>
                           <DeliveryChip m={m} />
                           {m.status === 'failed' && <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, maxWidth: 200 }}>{(m.failureReason ?? '').slice(0, 60)}</div>}
                         </td>
+                        <td style={{ whiteSpace: 'nowrap' }} title={timeAgo(m.sentAt ?? m.createdAt)}>{dateTimeStr(m.sentAt ?? m.createdAt)}</td>
                         <td className="muted" aria-hidden style={{ textAlign: 'right' }}>
                           <Chevron open={open} />
                         </td>

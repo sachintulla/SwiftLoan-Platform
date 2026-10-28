@@ -181,7 +181,7 @@ export default function WhatsAppTemplates({
       ) : (
         <>
           <div className="table-wrap">
-            <table className="data dark-table">
+            <table className="data brand-table">
               <thead>
                 <tr><th>Template</th><th>Category</th><th>Language</th><th>Status</th><th>Sent</th><th>Last sent</th><th style={{ textAlign: 'right' }}>Action</th></tr>
               </thead>
