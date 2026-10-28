@@ -221,7 +221,11 @@ async function templatePayload(updatedBy?: string) {
   const { raw, entries, seeded } = await libraryOf(updatedBy);
   const catalog = readCatalog(raw, DEFAULT_SETTINGS.voxvalley as Record<string, any>);
   // Only real records: templates the team recorded, plus any a message uses that nobody recorded yet. No suggestions from the catalogue.
-  return { items: buildTemplateRows(entries, catalog), prefilled: seeded, prefilledFrom: STARTER_AS_OF };
+  // Real usage: how many WhatsApp messages went out with each template, and when the last one did (from the sent-message log).
+  const used = await prisma.messageDelivery.groupBy({ by: ['template'], where: { channel: 'whatsapp', template: { not: null } }, _count: { _all: true }, _max: { createdAt: true } });
+  const usage = new Map(used.map((u) => [String(u.template), { sent: u._count._all, lastSentAt: u._max.createdAt }]));
+  const items = buildTemplateRows(entries, catalog).map((r) => ({ ...r, sent: usage.get(r.name)?.sent ?? 0, lastSentAt: usage.get(r.name)?.lastSentAt ?? null }));
+  return { items, prefilled: seeded, prefilledFrom: STARTER_AS_OF };
 }
 
 // GET /api/admin/whatsapp/templates

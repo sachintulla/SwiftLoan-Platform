@@ -610,3 +610,12 @@ button:focus-visible, a:focus-visible, .chip-filter:focus-visible, .tab-item:foc
 .so-flow-text b { display: block; font-size: 15px; line-height: 1.2; }
 .so-flow-text span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-dim); }
 @media (max-width: 560px) { .so-flows { grid-template-columns: 1fr; } }
+
+/* WhatsApp templates table (modelled on the Vox portal list) */
+table.tpl-table th { background: #0e1116; color: #fff; text-transform: none; letter-spacing: 0; font-size: 12.5px; position: static; border-bottom: none; }
+table.tpl-table th:first-child { border-top-left-radius: 8px; }
+table.tpl-table th:last-child { border-top-right-radius: 8px; }
+table.tpl-table tr.tpl-open, table.tpl-table tr.tpl-open:hover { background: var(--surface); cursor: default; }
+table.tpl-table td { vertical-align: middle; }
+.tpl-act { padding: 6px 8px; line-height: 0; }
+.tpl-pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }

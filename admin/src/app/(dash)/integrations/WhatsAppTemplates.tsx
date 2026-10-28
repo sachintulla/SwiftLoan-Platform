@@ -4,7 +4,8 @@
 // and the page can warn about a category that disagrees or a template that is not approved yet.
 import React, { useMemo, useState } from 'react';
 import { apiFetch, ApiError } from '@/lib/api';
-import { Callout, ConfirmDialog, FilterChips, SearchBox, Select } from '@/components/ui';
+import { ConfirmDialog, FilterChips, SearchBox, Select } from '@/components/ui';
+import { dateTimeStr, num } from '@/lib/format';
 import {
   CATEGORY_OPTIONS, CategoryChip, Chip, Field, STATUS_OPTIONS, StatusChip, cap,
   type Category, type TemplateFlag, type TemplateRow, type TemplatesPayload,
@@ -60,26 +61,26 @@ function TemplateEditor({ initial, isNew, canEdit, onDone, onCancel }: { initial
   return (
     <div style={{ display: 'grid', gap: 18, maxWidth: 720 }}>
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
-        <Field label="Template name" error={errors.name} hint="Exactly as in Vox (lowercase, underscores).">
-          <input className="input mono" value={d.name} disabled={!canEdit || !isNew} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. dropoff_continue_app" autoFocus={isNew} />
+        <Field label="Name" error={errors.name}>
+          <input className="input mono" value={d.name} disabled={!canEdit || !isNew} onChange={(e) => set({ name: e.target.value })} autoFocus={isNew} />
         </Field>
-        <Field label="Language" error={errors.language} hint="en, hi, te…">
+        <Field label="Language" error={errors.language}>
           <input className="input" style={{ maxWidth: 140 }} value={d.language} disabled={!canEdit} onChange={(e) => set({ language: e.target.value })} />
         </Field>
       </div>
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
-        <Field label="Category" error={errors.category} hint="What Meta decided.">
+        <Field label="Category" error={errors.category}>
           <Select<Category> value={(d.category as Category) || ''} onChange={(v) => canEdit && set({ category: v })} options={CATEGORY_OPTIONS.map((o) => ({ value: o.value, label: o.value === '' ? 'Not recorded' : o.label }))} />
         </Field>
-        <Field label="Approval status" error={errors.status} hint="In Meta's review.">
+        <Field label="Status" error={errors.status}>
           <Select<string> value={d.status} onChange={(v) => canEdit && set({ status: v })} options={STATUS_OPTIONS} />
         </Field>
       </div>
-      <Field label="Template text (optional)" error={errors.body} hint={d.body.trim() ? `${vars} variable${vars === 1 ? '' : 's'} found. Write them as {{1}}, {{2}}…` : 'Paste the text from Vox, with {{1}}, {{2}}… for the variables. It lets the page check the variable count when you pick it for a message.'}>
-        <textarea className="input" style={{ minHeight: 96, resize: 'vertical' }} value={d.body} disabled={!canEdit} onChange={(e) => set({ body: e.target.value })} placeholder="Hi {{1}}, you stopped at {{2}}. Open the app to continue." />
+      <Field label="Text" error={errors.body} hint={d.body.trim() ? `${vars} variable${vars === 1 ? '' : 's'}` : undefined}>
+        <textarea className="input" style={{ minHeight: 96, resize: 'vertical' }} value={d.body} disabled={!canEdit} onChange={(e) => set({ body: e.target.value })} />
       </Field>
-      <Field label="Note (optional)" error={errors.note}>
-        <input className="input" value={d.note} disabled={!canEdit} onChange={(e) => set({ note: e.target.value })} placeholder="e.g. Submitted as Utility; Meta changed it to Marketing." />
+      <Field label="Note" error={errors.note}>
+        <input className="input" value={d.note} disabled={!canEdit} onChange={(e) => set({ note: e.target.value })} />
       </Field>
 
       {canEdit ? (
@@ -99,7 +100,7 @@ function TemplateEditor({ initial, isNew, canEdit, onDone, onCancel }: { initial
       {confirm && (
         <ConfirmDialog
           title="Remove this template from the list?" tone="red" confirmLabel="Remove" busy={saving}
-          message={<>This only removes <span className="mono">{d.name}</span> from this list. It does not delete it in Vox, and any message that uses it keeps working.</>}
+          message={<>Removes <span className="mono">{d.name}</span> from this list only. Vox is not changed.</>}
           onCancel={() => setConfirm(false)}
           onConfirm={() => call({ method: 'DELETE' }, 'Removed')}
         />
@@ -117,6 +118,8 @@ export default function WhatsAppTemplates({
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState<Draft | null>(null);
   const [openName, setOpenName] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const rows = data?.items ?? [];
   const counts = useMemo(() => ({
@@ -136,6 +139,12 @@ export default function WhatsAppTemplates({
     });
   }, [rows, filter, q]);
 
+  const totalPages = Math.max(1, Math.ceil(shown.length / pageSize));
+  const cur = Math.min(page, totalPages);
+  const pageRows = shown.slice((cur - 1) * pageSize, cur * pageSize);
+  const from = shown.length === 0 ? 0 : (cur - 1) * pageSize + 1;
+  const to = Math.min(cur * pageSize, shown.length);
+
   if (loading && !data) return <div className="card card-pad muted">Loading templates…</div>;
   if (!data) return <div className="card card-pad muted">Could not load the templates.</div>;
 
@@ -143,13 +152,8 @@ export default function WhatsAppTemplates({
 
   return (
     <div className="card card-pad" style={{ display: 'grid', gap: 14 }}>
-      <div className="row between wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0, flex: '1 1 320px' }}>
-          <h3 className="card-title" style={{ margin: 0 }}>Templates</h3>
-          <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-            Your record of the templates in Vox. Adding one here does not create it in Vox. Started from our notes of {data.prefilledFrom}: check each against Vox.
-          </div>
-        </div>
+      <div className="row between wrap" style={{ gap: 12, alignItems: 'center' }}>
+        <h3 className="card-title" style={{ margin: 0 }}>Templates</h3>
         {canEdit && !adding && <button className="btn btn-primary" onClick={() => { setAdding({ name: '', language: 'en', category: '', status: '', body: '', note: '' }); setOpenName(null); }}>+ Add template</button>}
       </div>
 
@@ -160,86 +164,87 @@ export default function WhatsAppTemplates({
         </div>
       )}
 
-      {rows.some((r) => !r.inLibrary && !r.proposed) && (
-        <Callout tone="amber">
-          {rows.filter((r) => !r.inLibrary && !r.proposed).length} template{rows.filter((r) => !r.inLibrary && !r.proposed).length === 1 ? ' is' : 's are'} used by a message but not in this list yet. Open it and add its category and approval.
-        </Callout>
-      )}
 
       <div className="row between wrap" style={{ gap: 12 }}>
         <FilterChips<Filter>
           value={filter}
-          onChange={setFilter}
+          onChange={(f) => { setFilter(f); setPage(1); }}
           options={[
             { key: 'all', label: `All ${counts.all}` },
             { key: 'inuse', label: `In use ${counts.inuse}` },
-            { key: 'unused', label: `Not used ${counts.unused}` },
-            { key: 'attention', label: `Needs a look ${counts.attention}` },
+            { key: 'attention', label: `Check ${counts.attention}` },
           ]}
         />
-        <SearchBox value={q} onChange={setQ} placeholder="Search templates…" />
+        <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Search templates…" />
       </div>
 
       {shown.length === 0 ? (
-        <div className="empty">{filter === 'attention' ? 'Nothing needs a look.' : rows.length === 0 ? 'No templates yet. Add the first one.' : 'No templates match.'}</div>
+        <div className="empty">{filter === 'attention' ? 'Nothing to check.' : rows.length === 0 ? 'No templates yet.' : 'No templates match.'}</div>
       ) : (
-        <div style={{ borderTop: '1px solid var(--border)' }}>
-          {shown.map((r) => {
-            const used = r.usedBy.filter((u) => u.on);
-            const open = openName === r.name;
-            return (
-              <div key={r.name} style={{ borderBottom: '1px solid var(--border)' }}>
-                <button
-                  type="button"
-                  onClick={() => { setOpenName(open ? null : r.name); setAdding(null); }}
-                  aria-expanded={open}
-                  style={{ all: 'unset', boxSizing: 'border-box', width: '100%', cursor: 'pointer', display: 'flex', flexWrap: 'wrap', gap: '8px 20px', padding: '14px 2px', alignItems: 'flex-start' }}
-                >
-                  <span style={{ flex: '1 1 260px', minWidth: 0 }}>
-                    <span className="mono" style={{ display: 'block', fontWeight: 650, fontSize: 13, wordBreak: 'break-all' }}>{r.name}</span>
-                    {(r.body || r.note) && <span className="muted" style={{ display: 'block', fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>{r.body || r.note}</span>}
-                    {r.flags.map((f) => (
-                      <span key={f} style={{ display: 'block', fontSize: 12, marginTop: 6, color: f === 'category_differs' ? '#7a4b06' : '#8f271d' }}>⚠ {FLAG_TEXT[f](r)}</span>
-                    ))}
-                  </span>
-                  <span style={{ flex: '0 0 auto', display: 'grid', gap: 6, justifyItems: 'start', minWidth: 120 }}>
-                    {!r.inLibrary ? <Chip tone="amber" title="A message uses this template, but it is not in the list yet.">Not added yet</Chip> : r.category || r.status ? (
-                      <><CategoryChip value={r.category || null} /><StatusChip status={r.status || null} /></>
-                    ) : <Chip tone="grey" title="Category and approval not recorded yet.">Not recorded</Chip>}
-                    <span className="muted" style={{ fontSize: 11.5 }}>{r.language}{r.body ? ` · ${r.variables} variable${r.variables === 1 ? '' : 's'}` : ''}</span>
-                  </span>
-                  <span style={{ flex: '1 1 220px', minWidth: 0 }}>
-                    {used.length === 0 ? (
-                      <span className="muted" style={{ fontSize: 12.5 }}>Not used by any message</span>
-                    ) : (
-                      <span style={{ display: 'grid', gap: 4 }}>
-                        {used.map((u) => (
-                          <span key={u.key} style={{ fontSize: 12.5, lineHeight: 1.45, display: 'flex', gap: 7 }}>
-                            <span aria-hidden style={{ color: 'var(--blue)' }}>•</span>
-                            <span>{u.label}</span>
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </span>
-                  <span className="muted" aria-hidden style={{ fontSize: 12, flex: '0 0 auto' }}>{open ? '▾' : '▸'}</span>
-                </button>
-                {open && (
-                  <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '18px 18px 20px', margin: '0 0 14px' }}>
-                    <TemplateEditor
-                      key={`${r.name}:${r.inLibrary}:${r.category}:${r.status}:${r.body}:${r.note}:${r.language}`}
-                      initial={{ name: r.name, language: r.language, category: r.category, status: r.status, body: r.body, note: r.note }}
-                      isNew={!r.inLibrary}
-                      canEdit={canEdit}
-                      onDone={done}
-                      onCancel={() => setOpenName(null)}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <div className="table-wrap">
+            <table className="data tpl-table">
+              <thead>
+                <tr><th>Template</th><th>Category</th><th>Language</th><th>Status</th><th>Sent</th><th>Last sent</th><th style={{ textAlign: 'right' }}>Action</th></tr>
+              </thead>
+              <tbody>
+                {pageRows.map((r) => {
+                  const open = openName === r.name;
+                  const used = r.usedBy.filter((u) => u.on);
+                  return (
+                    <React.Fragment key={r.name}>
+                      <tr onClick={() => { setOpenName(open ? null : r.name); setAdding(null); }}>
+                        <td><span className="mono" style={{ fontWeight: 650, wordBreak: 'break-all' }}>{r.name}</span></td>
+                        <td>{r.category ? <CategoryChip value={r.category} /> : <span className="muted">-</span>}</td>
+                        <td>{r.language}</td>
+                        <td>
+                          {!r.inLibrary ? <Chip tone="amber" title="Used by a message but not in the list yet">Not added</Chip>
+                            : r.flags.length ? <Chip tone="amber" title={r.flags.map((f) => FLAG_TEXT[f](r)).join(' ')}>Check</Chip>
+                            : r.status ? <StatusChip status={r.status} /> : <span className="muted">-</span>}
+                        </td>
+                        <td>{num(r.sent)}</td>
+                        <td className="muted" title={r.lastSentAt ? dateTimeStr(r.lastSentAt) : undefined}>{r.lastSentAt ? dateTimeStr(r.lastSentAt) : '-'}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button type="button" className="btn tpl-act" aria-label={open ? 'Close' : canEdit ? 'Open and edit' : 'Open'} aria-expanded={open}
+                            onClick={(e) => { e.stopPropagation(); setOpenName(open ? null : r.name); setAdding(null); }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="tpl-open"><td colSpan={7}>
+                          <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '18px 18px 20px' }}>
+                            {used.length > 0 && <div className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>Used in: {used.map((u) => u.label).join(', ')}</div>}
+                            <TemplateEditor
+                              key={`${r.name}:${r.inLibrary}:${r.category}:${r.status}:${r.body}:${r.note}:${r.language}`}
+                              initial={{ name: r.name, language: r.language, category: r.category, status: r.status, body: r.body, note: r.note }}
+                              isNew={!r.inLibrary}
+                              canEdit={canEdit}
+                              onDone={done}
+                              onCancel={() => setOpenName(null)}
+                            />
+                          </div>
+                        </td></tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="tpl-pager">
+            <span className="muted">Showing {from} - {to} of {shown.length}</span>
+            <span style={{ flex: 1 }} />
+            <select className="input" style={{ width: 'auto' }} aria-label="Rows per page" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+              {[10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button type="button" className="btn" disabled={cur <= 1} onClick={() => setPage(1)} aria-label="First page">«</button>
+            <button type="button" className="btn" disabled={cur <= 1} onClick={() => setPage(cur - 1)} aria-label="Previous page">‹</button>
+            <span className="muted">Page {cur} of {totalPages}</span>
+            <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => setPage(cur + 1)} aria-label="Next page">›</button>
+            <button type="button" className="btn" disabled={cur >= totalPages} onClick={() => setPage(totalPages)} aria-label="Last page">»</button>
+          </div>
+        </>
       )}
     </div>
   );

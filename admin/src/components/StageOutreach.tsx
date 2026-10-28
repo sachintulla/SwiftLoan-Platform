@@ -209,11 +209,11 @@ function MessageCard({ kind, cfg, templates, whatsappConnected, onChanged }: { k
               <span className="so-hint">Exactly as approved in Vox: lowercase letters, numbers, underscores.</span>
             </div>
             <div className="so-field">
-              <label className="so-label">Language code</label>
+              <label className="so-label">Language</label>
               <input className="input mono" style={{ maxWidth: 120 }} value={language} onChange={(e) => { setLanguage(e.target.value); touch(); }} />
             </div>
             <div className="so-field wide">
-              <span className="so-label">Values sent into the template, in order</span>
+              <span className="so-label">Values</span>
               <div className="so-vars">
                 {vars.map((v, i) => (
                   <div key={i} className="so-var">
@@ -414,8 +414,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + token.length, s + token.length); });
   }
 
-  const sample = useMemo(() => Object.fromEntries(ov.variables.map((v) => [v.name, v.example])), [ov.variables]);
-  const preview = brief.replace(/\{([a-z][a-z0-9_]*)\}/gi, (_m, n: string) => sample[n] ?? '').replace(/[ \t]{2,}/g, ' ').trim();
   const groups = useMemo(() => Array.from(new Set(ov.variables.map((v) => v.group))), [ov.variables]);
 
   async function save() {
@@ -457,15 +455,14 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
               onChange={(e) => { setDelay(e.target.value.replace(/[^0-9]/g, '')); touch(); }} />
             <span className="muted">minutes</span>
           </div>
-          <span className="so-hint">{delayValid ? `That is ${duration(delayNum)}.` : 'Enter 1 minute or more.'}</span>
+          {!delayValid && <span className="so-hint">Enter 1 minute or more.</span>}
         </div>
 
         {a.channel === 'whatsapp' && (
           <>
             <div className="so-field">
-              <label className="so-label">Approved template name</label>
-              <input className="input mono" value={waTemplate} placeholder="e.g. offers_ready" onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
-              <span className="so-hint">Exactly as approved by Meta: lowercase letters, numbers, underscores.</span>
+              <label className="so-label">Template</label>
+              <input className="input mono" value={waTemplate} onChange={(e) => { setWaTemplate(e.target.value); touch(); }} />
             </div>
             <div className="so-field">
               <label className="so-label">Language code</label>
@@ -474,7 +471,7 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
             <div className="so-field wide">
               <span className="so-label">Values sent into the template, in order</span>
               <div className="so-vars">
-                {waVars.length === 0 && <span className="so-hint">This template takes no variables.</span>}
+                {waVars.length === 0 && <span className="so-hint">None</span>}
                 {waVars.map((v, i) => (
                   <div key={i} className="so-var">
                     <span className="so-var-no">{`{{${i + 1}}}`}</span>
@@ -488,7 +485,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
                 {ov.whatsappTokens.map((t) => <button key={t} type="button" className="so-token" onClick={() => { setWaVars([...waVars, t]); touch(); }}>{t}</button>)}
                 <button type="button" className="so-token" onClick={() => { setWaVars([...waVars, '']); touch(); }}>+ custom text</button>
               </div>
-              <span className="so-hint">A customer missing one of these values is skipped, never sent a blank. Clear the template name to hand this step back to Upshot.</span>
             </div>
           </>
         )}
@@ -496,16 +492,13 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
         {a.channel === 'sms' && (
           <>
             <div className="so-field">
-              <label className="so-label">DLT template ID</label>
+              <label className="so-label">Template ID</label>
               <input className="input mono" value={smsId} onChange={(e) => { setSmsId(e.target.value); touch(); }} />
             </div>
             <div className="so-field wide">
-              <label className="so-label">Exact registered text</label>
+              <label className="so-label">Text</label>
               <textarea className="input" rows={4} maxLength={1000} value={smsBody} onChange={(e) => { setSmsBody(e.target.value); touch(); }} />
-              <span className="so-hint">
-                India SMS must match the DLT registration character for character, so no variables are added.{' '}
-                {a.sms?.customised ? 'This stage has its own text. Clear both fields to go back to the default.' : 'This is the default text used at every stage. Change it here to give this stage its own.'}
-              </span>
+              <span className="so-hint">{a.sms?.customised ? 'Own text for this step' : 'Default text'}</span>
             </div>
           </>
         )}
@@ -514,9 +507,6 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
           <div className="so-field wide">
             <label className="so-label">Upshot event to fire</label>
             <input className="input mono" value={upshotEvent} onChange={(e) => { setUpshotEvent(e.target.value); touch(); }} />
-            <span className="so-hint">
-              {a.channel === 'email' ? 'Email' : 'Push'} is sent through Upshot: write the message there and attach it to this event. The event carries the customer&apos;s name, phone, city, source, campaign, stage and minutes stuck.
-            </span>
           </div>
         )}
 
@@ -530,22 +520,16 @@ function Editor({ stageKey, a, ov, onChanged }: { stageKey: string; a: Activity;
               </select>
             </div>
             <div className="so-field">
-              <label className="so-label">Or a specific agent ID</label>
-              <input className="input mono" value={assistantId} placeholder="Optional. Overrides the choice" onChange={(e) => { setAssistantId(e.target.value); touch(); }} />
+              <label className="so-label">Agent ID (optional)</label>
+              <input className="input mono" value={assistantId} onChange={(e) => { setAssistantId(e.target.value); touch(); }} />
               <span className="so-hint">Calls <span className="mono">{assistantId.trim() || a.call.effectiveAgentId || 'no agent configured'}</span></span>
             </div>
             <div className="so-field wide">
-              <label className="so-label">What the agent should talk about</label>
+              <label className="so-label">Talking points</label>
               <textarea ref={briefRef} className="input" rows={4} maxLength={ov.maxBriefLength} value={brief}
-                placeholder="e.g. Greet {lead_first_name}. They {stall_reason}. Offer to {stall_help}."
                 onChange={(e) => { setBrief(e.target.value); touch(); }} />
-              <span className="so-hint">{brief.length}/{ov.maxBriefLength}. Sent to the agent as <span className="mono">stage_brief</span> with each {'{variable}'} replaced by the customer&apos;s real value.</span>
+              <span className="so-hint">{brief.length}/{ov.maxBriefLength}</span>
             </div>
-            {preview && (
-              <div className="so-field wide">
-                <div className="so-preview"><div className="so-preview-label">Preview with a sample customer</div>{preview}</div>
-              </div>
-            )}
             <div className="so-field wide">
               <details>
                 <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Insert a variable ({ov.variables.length} available)</summary>

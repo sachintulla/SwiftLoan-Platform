@@ -30,7 +30,7 @@ export function VariableEditor({ tokens, value, onChange, error, disabled }: { t
   };
   return (
     <div>
-      {value.length === 0 && <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>No variables. The template text is sent as it is.</div>}
+      {value.length === 0 && <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>None</div>}
       <div style={{ display: 'grid', gap: 10 }}>
         {value.map((v, i) => (
           <div key={i}>
@@ -45,7 +45,6 @@ export function VariableEditor({ tokens, value, onChange, error, disabled }: { t
                 </>
               )}
             </div>
-            <div className="muted" style={{ fontSize: 12, margin: '3px 0 0 44px', wordBreak: 'break-all' }}>Customer sees: {fillSample(v) || '—'}</div>
           </div>
         ))}
       </div>
@@ -98,7 +97,7 @@ export function MessageEditor({ item, cardCategory, canEdit, templates, onDone }
   return (
     <div style={{ display: 'grid', gap: 20, maxWidth: 760 }}>
       {canEdit && library.length > 0 && (
-        <Field label="Pick from your templates" hint="Fills the name, language and category. Add more on the Templates tab.">
+        <Field label="Pick a template">
           <Select<string>
             value={chosen ? chosen.name : ''}
             onChange={(name) => {
@@ -111,13 +110,13 @@ export function MessageEditor({ item, cardCategory, canEdit, templates, onDone }
         </Field>
       )}
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-        <Field label="Template name" error={errors.template} hint="Exactly as approved in Vox.">
+        <Field label="Name" error={errors.template}>
           <input className="input mono" value={draft.template} disabled={!canEdit} onChange={(e) => set({ template: e.target.value })} placeholder="e.g. dropoff_continue_app" />
         </Field>
-        <Field label="Language" error={errors.language} hint="en, hi, te…">
+        <Field label="Language" error={errors.language}>
           <input className="input" style={{ maxWidth: 140 }} value={draft.language} disabled={!canEdit} onChange={(e) => set({ language: e.target.value })} />
         </Field>
-        <Field label="Category" error={errors.category} hint="As Meta approved it.">
+        <Field label="Category" error={errors.category}>
           <Select<Category>
             value={(draft.category as Category) || ''}
             onChange={(v) => canEdit && set({ category: v })}
@@ -126,7 +125,7 @@ export function MessageEditor({ item, cardCategory, canEdit, templates, onDone }
         </Field>
       </div>
 
-      <Field label="Variables, in the order of the template" hint={`This message can use: ${item.tokens.map((t) => `{${t}}`).join(', ')}.`}>
+      <Field label="Values">
         <VariableEditor tokens={item.tokens} value={draft.placeholders} onChange={(v) => set({ placeholders: v })} error={errors.placeholders} disabled={!canEdit} />
         {varMismatch && (
           <div style={{ fontSize: 12, color: '#7a4b06', marginTop: 8 }}>
