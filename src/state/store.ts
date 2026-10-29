@@ -204,6 +204,10 @@ export interface AppState {
   pdDobOpen: boolean; pdCalY: number; pdCalM: number;
   // backend session + funnel context (set once the UI is wired to the API)
   authUser: Record<string, any> | null;
+  // Set on each successful login; the dashboard consumes it to play the Ruby
+  // welcome intro once per login (cleared after it plays). In-memory only, so it
+  // never fires on a cold-start session restore — only on an actual login.
+  welcomePending: boolean;
   applicationId: string | null;
   selectedOfferId: string | null;
   selectedLenderApplicationId: string | null;
@@ -319,7 +323,7 @@ export const initialState: AppState = {
   pdEdit: false, pdName: '', pdEmail: '',
   pdPhone: '', pdDob: '',
   pdDobOpen: false, pdCalY: 1995, pdCalM: 0,
-  authUser: null, applicationId: null, selectedOfferId: null, selectedLenderApplicationId: null, loanId: null,
+  authUser: null, welcomePending: false, applicationId: null, selectedOfferId: null, selectedLenderApplicationId: null, loanId: null,
   contextLoaded: false, contextData: null,
   resume: null, resumePrompt: null, resumeStage: null,
   priorInquiries: [],

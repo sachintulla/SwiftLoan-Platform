@@ -725,7 +725,7 @@ export function BottomNav() {
           {NAV_TABS.map(tab =>
             tab.key === 'support'
               ? <SupportTab key="support" />
-              : <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => go(tab.key as ScreenName)} />,
+              : <NavTab key={tab.key} tab={tab} active={state.screen === tab.key} onPress={() => { if (!state.welcomePending) go(tab.key as ScreenName); }} />,
           )}
         </View>
       </View>
@@ -741,6 +741,7 @@ export function BottomNav() {
  * Tapping again ends the session.
  */
 function SupportTab() {
+  const { state } = useStore();
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [starting, setStarting] = useState(false);
   const spin = useRef(new Animated.Value(0)).current;
@@ -791,6 +792,8 @@ function SupportTab() {
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
 
   const onPress = () => {
+    // Frozen while the Ruby welcome intro plays.
+    if (state.welcomePending) return;
     // Small haptic so the tap registers immediately, before the (async) connect.
     Vibration.vibrate(20);
     if (live || connecting) {

@@ -129,6 +129,9 @@ export default function Mobile() {
       })();
       set({
         authUser: r.user,
+        // Play the Ruby welcome intro on the dashboard once per login (consumed by
+        // Home). Set on every successful OTP verify, so logout → login replays it.
+        welcomePending: true,
         // otpSent stays true until we navigate (reset alongside each go() below). Resetting it here
         // flipped this screen back to "enter your number" for the 1-3 s the lookups below take.
         priorInquiries: r.priorInquiries,

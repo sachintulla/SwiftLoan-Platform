@@ -17,6 +17,7 @@ import { useUnreadCount } from './notifications';
 // Applications whose offers are still worth surfacing on the dashboard.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
 
+
 // Fallback highlights when a lender didn't return its own feature list.
 const DEFAULT_FEATURES = ['Low interest rates', 'Flexible tenure', 'Minimal documents', 'Quick approval'];
 const FEATURE_ICONS: Record<string, string> = {
@@ -83,12 +84,16 @@ export default function Home() {
   const emiValues = offers.map(minEmiOf).filter((n): n is number => n != null);
   const minEmi = emiValues.length ? Math.min(...emiValues) : null;
 
+  // While the Ruby welcome intro is playing, every dashboard action is frozen — so
+  // nothing can be navigated to or started underneath the overlay. The intro's own
+  // "seen" flag (state.welcomePending) is the single source of truth.
+  const introActive = () => state.welcomePending;
   // "Ask Ruby" reveals + animates the support FAB and starts a session, so a
   // first-time user learns the assistant is always one tap away (see VoiceWidget).
-  const askRuby = () => set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 });
-  const viewOffers = () => { set({ offersReturn: 'home' }); go('fare'); };
-  const changeAmount = () => { set({ offersReturn: 'home' }); go('basicpan'); };
-  const startFresh = () => { set({ offersReturn: 'home', applicationId: null, offersError: '' }); go('basicpan'); };
+  const askRuby = () => { if (introActive()) return; set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 }); };
+  const viewOffers = () => { if (introActive()) return; set({ offersReturn: 'home' }); go('fare'); };
+  const changeAmount = () => { if (introActive()) return; set({ offersReturn: 'home' }); go('basicpan'); };
+  const startFresh = () => { if (introActive()) return; set({ offersReturn: 'home', applicationId: null, offersError: '' }); go('basicpan'); };
   // A sponsored "featured offer" ad — tapping "Check eligibility" seeds the
   // advertised amount and drops the user into the normal application funnel.
   // (These ads are marketing, not firm offers, so there is no "accept".)
@@ -112,7 +117,13 @@ export default function Home() {
         {/* Ruby illustration — anchored to the band's bottom-right so she stands
             on the dark header (clipped cleanly at the band edge). Rendered before
             the content so the "Ask Ruby" bubble and headline paint in front. */}
-        <Pressable onPress={askRuby} style={styles.rubyWrap} accessibilityLabel="Ask Ruby for help">
+        <Pressable
+          onPress={askRuby}
+          onLongPress={() => set({ welcomePending: true })}
+          delayLongPress={450}
+          style={styles.rubyWrap}
+          accessibilityLabel="Ask Ruby for help"
+        >
           <Image source={require('../../assets/brand/ruby-hero.png')} style={styles.ruby} resizeMode="contain" />
         </Pressable>
         {/* Top bar: brand lockup + subtitle | RBI badge + notifications bell */}
