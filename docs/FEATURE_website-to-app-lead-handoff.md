@@ -38,7 +38,7 @@ website — want to continue with that?"* — instead of starting from zero.
 - **`AnonymousLead` model** — `server/prisma/schema.prisma:411-430`. Already
   created on every website form submission (via `POST /api/context/create`,
   `server/src/modules/context.routes.ts`). Fields that matter here: `phone`,
-  `productInterest` (loan type), `amount` (paise), `status: LeadStatus`
+  `productInterest` (loan type), `amount` (whole rupees), `status: LeadStatus`
   (`new|contacted|qualified|converted|lost`), `convertedUserId` (a bare
   `String?`, **not a real FK/relation**, and confirmed via grep that
   **nothing in the codebase currently writes to it** — it's dead weight
@@ -92,7 +92,7 @@ if (matchingLeads.length) {
 }
 const priorInquiries = matchingLeads.map(l => ({
   productInterest: l.productInterest,
-  amount: l.amount,       // paise, same convention as everywhere else
+  amount: l.amount,       // whole rupees, same as everywhere else
   createdAt: l.createdAt,
 }));
 res.json({ user: publicUser(user), ...tokens, priorInquiries });
@@ -202,8 +202,8 @@ use) needs a new paragraph, e.g.:
 }
 ```
 
-(`amount` in paise, same convention as the rest of the backend —
-₹5,00,000 → `50000000`.)
+(`amount` in whole rupees, same as the rest of the backend —
+₹5,00,000 → `500000`.)
 
 ## Explicitly out of scope (don't do this here)
 

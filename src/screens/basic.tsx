@@ -12,7 +12,7 @@ import { useStore, useT, type AppState as AppStateT } from '../state/store';
 import { api, ApiError, isAuthed } from '../api/client';
 import { isMaskedPan } from '../utils/resume';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
-import { missingBasicRequired } from '../utils/basicRequired';
+import { missingBasicRequired, companyNeeded } from '../utils/basicRequired';
 import { revealTarget, emitFx } from '../feedback/agentFx';
 import { useAgentFx, AgentRing } from '../feedback/useAgentFx';
 import {
@@ -184,7 +184,7 @@ export default function Basic() {
     {
       first: state.basicFirst, last: state.basicLast, dobSet: !!dob, gender: state.aboutGender,
       email: state.basicEmail, loanPurpose: state.basicLoanPurpose, qualification: state.basicQualification,
-      residence: state.basicRes, employment: state.basicEmp, salaryMode: state.optSalaryMode,
+      residence: state.basicRes, employment: state.basicEmp, salaryMode: state.optSalaryMode, company: state.basicCompany,
       addr1: state.optAddr1, city: state.optCity, state: state.optState, pin: state.basicPin, income: state.basicIncome,
     },
     { pincodeRe: PINCODE_RE, incomeMin: MONTHLY_INCOME_MIN },
@@ -203,12 +203,12 @@ export default function Basic() {
     gender: t.genderLabel, email: t.basicEmailLabel, 'loan purpose': t.basicPurposeLabel,
     qualification: t.basicQualLabel, 'residence type': t.basicResLabel, 'employment type': t.basicEmpLabel,
     'salary mode': t.basicSalaryModeLabel, 'address line 1': t.basicAddr1Label, city: t.basicCity,
-    state: t.basicState, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+    state: t.basicState, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel, 'company name': t.basicCompanyLabel,
   };
   // Text-input fields jump the caret (keyboard cursor) onto the field itself.
   const TEXT_FIELD: Record<string, string> = {
     'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, email: t.basicEmailLabel,
-    'address line 1': t.basicAddr1Label, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel,
+    'address line 1': t.basicAddr1Label, pincode: t.basicPinLabel, 'monthly income': t.basicIncomeLabel, 'company name': t.basicCompanyLabel,
   };
   // Dropdowns (City, State) register under their label like a Field but have no
   // caret — scroll to them and ring the control, no cursor.
@@ -529,7 +529,8 @@ export default function Basic() {
               <Chips group={t.basicSalaryModeLabel} value={state.optSalaryMode} onChange={v => set({ optSalaryMode: v })} options={SALARY_OPTS} />
             </RequiredBlock>
           </View>
-          <Field label={t.basicCompanyLabel} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
+          {/* Mandatory (the lender needs an employer name) except for a student / retired person, who get the optional wording. */}
+          <Field required={companyNeeded(state.basicEmp)} label={companyNeeded(state.basicEmp) ? t.basicCompanyLabel : t.basicCompanyLabelOptional} placeholder={t.basicCompanyPlaceholder} maxLength={MID_MAX} value={state.basicCompany} onChangeText={v => set({ basicCompany: v })} />
         </View>
 
         <View style={{ height: 8 }} />

@@ -38,8 +38,8 @@ export default function AppBuilds() {
         body: JSON.stringify({
           name: name || undefined,
           product,
-          amount: Math.round((Number(amount) || 0) * 100),
-          summary: `${name ? name + ' — ' : ''}interested in a ${inr(Math.round((Number(amount) || 0) * 100))} ${product.toLowerCase()} (generated from admin).`,
+          amount: Math.round(Number(amount) || 0),
+          summary: `${name ? name + ' — ' : ''}interested in a ${inr(Math.round(Number(amount) || 0))} ${product.toLowerCase()} (generated from admin).`,
           source: 'admin',
         }),
       });

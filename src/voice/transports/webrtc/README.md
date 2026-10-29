@@ -34,50 +34,37 @@ the generic, auto-discovering tool system already built in `../../tools.ts` +
 transport** is reproduced here; the tool system is untouched and reused as-is
 via the shared `AgentLike` interface in `../../types.ts`.
 
-## What's unverified
+## Status (tested 2026-10-29, Redmi Note 9 Pro Max, debug build, Wi-Fi)
 
-**Whether `client_tools` / `client-tool-call` / `client-tools-ack` actually
-flow over this signaling channel the way they do on `/ws-ello`.**
-`ellomobilesdk`'s own client code never sends or handles them — it only uses
-`conversation-text` and a simpler `agent_action` text-block model. The
-message envelope is generic JSON exactly like `/ws-ello`
-(`{type, data, session_id, conversation_id}`), and the same backend already
-parallels `conversation-text`/`agent_action` across both transports, so it's
-a reasonable bet that our tool-calling messages will work here too — but
-it's a bet, not a confirmed fact. **Test a real call before relying on this
-in production**, and check the transcript trace for `client-tools-ack` — if
-it never arrives, the backend doesn't support tools on this path yet, and
-that's worth raising with the Ello team directly rather than debugging
-further on our end.
+Works end to end against `wss://connect-in.getello.ai/ws`: the peer connection reaches `connected`, the server answers
+`client-tools-ack` accepting every tool, the agent hears the phone's mic and replies, and tool calls run over this
+transport (`fill_field` filled the mobile number; a three-step application was completed by voice). The earlier
+"unverified" worries (tool messages over `/ws`, the signalling URL) are resolved.
 
-The signaling URL (`config.ts`'s `ELLO_WEBRTC_WS_URL`, defaulting to `/ws`
-instead of `/ws-ello` on the same host) is also a best guess — it comes from
-our own `../../config.ts` comment (`/ws` "routes to an unrelated generic
-chat/WebRTC signaling manager") plus the dashboard's own capture connecting
-to a `.../ws` path — not confirmed against the real stage environment.
+`WebRTCAgent` is now a SUBCLASS of `ElloAgent` (`../../agent.ts`), so it inherits the app-level behaviour instead of
+copying it: the tool queue, page-context de-duplication and urgent updates, `already_introduced`, the "(no speech)"
+filter, the stall / idle check-in watch, and holding a context update back while the agent is speaking. Only the
+transport is its own: REST session, `RTCPeerConnection`, signalling, speaker routing, and a speaking detector built on
+`getStats()` (`speakingMeter.ts`) because the agent's audio never passes through JS. `start(phone)` passes the phone
+number to the session so the agent can look the customer up.
 
-## Why the tool-execution logic is duplicated, not shared
+### Turn it on
 
-`WebRTCAgent.ts`'s `executeToolCall`/`runWithTimeout` are a byte-for-byte
-copy of `../../agent.ts`'s. This is intentional: the working, device-tested
-`ElloAgent` is not touched or refactored to share code with this
-still-unverified transport, so nothing here can regress it. If both
-transports end up staying in long-term use, factoring the shared tool-
-execution logic into one file is a reasonable follow-up — but only once this
-transport is itself proven.
+`globalThis.SWIFTLOAN_VOICE_TRANSPORT = 'webrtc'` (gitignored `voiceCredentials.local.js`). Anything else = websocket.
+
+### Still open before it could be the default
+
+- **TURN relay.** A release build uses STUN only unless `globalThis.SWIFTLOAN_ICE_SERVERS` is set (see `iceServers.ts`);
+  the free public relay (`openrelay.metered.ca`) is a debug-build convenience only. Strict-NAT mobile networks
+  (some Jio/Airtel) need a relay we run or contract for. Not yet tested on mobile data.
+- **iOS** is untested (AVAudioEngine voice processing in `VoiceAudioModule.swift` vs WebRTC's own audio session).
+- Echo in a quiet room on the loudspeaker (the reason this exists), headset / Bluetooth routing, an incoming call,
+  backgrounding, battery, and long calls are untested.
 
 ## How to try it
 
-Swap the import in `../../index.ts`:
-
-```ts
-// import { agent } from './agent';
-import { webrtcAgent as agent } from './transports/webrtc';
-```
-
-Everything else — `ensureToolsRegistered`, the `VoiceWidget`, screen
-registration — keeps working unchanged, since both transports satisfy the
-same `AgentLike` shape.
+Set the switch above (no import to edit): `../../index.ts` picks the transport at startup. Everything else —
+`ensureToolsRegistered`, the `VoiceWidget`, screen registration — is unchanged.
 
 ## Dependencies
 

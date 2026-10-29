@@ -73,15 +73,15 @@ const NO_SPEECH_MARKER =
 export class ElloAgent {
   conversationId: string | null = null;
 
-  private registry = new ToolRegistry();
-  private emitter = new Emitter<AgentEventMap>();
-  private socket: ElloSocket | null = null;
-  private status: AgentStatus = 'idle';
-  private muted = false;
+  protected registry = new ToolRegistry();
+  protected emitter = new Emitter<AgentEventMap>();
+  protected socket: ElloSocket | null = null;
+  protected status: AgentStatus = 'idle';
+  protected muted = false;
   // Concurrent tool calls, keyed by tool_call_id — the backend model (Gemini
   // Live) can fire several client-tool-call messages per turn; there is no
   // client-side batching, each is executed and answered independently.
-  private inflight = new Map<string, AbortController>();
+  protected inflight = new Map<string, AbortController>();
   // Handlers run strictly one at a time, in arrival order. The model often fires
   // e.g. select_option("English") and continue_next in the SAME millisecond; run in
   // parallel, continue_next looked at the screen before select_option's state
@@ -90,7 +90,7 @@ export class ElloAgent {
   // continue_next sees the screen select_option left behind (each handler waits for
   // its own re-render before returning).
   private toolQueue: Promise<unknown> = Promise.resolve();
-  private pageContextFn: PageContextProvider | null = null;
+  protected pageContextFn: PageContextProvider | null = null;
   private pageContextFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private urgentFlushTimer: ReturnType<typeof setTimeout> | null = null;
   // At most ONE deferred "flush once she stops speaking" listener at a time.
@@ -111,7 +111,7 @@ export class ElloAgent {
   private lastSentNormPerScreen = new Map<string, any>();
   // The identity block (language, name, phone, account summary…) is sent with the session start and
   // again only when it changes — not on every screen (see trimForSend in pageContextDelta.ts).
-  private lastSentIdentity: IdentityMap | null = null;
+  protected lastSentIdentity: IdentityMap | null = null;
   // How many times a send has been put off because the screen's main button was mid-action.
   private busyDeferrals = 0;
   // Notices the server going silent while the user is plainly talking (see stallDetector.ts).
@@ -148,13 +148,13 @@ export class ElloAgent {
   // used to cancel nothing, and the in-flight start would then bring the session up
   // *after* the user hung up. Every start captures a token; if stop() (or another
   // start) bumps it, the stale start unwinds instead of installing itself.
-  private startToken = 0;
+  protected startToken = 0;
 
   constructor(
-    private options: ElloAgentOptions,
-    private mic: MicCapture,
-    private player: PcmPlayer,
-    private confirm: ConfirmFn,
+    protected options: ElloAgentOptions,
+    protected mic: MicCapture,
+    protected player: PcmPlayer,
+    protected confirm: ConfirmFn,
   ) {}
 
   registerTool<TArgs>(def: ClientToolOptions<TArgs>): void {
@@ -419,6 +419,39 @@ export class ElloAgent {
     return this.status;
   }
 
+  /**
+   * Per-call reset. Also lets the "#N" in RECV voice-audio-output logs reflect this call, not a running total
+   * left over from every earlier session — otherwise the first chunk of a fresh call can print as "#450"
+   * purely by landing on a stale %50 boundary, making response-time impossible to read.
+   * Shared with transports that extend this class (transports/webrtc).
+   */
+  protected resetCallState(): void {
+    this.audioOutCount = 0;
+    this.lastAudioChunkAt = 0;
+    this.agentTextSinceAudio = false;
+    this.signedInLineSpoken = false;
+    this.lastSentPerScreen.clear();
+    this.lastSentNormPerScreen.clear();
+    this.lastSentIdentity = null;
+    this.lastSentPage = null;
+    this.toolsSentThisSession = false;
+  }
+
+  /** Starts the watch for a silent server and for a user who has gone quiet (see stallDetector.ts). */
+  protected startStallWatch(): void {
+    this.stall.reset(Date.now());
+    if (this.stallTimer) clearInterval(this.stallTimer);
+    this.stallTimer = setInterval(() => {
+      if (!this.socket) return;
+      const now = Date.now();
+      if (this.stall.check(now)) this.onServerStall();
+      else if (this.status === 'listening' && this.inflight.size === 0 && !this.muted && getCurrentScreen() !== 'finding') {
+        const idle = this.stall.idleCheck(now);
+        if (idle !== null) this.onIdleCheckin(idle);
+      }
+    }, 3000);
+  }
+
   async start(phone?: string): Promise<void> {
     vlog('start() called; apiKeySet=', !!this.options.apiKey, 'assistantId=', this.options.assistantId);
     if (!this.options.apiKey || !this.options.assistantId) {
@@ -432,19 +465,7 @@ export class ElloAgent {
 
     const token = ++this.startToken;
     const cancelled = () => token !== this.startToken;
-    // Reset per-session so the "#N" in RECV voice-audio-output logs reflects
-    // this call, not a running total left over from every earlier session —
-    // otherwise the first chunk of a fresh call can print as "#450" purely by
-    // landing on a stale %50 boundary, making response-time impossible to read.
-    this.audioOutCount = 0;
-    this.lastAudioChunkAt = 0;
-    this.agentTextSinceAudio = false;
-    this.signedInLineSpoken = false;
-    this.lastSentPerScreen.clear();
-    this.lastSentNormPerScreen.clear();
-    this.lastSentIdentity = null;
-    this.lastSentPage = null;
-    this.toolsSentThisSession = false;
+    this.resetCallState();
 
     this.setStatus('connecting');
     try {
@@ -527,17 +548,7 @@ export class ElloAgent {
       vlog('page_context sent:', JSON.stringify(startPageContext));
 
       let sentChunks = 0;
-      this.stall.reset(Date.now());
-      if (this.stallTimer) clearInterval(this.stallTimer);
-      this.stallTimer = setInterval(() => {
-        if (!this.socket) return;
-        const now = Date.now();
-        if (this.stall.check(now)) this.onServerStall();
-        else if (this.status === 'listening' && this.inflight.size === 0 && !this.muted && getCurrentScreen() !== 'finding') {
-          const idle = this.stall.idleCheck(now);
-          if (idle !== null) this.onIdleCheckin(idle);
-        }
-      }, 3000);
+      this.startStallWatch();
       await this.mic.start(base64 => {
         // A stale capture callback must not keep feeding a session the user ended.
         if (cancelled() || this.muted) return;
@@ -606,7 +617,7 @@ export class ElloAgent {
   // during which usage/recording/duration data never got attached to the already-
   // finalized call log. socket.close() on an already-closing/closed socket is a
   // safe no-op, so this is fine to call unconditionally from either path.
-  private teardown(): void {
+  protected teardown(): void {
     if (this.speakingTimer) { clearTimeout(this.speakingTimer); this.speakingTimer = null; }
     if (this.pageContextFlushTimer) { clearTimeout(this.pageContextFlushTimer); this.pageContextFlushTimer = null; }
     if (this.urgentFlushTimer) { clearTimeout(this.urgentFlushTimer); this.urgentFlushTimer = null; }
@@ -627,7 +638,7 @@ export class ElloAgent {
   // call read_screen (a tool call, which does not cause an extra turn) before
   // describing or acting on a screen whose available_actions are empty.
 
-  private setStatus(status: AgentStatus): void {
+  protected setStatus(status: AgentStatus): void {
     this.status = status;
     this.emitter.emit('statusChange', status);
   }
@@ -657,7 +668,7 @@ export class ElloAgent {
     });
   }
 
-  private handleMessage(msg: any): void {
+  protected handleMessage(msg: any): void {
     this.stall.noteServerFrame(Date.now());
     // Log every inbound frame type except the high-rate audio stream (counted
     // separately below) so a stalled pipeline shows exactly where it stopped.

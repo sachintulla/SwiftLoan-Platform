@@ -13,11 +13,11 @@ export interface Resume {
   phone: string;
   lastStep: ResumeStep;
   /** `link`: the install was matched to the visitor's own link. `login`: found by phone after login.
-   *  `hint`: a same-network guess that this install came from a website visitor's link: no phone, name or step. */
-  source: 'link' | 'login' | 'hint';
+   *  `network`: matched by network address only (a strong guess, not proof): the step they reached, but no phone or name. */
+  source: 'link' | 'login' | 'network';
 }
 
-const STEPS: readonly string[] = ['otp_only', 'pan_done', 'application_started']; // 'unknown' is only ever made locally (hintResume)
+const STEPS: readonly string[] = ['otp_only', 'pan_done', 'application_started']; // 'unknown' is only ever made locally
 
 /** Validate the server's snake_case payload; anything malformed is ignored rather than trusted. */
 export function parseResume(raw: unknown, source: Resume['source']): Resume | null {
@@ -31,20 +31,26 @@ export function parseResume(raw: unknown, source: Resume['source']): Resume | nu
 }
 
 /**
- * The install matched a link by network address only (the server's `resume_hint`), so it may be someone else's: the app
- * knows nothing about the person. It asks instead of telling, the login stays empty, and the real journey is looked up
- * for the account that signs in.
+ * The install matched a link by network address only (the server's `resume_hint`). The server sends the step that
+ * journey reached (`hint_last_step`) but no phone and no name, so the login stays empty and the agent can say where they
+ * stopped and ask for the number. The real journey, and whether it is theirs, is looked up for the account that signs in.
  */
-export const hintResume = (): Resume => ({ token: '', firstName: null, phone: '', lastStep: 'unknown', source: 'hint' });
+export const networkResume = (lastStep: ResumeStep): Resume => ({ token: '', firstName: null, phone: '', lastStep, source: 'network' });
 
 /**
- * What a first-launch install claim means for the pop-up: a deterministic match carries the visitor's own details; a
- * same-network match (`resume_hint`) only lets the app ask. Null when there is nothing to offer.
+ * What a first-launch install claim means for the app:
+ *  - a deterministic match (clipboard / Play referrer) carries the visitor's own details;
+ *  - a same-network match carries only the step reached;
+ *  - anything else: null, and the app behaves as for any new person (the normal introduction). The app never asks
+ *    "did you start something on our website?" as a guess.
  */
-export function resumePatchFromClaim(claim: { resume?: unknown; resume_hint?: boolean } | null | undefined) {
+export function resumePatchFromClaim(claim: { resume?: unknown; resume_hint?: boolean; hint_last_step?: unknown } | null | undefined) {
   const resume = parseResume(claim?.resume, 'link');
   if (resume) return { resume, resumePrompt: 'welcome' as const, resumeStage: 'pre_login' as ResumeStage };
-  if (claim?.resume_hint === true) return { resume: hintResume(), resumePrompt: 'welcome' as const, resumeStage: 'pre_login_hint' as ResumeStage };
+  const step = typeof claim?.hint_last_step === 'string' ? claim.hint_last_step : '';
+  if (claim?.resume_hint === true && STEPS.includes(step)) {
+    return { resume: networkResume(step as ResumeStep), resumePrompt: 'welcome' as const, resumeStage: 'pre_login_ask_number' as ResumeStage };
+  }
   return null;
 }
 
@@ -66,8 +72,12 @@ export function resumeDestination(resume: Resume | null, alreadyOnboarded: boole
 /** The masked PAN the server returns for a PAN already on file ("XXXXXX234A"): never a real PAN. */
 export const isMaskedPan = (v: string | null | undefined) => /^X{6}\d{3}[A-Z]$/.test(String(v ?? ''));
 
-/** What the voice agent is told, so it speaks to the right moment of the journey. */
-export type ResumeStage = 'pre_login' | 'pre_login_hint' | 'resumed_at_step_2' | 'offer_start_application';
+/**
+ * What the voice agent is told, so it speaks to the right moment of the journey.
+ * `pre_login`: the login already has the number. `pre_login_ask_number`: the agent started by itself on a deterministic
+ * link match and the login is empty: it greets by name, says where they stopped, and asks for the number.
+ */
+export type ResumeStage = 'pre_login' | 'pre_login_ask_number' | 'resumed_at_step_2' | 'offer_start_application';
 
 export function agentResumeContext(
   resume: Resume | null,

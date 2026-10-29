@@ -171,7 +171,7 @@ describe('campaign from a list', () => {
     expect(db.contactCreateMany).not.toHaveBeenCalled();
   });
 
-  it('creates a draft with the contacts, amounts in paise, and ignores any phone list from the client', async () => {
+  it('creates a draft with the contacts, amounts in whole rupees, and ignores any phone list from the client', async () => {
     db.loanFindMany.mockResolvedValue([loanRow('9876543210'), loanRow('9123456789', { amount: 50000, loanType: 'business' })]);
     db.contactCount.mockResolvedValue(2);
 
@@ -189,8 +189,8 @@ describe('campaign from a list', () => {
 
     const contacts = db.contactCreateMany.mock.calls[0][0].data;
     expect(contacts.map((c: any) => c.phone)).toEqual(['9876543210', '9123456789']); // from the database, not the request
-    expect(contacts[0]).toMatchObject({ campaignId: 'camp-1', name: 'Asha Rao', product: 'personal', amount: 15_000_000, extra: { sourceList: 'loans', status: 'rejected' } });
-    expect(contacts[1].amount).toBe(5_000_000);
+    expect(contacts[0]).toMatchObject({ campaignId: 'camp-1', name: 'Asha Rao', product: 'personal', amount: 150000, extra: { sourceList: 'loans', status: 'rejected' } });
+    expect(contacts[1].amount).toBe(50000);
     expect(db.contactCreateMany.mock.calls[0][0].skipDuplicates).toBe(true);
     expect(db.campaignUpdate).toHaveBeenCalledWith({ where: { id: 'camp-1' }, data: { totalContacts: 2 } });
     // a campaign created here is only ever a draft: createDraftCampaign is the only way in and nothing starts it

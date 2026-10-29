@@ -132,8 +132,8 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
       activeLoans: loans,
       totalLeads: leads,
       totalDownloads: downloads,
-      totalDisbursedPaise: totalDisbursed,
-      outstandingPaise: disbursedAgg._sum.outstanding ?? 0,
+      totalDisbursed,
+      outstanding: disbursedAgg._sum.outstanding ?? 0,
       approvedCount: approved,
       applicationToDisbursalPct: appToDisbursal,
     },
@@ -172,13 +172,13 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
 
   // Bucket per day (UTC date key).
   const dayKey = (d: Date) => d.toISOString().slice(0, 10);
-  const series: Record<string, { date: string; applications: number; disbursals: number; disbursedPaise: number }> = {};
+  const series: Record<string, { date: string; applications: number; disbursals: number; disbursed: number }> = {};
   for (let i = 0; i < days; i++) {
     const k = dayKey(new Date(since.getTime() + i * 864e5));
-    series[k] = { date: k, applications: 0, disbursals: 0, disbursedPaise: 0 };
+    series[k] = { date: k, applications: 0, disbursals: 0, disbursed: 0 };
   }
   apps.forEach((a) => { const k = dayKey(a.createdAt); if (series[k]) series[k].applications++; });
-  loans.forEach((l) => { const k = dayKey(l.disbursedAt); if (series[k]) { series[k].disbursals++; series[k].disbursedPaise += l.principal; } });
+  loans.forEach((l) => { const k = dayKey(l.disbursedAt); if (series[k]) { series[k].disbursals++; series[k].disbursed += l.principal; } });
 
   return ok(res, {
     timeseries: Object.values(series),

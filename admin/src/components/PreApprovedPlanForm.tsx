@@ -17,7 +17,7 @@ export interface PreApprovedPlan {
   icon: string;
   exploreUrl?: string | null;
   badge?: string | null;
-  maxAmount?: number | null; // paise
+  maxAmount?: number | null; // rupees
   amountAtApproval: boolean;
   rateMin?: number | null;
   rateMax?: number | null;
@@ -37,15 +37,15 @@ const EMPTY: Omit<PreApprovedPlan, 'id'> = {
   tags: [], displayOrder: 0, active: true,
 };
 
-// Admin thinks in rupees; the API/DB store paise (app-wide convention).
-const toRupees = (paise?: number | null) => (paise == null ? '' : String(paise / 100));
-const toPaise = (rupees: string) => (rupees.trim() === '' ? null : Math.round(Number(rupees) * 100));
+// The amount is typed, stored and shown in whole rupees: no conversion.
+const toText = (rupees?: number | null) => (rupees == null ? '' : String(rupees));
+const toAmount = (text: string) => (text.trim() === '' ? null : Math.round(Number(text)));
 
 export function PreApprovedPlanForm({ plan }: { plan?: PreApprovedPlan }) {
   const router = useRouter();
   const isEdit = !!plan;
   const [form, setForm] = useState<Omit<PreApprovedPlan, 'id'>>(plan ?? EMPTY);
-  const [maxAmountRupees, setMaxAmountRupees] = useState(toRupees(plan?.maxAmount));
+  const [maxAmountRupees, setMaxAmountRupees] = useState(toText(plan?.maxAmount));
   const [tagsText, setTagsText] = useState((plan?.tags ?? []).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +59,7 @@ export function PreApprovedPlanForm({ plan }: { plan?: PreApprovedPlan }) {
     setError(null);
     const payload = {
       ...form,
-      maxAmount: form.amountAtApproval ? null : toPaise(maxAmountRupees),
+      maxAmount: form.amountAtApproval ? null : toAmount(maxAmountRupees),
       tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
       logoUrl: form.logoUrl || null,
       exploreUrl: form.exploreUrl || null,

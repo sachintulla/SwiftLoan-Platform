@@ -12,6 +12,7 @@ import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, isAuthed, Offer, PrequalifyingOffer } from '../api/client';
 import { displayLenderName } from './offers';
+import { useUnreadCount } from './notifications';
 
 // Applications whose offers are still worth surfacing on the dashboard.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
@@ -35,6 +36,7 @@ export default function Home() {
   const t = useT();
   const insets = useSafeAreaInsets();
   const { state, set, go, showToast } = useStore();
+  const unread = useUnreadCount();
   const [offers, setOffers] = useState<Offer[]>([]);
   // The amount this user actually enquired about — pulled from their live
   // application on the backend, so the hero headline is dynamic per user.
@@ -91,7 +93,7 @@ export default function Home() {
   // advertised amount and drops the user into the normal application funnel.
   // (These ads are marketing, not firm offers, so there is no "accept".)
   const checkEligibility = (o: PrequalifyingOffer) => {
-    set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home', applicationId: null, offersError: '' });
+    set({ appAmount: Math.round(o.amount), offersReturn: 'home', applicationId: null, offersError: '' });
     go('basicpan');
   };
 
@@ -131,8 +133,17 @@ export default function Home() {
               <Icon name="verified_user" size={13} color={colors.mint} />
               <Text style={[font(600), { color: '#fff', fontSize: 12 }]}>RBI Regulated</Text>
             </View>
-            <Pressable onPress={() => showToast(t.tSoon)} style={styles.bellBtn} accessibilityLabel="Notifications">
+            <Pressable
+              onPress={() => go('notifications')}
+              style={styles.bellBtn}
+              accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+            >
               <Icon name="notifications" size={22} color="#fff" />
+              {unread > 0 ? (
+                <View style={styles.bellBadge}>
+                  <Text style={[font(700), { color: '#fff', fontSize: 10 }]}>{unread > 9 ? '9+' : String(unread)}</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
         </View>
@@ -203,7 +214,7 @@ export default function Home() {
           mode="home"
           showIntro={false}
           onApply={plan => {
-            if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
+            if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount) });
             set({ offersReturn: 'home', applicationId: null, offersError: '' });
             go('basicpan');
           }}
@@ -325,6 +336,10 @@ const styles = StyleSheet.create({
     borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11,
   },
   bellBtn: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  bellBadge: {
+    position: 'absolute', top: 5, right: 4, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.red,
+  },
 
   hero: { marginTop: 6, position: 'relative' },
   // Anchored to the band's bottom-right; aspect matches the source (≈0.79) so
