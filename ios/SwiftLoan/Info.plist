@@ -28,6 +28,18 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- swiftloan://<screen> deep links (notification campaigns; see docs/UPSHOT_DEEPLINKS.md). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>ai.swiftloan.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>swiftloan</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
