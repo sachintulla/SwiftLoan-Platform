@@ -89,8 +89,8 @@ describe('pickInstallDetails', () => {
     expect(I.pickInstallDetails({ amount: 500000, loanType: 'personal' }, { amount: 100000, productInterest: 'business' })).toEqual({ amountRupees: 500000, product: 'personal' });
   });
 
-  it('divides an enquiry amount by 100, because Lead.amount is paise', () => {
-    expect(I.pickInstallDetails(null, { amount: 30000000, productInterest: ' personal loan ' })).toEqual({ amountRupees: 300000, product: 'personal loan' });
+  it('uses an enquiry amount as it is: every amount is whole rupees', () => {
+    expect(I.pickInstallDetails(null, { amount: 300000, productInterest: ' personal loan ' })).toEqual({ amountRupees: 300000, product: 'personal loan' });
   });
 
   it('returns nothing when neither is known', () => {

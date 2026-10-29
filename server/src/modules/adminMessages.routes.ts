@@ -50,7 +50,7 @@ async function enrich<T extends { customerId: string | null; template: string | 
       category: meta.category ?? null,
       variables: meta.placeholders ?? null,
       trigger: meta.trigger ?? null,
-      text: body && body.trim() ? renderTemplateText(body, meta.placeholders ?? []) : null,
+      text: meta.text ? meta.text : body && body.trim() ? renderTemplateText(body, meta.placeholders ?? []) : null,
     };
   });
 }
@@ -61,7 +61,11 @@ adminMessagesRouter.get('/', ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const where: Record<string, unknown> = {};
   if (q.channel && CHANNELS.includes(q.channel)) where.channel = q.channel;
-  if (q.status && STATUSES.includes(q.status)) where.status = q.status;
+  if (q.status) {
+    const list = q.status.split(',').filter((x) => STATUSES.includes(x));
+    if (list.length === 1) where.status = list[0];
+    else if (list.length > 1) where.status = { in: list };
+  }
   if (q.kind) where.kind = q.kind;
   if (q.template) where.template = q.template;
   if (q.range && RANGES[q.range]) where.createdAt = { gte: new Date(Date.now() - RANGES[q.range]) };

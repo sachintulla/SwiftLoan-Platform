@@ -12,9 +12,14 @@
 
 export interface SchedRow { channel: 'sms' | 'whatsapp'; afterMinutes: number }
 
+export type FlowSide = 'app' | 'website';
+const BOTH: readonly FlowSide[] = ['app', 'website'];
+
 export interface TimingGroup {
   title: string;
   keys: string[];
+  /** Which tabs show these rules; left out = both. */
+  flows?: readonly FlowSide[];
 }
 
 /** One message job whose schedule shows as steps on a stage's timeline. */
@@ -34,6 +39,8 @@ export interface SequenceSource {
   messages: string[];
   /** Where the minutes are counted from. */
   from: string;
+  /** Which tabs list it. The website reminders only ever go to website visitors, so they belong on the Website tab alone. */
+  flows: readonly FlowSide[];
 }
 
 /** A single timed call (the no-offers follow-up call). */
@@ -58,6 +65,7 @@ export interface StageSequence {
 const WEBSITE_REMINDER_RULES: TimingGroup = {
   title: 'Website reminder rules',
   keys: ['install.idleMinutes', 'install.minGapMinutes', 'install.maxLateHours', 'install.maxCycles'],
+  flows: ['website'],
 };
 const DROPOFF_RULES: TimingGroup = {
   title: 'Drop-off message rules',
@@ -66,11 +74,11 @@ const DROPOFF_RULES: TimingGroup = {
 
 const WEBSITE_REMINDER: SequenceSource = {
   id: 'install', label: 'Website reminder', audience: 'Website visitors', scheduleKey: 'install.schedule', ownSchedule: true,
-  switches: ['install.sendEnabled'], messages: ['install.reminder'], from: 'the visitor is treated as having left the website',
+  switches: ['install.sendEnabled'], messages: ['install.reminder'], from: 'the visitor is treated as having left the website', flows: ['website'],
 };
 const DROPOFF: SequenceSource = {
   id: 'dropoff', label: 'Drop-off message', audience: 'App and website', scheduleKey: 'dropoff.schedule', ownSchedule: true,
-  switches: ['dropoff.sendEnabled'], messages: [], from: 'they reached this stage',
+  switches: ['dropoff.sendEnabled'], messages: [], from: 'they reached this stage', flows: BOTH,
 };
 
 export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.freeze({
@@ -82,7 +90,7 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
   otp_requested: {
     sources: [{
       id: 'unverified', label: 'Website reminder: asked for a code, never entered it', audience: 'Website visitors', scheduleKey: 'install.unverifiedSchedule', ownSchedule: false,
-      switches: ['install.sendEnabled', 'install.unverifiedEnabled'], messages: ['install.reminder'], from: 'they asked for the code',
+      switches: ['install.sendEnabled', 'install.unverifiedEnabled'], messages: ['install.reminder'], from: 'they asked for the code', flows: ['website'],
     }],
     rules: [],
   },
@@ -101,7 +109,7 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
     sources: [],
     call: { id: 'nooffers', label: 'Call when the lender finds no offers', audience: 'App and website', delayKey: 'dropoff.noOffersCallDelayMinutes', switches: ['dropoff.noOffersCallEnabled', 'calls.nudgeEnabled'] },
     rules: [],
-    note: 'The WhatsApp for "no offers" is the notice at the top of this page ("When the eligibility check returns no offers").',
+    note: 'The "no offers" and "could not complete" WhatsApp notices, at the top of this step, go out the moment the check ends.',
   },
   offer_viewed: {
     sources: [{ ...DROPOFF, messages: ['dropoff.apply_offers.withLink', 'dropoff.apply_offers.noLink'] }],
@@ -110,7 +118,7 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
   offer_selected: {
     sources: [{
       id: 'applied', label: '"You applied" message', audience: 'App and website', scheduleKey: 'applied.schedule', ownSchedule: false,
-      switches: ['applied.sendEnabled'], messages: ['applied.nudge'], from: 'they applied to a lender',
+      switches: ['applied.sendEnabled'], messages: ['applied.nudge'], from: 'they applied to a lender', flows: BOTH,
     }],
     rules: [{ title: '"You applied" message rules', keys: ['applied.minGapMinutes', 'applied.maxLateHours', 'applied.maxAgeHours'] }],
   },
@@ -120,6 +128,12 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
 /** Everything for one stage; an unknown stage gets an empty sequence. */
 export function sequenceFor(stageKey: string): StageSequence {
   return STAGE_SEQUENCES[stageKey] ?? { sources: [], rules: [] };
+}
+
+/** What one tab shows for a stage: only the message jobs and rule groups that apply to that side. */
+export function sequenceForFlow(stageKey: string, flow: FlowSide): StageSequence {
+  const seq = sequenceFor(stageKey);
+  return { ...seq, sources: seq.sources.filter((x) => x.flows.includes(flow)), rules: seq.rules.filter((g) => (g.flows ?? BOTH).includes(flow)) };
 }
 
 /** The key that holds a stage's own copy of a source's schedule, or null when that source has no per-stage version. */
@@ -185,8 +199,9 @@ export function jobSteps(
   rowsFor: (source: SequenceSource) => readonly SchedRow[],
   isOn: (switchKey: string) => boolean,
   minutesOf: (key: string) => number | null,
+  flow?: FlowSide,
 ): JobStep[] {
-  const seq = sequenceFor(stageKey);
+  const seq = flow ? sequenceForFlow(stageKey, flow) : sequenceFor(stageKey);
   const out: JobStep[] = [];
   for (const s of seq.sources) {
     const live = s.switches.every(isOn);

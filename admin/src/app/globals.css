@@ -166,6 +166,14 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .tab-count { margin-left: 6px; color: var(--text-faint); font-weight: 700; font-size: 12px; }
 .tab-item.active .tab-count { color: var(--brand); }
 
+/* ── Configs page: provider tabs ── */
+.cfg-tabs { display: flex; gap: 4px; padding: 4px; margin-top: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; scrollbar-width: none; }
+.cfg-tabs::-webkit-scrollbar { display: none; }
+.cfg-tab { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 9px 16px; border: none; background: transparent; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
+.cfg-tab:hover { color: var(--text); background: rgba(16, 24, 40, .04); }
+.cfg-tab.active { background: var(--surface); color: var(--brand-ink); box-shadow: 0 1px 2px rgba(16, 24, 40, .08), 0 0 0 1px var(--border); }
+.cfg-tab-ico { font-size: 15px; line-height: 1; }
+
 /* ── identity header (customer detail) ──────────────────────────────────
    One row: avatar, name and the contact values, all centred on the same
    axis. Profile fields sit below in labelled groups — labels
@@ -599,3 +607,23 @@ button:focus-visible, a:focus-visible, .chip-filter:focus-visible, .tab-item:foc
 @keyframes ab-pulse { 0% { transform: scale(.75); opacity: 0; } 15% { opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
 @keyframes ab-rush { 0% { transform: translateX(-30vw); opacity: 0; } 12% { opacity: 1; } 55% { opacity: 1; } 100% { transform: translateX(115vw); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .ab-orb, .ab-halo, .ab-line { animation: none; } .ab-line { display: none; } }
+
+/* Stage outreach: App / Website switch */
+.so-flows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.so-flow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s; }
+.so-flow:hover { border-color: var(--text-faint); }
+.so-flow.active { border-color: var(--brand); background: var(--teal-bg); box-shadow: 0 0 0 1px var(--brand) inset; }
+.so-flow-ico { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: var(--grey-bg); color: var(--text-dim); flex: none; }
+.so-flow.active .so-flow-ico { background: var(--brand); color: #fff; }
+.so-flow-text b { display: block; font-size: 15px; line-height: 1.2; }
+.so-flow-text span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-dim); }
+@media (max-width: 560px) { .so-flows { grid-template-columns: 1fr; } }
+
+/* WhatsApp templates table (modelled on the Vox portal list) */
+table.brand-table th { background: var(--brand); color: #fff; text-transform: none; letter-spacing: 0; font-size: 12.5px; position: static; border-bottom: none; }
+table.brand-table th:first-child { border-top-left-radius: 8px; }
+table.brand-table th:last-child { border-top-right-radius: 8px; }
+table.brand-table tr.tpl-open, table.brand-table tr.tpl-open:hover { background: var(--surface); cursor: default; }
+table.brand-table td { vertical-align: middle; }
+.row-act { padding: 6px 8px; line-height: 0; }
+.pager-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  STAGE_SEQUENCES, byTime, findOverlaps, isStageTimingKey, jobSteps, ownScheduleKey, sequenceFor, stageTimingKeys, stagesUsing,
+  STAGE_SEQUENCES, byTime, findOverlaps, isStageTimingKey, jobSteps, ownScheduleKey, sequenceFor, sequenceForFlow, stageTimingKeys, stagesUsing,
   type SchedRow, type SequenceSource, type TimelineEntry,
 } from './stageSequences';
 
@@ -128,5 +128,33 @@ describe('byTime and findOverlaps', () => {
   it('exactly 15 minutes apart still counts; 16 does not', () => {
     expect(findOverlaps([e('rule', 30), e('job', 15)])).toHaveLength(1);
     expect(findOverlaps([e('rule', 31), e('job', 15)])).toHaveLength(0);
+  });
+});
+
+describe('sequenceForFlow (which tab shows which job)', () => {
+  it('the website reminders and their rules belong to the Website tab only', () => {
+    for (const stage of ['otp_requested', 'otp_verified', 'eligibility_started']) {
+      expect(sequenceForFlow(stage, 'app').sources.some((x) => x.id === 'install' || x.id === 'unverified'), `app:${stage}`).toBe(false);
+    }
+    expect(sequenceForFlow('otp_verified', 'website').sources.map((x) => x.id)).toEqual(['install']);
+    expect(sequenceForFlow('otp_verified', 'app').rules).toEqual([]);
+    expect(sequenceForFlow('otp_verified', 'website').rules).toHaveLength(1);
+  });
+
+  it('drop-off, "you applied" and the no-offers call show on both tabs', () => {
+    for (const flow of ['app', 'website'] as const) {
+      expect(sequenceForFlow('eligibility_started', flow).sources.some((x) => x.id === 'dropoff'), flow).toBe(true);
+      expect(sequenceForFlow('offer_selected', flow).sources.map((x) => x.id), flow).toEqual(['applied']);
+      expect(sequenceForFlow('eligibility_completed', flow).call?.id, flow).toBe('nooffers');
+    }
+  });
+
+  it('jobSteps for a tab leaves out the other side\'s reminders', () => {
+    const rows = () => rows3;
+    const rows3 = [{ channel: 'whatsapp', afterMinutes: 1 }] as SchedRow[];
+    const app = jobSteps('eligibility_started', rows, () => true, () => null, 'app');
+    const web = jobSteps('eligibility_started', rows, () => true, () => null, 'website');
+    expect(app.map((x) => x.sourceId)).toEqual(['dropoff']);
+    expect(web.map((x) => x.sourceId).sort()).toEqual(['dropoff', 'install']);
   });
 });

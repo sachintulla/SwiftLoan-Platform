@@ -94,7 +94,7 @@ model User {
   // loanPurpose etc. above) — a real LoanApplication.amount doesn't exist
   // yet at the point the voice agent collects this conversationally, so it
   // has nowhere else to persist until basic is actually reached. Plain
-  // rupees, same convention as LoanApplication.amount (NOT paise).
+  // whole rupees, same as LoanApplication.amount.
   draftLoanAmount     Int?
 
   lang           Lang            @default(en)
@@ -321,7 +321,7 @@ model MarketLoanOffer {
 
   badge String? // e.g. "Best rate"
 
-  maxAmount        Int? // "Up to ₹X", in paise; null if amountAtApproval
+  maxAmount        Int? // "Up to ₹X", in whole rupees; null if amountAtApproval
   amountAtApproval Boolean @default(false) // e.g. MoneyView: no amount shown
 
   rateMin        Float?
@@ -447,6 +447,11 @@ model LenderApplication {
   // KFT/Aurix ids used to match inbound status webhooks to THIS application.
   kftApplicationId String?
   failureReason    String?
+  /// The lender's own words from its latest status push (`journey.reason`), e.g. "Unknown error. (at lender selection)".
+  /// ADMIN ONLY: hidden from every query by default (lib/prisma.ts omit) so it never reaches the customer app, which
+  /// shows `failureReason` in red. Cleared when the lender moves on. Read it with an explicit `select` (lib/lenderNote.ts).
+  lenderNote       String?
+  lenderNoteAt     DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -772,7 +777,7 @@ model Lead {
   phone           String
   city            String?
   productInterest String?
-  amount          Int? // paise
+  amount          Int? // whole rupees
   /// Auto-generated at creation ("Interested in a ₹X Y loan — ..."), and
   /// admin-editable afterward via PATCH /api/admin/leads/:id — was
   /// ContextSession.summary and AnonymousLead.note, which held the same text.
@@ -1316,7 +1321,7 @@ model CampaignContact {
   email   String?
   city    String?
   product String?
-  amount  Int? // paise
+  amount  Int? // whole rupees
   /// Any extra spreadsheet columns, preserved as uploaded.
   extra   Json?
 
@@ -1485,6 +1490,8 @@ model StallRule {
   /// Don't re-fire the same rule for the same customer inside this window.
   cooldownMinutes Int             @default(1440)
   enabled         Boolean         @default(true)
+  /// Who this rule applies to: 'all' (website and app), 'app' or 'website'. Matched against the channel of the event that triggers it.
+  surface         String          @default("all")
   /// Observability, so the dashboard can show whether a rule ever matches.
   lastFiredAt     DateTime?
   firedCount      Int             @default(0)
@@ -1496,7 +1503,7 @@ model StallRule {
   /// and a (later, longer-cooldown) voice rule — push at 15 minutes, call at 45 if
   /// they still have not moved. With the old two-column key the voice rule
   /// collided with the push one and could never be created.
-  @@unique([triggerEvent, expectedEvent, channel])
+  @@unique([triggerEvent, expectedEvent, channel, surface])
   @@index([enabled])
 }
 
@@ -1554,7 +1561,7 @@ model PrequalifyingOffer {
   logoUrl              String?
   icon                 String    @default("account_balance") // fallback glyph
   badge                String? // e.g. "Pre-approved" · "Instant"
-  /// Firm pre-approved amount, in paise (server convention).
+  /// Firm pre-approved amount, in whole rupees.
   amount               Int
   /// Firm annual interest rate, %.
   rate                 Float

@@ -22,7 +22,7 @@ import { newReferralCode } from './attribution.js';
 import { withinCallingHours } from './leadCaller.js';
 import { downloads } from '../config/downloads.js';
 import { getProviderConfig } from './integrations.js';
-import { sendVoxSms, smsConfigured } from './voxSms.js';
+import { otpGatewayConfigured, sendSmsViaOtpGateway, sendVoxSms, smsConfigured } from './voxSms.js';
 import { sendWhatsAppTemplate, whatsappConfigured } from './whatsapp.js';
 import { buildPlaceholders } from './stallWhatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
@@ -230,9 +230,18 @@ async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastSte
     const templateId = String(cfg.settings.installSmsTemplateId ?? '').trim();
     const body = String(cfg.settings.installSmsBody ?? '');
     if (!templateId || !body.includes('{link}')) return { outcome: 'skipped', reason: 'sms template not configured' };
-    if (!(await smsConfigured())) return { outcome: 'skipped', reason: 'sms gateway not configured' };
     const text = renderSmsBody(body, { name: r.firstName, step: stepLabel, link });
-    const res = await sendVoxSms({ phone: r.phone, body: text, templateId, track: { kind: 'install_reminder', customerId: r.customerId } });
+    const track = { kind: 'install_reminder', customerId: r.customerId };
+    // `installSmsGateway: "otp"` sends through the server's own Vox project (env VOX_*, the one that delivers OTPs) instead of the
+    // Voxvalley integration's project, which has no route for the PTSLA sender.
+    if (String(cfg.settings.installSmsGateway ?? '').trim().toLowerCase() === 'otp') {
+      if (!otpGatewayConfigured()) return { outcome: 'skipped', reason: 'sms gateway not configured (OTP gateway env)' };
+      const sender = String(cfg.settings.installSmsSender ?? cfg.settings.smsSender ?? '').trim();
+      const sent = await sendSmsViaOtpGateway({ phone: r.phone, body: text, templateId, from: sender, track });
+      return sent.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (sent.error ?? 'sms failed').slice(0, 200) };
+    }
+    if (!(await smsConfigured())) return { outcome: 'skipped', reason: 'sms gateway not configured' };
+    const res = await sendVoxSms({ phone: r.phone, body: text, templateId, track });
     return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'sms failed').slice(0, 200) };
   }
 

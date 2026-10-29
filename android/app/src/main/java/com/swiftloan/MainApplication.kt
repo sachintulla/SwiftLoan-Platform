@@ -76,11 +76,13 @@ class MainApplication : UpshotApplication(), ReactApplication {
     }
   }
 
-  /** Forward once the SDK is authenticated; retry up to ~15s, then give up (onNewToken still covers rotation). */
+  /** Forward once the SDK is authenticated; retry up to ~60s, then give up (onNewToken still covers rotation).
+   *  Needs no login: it runs on the first launch after install. The key must be BKExternalIds.GCM ("gcm") —
+   *  the SDK ignores any other key, so the token never reached the dashboard under the old "gcmId". */
   private fun sendTokenToUpshot(token: String, attempt: Int) {
     val bk = com.brandkinesis.BrandKinesis.getBKInstance()
     if (bk == null) {
-      if (attempt >= 10) {
+      if (attempt >= 40) {
         android.util.Log.w("SwiftLoanPush", "Upshot not ready after retries; initial token not forwarded")
         return
       }
@@ -89,7 +91,7 @@ class MainApplication : UpshotApplication(), ReactApplication {
       return
     }
     try {
-      val info = android.os.Bundle().apply { putString("gcmId", token) }
+      val info = android.os.Bundle().apply { putString(com.brandkinesis.BKUserInfo.BKExternalIds.GCM, token) }
       bk.setUserInfoBundle(info, null)
       android.util.Log.d("SwiftLoanPush", "FCM token forwarded to Upshot at startup")
     } catch (e: Exception) {

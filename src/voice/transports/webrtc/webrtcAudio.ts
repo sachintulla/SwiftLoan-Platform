@@ -5,6 +5,7 @@
 // ./README.md for why this differs from the default transport's approach.
 import { mediaDevices } from 'react-native-webrtc';
 import type { MediaStream } from 'react-native-webrtc';
+import { pickIceServers } from './iceServers';
 
 // Optional peer dependency — defensively required so this file (and the whole
 // transport) still loads if it's absent; speaker routing then falls back to
@@ -18,21 +19,14 @@ try {
   // absent — see comment above.
 }
 
-// Based on ellomobilesdk's OPTIMIZED_ICE_SERVERS (src/config/index.ts) —
-// its own comment names the reason: "Many mobile networks (Jio, Airtel, vivo
-// OEM ROMs)... use strict NAT that blocks inbound UDP... TURN relay on
-// TCP/443 bypasses this — it's the only reliable fix." Our test devices are
-// on Airtel — this is not a hypothetical for us. Plain STUN alone (what this
-// file used to configure) cannot establish media on networks like that.
-// (Dropped ellomobilesdk's Twilio STUN entry — no vendor dependency there.)
-export const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  {
-    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
+// ICE servers: see ./iceServers.ts for the rule. A release build uses a TURN relay only if one is configured
+// (`globalThis.SWIFTLOAN_ICE_SERVERS`); the free public relay is a debug-build convenience. Ello's own SDK notes why a
+// relay matters: strict-NAT mobile networks (Jio, Airtel, some OEM ROMs) block inbound UDP, and TURN over TCP/443 is
+// the only reliable fix there.
+export const ICE_SERVERS = pickIceServers(
+  (globalThis as any).SWIFTLOAN_ICE_SERVERS,
+  typeof __DEV__ !== 'undefined' && __DEV__,
+);
 
 /**
  * Waits (briefly) for ICE candidate gathering so the SDP we send has real

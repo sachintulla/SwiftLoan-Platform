@@ -2,7 +2,7 @@
 // wording and the reasons a row's actions are switched off. No React and no
 // network, so every rule here is covered by installs.test.ts.
 
-import { inrRupees } from './format';
+import { inr } from './format';
 
 /* ───────────────────────────── API shapes ───────────────────────────── */
 
@@ -183,7 +183,7 @@ export function channelLabel(c: string | null | undefined): string {
 /** "Asked for ₹5,00,000 Personal Loan", or a plain statement that nothing came with the link. */
 export function loanDetailsText(c: InstallContext | null): string {
   if (!c) return 'No details were sent';
-  const amount = c.amountRupees != null && c.amountRupees > 0 ? inrRupees(c.amountRupees) : null;
+  const amount = c.amountRupees != null && c.amountRupees > 0 ? inr(c.amountRupees) : null;
   const product = c.product || null;
   if (amount && product) return `Asked for ${amount} ${product}`;
   if (amount) return `Asked for ${amount}`;

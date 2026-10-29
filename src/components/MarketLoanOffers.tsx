@@ -13,8 +13,7 @@ import { useStore, useT } from '../state/store';
 
 function amountLine(p: MarketLoanOffer) {
   if (p.amountAtApproval) return { label: 'Amount at approval', value: '' };
-  // maxAmount is in paise (server convention) — tokens.ts's inr() expects rupees.
-  return { label: 'Up to', value: p.maxAmount != null ? inr(Math.round(p.maxAmount / 100)) : '—' };
+  return { label: 'Up to', value: p.maxAmount != null ? inr(Math.round(p.maxAmount)) : '—' };
 }
 
 function rateTenureLine(p: MarketLoanOffer): string[] {

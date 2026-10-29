@@ -353,6 +353,7 @@ await t('S34', 'claim', 'a same-IP guess is attributed but never carries a phone
   assert.equal(c.body.data.matched, true, 'the IP match must actually happen so the rule is exercised'); assert.equal(c.body.data.method, 'ip_window');
   assert.equal(c.body.data.resume ?? null, null); assert.ok(!JSON.stringify(c.body).includes(w.phone));
   assert.equal(c.body.data.resume_hint, true, 'but it says a website journey is likely, with nothing personal in it');
+  assert.ok(['otp_only', 'pan_done', 'application_started'].includes(c.body.data.hint_last_step), 'and how far it got, so the app can say where they stopped');
   assert.ok(!JSON.stringify(c.body).includes(w.reminder!.token), 'the hint does not carry the link reference either');
 });
 await t('S34b', 'claim', 'the "likely journey" hint is only for a same-IP match whose link has a fresh journey', async () => {

@@ -315,7 +315,7 @@ export async function getConversationContext(phoneRaw: string, limit = CONTEXT_L
     lead: lead
       ? {
           product: lead.productInterest,
-          amountRupees: lead.amount != null ? Math.round(lead.amount / 100) : null,
+          amountRupees: lead.amount ?? null,
           source: lead.source,
           submittedAt: lead.createdAt,
           note: lead.note,

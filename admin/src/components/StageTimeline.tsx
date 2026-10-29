@@ -18,7 +18,7 @@ import { Chip, type Catalog, type TemplatesPayload } from '@/components/whatsapp
 import { CHANNEL_LABEL, Icon, duration, type Channel } from '@/components/stageOutreachUi';
 import { same, sensitive, show, toDraft, toValue, localError, rowsToUi, uiToRows, spanText, type Draft, type Item, type SchedRow, type UiRow } from '@/lib/timingsEdit';
 import {
-  byTime, findOverlaps, jobSteps, ownScheduleKey, sequenceFor, stagesUsing,
+  byTime, findOverlaps, jobSteps, ownScheduleKey, sequenceForFlow, stagesUsing,
   type JobStep, type SequenceSource, type TimelineEntry,
 } from '@/lib/stageSequences';
 
@@ -81,8 +81,8 @@ function StageSchedule({ shared, own, draft, customised, edited, problem, canEdi
   );
 }
 
-export default function StageTimeline({ stageKey, stages, rules }: { stageKey: string; stages: StageRef[]; rules: RuleEntry[] }) {
-  const seq = sequenceFor(stageKey);
+export default function StageTimeline({ stageKey, flow, stages, rules }: { stageKey: string; flow: 'app' | 'website'; stages: StageRef[]; rules: RuleEntry[] }) {
+  const seq = sequenceForFlow(stageKey, flow);
   const label = (k: string) => stages.find((s) => s.key === k)?.label ?? k;
 
   const { data: cRes, mutate: mutateCat } = useSWR('/api/admin/whatsapp/catalog', swrFetcher);
@@ -145,7 +145,7 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
     const v = d !== undefined ? Number(d) : Number(it.effective);
     return Number.isFinite(v) ? v : null;
   };
-  const jobs: JobStep[] = jobSteps(stageKey, rowsFor, isOn, minutesOf);
+  const jobs: JobStep[] = jobSteps(stageKey, rowsFor, isOn, minutesOf, flow);
 
   const ruleEntries: Array<TimelineEntry & { node: React.ReactNode }> = rules.map((r) => ({
     key: `rule:${r.key}`, group: 'rule' as const, channel: r.channel, afterMinutes: r.afterMinutes, live: r.enabled, label: r.label, node: r.node,
@@ -195,7 +195,7 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
         const on = !!it?.effective;
         return <Chip key={k} tone={on ? 'green' : 'amber'} title={it?.label}>{it?.label ?? k}: {on ? 'on' : 'off'}</Chip>;
       })}
-      <Link href="/timings" className="muted" style={{ fontSize: 12, textDecoration: 'underline' }}>Switch on or off in Timings</Link>
+      <Link href="/timings" className="muted" style={{ fontSize: 12, textDecoration: 'underline' }}>Change in Timings</Link>
     </div>
   );
 
@@ -208,7 +208,6 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
       const d = edits[call.delayKey] ?? toDraft(it);
       return (
         <div style={{ padding: '4px 14px 14px' }}>
-          <div className="muted" style={{ fontSize: 12.5, margin: '6px 0 8px' }}>{call.label}. The Ello agent rings the person once, after the wait below, in calling hours.</div>
           {switchChips(call.switches)}
           <div className="tm-row tm-row-wide" style={{ padding: '10px 0' }}>
             <div><div className="tm-label">{it.label}</div><div className="tm-help">{it.help}</div></div>
@@ -227,9 +226,6 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
     const msgs = source.messages.map((k) => catalog?.items.find((i) => i.key === k)).filter((i): i is NonNullable<typeof i> => !!i);
     return (
       <div style={{ padding: '4px 14px 14px' }}>
-        <div className="muted" style={{ fontSize: 12.5, margin: '6px 0 8px' }}>
-          {source.label} · {source.audience}. Minutes are counted from when {source.from}.
-        </div>
         {switchChips(source.switches)}
         {msgs.length > 0 && (
           <div style={{ marginBottom: 10 }}>
@@ -275,7 +271,8 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
     const open = openStep === step.key;
     const channel = step.channel as Channel;
     const source = seq.sources.find((s) => s.id === step.sourceId);
-    const audience = step.kind === 'call' ? seq.call!.audience : source!.audience;
+    const short: Record<string, string> = { install: 'Reminder', unverified: 'OTP reminder', dropoff: 'Drop-off', applied: 'Applied' };
+    const sub = step.kind === 'call' ? 'Phone call' : `${short[step.sourceId] ?? 'Reminder'}${total > 1 ? ` ${index + 1} of ${total}` : ''}`;
     return (
       <div className="so-step">
         <div className="so-when">+ {duration(step.afterMinutes)}</div>
@@ -286,13 +283,10 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenStep(open ? null : step.key); } }}
           >
             <div className="so-card-main">
-              <div className="so-card-name">
-                {CHANNEL_LABEL[channel]}
-                <span className="so-chip" style={{ background: 'var(--blue-bg)', color: '#1657a8' }}>{step.kind === 'call' ? 'Call job' : 'Message job'}</span>
-              </div>
-              <div className="so-card-sum">{step.label} · {audience}{total > 1 ? ` · ${index + 1} of ${total}` : ''}</div>
+              <div className="so-card-name">{CHANNEL_LABEL[channel]}</div>
+              <div className="so-card-sum">{sub}</div>
             </div>
-            {step.live ? <Chip tone="green">Sending</Chip> : <Chip tone="amber" title="Log only: it records what it would send and sends nothing.">Log only</Chip>}
+            {step.live ? <Chip tone="green">Sending</Chip> : <Chip tone="grey" title="Switched off in Timings, so nothing is sent.">Not sending</Chip>}
             <svg className="so-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
           </div>
           {open && renderJobEditor(step)}
@@ -306,13 +300,13 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
   return (
     <>
       {nothing ? (
-        <div className="so-empty">Nothing is set up for this stage yet. Add a follow-up below.</div>
+        <div className="so-empty">Nothing here yet.</div>
       ) : (
         <div className="so-tl">
           <div className="so-step">
             <div className="so-when">0 min</div>
             <div className="so-node origin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="3" /></svg></div>
-            <div className="so-origin-text">The customer stops here</div>
+            <div className="so-origin-text">Customer stops here</div>
           </div>
           {timeline.map((e) => {
             if (e.group === 'rule') return <React.Fragment key={e.key}>{e.node}</React.Fragment>;
@@ -324,20 +318,14 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
       )}
 
       {overlaps.length > 0 && (
-        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--amber-bg)', color: '#7a4b06', fontSize: 12.5, lineHeight: 1.5 }}>
-          <b>Close together.</b> These come from two different places, which do not know about each other, so a person could get both within minutes:
-          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-            {overlaps.map(([r, j], i) => (
-              <li key={i}>{CHANNEL_LABEL[r.channel as Channel]} at +{duration(r.afterMinutes)} (stuck-stage follow-up) and {CHANNEL_LABEL[j.channel as Channel]} at +{duration(j.afterMinutes)} ({j.label})</li>
-            ))}
-          </ul>
+        <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 10, background: 'var(--amber-bg)', color: '#7a4b06', fontSize: 12.5 }}>
+          ⚠ Close together: {overlaps.map(([r, j]) => `${CHANNEL_LABEL[r.channel as Channel]} +${duration(r.afterMinutes)} and ${CHANNEL_LABEL[j.channel as Channel]} +${duration(j.afterMinutes)}`).join('; ')}
         </div>
       )}
-      {seq.note && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>{seq.note}</div>}
 
       {hasRules && (
         <details style={{ marginTop: 18 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 650 }}>Rules for these messages (gap between messages, how late, how old)</summary>
+          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 650 }}>Message limits</summary>
           <div style={{ display: 'grid', gap: 14, marginTop: 12 }}>
             {seq.rules.map((g) => (
               <div key={g.title} style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
@@ -392,10 +380,7 @@ export default function StageTimeline({ stageKey, stages, rules }: { stageKey: s
           {notice && <span style={{ fontSize: 12.5, color: notice.ok ? 'var(--green)' : 'var(--red)' }}>{notice.text}</span>}
         </div>
       )}
-      {!canEdit && (seq.sources.length > 0 || hasRules || seq.call) && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>Only a super admin can change these timings.</div>}
-      <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-        Sending switches, calling hours, call limits and login times apply to every stage and are on the <Link href="/timings" style={{ textDecoration: 'underline' }}>Timings page</Link>.
-      </div>
+      {!canEdit && (seq.sources.length > 0 || hasRules || seq.call) && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>View only</div>}
 
       {confirm === 'save' && (
         <ConfirmDialog

@@ -24,8 +24,8 @@ import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, typ
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
-import { initUpshot, upshotScreen, upshotEvent, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
-import { UPSHOT_DEMO } from '../config/build';
+import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPush, subscribeUpshotLinks, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { resolveLinkTarget, type LinkTarget } from '../analytics/upshotLinks';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
@@ -38,7 +38,7 @@ export const SCREEN_NAMES = [
   'home', 'loans', 'fare', 'help', 'profile', 'legal',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral',
+  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral', 'notifications',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -57,6 +57,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
   referral: 'referral', referrals: 'referral', referafriend: 'referral', invitefriends: 'referral', invite: 'referral',
+  notifications: 'notifications', notification: 'notifications', inbox: 'notifications', alerts: 'notifications',
   applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
 
@@ -150,6 +151,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   compare: 'fare',
   referral: 'profile',
   legal: 'profile',
+  notifications: 'home',
 };
 
 export interface AppState {
@@ -764,6 +766,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setTokens(tokens.accessToken, tokens.refreshToken);
       try {
         const { user }: any = await api.me();
+        // A restored session never passes through the OTP screen, so identify here too — otherwise
+        // an already-signed-in user keeps a device token on Upshot but no App UID, name or email.
+        if (user?.id) upshotIdentify({ userId: String(user.id), phone: user.phone, name: user.fullName, email: user.email });
         dispatch({
           type: 'set',
           patch: {
@@ -1098,7 +1103,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
         }
         // The install came from a website visitor's own link: offer to continue where they left off.
-        // A same-network match (resume_hint) only lets the app ask "did you start one on our website?"; nothing about the person.
+        // A same-network match (resume_hint) carries only the step reached, never a name or phone; no match = the normal introduction.
         const patch = resumePatchFromClaim(claim);
         if (patch) dispatch({ type: 'set', patch });
       })().catch(() => undefined);
@@ -1111,19 +1116,60 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     initMeta();
     if (initUpshot()) {
       upshotEvent('app_opened', { platform: UPSHOT_PLATFORM });
-      // Demo/test builds only (pointed at a dev or local backend): ask for push
-      // permission at launch so a test push can be sent without walking through
-      // onboarding to the Permissions screen. Production builds keep asking only there.
-      if (UPSHOT_DEMO) registerUpshotPush();
-      // Note: the notification permission (registerUpshotPush) is NOT requested
-      // here. It's requested from the 'Allow permissions' onboarding screen
-      // (permissions.tsx) so nothing prompts the user before they reach it.
+      // Register for push at first launch, on every build, with no login: the device
+      // token must reach Upshot right after install, not only once the user signs in.
+      // (Android's token is also sent natively at launch — MainApplication.kt. On iOS this
+      // is what triggers the permission prompt and the APNs token. The Permissions screen
+      // and post-OTP calls stay as harmless repeats.)
+      registerUpshotPush();
     }
     const sub = RNAppState.addEventListener('change', (s) => {
       if (s === 'background' || s === 'inactive') trackSessionEnd(pagesVisited.current);
     });
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
+
+  // Notification taps and Upshot deep links. A campaign carries key-value pairs (`screen`, or a
+  // `swiftloan://<screen>` `deeplink`; see docs/UPSHOT_DEEPLINKS.md); a tap opens that screen. A target
+  // that needs a signed-in user, or that arrives while the app is still on splash / the privacy gate,
+  // waits in `pendingLink` and is opened once the user reaches Home signed in.
+  const pendingLink = useRef<Screen | null>(null);
+  useEffect(() => {
+    const open = (target: LinkTarget) => {
+      const link = resolveLinkTarget(target, resolveScreenName);
+      if (!link) return;
+      const screen = link.screen as Screen;
+      const s = stateRef.current;
+      const booting = s.screen === 'splash' || s.screen === 'privacy';
+      if (booting || (link.requiresAuth && !s.authUser)) {
+        pendingLink.current = screen;
+        if (!booting && s.screen !== 'mobile' && s.screen !== 'otp') dispatch({ type: 'go', screen: 'mobile' });
+        return;
+      }
+      dispatch({ type: 'go', screen });
+    };
+    // A plain `swiftloan://<screen>` link (from an SMS, the browser, another app) takes the same path.
+    // `swiftloan://onboard?token=…` is the lead handoff, handled elsewhere: resolveLinkTarget ignores it.
+    // iOS can deliver a link that cold-starts the app twice (initial URL + url event): act once.
+    let lastUrl = { url: '', at: 0 };
+    const fromUrl = (url: string | null) => {
+      if (!url || !/^swiftloan:\/\//i.test(url)) return;
+      const now = Date.now();
+      if (url === lastUrl.url && now - lastUrl.at < 3000) return;
+      lastUrl = { url, at: now };
+      open({ url, kv: {} });
+    };
+    Linking.getInitialURL().then(fromUrl).catch(() => {});
+    const urlSub = Linking.addEventListener('url', (e) => fromUrl(e.url));
+    const detach = subscribeUpshotLinks(open);
+    return () => { urlSub.remove(); detach(); };
+  }, []);
+  useEffect(() => {
+    if (state.screen !== 'home' || !state.authUser?.id || !pendingLink.current) return;
+    const screen = pendingLink.current;
+    pendingLink.current = null;
+    dispatch({ type: 'go', screen });
+  }, [state.screen, state.authUser?.id]);
 
   // Activity is only recorded for a signed-in user, so the session starts when one
   // appears (OTP verify, or a restored login on launch) — not at boot.
@@ -1281,7 +1327,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       done = true;
 
       const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);
-      const rupees = ctx.amount ? Math.round(ctx.amount / 100) : undefined;
+      const rupees = ctx.amount ? Math.round(ctx.amount) : undefined;
       dispatch({
         type: 'set',
         patch: {

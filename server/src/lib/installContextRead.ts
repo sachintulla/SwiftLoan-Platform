@@ -16,8 +16,7 @@
  * Everything here is pure (no database, no clock) so the rules can be unit
  * tested. The route in modules/adminInstalls.routes.ts does the batched reads.
  *
- * Units: Lead.amount is in PAISE; LoanApplication.amount and the install_link
- * payload amount are in whole RUPEES. Everything leaving this module is rupees.
+ * Units: every amount (Lead.amount, LoanApplication.amount, the install_link payload amount) is in whole rupees.
  */
 
 export type Confidence = 'confirmed' | 'probable' | 'none';
@@ -88,11 +87,6 @@ export function productLabel(raw: unknown): string | null {
   return ['personal', 'business', 'home', 'education', 'vehicle'].includes(words) ? `${titled} Loan` : titled;
 }
 
-/** Lead.amount is paise; whole rupees out. */
-export const paiseToRupees = (paise: unknown): number | null => {
-  const n = finiteNum(paise);
-  return n == null || n <= 0 ? null : Math.round(n / 100);
-};
 const positiveRupees = (v: unknown): number | null => {
   const n = finiteNum(v);
   return n == null || n <= 0 ? null : Math.round(n);
@@ -173,7 +167,7 @@ export interface ContextSources {
   installLink?: (InstallLinkInfo & { adminLabel?: string | null; recordedAt?: string | null }) | null;
   reminder?: { firstName: string | null; phone: string | null; history: unknown; createdAt?: string | null } | null;
   lenderNudge?: { firstName: string | null; phone: string | null; lenderName: string | null; history: unknown; createdAt?: string | null } | null;
-  lead?: { name: string | null; phone: string | null; productInterest: string | null; amountPaise: number | null; source: string | null; createdAt: string | null } | null;
+  lead?: { name: string | null; phone: string | null; productInterest: string | null; amountRupees: number | null; source: string | null; createdAt: string | null } | null;
   referral?: { ownerName: string | null } | null;
   /** The matched user's latest loan application; used only to fill gaps, never to invent a context. */
   loan?: { amountRupees: number | null; loanType: string | null } | null;
@@ -257,7 +251,7 @@ export function pickContext(s: ContextSources): InstallContext | null {
     const by = leadSentBy(l.source);
     return {
       ...fill({
-        ...EMPTY, name: l.name, phone: l.phone, product: productLabel(l.productInterest), amountRupees: paiseToRupees(l.amountPaise),
+        ...EMPTY, name: l.name, phone: l.phone, product: productLabel(l.productInterest), amountRupees: positiveRupees(l.amountRupees),
         stageWhenSent: 'lead_captured', sentVia: by.via, sentAt: l.createdAt,
       }),
       sentBy: { type: by.type, label: by.label },

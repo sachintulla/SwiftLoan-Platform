@@ -106,7 +106,7 @@ contextRouter.post('/create', ah(async (req, res) => {
     }).catch(() => {});
   }
 
-  log.info('lead captured', { token, phone: session.phone, product: session.productInterest, amountPaise: session.amount, source: session.source });
+  log.info('lead captured', { token, phone: session.phone, product: session.productInterest, amount: session.amount, source: session.source });
   return created(res, { token, ...contextLinks(token), context: publicContext(session) }, 'Context saved');
 }));
 
@@ -137,7 +137,7 @@ function publicContext(s: {
     name: s.name,
     city: s.city,
     product: s.productInterest,
-    amount: s.amount, // paise
+    amount: s.amount, // rupees
     summary: s.note,
     source: s.source,
     greeting: buildGreeting(s),
@@ -147,7 +147,7 @@ function publicContext(s: {
 // A ready-to-speak continuation line for the in-app agent.
 function buildGreeting(s: { name: string | null; productInterest: string | null; amount: number | null }): string {
   const who = s.name ? `Hi ${s.name}! ` : 'Welcome back! ';
-  const amt = s.amount ? `₹${(s.amount / 100).toLocaleString('en-IN')}` : '';
+  const amt = s.amount ? `₹${s.amount.toLocaleString('en-IN')}` : '';
   const prod = s.productInterest ? s.productInterest.toLowerCase() : 'loan';
   if (amt) return `${who}As we discussed, you're interested in a ${amt} ${prod}. Let's continue your application from here.`;
   return `${who}Let's continue your ${prod} application from where we left off.`;

@@ -1,8 +1,8 @@
 /**
  * Upshot identifiers for the WEBSITE.
  *
- * The website is its own app in the Upshot console (separate from the mobile
- * "Swiftloan" / "Swiftloan_prod" apps), so web traffic has its own dashboard,
+ * The website reports to the production Upshot app "Swiftloan_prod" — the same
+ * app as the production mobile build — so web and app activity share one dashboard,
  * campaigns and segments. All three values are public client identifiers (the
  * browser SDK sends them with every request), not secrets — same as the mobile
  * app, which hard-codes its own pair in `src/analytics/upshot.ts`.
@@ -19,13 +19,13 @@
  * staging build at a separate Upshot app).
  */
 export const UPSHOT_APP_ID =
-  process.env.NEXT_PUBLIC_UPSHOT_APP_ID || '18a089e8-0a20-4510-bb98-2fdb49b7e271';
+  process.env.NEXT_PUBLIC_UPSHOT_APP_ID || 'f8ac8f46-ba91-4d54-a8de-da4546e85fdb';
 
 export const UPSHOT_OWNER_ID =
   process.env.NEXT_PUBLIC_UPSHOT_OWNER_ID || '6cfe2c70-4130-46d5-9202-54252d38e57f';
 
 /** Server-side only (Enterprise Access API). Never passed to the browser SDK. */
-export const UPSHOT_ENTERPRISE_ID = '029baddc-eed8-4099-9d51-b4e243fed4d1';
+export const UPSHOT_ENTERPRISE_ID = '9e785a44-e243-4492-93d2-b40738fc93b2';
 
 /**
  * Kill switch: `NEXT_PUBLIC_UPSHOT_DISABLED=true` stops the SDK from loading at

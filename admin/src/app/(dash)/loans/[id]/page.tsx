@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatusBadge, LoanStatusBadge, StatCard, TableSkeleton } from '@/components/ui';
-import { inrRupees, dateStr, dateTimeStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
+import { inr, dateStr, dateTimeStr, humanStatus, loanStatusLabel, timeAgo } from '@/lib/format';
 import { LenderTrack, LenderRollup } from '@/components/journey';
 import { withoutNudgeEvents } from '@/lib/flags';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
@@ -75,7 +75,7 @@ export default function LoanDetail() {
 
       <div className="stack">
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
-        <StatCard label="Amount" value={inrRupees(app.amount)} tone="blue" />
+        <StatCard label="Amount" value={inr(app.amount)} tone="blue" />
         <StatCard label="Type" value={<span style={{ textTransform: 'capitalize' } as React.CSSProperties}>{app.loanType}</span>} tone="teal" />
         <StatCard label="Tenure" value={`${app.tenureMonths} mo`} tone="grey" />
         <StatCard label="Offers" value={app.offers?.length ?? 0} tone="amber" />
@@ -110,7 +110,7 @@ export default function LoanDetail() {
             <div className="table-wrap"><table className="data">
               <thead><tr><th>Lender</th><th>APR</th><th>EMI</th><th>Fee</th><th>Status</th><th></th></tr></thead>
               <tbody>{app.offers.map((o: any) => (
-                <tr key={o.id}><td>{o.lenderName ?? o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inrRupees(o.emi)}</td><td className="mono">{inrRupees(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
+                <tr key={o.id}><td>{o.lenderName ?? o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inr(o.emi)}</td><td className="mono">{inr(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
               ))}</tbody>
             </table></div>
           )}
@@ -119,16 +119,16 @@ export default function LoanDetail() {
         <Card title="Loan & repayments">
           {!loan ? <div className="empty">Not disbursed yet</div> : (
             <>
-              <div className="row between" style={{ marginBottom: 10 }}><span className="muted">Principal</span><b className="mono">{inrRupees(loan.principal)}</b></div>
-              <div className="row between" style={{ marginBottom: 10 }}><span className="muted">EMI</span><b className="mono">{inrRupees(loan.emiAmount)}</b></div>
-              <div className="row between" style={{ marginBottom: 10 }}><span className="muted">Outstanding</span><b className="mono">{inrRupees(loan.outstanding)}</b></div>
+              <div className="row between" style={{ marginBottom: 10 }}><span className="muted">Principal</span><b className="mono">{inr(loan.principal)}</b></div>
+              <div className="row between" style={{ marginBottom: 10 }}><span className="muted">EMI</span><b className="mono">{inr(loan.emiAmount)}</b></div>
+              <div className="row between" style={{ marginBottom: 10 }}><span className="muted">Outstanding</span><b className="mono">{inr(loan.outstanding)}</b></div>
               <div className="row between" style={{ marginBottom: 14 }}><span className="muted">Status</span><StatusBadge status={loan.status} /></div>
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Repayments ({loan.repayments?.length ?? 0})</div>
               <div style={{ maxHeight: 180, overflowY: 'auto' }}>
                 {(loan.repayments ?? []).map((r: any) => (
                   <div key={r.id} className="row between" style={{ padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
                     <span className="mono muted" style={{ fontSize: 12 }}>{dateStr(r.dueDate)}</span>
-                    <span className="mono" style={{ fontSize: 12 }}>{inrRupees(r.amount)}</span>
+                    <span className="mono" style={{ fontSize: 12 }}>{inr(r.amount)}</span>
                     <StatusBadge status={r.status} />
                   </div>
                 ))}

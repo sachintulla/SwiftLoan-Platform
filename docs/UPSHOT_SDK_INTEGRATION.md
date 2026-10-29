@@ -104,9 +104,9 @@ overridable with `NEXT_PUBLIC_UPSHOT_*`):
 
 | Upshot console | Used as |
 |---|---|
-| App SDK ID `18a089e8-0a20-4510-bb98-2fdb49b7e271` | `UpshotApplicationID` |
+| App SDK ID `f8ac8f46-ba91-4d54-a8de-da4546e85fdb` (`Swiftloan_prod`, shared with the production mobile app) | `UpshotApplicationID` |
 | Account ID `6cfe2c70-4130-46d5-9202-54252d38e57f` | `UpshotApplicationOwnerID` (same account as mobile) |
-| Enterprise ID `029baddc-eed8-4099-9d51-b4e243fed4d1` | **not an SDK value** — Enterprise Access (server-side REST) only |
+| Enterprise ID `9e785a44-e243-4492-93d2-b40738fc93b2` | **not an SDK value** — Enterprise Access (server-side REST) only |
 
 **The real Web SDK API** (checked against the official docs, https://www.upshot.ai/documentation/sdk/web/,
 and the v1.4 bundle's `window.upshot`; the older code was wrong):

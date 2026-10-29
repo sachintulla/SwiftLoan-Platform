@@ -6,14 +6,14 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, StatusBadge, LoanStatusBadge } from '@/components/ui';
 import type { LenderOffer } from '@/components/journey';
-import { inrRupees, dateTimeStr } from '@/lib/format';
+import { inr, dateTimeStr } from '@/lib/format';
 
 export interface OfferApplication {
   id: string; ref: string; amount: number; tenureMonths?: number | null; status: string;
   createdAt?: string; offers?: LenderOffer[];
 }
 
-const money = (n?: number | null) => (n ? inrRupees(n) : '—');
+const money = (n?: number | null) => (n ? inr(n) : '—');
 
 function LenderCell({ o }: { o: LenderOffer }) {
   const name = o.lenderName ?? o.partner?.name ?? 'Lender';
@@ -42,7 +42,7 @@ export function ApplicationOffers({ applications }: { applications: OfferApplica
           <Card
             key={a.id}
             title={`Offers · ${a.ref}`}
-            sub={`${offers.length} offer${offers.length === 1 ? '' : 's'} · requested ${inrRupees(a.amount)}${a.tenureMonths ? ` for ${a.tenureMonths} mo` : ''}${a.createdAt ? ` · ${dateTimeStr(a.createdAt)}` : ''}`}
+            sub={`${offers.length} offer${offers.length === 1 ? '' : 's'} · requested ${inr(a.amount)}${a.tenureMonths ? ` for ${a.tenureMonths} mo` : ''}${a.createdAt ? ` · ${dateTimeStr(a.createdAt)}` : ''}`}
             right={<button className="btn" onClick={() => router.push(`/loans/${a.id}`)}>Open application →</button>}
           >
             <div className="table-wrap">

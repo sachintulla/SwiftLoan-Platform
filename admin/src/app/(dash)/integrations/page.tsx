@@ -7,7 +7,8 @@
 import React, { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch, ApiError, getAdmin } from '@/lib/api';
-import { Card, StatusBadge, TableSkeleton, Empty, FilterChips, Select } from '@/components/ui';
+import Link from 'next/link';
+import { Card, StatusBadge, TableSkeleton, Empty, Select } from '@/components/ui';
 import StageOutreach from '@/components/StageOutreach';
 import WhatsAppVox from './WhatsAppVox';
 
@@ -49,14 +50,19 @@ function isObj(v: unknown): v is Record<string, unknown> {
 /** Voxvalley settings that the WhatsApp page's message list owns (see WhatsAppVox.tsx). */
 const VOX_MESSAGE_KEYS = ['stallTemplates', 'installWhatsapp', 'appliedWhatsapp', 'dropoffMessages', 'templateLibrary'];
 
+/** Vox settings that belong to the SMS (Message) side: the gateway, the DLT sender / template ids and the registered texts. */
+const isSmsKey = (k: string) => /^(sms|installSms|appliedSms)/.test(k);
+/** Up front on the Message tab: what the install-reminder SMS needs. Everything else SMS-related is under Advanced. */
+const SMS_ESSENTIAL = ['installSmsGateway', 'installSmsTemplateId', 'installSmsBody'];
+
 const SUB_TABS = [
-  { key: 'ello', label: '☎  Voice calling' },
-  { key: 'agents', label: '🗣  Voice agents' },
-  { key: 'upshot', label: '✉  Messaging' },
-  { key: 'voxvalley', label: '💬  WhatsApp (Vox)' },
-  { key: 'meta_whatsapp', label: '💬  WhatsApp (Meta)' },
-  { key: 'stage-outreach', label: '📞  Stage outreach' },
-  { key: 'api-keys', label: '🔑  API keys' },
+  { key: 'ello', icon: '☎', label: 'Voice calling' },
+  { key: 'agents', icon: '🗣', label: 'Voice agents' },
+  { key: 'upshot', icon: '✉', label: 'Messaging' },
+  { key: 'voxvalley', icon: '💬', label: 'Vox' },
+  { key: 'meta_whatsapp', icon: '💬', label: 'WhatsApp (Meta)' },
+  { key: 'stage-outreach', icon: '📞', label: 'Stage outreach' },
+  { key: 'api-keys', icon: '🔑', label: 'API keys' },
 ] as const;
 type SubTab = (typeof SUB_TABS)[number]['key'];
 
@@ -88,12 +94,16 @@ export default function ConfigsPage() {
 
   return (
     <div className="page">
-      <div className="row between wrap" style={{ gap: 16, alignItems: 'flex-end' }}>
-        <div>
-          <h1 className="page-title">Configs</h1>
-          <p className="page-sub">Connect the voice and messaging providers, then decide which voice agent handles each job.</p>
-        </div>
-        <FilterChips options={SUB_TABS as unknown as { key: SubTab; label: string }[]} value={tab} onChange={setTab} />
+      <div>
+        <h1 className="page-title">Configs</h1>
+        <p className="page-sub">Connect the voice and messaging providers, then decide which voice agent handles each job.</p>
+      </div>
+      <div className="cfg-tabs" role="tablist">
+        {SUB_TABS.map((t) => (
+          <button key={t.key} role="tab" aria-selected={tab === t.key} className={`cfg-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+            <span className="cfg-tab-ico" aria-hidden>{t.icon}</span>{t.label}
+          </button>
+        ))}
       </div>
 
       {isLoading || loadingDefaults ? (
@@ -126,19 +136,12 @@ export default function ConfigsPage() {
             />
           )}
           {tab === 'voxvalley' && (
-            // The messages (templates, variables, category) are managed in the WhatsApp page itself. The connection card keeps
-            // only the account settings, and must not save those message settings back (it would overwrite a fresh edit).
-            <WhatsAppVox
-              onChanged={() => mutate()}
-              connection={
-                <ProviderCard
-                  provider="voxvalley"
-                  integration={list.find((i) => i.provider === 'voxvalley')}
-                  defaults={(defaults.voxvalley ?? {}) as Record<string, unknown>}
-                  hiddenKeys={VOX_MESSAGE_KEYS}
-                  onSaved={() => mutate()}
-                />
-              }
+            // One Vox account, two channels. Each channel has its own settings card and saves only its own keys (the server merges),
+            // so editing SMS can never overwrite WhatsApp and the other way round.
+            <VoxTab
+              integration={list.find((i) => i.provider === 'voxvalley')}
+              defaults={(defaults.voxvalley ?? {}) as Record<string, unknown>}
+              onSaved={() => mutate()}
             />
           )}
           {tab === 'stage-outreach' && <StageOutreach />}
@@ -149,25 +152,72 @@ export default function ConfigsPage() {
   );
 }
 
+/* ─────────────────────────── Vox: WhatsApp and Message (SMS) ─────────────────────────── */
+
+type VoxChannel = 'whatsapp' | 'sms';
+
+function VoxTab({ integration, defaults, onSaved }: { integration?: Integration; defaults: Record<string, unknown>; onSaved: () => void }) {
+  const [channel, setChannel] = useState<VoxChannel>('whatsapp');
+  const CHANNELS: { key: VoxChannel; label: string }[] = [
+    { key: 'whatsapp', label: 'WhatsApp' },
+    { key: 'sms', label: 'Message (SMS)' },
+  ];
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div className="ee-seg" role="tablist" style={{ justifySelf: 'start' }}>
+        {CHANNELS.map((c) => (
+          <button key={c.key} role="tab" aria-selected={channel === c.key} className={channel === c.key ? 'active' : ''} onClick={() => setChannel(c.key)}>{c.label}</button>
+        ))}
+      </div>
+
+      {channel === 'whatsapp' ? (
+        // The messages (templates, variables, category) are managed in the WhatsApp view itself. The connection card keeps only the
+        // WhatsApp account settings, and must not save the message or SMS settings back (it would overwrite a fresh edit).
+        <WhatsAppVox
+          onChanged={onSaved}
+          connection={<ProviderCard provider="voxvalley" scope="whatsapp" integration={integration} defaults={defaults} hiddenKeys={VOX_MESSAGE_KEYS} onSaved={onSaved} />}
+        />
+      ) : (
+        <div style={{ display: 'grid', gap: 16 }}>
+          <ProviderCard provider="voxvalley" scope="sms" integration={integration} defaults={defaults} hiddenKeys={VOX_MESSAGE_KEYS} onSaved={onSaved} />
+          <Card title="Where things are" sub="What is sent, when, and what already went out.">
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 8, fontSize: 13, lineHeight: 1.5 }}>
+              <li>What is sent and when, per step, is set on the <b>Stage outreach</b> tab.</li>
+              <li>Every text message we sent, and whether the gateway accepted it, is on the <Link href="/messages" style={{ textDecoration: 'underline' }}>Messages</Link> page. A text has no delivery report, so &quot;Sent&quot; means the gateway accepted it.</li>
+              <li>Login OTPs are not set up here: they use the server&apos;s own Vox settings.</li>
+            </ul>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────── connection card ─────────────────────────── */
 
-function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSaved }: {
+function ProviderCard({ provider, integration, defaults, hiddenKeys = [], scope, onSaved }: {
   provider: Provider;
   integration?: Integration;
   defaults: Record<string, unknown>;
   /** Settings managed somewhere else on the page: not shown, and not saved back by this card. */
   hiddenKeys?: string[];
+  /** Vox only: `sms` shows and saves just the SMS settings, `whatsapp` just the rest. Each saves only its own keys (the server merges). */
+  scope?: 'whatsapp' | 'sms';
   onSaved: () => void;
 }) {
-  const meta = META[provider];
-  const essentialKeys = ESSENTIAL[provider];
+  const sms = scope === 'sms';
+  const meta = sms
+    ? { title: 'Message (SMS) settings', sub: 'Text messages to customers, such as the "continue in the app" reminder. India SMS must match its registered (DLT) text exactly.', icon: '✉', requiredSecrets: META[provider].requiredSecrets }
+    : META[provider];
+  const essentialKeys = sms ? SMS_ESSENTIAL : ESSENTIAL[provider];
   const advancedKeys = useMemo(() => {
     const set = new Set<string>([...Object.keys(defaults), ...Object.keys(integration?.settings ?? {})]);
     essentialKeys.forEach((k) => set.delete(k));
     hiddenKeys.forEach((k) => set.delete(k));
+    if (scope) for (const k of Array.from(set)) if (isSmsKey(k) !== sms) set.delete(k);
     return Array.from(set);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaults, integration?.settings, essentialKeys, hiddenKeys.join(',')]);
+  }, [defaults, integration?.settings, essentialKeys, hiddenKeys.join(','), scope]);
 
   const allKeys = [...essentialKeys, ...advancedKeys];
 
@@ -205,7 +255,8 @@ function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSave
     setSaveMsg(null);
   }
 
-  const ready = essentialKeys.every((k) => String(values[k] ?? '').trim()) && (secretStored || secret.trim());
+  // The SMS side shares the account's switch and token with WhatsApp, and its gateway / template may legitimately be blank (off).
+  const ready = sms || (essentialKeys.every((k) => String(values[k] ?? '').trim()) && (secretStored || secret.trim()));
 
   async function save() {
     setSaving(true);
@@ -224,9 +275,9 @@ function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSave
       await apiFetch(`/api/admin/integrations/${provider}`, {
         method: 'PUT',
         body: JSON.stringify({
-          enabled: isEnabled,
+          ...(sms ? {} : { enabled: isEnabled }),
           settings,
-          ...(secret.trim() ? { secrets: { [secretKey]: secret.trim() } } : {}),
+          ...(!sms && secret.trim() ? { secrets: { [secretKey]: secret.trim() } } : {}),
         }),
       });
       setSecret('');
@@ -259,54 +310,118 @@ function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSave
     }
   }
 
+  /** The input for one setting: JSON box, picker, multi-line text (an SMS body must keep its line break) or plain text. */
+  function control(k: string): React.ReactNode {
+    const json = isJsonField(k);
+    return (
+      <>
+        {json ? (
+          <textarea
+            className="input mono"
+            style={{ marginTop: 6, minHeight: 80, resize: 'vertical', fontSize: 11.5 }}
+            value={values[k] ?? ''}
+            onChange={(e) => setField(k, e.target.value)}
+          />
+        ) : k === 'messageCategory' ? (
+          <div style={{ marginTop: 6 }}>
+            <Select<string>
+              value={values[k] ?? ''}
+              onChange={(v) => setField(k, v)}
+              options={[{ value: '', label: 'Not set' }, { value: 'UTILITY', label: 'Utility' }, { value: 'MARKETING', label: 'Marketing' }, { value: 'AUTHENTICATION', label: 'Authentication' }]}
+            />
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 5 }}>Only the fallback. Each template&apos;s own category (Messages tab) is sent when it has one.</div>
+          </div>
+        ) : k === 'recipientPlus' ? (
+          <div style={{ marginTop: 6 }}>
+            <Select<string>
+              value={String(values[k] ?? 'true') === 'false' ? 'false' : 'true'}
+              onChange={(v) => setField(k, v)}
+              options={[{ value: 'true', label: 'Yes: +91XXXXXXXXXX' }, { value: 'false', label: 'No: 91XXXXXXXXXX' }]}
+            />
+          </div>
+        ) : k === 'installSmsGateway' ? (
+          <div style={{ marginTop: 6 }}>
+            <Select<string>
+              value={String(values[k] ?? '').toLowerCase() === 'otp' ? 'otp' : ''}
+              onChange={(v) => setField(k, v)}
+              options={[{ value: '', label: 'This Vox project (Project ID on the WhatsApp tab)' }, { value: 'otp', label: 'The Vox project that sends login OTPs' }]}
+            />
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 5 }}>Choose the OTP project when this project has no route for the sender ID (Vox says &quot;Error mapping routing strategy&quot;).</div>
+          </div>
+        ) : /Body$/.test(k) || (values[k] ?? '').includes('\n') ? (
+          // An SMS body must match its DLT registration character for
+          // character; a one-line input would silently drop the line break.
+          <textarea
+            className="input"
+            style={{ marginTop: 6, minHeight: 90, resize: 'vertical' }}
+            value={values[k] ?? ''}
+            onChange={(e) => setField(k, e.target.value)}
+          />
+        ) : (
+          <input className="input" style={{ marginTop: 6 }} value={values[k] ?? ''} onChange={(e) => setField(k, e.target.value)} />
+        )}
+      </>
+    );
+  }
+
   return (
     <Card
       title={`${meta.icon}  ${meta.title}`}
       sub={meta.sub}
       right={<StatusBadge status={isEnabled ? 'active' : 'not_started'} label={isEnabled ? 'Connected' : 'Off'} />}
     >
-      <label className="row" style={{ gap: 8, margin: '4px 0 16px', cursor: 'pointer' }}>
-        <input type="checkbox" checked={isEnabled} onChange={(e) => { setEnabled(e.target.checked); setSaveMsg(null); }} />
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Turn on</span>
-      </label>
+      {sms ? (
+        <div className="muted" style={{ fontSize: 12.5, margin: '4px 0 16px' }}>
+          The on/off switch, project and auth token are shared with WhatsApp: set them on the <b>WhatsApp</b> tab.
+        </div>
+      ) : (
+        <label className="row" style={{ gap: 8, margin: '4px 0 16px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={isEnabled} onChange={(e) => { setEnabled(e.target.checked); setSaveMsg(null); }} />
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Turn on</span>
+        </label>
+      )}
 
       <div style={{ display: 'grid', gap: 12, maxWidth: 460 }}>
         {essentialKeys.map((k) => (
           <div key={k}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>{labelFor(k)}</label>
-            <input
-              className="input"
-              style={{ marginTop: 6 }}
-              value={values[k] ?? ''}
-              onChange={(e) => setField(k, e.target.value)}
-              placeholder={defaults[k] != null && !isObj(defaults[k]) ? String(defaults[k]) : ''}
-            />
+            {sms ? control(k) : (
+              <input
+                className="input"
+                style={{ marginTop: 6 }}
+                value={values[k] ?? ''}
+                onChange={(e) => setField(k, e.target.value)}
+                placeholder={defaults[k] != null && !isObj(defaults[k]) ? String(defaults[k]) : ''}
+              />
+            )}
           </div>
         ))}
 
+        {!sms && (
         <div>
-          <div className="row between">
-            <label style={{ fontSize: 12.5, fontWeight: 600 }}>{provider === 'voxvalley' ? 'Auth token' : provider === 'meta_whatsapp' ? 'Access token' : 'API key'}</label>
-            {secretStored && (
-              <button className="btn" style={{ padding: '3px 9px', fontSize: 11.5 }} onClick={() => setReplacingSecret((v) => !v)}>
-                {replacingSecret ? 'Cancel' : 'Replace'}
-              </button>
+            <div className="row between">
+              <label style={{ fontSize: 12.5, fontWeight: 600 }}>{provider === 'voxvalley' ? 'Auth token' : provider === 'meta_whatsapp' ? 'Access token' : 'API key'}</label>
+              {secretStored && (
+                <button className="btn" style={{ padding: '3px 9px', fontSize: 11.5 }} onClick={() => setReplacingSecret((v) => !v)}>
+                  {replacingSecret ? 'Cancel' : 'Replace'}
+                </button>
+              )}
+            </div>
+            {secretStored && !replacingSecret ? (
+              <div style={{ marginTop: 6 }}><StatusBadge status="verified" label="•••• saved" /></div>
+            ) : (
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                style={{ marginTop: 6 }}
+                value={secret}
+                onChange={(e) => { setSecret(e.target.value); setSaveMsg(null); }}
+                placeholder={provider === 'voxvalley' ? 'Paste the project auth token' : provider === 'meta_whatsapp' ? 'Paste the Meta access token' : 'Paste the key'}
+              />
             )}
           </div>
-          {secretStored && !replacingSecret ? (
-            <div style={{ marginTop: 6 }}><StatusBadge status="verified" label="•••• saved" /></div>
-          ) : (
-            <input
-              className="input"
-              type="password"
-              autoComplete="new-password"
-              style={{ marginTop: 6 }}
-              value={secret}
-              onChange={(e) => { setSecret(e.target.value); setSaveMsg(null); }}
-              placeholder={provider === 'voxvalley' ? 'Paste the project auth token' : provider === 'meta_whatsapp' ? 'Paste the Meta access token' : 'Paste the key'}
-            />
-          )}
-        </div>
+        )}
       </div>
 
       {advancedKeys.length > 0 && (
@@ -318,42 +433,7 @@ function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSave
               return (
                 <div key={k}>
                   <label style={{ fontSize: 12, fontWeight: 600 }}>{labelFor(k)}{json && <span className="muted" style={{ fontWeight: 400 }}> · JSON</span>}</label>
-                  {json ? (
-                    <textarea
-                      className="input mono"
-                      style={{ marginTop: 6, minHeight: 80, resize: 'vertical', fontSize: 11.5 }}
-                      value={values[k] ?? ''}
-                      onChange={(e) => setField(k, e.target.value)}
-                    />
-                  ) : k === 'messageCategory' ? (
-                    <div style={{ marginTop: 6 }}>
-                      <Select<string>
-                        value={values[k] ?? ''}
-                        onChange={(v) => setField(k, v)}
-                        options={[{ value: '', label: 'Not set' }, { value: 'UTILITY', label: 'Utility' }, { value: 'MARKETING', label: 'Marketing' }, { value: 'AUTHENTICATION', label: 'Authentication' }]}
-                      />
-                      <div className="muted" style={{ fontSize: 11.5, marginTop: 5 }}>Only the fallback. Each template&apos;s own category (Messages tab) is sent when it has one.</div>
-                    </div>
-                  ) : k === 'recipientPlus' ? (
-                    <div style={{ marginTop: 6 }}>
-                      <Select<string>
-                        value={String(values[k] ?? 'true') === 'false' ? 'false' : 'true'}
-                        onChange={(v) => setField(k, v)}
-                        options={[{ value: 'true', label: 'Yes: +91XXXXXXXXXX' }, { value: 'false', label: 'No: 91XXXXXXXXXX' }]}
-                      />
-                    </div>
-                  ) : /Body$/.test(k) || (values[k] ?? '').includes('\n') ? (
-                    // An SMS body must match its DLT registration character for
-                    // character; a one-line input would silently drop the line break.
-                    <textarea
-                      className="input"
-                      style={{ marginTop: 6, minHeight: 90, resize: 'vertical' }}
-                      value={values[k] ?? ''}
-                      onChange={(e) => setField(k, e.target.value)}
-                    />
-                  ) : (
-                    <input className="input" style={{ marginTop: 6 }} value={values[k] ?? ''} onChange={(e) => setField(k, e.target.value)} />
-                  )}
+                  {control(k)}
                 </div>
               );
             })}
@@ -369,7 +449,7 @@ function ProviderCard({ provider, integration, defaults, hiddenKeys = [], onSave
 
       <div className="row" style={{ gap: 10, marginTop: 18 }}>
         <button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
-        <button className="btn" disabled={testing} onClick={testConnection}>{testing ? 'Checking…' : 'Check connection'}</button>
+        {!sms && <button className="btn" disabled={testing} onClick={testConnection}>{testing ? 'Checking…' : 'Check connection'}</button>}
         {(saveMsg || testMsg) && (
           <span style={{ fontSize: 12.5, color: (saveMsg ?? testMsg)!.ok ? 'var(--green)' : 'var(--red)' }}>
             {(saveMsg ?? testMsg)!.text}
