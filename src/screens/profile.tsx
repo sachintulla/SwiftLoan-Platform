@@ -121,15 +121,26 @@ export default function Profile() {
   const saveProfile = async () => {
     if (!isAuthed()) { set({ pdEdit: false }); return; }
     try {
+      // Keep firstName/lastName in step with the edited full name. The backend
+      // only updates the fields we send, and the dashboard + voice agent read
+      // authUser.firstName FIRST — so sending fullName alone left a stale
+      // firstName and the new name never showed up anywhere but this screen.
+      const full = cleanName(state.pdName);
+      const nameParts = full.split(/\s+/).filter(Boolean);
       const { user }: any = await api.updateProfile({
-        fullName: cleanName(state.pdName),
+        fullName: full,
+        firstName: nameParts[0] || full,
+        ...(nameParts.length > 1 ? { lastName: nameParts.slice(1).join(' ') } : {}),
         email: state.pdEmail,
         ...(dob ? { dob: new Date(Date.UTC(dob.y, dob.m, dob.d)).toISOString() } : {}),
       });
       set({
         pdEdit: false,
         pdDob: user.dob ? new Date(user.dob).toISOString().slice(0, 10) : state.pdDob,
-        authUser: user,
+        // Merge the just-saved name over the backend echo so the dashboard, voice
+        // agent and every other authUser reader update immediately, regardless of
+        // which name fields the server returns.
+        authUser: { ...user, fullName: full, firstName: nameParts[0] || full },
       });
       showToast(t.tSaved);
       // Tapping "Save Changes" (voice or touch) only confirms the tap itself —
