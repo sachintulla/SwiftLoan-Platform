@@ -556,7 +556,7 @@ interface AurixOfferRaw {
   PartnerId?: string | number;
 }
 
-/** Map one Aurix offer into our RawLenderOffer (amounts → paise; EMI computed when 0). Exported for tests. */
+/** Map one Aurix offer into our RawLenderOffer (amounts in whole rupees; EMI computed when 0). Exported for tests. */
 export function mapAurixOffer(o: AurixOfferRaw): RawLenderOffer {
   // Aurix LoanAmount is in rupees; Offer.amount is also rupees (app convention). No *100.
   const amount = Math.round(o.LoanAmount ?? 0);

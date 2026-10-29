@@ -531,12 +531,12 @@ function canonHeader(h: string): string {
   return String(h).toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-/** Rupees (or paise-looking) input → paise int, or null. */
+/** Rupees input ("₹5,00,000", "500000") → whole-rupee int, or null. */
 function parseAmount(v: unknown): number | null {
   if (v == null || v === '') return null;
   const n = Number(String(v).replace(/[^0-9.]/g, ''));
   if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n * 100); // spreadsheets are authored in rupees
+  return Math.round(n);
 }
 
 // POST /api/admin/campaigns/:id/contacts/upload  (multipart, field name "file")

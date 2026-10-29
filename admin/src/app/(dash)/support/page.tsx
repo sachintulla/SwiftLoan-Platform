@@ -5,7 +5,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton, Empty, Callout } from '@/components/ui';
-import { dateStr, dateTimeStr, timeAgo, inrRupees } from '@/lib/format';
+import { dateStr, dateTimeStr, timeAgo, inr } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 
 type Status = 'open' | 'in_progress' | 'resolved';
@@ -200,7 +200,7 @@ function TicketPanel({ id, onClose, onChanged, onOpen }: { id: string; onClose: 
             {t.application && (
               <Section title="Linked application">
                 <KV k="Reference" v={<Link href={`/loans/${t.application.id}`}>{t.application.ref} →</Link>} />
-                <KV k="Amount" v={inrRupees(t.application.amount)} />
+                <KV k="Amount" v={inr(t.application.amount)} />
                 <KV k="Status" v={<StatusBadge status={t.application.status} />} />
               </Section>
             )}

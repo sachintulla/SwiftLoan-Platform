@@ -155,10 +155,10 @@ Jest, React Native Testing Library, Supertest, Detox/Maestro, OWASP ZAP, `npm ru
 | TC-LOAN-001 | Create application | FR-LOAN-01 | Authed session | Submit basic → createApplication | name/DOB/income/pincode | `LoanApplication` created, linked to user | P1 | F |
 | TC-LOAN-002 | Update application (partial) | FR-LOAN-02 | App exists | PATCH additional fields | employment, income | Fields updated; ownership preserved | P2 | F |
 | TC-LOAN-003 | Amount carry-over fare→basic | FR-LOAN-03 | Fare EMI calc used | Set amount in fare; proceed | ₹2,00,000 | Amount carried into application; consistent in offers | P2 | F |
-| TC-LOAN-004 | Offers generated | FR-LOAN-04 | App complete | Reach finding→offers | — | ≥1 offer rendered; amounts in paise correct via `inr()` | P2 | F |
+| TC-LOAN-004 | Offers generated | FR-LOAN-04 | App complete | Reach finding→offers | — | ≥1 offer rendered; amounts in whole rupees correct via `inr()` | P2 | F |
 | TC-LOAN-005 | Handoff to lender | FR-LOAN-05 | Offer selected | Tap handoff | — | Handoff recorded; consent precondition enforced (see TC-CONS-002) | P1 | F |
 | TC-LOAN-006 | EMI calculator correctness | FR-LOAN-06 | fare screen | Vary amount/tenure/rate | multiple | EMI matches reference formula within rounding | P2 | F |
-| TC-LOAN-007 | Amounts stored in paise | FR-LOAN-07 | Any monetary write | Inspect DB | — | All amounts integer paise; no float rupee | P3 | F |
+| TC-LOAN-007 | Amounts stored in whole rupees | FR-LOAN-07 | Any monetary write | Inspect DB | — | All amounts integer rupees; no paise, no float | P3 | F |
 
 ### 4.3 Module: KYC (Demo Stubs)
 
@@ -263,7 +263,7 @@ Jest, React Native Testing Library, Supertest, Detox/Maestro, OWASP ZAP, `npm ru
 | TC-NFR-004 | Accessibility — contrast & scaling | NFR-A11Y-02 | App screens | Enable large text/high contrast | — | Text scales; contrast meets WCAG AA | P2 | A |
 | TC-NFR-005 | Localization en/hi + fallback | NFR-L10N-01 | Language switch | Switch to hi, te, hinglish | — | hi renders; te/hinglish/tenglish fall back to en without missing keys | P2 | L |
 | TC-NFR-006 | Offline/guest graceful demo data | NFR-RES-01 | Offline | Use funnel offline/guest | — | Degrades to demo data; no crash; no false persistence | P2 | F |
-| TC-NFR-007 | Currency formatting (INR) | NFR-L10N-02 | Any amount | Render amounts | ₹12,34,567 | Indian grouping via `inr()`/`rupee()`; paise→rupee correct | P3 | F |
+| TC-NFR-007 | Currency formatting (INR) | NFR-L10N-02 | Any amount | Render amounts | ₹12,34,567 | Indian grouping via `inr()`/`rupee()`; the amount shown equals the amount entered | P3 | F |
 
 ---
 
@@ -318,7 +318,7 @@ Companion to the ISO 27001 matrix (§5). Maps representative Trust Services Crit
 | Req ID | Requirement (summary) | Type | TC-IDs |
 |---|---|---|---|
 | FR-AUTH-01..09 | Phone/OTP/session/refresh auth | Functional | TC-AUTH-001..014 |
-| FR-LOAN-01..07 | Application, amount carry-over, offers, handoff, EMI, paise | Functional | TC-LOAN-001..007 |
+| FR-LOAN-01..07 | Application, amount carry-over, offers, handoff, EMI, whole-rupee amounts | Functional | TC-LOAN-001..007 |
 | FR-KYC-01 | PAN format validation; KYC stubs | Functional | TC-KYC-001, TC-KYC-002 |
 | FR-ADM-01..02 | Admin auth + RBAC | Functional | TC-AC-001..011 |
 | FR-PRIV-01..02 | Consent capture & enforcement | Privacy | TC-CONS-001..006, TC-DSAR-001..007 |

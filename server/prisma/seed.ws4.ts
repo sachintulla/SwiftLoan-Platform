@@ -12,7 +12,6 @@ const prisma = new PrismaClient();
 const rand = (n: number) => Math.floor(Math.random() * n);
 const pick = <T>(arr: T[]): T => arr[rand(arr.length)];
 const daysAgo = (d: number) => new Date(Date.now() - d * 864e5 - rand(864e5));
-const rupees = (n: number) => n * 100; // paise
 // Seeded leads have no real deep-link app handoff behind them, but Lead.token
 // is required + unique, so mint a throwaway one.
 const seedToken = () => Math.random().toString(36).slice(2, 12).toUpperCase();
@@ -111,7 +110,7 @@ async function main() {
         firstName: fn, lastName: ln, fullName: `${fn} ${ln}`,
         pincode: String(110000 + rand(90000)),
         employment: pick(EMP as unknown as string[]) as never,
-        monthlyIncome: rupees(25000 + rand(175000)),
+        monthlyIncome: (25000 + rand(175000)),
         creditScore: 620 + rand(230),
         phoneVerified: true,
         createdAt: created, updatedAt: created,
@@ -122,7 +121,7 @@ async function main() {
     const nApps = rand(3); // 0,1,2
     for (let j = 0; j < nApps; j++) {
       const status = weightedStatus();
-      const amount = rupees(50000 + rand(950000));
+      const amount = (50000 + rand(950000));
       const loanType = pick(LOAN_TYPES);
       const appCreated = new Date(created.getTime() + rand(5) * 864e5);
       const app = await prisma.loanApplication.create({
@@ -240,7 +239,7 @@ async function main() {
         name: Math.random() < 0.8 ? fn : null,
         phone: Math.random() < 0.7 ? `9${String(100000000 + rand(899999999))}` : null,
         city: pick(CITIES), productInterest: pick(LOAN_TYPES as unknown as string[]),
-        amount: rupees(50000 + rand(500000)),
+        amount: (50000 + rand(500000)),
         source: pick(SOURCES), campaignId: Math.random() < 0.5 ? `camp_${pick(['diwali', 'newyear', 'summer', 'referral'])}` : null,
         status: pick(['new', 'new', 'contacted', 'qualified', 'converted', 'lost']),
         createdAt: daysAgo(rand(30)),

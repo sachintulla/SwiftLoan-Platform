@@ -81,7 +81,7 @@ websiteRouter.post(
   }),
 );
 
-// POST /api/website/lead/amount  { phone, amount }  (paise)
+// POST /api/website/lead/amount  { phone, amount }  (rupees)
 //
 // Hero's one-field flow submits the lead via POST /api/context/create with
 // AMOUNT_DEFAULT before the visitor has picked a real amount (the slider only
@@ -102,7 +102,7 @@ websiteRouter.post(
     const lead = await prisma.lead.findFirst({ where: { phone }, orderBy: { createdAt: 'desc' } });
     if (!lead) throw new HttpError(404, 'No lead found for this number — submit the form first');
 
-    const inr = '₹' + Math.round(amount / 100).toLocaleString('en-IN');
+    const inr = '₹' + amount.toLocaleString('en-IN');
     await prisma.lead.update({
       where: { id: lead.id },
       data: {
@@ -111,7 +111,7 @@ websiteRouter.post(
       },
     });
 
-    log.info('lead amount corrected', { phone, amountPaise: amount, leadId: lead.id });
+    log.info('lead amount corrected', { phone, amount, leadId: lead.id });
     return ok(res, { updated: true }, 'Amount updated');
   }),
 );

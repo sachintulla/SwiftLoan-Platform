@@ -1,24 +1,15 @@
 // Formatting + status-colour helpers shared across the dashboard.
 //
-// MONEY COMES IN TWO UNITS. Pick the formatter by the FIELD, not by habit (using the wrong one shows an amount 100x too small):
-//   RUPEES (use inrRupees / inrCompactRupees): LoanApplication.amount, User.monthlyIncome, LoanApplication.monthlyIncome,
-//     Offer.amount / emi / processingFee, Loan.principal / emiAmount / outstanding (so the overview's "…Paise" sums too), Repayment.amount.
-//   PAISE  (use inr / inrCompact): Lead.amount, CampaignContact.amount, PrequalifyingOffer.amount, MarketLoanOffer.maxAmount (pre-approved plans).
+// Every amount in the system is in whole rupees: the API, the database and the screens all use the same number.
+// One formatter for money (inr) and one compact form for stat tiles (inrCompact). There is no other unit.
 
-export function inr(paise: number | null | undefined): string {
-  if (paise == null) return '₹0';
-  const rupees = paise / 100;
-  return '₹' + rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+export function inr(rupees: number | null | undefined): string {
+  if (rupees == null) return '₹0';
+  return '₹' + Math.round(rupees).toLocaleString('en-IN');
 }
 
 // Compact for stat tiles: ₹1.2L, ₹3.4Cr
-export function inrCompact(paise: number | null | undefined): string {
-  if (paise == null) return '₹0';
-  return inrCompactRupees(paise / 100);
-}
-
-/** Compact, for a value that is ALREADY in rupees (see the list at the top of this file). */
-export function inrCompactRupees(rupees: number | null | undefined): string {
+export function inrCompact(rupees: number | null | undefined): string {
   if (rupees == null) return '₹0';
   const r = rupees;
   if (r >= 1e7) return '₹' + (r / 1e7).toFixed(2) + 'Cr';
@@ -29,18 +20,6 @@ export function inrCompactRupees(rupees: number | null | undefined): string {
 
 export function num(n: number | null | undefined): string {
   return (n ?? 0).toLocaleString('en-IN');
-}
-
-/**
- * Rupee amount that is ALREADY in rupees (NOT paise). Loan-domain money —
- * LoanApplication.amount, Offer.amount/emi/processingFee, Loan.principal, etc. —
- * is stored in whole rupees, the same way the mobile app displays it. `inr()`
- * divides by 100 (paise); using it on these fields showed ₹5,000 for ₹5,00,000.
- * Use this for anything a customer/application/offer/loan amount.
- */
-export function inrRupees(rupees: number | null | undefined): string {
-  if (rupees == null) return '₹0';
-  return '₹' + Math.round(rupees).toLocaleString('en-IN');
 }
 
 export function pct(n: number | null | undefined): string {

@@ -15,7 +15,7 @@ export interface PrequalifyingOffer {
   logoUrl?: string | null;
   icon: string;
   badge?: string | null;
-  amount: number; // paise — firm pre-approved amount
+  amount: number; // rupees — firm pre-approved amount
   rate: number; // firm % p.a.
   tenureMonths: number;
   processingFeePercent?: number | null;
@@ -32,9 +32,9 @@ const EMPTY: Omit<PrequalifyingOffer, 'id'> = {
   redirectionUrl: '', terms: '', validTill: null, displayOrder: 0, active: true,
 };
 
-// Admin thinks in rupees; the API/DB store paise (app-wide convention).
-const toRupees = (paise?: number | null) => (paise == null || paise === 0 ? '' : String(paise / 100));
-const toPaise = (rupees: string) => (rupees.trim() === '' ? 0 : Math.round(Number(rupees) * 100));
+// The amount is typed, stored and shown in whole rupees: no conversion.
+const toText = (rupees?: number | null) => (rupees == null || rupees === 0 ? '' : String(rupees));
+const toAmount = (text: string) => (text.trim() === '' ? 0 : Math.round(Number(text)));
 // <input type="date"> wants YYYY-MM-DD; the API returns/accepts an ISO string.
 const toDateInput = (iso?: string | null) => (iso ? iso.slice(0, 10) : '');
 
@@ -42,7 +42,7 @@ export function PrequalifyingOfferForm({ offer }: { offer?: PrequalifyingOffer }
   const router = useRouter();
   const isEdit = !!offer;
   const [form, setForm] = useState<Omit<PrequalifyingOffer, 'id'>>(offer ?? EMPTY);
-  const [amountRupees, setAmountRupees] = useState(toRupees(offer?.amount));
+  const [amountRupees, setAmountRupees] = useState(toText(offer?.amount));
   const [validTillDate, setValidTillDate] = useState(toDateInput(offer?.validTill));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function PrequalifyingOfferForm({ offer }: { offer?: PrequalifyingOffer }
     setError(null);
     const payload = {
       ...form,
-      amount: toPaise(amountRupees),
+      amount: toAmount(amountRupees),
       validTill: validTillDate ? new Date(validTillDate + 'T23:59:59').toISOString() : null,
       logoUrl: form.logoUrl || null,
       redirectionUrl: form.redirectionUrl || null,

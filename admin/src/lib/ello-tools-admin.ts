@@ -268,7 +268,7 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
           source: c.firstSource ?? null,
           campaign: c.campaignId ?? null,
           enquiry: lead
-            ? { product: lead.productInterest ?? null, amountRupees: lead.amount != null ? Math.round(lead.amount / 100) : null }
+            ? { product: lead.productInterest ?? null, amountRupees: lead.amount ?? null }
             : null,
           lastCall: call
             ? {

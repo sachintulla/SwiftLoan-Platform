@@ -7,7 +7,7 @@ import { api, setTokens } from '../src/api/client';
 import ResumePrompt from '../src/components/ResumePrompt';
 import Mobile from '../src/screens/mobile';
 import {
-  parseResume, resumeDestination, isMaskedPan, agentResumeContext, hintResume, resumePatchFromClaim, type Resume,
+  parseResume, resumeDestination, isMaskedPan, agentResumeContext, networkResume, resumePatchFromClaim, type Resume,
 } from '../src/utils/resume';
 
 jest.mock('../src/api/client', () => ({
@@ -65,11 +65,10 @@ describe('helpers', () => {
     expect(agentResumeContext(RESUME, 'resumed_at_step_2')?.phone_prefilled).toBe(false);
     expect(agentResumeContext(null, 'pre_login')).toBeUndefined();
   });
-  it('a same-network guess knows nothing about the person and is never taken from the server as a real resume', () => {
-    expect(hintResume()).toEqual({ token: '', firstName: null, phone: '', lastStep: 'unknown', source: 'hint' });
-    expect(agentResumeContext(hintResume(), 'pre_login_hint')).toEqual({ stage: 'pre_login_hint', first_name: null, last_step: 'unknown', phone_prefilled: false });
-    expect(parseResume({ ...RAW, last_step: 'unknown' }, 'link')).toBeNull(); // 'unknown' is only ever made locally
-    expect(resumeDestination(hintResume(), false)).toBe('normal');
+  it('a same-network match knows the step but nothing about the person (no name, no phone)', () => {
+    expect(networkResume('pan_done')).toEqual({ token: '', firstName: null, phone: '', lastStep: 'pan_done', source: 'network' });
+    expect(agentResumeContext(networkResume('pan_done'), 'pre_login_ask_number')).toEqual({ stage: 'pre_login_ask_number', first_name: null, last_step: 'pan_done', phone_prefilled: false });
+    expect(parseResume({ ...RAW, last_step: 'unknown' }, 'link')).toBeNull(); // 'unknown' is never accepted from the server
   });
 });
 
@@ -141,15 +140,20 @@ describe('ResumePrompt (after login, only the OTP was done)', () => {
 });
 
 describe('install claim to pop-up', () => {
-  const CLAIM = { matched: true, method: 'ip_window', resume: null, resume_hint: true };
+  const CLAIM = { matched: true, method: 'ip_window', resume: null, resume_hint: true, hint_last_step: 'pan_done' };
   it('a deterministic match offers the visitor\'s own details', () => {
     expect(resumePatchFromClaim({ resume: RAW })).toMatchObject({ resumePrompt: 'welcome', resumeStage: 'pre_login', resume: { firstName: 'Priya', phone: '9876543210', source: 'link' } });
   });
-  it('a same-network match only asks, with nothing about the person', () => {
-    expect(resumePatchFromClaim(CLAIM)).toEqual({ resume: hintResume(), resumePrompt: 'welcome', resumeStage: 'pre_login_hint' });
+  it('a same-network match says where they stopped, with nothing about the person', () => {
+    expect(resumePatchFromClaim(CLAIM)).toEqual({ resume: networkResume('pan_done'), resumePrompt: 'welcome', resumeStage: 'pre_login_ask_number' });
   });
-  it('a deterministic match wins over a hint, and no hint and no resume means no pop-up', () => {
-    expect(resumePatchFromClaim({ resume: RAW, resume_hint: true })?.resumeStage).toBe('pre_login');
+  it('a same-network match without a known step is NOT turned into a question: it is treated as no match', () => {
+    expect(resumePatchFromClaim({ ...CLAIM, hint_last_step: null })).toBeNull();
+    expect(resumePatchFromClaim({ ...CLAIM, hint_last_step: 'unknown' })).toBeNull();
+    expect(resumePatchFromClaim({ resume: null, resume_hint: true })).toBeNull(); // an older server
+  });
+  it('a deterministic match wins over a network match, and no match means no pop-up and no agent talk', () => {
+    expect(resumePatchFromClaim({ resume: RAW, resume_hint: true, hint_last_step: 'pan_done' })?.resumeStage).toBe('pre_login');
     expect(resumePatchFromClaim({ ...CLAIM, resume_hint: false })).toBeNull();
     expect(resumePatchFromClaim({ resume: { phone: 'x' }, resume_hint: false })).toBeNull();
     expect(resumePatchFromClaim(null)).toBeNull();
@@ -157,17 +161,16 @@ describe('install claim to pop-up', () => {
   });
 });
 
-describe('ResumePrompt for a same-network guess (no name, no number)', () => {
-  const HINT = { resume: hintResume(), resumePrompt: 'welcome', resumeStage: 'pre_login_hint' };
+describe('ResumePrompt for a same-network match (no name, no number)', () => {
+  const NET = { resume: networkResume('pan_done'), resumePrompt: 'welcome', resumeStage: 'pre_login_ask_number' };
 
-  it('asks instead of telling, and "Okay, continue" opens an EMPTY login with consent unticked', async () => {
-    const { getByText, queryByText, getByTestId } = renderWithProviders(<><Probe seed={HINT} go="language" /><ResumePrompt /></>);
-    await waitFor(() => expect(getByText('Okay, continue')).toBeTruthy());
-    expect(getByText('Did you start an application on our website?')).toBeTruthy();
-    expect(queryByText('You left off on the website')).toBeNull();
-    expect(queryByText(/Hi /)).toBeNull();
-    fireEvent.press(getByText('Okay, continue'));
-    await waitFor(() => expect(probe(getByTestId).slice(0, 5)).toEqual(['mobile', '', 'false', 'null', 'null']));
+  it('never shows a pop-up and never asks "did you start something on our website?"; with no agent it is dropped', async () => {
+    const { queryByText, getByTestId } = renderWithProviders(<><Probe seed={NET} go="language" /><ResumePrompt /></>);
+    await act(async () => { await new Promise<void>((r) => setTimeout(() => r(), 300)); });
+    expect(queryByText('Did you start an application on our website?')).toBeNull();
+    expect(queryByText('Okay, continue')).toBeNull();
+    // the voice agent is not configured in this test, so there is nobody to speak it: it is cleared, as for any new person
+    expect(probe(getByTestId).slice(0, 5)).toEqual(['language', '', 'false', 'null', 'null']);
   });
 });
 
@@ -239,17 +242,17 @@ describe('login routing for a resumed visitor', () => {
     expect(probe(getByTestId)[4]).toBe('null');
   });
 
-  it('a same-network guess: the account\'s own journey decides (PAN done goes to step 2, with the real stage)', async () => {
+  it('a same-network match: the account\'s own journey decides (PAN done goes to step 2, with the real stage)', async () => {
     jest.spyOn(api, 'journeyResume').mockResolvedValue(RAW);
     jest.spyOn(api, 'panOnFile').mockResolvedValue({ onFile: true, maskedPan: 'XXXXXX234A', aadhaarLinked: true, prefill: { firstName: 'PRIYA' } });
-    const { getByTestId } = await loginWith({ resume: hintResume(), resumeStage: 'pre_login_hint' });
+    const { getByTestId } = await loginWith({ resume: networkResume('pan_done'), resumeStage: 'pre_login_ask_number' });
     await waitFor(() => expect(probe(getByTestId)[0]).toBe('basic'));
     expect(probe(getByTestId)[4]).toBe('resumed_at_step_2');
   });
 
-  it('a same-network guess that was wrong (this account has no website journey): the hint is dropped, normal flow', async () => {
+  it('a same-network match that was wrong (this account has no website journey): it is dropped, normal flow', async () => {
     jest.spyOn(api, 'journeyResume').mockResolvedValue(null);
-    const { getByTestId } = await loginWith({ resume: hintResume(), resumeStage: 'pre_login_hint' });
+    const { getByTestId } = await loginWith({ resume: networkResume('pan_done'), resumeStage: 'pre_login_ask_number' });
     await waitFor(() => expect(probe(getByTestId)[0]).toBe('home'));
     expect(probe(getByTestId)[3]).toBe('null');
     expect(probe(getByTestId)[4]).toBe('null');
