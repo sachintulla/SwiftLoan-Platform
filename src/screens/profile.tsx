@@ -381,7 +381,9 @@ export default function Profile() {
           <View style={{ gap: 14, marginTop: 12 }}>
             <Field label={t.fullName} maxLength={NAME_MAX * 2} value={state.pdName} onChangeText={v => set({ pdName: sanitizeNameInput(v) })} onBlur={() => set({ pdName: cleanName(state.pdName) })} />
             <Field label={t.email} maxLength={EMAIL_MAX} value={state.pdEmail} onChangeText={v => set({ pdEmail: v })} autoCapitalize="none" />
-            <Field label={t.phone} maxLength={15} value={state.pdPhone} onChangeText={v => set({ pdPhone: v })} />
+            {/* Phone is the account's login identity (OTP sign-in) — shown but not
+                editable here; changing it belongs in a dedicated, OTP-verified flow. */}
+            <Field label={t.phone} value={state.pdPhone} editable={false} hint={t.phoneLockedHint} />
             <View style={{ gap: 6 }}>
               <Text style={[font(600), { color: colors.textMid, fontSize: 13 }]}>{t.dobLabel}</Text>
               <Pressable style={styles.dobBtn} onPress={() => set({ dobOpen: !state.dobOpen })}>
