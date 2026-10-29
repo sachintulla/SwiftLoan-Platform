@@ -94,8 +94,8 @@ in `extra`.
 
 A 7-row test file produced **4 inserted, 3 skipped** with per-row reasons
 (duplicate phone in file, invalid number, missing phone). `+91 98765 00022` and
-`09876500023` both normalised to bare 10 digits; rupee amounts converted to
-paise. Start respects `concurrency`, guards against double-start, and
+`09876500023` both normalised to bare 10 digits; rupee amounts kept as whole
+rupees. Start respects `concurrency`, guards against double-start, and
 auto-completes.
 
 ### Drop-off nudges (verified)

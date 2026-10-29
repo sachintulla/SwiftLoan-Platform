@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normaliseRef, refLookupVariants, classifyConfidence, parseInstallLinkPayload, historyToSend, pickContext, productLabel,
-  paiseToRupees, applyInstallFilters, computeInstallStats, reachedNextStep, needsFollowUp, hasCustomerDetails, effectiveSentBy, countBy,
+  applyInstallFilters, computeInstallStats, reachedNextStep, needsFollowUp, hasCustomerDetails, effectiveSentBy, countBy,
   type ContextSources, type InstallRow,
 } from './installContextRead.js';
 
@@ -43,10 +43,11 @@ describe('classifyConfidence', () => {
 });
 
 describe('units and labels', () => {
-  it('converts Lead paise to rupees', () => {
-    expect(paiseToRupees(50000000)).toBe(500000);
-    expect(paiseToRupees(0)).toBeNull();
-    expect(paiseToRupees(null)).toBeNull();
+  it('a lead amount is whole rupees, shown as it is (never rescaled)', () => {
+    const lead = (amountRupees: number | null) => pickContext({ ...base, lead: { name: 'L', phone: '9000000004', productInterest: 'Home Loan', amountRupees, source: 'website', createdAt: '2026-10-20T00:00:00.000Z' } })!;
+    expect(lead(500000).amountRupees).toBe(500000);
+    expect(lead(0).amountRupees).toBeNull();
+    expect(lead(null).amountRupees).toBeNull();
   });
   it('labels products', () => {
     expect(productLabel('personal')).toBe('Personal Loan');
@@ -110,7 +111,7 @@ describe('pickContext', () => {
     installLink: { ...parseInstallLinkPayload({ name: 'Link Name', phone: '9000000001', amountRupees: 300000, product: 'personal', stage: 'app_installed', channel: 'whatsapp', sentAt: '2026-10-27T05:00:00.000Z' }), adminLabel: 'Priya' },
     reminder: { firstName: 'Reminder', phone: '9000000002', history: [{ channel: 'sms', at: '2026-10-26T08:00:00.000Z', outcome: 'sent' }] },
     lenderNudge: { firstName: 'Lender', phone: '9000000003', lenderName: 'IDFC FIRST', history: [] },
-    lead: { name: 'Lead', phone: '9000000004', productInterest: 'Home Loan', amountPaise: 10000000, source: 'website', createdAt: '2026-10-20T00:00:00.000Z' },
+    lead: { name: 'Lead', phone: '9000000004', productInterest: 'Home Loan', amountRupees: 100000, source: 'website', createdAt: '2026-10-20T00:00:00.000Z' },
     referral: { ownerName: 'Ravi' },
     loan: { amountRupees: 111111, loanType: 'personal' },
   };
@@ -149,7 +150,7 @@ describe('pickContext', () => {
     const c = pickContext({ ...base, lenderNudge: all.lenderNudge })!;
     expect(c.sentBy).toEqual({ type: 'lender_reminder', label: 'Lender reminder (IDFC FIRST)' });
   });
-  it('converts Lead paise to rupees but keeps LoanApplication rupees', () => {
+  it('keeps lead and LoanApplication amounts as whole rupees', () => {
     const lead = pickContext({ ...base, lead: all.lead })!;
     expect(lead.amountRupees).toBe(100000);
     expect(lead.product).toBe('Home Loan');

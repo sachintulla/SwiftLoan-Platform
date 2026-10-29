@@ -19,11 +19,24 @@ export interface BasicRequiredInput {
   residence: string | null;
   employment: string | null;
   salaryMode: string | null;
+  /** Company / employer name (the lender needs it; EmployerName was going out blank). */
+  company: string;
   addr1: string;
   city: string;
   state: string;
   pin: string;
   income: string;
+}
+
+/**
+ * Whether the company / employer name is mandatory for this employment type. Everyone has one to give except a
+ * student or a retired person, for whom the field stays visible but optional. Accepts the label ("Self-employed"),
+ * the slug ("self_employed") or anything alike; nothing chosen yet is not our question (employment type is flagged
+ * on its own). Keep website-next/src/lib/companyRequired.ts in step.
+ */
+export function companyNeeded(employment: string | null | undefined): boolean {
+  const k = (employment ?? '').toLowerCase().replace(/[^a-z]/g, '');
+  return !!k && k !== 'student' && k !== 'retired';
 }
 
 export function missingBasicRequired(
@@ -47,5 +60,6 @@ export function missingBasicRequired(
   if (!opts.pincodeRe.test(v.pin)) out.push('pincode');
   const income = parseInt(v.income, 10);
   if (!v.income || !Number.isFinite(income) || income < opts.incomeMin) out.push('monthly income');
+  if (companyNeeded(v.employment) && !v.company.trim()) out.push('company name');
   return out;
 }

@@ -283,7 +283,7 @@ describe('pickFilters', () => {
 });
 
 describe('planContacts', () => {
-  const base = { product: null, amountPaise: null, status: 'x' };
+  const base = { product: null, amount: null, status: 'x' };
 
   it('normalises numbers, drops unusable ones and keeps the first of a repeated number', () => {
     const plan = f.planContacts([
@@ -300,15 +300,16 @@ describe('planContacts', () => {
   });
 });
 
-describe('rupeesToPaise', () => {
-  it('converts rupees to paise', () => {
-    expect(f.rupeesToPaise(50000)).toBe(5_000_000);
+describe('contactAmount', () => {
+  it('keeps whole rupees as they are (no rescaling)', () => {
+    expect(f.contactAmount(50000)).toBe(50000);
+    expect(f.contactAmount(1040000.4)).toBe(1040000);
   });
   it('returns null for a missing, zero, negative or too-large amount', () => {
-    expect(f.rupeesToPaise(null)).toBeNull();
-    expect(f.rupeesToPaise(0)).toBeNull();
-    expect(f.rupeesToPaise(-5)).toBeNull();
-    expect(f.rupeesToPaise(30_000_000)).toBeNull();
+    expect(f.contactAmount(null)).toBeNull();
+    expect(f.contactAmount(0)).toBeNull();
+    expect(f.contactAmount(-5)).toBeNull();
+    expect(f.contactAmount(2_147_483_648)).toBeNull();
   });
 });
 

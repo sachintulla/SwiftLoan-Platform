@@ -7,7 +7,7 @@ import Basic from '../src/screens/basic';
 import { useStore } from '../src/state/store';
 import { agent } from '../src/voice';
 import { getScreenHint, setCurrentScreen, buildPageContext } from '../src/voice/actionRegistry';
-import { missingBasicRequired } from '../src/utils/basicRequired';
+import { missingBasicRequired, companyNeeded } from '../src/utils/basicRequired';
 import { configureFx, emitFx, subscribeFx } from '../src/feedback/agentFx';
 import { setTokens } from '../src/api/client';
 import { MONTHLY_INCOME_MIN, PINCODE_RE } from '../src/utils/inputLimits';
@@ -15,13 +15,39 @@ import { MONTHLY_INCOME_MIN, PINCODE_RE } from '../src/utils/inputLimits';
 const OPTS = { pincodeRe: PINCODE_RE, incomeMin: MONTHLY_INCOME_MIN };
 const EMPTY = {
   first: '', last: '', dobSet: false, gender: null, email: '', loanPurpose: null, qualification: null,
-  residence: null, employment: null, salaryMode: null, addr1: '', city: '', state: '', pin: '', income: '',
+  residence: null, employment: null, salaryMode: null, company: '', addr1: '', city: '', state: '', pin: '', income: '',
 };
 const FULL = {
   first: 'Sri', last: 'Bhavya', dobSet: true, gender: 'female', email: 'a@b.co', loanPurpose: 'personal',
-  qualification: 'grad', residence: 'own', employment: 'salaried', salaryMode: 'bank', addr1: 'Dno 1',
+  qualification: 'grad', residence: 'own', employment: 'salaried', salaryMode: 'bank', company: 'Infosys Ltd', addr1: 'Dno 1',
   city: 'Kakinada', state: 'Andhra Pradesh', pin: '533001', income: '25000',
 };
+
+describe('company / employer name is mandatory (the lender needs an EmployerName)', () => {
+  it('is asked for, last, when a salaried applicant leaves it empty', () => {
+    expect(missingBasicRequired({ ...FULL, company: '' }, OPTS)).toEqual(['company name']);
+    expect(missingBasicRequired({ ...FULL, company: '   ' }, OPTS)).toEqual(['company name']);
+  });
+  it('goes away once it is filled in', () => {
+    expect(missingBasicRequired(FULL, OPTS)).toEqual([]);
+  });
+  it('applies to every employment type except student and retired', () => {
+    for (const e of ['Salaried', 'Self-employed', 'Business owner', 'Gig worker', 'Other', 'self_employed']) {
+      expect(missingBasicRequired({ ...FULL, employment: e, company: '' }, OPTS)).toEqual(['company name']);
+    }
+    for (const e of ['Student', 'Retired', 'student', 'retired']) {
+      expect(missingBasicRequired({ ...FULL, employment: e, company: '' }, OPTS)).toEqual([]);
+    }
+  });
+  it('is not listed while no employment type is chosen (that is flagged on its own)', () => {
+    expect(missingBasicRequired({ ...FULL, employment: null, company: '' }, OPTS)).toEqual(['employment type']);
+  });
+  it('companyNeeded matches labels and slugs alike', () => {
+    expect(companyNeeded('Business owner')).toBe(true);
+    expect(companyNeeded('Student')).toBe(false);
+    expect(companyNeeded(null)).toBe(false);
+  });
+});
 
 describe('missingBasicRequired', () => {
   it('lists every mandatory field when nothing is filled, in the order the screen asks', () => {

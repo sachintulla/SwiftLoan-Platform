@@ -177,11 +177,12 @@ Run `npm run prisma:push` after schema changes. Do NOT modify existing models:
 It is completely separate from the RN app and server/.
 It runs on port 4001 and talks to server/ at http://localhost:4000.
 
-### Money units in the admin (rupees vs paise)
-Loan-domain money is stored in **rupees**: `LoanApplication.amount`, `User.monthlyIncome`, `LoanApplication.monthlyIncome`, `Offer.amount/emi/processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`
-(so the overview's `totalDisbursedPaise` / `outstandingPaise` are rupee sums despite the name). Lead and pre-approval money is in **paise**: `Lead.amount`, `CampaignContact.amount`, `PrequalifyingOffer.amount`,
-`MarketLoanOffer.maxAmount`. Format with `inrRupees` / `inrCompactRupees` for the first group and `inr` / `inrCompact` for the second (`admin/src/lib/format.ts`). A test fails if an income, principal, EMI, outstanding or fee value is
-passed to the paise formatters. (Using `inr()` on a rupee field showed ₹2,000 for ₹2,00,000 and ₹510 for ₹51,000 on the All Users pages.)
+### Money units: whole rupees, everywhere
+There is one unit: **whole rupees** (database, API, website, app, admin, voice agent). Every amount field (`Lead.amount`, `CampaignContact.amount`, `PrequalifyingOffer.amount`, `MarketLoanOffer.maxAmount`,
+`LoanApplication.amount`, `Offer.amount/emi/processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`, `User.monthlyIncome`) holds the number the person sees. There is no paise, and no ×100 / ÷100 for money anywhere.
+The admin has one formatter, `inr` (and `inrCompact` for stat tiles) in `admin/src/lib/format.ts`; the server's `lib/rupees.ts` formats rupees for spoken and written text. A test fails if any admin source mentions paise or converts money by 100.
+The four tables that used to hold paise were converted by migration `20261029120000_amounts_in_rupees` (which also converts the amounts copied into `lead_captured` journey/activity events and queued Upshot nudge payloads): apply it in the same
+deploy as the code, never one without the other.
 **`User.creditScore` is a database default of 750 for everyone** (no bureau is integrated), so the Credit Score shown in the admin and returned by `/users/me/credit-score` is not a real score.
 
 ### Global decisions for new work
@@ -193,7 +194,7 @@ passed to the paise formatters. (Using `inr()` on a rupee field showed ₹2,000 
     abandoned/rejected/failed    = red
     anonymous/not_started        = grey
     converted                    = teal
-- All amounts in paise (existing server convention)
+- All amounts are whole rupees everywhere (database, API, website, app, admin, agent): there is no paise unit and no ×100 / ÷100 conversion
 - Tracking calls are fire-and-forget — never block UI
 
 ### Build progress
@@ -484,7 +485,12 @@ resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin 
   context for that token; if there is none it asks `POST /api/attribution/resume` (public, throttled to 20/min per IP because it returns a phone number +
   first name; same payload as the claim/login) and, if a fresh journey exists and nobody is signed in, shows the same pre-login pop-up ("Okay, continue"
   opens the login with the number filled in, consent unticked). Nothing generates such a link yet: SMS/WhatsApp carry the https `/dl` link.
-  **Same-network match (`resume_hint`).** The iOS clipboard hand-off is unreliable (the page must be tapped inside a browser that allows copying, and iOS asks "Allow Paste"), so an install matched only by IP (`ip_window`, exactly one candidate click whose link has a fresh journey) gets `resume: null` plus `resume_hint: true` from `/attribution/claim`: no phone, name, step or link reference. The app (`resumePatchFromClaim`, `hintResume()` in `utils/resume.ts`) asks "Did you start an application on our website?" with the login left EMPTY, and the agent gets stage `pre_login_hint` (`first_name` null, `last_step: "unknown"`, `phone_prefilled: false`) and must not claim an unfinished application. After OTP, `GET /journey/resume` (the signed-in account's own journey) decides: real stage if it is theirs, otherwise the hint is dropped. Tests: integration S34/S34b, `__tests__/resume*.test.tsx`.
+  **Same-network match (`resume_hint`).** The iOS clipboard hand-off is unreliable (the page must be tapped inside a browser that allows copying, and iOS asks "Allow Paste"), so an install matched only by IP (`ip_window`, exactly one candidate click whose link has a fresh journey) gets `resume: null` plus `resume_hint: true` and `hint_last_step` from `/attribution/claim`: the step reached, but NO phone, name or link reference. The app (`resumePatchFromClaim`, `networkResume()` in `utils/resume.ts`) starts the agent with stage `pre_login_ask_number` (`first_name` null) and the login EMPTY: it says where they stopped and asks for the number; if they say it isn't them it drops the website talk and gives the normal introduction. **No match at all = the normal introduction; the app NEVER asks "did you start something on our website?" as a guess** (that question was removed). After OTP, `GET /journey/resume` (the signed-in account's own journey) decides: real stage if it is theirs, otherwise the network match is dropped. Tests: integration S34/S34b, `__tests__/resume*.test.tsx`.
+  **Agent starts by itself (`RESUME_AUTO_AGENT` in `config/voiceFlag.ts`, on).** For a deterministic match (and the `resume_hint` guess) with the voice agent configured,
+  `ResumePrompt` shows NO pop-up: as soon as the first screen is up it opens `mobile` with the login EMPTY, sets stage `pre_login_ask_number` (same stage for a network match, with no name) and calls
+  `agent.start()`. The agent greets an existing customer, says where they stopped ("step 2") and asks for their mobile number; after OTP `GET /journey/resume` still decides.
+  If the agent cannot start (offline / no mic / hung up while connecting) the login gets the number filled and no agent stage (the old "Okay, continue"). Flag off = the two-button
+  pop-up as before. Prompt: section F `pre_login_ask_number` (edited locally; paste into Ello by hand).
   The voice agent gets `page_context.journey_resume` (`stage`, `first_name`, `last_step`; no phone). Prompt: section F + a Name Rule exception in
   `prompts/ello-inapp-copilot-prompt.md` (edited locally; paste into Ello by hand).
 - **Job scheduling (`nextCheckAt`).** Each `JourneyReminder` row says when it next needs attention (next step due, or the 5-minute idle check);
@@ -744,3 +750,14 @@ The marketing/nudge SMS sender (**PTSLA**), its DLT templates and the SMS route 
 (`Error mapping routing strategy`, "No senders are available"). Setting `smsUseOtpCredentials: true` in the Voxvalley settings makes `lib/voxSms.ts` send SMS with the OTP
 project's token and ID (`lib/smsCredentials.ts`, pure and tested; falls back to the integration's own pair if the env pair is incomplete, never mixes them). WhatsApp is untouched.
 Default is off, so nothing changes until it is set. The OTP itself (`lib/sms.ts`) is a separate env-driven path and requests no delivery receipts (`VOX_DLR_URL` unset).
+
+---
+
+## Voice transport: WebSocket (default) or WebRTC (experiment)
+
+`src/voice/index.ts` picks the transport at startup: `globalThis.SWIFTLOAN_VOICE_TRANSPORT = 'webrtc'` (set in the gitignored
+`voiceCredentials.local.js`) uses `transports/webrtc/WebRTCAgent` (a subclass of `ElloAgent`, so it shares all the app-level behaviour);
+anything else keeps the stable WebSocket `ElloAgent`. Tested working on a Redmi (tools, transcripts, a full application by voice).
+Release builds use STUN only unless `globalThis.SWIFTLOAN_ICE_SERVERS` supplies a TURN relay (the free public relay is debug-only);
+iOS, mobile data and echo on a loudspeaker are still untested. Details and the open list: `src/voice/transports/webrtc/README.md`.
+Dev builds expose `__ello.start(phone?) / stop() / status() / introduced() / callTool()` for driving a call from the Metro inspector.

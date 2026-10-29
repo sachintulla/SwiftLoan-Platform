@@ -219,6 +219,10 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     /** SMS stays blank (so SMS steps are skipped) until the DLT template is registered; the body must contain `{link}`. */
     installSmsTemplateId: '',
     installSmsBody: '',
+    /** `otp` = send the install SMS through the server's own Vox project (env VOX_*, the OTP gateway); blank = this integration's project. */
+    installSmsGateway: '',
+    /** DLT sender for the install SMS; blank = `smsSender`. */
+    installSmsSender: '',
     /** Optional rename of the last-step wording used for `{step}`; empty = built-in labels. */
     installStepLabels: {},
     /**
@@ -434,7 +438,7 @@ export interface ElloCampaignRecipient {
   name?: string | null;
   city?: string | null;
   product?: string | null;
-  /** Paise, our storage convention — converted to whole rupees for the CSV, since that's what an agent should say out loud. */
+  /** Whole rupees — written to the CSV as is, since that's what an agent should say out loud. */
   amount?: number | null;
   /** Anything else already carried on the contact (spreadsheet-upload extras). Spread as additional CSV columns. */
   extra?: Record<string, unknown> | null;
@@ -472,7 +476,7 @@ export function buildElloCampaignCsv(recipients: ElloCampaignRecipient[]): strin
     csvCell(r.name?.trim() || r.phone),
     csvCell(r.city ?? ''),
     csvCell(r.product ?? ''),
-    csvCell(r.amount != null ? Math.round(r.amount / 100) : ''),
+    csvCell(r.amount != null ? r.amount : ''),
     ...extraCols.map((k) => csvCell(r.extra && k in r.extra ? (r.extra as Record<string, unknown>)[k] : '')),
   ].join(','));
   return [headers.join(','), ...rows].join('\r\n');

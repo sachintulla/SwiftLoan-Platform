@@ -42,7 +42,7 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
 
   const tint = AD_TINTS[index % AD_TINTS.length];
   const logo = lenderLogoFor(offer);
-  const amountR = Math.round(offer.amount / 100);
+  const amountR = Math.round(offer.amount);
 
   return (
     <Animated.View style={[styles.tileWrap, { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }]}>

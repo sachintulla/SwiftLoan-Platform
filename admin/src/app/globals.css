@@ -166,6 +166,14 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .tab-count { margin-left: 6px; color: var(--text-faint); font-weight: 700; font-size: 12px; }
 .tab-item.active .tab-count { color: var(--brand); }
 
+/* ── Configs page: provider tabs ── */
+.cfg-tabs { display: flex; gap: 4px; padding: 4px; margin-top: 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; scrollbar-width: none; }
+.cfg-tabs::-webkit-scrollbar { display: none; }
+.cfg-tab { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 9px 16px; border: none; background: transparent; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
+.cfg-tab:hover { color: var(--text); background: rgba(16, 24, 40, .04); }
+.cfg-tab.active { background: var(--surface); color: var(--brand-ink); box-shadow: 0 1px 2px rgba(16, 24, 40, .08), 0 0 0 1px var(--border); }
+.cfg-tab-ico { font-size: 15px; line-height: 1; }
+
 /* ── identity header (customer detail) ──────────────────────────────────
    One row: avatar, name and the contact values, all centred on the same
    axis. Profile fields sit below in labelled groups — labels

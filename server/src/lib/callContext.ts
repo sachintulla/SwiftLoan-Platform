@@ -19,6 +19,7 @@ import type { Customer } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { STAGE_LABELS, journeyProgress } from './journey.js';
 import { nextActionFor } from './nextAction.js';
+import { rupeesDigits, rupeesInWords } from './rupees.js';
 
 /**
  * Every variable the lead-callback agent may reference.
@@ -92,19 +93,6 @@ export const LEAD_CALL_VARIABLES = [
 export type LeadCallVariable = (typeof LEAD_CALL_VARIABLES)[number];
 export type LeadCallContext = Record<LeadCallVariable, string>;
 
-/** ₹3,00,000 — Indian digit grouping, which is what a caller expects to hear. */
-function inrWords(paise: number | null | undefined): string {
-  if (paise == null) return '';
-  const rupees = Math.round(paise / 100);
-  if (rupees >= 10_000_000) return `${+(rupees / 10_000_000).toFixed(2)} crore rupees`;
-  if (rupees >= 100_000) return `${+(rupees / 100_000).toFixed(2)} lakh rupees`;
-  return `${rupees.toLocaleString('en-IN')} rupees`;
-}
-
-function inrDigits(paise: number | null | undefined): string {
-  if (paise == null) return '';
-  return `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
-}
 
 function agoWords(from: Date | null | undefined, now: Date): string {
   if (!from) return '';
@@ -200,8 +188,8 @@ export async function buildLeadCallContext(
     // change needed on Ello's side.
     phone: str(customer.phone),
     lead_product: product,
-    lead_amount: inrDigits(amount),
-    lead_amount_words: inrWords(amount),
+    lead_amount: rupeesDigits(amount),
+    lead_amount_words: rupeesInWords(amount) ?? '',
     lead_submitted_ago: agoWords(lead?.createdAt ?? customer.firstSeenAt, now),
     lead_source: str(customer.firstSource),
     lead_campaign: str(customer.campaignId ?? customer.utmCampaign),

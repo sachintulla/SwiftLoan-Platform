@@ -5,19 +5,19 @@ import { swrFetcher } from '@/lib/api';
 import { StatCard, Card, TableSkeleton, FilterChips } from '@/components/ui';
 import { FunnelChart, PipelineBar, ActiveUsers, FunnelStage, ActiveUser } from '@/components/viz';
 import { TrendArea, CategoryBar, DonutChart } from '@/components/charts';
-import { inrCompactRupees, num, pct } from '@/lib/format';
+import { inrCompact, num, pct } from '@/lib/format';
 import { PERIODS, computeRange, type Period } from '@/lib/period';
 
 interface Overview {
-  // NB: totalDisbursedPaise / outstandingPaise (and timeseries disbursedPaise) are sums of Loan.principal / Loan.outstanding, which are stored in RUPEES despite the name.
-  stats: { totalUsers: number; totalApplications: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursedPaise: number; outstandingPaise: number; approvedCount: number; applicationToDisbursalPct: number };
+  // NB: totalDisbursed / outstanding (and timeseries disbursed) are sums of Loan.principal / Loan.outstanding, which are stored in RUPEES despite the name.
+  stats: { totalUsers: number; totalApplications: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursed: number; outstanding: number; approvedCount: number; applicationToDisbursalPct: number };
   funnel: FunnelStage[];
   applicationsByStatus: Record<string, number>;
   lenderApplicationsByStatus?: Record<string, number>;
 }
 
 interface Charts {
-  timeseries: { date: string; applications: number; disbursals: number; disbursedPaise: number }[];
+  timeseries: { date: string; applications: number; disbursals: number; disbursed: number }[];
   leadsBySource: { source: string; count: number }[];
   applicationsByType: { type: string; count: number }[];
 }
@@ -71,8 +71,8 @@ export default function OverviewPage() {
         ) : (
           <>
             <StatCard label="Total Applications" value={num(o.stats.totalApplications)} icon="₹" tone="blue" foot={`${num(o.stats.approvedCount)} approved`} />
-            <StatCard label="Active Loans" value={num(o.stats.activeLoans)} icon="◉" tone="green" foot={`${inrCompactRupees(o.stats.outstandingPaise)} outstanding`} />
-            <StatCard label="Total Disbursed" value={inrCompactRupees(o.stats.totalDisbursedPaise)} icon="⬆" tone="teal" foot={period === 'all' ? 'lifetime' : (PERIODS.find((p) => p.key === period)?.label ?? '')} />
+            <StatCard label="Active Loans" value={num(o.stats.activeLoans)} icon="◉" tone="green" foot={`${inrCompact(o.stats.outstanding)} outstanding`} />
+            <StatCard label="Total Disbursed" value={inrCompact(o.stats.totalDisbursed)} icon="⬆" tone="teal" foot={period === 'all' ? 'lifetime' : (PERIODS.find((p) => p.key === period)?.label ?? '')} />
             <StatCard label="Leads" value={num(o.stats.totalLeads)} icon="✦" tone="amber" foot={`${num(o.stats.totalDownloads)} app installs`} />
             <StatCard label="App → Disbursal" value={pct(o.stats.applicationToDisbursalPct)} icon="↗" tone="grey" foot="conversion" />
           </>

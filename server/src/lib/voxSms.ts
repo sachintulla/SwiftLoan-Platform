@@ -89,6 +89,78 @@ async function sendVoxSmsRaw(opts: { phone: string; body?: string; templateId?: 
   return { ok: true, status: res.status, messageId, body: json };
 }
 
+/* ───────── the OTP gateway: the server's own Vox project (env VOX_*), the one that delivers login codes ───────── */
+
+export interface OtpGatewayRequest { url: string; headers: Record<string, string>; payload: string; version: 'v1' | 'v2' }
+
+/**
+ * The request for a template SMS through the env-configured Vox gateway (the one `sms.ts` uses for OTP). Pure, so the
+ * transport rules are tested: v2 (JSON) or v1 (form) is picked from the URL like `sms.ts` does, `to` is E.164 with `+`.
+ * Returns an error string when the env is not set up well enough to send.
+ */
+export function buildOtpGatewayRequest(
+  env: Record<string, string | undefined>,
+  o: { phone: string; body: string; templateId: string; from: string },
+): OtpGatewayRequest | { error: string } {
+  const url = env.VOX_BASE_URL;
+  if (!url) return { error: 'VOX_BASE_URL is not set' };
+  if (!env.VOX_AUTH_TOKEN || !env.VOX_PROJECT_ID) return { error: 'VOX_AUTH_TOKEN / VOX_PROJECT_ID are not set' };
+  for (const [k, v] of Object.entries({ templateId: o.templateId, sender: o.from, body: o.body })) {
+    if (!v) return { error: `SMS ${k} is not configured` };
+  }
+  const fields: Record<string, string> = {
+    authtoken: env.VOX_AUTH_TOKEN, projectid: env.VOX_PROJECT_ID, to: toE164(o.phone), body: o.body, from: o.from, template_id: o.templateId,
+  };
+  if (env.VOX_DLR_URL) fields.dlr_url = env.VOX_DLR_URL;
+  const version = ((env.VOX_API_VERSION ?? (/\/v2\//.test(url) ? 'v2' : 'v1')).toLowerCase() === 'v2' ? 'v2' : 'v1') as 'v1' | 'v2';
+  if (version === 'v2') return { url, version, headers: { 'content-type': 'application/json' }, payload: JSON.stringify(fields) };
+  const form = new URLSearchParams(fields);
+  form.set('expiry', env.VOX_EXPIRY_MINUTES ?? '10');
+  return { url, version, headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: form.toString() };
+}
+
+/** True when the env gateway can be used (same test as the OTP sender: provider `vox` with the credential pair). */
+export function otpGatewayConfigured(env: Record<string, string | undefined> = process.env): boolean {
+  return (env.SMS_PROVIDER ?? '').toLowerCase() === 'vox' && !!(env.VOX_AUTH_TOKEN && env.VOX_PROJECT_ID && env.VOX_BASE_URL);
+}
+
+/**
+ * Send one DLT template SMS through the OTP gateway. Used when Admin → Configs → Voxvalley `installSmsGateway` is `otp`: the
+ * Voxvalley integration's own project has no route for the PTSLA sender ("Error mapping routing strategy"), while the OTP project does.
+ * Fails closed like the OTP sender: only an explicit success code counts (the gateway answers HTTP 200 on failure).
+ */
+export async function sendSmsViaOtpGateway(opts: {
+  phone: string; body: string; templateId: string; from: string; track?: { kind?: string; customerId?: string | null };
+}): Promise<SmsResult> {
+  const req = buildOtpGatewayRequest(process.env, opts);
+  if ('error' in req) return { ok: false, status: 0, error: req.error };
+
+  let result: SmsResult;
+  try {
+    const res = await fetch(req.url, { method: 'POST', headers: req.headers, body: req.payload, signal: AbortSignal.timeout(15_000) });
+    const text = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(text); } catch { /* plain text */ }
+    const okCodes = new Set((process.env.VOX_SUCCESS_CODES ?? '200').split(',').map((s) => s.trim()).filter(Boolean));
+    const delivered = res.ok && json?.code != null && okCodes.has(String(json.code));
+    if (delivered) {
+      result = { ok: true, status: res.status, messageId: json?.id ?? json?.gtrid, body: json };
+      console.log(`[vox-sms] otp-gateway accepted id=${result.messageId ?? '-'}`);
+    } else {
+      const error = String(json?.status ?? json?.message ?? text.slice(0, 300) ?? `HTTP ${res.status}`);
+      console.error(`[vox-sms] otp-gateway send failed http=${res.status} code=${json?.code ?? '-'} ${error}`);
+      result = { ok: false, status: res.status, error, body: json };
+    }
+  } catch (e) {
+    result = { ok: false, status: 0, error: (e as Error).message };
+  }
+  await recordSend({
+    channel: 'sms', providerRef: result.ok ? result.messageId ?? null : null, phone: opts.phone, template: opts.templateId,
+    kind: opts.track?.kind ?? 'other', customerId: opts.track?.customerId ?? null, ok: result.ok, status: 'sent', error: result.error ?? null,
+  });
+  return result;
+}
+
 /** True when the SMS gateway is configured well enough to attempt a send. */
 export async function smsConfigured(): Promise<boolean> {
   const cfg = await getProviderConfig('voxvalley');

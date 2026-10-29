@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from './Icon';
 import { colors, font } from '../theme/tokens';
@@ -6,13 +6,17 @@ import { useStore, useT } from '../state/store';
 import { trackEvent } from '../api/client';
 import { agent, ELLO_CONFIGURED } from '../voice';
 import { markIntroPitchHeard } from '../state/session';
+import { RESUME_AUTO_AGENT } from '../config/voiceFlag';
 
 /**
  * "You left off on the website": the pop-up that offers to continue a website visitor's unfinished
  * application (see utils/resume.ts and the plan in docs/JOURNEY_RESUME_PLAN.md).
  *
- *  - `welcome` (before login, only when this install matched the visitor's own link): two choices.
- *      "Okay, continue" opens the login with the mobile number pre-filled and nothing else done for them.
+ *  - `welcome` (before login, only when this install matched the visitor's own link): with the voice agent
+ *      configured (and RESUME_AUTO_AGENT on) there is NO pop-up: the agent starts by itself as soon as the first
+ *      screen is up, greets the person as an existing customer, says where they stopped and asks for their mobile
+ *      number (the login is left empty). If it cannot start, the login opens with the number filled in instead.
+ *      Without the agent, two choices: "Okay, continue" opens the login with the mobile number pre-filled;
  *      "Take help from agent" does the same and starts the voice agent, which greets by name and guides them.
  *  - `start` (after login, only a visitor who verified the OTP but never did step 1, who chose to go it alone):
  *      offers to start the application. When the agent is already on the call it asks this itself instead.
@@ -25,23 +29,65 @@ export default function ResumePrompt() {
   const { state, set, go, showToast } = useStore();
   const t = useT();
   const { resume, resumePrompt } = state;
-  if (!resume || !resumePrompt) return null;
+  const autoStarted = useRef(false);
 
   const live = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
   const visible =
     resumePrompt === 'welcome'
       ? !PRE_LOGIN_HIDDEN.has(state.screen)
       : state.screen === 'home' && !live;
-  if (!visible) return null;
+  const autoAgent = RESUME_AUTO_AGENT && ELLO_CONFIGURED && resumePrompt === 'welcome';
+
+  // A network match is only ever spoken by the agent. Without one (not configured, or the switch is off) there is
+  // nothing to show, so drop it quietly and behave as for any new person.
+  useEffect(() => {
+    if (resumePrompt === 'welcome' && resume?.source === 'network' && !autoAgent) {
+      set({ resume: null, resumePrompt: null, resumeStage: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumePrompt, resume, autoAgent]);
+
+  // The agent opens the conversation by itself: no pop-up to tap first.
+  useEffect(() => {
+    if (!autoAgent || !visible || !resume || autoStarted.current) return;
+    autoStarted.current = true;
+    // The agent says where they stopped and asks for the number, so the login stays empty (for a network match there
+    // is no number to fill anyway).
+    trackEvent('funnel', 'resume_agent_auto', state.screen, { last_step: resume.lastStep, match: resume.source });
+    set({ resumePrompt: null, terms: false, otpSent: false, resumeStage: 'pre_login_ask_number' });
+    go('mobile');
+    setTimeout(() => {
+      agent.start().then(() => {
+        const connected = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
+        if (connected) {
+          if (!state.introPitchHeard) {
+            set({ introPitchHeard: true });
+            markIntroPitchHeard();
+          }
+        } else if (resume.source !== 'network') {
+          // Hung up while still connecting: same as a failed start, below.
+          set({ mobileVal: resume.phone, resumeStage: null });
+        }
+      }).catch((e) => {
+        // The agent could not start (offline, no microphone, busy): fall back to "Okay, continue".
+        if (resume.source !== 'network') set({ mobileVal: resume.phone, resumeStage: null });
+        if (!String(e?.message ?? '').startsWith('offline:')) showToast(t.voiceStartFailed);
+      });
+    }, 400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAgent, visible, resume]);
+
+  if (!resume || !resumePrompt) return null;
+  if (!visible || autoAgent) return null;
 
   const close = (patch: Record<string, unknown> = {}) => set({ resumePrompt: null, ...patch });
 
-  // A same-network guess knows no number: leave the login empty (the person types their own).
-  const isHint = resume.source === 'hint';
+  // A same-network match knows no number: leave the login empty (the person types their own).
+  const isNetwork = resume.source === 'network';
 
   const prefillAndOpenLogin = (patch: Record<string, unknown> = {}) => {
     // The consent box is the person's own act: it stays unticked (the agent asks before ticking it).
-    set({ resumePrompt: null, ...(isHint ? {} : { mobileVal: resume.phone }), terms: false, otpSent: false, ...patch });
+    set({ resumePrompt: null, ...(isNetwork ? {} : { mobileVal: resume.phone }), terms: false, otpSent: false, ...patch });
     go('mobile');
   };
 
@@ -52,7 +98,7 @@ export default function ResumePrompt() {
 
   const onAgent = () => {
     trackEvent('funnel', 'resume_agent', state.screen, { last_step: resume.lastStep });
-    prefillAndOpenLogin({ resumeStage: isHint ? 'pre_login_hint' : 'pre_login' });
+    prefillAndOpenLogin({ resumeStage: 'pre_login' });
     // Give the screen a beat to show the pre-filled login before the agent starts talking about it.
     setTimeout(() => {
       agent.start().then(() => {
@@ -79,9 +125,9 @@ export default function ResumePrompt() {
   };
 
   const welcome = resumePrompt === 'welcome';
-  const title = welcome ? (isHint ? t.resumeHintTitle : t.resumeTitle) : t.resumeStartTitle;
+  const title = welcome ? t.resumeTitle : t.resumeStartTitle;
   const body = welcome
-    ? (isHint ? t.resumeHintBody : resume.firstName ? t.resumeBodyNamed.replace('{name}', resume.firstName) : t.resumeBody)
+    ? (resume.firstName ? t.resumeBodyNamed.replace('{name}', resume.firstName) : t.resumeBody)
     : t.resumeStartBody;
 
   return (

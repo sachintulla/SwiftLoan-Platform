@@ -238,7 +238,7 @@ export class ApiError extends Error {
 
 export interface PriorInquiry {
   productInterest: string | null;
-  amount: number | null; // paise
+  amount: number | null; // rupees
   createdAt: string;
 }
 
@@ -253,7 +253,7 @@ export interface AuthResult {
 
 // Admin-curated catalog of market-available loan offers shown on the dashboard
 // (no PAN, no credit pull) — see server's MarketLoanOffer model. Distinct from
-// the personalised/eligible Offer results returned per application. Amounts in paise.
+// the personalised/eligible Offer results returned per application. Amounts in whole rupees.
 export interface MarketLoanOffer {
   id: string;
   lenderName: string;
@@ -276,14 +276,14 @@ export interface MarketLoanOffer {
 // A firm, global "pre-approved for you" offer — shown at the top of Home the
 // moment the user logs in, independent of the application funnel. Distinct from
 // MarketLoanOffer (soft marketing catalog, ranges): firm economics, and its
-// Accept path skips eligibility and hands off to the lender. Amounts in paise.
+// Accept path skips eligibility and hands off to the lender. Amounts in whole rupees.
 export interface PrequalifyingOffer {
   id: string;
   lenderName: string;
   logoUrl?: string | null;
   icon: string;
   badge?: string | null;
-  amount: number; // paise
+  amount: number; // rupees
   rate: number; // % p.a.
   tenureMonths: number;
   processingFeePercent?: number | null;
@@ -295,8 +295,8 @@ export interface PrequalifyingOffer {
 }
 
 // A real per-application lender offer (distinct from MarketLoanOffer above,
-// which is admin-curated marketing data). Amounts are plain rupees, matching
-// LoanApplication/Offer's existing convention (not paise). Server-side this is
+// which is admin-curated marketing data). Amounts are plain rupees, the same
+// as everywhere else in the app. Server-side this is
 // produced by a LenderOfferProvider (mock today) — see server/src/lib/lenderOffers.ts.
 export interface EmiOption {
   id: string;
@@ -670,7 +670,7 @@ export const api = {
   partners: () => request('GET', '/catalog/partners'),
   marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
   // Firm "pre-approved for you" offers shown at the top of Home on login. Auth'd,
-  // active + unexpired, admin-ordered. Amounts in paise.
+  // active + unexpired, admin-ordered. Amounts in whole rupees.
   prequalifyingOffers: (): Promise<{ data: PrequalifyingOffer[] }> => request('GET', '/prequalifying-offers'),
   // Admin-tunable nudge timers (public). The app fetches this on launch/foreground.
   nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
@@ -775,6 +775,8 @@ export interface InstallClaim {
   resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null;
   /** A same-network match (not proof): the link probably had a website journey. Carries no personal data. */
   resume_hint?: boolean;
+  /** With `resume_hint`: the step that journey reached (otp_only | pan_done | application_started). */
+  hint_last_step?: string | null;
 }
 
 /**
@@ -870,7 +872,7 @@ export interface ContextPayload {
   name: string | null;
   city: string | null;
   product: string | null;
-  amount: number | null; // paise
+  amount: number | null; // rupees
   summary: string | null;
   source: string;
   greeting: string;
@@ -914,7 +916,7 @@ export function trackLoanStep(
  */
 export interface UserContextInquiry {
   product: string | null;
-  amount: number | null; // paise
+  amount: number | null; // rupees
   amountLabel: string | null;
   city: string | null;
   summary: string | null;

@@ -93,7 +93,7 @@ export default function Home() {
   // advertised amount and drops the user into the normal application funnel.
   // (These ads are marketing, not firm offers, so there is no "accept".)
   const checkEligibility = (o: PrequalifyingOffer) => {
-    set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home', applicationId: null, offersError: '' });
+    set({ appAmount: Math.round(o.amount), offersReturn: 'home', applicationId: null, offersError: '' });
     go('basicpan');
   };
 
@@ -214,7 +214,7 @@ export default function Home() {
           mode="home"
           showIntro={false}
           onApply={plan => {
-            if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount / 100) });
+            if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount) });
             set({ offersReturn: 'home', applicationId: null, offersError: '' });
             go('basicpan');
           }}

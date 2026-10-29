@@ -368,7 +368,7 @@
           phone: ($('#phone') && $('#phone').value) || '',
           city: ($('#city') && $('#city').value) || '',
           product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
-          amount: amtNum * 100, // paise
+          amount: amtNum,
           summary: `Interested in a ${fmtINR(amtNum)} ${(loanTypeEl && loanTypeEl.value) || 'loan'} — submitted on swiftloan.ai (ref ${id}).`,
           source: 'website',
         });

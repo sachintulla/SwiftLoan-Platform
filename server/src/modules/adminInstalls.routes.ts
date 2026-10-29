@@ -158,7 +158,7 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
       installLink: link ? { ...link.info, adminLabel: admin?.name ?? admin?.email ?? null, recordedAt: link.recordedAt } : null,
       reminder: reminder ? { firstName: reminder.firstName, phone: reminder.phone, history: reminder.history, createdAt: iso(reminder.createdAt) } : null,
       lenderNudge: nudge ? { firstName: nudge.firstName, phone: nudge.phone, lenderName: nudge.lenderName, history: nudge.history, createdAt: iso(nudge.createdAt) } : null,
-      lead: lead ? { name: lead.name, phone: lead.phone, productInterest: lead.productInterest, amountPaise: lead.amount, source: lead.source, createdAt: iso(lead.createdAt) } : null,
+      lead: lead ? { name: lead.name, phone: lead.phone, productInterest: lead.productInterest, amountRupees: lead.amount, source: lead.source, createdAt: iso(lead.createdAt) } : null,
       referral: ownerId ? { ownerName: owner?.firstName ?? owner?.fullName ?? null } : null,
       loan: loan ? { amountRupees: loan.amount, loanType: loan.loanType } : null,
     };

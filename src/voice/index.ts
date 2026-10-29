@@ -10,7 +10,7 @@ import { ELLO_API_BASE, ELLO_API_KEY, ELLO_ASSISTANT_ID, ELLO_WS_URL } from './c
 import { micCapture, pcmPlayer } from './audio/nativeAudioBridge';
 import { requestConfirmation } from './ui/confirmationBridge';
 
-export const agent = new ElloAgent(
+const wsAgent = new ElloAgent(
   {
     apiKey: ELLO_API_KEY || '',
     assistantId: ELLO_ASSISTANT_ID || '',
@@ -21,6 +21,12 @@ export const agent = new ElloAgent(
   pcmPlayer,
   requestConfirmation,
 );
+
+// Experiment switch: `globalThis.SWIFTLOAN_VOICE_TRANSPORT = 'webrtc'` (set in the gitignored
+// voiceCredentials.local.js) swaps in the WebRTC transport. Anything else keeps the stable WebSocket agent.
+// required lazily so react-native-webrtc is never loaded unless the switch is on.
+const useWebRTC = (globalThis as { SWIFTLOAN_VOICE_TRANSPORT?: string }).SWIFTLOAN_VOICE_TRANSPORT === 'webrtc';
+export const agent: ElloAgent = useWebRTC ? require('./transports/webrtc').webrtcAgent : wsAgent;
 
 // A control appearing/disappearing anywhere (any screen, not just the current
 // one — updatePageContext() itself always reads whatever's current) resets
@@ -46,6 +52,11 @@ export * from './actionRegistry';
 // (fill a field, tap a chip, scroll…) without a live voice call. Compiled out of release builds.
 if (__DEV__) {
   (globalThis as { __ello?: unknown }).__ello = {
+    transport: useWebRTC ? 'webrtc' : 'websocket',
+    start: (phone?: string) => agent.start(phone),
+    introduced: () => agent.hasIntroducedThisCall(),
+    stop: () => agent.stop(),
+    status: () => agent.getStatus(),
     callTool: (name: string, args: Record<string, unknown>) =>
       (agent as unknown as { registry: { get: (n: string) => { handler: (a: unknown) => unknown } } }).registry.get(name).handler(args),
   };

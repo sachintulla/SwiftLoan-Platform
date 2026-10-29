@@ -204,7 +204,7 @@ enquiry), and **SMS/notification** providers.
 
 Cross-cutting conventions: all new API responses use the
 `{ success, data, message, pagination?, error? }` envelope; all monetary amounts are
-stored and transported in **paise**; tracking calls are fire-and-forget.
+stored and transported in **whole rupees**; tracking calls are fire-and-forget.
 
 ---
 
@@ -603,7 +603,7 @@ client-exposed by design — no server secret may ever be placed there.
 - **Availability:** managed platform (Render) with health checks (`/api/health`);
   target: multi-instance API, managed PG with failover.
 - **Performance:** 4 s client request timeout for fast failover to offline demo data;
-  paise integer arithmetic (no float money); SWR client caching in admin.
+  integer rupee amounts (no float money); SWR client caching in admin.
 - **Observability:** currently `morgan` (dev) only. **Target:** structured, masked,
   centralised logging with 180-day retention and NTP-synced timestamps (CERT-In);
   metrics/alerting; audit trail via `AuditLog`.

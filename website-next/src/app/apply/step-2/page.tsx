@@ -11,6 +11,7 @@ import { useApply } from '@/lib/applyContext';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { patchProfile, createApplication, fetchMe, getApplication, patchApplication, type PanPrefill } from '@/lib/applyApi';
 import { loadDraft, saveDraft } from '@/lib/applyDraft';
+import { companyRequired } from '@/lib/companyRequired';
 import { loadPanHandoff, type PanHandoff } from '@/lib/panPrefill';
 import { useCopy } from '@/lib/i18n';
 import { applyDetailsCopy } from '@/i18n/apply-details';
@@ -212,6 +213,9 @@ export default function Step2BasicsPage() {
   if (!city.trim()) missing.push(t.missing.city);
   if (!state.trim()) missing.push(t.missing.state);
   if (!/^\d+$/.test(income)) missing.push(t.missing.income);
+  // The lender needs an employer name; a student or retired person has none to give.
+  const companyIsRequired = companyRequired(employment);
+  if (companyIsRequired && !company.trim()) missing.push(t.missing.company);
   const valid = missing.length === 0;
 
   const submit = async () => {
@@ -324,7 +328,7 @@ export default function Step2BasicsPage() {
           <Field label={t.employmentType}><ChipGroup options={EMPLOYMENT} value={employment} renderLabel={(o) => t.options[o] ?? o} onChange={setEmployment} /></Field>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t.monthlyIncome} required><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
-            <Field label={t.company}><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
+            <Field label={t.company} required={companyIsRequired}><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
           </div>
           <div className="mt-4">
             <Field label={t.salaryMode}><ChipGroup options={SALARY_MODE} value={salaryMode} renderLabel={(o) => t.options[o] ?? o} onChange={setSalaryMode} /></Field>
