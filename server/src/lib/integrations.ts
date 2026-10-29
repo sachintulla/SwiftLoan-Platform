@@ -219,6 +219,10 @@ export const DEFAULT_SETTINGS: Record<ProviderName, Record<string, any>> = {
     /** SMS stays blank (so SMS steps are skipped) until the DLT template is registered; the body must contain `{link}`. */
     installSmsTemplateId: '',
     installSmsBody: '',
+    /** `otp` = send the install SMS through the server's own Vox project (env VOX_*, the OTP gateway); blank = this integration's project. */
+    installSmsGateway: '',
+    /** DLT sender for the install SMS; blank = `smsSender`. */
+    installSmsSender: '',
     /** Optional rename of the last-step wording used for `{step}`; empty = built-in labels. */
     installStepLabels: {},
     /**
