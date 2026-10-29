@@ -5,6 +5,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { LogoMark } from '../components/Logo';
+import RubyWelcome from '../components/RubyWelcome';
 import { VoiceHidden } from '../voice/screenGraph';
 // import { MarketLoanOffers } from '../components/MarketLoanOffers'; // "Available offers" catalog hidden for now
 import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
@@ -15,6 +16,7 @@ import { displayLenderName } from './offers';
 
 // Applications whose offers are still worth surfacing on the dashboard.
 const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
+
 
 // Fallback highlights when a lender didn't return its own feature list.
 const DEFAULT_FEATURES = ['Low interest rates', 'Flexible tenure', 'Minimal documents', 'Quick approval'];
@@ -39,6 +41,10 @@ export default function Home() {
   // The amount this user actually enquired about — pulled from their live
   // application on the backend, so the hero headline is dynamic per user.
   const [enquiredAmount, setEnquiredAmount] = useState<number | null>(null);
+  // Ruby welcome intro: plays the talking-head clip as a layover when the user
+  // reaches the dashboard after logging in (store.welcomePending, set on OTP
+  // verify), then cleared — so logout → login plays it again.
+  const dismissWelcome = () => set({ welcomePending: false });
 
   // Pull the user's live application (with its personalised offers) so the hero
   // headline, offer count, best rate and lowest EMI are all real per-user data.
@@ -96,6 +102,7 @@ export default function Home() {
   };
 
   return (
+    <>
     <Screen scroll bottomNav padded statusBar="light-content">
       {/* Dark welcome header band — bleeds full-width and up under the status bar
           so the dashboard shares the login screens' deep-teal theme. The content
@@ -110,7 +117,13 @@ export default function Home() {
         {/* Ruby illustration — anchored to the band's bottom-right so she stands
             on the dark header (clipped cleanly at the band edge). Rendered before
             the content so the "Ask Ruby" bubble and headline paint in front. */}
-        <Pressable onPress={askRuby} style={styles.rubyWrap} accessibilityLabel="Ask Ruby for help">
+        <Pressable
+          onPress={askRuby}
+          onLongPress={() => set({ welcomePending: true })}
+          delayLongPress={450}
+          style={styles.rubyWrap}
+          accessibilityLabel="Ask Ruby for help"
+        >
           <Image source={require('../../assets/brand/ruby-hero.png')} style={styles.ruby} resizeMode="contain" />
         </Pressable>
         {/* Top bar: brand lockup + subtitle | RBI badge + notifications bell */}
@@ -215,6 +228,8 @@ export default function Home() {
         <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>
       </VoiceHidden>
     </Screen>
+    {state.welcomePending && <RubyWelcome onDone={dismissWelcome} />}
+    </>
   );
 }
 

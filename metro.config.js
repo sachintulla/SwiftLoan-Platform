@@ -12,12 +12,16 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
  *
  * @type {import('@react-native/metro-config').MetroConfig}
  */
+const defaultConfig = getDefaultConfig(__dirname);
+
 const config = {
   // The backend lives in ./server with its own node_modules — keep Metro out of it
   // to avoid haste-module name collisions.
   resolver: {
     blockList: [/\/server\/.*/, /\/admin\/.*/],
+    // Bundle the Ruby welcome intro's audio track (the GIF uses a default asset type).
+    assetExts: [...defaultConfig.resolver.assetExts, 'm4a'],
   },
 };
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+module.exports = mergeConfig(defaultConfig, config);

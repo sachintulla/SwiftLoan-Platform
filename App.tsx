@@ -91,6 +91,9 @@ function AppShell() {
   // offersError set; the offers-surface tip then points to re-check/explore
   // instead of "pick an offer". Kept in a ref so the fire() closure reads it live.
   const noOffersRef = useRef(false); noOffersRef.current = !!state.offersError;
+  // While the Ruby welcome intro is playing we suppress tips entirely (read live in
+  // the fire() closure), so no nudge bubble pops up over the overlay.
+  const welcomeRef = useRef(false); welcomeRef.current = state.welcomePending;
   // Admin on/off switch and the start/rotate/snooze timings (from the backend, Admin → App config).
   const timersRef = useRef<NudgeTimers>(DEFAULT_TIMERS);
 
@@ -122,6 +125,8 @@ function AppShell() {
       // call that ends on this same screen still gets its tip.
       const status = agent.getStatus();
       if (status !== 'idle' && status !== 'ended') { timer = setTimeout(fire, 3000); return; }
+      // Hold tips while the Ruby welcome intro is on screen; retry once it ends.
+      if (welcomeRef.current) { timer = setTimeout(fire, 1500); return; }
       const cfg = nudgeFor(screen, timersRef.current, isAuthed(), langRef.current, { noOffers: noOffersRef.current });
       if (!cfg) return;
       nudgeIdRef.current += 1;
