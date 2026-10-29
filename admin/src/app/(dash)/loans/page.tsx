@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, LoanStatusBadge, FilterChips, Select, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
-import { inrRupees, dateTimeStr, loanStatusLabel } from '@/lib/format';
+import { inr, dateTimeStr, loanStatusLabel } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import { buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel, type FilterLabels } from '@/lib/lists';
 import '@/components/listActions.css';
@@ -179,7 +179,7 @@ export default function LoansPage() {
                       </td>
                       <td data-label="Applicant"><div>{r.user?.fullName || '—'}<div className="adm-sub">{r.user?.phone}</div></div></td>
                       <td data-label="Type" style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.loanType}</td>
-                      <td data-label="Amount" className="mono">{inrRupees(r.amount)}</td>
+                      <td data-label="Amount" className="mono">{inr(r.amount)}</td>
                       <td data-label="Status"><LoanStatusBadge status={r.status} /></td>
                       <td data-label="Lender applications" className="muted" style={{ fontSize: 12.5 }}>{lenderSummary(r.offers)}</td>
                       <td data-label="Applied" className="muted">{dateTimeStr(r.createdAt)}</td>

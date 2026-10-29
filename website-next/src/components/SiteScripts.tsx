@@ -531,7 +531,7 @@ export default function SiteScripts() {
             email: $<HTMLInputElement>('#email')?.value || '',
             city: $<HTMLInputElement>('#city')?.value || '',
             product: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
-            amount: amtNum * 100, // paise
+            amount: amtNum,
             summary: `Interested in a ${fmtINR(amtNum)} ${(loanTypeEl && loanTypeEl.value) || 'loan'} — submitted on swiftloan.ai (ref ${id}).`,
             source: 'website',
             // WS5: campaign attribution. Without these the admin dashboard can

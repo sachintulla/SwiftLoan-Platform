@@ -25,7 +25,7 @@ export interface LeadDetails {
   city?: string;
   /** "Personal Loan" | "Business Loan" — stored as the lead's productInterest. */
   product: string;
-  /** RUPEES. Converted to paise here, since the server stores paise throughout. */
+  /** Whole rupees, sent to the server as is. */
   amountRupees: number;
 }
 
@@ -117,7 +117,7 @@ export async function submitLead(d: LeadDetails, refId: string): Promise<LeadRes
     email: d.email,
     city: d.city,
     product: d.product,
-    amount: Math.round(d.amountRupees * 100), // paise
+    amount: Math.round(d.amountRupees),
     summary: `Interested in a ${inr(d.amountRupees)} ${d.product || 'loan'} — submitted on swiftloan.ai (ref ${refId}).`,
     source: 'website',
     ...attribution(),
@@ -157,7 +157,7 @@ export async function updateLeadAmount(phone: string, amountRupees: number): Pro
     const res = await fetch(`${base}/api/website/lead/amount`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, amount: Math.round(amountRupees * 100) }),
+      body: JSON.stringify({ phone, amount: Math.round(amountRupees) }),
     });
     return res.ok;
   } catch (e) {

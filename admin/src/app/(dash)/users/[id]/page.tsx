@@ -3,7 +3,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
-import { inrRupees, dateStr, dateTimeStr, humanStatus, timeAgo } from '@/lib/format';
+import { inr, dateStr, dateTimeStr, humanStatus, timeAgo } from '@/lib/format';
 import { stageLabel } from '@/components/journey';
 import type { ReactNode } from 'react';
 
@@ -53,7 +53,7 @@ export default function UserProfile() {
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', marginTop: 16 }}>
         <StatCard label="Credit Score" value={u.creditScore} tone={u.creditScore >= 750 ? 'green' : u.creditScore >= 650 ? 'amber' : 'red'} />
-        <StatCard label="Monthly Income" value={u.monthlyIncome ? inrRupees(u.monthlyIncome) : '—'} tone="teal" />
+        <StatCard label="Monthly Income" value={u.monthlyIncome ? inr(u.monthlyIncome) : '—'} tone="teal" />
         <StatCard label="Applications" value={u.applications?.length ?? 0} tone="blue" />
         <StatCard label="Loans" value={u.loans?.length ?? 0} tone="grey" />
       </div>
@@ -79,7 +79,7 @@ export default function UserProfile() {
           <Field label="Residence type" value={u.residenceType ? humanStatus(u.residenceType) : null} />
           <Field label="Employment" value={u.employment ? humanStatus(u.employment) : null} />
           <Field label="Company" value={u.company} />
-          <Field label="Monthly income" value={u.monthlyIncome ? inrRupees(u.monthlyIncome) : null} />
+          <Field label="Monthly income" value={u.monthlyIncome ? inr(u.monthlyIncome) : null} />
           <Field label="Loan purpose" value={u.loanPurpose ? humanStatus(u.loanPurpose) : null} />
         </Card>
       </div>
@@ -93,7 +93,7 @@ export default function UserProfile() {
               <tr key={a.ref || i}>
                 <td>{LENDER_GROUP_LABEL[a.lenderGroup] || humanStatus(a.lenderGroup)}</td>
                 <td>{a.lender || '—'}{a.lenderNote && <div style={{ fontSize: 11.5, color: 'var(--amber, #b54708)' }} title={a.lenderNoteAt ? dateStr(a.lenderNoteAt) : undefined}>Lender note: {a.lenderNote}</div>}</td>
-                <td className="mono">{a.amount != null ? inrRupees(a.amount) : '—'}</td>
+                <td className="mono">{a.amount != null ? inr(a.amount) : '—'}</td>
                 <td><StatusBadge status={a.status} /></td>
                 <td className="muted" title={dateStr(a.appliedAt)}>{timeAgo(a.appliedAt)}</td>
               </tr>
@@ -109,7 +109,7 @@ export default function UserProfile() {
             <div className="table-wrap"><table className="data">
               <thead><tr><th>Ref</th><th>Amount</th><th>Status</th></tr></thead>
               <tbody>{u.applications.map((a: any) => (
-                <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}><td className="mono">{a.ref}</td><td className="mono">{inrRupees(a.amount)}</td><td><StatusBadge status={a.status} /></td></tr>
+                <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}><td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td><td><StatusBadge status={a.status} /></td></tr>
               ))}</tbody>
             </table></div>
           )}

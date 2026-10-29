@@ -377,8 +377,8 @@ export interface ContactCandidate {
   name: string | null;
   phone: unknown;
   product: string | null;
-  /** In paise, the unit CampaignContact.amount uses. */
-  amountPaise: number | null;
+  /** Whole rupees, the unit CampaignContact.amount uses. */
+  amount: number | null;
   /** The row's status in the list it came from. */
   status: string;
 }
@@ -407,11 +407,11 @@ export function planContacts(candidates: ContactCandidate[]): {
   return { contacts, withPhone: candidates.length - noPhone, noPhone, duplicates };
 }
 
-/** Rupees to paise, or null when it would not fit the Int column or is not a positive amount. */
-export function rupeesToPaise(rupees: number | null | undefined): number | null {
+/** A contact's amount in whole rupees, or null when it is missing, not positive, or would not fit the Int column. */
+export function contactAmount(rupees: number | null | undefined): number | null {
   if (rupees == null || !Number.isFinite(rupees) || rupees <= 0) return null;
-  const paise = Math.round(rupees * 100);
-  return paise > 2_147_483_647 ? null : paise;
+  const whole = Math.round(rupees);
+  return whole > 2_147_483_647 ? null : whole;
 }
 
 /** Plain-words version of a filter set, stored on the draft campaign's note so its origin is clear later. */

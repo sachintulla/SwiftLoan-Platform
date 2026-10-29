@@ -26,6 +26,7 @@
  */
 import { ApplicationStatus } from '@prisma/client';
 import { prisma } from './prisma.js';
+import { rupeesInWords } from './rupees.js';
 
 const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   draft: 'Application details in progress',
@@ -120,7 +121,7 @@ export interface UserContext {
   /** Website enquiries made under this phone, oldest first. */
   inquiries: Array<{
     product: string | null;
-    amount: number | null; // paise
+    amount: number | null; // rupees
     amountLabel: string | null;
     city: string | null;
     summary: string | null;
@@ -133,15 +134,15 @@ export interface UserContext {
     id: string;
     ref: string;
     status: string;
-    amount: number | null; // paise — the user's own REQUESTED amount, not any lender's offered amount
+    amount: number | null; // rupees — the user's own REQUESTED amount, not any lender's offered amount
     loanType: string | null;
     tenureMonths: number | null;
     /** Every offer, each trimmed to exactly: which lender, at what rate, for how much, what EMI, and its own status. */
     offers: Array<{
       lenderName: string | null;
       apr: number | null;
-      amount: number | null; // paise — this lender's own offered amount, may differ from application.amount
-      emi: number | null; // paise
+      amount: number | null; // rupees — this lender's own offered amount, may differ from application.amount
+      emi: number | null; // rupees
       applied: boolean;
       /** Only meaningful once applied — this lender's own progress (in_progress/reviewed/rejected/etc). */
       status: string | null;
@@ -153,12 +154,12 @@ export interface UserContext {
     id: string;
     ref: string;
     partnerName: string | null;
-    principal: number | null; // paise
+    principal: number | null; // rupees
     apr: number | null;
     tenureMonths: number | null;
-    emiAmount: number | null; // paise
+    emiAmount: number | null; // rupees
     status: string | null;
-    outstanding: number | null; // paise
+    outstanding: number | null; // rupees
   } | null;
 }
 
@@ -169,15 +170,6 @@ const EMPTY: UserContext = {
   applicationStatus: null, applicationStatusLabel: NO_APPLICATION_LABEL,
   inquiries: [], application: null, loan: null,
 };
-
-/** ₹3,00,000 → "3 lakh rupees". Spoken form, since an agent reads this aloud. */
-function amountWords(paise: number | null | undefined): string | null {
-  if (paise == null) return null;
-  const r = Math.round(paise / 100);
-  if (r >= 10_000_000) return `${+(r / 10_000_000).toFixed(2)} crore rupees`;
-  if (r >= 100_000) return `${+(r / 100_000).toFixed(2)} lakh rupees`;
-  return `${r.toLocaleString('en-IN')} rupees`;
-}
 
 /**
  * Gather context for a phone number (bare 10 digits).
@@ -241,7 +233,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
   const inquiries = (leads ?? []).map((l) => ({
     product: l.productInterest,
     amount: l.amount ?? null,
-    amountLabel: amountWords(l.amount),
+    amountLabel: rupeesInWords(l.amount),
     city: l.city,
     summary: l.note,
     createdAt: l.createdAt.toISOString(),

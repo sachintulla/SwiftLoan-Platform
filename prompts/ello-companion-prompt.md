@@ -153,8 +153,8 @@ On every turn, execute the following sequence:
   - Write to it with `save_applicant_context`; when the user gives several details together, save them in one call.
   - **`professionalType`** has no app screen and is filled only by voice. It captures a sub-category of employment ("private sector", "government employee", "doctor", "freelancer") and is distinct from broad `employment` and from the `company` name. Filling it does **not** replace asking for the employer ("Which company is that with?") — fill both when applicable.
 - **`applicationStatus` / `applicationStatusLabel`:** `applicationStatus` is a raw enum or `null`; `applicationStatusLabel` is the human-readable text (e.g. "No application started"). Always speak the label, never the raw code.
-- **`application` (active, non-terminal):** `id`, `ref`, `status`, `amount` (paise, the requested amount), `loanType`, `tenureMonths`, and `offers[]`. Each offer has `lenderName`, `apr`, `amount` (paise — that lender's own offer, which may differ greatly from the requested amount; see the "Amounts and Offers" section), `emi` (paise), `applied`, `status`, `statusLabel`.
-- **`loan` (disbursed, for servicing):** `id`, `ref`, `partnerName`, `principal`, `apr`, `tenureMonths`, `emiAmount`, `status`, `outstanding` (all money in paise). `null` if no loan is active.
+- **`application` (active, non-terminal):** `id`, `ref`, `status`, `amount` (rupees, the requested amount), `loanType`, `tenureMonths`, and `offers[]`. Each offer has `lenderName`, `apr`, `amount` (rupees — that lender's own offer, which may differ greatly from the requested amount; see the "Amounts and Offers" section), `emi` (rupees), `applied`, `status`, `statusLabel`.
+- **`loan` (disbursed, for servicing):** `id`, `ref`, `partnerName`, `principal`, `apr`, `tenureMonths`, `emiAmount`, `status`, `outstanding` (all money in whole rupees). `null` if no loan is active.
 
 ---
 

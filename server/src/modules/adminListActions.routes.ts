@@ -30,7 +30,7 @@ import {
   buildLoanWhere, buildRevasureWhere, buildYubiWhere, findUserIdsBySearch, personsByUserId, searchTerm,
   LOAN_CSV_HEADERS, REVASURE_CSV_HEADERS, YUBI_CSV_HEADERS,
   loanCsvRow, revasureCsvRow, yubiCsvRow,
-  pickFilters, planContacts, rupeesToPaise, describeFilterSet,
+  pickFilters, planContacts, contactAmount, describeFilterSet,
   type ListKind, type ContactCandidate,
 } from '../lib/listFilters.js';
 
@@ -103,7 +103,7 @@ const SOURCES: Record<ListKind, ListSource> = {
         name: r.user?.fullName || r.user?.firstName || null,
         phone: r.user?.phone ?? null,
         product: r.loanType,
-        amountPaise: rupeesToPaise(r.amount),
+        amount: contactAmount(r.amount),
         status: r.status,
       }));
     },
@@ -145,7 +145,7 @@ const SOURCES: Record<ListKind, ListSource> = {
         name: users.get(r.userId)?.name ?? null,
         phone: users.get(r.userId)?.phone ?? null,
         product: null,
-        amountPaise: null,
+        amount: null,
         status: r.status,
       }));
     },
@@ -186,7 +186,7 @@ const SOURCES: Record<ListKind, ListSource> = {
         name: users.get(r.userId)?.name ?? null,
         phone: users.get(r.userId)?.phone ?? null,
         product: null,
-        amountPaise: null,
+        amount: null,
         status: r.lastStatus || r.status,
       }));
     },
@@ -293,7 +293,7 @@ function campaignHandler(kind: ListKind) {
             phone: c.phone,
             name: c.name,
             product: c.product,
-            amount: c.amountPaise,
+            amount: c.amount,
             extra: { sourceList: kind, status: c.status },
           })),
           skipDuplicates: true,

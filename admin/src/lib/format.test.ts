@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { inr, inrCompact, num, pct, timeAgo, dateStr, statusTone, humanStatus, inrRupees, inrCompactRupees } from './format';
+import { inr, inrCompact, num, pct, timeAgo, dateStr, statusTone, humanStatus } from './format';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 describe('inr', () => {
-  it('formats paise as rupees', () => {
-    expect(inr(500000)).toBe('₹5,000');
+  it('formats whole rupees with Indian grouping', () => {
+    expect(inr(500000)).toBe('₹5,00,000');
+    expect(inr(1040000)).toBe('₹10,40,000');
   });
   it('treats null/undefined as zero', () => {
     expect(inr(null)).toBe('₹0');
@@ -15,13 +16,13 @@ describe('inr', () => {
 
 describe('inrCompact', () => {
   it('compacts thousands with a K suffix', () => {
-    expect(inrCompact(150000)).toBe('₹1.5K'); // 150000 paise = ₹1,500
+    expect(inrCompact(1500)).toBe('₹1.5K');
   });
   it('handles crore-scale amounts', () => {
-    expect(inrCompact(2_00_00_000 * 100)).toBe('₹2.00Cr');
+    expect(inrCompact(2_00_00_000)).toBe('₹2.00Cr');
   });
   it('handles lakh-scale amounts', () => {
-    expect(inrCompact(3_00_000 * 100)).toBe('₹3.00L');
+    expect(inrCompact(3_00_000)).toBe('₹3.00L');
   });
   it('treats null/undefined as zero', () => {
     expect(inrCompact(null)).toBe('₹0');
@@ -107,46 +108,33 @@ describe('humanStatus', () => {
   });
 });
 
-describe('rupees vs paise (the bug that showed ₹2,000 for ₹2,00,000 and ₹510 for ₹51,000)', () => {
-  it('inrRupees shows a rupee value as it is, in Indian grouping', () => {
-    expect(inrRupees(200000)).toBe('₹2,00,000');
-    expect(inrRupees(51000)).toBe('₹51,000');
-    expect(inrRupees(null)).toBe('₹0');
+describe('one unit: whole rupees (regression: the dashboard mixed paise and rupees and showed ₹2,000 for ₹2,00,000)', () => {
+  it('shows an amount exactly as stored, in Indian grouping, whatever the field', () => {
+    expect(inr(200000)).toBe('₹2,00,000');
+    expect(inr(51000)).toBe('₹51,000');
+    expect(inr(25200000)).toBe('₹2,52,00,000'); // no hidden ÷100: this is ₹2.52 crore, not ₹2,52,000
   });
-
-  it('inr treats its input as paise, so it is only for paise fields', () => {
-    expect(inr(25200000)).toBe('₹2,52,000'); // a Lead.amount in paise
-    expect(inr(200000)).toBe('₹2,000'); // what you get by using it on a rupee field: wrong by 100x
-  });
-
-  it('inrCompactRupees is the compact form of a rupee value', () => {
-    expect(inrCompactRupees(51000)).toBe('₹51.0K');
-    expect(inrCompactRupees(200000)).toBe('₹2.00L');
-    expect(inrCompactRupees(25000000)).toBe('₹2.50Cr');
-    expect(inrCompactRupees(750)).toBe('₹750');
-    expect(inrCompactRupees(null)).toBe('₹0');
-  });
-
-  it('inrCompact (paise) agrees with inrCompactRupees once the unit is converted', () => {
-    expect(inrCompact(20000000)).toBe(inrCompactRupees(200000));
-    expect(inrCompact(null)).toBe('₹0');
+  it('the compact form agrees with the plain one', () => {
+    expect(inrCompact(51000)).toBe('₹51.0K');
+    expect(inrCompact(200000)).toBe('₹2.00L');
+    expect(inrCompact(25000000)).toBe('₹2.50Cr');
+    expect(inrCompact(750)).toBe('₹750');
   });
 });
 
-describe('guard: rupee fields are never formatted as paise', () => {
-  // Fields stored in RUPEES (see the list at the top of format.ts). A line that formats one of them with inr()/inrCompact() is the bug above.
-  const RUPEE_FIELDS = /\b(monthlyIncome|principal|emiAmount|outstanding|processingFee)\b/;
+describe('guard: there is no paise anywhere in the admin app', () => {
   const walk = (dir: string): string[] =>
     readdirSync(dir).flatMap((f) => {
       const p = join(dir, f);
       return statSync(p).isDirectory() ? (f === 'node_modules' || f === '.next' ? [] : walk(p)) : /\.(tsx?|jsx?)$/.test(f) && !/\.test\./.test(f) ? [p] : [];
     });
 
-  it('no admin screen passes an income, principal, EMI, outstanding or fee value to the paise formatters', () => {
+  it('no admin source mentions paise or converts money by 100', () => {
     const offenders: string[] = [];
     for (const file of walk(join(__dirname, '..'))) {
       readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
-        if (/\binr(Compact)?\(/.test(line) && RUPEE_FIELDS.test(line) && !/export function/.test(line)) offenders.push(`${file.split('/src/')[1]}:${i + 1}  ${line.trim().slice(0, 110)}`);
+        const money = /(paise|paisa)/i.test(line) || (/\b(amount|principal|emi|income|outstanding|price)\w*\b/i.test(line) && /[*/] ?100\b(?!\s*[%)])/.test(line) && !/%|Pct|pct|percent/i.test(line));
+        if (money) offenders.push(`${file.split('/src/')[1]}:${i + 1}  ${line.trim().slice(0, 110)}`);
       });
     }
     expect(offenders).toEqual([]);

@@ -1099,7 +1099,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
         }
         // The install came from a website visitor's own link: offer to continue where they left off.
-        // A same-network match (resume_hint) only lets the app ask "did you start one on our website?"; nothing about the person.
+        // A same-network match (resume_hint) carries only the step reached, never a name or phone; no match = the normal introduction.
         const patch = resumePatchFromClaim(claim);
         if (patch) dispatch({ type: 'set', patch });
       })().catch(() => undefined);
@@ -1323,7 +1323,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       done = true;
 
       const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);
-      const rupees = ctx.amount ? Math.round(ctx.amount / 100) : undefined;
+      const rupees = ctx.amount ? Math.round(ctx.amount) : undefined;
       dispatch({
         type: 'set',
         patch: {

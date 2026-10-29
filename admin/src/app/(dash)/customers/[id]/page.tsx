@@ -19,7 +19,7 @@ import { ApplicationOffers } from '@/components/ApplicationOffers';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
 import { ActivityFeed, buildActivityHighlights } from '@/components/activityFeed';
-import { inr, inrRupees, dateStr, dateTimeStr, timeAgo, humanStatus, num } from '@/lib/format';
+import { inr, dateStr, dateTimeStr, timeAgo, humanStatus, num } from '@/lib/format';
 import { NUDGES_DISABLED, withoutNudgeEvents } from '@/lib/flags';
 
 interface Customer {
@@ -397,7 +397,7 @@ export default function CustomerDetail() {
           <FactGroup title="Work & income">
             <Fact label="Employment">{user?.employment ? humanStatus(user.employment) : null}</Fact>
             <Fact label="Employer">{user?.company}</Fact>
-            <Fact label="Monthly income">{user?.monthlyIncome ? inrRupees(user.monthlyIncome) : null}</Fact>
+            <Fact label="Monthly income">{user?.monthlyIncome ? inr(user.monthlyIncome) : null}</Fact>
             <Fact label="Salary mode">{user?.salaryMode ? humanStatus(user.salaryMode) : null}</Fact>
             <Fact label="Residence">{user?.residenceType ? humanStatus(user.residenceType) : null}</Fact>
             <Fact label="Loan purpose">{user?.loanPurpose}</Fact>
@@ -464,7 +464,7 @@ export default function CustomerDetail() {
             return (
               <Stat
                 label="Requested"
-                value={primaryApp ? inrRupees(primaryApp.amount) : lead?.amount ? inr(lead.amount) : '—'}
+                value={primaryApp ? inr(primaryApp.amount) : lead?.amount ? inr(lead.amount) : '—'}
                 foot={primaryApp ? `${primaryApp.tenureMonths ?? '—'} months · personal` : lead ? `from their ${lead.source} enquiry` : 'no application yet'}
               />
             );
@@ -560,7 +560,7 @@ export default function CustomerDetail() {
                         return (
                           <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}>
                             <td className="mono">{a.ref}</td>
-                            <td className="mono">{inrRupees(a.amount)}</td>
+                            <td className="mono">{inr(a.amount)}</td>
                             <td>{a.tenureMonths ? `${a.tenureMonths} mo` : '—'}</td>
                             <td>{isSubmitted || !submittedAppId ? <LoanStatusBadge status={a.status} /> : <span className="badge tone-grey">Abandoned</span>}</td>
                             <td className="muted" style={{ fontSize: 12 }}>{note}</td>
@@ -799,7 +799,7 @@ export default function CustomerDetail() {
             <div className="table-wrap"><table className="data">
               <thead><tr><th>Principal</th><th>Outstanding</th><th>Status</th></tr></thead>
               <tbody>{loans.map((l) => (
-                <tr key={l.id}><td className="mono">{inrRupees(l.principal)}</td><td className="mono">{inrRupees(l.outstanding)}</td><td><LoanStatusBadge status={l.status} /></td></tr>
+                <tr key={l.id}><td className="mono">{inr(l.principal)}</td><td className="mono">{inr(l.outstanding)}</td><td><LoanStatusBadge status={l.status} /></td></tr>
               ))}</tbody>
             </table></div>
           </Card>

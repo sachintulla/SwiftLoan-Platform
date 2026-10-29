@@ -8,7 +8,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile, getAdmin } from '@/lib/api';
 import { Card, Stat, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
-import { dateTimeStr, timeAgo, num, inrRupees } from '@/lib/format';
+import { dateTimeStr, timeAgo, num, inr } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
 import { PERIODS, computeRange } from '@/lib/period';
 import {
@@ -149,7 +149,7 @@ function Customers() {
           <div className="stat-strip">
             <Stat label="Customers" value={num(pg?.total ?? rows.length)}
               foot={filtered ? 'matching these filters' : 'known in total'} />
-            <Stat label="Requested" value={requestedTotal ? inrRupees(requestedTotal) : '—'}
+            <Stat label="Requested" value={requestedTotal ? inr(requestedTotal) : '—'}
               tone={requestedTotal ? undefined : 'text-faint'}
               foot={`applied for across the ${num(rows.length)} shown`} />
             <Stat label="Calls placed" value={num(callsTotal)} tone={callsTotal ? undefined : 'text-faint'}
@@ -290,7 +290,7 @@ function Customers() {
                     </div>
                   </td>
                   <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {c.loanAmount ? inrRupees(c.loanAmount) : <span className="muted">—</span>}
+                    {c.loanAmount ? inr(c.loanAmount) : <span className="muted">—</span>}
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>
                     {calls ? num(calls) : <span className="muted">0</span>}

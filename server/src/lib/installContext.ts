@@ -126,8 +126,7 @@ export async function cancelInstallLink(outboundRequestId: string): Promise<void
 
 /**
  * Pure: the loan details to carry with a link, from the customer's most recent
- * application (rupees) or, failing that, their most recent website enquiry
- * (paise, so divided by 100 here).
+ * application or, failing that, their most recent website enquiry (both whole rupees).
  */
 export function pickInstallDetails(
   app: { amount: number; loanType: string } | null,
@@ -135,7 +134,7 @@ export function pickInstallDetails(
 ): { amountRupees: number | null; product: string | null } {
   if (app && app.amount > 0) return { amountRupees: app.amount, product: app.loanType };
   if (lead && lead.amount != null && lead.amount > 0) {
-    return { amountRupees: Math.round(lead.amount / 100), product: lead.productInterest?.trim() || null };
+    return { amountRupees: Math.round(lead.amount), product: lead.productInterest?.trim() || null };
   }
   return { amountRupees: null, product: lead?.productInterest?.trim() || null };
 }

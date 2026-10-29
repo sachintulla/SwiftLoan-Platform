@@ -21,7 +21,7 @@ const offerSchema = z.object({
   logoUrl: z.string().url().optional().nullable(),
   icon: z.string().optional(),
   badge: z.string().optional().nullable(),
-  amount: z.number().int().positive(), // paise
+  amount: z.number().int().positive(), // rupees
   rate: z.number().nonnegative(),
   tenureMonths: z.number().int().positive(),
   processingFeePercent: z.number().nonnegative().optional().nullable(),
