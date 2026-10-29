@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
 import { BottomNav } from './src/components/Frame';
+import RubyWelcome from './src/components/RubyWelcome';
 import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
@@ -163,6 +164,11 @@ function AppShell() {
       <ResumePrompt />
       <OfflineNotice />
       <BackHandlerBridge />
+      {/* Ruby welcome intro — rendered LAST so it's the top-most view in the single
+          app window, covering the dashboard, tab bar and FAB and blocking all touches
+          until it finishes (see RubyWelcome). Driven by store.welcomePending, set on
+          login / long-press and cleared here when the intro ends. */}
+      {state.welcomePending && <RubyWelcome onDone={() => set({ welcomePending: false })} />}
     </View>
   );
 }

@@ -5,7 +5,6 @@ import LinearGradient from 'react-native-linear-gradient';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { LogoMark } from '../components/Logo';
-import RubyWelcome from '../components/RubyWelcome';
 import { VoiceHidden } from '../voice/screenGraph';
 // import { MarketLoanOffers } from '../components/MarketLoanOffers'; // "Available offers" catalog hidden for now
 import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
@@ -41,10 +40,6 @@ export default function Home() {
   // The amount this user actually enquired about — pulled from their live
   // application on the backend, so the hero headline is dynamic per user.
   const [enquiredAmount, setEnquiredAmount] = useState<number | null>(null);
-  // Ruby welcome intro: plays the talking-head clip as a layover when the user
-  // reaches the dashboard after logging in (store.welcomePending, set on OTP
-  // verify), then cleared — so logout → login plays it again.
-  const dismissWelcome = () => set({ welcomePending: false });
 
   // Pull the user's live application (with its personalised offers) so the hero
   // headline, offer count, best rate and lowest EMI are all real per-user data.
@@ -87,22 +82,26 @@ export default function Home() {
   const emiValues = offers.map(minEmiOf).filter((n): n is number => n != null);
   const minEmi = emiValues.length ? Math.min(...emiValues) : null;
 
+  // While the Ruby welcome intro is playing, every dashboard action is frozen — so
+  // nothing can be navigated to or started underneath the overlay. The intro's own
+  // "seen" flag (state.welcomePending) is the single source of truth.
+  const introActive = () => state.welcomePending;
   // "Ask Ruby" reveals + animates the support FAB and starts a session, so a
   // first-time user learns the assistant is always one tap away (see VoiceWidget).
-  const askRuby = () => set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 });
-  const viewOffers = () => { set({ offersReturn: 'home' }); go('fare'); };
-  const changeAmount = () => { set({ offersReturn: 'home' }); go('basicpan'); };
-  const startFresh = () => { set({ offersReturn: 'home', applicationId: null, offersError: '' }); go('basicpan'); };
+  const askRuby = () => { if (introActive()) return; set({ voiceFabUnlocked: true, voiceTrigger: state.voiceTrigger + 1 }); };
+  const viewOffers = () => { if (introActive()) return; set({ offersReturn: 'home' }); go('fare'); };
+  const changeAmount = () => { if (introActive()) return; set({ offersReturn: 'home' }); go('basicpan'); };
+  const startFresh = () => { if (introActive()) return; set({ offersReturn: 'home', applicationId: null, offersError: '' }); go('basicpan'); };
   // A sponsored "featured offer" ad — tapping "Check eligibility" seeds the
   // advertised amount and drops the user into the normal application funnel.
   // (These ads are marketing, not firm offers, so there is no "accept".)
   const checkEligibility = (o: PrequalifyingOffer) => {
+    if (introActive()) return;
     set({ appAmount: Math.round(o.amount / 100), offersReturn: 'home', applicationId: null, offersError: '' });
     go('basicpan');
   };
 
   return (
-    <>
     <Screen scroll bottomNav padded statusBar="light-content">
       {/* Dark welcome header band — bleeds full-width and up under the status bar
           so the dashboard shares the login screens' deep-teal theme. The content
@@ -228,8 +227,6 @@ export default function Home() {
         <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>
       </VoiceHidden>
     </Screen>
-    {state.welcomePending && <RubyWelcome onDone={dismissWelcome} />}
-    </>
   );
 }
 

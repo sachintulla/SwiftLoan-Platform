@@ -443,6 +443,8 @@ export default function VoiceWidget() {
   // mid-call can't drop it. Ending the call is now only reachable through the
   // dedicated end-call button (see endCall below).
   const onPress = () => {
+    // Frozen while the Ruby welcome intro plays — the FAB (Support) can't be tapped.
+    if (state.welcomePending) return;
     vlog('FAB tapped; status=', status, 'active=', active, 'expanded=', expanded);
     setNudgeLabel(null); // clear any proactive-help label once the user engages
     Vibration.vibrate(20); // small haptic to confirm the tap registered

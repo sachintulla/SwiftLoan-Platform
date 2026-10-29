@@ -98,6 +98,13 @@ export default function RubyWelcome({ onDone }: Props) {
     });
   }).current;
 
+  // Only the audio ending dismisses the intro. A GIF/audio load 'error' is ignored
+  // (the safety timeout still guarantees an exit) so a slow 37MB GIF can't drop the
+  // overlay — and its touch-block — prematurely.
+  const onWebMessage = useRef((e: { nativeEvent: { data: string } }) => {
+    if (e.nativeEvent.data === 'ended') finish();
+  }).current;
+
   useEffect(() => {
     if (UNDER_JEST) return undefined;
     Animated.timing(anim, {
@@ -120,6 +127,10 @@ export default function RubyWelcome({ onDone }: Props) {
   const opacity = anim.interpolate({ inputRange: [0, 0.5, 1, 2], outputRange: [0, 1, 1, 0] });
 
   return (
+    // A transparent Modal shows the GIF reliably full-screen. It does NOT block the
+    // dashboard/tab bar on its own (a transparent iOS Modal lets touches through) —
+    // that's handled by gating every nav/dashboard action on store.welcomePending
+    // while the intro is active, so the GIF just needs to present and play here.
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={finish}>
       <Animated.View style={[styles.fill, { opacity, transform: [{ translateY }, { scale }] }]}>
         <WebView
@@ -136,7 +147,7 @@ export default function RubyWelcome({ onDone }: Props) {
           scrollEnabled={false}
           overScrollMode="never"
           androidLayerType="hardware"
-          onMessage={finish}
+          onMessage={onWebMessage}
         />
         <Pressable style={styles.skip} onPress={finish} accessibilityLabel="Skip intro" hitSlop={10}>
           <Text style={[font(700), styles.skipText]}>Skip</Text>
