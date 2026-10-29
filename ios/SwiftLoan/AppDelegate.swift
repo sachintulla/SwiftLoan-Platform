@@ -50,26 +50,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     return true
   }
 
-  // MARK: - Deep links (swiftloan://<screen>)
-  //
-  // The `swiftloan` scheme is registered in Info.plist; this hands an opened link to React Native's
-  // Linking module (JS: Linking.addEventListener('url') in src/state/store.ts). It posts the same
-  // notification RCTLinkingManager.application(_:open:options:) does — RN's Linking listens for
-  // "RCTOpenURLNotification" with a { url: String } payload — without needing a React header in
-  // Swift. A link that cold-starts the app is picked up through launchOptions (Linking.getInitialURL).
-  func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    NotificationCenter.default.post(
-      name: Notification.Name("RCTOpenURLNotification"),
-      object: self,
-      userInfo: ["url": url.absoluteString]
-    )
-    return true
-  }
-
   // MARK: - Upshot push (APNs)
   //
   // The Upshot React Native module registers for remote notifications when JS calls

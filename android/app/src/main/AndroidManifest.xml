@@ -62,27 +62,6 @@
         </intent-filter>
       </service>
 
-      <!-- Push TAPS. Without this receiver Upshot has nowhere to deliver a tap, so the app opens
-           but never learns which campaign (or which key-value pairs / deep link) was tapped.
-           UpshotPushAction hands the click payload to JS (src/analytics/upshot.ts, subscribeUpshotLinks).
-           Not exported: the SDK fires it through its own PendingIntent. -->
-      <meta-data
-        android:name="BkPushActionReceiver"
-        android:value="com.upshotreactlibrary.upshot.push.UpshotPushAction" />
-      <receiver
-        android:name="com.upshotreactlibrary.upshot.push.UpshotPushAction"
-        android:exported="false">
-        <intent-filter>
-          <action android:name="com.upshotreactlibrary.upshot.push.UpshotPushAction" />
-        </intent-filter>
-      </receiver>
-
-      <!-- Show Upshot pushes even while the app is open (campaigns are meant to be seen).
-           SwiftLoanMessagingService reads this flag. -->
-      <meta-data
-        android:name="UpshotAllowForegroundPush"
-        android:value="@bool/upshot_allow_foreground_push" />
-
       <!-- react-native-webrtc ships a screen-capture foreground service
            (mediaProjection). SwiftLoan only uses WebRTC for the voice agent's
            audio, never screen capture, so strip it from the merged manifest —
@@ -117,15 +96,6 @@
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="swiftloan" android:host="onboard" />
-        </intent-filter>
-        <!-- Notification deep links: swiftloan://<screen> (offers, loans, repay, …) opens that screen.
-             Which screens are allowed, and the login gate, live in src/analytics/upshotLinks.ts.
-             See docs/UPSHOT_DEEPLINKS.md. -->
-        <intent-filter>
-            <action android:name="android.intent.action.VIEW" />
-            <category android:name="android.intent.category.DEFAULT" />
-            <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="swiftloan" />
         </intent-filter>
       </activity>
     </application>

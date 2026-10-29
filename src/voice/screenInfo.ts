@@ -28,7 +28,6 @@ export const SCREEN_INFO: Record<string, ScreenInfo> = {
   help: { title: 'Help & Support', purpose: 'Help, FAQs and ways to contact support.' },
   referral: { title: 'Refer a Friend', purpose: "The user's referral code and link to invite friends, and the friends who joined." },
   profile: { title: 'Profile', purpose: "The user's profile details, language and notification settings." },
-  notifications: { title: 'Notifications', purpose: 'Every notification the user has been sent, with unread ones marked; tapping one opens the related screen.' },
   legal: { title: 'Legal', purpose: 'In-app legal documents: Privacy Policy, Terms of Service, Lending Disclosures, and Grievance & Consent Withdrawal.' },
   basicpan: { title: 'PAN Verification (Step 1 of 3)', purpose: 'First step of the loan application: enter and verify the PAN; details are pre-filled from it.' },
   basic: { title: 'Basic Details (Step 2 of 3)', purpose: 'Second step of the loan application: personal, employment and loan details.' },

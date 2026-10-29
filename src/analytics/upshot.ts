@@ -17,9 +17,6 @@
 import { NativeModules, Platform } from 'react-native';
 import { UPSHOT_DEMO } from '../config/build';
 import { metaTrackFromAppEvent } from './meta';
-import { extractLinkTarget, parseInboxResponse, type InboxItem, type LinkTarget } from './upshotLinks';
-
-export type { InboxItem, LinkTarget } from './upshotLinks';
 
 /** Upshot's platform label for this build — never hard-code it: iPhones were being
  *  profiled as Android. */
@@ -72,11 +69,8 @@ type UpshotNative = {
   registerForPush?: () => void;
   sendDeviceToken?: (token: string) => void;
   sendPushDataToUpshot?: (payload: string) => void;
-  // The inbox calls are CALLBACK-style in the SDK (not promises): see index.js in react-native-upshotsdk.
-  getNotificationList?: (limit: number, loadMore: boolean, fromLastDays: number, onOk: (r: unknown) => void, onErr: (e: unknown) => void) => void;
-  getUnreadNotificationsCount?: (inboxType: number, fromLastDays: number, cb: (n: number) => void) => void;
-  updateNotificationReadStatus?: (notificationId: string, cb: (r: unknown) => void) => void;
-  getPushClickPayload?: (cb: (payload: unknown) => void) => void;
+  getNotificationList?: () => Promise<unknown>;
+  getUnreadNotificationsCount?: () => Promise<number>;
   showInboxNotificationScreen?: () => void;
   addListener?: (event: string, cb: (payload: unknown) => void) => void;
 };
@@ -441,106 +435,11 @@ export function forwardPushToUpshot(payload: Record<string, unknown>): void {
   safe(() => sdk()?.sendPushDataToUpshot?.(JSON.stringify(payload)));
 }
 
-/* ── the notification inbox (Upshot saves every push for 90 days; the bell screen reads it) ── */
+export const getUpshotUnreadCount = () => query(sdk()?.getUnreadNotificationsCount?.bind(sdk()));
+export const getUpshotNotifications = () => query(sdk()?.getNotificationList?.bind(sdk()));
 
-/** Upshot's inbox type codes. */
-const INBOX_PUSH_ONLY = 2;
-const INBOX_DAYS = 90;
-
-/** Run a callback-style SDK call as a promise that always settles (the SDK can drop a callback). */
-function callbackToPromise<T>(fallback: T, run: (done: (v: T) => void) => void, timeoutMs = 8000): Promise<T> {
-  return new Promise<T>((resolve) => {
-    let settled = false;
-    const done = (v: T) => {
-      if (settled) return;
-      settled = true;
-      resolve(v);
-    };
-    const timer = setTimeout(() => done(fallback), timeoutMs);
-    try {
-      run((v) => {
-        clearTimeout(timer);
-        done(v);
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      if (__DEV__) console.warn('[upshot]', e);
-      done(fallback);
-    }
-  });
-}
-
-/** The saved notifications, newest first as Upshot returns them. Empty when the SDK is not running. */
-export function fetchUpshotInbox(limit = 50): Promise<InboxItem[]> {
-  const s = started ? sdk() : null;
-  if (!s?.getNotificationList) return Promise.resolve([]);
-  return callbackToPromise<InboxItem[]>([], (done) => {
-    s.getNotificationList!(limit, false, INBOX_DAYS, (r) => done(parseInboxResponse(r)), () => done([]));
-  });
-}
-
-/** How many saved notifications are still unread (0 when the SDK is not running). */
-export function getUpshotUnreadCount(): Promise<number> {
-  const s = started ? sdk() : null;
-  if (!s?.getUnreadNotificationsCount) return Promise.resolve(0);
-  return callbackToPromise<number>(0, (done) => {
-    s.getUnreadNotificationsCount!(INBOX_PUSH_ONLY, INBOX_DAYS, (n) => done(Number(n) || 0));
-  });
-}
-
-export function markUpshotNotificationRead(id: string): Promise<boolean> {
-  const s = started ? sdk() : null;
-  if (!s?.updateNotificationReadStatus || !id) return Promise.resolve(false);
-  return callbackToPromise<boolean>(false, (done) => {
-    s.updateNotificationReadStatus!(id, () => done(true));
-  });
-}
-
-/* ── push taps and deep links ── */
-
-let linkHandler: ((target: LinkTarget) => void) | null = null;
-let linkListenersAttached = false;
-let lastLink = { key: '', at: 0 };
-
-function deliverLink(raw: unknown): void {
-  const target = extractLinkTarget(raw);
-  if (!target || !linkHandler) return;
-  // One tap can arrive twice (the click payload and the click-info event): act once.
-  const key = JSON.stringify([target.screen, target.url, target.kv]);
-  const now = Date.now();
-  if (key === lastLink.key && now - lastLink.at < 3000) return;
-  lastLink = { key, at: now };
-  devLog('link ->', target);
-  try {
-    linkHandler(target);
-  } catch (e) {
-    if (__DEV__) console.warn('[upshot] link handler failed', e);
-  }
-}
-
-/**
- * Call `onLink` when the user taps an Upshot push (or an Upshot deep link fires), with the key-value
- * pairs the campaign carried. Also picks up a tap that cold-started the app. Returns a function that
- * detaches the handler. Call after `initUpshot()`; a no-op until the SDK is running.
- */
-export function subscribeUpshotLinks(onLink: (target: LinkTarget) => void): () => void {
-  linkHandler = onLink;
-  const s = started ? sdk() : null;
-  if (s && !linkListenersAttached) {
-    linkListenersAttached = true;
-    for (const event of ['UpshotOnPushClickInfo', 'UpshotPushPayload', 'UpshotDeepLink']) {
-      s.addListener?.(event, deliverLink);
-    }
-    // A tap that launched the app fired before JS was listening: the SDK keeps the last click payload.
-    try {
-      s.getPushClickPayload?.(deliverLink);
-    } catch {
-      /* not available on this SDK build */
-    }
-  }
-  return () => {
-    if (linkHandler === onLink) linkHandler = null;
-  };
+export function showUpshotInbox(): void {
+  safe(() => sdk()?.showInboxNotificationScreen?.());
 }
 
 /* ─────────────────── event catalogue (dev seeding) ─────────────────── */
