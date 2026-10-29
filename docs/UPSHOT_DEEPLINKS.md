@@ -105,10 +105,11 @@ saved state (`lenderweb`, `handoff`, `finding`, …). The list is `LINKABLE_SCRE
 
 ## Known limits
 
-- **iOS, external links:** the `swiftloan://` scheme is registered in `Info.plist`, but the Swift
-  `AppDelegate` does not yet forward `application(_:open:options:)` to React Native's `RCTLinkingManager`, so a
-  `swiftloan://` link opened from outside the app starts the app without navigating. Push taps on iOS do not
-  need this. Adding the forward needs an Xcode build to verify.
+- **iOS, external links:** the `swiftloan` scheme is registered in `Info.plist` and `AppDelegate.swift`
+  forwards `application(_:open:options:)` to React Native by posting the `RCTOpenURLNotification` that
+  `RCTLinkingManager` listens for (no React header needed in Swift). **Written without an Xcode build — verify
+  on a device/TestFlight build:** open `swiftloan://repay` from Safari or a note and confirm the app lands on
+  Repayments, both when it was running and when it was closed.
 - **Payload shape:** Upshot does not document where a campaign's key-value pairs appear in the tap payload, so
   the parser searches the whole payload (nested objects, JSON inside strings, `[{key, value}]` lists). If a
   device test shows a tap that does not navigate, log the payload (`[upshot] link ->` in debug builds) and

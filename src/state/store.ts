@@ -1146,7 +1146,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
     // A plain `swiftloan://<screen>` link (from an SMS, the browser, another app) takes the same path.
     // `swiftloan://onboard?token=…` is the lead handoff, handled elsewhere: resolveLinkTarget ignores it.
-    const fromUrl = (url: string | null) => { if (url && /^swiftloan:\/\//i.test(url)) open({ url, kv: {} }); };
+    // iOS can deliver a link that cold-starts the app twice (initial URL + url event): act once.
+    let lastUrl = { url: '', at: 0 };
+    const fromUrl = (url: string | null) => {
+      if (!url || !/^swiftloan:\/\//i.test(url)) return;
+      const now = Date.now();
+      if (url === lastUrl.url && now - lastUrl.at < 3000) return;
+      lastUrl = { url, at: now };
+      open({ url, kv: {} });
+    };
     Linking.getInitialURL().then(fromUrl).catch(() => {});
     const urlSub = Linking.addEventListener('url', (e) => fromUrl(e.url));
     const detach = subscribeUpshotLinks(open);
