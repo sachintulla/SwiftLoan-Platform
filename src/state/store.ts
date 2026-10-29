@@ -24,7 +24,8 @@ import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, typ
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
 import { initMeta } from '../analytics/meta';
-import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPush, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPush, subscribeUpshotLinks, PLATFORM as UPSHOT_PLATFORM } from '../analytics/upshot';
+import { resolveLinkTarget, type LinkTarget } from '../analytics/upshotLinks';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
@@ -37,7 +38,7 @@ export const SCREEN_NAMES = [
   'home', 'loans', 'fare', 'help', 'profile', 'legal',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral',
+  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral', 'notifications',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -56,6 +57,7 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
   referral: 'referral', referrals: 'referral', referafriend: 'referral', invitefriends: 'referral', invite: 'referral',
+  notifications: 'notifications', notification: 'notifications', inbox: 'notifications', alerts: 'notifications',
   applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
 
@@ -149,6 +151,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   compare: 'fare',
   referral: 'profile',
   legal: 'profile',
+  notifications: 'home',
 };
 
 export interface AppState {
@@ -1121,6 +1124,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     return () => { trackSessionEnd(pagesVisited.current); sub.remove(); };
   }, []);
+
+  // Notification taps and Upshot deep links. A campaign carries key-value pairs (`screen`, or a
+  // `swiftloan://<screen>` `deeplink`; see docs/UPSHOT_DEEPLINKS.md); a tap opens that screen. A target
+  // that needs a signed-in user, or that arrives while the app is still on splash / the privacy gate,
+  // waits in `pendingLink` and is opened once the user reaches Home signed in.
+  const pendingLink = useRef<Screen | null>(null);
+  useEffect(() => {
+    const open = (target: LinkTarget) => {
+      const link = resolveLinkTarget(target, resolveScreenName);
+      if (!link) return;
+      const screen = link.screen as Screen;
+      const s = stateRef.current;
+      const booting = s.screen === 'splash' || s.screen === 'privacy';
+      if (booting || (link.requiresAuth && !s.authUser)) {
+        pendingLink.current = screen;
+        if (!booting && s.screen !== 'mobile' && s.screen !== 'otp') dispatch({ type: 'go', screen: 'mobile' });
+        return;
+      }
+      dispatch({ type: 'go', screen });
+    };
+    // A plain `swiftloan://<screen>` link (from an SMS, the browser, another app) takes the same path.
+    // `swiftloan://onboard?token=…` is the lead handoff, handled elsewhere: resolveLinkTarget ignores it.
+    const fromUrl = (url: string | null) => { if (url && /^swiftloan:\/\//i.test(url)) open({ url, kv: {} }); };
+    Linking.getInitialURL().then(fromUrl).catch(() => {});
+    const urlSub = Linking.addEventListener('url', (e) => fromUrl(e.url));
+    const detach = subscribeUpshotLinks(open);
+    return () => { urlSub.remove(); detach(); };
+  }, []);
+  useEffect(() => {
+    if (state.screen !== 'home' || !state.authUser?.id || !pendingLink.current) return;
+    const screen = pendingLink.current;
+    pendingLink.current = null;
+    dispatch({ type: 'go', screen });
+  }, [state.screen, state.authUser?.id]);
 
   // Activity is only recorded for a signed-in user, so the session starts when one
   // appears (OTP verify, or a restored login on launch) — not at boot.
