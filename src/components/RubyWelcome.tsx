@@ -5,6 +5,7 @@ import {
   Easing,
   Image,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -25,6 +26,16 @@ const UNDER_JEST =
 // http://localhost URLs the WebView loads directly.
 const GIF = Image.resolveAssetSource(require('../../assets/video/ruby-welcome-transparent.gif'));
 const AUDIO = Image.resolveAssetSource(require('../../assets/video/ruby-welcome.m4a'));
+
+// Android RELEASE builds: React Native packs bundled assets as app resources, so
+// resolveAssetSource returns a bare resource name ("assets_video_ruby_welcome"),
+// not a URL a WebView can load (Metro's http URLs only exist in dev). Both files
+// are therefore also shipped as raw Android assets (android/app/src/main/assets/)
+// and loaded from file:///android_asset/ with that folder as the page's base URL.
+const FROM_ANDROID_ASSETS = Platform.OS === 'android' && !__DEV__;
+const ANDROID_ASSET_BASE = 'file:///android_asset/';
+const GIF_URI = FROM_ANDROID_ASSETS ? `${ANDROID_ASSET_BASE}ruby-welcome-transparent.gif` : GIF.uri;
+const AUDIO_URI = FROM_ANDROID_ASSETS ? `${ANDROID_ASSET_BASE}ruby-welcome.m4a` : AUDIO.uri;
 
 // Hard ceiling so a blocked autoplay / load failure can never trap the user
 // behind the overlay. The clip is ~10s.
@@ -77,7 +88,7 @@ export default function RubyWelcome({ onDone }: Props) {
   const finished = useRef(false);
   const [gone, setGone] = useState(false);
 
-  const html = useMemo(() => buildHtml(GIF.uri, AUDIO.uri), []);
+  const html = useMemo(() => buildHtml(GIF_URI, AUDIO_URI), []);
 
   const finish = useRef(() => {
     if (finished.current) return;
@@ -134,7 +145,7 @@ export default function RubyWelcome({ onDone }: Props) {
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={finish}>
       <Animated.View style={[styles.fill, { opacity, transform: [{ translateY }, { scale }] }]}>
         <WebView
-          source={{ html }}
+          source={FROM_ANDROID_ASSETS ? { html, baseUrl: ANDROID_ASSET_BASE } : { html }}
           style={styles.web}
           backgroundColor="transparent"
           opaque={false}
