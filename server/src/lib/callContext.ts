@@ -288,7 +288,7 @@ export const STALL_HELP: Record<string, string> = {
   [`${'lead_captured'}→${'app_installed'}`]:
     'send the app download link again by SMS or WhatsApp, and explain that the details from the website are already saved so nothing needs re-typing',
   [`${'app_installed'}→${'otp_verified'}`]:
-    'walk them through signing in, and check the number they are using is the one they gave us',
+    'remind them to open the app and sign in with the number they gave us (the code only verifies that number); they do it themselves, so do not walk them through it',
   [`${'app_opened'}→${'otp_requested'}`]:
     'ask whether anything on the first screen was unclear, and reassure them the number is only used to verify identity',
   [`${'language_selected'}→${'otp_requested'}`]:
@@ -297,14 +297,14 @@ export const STALL_HELP: Record<string, string> = {
     'check whether the OTP message actually arrived, confirm the number is right, and tell them to request a fresh code — mention that OTP messages are sometimes delayed on some networks. NEVER ask them to read the code out to you',
 
   [`${'otp_verified'}→${'eligibility_started'}`]:
-    'ask what kind of loan they are looking for and roughly how much, and explain that starting the application takes about two minutes',
+    'remind them that the first step is done and that starting the application takes about two minutes in the app; ask if anything is stopping them. Do not ask for any details on the call',
   [`${'otp_verified'}→${'eligibility_completed'}`]:
-    'ask if any part of the form was unclear and offer to explain what is being asked and why',
+    'ask whether anything about the form put them off, and reassure them the app guides them one screen at a time; they fill it in themselves. Do not collect any details on the call',
 
   [`${'eligibility_started'}→${'eligibility_completed'}`]:
-    'ask which part they got stuck on — income and employment are the two people usually pause at — and explain why each is needed',
+    'ask whether anything made them pause, and reassure them the questions are quick and asked only to match them with lenders; they finish it themselves in the app. Do not collect any details on the call',
   [`${'eligibility_started'}→${'offer_viewed'}`]:
-    'offer to talk them through finishing the form so they can see what they qualify for',
+    'remind them they are close and encourage them to finish the form themselves in the app to see what they qualify for; do not walk them through fields',
   [`${'eligibility_completed'}→${'offer_viewed'}`]:
     'let them know the matched offers are ready to look at in the app',
 

@@ -69,7 +69,7 @@ function readHistory(r: Pick<AppDropoff, 'history'>): DropoffHistoryEntry[] {
 
 /* ───────────────────────────── reading where someone stands ───────────────────────────── */
 
-async function loadSnapshot(userId: string): Promise<{ snapshot: DropoffSnapshot; user: { phone: string; firstName: string | null } } | null> {
+export async function loadSnapshot(userId: string): Promise<{ snapshot: DropoffSnapshot; user: { phone: string; firstName: string | null } } | null> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true, firstName: true, panOnFile: true, updatedAt: true } });
   if (!user?.phone) return null;
   const app = await prisma.loanApplication.findFirst({

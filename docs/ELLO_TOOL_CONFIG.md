@@ -143,6 +143,45 @@ posting it is idempotent — it updates the same record rather than adding a sec
 Leave `agent_role` out entirely: the server already knows whether a call was a
 campaign or a lead callback, and letting the model guess would corrupt that.
 
+## 1c-2. `get_user_context` for this agent — add the header `x-agent-role: outbound`
+
+With that header the lookup returns only where the person stands (`hasHistory`, `applicationStatus` + `applicationStatusLabel`,
+`panOnFile`, `application {ref, status, offerCount}`, `hasLoan`), with no date of birth, email, address, income, employer or
+applicant draft. A reminder caller never needs them, and a full profile invites it to "confirm" details. Without the header the
+full reply is returned (the mobile agent still wants it). Name the phone property `phone` with default `{context_data.phone}`.
+
+---
+
+## 1d. `send_app_link` — OPTIONAL (for the reminder calls)
+
+Lets the agent keep its promise when a customer says "yes, send me the link". It sends the **existing** drop-off WhatsApp
+template (`install_app_resume_step` / `offers_ready` and their no-link twins, from the Voxvalley `dropoffMessages` setting) with
+the customer's own `/dl?ref=` link, chosen from where they actually stopped. No new template, no new schedule. It ignores the
+automatic-send switch (the customer asked for it) but still refuses do-not-contact numbers, the review phone, numbers outside the
+QA test list (`install.allowedNumbers`, when set), and sends at most one message per phone per hour.
+
+| Field | Value |
+|---|---|
+| Tool Name | `send_app_link` |
+| Description | `Send the customer the SwiftLoan link on WhatsApp. Call this ONLY after the customer has said yes to receiving it. Read the returned "sent" value: say the link was sent ONLY if it is true; otherwise follow the returned "say" line.` |
+| Request URL | `https://HOST/api/conversations/send-link` |
+| Timeout | `20` |
+| HTTP Method | `POST` |
+| Headers | `Content-Type: application/json`<br>`x-api-key: SECRET` |
+
+**Request Body**
+
+| Property | Type | Required | Value |
+|---|---|---|---|
+| `conversation_id` | string | yes | `{{conversation_id}}` — resolves to the number WE dialled, so a mis-filled phone cannot send to the wrong person |
+| `phone` | string | no | the number being called (used only if `conversation_id` is not found) |
+
+**Response Body → variables:** map `data.sent` → `link_sent` and `data.say` → `link_say`. **Messages:** leave empty.
+
+> **Phone-number note.** A tool property named `phone_number` can resolve to Ello's own line number instead of the customer's
+> (seen on the 30 Oct call: `get_user_context` looked up the line's number and answered "No application started"). Name the
+> customer-phone property `phone`, which we send in every call's context data, and prefer `conversation_id` where a tool accepts it.
+
 ---
 
 # 2. mobile companion app — `6a7197be89c98da763e29b22`
