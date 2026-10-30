@@ -61,27 +61,29 @@ export default function RevasureMisUpload({ onApplied }: { onApplied?: () => voi
 
   const reset = () => { setPreview(null); setErr(null); setDone(null); };
 
-  const pick = (f: File | null) => { setFile(f); reset(); };
+  // Choosing a file auto-previews, so the results + Apply button appear right away.
+  const pick = (f: File | null) => { setFile(f); reset(); if (f) void doPreview(f); };
 
-  const call = async (path: string): Promise<Report | null> => {
-    if (!file) return null;
+  const call = async (path: string, f: File): Promise<Report | null> => {
     const form = new FormData();
-    form.append('file', file);
+    form.append('file', f);
     const res = await apiUpload<Report>(path, form);
     return res.data;
   };
 
-  const doPreview = async () => {
+  const doPreview = async (f: File | null = file) => {
+    if (!f) return;
     setBusy('preview'); setErr(null); setDone(null);
-    try { setPreview(await call('/api/admin/revasure/mis/preview')); }
+    try { setPreview(await call('/api/admin/revasure/mis/preview', f)); }
     catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not read the sheet.'); setPreview(null); }
     finally { setBusy(null); }
   };
 
   const doApply = async () => {
+    if (!file) return;
     setBusy('apply'); setErr(null);
     try {
-      const r = await call('/api/admin/revasure/mis/apply');
+      const r = await call('/api/admin/revasure/mis/apply', file);
       setDone(`Applied ${r?.summary.toUpdate ?? 0} update(s) from ${r?.summary.totalRows ?? 0} row(s).`);
       setPreview(r);
       onApplied?.();
@@ -98,7 +100,7 @@ export default function RevasureMisUpload({ onApplied }: { onApplied?: () => voi
           <h2 className="card-title" style={{ margin: 0 }}>Upload status sheet (MIS)</h2>
           <p className="page-sub" style={{ margin: '4px 0 0' }}>
             Revasure has no status API — upload their MIS sheet (Excel/CSV) to update each lead&apos;s status.
-            Rows are matched to customers by <b>mobile number</b>. Preview first, then apply.
+            Rows are matched to customers by <b>mobile number</b>. Choose a file to preview the matches, then apply.
           </p>
         </div>
       </div>
@@ -112,14 +114,9 @@ export default function RevasureMisUpload({ onApplied }: { onApplied?: () => voi
           onChange={(e) => pick(e.target.files?.[0] ?? null)}
           aria-label="MIS status sheet"
         />
-        <button type="button" className="btn" disabled={!file || busy !== null} onClick={doPreview}>
-          {busy === 'preview' ? 'Reading…' : 'Preview'}
+        <button type="button" className="btn" disabled={!file || busy !== null} onClick={() => doPreview()}>
+          {busy === 'preview' ? 'Reading…' : 'Re-check file'}
         </button>
-        {preview && s && s.toUpdate > 0 && (
-          <button type="button" className="btn btn-primary" disabled={busy !== null} onClick={doApply}>
-            {busy === 'apply' ? 'Applying…' : `Apply ${s.toUpdate} update${s.toUpdate === 1 ? '' : 's'}`}
-          </button>
-        )}
         {file && <button type="button" className="adm-link-btn" disabled={busy !== null} onClick={() => { pick(null); if (inputRef.current) inputRef.current.value = ''; }}>Clear</button>}
       </div>
 
@@ -135,6 +132,28 @@ export default function RevasureMisUpload({ onApplied }: { onApplied?: () => voi
             <Stat2 label="No change" value={s.noChange} />
             <Stat2 label="Unmatched" value={s.unmatched} tone={s.unmatched ? 'warn' : undefined} />
           </div>
+
+          {/* Step 2 — the actual write. Always shown after a preview so it's never
+              hidden; disabled (with a reason) when there's nothing to apply. */}
+          {!done && (
+            <div className="row" style={{ gap: 12, alignItems: 'center', marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy !== null || s.toUpdate === 0}
+                onClick={doApply}
+              >
+                {busy === 'apply' ? 'Applying…' : s.toUpdate > 0 ? `Apply ${s.toUpdate} update${s.toUpdate === 1 ? '' : 's'}` : 'Nothing to apply'}
+              </button>
+              <span className="page-sub" style={{ margin: 0 }}>
+                {s.toUpdate > 0
+                  ? 'Review the rows below, then apply to update those leads.'
+                  : s.matched > 0
+                    ? 'All matched leads are already up to date.'
+                    : 'No rows matched a customer with a Revasure lead — check the mobile numbers in the sheet.'}
+              </span>
+            </div>
+          )}
 
           <div className="adm-tablewrap" style={{ marginTop: 12, maxHeight: 420, overflow: 'auto' }}>
             <table className="adm-table">
