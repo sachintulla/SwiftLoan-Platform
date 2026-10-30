@@ -151,7 +151,7 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
           onClose={() => setConfirmingLogout(false)}
           onConfirm={async () => {
             await logoutSession();
-            router.replace('/apply');
+            router.replace('/'); // after logging out, land on the home page, not the mobile-number entry page
           }}
         />
       )}
@@ -240,7 +240,7 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
           onClose={() => setConfirmingLogout(false)}
           onConfirm={async () => {
             await logoutSession();
-            router.replace('/apply');
+            router.replace('/'); // after logging out, land on the home page, not the mobile-number entry page
           }}
         />
       )}
