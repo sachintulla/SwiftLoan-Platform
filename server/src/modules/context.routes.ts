@@ -7,7 +7,7 @@ import { ok, created, fail } from '../lib/http.js';
 import { contextLinks } from '../config/downloads.js';
 import { resolveCustomer, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { requireAuth } from '../middleware/auth.js';
-import { buildUserContext } from '../lib/userContext.js';
+import { buildUserContext, outboundView } from '../lib/userContext.js';
 import { recordConversation } from '../lib/conversations.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
 import { parseAgentPhone } from '../lib/agentPhone.js';
@@ -280,7 +280,9 @@ contextLookupRouter.post('/', ah(async (req, res) => {
 
   const user = await prisma.user.findFirst({ where: { phone } });
   const ctx = await buildUserContext(phone, user?.id);
-  return ok(res, ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
+  // The outbound reminder agent gets only where the person stands, not their profile (see outboundView).
+  const outbound = String(req.headers['x-agent-role'] ?? '').trim().toLowerCase() === 'outbound';
+  return ok(res, outbound ? outboundView(ctx) : ctx, ctx.hasHistory ? 'Context found' : 'No prior context');
 }));
 
 // Everything a warm-up conversation can gather before a real LoanApplication
