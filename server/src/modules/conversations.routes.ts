@@ -32,6 +32,7 @@ import { sendConversationSummary } from '../lib/conversationSummary.js';
 import { recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { verifyApiKey } from '../lib/apiKeys.js';
 import { resolveLookupAccess, NOT_VERIFIED_RESULT } from '../lib/lookupGrant.js';
+import { resolveAgentLinkPhone, sendAgentLink } from '../lib/agentLink.js';
 import { scoped } from '../lib/log.js';
 
 const log = scoped('conversations');
@@ -250,6 +251,23 @@ conversationsRouter.post('/', ah(async (req, res) => {
     log.error('save_conversation failed', { phone, error: (e as Error).message });
     return fail(res, 400, (e as Error).message);
   }
+}));
+
+/**
+ * POST /api/conversations/send-link   { conversation_id?, phone? }
+ *
+ * The outbound agent's `send_app_link` tool: the customer said "yes, send me the link" on a call. Sends the existing
+ * drop-off WhatsApp template (lib/agentLink.ts) for where they stopped. `conversation_id` (Ello's `{{conversation_id}}`)
+ * is preferred: it resolves to the number WE dialled, so a mis-filled `phone` on the tool cannot send to someone else.
+ * Always 200 with `sent` true/false and a `say` line for the agent; the agent may only claim "sent" when `sent` is true.
+ */
+conversationsRouter.post('/send-link', ah(async (req, res) => {
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const phone = await resolveAgentLinkPhone({ conversationId: b.conversation_id ?? b.conversationId, phone: b.phone ?? b.phone_number });
+  if (!phone) return fail(res, 400, 'conversation_id or a valid 10-digit phone is required');
+  const result = await sendAgentLink(phone);
+  log.info('send_app_link', { phone, status: result.status, reason: result.reason ?? null });
+  return ok(res, result, result.sent ? 'Link sent' : 'Link not sent');
 }));
 
 /**

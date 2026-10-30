@@ -594,6 +594,8 @@ adminRouter.get('/revasure', ah(async (req, res) => {
       select: {
         id: true, applicationId: true, userId: true, sourceLeadId: true, leadId: true, status: true,
         httpStatus: true, message: true, lastError: true, createdAt: true, updatedAt: true,
+        // MIS status (uploaded by the admin from Revasure's status sheet).
+        misStatus: true, misApprovedAmount: true, misDisbursedAmount: true, misDisbursementDate: true, misUpdatedAt: true,
       },
     }),
     prisma.revasureLead.count({ where }),

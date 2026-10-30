@@ -443,6 +443,8 @@ export default function VoiceWidget() {
   // mid-call can't drop it. Ending the call is now only reachable through the
   // dedicated end-call button (see endCall below).
   const onPress = () => {
+    // Frozen while the Ruby welcome intro plays — the FAB (Support) can't be tapped.
+    if (state.welcomePending) return;
     vlog('FAB tapped; status=', status, 'active=', active, 'expanded=', expanded);
     setNudgeLabel(null); // clear any proactive-help label once the user engages
     Vibration.vibrate(20); // small haptic to confirm the tap registered
@@ -602,9 +604,23 @@ export default function VoiceWidget() {
   const burstOpacity = burst.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.5, 0] });
   const attentionScale = attention.interpolate({ inputRange: [0, 1], outputRange: [1, 1.32] });
   const attentionRotate = attention.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['0deg', '-12deg', '10deg'] });
-  // Always show the Ruby avatar — same face in the notch and floating in the
-  // corner — so the FAB is visually consistent across every screen.
-  const showRuby = true;
+  // The FAB crossfades between the Ruby avatar and a plain support (headset) icon.
+  // `rubyPresence`: 1 = Ruby seated in the icon, 0 = she's "stepped out" (presenting
+  // in the welcome intro) and only the support glyph remains. It eases out when she
+  // leaves and springs back with a little pop when she returns — so it reads as
+  // Ruby climbing out of the round icon and later sitting back into it.
+  const rubyPresence = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (state.welcomePending) {
+      Animated.timing(rubyPresence, { toValue: 0, duration: 340, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start();
+    } else {
+      Animated.spring(rubyPresence, { toValue: 1, friction: 5, tension: 120, useNativeDriver: true }).start();
+    }
+  }, [state.welcomePending, rubyPresence]);
+  const rubyOpacity = rubyPresence.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 1, 1] });
+  const rubyScale = rubyPresence.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }); // springs past 1 → tiny pop
+  const supportOpacity = rubyPresence.interpolate({ inputRange: [0, 0.6, 1], outputRange: [1, 0, 0] });
+  const supportScale = rubyPresence.interpolate({ inputRange: [0, 1], outputRange: [1, 0.35], extrapolate: 'clamp' });
   // The expanded call panel grows directly out of the FAB circle, anchored on
   // whichever edge touches it (transformOrigin), and switches orientation with
   // where the FAB itself lives: nested in the tab-bar notch (main dashboard,
@@ -628,7 +644,7 @@ export default function VoiceWidget() {
       {/* Proactive-help label — an informational speech bubble above the FAB.
           The bubble body isn't tappable (starting a call is the FAB's job); only the
           ✕ badge is, to dismiss the tip for this screen. */}
-      {nudgeLabel && !active ? (
+      {nudgeLabel && !active && !state.welcomePending ? (
         <Animated.View
           style={[
             styles.nudgeWrap,
@@ -739,19 +755,20 @@ export default function VoiceWidget() {
           </Animated.View>
         ) : null}
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
-          <Animated.View style={[styles.fabRing, showRuby && styles.fabRingBare, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
-            {showRuby ? (
-              // Ruby as a free-standing person — no coloured circle behind her, just
-              // the transparent cutout floating on the screen (a soft shadow keeps
-              // her legible over light content).
+          <Animated.View style={[styles.fabRing, styles.fabRingBare, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
+            {/* Support glyph — the "empty seat" shown while Ruby is out presenting. */}
+            <Animated.View style={[styles.fabSwapLayer, { opacity: supportOpacity, transform: [{ scale: supportScale }] }]} pointerEvents="none">
+              <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fabSupportBall}>
+                <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
+              </LinearGradient>
+            </Animated.View>
+            {/* Ruby as a free-standing person — the transparent cutout floating on
+                the screen (a soft shadow keeps her legible over light content). */}
+            <Animated.View style={[styles.fabSwapLayer, { opacity: rubyOpacity, transform: [{ scale: rubyScale }] }]} pointerEvents="none">
               <View style={styles.fabPerson}>
                 <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabPersonImg} resizeMode="contain" />
               </View>
-            ) : (
-              <LinearGradient colors={FAB_GRADIENT} start={{ x: 0.15, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.fab}>
-                <Icon name="headset_mic" size={MIC_ICON_SIZE} color="#fff" />
-              </LinearGradient>
-            )}
+            </Animated.View>
           </Animated.View>
         </Pressable>
       </View>
@@ -941,6 +958,17 @@ const styles = StyleSheet.create({
   fabAvatar: { width: '100%', height: '100%', borderRadius: (FAB_SIZE - 3) / 2 },
   // Ruby-as-person FAB: no circular ring/background, just the floating cutout.
   fabRingBare: { borderWidth: 0, backgroundColor: 'transparent', shadowOpacity: 0, elevation: 0 },
+  // Both FAB faces (Ruby cutout / support glyph) stack in the same spot so they can
+  // crossfade; each fills the ring and centres its content.
+  fabSwapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  // The support "ball" carries its own ring border + shadow (the bare ring has none)
+  // so the headset state looks like the original raised FAB button.
+  fabSupportBall: {
+    width: FAB_SIZE, height: FAB_SIZE, borderRadius: FAB_SIZE / 2,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
+    shadowColor: '#0A3F41', shadowOpacity: 0.32, shadowRadius: 16, shadowOffset: { width: 0, height: 10 }, elevation: 10,
+  },
   fabPerson: { width: FAB_SIZE, height: FAB_SIZE, alignItems: 'center', justifyContent: 'center' },
   fabPersonImg: {
     width: '122%', height: '122%',

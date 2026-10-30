@@ -326,7 +326,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = SwiftLoan/SwiftLoan.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 61;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = ACHVM26TBY;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = SwiftLoan/Info.plist;
@@ -335,7 +335,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.11;
+				MARKETING_VERSION = 1.1.13;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -361,7 +361,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = SwiftLoan/SwiftLoan.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 61;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = ACHVM26TBY;
 				INFOPLIST_FILE = SwiftLoan/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -369,7 +369,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.11;
+				MARKETING_VERSION = 1.1.13;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

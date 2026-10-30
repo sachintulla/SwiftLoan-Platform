@@ -291,7 +291,9 @@ export function noOffersCallBrief(prequalifyReason: string | null | undefined, i
   const base =
     'Apologise that we could not find loan offers for them yet, and say you are following up on their application. ' +
     'Do not read out or guess any reason from a lender, and do not promise offers or approval. ' +
-    'Ask whether they would like help checking their details, or a callback from the team.';
+    'Reassure them: say it is disappointing, ask them not to lose hope because lenders update their options and we are still working on it, ' +
+    'and say the team will review their application and get back to them. Ask whether a callback at a better time would help. ' +
+    'This is not an application call: never ask for any personal or application details.';
   return {
     reason: 'asked for loan offers but we could not find any for your application yet',
     lastStep: 'checking for loan offers',
