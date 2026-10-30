@@ -21,6 +21,7 @@ import { toolsRouter } from './modules/tools.routes.js';
 import { supportRouter } from './modules/support.routes.js';
 import { trackingRouter } from './modules/tracking.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
+import { adminRevasureMisRouter } from './modules/adminRevasureMis.routes.js';
 import { adminAuthRouter } from './modules/adminAuth.routes.js';
 import { contextRouter, contextLookupRouter, contextSaveRouter } from './modules/context.routes.js';
 import { configRouter } from './modules/config.routes.js';
@@ -183,6 +184,7 @@ export function createApp() {
   app.use('/api/admin/stage-outreach', stageOutreachRouter);
   app.use('/api/admin/ops', adminOpsRouter);
   app.use('/api/admin/list-actions', adminListActionsRouter); // CSV export + campaign from the Loans, Revasure and Yubi lists
+  app.use('/api/admin/revasure/mis', adminRevasureMisRouter); // Revasure MIS status-sheet upload (preview/apply/history)
   app.use('/api/admin/support', adminSupportRouter);
   app.use('/api/admin/referrals', adminReferralsRouter);
   app.use('/api/admin/conversations', adminConversationsRouter);
