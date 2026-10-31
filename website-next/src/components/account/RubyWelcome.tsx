@@ -68,9 +68,10 @@ export function RubyWelcome({ onDone }: { onDone: () => void }) {
         .sl-rw-img {
           position: fixed; inset: 0; width: 100%; height: 100%;
           object-fit: contain; object-position: center bottom;
-          /* Fade out the GIF's bottom so its baked-in nav/FAB disappears cleanly. */
-          -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 88%);
-          mask-image: linear-gradient(to bottom, #000 82%, transparent 88%);
+          /* Gentle fade at the very bottom so the frame's body-crop line softens
+             into the page instead of ending on a hard horizontal edge. */
+          -webkit-mask-image: linear-gradient(to bottom, #000 94%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 94%, transparent 100%);
         }
         .sl-rw-skip {
           position: fixed; top: 16px; right: 18px;
