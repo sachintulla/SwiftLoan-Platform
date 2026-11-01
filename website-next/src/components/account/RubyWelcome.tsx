@@ -66,12 +66,16 @@ export function RubyWelcome({ onDone }: { onDone: () => void }) {
         }
         .sl-rw-leave { animation: sl-rw-sink ${SINK_MS}ms cubic-bezier(0.4, 0, 1, 1) both; }
         .sl-rw-img {
-          position: fixed; inset: 0; width: 100%; height: 100%;
-          object-fit: contain; object-position: center bottom;
+          /* Full-height, centred, anchored to the bottom so Ruby fills the screen
+             (like the design mock-up) instead of sitting small in the viewport.
+             width:auto keeps her aspect ratio; on narrow phones she overflows the
+             sides and crops around her centre, which is the intended "cover" look. */
+          position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+          height: 100vh; width: auto; max-width: none;
           /* Gentle fade at the very bottom so the frame's body-crop line softens
              into the page instead of ending on a hard horizontal edge. */
-          -webkit-mask-image: linear-gradient(to bottom, #000 94%, transparent 100%);
-          mask-image: linear-gradient(to bottom, #000 94%, transparent 100%);
+          -webkit-mask-image: linear-gradient(to bottom, #000 92%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 92%, transparent 100%);
         }
         .sl-rw-skip {
           position: fixed; top: 16px; right: 18px;
