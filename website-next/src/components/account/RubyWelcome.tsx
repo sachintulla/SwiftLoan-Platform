@@ -3,12 +3,18 @@
 import { useEffect, useRef, useState } from 'react';
 
 // Web port of the mobile app's RubyWelcome (src/components/RubyWelcome.tsx).
-// A transparent GIF of ONLY Ruby plays with her matching voice-over (a separate
-// audio track) as a full-viewport layover over the live account page — a
-// see-through talking Ruby, no video-alpha codec needed. She rises in, plays
-// once in sync with the audio, then recedes and dissolves back to the page.
-// A Skip control and a safety timeout prevent any dead-end.
-const GIF = '/ruby-welcome.gif';
+// A transparent video of ONLY Ruby plays (muted) with her matching voice-over (a
+// separate audio track) as a full-viewport layover over the live account page — a
+// see-through talking Ruby. She rises in, plays once in sync with the audio, then
+// recedes and dissolves back to the page. A Skip control and a safety timeout
+// prevent any dead-end.
+//
+// Alpha video needs two codecs: HEVC-with-alpha (.mov) for Safari/iOS and
+// VP9-with-alpha (.webm) for Chrome/Firefox/Edge. The <video> is MUTED so autoplay
+// is always allowed; the voice comes from the separate <audio>, which also drives
+// the dismiss (its onEnded), so the two stay in lock-step as before.
+const VIDEO_MOV = '/ruby-welcome.mov'; // HEVC alpha — Safari / iOS
+const VIDEO_WEBM = '/ruby-welcome.webm'; // VP9 alpha — Chrome / Firefox / Edge
 const AUDIO = '/ruby-welcome.m4a';
 
 // Hard ceiling so a blocked autoplay / load failure can never trap the visitor
@@ -20,6 +26,7 @@ export function RubyWelcome({ onDone }: { onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
   const finished = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const finish = useRef(() => {
     if (finished.current) return;
@@ -29,6 +36,9 @@ export function RubyWelcome({ onDone }: { onDone: () => void }) {
   }).current;
 
   useEffect(() => {
+    // Muted video autoplay is always permitted; kick it explicitly in case the
+    // attribute autoplay was skipped (e.g. after a bfcache restore).
+    videoRef.current?.play().catch(() => {});
     const a = audioRef.current;
     if (a) {
       // Autoplay-with-sound can be refused on first load (browser policy); retry
@@ -50,10 +60,21 @@ export function RubyWelcome({ onDone }: { onDone: () => void }) {
 
   return (
     <div className={`sl-rw${leaving ? ' sl-rw-leave' : ''}`} role="dialog" aria-label="Welcome from Ruby">
-      {/* eslint-disable-next-line @next/next/no-img-element -- animated GIF layover, not a next/image candidate */}
-      <img className="sl-rw-img" src={GIF} alt="" aria-hidden="true" />
-      {/* Only the audio ending dismisses the intro (an 'error' is ignored so a slow
-          8 MB GIF can't drop the layover early — the safety timeout still exits). */}
+      <video
+        ref={videoRef}
+        className="sl-rw-img"
+        autoPlay
+        muted
+        playsInline
+        preload="auto"
+        aria-hidden="true"
+      >
+        {/* Safari/iOS first (HEVC alpha); other browsers skip it and use the WebM. */}
+        <source src={VIDEO_MOV} type="video/quicktime" />
+        <source src={VIDEO_WEBM} type="video/webm" />
+      </video>
+      {/* Only the audio ending dismisses the intro (a load 'error' is ignored so a
+          slow asset can't drop the layover early — the safety timeout still exits). */}
       <audio ref={audioRef} src={AUDIO} preload="auto" onEnded={finish} />
       <button type="button" className="sl-rw-skip" onClick={finish} aria-label="Skip intro">
         Skip
