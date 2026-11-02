@@ -102,8 +102,6 @@ export const DEFAULT_APPLIED_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
  */
 export const DEFAULT_DROPOFF_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
   { channel: 'whatsapp', afterMinutes: 30 },
-  { channel: 'sms', afterMinutes: 24 * 60 },
-  { channel: 'whatsapp', afterMinutes: 3 * 24 * 60 },
 ]);
 
 /** "900" or "15m" / "2h" / "7d" → minutes (the env format ACCESS_TTL has always used: seconds or a suffixed duration). */
@@ -219,8 +217,23 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'dropoff.schedule', group: 'install', kind: 'schedule', unit: 'minutes',
     def: DEFAULT_DROPOFF_SCHEDULE.map((r) => ({ ...r })),
     maxRows: 10, maxMinutes: 14 * 1440,
-    label: 'Messages after someone stops at a step',
-    help: 'Counted from the moment they reached the step they stopped at (so the first row is how long we wait before the first message). Quiet hours and the minimum gap still apply.',
+    label: 'Messages after someone stops',
+    help: 'Counted from their LAST action on the website or in the app (the first row is how long after they stop the first message goes; 30 = half an hour). Any new action resets the clock. After these rows, the daily reminders below take over. Quiet hours and the minimum gap still apply.',
+  },
+  {
+    key: 'dropoff.idleMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 5, min: 1, max: 120,
+    label: 'Counts as stopped after',
+    help: 'How long with no action before we treat the person as having stopped. The messages are still timed from the last action itself.',
+  },
+  {
+    key: 'dropoff.dailyAt', group: 'install', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 420, min: 0, max: 1439,
+    label: 'Daily reminder time (India time)',
+    help: 'After the messages above, one WhatsApp reminder at this time each day while the person still has not done anything. Default 7:00am.',
+  },
+  {
+    key: 'dropoff.dailyDays', group: 'install', kind: 'number', unit: 'days', def: 7, min: 0, max: 30,
+    label: 'Daily reminders for',
+    help: 'How many days the daily reminder continues. 0 = none. Any action from the person ends the run at once.',
   },
   {
     key: 'dropoff.minGapMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 30, min: 0, max: 1440,
@@ -234,7 +247,7 @@ const BASE_TIMINGS: readonly TimingDef[] = [
   },
   {
     key: 'dropoff.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
-    label: 'Only for people who reached the step in the last',
+    label: 'Only for people whose last action was in the last',
     help: 'Older drop-offs are never messaged, so switching this on does not message everyone who stopped in the past.',
   },
   /* ── Drop-off: the Ello agent rings someone whose offers lookup found none (lib/noOffersCall.ts) ── */
@@ -325,6 +338,43 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'calls.allowedNumbers', group: 'calls', kind: 'phones', unit: 'none', def: [], maxItems: 200,
     label: 'Call test-number allowlist',
     help: 'When set, automatic calls (drop-off + daily status) only ring these numbers; everyone else is skipped. Leave empty to call all eligible customers.',
+  },
+  {
+    key: 'calls.stallMinStuckMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 30, min: 0, max: 1440,
+    label: 'Call someone who stopped only after at least',
+    help: 'A "stuck on a step" call is never placed sooner than this after the person stopped, whatever the rule\'s own wait says (a rule with a longer wait still waits longer). 30 = the agent asks "why did you stop, is there any issue?" half an hour after they left, on the website or in the app.',
+  },
+  {
+    key: 'calls.stallMaxStuckHours', group: 'calls', kind: 'number', unit: 'hours', def: 24, min: 3, max: 168,
+    label: 'Do not call someone who stopped more than this long ago',
+    help: 'Switching a call rule on never rings people who stopped days ago: only those who stopped within this many hours.',
+  },
+  {
+    key: 'calls.stallDailyLimit', group: 'calls', kind: 'number', unit: 'count', def: 3, min: 0, max: 500,
+    label: 'Most "stuck on a step" calls per day',
+    help: 'Across all call rules, at most this many such calls are placed each day (India time). The newest drop-offs go first. 0 = no limit. Keep it at 2-3 while testing.',
+  },
+  /* ── Drop-off call at a fixed evening time on the days after someone stops (lib/inactiveCall.ts) ── */
+  {
+    key: 'calls.inactiveEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false,
+    label: 'Call people who stopped, on the following evenings',
+    help: 'Off: nothing is dialled or recorded. On: someone with an unfinished loan journey who has done nothing since they stopped gets a call from the Ello agent at the time below on each of the next days ("you left this yesterday, is anything wrong?"). Stops the moment they do anything. Also needs the master call switch and respects the call test-number list, calling hours and the quiet gap after a message.',
+    warn: 'Rings real customers. Test on your own number first.',
+  },
+  {
+    key: 'calls.inactiveCallAt', group: 'calls', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 1200, min: 0, max: 1439,
+    label: 'Call at (India time)',
+    help: 'Default 8:00pm. Must be inside calling hours or the call is never placed.',
+  },
+  {
+    key: 'calls.inactiveDays', group: 'calls', kind: 'number', unit: 'days', def: 3, min: 1, max: 30,
+    label: 'For how many days',
+    help: 'One call on each of this many days after the day they stopped (3 = tomorrow, the day after, and the day after that).',
+  },
+  {
+    key: 'calls.inactiveDailyLimit', group: 'calls', kind: 'number', unit: 'count', def: 50, min: 0, max: 1000,
+    label: 'Most drop-off calls per day',
+    help: 'Across everyone, per India day. The people who stopped longest ago go first. 0 = no limit.',
   },
   {
     key: 'calls.statusDailyEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false, env: 'CALLS_STATUS_DAILY_ENABLED',

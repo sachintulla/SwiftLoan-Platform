@@ -761,3 +761,52 @@ anything else keeps the stable WebSocket `ElloAgent`. Tested working on a Redmi 
 Release builds use STUN only unless `globalThis.SWIFTLOAN_ICE_SERVERS` supplies a TURN relay (the free public relay is debug-only);
 iOS, mobile data and echo on a loudspeaker are still untested. Details and the open list: `src/voice/transports/webrtc/README.md`.
 Dev builds expose `__ello.start(phone?) / stop() / status() / introduced() / callTool()` for driving a call from the Metro inspector.
+
+---
+
+## "Why did you stop?" calls (stuck-stage voice rules, `lib/stallRules.ts`)
+
+The `CALL — …` stall rules (Admin → Configs → Stage outreach, seeded **disabled**) ring a person who started a step on the website or in the app and
+did not finish it; the agent (`app_dropoff_followup`, prompt section B) asks why they stopped and whether anything went wrong. Three global settings
+(Admin → Timings → Calls, pure rules in `lib/stallCallLimits.ts`, tested): `calls.stallMinStuckMinutes` (120: a call never goes out sooner than 2 h after
+they stopped, whatever the rule's own wait), `calls.stallMaxStuckHours` (24: the backlog is never called), `calls.stallDailyLimit` (3 per India day, newest
+first, 0 = none). Still gated by the master switch `calls.nudgeEnabled`, the call test-number list, calling hours, the quiet gap after a message, a
+24 h per-phone cooldown and 2 calls per person ever. The call context's `stall_help` starts with `STALL_WHY_ASK` (`callContext.ts`). Not covered: the
+"no offers" call has its own job (`noOffersCall.ts`).
+
+---
+
+## The ONE WhatsApp journey (owner's decision, 2026-11-02): stopped → +30 min → 7 AM daily for a week
+
+The drop-off job (`lib/appDropoff.ts`) is the only WhatsApp sender; everything else on WhatsApp is to be kept OFF (website install reminder `install.sendEnabled`,
+"you applied" `applied.sendEnabled`, the unverified-OTP run `install.unverifiedEnabled`, the `WHATSAPP — …` stall rules). The generic "every user, every day" job built earlier
+that day was removed. App and website are one journey because the state is read from stored data and the clock from the last ACTION anywhere.
+- **Clock = last action**, not when a step was saved: `lastActivityFor()` = max of the latest `ActivityEvent.ts` (app screens/events), `JourneyReminder.lastSeenAt`
+  (website "still here" ping) and `Customer.lastActivityAt` (journey events). A person counts as stopped after `dropoff.idleMinutes` (5) with no action; the run's
+  `startAt` is the last action itself, so `dropoff.schedule` (default ONE row: WhatsApp +30 min) sends 30 minutes after they stopped. Arming candidates also include
+  anyone with an activity row or ping in the last `dropoff.maxAgeHours`.
+- **Coming back** (`lib/dropoffDaily.ts returnVerdict`, pure): a newer action before any message = the clock restarts from that action once they are idle again
+  (history entry "clock restarted"); a newer action after a message = the run stops (`returned`) and a fresh run may start when they stop again (the 14-day
+  one-run-per-step rule ignores runs that ended with `returned`). Checked at arming and again on every due run.
+- **Then 7 AM daily for 7 days**: `dropoffConfigFor(status, base, startAt)` appends `dailyRows()` — one WhatsApp at `dropoff.dailyAt` (420 = 7:00 IST) each day for
+  `dropoff.dailyDays` (7), as minutes-after-startAt rows, so the ordinary schedule engine (gap / too late / calling hours) runs them unchanged. A run that is already
+  waiting keeps its next check time. The template per step is unchanged (`DEFAULT_DROPOFF_MESSAGES`; SMS rows are not part of the journey).
+- `otherSequenceActive` now only yields to the install reminder / "you applied" sequence while THEIR switch is on, so a log-only run never silences this journey.
+- Tests: `dropoffDaily.test.ts` (daily rows, return rules); the pure drop-off rules in `dropoffSteps.test.ts` are unchanged.
+
+## "Why did you stop?" at 30 min, and "you left this 2 days ago" calls
+
+- **Stuck-stage CALL rules now default to 30 minutes** (`calls.stallMinStuckMinutes` 30, every seeded `CALL — …` rule `delayMinutes` 30). Seeds only insert missing rules,
+  so on prod each existing rule's wait is changed on Stage outreach (and the rules switched on there); the daily cap `calls.stallDailyLimit` (3) must be raised for a
+  real rollout. The agent asks why they stopped and `report_call_outcome` stores it on `CallAttempt.summary` (the Ello agent must have that tool configured on the dashboard).
+- **Drop-off call on the following evenings** (`lib/inactiveCall.ts`, rules `inactiveCallRules.ts`, job `inactive-call`; owner's ask 2026-11-02: "next day at
+  8 pm, and the day after, for 3 days"): anyone with an account, an unfinished journey (`deriveDropoff` not finished/failed/none) and NO action since they stopped
+  (anchor = `lastActivityFor`, the same last-action clock as the WhatsApp journey) gets one Ello `leadCallback` call at `calls.inactiveCallAt` (1200 = 8:00 PM IST)
+  on each of the next `calls.inactiveDays` (3) India days (day 1 = tomorrow), purpose `inactive_followup`, `days_inactive` = that day number (1 = yesterday) +
+  stall fields. Switch `calls.inactiveEnabled` (**off**), cap `calls.inactiveDailyLimit` (50); also the master `calls.nudgeEnabled`, the call test list, calling hours
+  (8 PM is inside 07:00–21:00; a tick missed past 21:00 skips that day only), quiet gap after a message, do-not-contact. Claim `inactive:<customerId>:<day>`
+  (kind `inactive_call`, one per person per day) before dialling; a failed dial is not retried that day. The 30-minute "why did you stop" CALL rules stay off for now.
+  Prompt: section E in `prompts/ello-outbound-ruby-prompt.md` (edited locally, under the 5,000-token limit; paste into Ello by hand).
+- **Calls on the user profile.** Admin → Users → a user now has a "Voice calls" card (`CallList`, the same rows and detail as the Customer profile's Calls tab:
+  context given, outcome + source, summary, transcript, recording), from `GET /api/admin/users/:id` → `calls` (by phone, 50 newest), with a "Full journey" link to
+  `/customers/:id`. Before this only the Customer profile showed calls.

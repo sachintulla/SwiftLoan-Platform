@@ -790,7 +790,13 @@ adminRouter.get('/users/:id', ah(async (req, res) => {
     })),
   ].sort((a, b) => new Date(b.appliedAt || 0).getTime() - new Date(a.appliedAt || 0).getTime());
 
-  return ok(res, { ...user, customer, aurixApplications, partnerReferrals, revasureLeads, lenderApplications }, 'User profile');
+  // Every voice call to this person (by phone: the dialler keys on the number, and a Customer link can be missing), newest first,
+  // with what the agent was told and what it reported back — the same rows the customer profile shows.
+  const calls = user.phone
+    ? await prisma.callAttempt.findMany({ where: { phone: user.phone, channel: { in: ['phone_outbound', 'phone_inbound'] } }, orderBy: { queuedAt: 'desc' }, take: 50 })
+    : [];
+
+  return ok(res, { ...user, customer, aurixApplications, partnerReferrals, revasureLeads, lenderApplications, calls }, 'User profile');
 }));
 
 // ─────────────────────────── notifications ───────────────────────────
