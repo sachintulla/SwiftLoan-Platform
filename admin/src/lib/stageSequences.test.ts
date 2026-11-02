@@ -47,7 +47,7 @@ describe('STAGE_SEQUENCES', () => {
 
 describe('what stays on the Timings page', () => {
   it('moves every schedule, its rules and the no-offers call delay to the stages', () => {
-    for (const k of ['install.schedule', 'install.unverifiedSchedule', 'dropoff.schedule', 'applied.schedule', 'install.idleMinutes', 'install.minGapMinutes', 'dropoff.maxAgeHours', 'applied.maxLateHours', 'dropoff.noOffersCallDelayMinutes', 'calls.firstDelaySeconds']) {
+    for (const k of ['install.schedule', 'install.unverifiedSchedule', 'dropoff.schedule', 'applied.schedule', 'install.idleMinutes', 'install.minGapMinutes', 'dropoff.maxAgeHours', 'applied.maxLateHours', 'dropoff.noOffersCallDelayMinutes', 'calls.leadFollowupMinutes']) {
       expect(isStageTimingKey(k), k).toBe(true);
     }
   });

@@ -296,26 +296,11 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'See "Status poll hours start". Default 7:00pm; polling is skipped overnight.',
   },
 
-  /* ───────────── C. Website lead → automatic call ───────────── */
+  /* ───────────── C. Website enquiry → automatic call (lib/leadCaller.ts) ───────────── */
   {
-    key: 'calls.firstDelaySeconds', group: 'calls', kind: 'number', unit: 'seconds', def: 20, min: 0, max: 600, env: 'IMMEDIATE_CALLBACK_DELAY_SECONDS',
-    label: 'First call after the person says yes',
-    help: 'How long after a website lead agrees to a call before the first attempt.',
-  },
-  {
-    key: 'calls.retryMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 60, min: 5, max: 1440, env: 'IMMEDIATE_CALLBACK_RETRY_MINUTES',
-    label: 'Retry when a call does not connect',
-    help: 'Wait between attempts when the person does not pick up.',
-  },
-  {
-    key: 'calls.maxAttempts', group: 'calls', kind: 'number', unit: 'count', def: 3, min: 1, max: 10, env: 'IMMEDIATE_CALLBACK_MAX_ATTEMPTS',
-    label: 'Maximum attempts per lead',
-    help: 'The first try plus the retries, before giving up.',
-  },
-  {
-    key: 'calls.declineFollowupMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 60, min: 5, max: 1440, env: 'LEAD_CALL_DECLINE_DELAY_MINUTES',
-    label: 'Follow-up after a declined call',
-    help: 'How long to wait before the next try when someone said no or did not answer the first question.',
+    key: 'calls.leadFollowupMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 60, min: 5, max: 1440, env: 'LEAD_CALL_DECLINE_DELAY_MINUTES',
+    label: 'Call a website enquiry after',
+    help: 'How long after someone verifies their number on the website enquiry form before the Ello agent calls them. There is no "call me" pop-up any more: every verified enquiry is called automatically, once.',
   },
   {
     key: 'calls.maxPerHour', group: 'calls', kind: 'number', unit: 'count', def: 60, min: 1, max: 600, env: 'LEAD_CALL_MAX_PER_HOUR',

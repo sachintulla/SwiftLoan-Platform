@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from "react";
-import { Check, Phone, X, type LucideIcon } from "lucide-react";
+import { X, type LucideIcon } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, type LeadCapture } from "@/hooks/useLeadCapture";
@@ -247,7 +247,7 @@ export function OtpModal({
         <div className="bg-brand-gradient relative flex flex-col items-center gap-3 px-6 pb-8 pt-9 text-center">
           {/* Lets the visitor back out without submitting the OTP — the lead
               itself is already saved (submitLead ran before this modal ever
-              opens), so closing here only skips verification/callback. */}
+              opens), so closing here only skips verification. */}
           <button
             type="button"
             onClick={handleCloseOtpModal}
@@ -352,61 +352,6 @@ export function OtpModal({
             {otpResendSeconds > 0 ? t.otpResendIn.replace("{s}", String(otpResendSeconds)) : t.otpResendCta}
           </button>
         </form>
-      </div>
-      </div>
-    </div>
-  );
-}
-
-export function CallbackModal({ capture }: { capture: LeadCapture }) {
-  const { t, showCallbackModal, handleCallbackChoice } = capture;
-  useBodyScrollLock(showCallbackModal);
-  if (!showCallbackModal) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
-      <div className="flex min-h-full items-center justify-center">
-      {/* w-full, not a raw vw calc — see OtpModal above for why. */}
-      <div className="bg-card my-auto w-full min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
-        <div className="bg-brand-gradient relative flex flex-col items-center gap-2 px-6 pb-6 pt-8 text-center">
-          <span className="bg-success-soft text-success absolute left-4 top-4 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide">
-            {t.matchedBadge}
-          </span>
-          <img
-            src="/ruby-m0.png"
-            alt="Ruby, your SwiftLoan assistant"
-            className="h-16 w-16 rounded-full border-4 border-white/40 object-cover shadow-lg"
-          />
-          <h3 className="text-primary-foreground text-lg font-extrabold leading-snug">{t.callbackPromptTitle}</h3>
-          <p className="text-primary-foreground/90 text-sm font-semibold leading-relaxed">{t.callbackPromptBody}</p>
-        </div>
-
-        <div className="flex flex-col gap-4 px-6 py-6">
-          <ul className="flex flex-col gap-2.5">
-            {t.callbackBenefits.map((benefit) => (
-              <li key={benefit} className="flex items-start gap-2.5 text-sm font-semibold">
-                <Check className="text-success mt-0.5 h-4 w-4 shrink-0" strokeWidth={3} />
-                <span>{benefit}</span>
-              </li>
-            ))}
-          </ul>
-
-          <button
-            type="button"
-            onClick={() => handleCallbackChoice("yes")}
-            className="bg-brand-gradient text-primary-foreground cta-pulse mt-1 inline-flex items-center justify-center gap-2 rounded-full px-5 py-3.5 text-base font-bold shadow-[var(--shadow-float)] transition-transform duration-200 hover:-translate-y-0.5 active:scale-[0.97]"
-          >
-            <Phone className="h-5 w-5" strokeWidth={2.4} />
-            {t.callbackYesCta}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleCallbackChoice("no")}
-            className="text-muted-foreground text-center text-sm font-bold underline decoration-2 underline-offset-2"
-          >
-            {t.callbackNoCta}
-          </button>
-        </div>
       </div>
       </div>
     </div>

@@ -6,7 +6,7 @@ import { fmtINR } from "@/lib/core";
 import { useCopy } from "@/lib/i18n";
 import { heroCopy } from "@/i18n/hero";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP } from "@/hooks/useLeadCapture";
-import { AmountInput, Input, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
+import { AmountInput, Input, Label, MobileInput, OtpModal } from "@/components/home/LeadCaptureUI";
 
 const badgeIcons: LucideIcon[] = [TrendingUp, Clock, Lock];
 
@@ -150,7 +150,6 @@ export function Hero() {
       </div>
 
       <OtpModal capture={cap} />
-      <CallbackModal capture={cap} />
     </section>
   );
 }

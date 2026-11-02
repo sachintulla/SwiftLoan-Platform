@@ -5,7 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP } from "@/hooks/useLeadCapture";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
-import { AmountInput, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
+import { AmountInput, Label, MobileInput, OtpModal } from "@/components/home/LeadCaptureUI";
 
 /**
  * The header's and hero's "Check eligibility" buttons open THIS instead of
@@ -51,8 +51,8 @@ export function QuickCheckModal() {
   }, []);
 
   // Once the visitor reaches the success panel inside this popup (submitted,
-  // OTP verified, callback answered), there's nothing left for the popup
-  // shell itself to show — the OTP/callback modals already took over the
+  // OTP verified), there's nothing left for the popup
+  // shell itself to show — the OTP modal already took over the
   // screen, and closing this shell underneath them is harmless.
   useEffect(() => {
     if (panel === "success") setOpen(false);
@@ -133,13 +133,12 @@ export function QuickCheckModal() {
   );
 }
 
-/** OTP + callback popups render on top of (and outlive) the quick-check
+/** The OTP popup renders on top of (and outlives) the quick-check
  *  shell itself — see the panel==="success" effect above. */
 function OverlayModals({ cap }: { cap: ReturnType<typeof useLeadCapture> }) {
   return (
     <>
       <OtpModal capture={cap} />
-      <CallbackModal capture={cap} />
     </>
   );
 }

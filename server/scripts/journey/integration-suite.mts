@@ -1071,14 +1071,14 @@ await t('S107', 'timings:effect', 'calling hours: a normal window, a changed win
 });
 
 await t('S108', 'timings:effect', 'lead-call timings and the other limits are read live from the settings', async () => {
-  await clearTimings(); const ic = await import(`${ROOT}/lib/immediateCallback.js`); const { isIdleExpired } = await import(`${ROOT}/lib/adminSecurity.js`);
+  await clearTimings(); const { timing } = await import(`${ROOT}/lib/timings.js`); const { isIdleExpired } = await import(`${ROOT}/lib/adminSecurity.js`);
   const { reuseWindowMs } = await import(`${ROOT}/lib/offersReuse.js`); const { referralEligibleDays } = await import(`${ROOT}/lib/referral.js`); const at = await import(`${ROOT}/lib/attribution.js`);
-  assert.deepEqual([ic.firstAttemptDelaySeconds(), ic.retryIntervalMinutes(), ic.maxAttempts()], [20, 60, 3]);
+  assert.equal(timing.num('calls.leadFollowupMinutes'), 60);
   assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), false, 'admin idle default 30 min'); assert.equal(reuseWindowMs(), 24 * 3_600_000);
   assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [7, 48, 30]);
-  await TS.saveTimings({ 'calls.firstDelaySeconds': 45, 'calls.retryMinutes': 90, 'calls.maxAttempts': 5, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'referral.eligibleDays': 14, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
+  await TS.saveTimings({ 'calls.leadFollowupMinutes': 90, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'referral.eligibleDays': 14, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
   try {
-    assert.deepEqual([ic.firstAttemptDelaySeconds(), ic.retryIntervalMinutes(), ic.maxAttempts()], [45, 90, 5]);
+    assert.equal(timing.num('calls.leadFollowupMinutes'), 90);
     assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), true, 'admin idle now 5 min'); assert.equal(reuseWindowMs(), 48 * 3_600_000);
     assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [14, 72, 60]);
   } finally { await clearTimings(); }

@@ -167,7 +167,7 @@ export async function updateLeadAmount(phone: string, amountRupees: number): Pro
 }
 
 /**
- * Phone verification (OTP) + callback consent — the step that runs after
+ * Phone verification (OTP) — the step that runs after
  * submitLead() has already saved the lead. Deliberately a separate API
  * surface (/api/website/*) from the app's own OTP login: this never creates
  * a User or issues an app session, it only proves the number on this lead is
@@ -240,23 +240,5 @@ export async function verifyWebsiteOtp(phone: string, code: string): Promise<Otp
   } catch (e) {
     console.error('[swiftloan] otp verify threw', e);
     return undefined;
-  }
-}
-
-/** Fire-and-forget by design (matches upshotEvent/upshotIdentify elsewhere in
- *  this file's callers) — the visitor's own screen never waits on this. */
-export async function submitCallbackChoice(phone: string, response: 'yes' | 'no'): Promise<boolean> {
-  const base = apiBase();
-  if (!base) return false;
-  try {
-    const res = await fetch(`${base}/api/website/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, response }),
-    });
-    return res.ok;
-  } catch (e) {
-    console.error('[swiftloan] callback choice threw', e);
-    return false;
   }
 }

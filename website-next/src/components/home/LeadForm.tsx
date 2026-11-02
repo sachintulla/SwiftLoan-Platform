@@ -7,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { leadFormCopy } from "@/i18n/lead-form";
 import { useLeadCapture, AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, appStoreUrl } from "@/hooks/useLeadCapture";
-import { AmountInput, Label, MobileInput, OtpModal, CallbackModal } from "@/components/home/LeadCaptureUI";
+import { AmountInput, Label, MobileInput, OtpModal } from "@/components/home/LeadCaptureUI";
 
 type LeadFormText = (typeof leadFormCopy)["en"];
 
@@ -231,7 +231,6 @@ export function LeadForm() {
       </div>
 
       <OtpModal capture={cap} />
-      <CallbackModal capture={cap} />
     </section>
   );
 }
