@@ -28,6 +28,7 @@ import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
 import { dropoffStageOf } from './stageSchedules.js';
 import { alreadyInApp, notOnTestList, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
 import { placeNoOffersCalls } from './noOffersCall.js';
+import { CUSTOMER_ACTION_CHANNELS, SYSTEM_EVENT_NAMES } from './journey.js';
 import { dailyRows, returnVerdict } from './dropoffDaily.js';
 import { buildInstallLink, nextAction, nextCheckTime, renderSmsBody, stepsFromRows, type ScheduleConfig, type ScheduleStep } from './reminderSchedule.js';
 import {
@@ -116,15 +117,22 @@ async function otherSequenceActive(phone: string): Promise<boolean> {
 
 /**
  * The person's last action anywhere: an app screen/event (`ActivityEvent`), a website "still here" ping (`JourneyReminder.lastSeenAt`)
- * or a journey event (`Customer.lastActivityAt`). The drop-off clock runs from this, never from when a step was saved.
+ * or a journey event THEY caused (channel website/app). The drop-off clock runs from this, never from when a step was saved.
+ * Never from anything we did: a nudge, a stall detection or a call is not the customer coming back (`Customer.lastActivityAt` used
+ * to be bumped by those, so it is not read here).
  */
 export async function lastActivityFor(userId: string, phone: string, fallback: Date): Promise<Date> {
-  const [ev, jr, cust] = await Promise.all([
-    prisma.activityEvent.findFirst({ where: { userId }, orderBy: { ts: 'desc' }, select: { ts: true } }),
+  const [ev, jr, je] = await Promise.all([
+    prisma.activityEvent.findFirst({
+      where: { userId, eventType: { not: 'system' }, eventName: { notIn: [...SYSTEM_EVENT_NAMES] } }, orderBy: { ts: 'desc' }, select: { ts: true },
+    }),
     prisma.journeyReminder.findFirst({ where: { userId }, orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
-    prisma.customer.findUnique({ where: { phone }, select: { lastActivityAt: true } }),
+    prisma.journeyEvent.findFirst({
+      where: { customer: { phone }, channel: { in: [...CUSTOMER_ACTION_CHANNELS] }, name: { notIn: [...SYSTEM_EVENT_NAMES] } },
+      orderBy: { occurredAt: 'desc' }, select: { occurredAt: true },
+    }),
   ]);
-  const ms = Math.max(fallback.getTime(), ev?.ts.getTime() ?? 0, jr?.lastSeenAt.getTime() ?? 0, cust?.lastActivityAt.getTime() ?? 0);
+  const ms = Math.max(fallback.getTime(), ev?.ts.getTime() ?? 0, jr?.lastSeenAt.getTime() ?? 0, je?.occurredAt.getTime() ?? 0);
   return new Date(ms);
 }
 
@@ -165,7 +173,10 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
 
   const since = lastActivity!;
   if (now.getTime() - since.getTime() < idleMs) return 'skipped'; // still active: not stopped yet
-  if (now.getTime() - since.getTime() > timing.hoursMs('dropoff.maxAgeHours')) return 'skipped'; // never message old history
+  // Never message old history: BOTH the step itself and their last action must be recent. Someone rejected weeks ago who merely
+  // opened the app today is not "someone who just got no offers".
+  const maxAgeMs = timing.hoursMs('dropoff.maxAgeHours');
+  if (now.getTime() - since.getTime() > maxAgeMs || now.getTime() - state.since!.getTime() > maxAgeMs) return 'skipped';
 
   // A run that ended because they came back may be followed by a new one (they stopped again); any other recent run blocks a repeat.
   const recent = await prisma.appDropoff.findFirst({
