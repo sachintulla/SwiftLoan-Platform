@@ -13,6 +13,7 @@ import { statusPoller } from '../lib/statusPoller.js';
 import { runDailyStatusCalls } from '../lib/statusCall.js';
 import { lenderNudgeTickThrottled } from '../lib/lenderNudge.js';
 import { appDropoffTickThrottled } from '../lib/appDropoff.js';
+import { inactiveCallTickThrottled } from '../lib/inactiveCall.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -172,6 +173,8 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   { name: 'lender-nudge', fn: async () => { await lenderNudgeTickThrottled(); }, everyMs: 60_000 },
   // "You dropped here" messages for website and app (docs/APP_DROPOFF_PLAN.md). Log-only unless dropoff.sendEnabled (Admin → Timings).
   { name: 'app-dropoff', fn: async () => { await appDropoffTickThrottled(); }, everyMs: 60_000 },
+  // "You left this N days ago": one Ello call to anyone with an open journey and no activity for calls.inactiveDays. Off unless calls.inactiveEnabled.
+  { name: 'inactive-call', fn: async () => { await inactiveCallTickThrottled(); }, everyMs: 60_000 },
   // Install attribution: drop click rows (hashed IP/UA) once they can no longer be claimed.
   { name: 'click-purge', fn: async () => { await purgeExpiredClicks(); }, everyMs: 60 * 60_000 },
   // Lender status poller: pulls each in-progress application's latest status
@@ -190,7 +193,7 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
 // Kill switch for every outbound-nudge path: the stall detectors that create
 // nudges and the workers that drain the dispatch queue. Admin-alert-only jobs
 // (idle / loan-stale / onboarding-stale) keep running.
-const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge', 'app-dropoff', 'status-call']);
+const NUDGE_JOBS = new Set(['stage-stall', 'step-stall', 'dispatch-worker', 'notification-sender', 'install-reminder', 'lender-nudge', 'app-dropoff', 'status-call', 'inactive-call']);
 export const nudgesDisabled = () => /^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '');
 
 let timers: NodeJS.Timeout[] = [];

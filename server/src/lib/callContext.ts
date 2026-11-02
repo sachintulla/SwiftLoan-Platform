@@ -330,6 +330,18 @@ export function stallHelpFor(triggerEvent: string, expectedEvent: string): strin
   );
 }
 
+/**
+ * What a "stuck on a step" call tells the agent to do: first find out WHY they stopped (the point of the call), then the
+ * stage-specific help. It is a reminder call, so the agent listens and never collects personal or application details.
+ */
+export const STALL_WHY_ASK =
+  'First ask, kindly, why they have not completed it and whether there was any problem (an error, a doubt, no time) and listen to the answer. ' +
+  'Do not ask for, or note down, any personal or application details.';
+
+export function stallCallHelp(triggerEvent: string, expectedEvent: string): string {
+  return `${STALL_WHY_ASK} After that, you can offer to ${stallHelpFor(triggerEvent, expectedEvent)}.`;
+}
+
 /** Fall back to a readable sentence for any rule we have no wording for. */
 export function stallReasonFor(triggerEvent: string, expectedEvent: string): string {
   const key = `${triggerEvent}→${expectedEvent}`;

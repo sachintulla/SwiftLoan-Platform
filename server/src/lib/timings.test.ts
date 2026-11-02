@@ -24,6 +24,7 @@ describe('registry', () => {
       'auth.otpValidityMinutes': 5, 'auth.otpResendWindowMinutes': 10, 'auth.accessTokenMinutes': 15, 'auth.refreshTokenDays': 30, 'auth.websiteSessionMinutes': 120, 'auth.adminIdleMinutes': 30,
       'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 0, 'referral.eligibleDays': 7,
       'install.sendEnabled': false,
+      'dropoff.idleMinutes': 5, 'dropoff.dailyAt': 420, 'dropoff.dailyDays': 7, 'calls.stallMinStuckMinutes': 30, 'calls.inactiveEnabled': false, 'calls.inactiveCallAt': 1200, 'calls.inactiveDays': 3, 'calls.inactiveDailyLimit': 50,
     };
     for (const [k, v] of Object.entries(want)) expect(defOf(k).def, k).toBe(v);
   });

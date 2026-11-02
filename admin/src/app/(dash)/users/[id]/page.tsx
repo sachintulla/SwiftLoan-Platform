@@ -5,6 +5,7 @@ import { swrFetcher } from '@/lib/api';
 import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
 import { inr, dateStr, dateTimeStr, humanStatus, timeAgo } from '@/lib/format';
 import { stageLabel } from '@/components/journey';
+import { CallList } from '@/components/callDetail';
 import type { ReactNode } from 'react';
 
 const LENDER_GROUP_LABEL: Record<string, string> = {
@@ -100,6 +101,16 @@ export default function UserProfile() {
             ))}</tbody>
           </table></div>
         )}
+      </Card>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+      <Card
+        title="Voice calls"
+        sub="Every call to this number, with what the agent was told and what it reported back"
+        right={u.customer?.id ? <a className="btn" href={`/customers/${u.customer.id}`}>Full journey →</a> : undefined}
+      >
+        <CallList calls={u.calls} emptyLabel="No voice calls placed to this person" />
       </Card>
       </div>
 
