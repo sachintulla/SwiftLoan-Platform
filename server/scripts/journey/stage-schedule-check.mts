@@ -52,7 +52,7 @@
   // ── remove it: back to the shared schedule for new runs
   await resetTiming('dropoff.schedule.eligibility_started');
   await refreshTimings();
-  const cfgAfterReset = (await import(`${S}/appDropoff.js`)).dropoffConfigFor('pan_verified', (await import(`${S}/appDropoff.js`)).dropoffConfig());
+  const cfgAfterReset = (await import(`${S}/appDropoff.js`)).dropoffConfigFor('pan_verified', (await import(`${S}/appDropoff.js`)).dropoffConfig(), new Date());
   check('after "use the shared schedule" the stage is back on the shared one (3 messages)', cfgAfterReset.steps.length === 3, `${cfgAfterReset.steps.length} steps`);
 
   // ── the website reminder: one schedule per website step, the shared one otherwise

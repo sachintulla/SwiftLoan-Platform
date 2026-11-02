@@ -2,7 +2,7 @@
  * One consistent way to log a stage within a request's lifecycle, across every
  * route module. Before this, each file that logged at all invented its own
  * ad-hoc `console.log('[some-tag] ...')` convention (leadCaller.ts,
- * immediateCallback.ts, webhooks.routes.ts) and most files logged nothing —
+ * leadCaller.ts, webhooks.routes.ts) and most files logged nothing —
  * so tracing what actually happened for a given request meant reading code,
  * not logs.
  *

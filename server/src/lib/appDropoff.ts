@@ -28,6 +28,7 @@ import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
 import { dropoffStageOf } from './stageSchedules.js';
 import { alreadyInApp, notOnTestList, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
 import { placeNoOffersCalls } from './noOffersCall.js';
+import { dailyRows, returnVerdict } from './dropoffDaily.js';
 import { buildInstallLink, nextAction, nextCheckTime, renderSmsBody, stepsFromRows, type ScheduleConfig, type ScheduleStep } from './reminderSchedule.js';
 import {
   DEFAULT_DROPOFF_MESSAGES, DROPOFF_STEP_LABELS, deriveDropoff, dropoffStopReason, includeAppLink, isMessageable, mergeDropoffMessages, messageKindFor, pickSms,
@@ -40,7 +41,7 @@ const log = scoped('app-dropoff');
 const PAGE_SIZE = 200;
 const MAX_PAGES = 10;
 const ARM_BATCH = 500;
-/** A person gets at most one run per drop point in this long, so a status that flickers cannot start the same messages twice. */
+/** After a run that finished (or stopped for anything but their coming back), the same drop point is not messaged again for this long. */
 const RERUN_AFTER_MS = 14 * 24 * 3_600_000;
 
 export const appDropoffSendEnabled = () => timing.bool('dropoff.sendEnabled');
@@ -101,13 +102,30 @@ async function isDoNotContact(phone: string): Promise<boolean> {
   return c?.currentStage === 'lost';
 }
 
-/** True while another message sequence already owns this phone, so two never overlap. */
+/**
+ * True while another message sequence that is really SENDING already owns this phone, so two never overlap. A sequence whose
+ * switch is off is log-only and must not silence this one (this is the one WhatsApp journey; the others are kept off).
+ */
 async function otherSequenceActive(phone: string): Promise<boolean> {
   const [reminder, nudge] = await Promise.all([
-    prisma.journeyReminder.findFirst({ where: { phone, status: 'active' }, select: { id: true } }),
-    prisma.lenderNudge.findFirst({ where: { phone, status: 'active' }, select: { id: true } }),
+    timing.bool('install.sendEnabled') ? prisma.journeyReminder.findFirst({ where: { phone, status: 'active' }, select: { id: true } }) : Promise.resolve(null),
+    timing.bool('applied.sendEnabled') ? prisma.lenderNudge.findFirst({ where: { phone, status: 'active' }, select: { id: true } }) : Promise.resolve(null),
   ]);
   return !!reminder || !!nudge;
+}
+
+/**
+ * The person's last action anywhere: an app screen/event (`ActivityEvent`), a website "still here" ping (`JourneyReminder.lastSeenAt`)
+ * or a journey event (`Customer.lastActivityAt`). The drop-off clock runs from this, never from when a step was saved.
+ */
+export async function lastActivityFor(userId: string, phone: string, fallback: Date): Promise<Date> {
+  const [ev, jr, cust] = await Promise.all([
+    prisma.activityEvent.findFirst({ where: { userId }, orderBy: { ts: 'desc' }, select: { ts: true } }),
+    prisma.journeyReminder.findFirst({ where: { userId }, orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
+    prisma.customer.findUnique({ where: { phone }, select: { lastActivityAt: true } }),
+  ]);
+  const ms = Math.max(fallback.getTime(), ev?.ts.getTime() ?? 0, jr?.lastSeenAt.getTime() ?? 0, cust?.lastActivityAt.getTime() ?? 0);
+  return new Date(ms);
 }
 
 /* ───────────────────────────────────── arming ───────────────────────────────────── */
@@ -119,7 +137,21 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
   const state: DropoffState = deriveDropoff(snapshot);
 
   const active = await prisma.appDropoff.findFirst({ where: { userId, status: 'active' } });
-  if (active && active.dropStatus === state.status) return 'skipped'; // still at the same step: the run carries on
+  const idleMs = timing.minutesMs('dropoff.idleMinutes');
+  const lastActivity = state.since ? await lastActivityFor(userId, user.phone, state.since) : null;
+  if (active && active.dropStatus === state.status) {
+    // Still at the same step. Came back since the run was anchored? Before any message: restart the clock from the new last action
+    // once they are idle again. After a message: the run is over (they acted); if they stop again a fresh run starts.
+    const verdict = lastActivity ? returnVerdict({ startAt: active.startAt, stepsSent: active.stepsSent, lastActivityAt: lastActivity, now, idleMs }) : 'none';
+    if (verdict === 'reanchor') {
+      await prisma.appDropoff.update({ where: { id: active.id }, data: { startAt: lastActivity!, nextCheckAt: now, history: [...readHistory(active), { step: -1, channel: 'whatsapp', label: 'clock restarted', at: now.toISOString(), outcome: 'skipped', reason: `they came back; counting from ${lastActivity!.toISOString()}`, message: 'continue', withLink: false }] as unknown as object } });
+    } else if (verdict === 'returned') {
+      await prisma.appDropoff.update({ where: { id: active.id }, data: { status: 'stopped', stopReason: 'returned' } });
+      log.info('stopped', { id: active.id, reason: 'returned', step: active.stepsSent });
+      return 'stopped';
+    }
+    return 'skipped';
+  }
   let stopped = false;
   if (active) {
     // They moved on (or applied, or the lookup changed): end the old run NOW, not at its next message (which can be a day
@@ -131,11 +163,13 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
   }
   if (!isMessageable(state.status)) return stopped ? 'stopped' : 'skipped';
 
-  const since = state.since!;
+  const since = lastActivity!;
+  if (now.getTime() - since.getTime() < idleMs) return 'skipped'; // still active: not stopped yet
   if (now.getTime() - since.getTime() > timing.hoursMs('dropoff.maxAgeHours')) return 'skipped'; // never message old history
 
+  // A run that ended because they came back may be followed by a new one (they stopped again); any other recent run blocks a repeat.
   const recent = await prisma.appDropoff.findFirst({
-    where: { userId, dropStatus: state.status, createdAt: { gte: new Date(now.getTime() - RERUN_AFTER_MS) } },
+    where: { userId, dropStatus: state.status, createdAt: { gte: new Date(now.getTime() - RERUN_AFTER_MS) }, NOT: { stopReason: 'returned' } },
     select: { id: true },
   });
   if (recent) return 'skipped';
@@ -167,11 +201,14 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
  */
 export async function armAppDropoffs(now: Date = new Date()): Promise<{ created: number; stopped: number }> {
   const since = new Date(now.getTime() - timing.hoursMs('dropoff.maxAgeHours'));
-  const [apps, pans] = await Promise.all([
+  const [apps, pans, events, pings] = await Promise.all([
     prisma.loanApplication.findMany({ where: { updatedAt: { gte: since } }, orderBy: { updatedAt: 'asc' }, take: ARM_BATCH, select: { userId: true } }),
     prisma.user.findMany({ where: { panOnFile: true, updatedAt: { gte: since }, applications: { none: {} } }, orderBy: { updatedAt: 'asc' }, take: ARM_BATCH, select: { id: true } }),
+    // The clock runs from the last ACTION, so someone whose step was saved days ago but who was in the app today is a candidate too.
+    prisma.activityEvent.findMany({ where: { ts: { gte: since }, userId: { not: null } }, distinct: ['userId'], take: ARM_BATCH, select: { userId: true } }),
+    prisma.journeyReminder.findMany({ where: { lastSeenAt: { gte: since } }, distinct: ['userId'], take: ARM_BATCH, select: { userId: true } }),
   ]);
-  const userIds = [...new Set([...apps.map((a) => a.userId), ...pans.map((u) => u.id)])];
+  const userIds = [...new Set([...apps.map((a) => a.userId), ...pans.map((u) => u.id), ...events.map((e) => e.userId!), ...pings.map((p) => p.userId)])];
   const out = { created: 0, stopped: 0 };
   for (const id of userIds) {
     try {
@@ -245,15 +282,36 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
 export interface AppDropoffTickResult { armed: number; scanned: number; stopped: number; handled: number; completed: number; calls: number }
 
 /** The rules for one run: the shared ones, except a stage with its own schedule (Configs → Stage outreach) uses that. */
-export function dropoffConfigFor(status: string, base: ScheduleConfig): ScheduleConfig {
+export function dropoffConfigFor(status: string, base: ScheduleConfig, startAt: Date): ScheduleConfig {
   const stage = dropoffStageOf(status);
-  return hasStageSchedule('dropoff.schedule', stage) ? { ...base, steps: stepsFromRows(stageScheduleRows('dropoff.schedule', stage)) } : base;
+  const first = hasStageSchedule('dropoff.schedule', stage) ? stageScheduleRows('dropoff.schedule', stage) : timing.schedule('dropoff.schedule');
+  // The journey: the first message(s) counted from the last action, then one WhatsApp at `dropoff.dailyAt` each day for `dropoff.dailyDays`.
+  return { ...base, steps: stepsFromRows([...first, ...dailyRows(startAt, first, timing.num('dropoff.dailyAt'), timing.num('dropoff.dailyDays'))]) };
 }
 
 async function processRow(r: AppDropoff, now: Date, out: AppDropoffTickResult, baseCfg: ScheduleConfig): Promise<void> {
-  const cfg = dropoffConfigFor(r.dropStatus, baseCfg);
+  const cfg = dropoffConfigFor(r.dropStatus, baseCfg, r.startAt);
   const loaded = await loadSnapshot(r.userId);
   const statusNow = loaded ? deriveDropoff(loaded.snapshot).status : null;
+  // Any action since the run was anchored: restart the clock (nothing sent yet) or end the run (a message went out). The arming
+  // pass does the same, but it only sees people with recent activity rows; this covers every run that is due.
+  const lastActivity = await lastActivityFor(r.userId, r.phone, r.startAt);
+  const back = returnVerdict({ startAt: r.startAt, stepsSent: r.stepsSent, lastActivityAt: lastActivity, now, idleMs: timing.minutesMs('dropoff.idleMinutes') });
+  if (back === 'returned') {
+    await prisma.appDropoff.update({ where: { id: r.id }, data: { status: 'stopped', stopReason: 'returned' } });
+    out.stopped++;
+    log.info('stopped', { id: r.id, reason: 'returned', step: r.stepsSent });
+    return;
+  }
+  if (back === 'not_idle') {
+    await prisma.appDropoff.update({ where: { id: r.id }, data: { nextCheckAt: new Date(now.getTime() + timing.minutesMs('dropoff.idleMinutes')) } });
+    return;
+  }
+  if (back === 'reanchor') {
+    await prisma.appDropoff.update({ where: { id: r.id }, data: { startAt: lastActivity, nextCheckAt: now } });
+    r = { ...r, startAt: lastActivity };
+    return processRow(r, now, out, baseCfg);
+  }
   const reason = dropoffStopReason({
     armedStatus: r.dropStatus as DropoffStatus,
     statusNow,

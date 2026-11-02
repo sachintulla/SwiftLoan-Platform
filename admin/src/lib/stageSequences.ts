@@ -84,7 +84,7 @@ const DROPOFF: SequenceSource = {
 export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.freeze({
   lead_captured: {
     sources: [],
-    rules: [{ title: 'The call after a website enquiry', keys: ['calls.firstDelaySeconds', 'calls.retryMinutes', 'calls.maxAttempts', 'calls.declineFollowupMinutes'] }],
+    rules: [{ title: 'The call after a website enquiry', keys: ['calls.leadFollowupMinutes'] }],
   },
   app_installed: { sources: [], rules: [] },
   otp_requested: {

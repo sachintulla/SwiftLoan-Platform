@@ -17,7 +17,8 @@ import { enqueueDispatch } from './dispatch.js';
 import { getProviderConfig } from './integrations.js';
 import { placeCall } from './dialer.js';
 import { withinCallingHours } from './leadCaller.js';
-import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from './callContext.js';
+import { buildLeadCallContext, compactContext, stallReasonFor, stallCallHelp } from './callContext.js';
+import { dailyLimitReached, effectiveCallDelayMinutes, istDayStart } from './stallCallLimits.js';
 import { agentIdFor } from './agents.js';
 import { stageCallSetting, renderBrief } from './stageOutreach.js';
 import { isCallAllowed } from './callGate.js';
@@ -243,7 +244,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'CALL — entered phone but never verified OTP',
     triggerEvent: JOURNEY_EVENTS.OTP_REQUESTED,
     expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED,
-    delayMinutes: 20,
+    delayMinutes: 30,
     // Unused on a voice rule, but the column is required; kept meaningful so the
     // rule still works if an operator switches it back to push.
     upshotEvent: 'swiftloan_otp_not_verified_call',
@@ -256,7 +257,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'CALL — KYC started but not completed',
     triggerEvent: JOURNEY_EVENTS.KYC_STARTED,
     expectedEvent: JOURNEY_EVENTS.KYC_COMPLETED,
-    delayMinutes: 45,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_kyc_incomplete_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -268,7 +269,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
     // Longer than the others: someone who just signed in may simply be looking
     // around, and ringing them after twenty minutes would feel like surveillance.
-    delayMinutes: 120,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_no_application_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -290,7 +291,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'CALL — chose an offer but did not start verification',
     triggerEvent: JOURNEY_EVENTS.OFFER_SELECTED,
     expectedEvent: JOURNEY_EVENTS.KYC_STARTED,
-    delayMinutes: 45,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_kyc_not_started_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -300,7 +301,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'CALL — application form started but not finished',
     triggerEvent: JOURNEY_EVENTS.ELIGIBILITY_STARTED,
     expectedEvent: JOURNEY_EVENTS.ELIGIBILITY_COMPLETED,
-    delayMinutes: 60,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_eligibility_incomplete_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -312,7 +313,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'CALL — website lead never installed the app',
     triggerEvent: JOURNEY_EVENTS.LEAD_CAPTURED,
     expectedEvent: JOURNEY_EVENTS.APP_INSTALLED,
-    delayMinutes: 60,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_lead_no_install_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -333,7 +334,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     triggerEvent: JOURNEY_EVENTS.LOAN_REJECTED,
     expectedEvent: JOURNEY_EVENTS.OFFER_SELECTED,
     // Give them a while before ringing about a refusal. The wording is gentle and never discusses why.
-    delayMinutes: 120,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_rejected_by_lender_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -343,7 +344,7 @@ export const DEFAULT_STALL_RULES: Array<Omit<StallRule, 'id' | 'createdAt' | 'up
     name: 'CALL — installed the app but never signed in',
     triggerEvent: JOURNEY_EVENTS.APP_INSTALLED,
     expectedEvent: JOURNEY_EVENTS.OTP_VERIFIED,
-    delayMinutes: 180,
+    delayMinutes: 30,
     upshotEvent: 'swiftloan_install_not_registered_call',
     channel: 'voice',
     cooldownMinutes: 4320,
@@ -393,7 +394,10 @@ export function surfaceFilter(surface: string | null | undefined): { channel?: s
  */
 export async function evaluateRule(rule: StallRule, now: Date = new Date()): Promise<number> {
   if (!rule.enabled) return 0;
-  const cutoff = new Date(now.getTime() - rule.delayMinutes * 60_000);
+  const isCall = rule.channel === 'voice';
+  // A call waits at least `calls.stallMinStuckMinutes` (2 h by default) however short the rule's own wait is.
+  const delayMinutes = isCall ? effectiveCallDelayMinutes(rule.delayMinutes, timing.num('calls.stallMinStuckMinutes')) : rule.delayMinutes;
+  const cutoff = new Date(now.getTime() - delayMinutes * 60_000);
 
   // A whatsapp rule sends its approved template straight through Voxvalley when
   // that integration is on and this stage has a template mapped; otherwise it
@@ -413,9 +417,12 @@ export async function evaluateRule(rule: StallRule, now: Date = new Date()): Pro
       ...surfaceFilter(rule.surface),
       // Direct WhatsApp only reaches people who stalled recently — see
       // STALL_WA_MAX_AGE_HOURS — so enabling a rule never messages the backlog.
-      occurredAt: maxAgeHours
-        ? { lte: cutoff, gte: new Date(cutoff.getTime() - maxAgeHours * 3_600_000) }
-        : { lte: cutoff },
+      // A call rule only reaches people who stopped within `calls.stallMaxStuckHours`, so switching it on never rings the backlog.
+      occurredAt: isCall
+        ? { lte: cutoff, gte: new Date(now.getTime() - timing.hoursMs('calls.stallMaxStuckHours')) }
+        : maxAgeHours
+          ? { lte: cutoff, gte: new Date(cutoff.getTime() - maxAgeHours * 3_600_000) }
+          : { lte: cutoff },
     },
     orderBy: { occurredAt: 'desc' },
     take: MAX_PER_RULE,
@@ -490,7 +497,7 @@ export async function evaluateRule(rule: StallRule, now: Date = new Date()): Pro
           rule: rule.name,
           stuckAt: rule.triggerEvent,
           expected: rule.expectedEvent,
-          delayMinutes: rule.delayMinutes,
+          delayMinutes,
           stage: customer.currentStage,
           name: customer.name ?? undefined,
           phone: customer.phone ?? undefined,
@@ -609,6 +616,16 @@ async function placeStallCall(
   });
   if (everDropoff >= DROPOFF_MAX_PER_CUSTOMER) return false;
 
+  // Daily cap across every call rule (Admin → Timings, 3 by default; 0 = none). Not claiming the key means the person stays
+  // eligible and is picked up tomorrow while their drop-off is still inside `calls.stallMaxStuckHours`.
+  const limit = timing.num('calls.stallDailyLimit');
+  if (limit > 0) {
+    const today = await prisma.outboundRequest.count({
+      where: { kind: 'dropoff_call', createdAt: { gte: istDayStart(now) } },
+    });
+    if (dailyLimitReached(today, limit)) return false;
+  }
+
   // Claim the key BEFORE dialling. If we dialled first and then failed to write
   // this, the next tick would call them again.
   try {
@@ -645,7 +662,7 @@ async function placeStallCall(
         // generic "did something go wrong?", which is barely better than a push —
         // someone stuck on OTP has a delivery problem, someone sitting on the
         // offers screen has a decision problem.
-        help: stallHelpFor(rule.triggerEvent, rule.expectedEvent),
+        help: stallCallHelp(rule.triggerEvent, rule.expectedEvent),
         lastStep: rule.triggerEvent.replace(/_/g, ' '),
         expectedStep: rule.expectedEvent.replace(/_/g, ' '),
         minutes: minutesStuck,

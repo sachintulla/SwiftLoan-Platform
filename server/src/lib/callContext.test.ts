@@ -141,3 +141,18 @@ describe('compactContext', () => {
     expect(compactContext({ n: '0' })).toEqual({ n: '0' });
   });
 });
+
+describe('stallCallHelp (the "why did you stop?" call)', () => {
+  it('asks why first, never for details, then offers the stage help', async () => {
+    const { stallCallHelp, STALL_WHY_ASK } = await import('./callContext.js');
+    const h = stallCallHelp('offer_viewed', 'offer_selected');
+    expect(h.startsWith(STALL_WHY_ASK)).toBe(true);
+    expect(h).toMatch(/why they have not completed it/);
+    expect(h).toMatch(/Do not ask for, or note down, any personal or application details/);
+    expect(h).toMatch(/After that, you can offer to /);
+  });
+  it('still works for a rule with no wording of its own', async () => {
+    const { stallCallHelp } = await import('./callContext.js');
+    expect(stallCallHelp('x_event', 'y_event')).toMatch(/offer to ask what happened/);
+  });
+});
