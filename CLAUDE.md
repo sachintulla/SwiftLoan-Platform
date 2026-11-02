@@ -791,6 +791,12 @@ that day was removed. App and website are one journey because the state is read 
 - **Then 7 AM daily for 7 days**: `dropoffConfigFor(status, base, startAt)` appends `dailyRows()` — one WhatsApp at `dropoff.dailyAt` (420 = 7:00 IST) each day for
   `dropoff.dailyDays` (7), as minutes-after-startAt rows, so the ordinary schedule engine (gap / too late / calling hours) runs them unchanged. A run that is already
   waiting keeps its next check time. The template per step is unchanged (`DEFAULT_DROPOFF_MESSAGES`; SMS rows are not part of the journey).
+- **Only the customer's own channels are activity** (`journey.ts isCustomerAction`: `website` / `app`). `Customer.lastActivityAt` and the mirrored
+  `ActivityEvent` used to be bumped by our OWN events (`nudge_sent`, `stage_stalled`, calls): on the 2026-11-02 deploy that made a stall SMS look like
+  "the customer came back", re-armed 104 weeks-old "no offers" drop-offs and sent 91 `dropoff_no_offers_callback` WhatsApps before it was stopped (sending
+  paused, no calls went out, the runs were deleted). Now system events do not touch `lastActivityAt` and mirror as `eventType: 'system'`; `lastActivityFor`
+  reads only customer-caused rows (`SYSTEM_EVENT_NAMES` excluded for old rows); and arming requires BOTH the step and the last action to be inside
+  `dropoff.maxAgeHours`. Test: `journeyActivity.test.ts`.
 - `otherSequenceActive` now only yields to the install reminder / "you applied" sequence while THEIR switch is on, so a log-only run never silences this journey.
 - Tests: `dropoffDaily.test.ts` (daily rows, return rules); the pure drop-off rules in `dropoffSteps.test.ts` are unchanged.
 
