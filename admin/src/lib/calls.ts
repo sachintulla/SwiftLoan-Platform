@@ -17,6 +17,7 @@ export const PURPOSE_LABELS: Record<string, string> = {
   upshot_journey: 'Journey trigger',
   manual_dashboard_call: 'Called by an admin',
   no_offers_followup: 'No offers found',
+  inactive_followup: 'Stopped, evening follow-up',
   campaign: 'Campaign',
 };
 
@@ -27,6 +28,7 @@ export const PURPOSE_OPTIONS: { value: string; label: string }[] = [
   { value: 'daily_status_update', label: PURPOSE_LABELS.daily_status_update },
   { value: 'website_lead_followup', label: PURPOSE_LABELS.website_lead_followup },
   { value: 'immediate_callback_optin', label: PURPOSE_LABELS.immediate_callback_optin },
+  { value: 'inactive_followup', label: PURPOSE_LABELS.inactive_followup },
   { value: 'upshot_journey', label: PURPOSE_LABELS.upshot_journey },
   { value: 'campaign', label: PURPOSE_LABELS.campaign },
   { value: 'manual_dashboard_call', label: PURPOSE_LABELS.manual_dashboard_call },

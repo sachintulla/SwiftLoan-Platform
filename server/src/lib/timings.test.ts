@@ -20,7 +20,7 @@ describe('registry', () => {
     const want: Record<string, unknown> = {
       'install.idleMinutes': 5, 'install.minGapMinutes': 30, 'install.maxLateHours': 14, 'install.maxCycles': 2, 'install.recheckMinutes': 15,
       'install.resumeMaxAgeDays': 14, 'website.pingEverySeconds': 60, 'calling.windowStart': 540, 'calling.windowEnd': 1260,
-      'calls.firstDelaySeconds': 20, 'calls.retryMinutes': 60, 'calls.maxAttempts': 3, 'calls.declineFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25,
+      'calls.leadFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25,
       'auth.otpValidityMinutes': 5, 'auth.otpResendWindowMinutes': 10, 'auth.accessTokenMinutes': 15, 'auth.refreshTokenDays': 30, 'auth.websiteSessionMinutes': 120, 'auth.adminIdleMinutes': 30,
       'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 0, 'referral.eligibleDays': 7,
       'install.sendEnabled': false,
@@ -164,7 +164,7 @@ describe('reading', () => {
     expect(timing.minutesMs('install.idleMinutes')).toBe(5 * 60_000);
     expect(timing.hoursMs('install.maxLateHours')).toBe(14 * 3_600_000);
     expect(timing.daysMs('install.resumeMaxAgeDays')).toBe(14 * 86_400_000);
-    expect(timing.secondsMs('calls.firstDelaySeconds')).toBe(20_000);
+    expect(timing.secondsMs('website.pingEverySeconds')).toBe(60_000);
   });
   it('a typo in a key or the wrong type fails loudly instead of returning garbage', () => {
     expect(() => timing.num('install.idelMinutes')).toThrow(/unknown timing/);

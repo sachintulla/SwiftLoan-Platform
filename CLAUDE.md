@@ -794,6 +794,14 @@ that day was removed. App and website are one journey because the state is read 
 - `otherSequenceActive` now only yields to the install reminder / "you applied" sequence while THEIR switch is on, so a log-only run never silences this journey.
 - Tests: `dropoffDaily.test.ts` (daily rows, return rules); the pure drop-off rules in `dropoffSteps.test.ts` are unchanged.
 
+## The website "Yes, call me now" pop-up is gone (2026-11-02)
+
+The owner removed the callback-consent pop-up: every verified website enquiry is called automatically, once, `calls.leadFollowupMinutes` (60) after it
+(`lib/leadCaller.ts`, job `lead-autocaller`), with no yes/no asked. Removed with it: `lib/immediateCallback.ts` + job `immediate-callback`, `POST /api/website/callback`,
+settings `calls.firstDelaySeconds` / `calls.retryMinutes` / `calls.maxAttempts` (`calls.declineFollowupMinutes` renamed to `calls.leadFollowupMinutes`), the website
+`CallbackModal` / `submitCallbackChoice` / `callback*` strings. The `Customer.callback*` columns and the `callback_requested` / `callback_declined` journey events stay
+(additive schema; history), and the `immediate_callback_optin` call reason keeps its label for old calls.
+
 ## "Why did you stop?" at 30 min, and "you left this 2 days ago" calls
 
 - **Stuck-stage CALL rules now default to 30 minutes** (`calls.stallMinStuckMinutes` 30, every seeded `CALL — …` rule `delayMinutes` 30). Seeds only insert missing rules,

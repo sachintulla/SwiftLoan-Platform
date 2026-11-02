@@ -72,16 +72,6 @@ export const leadFormCopy = defineCopy({
     ],
     otpStayOpenNotice: "Please do not close while reading the OTP.",
     otpCloseLabel: "Close",
-    callbackPromptTitle: "Want us to call you right now?",
-    callbackPromptBody:
-      "Skip the wait — one of our loan experts can call you in the next few minutes to help you land the best offer.",
-    callbackBenefits: [
-      "100% free, no-obligation call",
-      "Personalized guidance from a loan expert",
-      "Takes less than 5 minutes",
-    ],
-    callbackYesCta: "Yes, call me now",
-    callbackNoCta: "No thanks, I'll continue on my own",
     matchedBadge: "Matched",
     successTitle: "Your offers are ready!",
     successBody:
@@ -165,16 +155,6 @@ export const leadFormCopy = defineCopy({
     ],
     otpStayOpenNotice: "कृपया OTP पढ़ते समय इसे बंद न करें।",
     otpCloseLabel: "बंद करें",
-    callbackPromptTitle: "क्या हम आपको अभी कॉल करें?",
-    callbackPromptBody:
-      "इंतज़ार न करें — हमारे लोन एक्सपर्ट कुछ ही मिनटों में आपको कॉल करके सबसे अच्छा ऑफ़र दिलाने में मदद कर सकते हैं।",
-    callbackBenefits: [
-      "100% मुफ़्त, बिना किसी बाध्यता वाली कॉल",
-      "लोन एक्सपर्ट से व्यक्तिगत मार्गदर्शन",
-      "5 मिनट से भी कम समय लगेगा",
-    ],
-    callbackYesCta: "हां, मुझे अभी कॉल करें",
-    callbackNoCta: "नहीं धन्यवाद, मैं खुद जारी रखूँगा",
     matchedBadge: "मैच हो गया",
     successTitle: "आपके ऑफ़र तैयार हैं!",
     successBody:
@@ -258,16 +238,6 @@ export const leadFormCopy = defineCopy({
     ],
     otpStayOpenNotice: "దయచేసి OTP చదువుతున్నప్పుడు దీన్ని మూసివేయవద్దు.",
     otpCloseLabel: "మూసివేయండి",
-    callbackPromptTitle: "మేము మీకు ఇప్పుడే కాల్ చేయాలా?",
-    callbackPromptBody:
-      "వేచి ఉండకండి — మా లోన్ నిపుణులు కొన్ని నిమిషాల్లోనే మీకు కాల్ చేసి, ఉత్తమ ఆఫర్ పొందడంలో సహాయం చేయగలరు.",
-    callbackBenefits: [
-      "100% ఉచితం, ఎలాంటి బాధ్యత లేని కాల్",
-      "లోన్ నిపుణుడి నుండి వ్యక్తిగత మార్గదర్శకత్వం",
-      "5 నిమిషాల కన్నా తక్కువ సమయం పడుతుంది",
-    ],
-    callbackYesCta: "అవును, నాకు ఇప్పుడే కాల్ చేయండి",
-    callbackNoCta: "వద్దు ధన్యవాదాలు, నేనే కొనసాగిస్తాను",
     matchedBadge: "మ్యాచ్ అయింది",
     successTitle: "మీ ఆఫర్లు సిద్ధంగా ఉన్నాయి!",
     successBody:
