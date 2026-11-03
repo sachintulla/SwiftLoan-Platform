@@ -74,6 +74,8 @@ function readHistory(r: Pick<AppDropoff, 'history'>): DropoffHistoryEntry[] {
 export async function loadSnapshot(userId: string): Promise<{ snapshot: DropoffSnapshot; user: { phone: string; firstName: string | null } } | null> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true, firstName: true, panOnFile: true, updatedAt: true } });
   if (!user?.phone) return null;
+  // When they verified their number (either surface records `otp_verified`); the step before the PAN.
+  const otp = await prisma.journeyEvent.findFirst({ where: { customer: { phone: user.phone }, name: 'otp_verified' }, orderBy: { occurredAt: 'desc' }, select: { occurredAt: true } });
   const app = await prisma.loanApplication.findFirst({
     where: { userId },
     orderBy: { updatedAt: 'desc' },
@@ -86,6 +88,7 @@ export async function loadSnapshot(userId: string): Promise<{ snapshot: DropoffS
   return {
     user: { phone: user.phone, firstName: user.firstName },
     snapshot: {
+      otpVerifiedAt: otp?.occurredAt ?? null,
       panOnFile: user.panOnFile,
       panSince: user.panOnFile ? user.updatedAt : null,
       application: app
@@ -212,14 +215,16 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
  */
 export async function armAppDropoffs(now: Date = new Date()): Promise<{ created: number; stopped: number }> {
   const since = new Date(now.getTime() - timing.hoursMs('dropoff.maxAgeHours'));
-  const [apps, pans, events, pings] = await Promise.all([
+  const [apps, pans, events, pings, otps] = await Promise.all([
     prisma.loanApplication.findMany({ where: { updatedAt: { gte: since } }, orderBy: { updatedAt: 'asc' }, take: ARM_BATCH, select: { userId: true } }),
     prisma.user.findMany({ where: { panOnFile: true, updatedAt: { gte: since }, applications: { none: {} } }, orderBy: { updatedAt: 'asc' }, take: ARM_BATCH, select: { id: true } }),
     // The clock runs from the last ACTION, so someone whose step was saved days ago but who was in the app today is a candidate too.
     prisma.activityEvent.findMany({ where: { ts: { gte: since }, userId: { not: null } }, distinct: ['userId'], take: ARM_BATCH, select: { userId: true } }),
     prisma.journeyReminder.findMany({ where: { lastSeenAt: { gte: since } }, distinct: ['userId'], take: ARM_BATCH, select: { userId: true } }),
+    // Verified the number and stopped before the PAN: the earliest step of the journey.
+    prisma.journeyEvent.findMany({ where: { name: 'otp_verified', occurredAt: { gte: since } }, distinct: ['customerId'], take: ARM_BATCH, select: { customer: { select: { userId: true } } } }),
   ]);
-  const userIds = [...new Set([...apps.map((a) => a.userId), ...pans.map((u) => u.id), ...events.map((e) => e.userId!), ...pings.map((p) => p.userId)])];
+  const userIds = [...new Set([...apps.map((a) => a.userId), ...pans.map((u) => u.id), ...events.map((e) => e.userId!), ...pings.map((p) => p.userId), ...otps.map((o) => o.customer.userId).filter((id): id is string => !!id)])];
   const out = { created: 0, stopped: 0 };
   for (const id of userIds) {
     try {

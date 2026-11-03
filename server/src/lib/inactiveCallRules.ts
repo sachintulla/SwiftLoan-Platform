@@ -58,6 +58,7 @@ export function inactiveBrief(status: Exclude<DropoffStatus, 'finished' | 'faile
 } {
   const since = days === 1 ? 'yesterday' : `${days} days ago`;
   const where: Record<typeof status, { last: string; next: string }> = {
+    otp_verified: { last: 'verified their mobile number', next: 'verify their PAN' },
     pan_verified: { last: 'verified their PAN', next: 'fill in their basic details' },
     application_filled: { last: 'filled in their details', next: 'see their loan offers' },
     rejected: { last: 'checked for offers and none were found', next: 'wait for our update or try again later' },

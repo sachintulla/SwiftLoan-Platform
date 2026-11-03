@@ -797,6 +797,10 @@ that day was removed. App and website are one journey because the state is read 
   paused, no calls went out, the runs were deleted). Now system events do not touch `lastActivityAt` and mirror as `eventType: 'system'`; `lastActivityFor`
   reads only customer-caused rows (`SYSTEM_EVENT_NAMES` excluded for old rows); and arming requires BOTH the step and the last action to be inside
   `dropoff.maxAgeHours`. Test: `journeyActivity.test.ts`.
+- **"Number verified, stopped before the PAN" is a journey step too** (owner, 2026-11-03): `DropoffStatus` `otp_verified` (since = latest `otp_verified`
+  journey event, website or app; `loadSnapshot` reads it), messageable, message kind `continue` with step label "PAN verification" (`dropoff_continue_app` /
+  `install_app_resume_step`), stage `otp_verified` (own schedule key `dropoff.schedule.otp_verified`; Stage outreach shows the drop-off job on that stage for
+  both tabs). Arming candidates include recent `otp_verified` events. The 8 PM call brief covers it ("verified their mobile number → verify their PAN").
 - `otherSequenceActive` now only yields to the install reminder / "you applied" sequence while THEIR switch is on, so a log-only run never silences this journey.
 - Tests: `dropoffDaily.test.ts` (daily rows, return rules); the pure drop-off rules in `dropoffSteps.test.ts` are unchanged.
 
