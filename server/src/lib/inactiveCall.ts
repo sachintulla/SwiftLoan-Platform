@@ -47,14 +47,23 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
   // Candidates: stopped at least a day ago (India days) and at most `days` days ago. `lastActivityAt` is a lower bound for the real last
   // action (app events and website pings are also read below), so the window is widened by a day on each side and the rules decide.
   const dayStart = istDayStart(now);
-  const rows = await prisma.customer.findMany({
-    where: {
-      userId: { not: null }, currentStage: { notIn: ['lost', 'disbursed'] },
-      lastActivityAt: { lt: dayStart, gte: new Date(dayStart.getTime() - (days + 1) * 86_400_000) },
-    },
-    orderBy: { lastActivityAt: 'asc' },
-    take: BATCH,
-  });
+  const where = {
+    userId: { not: null }, currentStage: { notIn: ['lost', 'disbursed'] as const },
+    lastActivityAt: { lt: dayStart, gte: new Date(dayStart.getTime() - (days + 1) * 86_400_000) },
+  };
+  // Page through EVERY candidate (cursor on id), oldest first. The first version took only the 25 oldest and, since a skipped
+  // row stays a candidate, re-read the same 25 every tick and never reached anyone further down (2026-11-03: the 13:30 run
+  // placed nothing while the dry run found two people due).
+  let cursor: string | undefined;
+  const rows: Awaited<ReturnType<typeof prisma.customer.findMany>> = [];
+  for (;;) {
+    const page = await prisma.customer.findMany({
+      where, orderBy: [{ lastActivityAt: 'asc' }, { id: 'asc' }], take: BATCH, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    rows.push(...page);
+    if (page.length < BATCH) break;
+    cursor = page[page.length - 1].id;
+  }
 
   for (const c of rows) {
     if (limit > 0 && today >= limit) break;
