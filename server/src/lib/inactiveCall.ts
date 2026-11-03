@@ -10,6 +10,7 @@
  * a daily cap (`calls.inactiveDailyLimit`), and the `OutboundRequest` claim (kind `inactive_call`, key `inactive:<customerId>:<YYYY-MM-DD>`,
  * one per person per day) written BEFORE dialling so a crash can never double-ring. A failed dial keeps its claim: no retry that day.
  */
+import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
 import { phoneCooldownHours, withinCallingHours } from './leadCaller.js';
@@ -47,8 +48,8 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
   // Candidates: stopped at least a day ago (India days) and at most `days` days ago. `lastActivityAt` is a lower bound for the real last
   // action (app events and website pings are also read below), so the window is widened by a day on each side and the rules decide.
   const dayStart = istDayStart(now);
-  const where = {
-    userId: { not: null }, currentStage: { notIn: ['lost', 'disbursed'] as const },
+  const where: Prisma.CustomerWhereInput = {
+    userId: { not: null }, currentStage: { notIn: ['lost', 'disbursed'] },
     lastActivityAt: { lt: dayStart, gte: new Date(dayStart.getTime() - (days + 1) * 86_400_000) },
   };
   // Page through EVERY candidate (cursor on id), oldest first. The first version took only the 25 oldest and, since a skipped
