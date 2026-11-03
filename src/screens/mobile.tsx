@@ -130,8 +130,12 @@ export default function Mobile() {
       set({
         authUser: r.user,
         // Play the Ruby welcome intro on the dashboard once per login (consumed by
-        // Home). Set on every successful OTP verify, so logout → login replays it.
-        welcomePending: true,
+        // Home). Set on every successful OTP verify, so logout → login replays it —
+        // EXCEPT when a voice call is already live (the pre-login resume agent is
+        // mid-conversation). The welcome GIF carries its own voice-over, so playing
+        // it over a live agent talks on top of her. The live agent IS the welcome,
+        // so skip the canned intro and let the call continue uninterrupted.
+        welcomePending: !callLive,
         // otpSent stays true until we navigate (reset alongside each go() below). Resetting it here
         // flipped this screen back to "enter your number" for the 1-3 s the lookups below take.
         priorInquiries: r.priorInquiries,

@@ -413,6 +413,11 @@ export default function VoiceWidget() {
   // application that is under review.
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
+    // Never start a call while the Ruby welcome intro is playing — the GIF has its
+    // own voice-over, so a live agent would talk over it. The FAB tap and "Ask Ruby"
+    // already guard on welcomePending; this is the shared belt-and-suspenders so any
+    // path into startAgent (e.g. the voiceTrigger attention effect) is covered too.
+    if (state.welcomePending) return;
     (state.authUser ? refreshUserContext() : Promise.resolve()).then(() => agent.start(state.authUser?.phone)).then(() => {
       // Runs after voice-session-start (and this call's own first
       // page_context, carrying whatever heard_intro_pitch was at the time)
