@@ -95,7 +95,10 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
     rules: [],
   },
   otp_verified: {
-    sources: [WEBSITE_REMINDER],
+    sources: [
+      { ...DROPOFF, messages: ['dropoff.continue.withLink', 'dropoff.continue.noLink'] },
+      WEBSITE_REMINDER,
+    ],
     rules: [WEBSITE_REMINDER_RULES],
   },
   eligibility_started: {
