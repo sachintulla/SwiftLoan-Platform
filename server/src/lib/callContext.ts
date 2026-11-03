@@ -50,6 +50,8 @@ export const LEAD_CALL_VARIABLES = [
   'lead_amount_words',
   'lead_submitted_ago',
   'lead_source',
+  // The language to open the call in: what they have spoken to the agent before (User.voiceLang), else the app's UI language.
+  'lead_language',
   'lead_campaign',
   'lead_stage',
   // The DEFINED journey + where this customer sits in it, sent on every call so
@@ -91,6 +93,15 @@ export const LEAD_CALL_VARIABLES = [
 ] as const;
 
 export type LeadCallVariable = (typeof LEAD_CALL_VARIABLES)[number];
+
+/** Spoken-language label for the briefing: the language they spoke to the agent before, else the app language; '' = unknown (the prompt then defaults to Hindi). */
+export function spokenLanguageLabel(voiceLang: string | null | undefined, lang: string | null | undefined): string {
+  const code = (voiceLang || lang || '').toLowerCase();
+  if (code === 'en') return 'English';
+  if (code === 'hi' || code === 'hinglish') return 'Hindi';
+  if (code === 'te' || code === 'tenglish') return 'Telugu';
+  return '';
+}
 export type LeadCallContext = Record<LeadCallVariable, string>;
 
 
@@ -192,6 +203,7 @@ export async function buildLeadCallContext(
     lead_amount_words: rupeesInWords(amount) ?? '',
     lead_submitted_ago: agoWords(lead?.createdAt ?? customer.firstSeenAt, now),
     lead_source: str(customer.firstSource),
+    lead_language: account ? spokenLanguageLabel(account.voiceLang, account.lang) : '',
     lead_campaign: str(customer.campaignId ?? customer.utmCampaign),
     lead_stage: STAGE_LABELS[customer.currentStage] ?? str(customer.currentStage),
     // Full journey context (the defined funnel + progress) so the agent can say

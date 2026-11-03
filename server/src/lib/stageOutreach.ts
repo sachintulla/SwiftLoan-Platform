@@ -213,6 +213,7 @@ export const VARIABLE_INFO: Record<LeadCallVariable, VariableInfo> = {
   lead_amount_words: { group: 'Lead', description: 'Amount requested, as spoken', example: '3 lakh rupees' },
   lead_submitted_ago: { group: 'Lead', description: 'How long ago the form was submitted', example: '2 hours ago' },
   lead_source: { group: 'Lead', description: 'Where they came from', example: 'website' },
+  lead_language: { group: 'Customer', description: 'Language to open the call in: what they spoke to the agent before, else the app language. Blank = the agent starts in Hindi', example: 'Telugu' },
   lead_campaign: { group: 'Lead', description: 'Campaign that brought them', example: 'diwali_offer' },
   lead_stage: { group: 'Journey', description: 'Where they are now, in words', example: 'Offers viewed' },
   lead_stage_key: { group: 'Journey', description: 'Where they are now, as a code', example: 'offer_viewed' },

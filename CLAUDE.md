@@ -833,6 +833,15 @@ read by the enquiry, stuck-step and evening callers), `limits.stallCallsPerPerso
 0 on a per-person count = no limit. What is deliberately NOT a setting: which stored states count as a journey step, which columns mean "the customer acted",
 batch sizes per tick, call-reason labels — those are logic, and changing them is a code change.
 
+## Outbound agent prompt rules (owner, 2026-11-03): no language question, Hindi default, transfer only on confirmation
+
+`prompts/ello-outbound-ruby-prompt.md` (local only; the owner pastes it into Ello): Ruby never asks "which language do you prefer". She opens in
+`{{lead_language}}` — new briefing variable from `callContext.ts spokenLanguageLabel(User.voiceLang, User.lang)` (what they spoke to the agent before, else the
+app language; documented in `stageOutreach.ts VARIABLE_INFO`) — else the language the history shows, else **Hindi**. She switches only on an explicit request or a
+whole reply in another language twice, never on a single word, a name, a number or garbled audio, and never flips back. **Transfers:** never on her own; only when
+the customer asks for a person/support AND answers a clear yes to "Shall I connect you to our support team now?"; otherwise a callback is noted. Prompt stays under
+Ello's 5,000-token limit (~3,530 words).
+
 ## "Why did you stop?" at 30 min, and "you left this 2 days ago" calls
 
 - **Stuck-stage CALL rules now default to 30 minutes** (`calls.stallMinStuckMinutes` 30, every seeded `CALL — …` rule `delayMinutes` 30). Seeds only insert missing rules,
