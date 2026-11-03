@@ -840,7 +840,7 @@ batch sizes per tick, call-reason labels — those are logic, and changing them 
   real rollout. The agent asks why they stopped and `report_call_outcome` stores it on `CallAttempt.summary` (the Ello agent must have that tool configured on the dashboard).
 - **Drop-off call on the following evenings** (`lib/inactiveCall.ts`, rules `inactiveCallRules.ts`, job `inactive-call`; owner's ask 2026-11-02: "next day at
   8 pm, and the day after, for 3 days"): anyone with an account, an unfinished journey (`deriveDropoff` not finished/failed/none) and NO action since they stopped
-  (anchor = `lastActivityFor`, the same last-action clock as the WhatsApp journey) gets one Ello `leadCallback` call at `calls.inactiveCallAt` (1200 = 8:00 PM IST)
+  (anchor = `lastActivityFor`, the same last-action clock as the WhatsApp journey) gets one Ello `leadCallback` call at `calls.inactiveCallAt` (default 1200 = 8:00 PM IST; prod is set to 810 = 1:30 PM, the owner's choice)
   on each of the next `calls.inactiveDays` (3) India days (day 1 = tomorrow), purpose `inactive_followup`, `days_inactive` = that day number (1 = yesterday) +
   stall fields. Switch `calls.inactiveEnabled` (**off**), cap `calls.inactiveDailyLimit` (50); also the master `calls.nudgeEnabled`, the call test list, calling hours
   (8 PM is inside 07:00–21:00; a tick missed past 21:00 skips that day only), quiet gap after a message, do-not-contact. Claim `inactive:<customerId>:<day>`
