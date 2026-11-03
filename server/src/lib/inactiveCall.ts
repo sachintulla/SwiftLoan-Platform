@@ -12,7 +12,8 @@
  */
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
-import { withinCallingHours } from './leadCaller.js';
+import { PER_PHONE_COOLDOWN_HOURS, withinCallingHours } from './leadCaller.js';
+import { isPhoneInCooldown } from './callThrottle.js';
 import { buildLeadCallContext, compactContext } from './callContext.js';
 import { agentIdFor } from './agents.js';
 import { isCallAllowed } from './callGate.js';
@@ -77,6 +78,9 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
         doNotContact: c.currentStage === 'lost', dailyLimitReached: limit > 0 && today >= limit,
       });
       if (!verdict.due || !status || status === 'finished' || status === 'failed') { out.skipped++; continue; }
+      // Same 24 h per-phone cooldown as every other dialler: someone who spoke to the agent this morning (no-offers call) is not rung
+      // again this evening by a different job.
+      if (await isPhoneInCooldown(c.phone, PER_PHONE_COOLDOWN_HOURS, now)) { out.skipped++; continue; }
 
       try {
         await prisma.outboundRequest.create({
