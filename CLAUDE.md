@@ -440,6 +440,12 @@ Full detail in `docs/META_SDK_INTEGRATION.md`. Everything is **off until credent
   and all use a **30-minute** stall delay. Shipped `stallTemplates` defaults are merged UNDER what the dashboard saved (saved
   entry wins; blank `template` = back to Upshot), so new stages reach environments that already saved the form.
   Seeding only inserts missing rules — an existing rule's delay is edited on the Notifications rules page, not by the seed.
+- **WhatsApp has NEVER delivered (checked 2026-11-03 in the Vox portal):** every one of the 553 messages our server handed to Vox sits at status
+  `SUBMITTED` — 0 Sent / 0 Delivered / 0 Failed, cost 0 — i.e. Vox accepts (`Message queued for delivery`, validates the template name) but never
+  forwards to Meta. WABA `1073827025115920` is ACTIVE, 24 templates Approved (English), all three senders CONNECTED with quality UNKNOWN (never sent),
+  and Vox has our delivery webhook configured for `919000209457`. Nothing on our side can fix this: it is a Vox dispatch fault for the WhatsApp
+  project — raise it with Vox support quoting message ids from Admin → Messages. The Admin card ("Vox accepted N … none confirmed delivered") is
+  the live symptom. Until it is fixed, assume no WhatsApp reaches anyone (the WhatsApp journey keeps running and logging correctly).
 - **WhatsApp send is blocked on Vox's side (as of 2026-10-16):** `POST https://cpaas.voxdigitals.com/api/v1/whatsapp/send` (and `/api/v2/…`)
   return nginx `405` even from Vox's own docs "Test API" tab — the real host/path must come from Vox support. Set it via the card's
   Advanced `baseUrl`/`sendPath`. A direct **Meta Cloud API** backend also exists (`meta_whatsapp` integration: `phoneNumberId` +
