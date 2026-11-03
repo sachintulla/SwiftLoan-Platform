@@ -114,7 +114,7 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
 
   if (!result.ok) {
     // Keep the claim: a provider error must not turn into a retry storm against a customer's phone.
-    await prisma.outboundRequest.updateMany({ where: { idempotencyKey: key }, data: { status: 'failed', error: result.error ?? null } }).catch(() => undefined);
+    await prisma.outboundRequest.updateMany({ where: { idempotencyKey: key }, data: { status: 'failed', lastError: result.error ?? null } }).catch(() => undefined);
     await note(r, { outcome: 'failed', reason: (result.error ?? 'call failed').slice(0, 200) }, now);
     log.warn('call failed', { id: r.id, error: result.error });
     out.skipped++;
