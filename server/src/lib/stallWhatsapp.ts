@@ -19,6 +19,7 @@
  */
 import type { StallRule } from '@prisma/client';
 import { prisma } from './prisma.js';
+import { timing } from './timings.js';
 import { JOURNEY_EVENTS, recordJourneyEvent } from './journey.js';
 import { getProviderConfig, DEFAULT_SETTINGS } from './integrations.js';
 import { withinCallingHours } from './leadCaller.js';
@@ -37,14 +38,13 @@ export interface StallTemplate {
 
 export type StallTemplateMap = Record<string, StallTemplate>;
 
-const COOLDOWN_HOURS = Number(process.env.STALL_WA_COOLDOWN_HOURS ?? 24) || 24;
-const MAX_PER_CUSTOMER = Number(process.env.STALL_WA_MAX_PER_CUSTOMER ?? 3) || 3;
+// Admin → Timings (limits.stallWhatsapp*); the old STALL_WA_* env names remain the fallbacks.
 /**
  * A customer who stalled weeks ago is not "stuck", they left. Only people whose
  * stall began inside this window (after the rule's own delay) are messaged, so
  * switching a rule on never blasts the whole historical backlog.
  */
-export const STALL_WA_MAX_AGE_HOURS = Number(process.env.STALL_WA_MAX_AGE_HOURS ?? 24) || 24;
+export const stallWhatsappMaxAgeHours = () => timing.num('limits.stallWhatsappMaxAgeHours');
 
 /* ───────────────────────── pure helpers (unit-tested) ───────────────────────── */
 
@@ -162,7 +162,7 @@ export async function sendStallWhatsApp(
     return false;
   }
 
-  const since = new Date(now.getTime() - COOLDOWN_HOURS * 3_600_000);
+  const since = new Date(now.getTime() - timing.hoursMs('limits.stallWhatsappCooldownHours'));
   const recent = await prisma.outboundRequest.count({
     where: { customerId: customer.id, kind: 'whatsapp_template', status: 'sent', createdAt: { gte: since } },
   });
@@ -170,7 +170,8 @@ export async function sendStallWhatsApp(
   const ever = await prisma.outboundRequest.count({
     where: { customerId: customer.id, kind: 'whatsapp_template', status: 'sent' },
   });
-  if (ever >= MAX_PER_CUSTOMER) return false;
+  const perPerson = timing.num('limits.stallWhatsappPerPerson');
+  if (perPerson > 0 && ever >= perPerson) return false;
 
   // Claim the key BEFORE sending.
   let claimId: string;

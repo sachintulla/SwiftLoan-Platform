@@ -29,7 +29,8 @@ async function leadCallbackAgentId(): Promise<string | null> {
   return agentIdFor('leadCallback');
 }
 
-const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
+/** Admin → Timings (calls.leadAutocallEnabled; env LEAD_AUTOCALL_ENABLED is the fallback). */
+const enabled = () => timing.bool('calls.leadAutocallEnabled');
 /**
  * How long after the enquiry to place the follow-up call. There is no "Yes, call me now" pop-up any more: every
  * verified website enquiry is called automatically after this delay, once per submission. A website visitor must
@@ -50,22 +51,9 @@ const maxPerTick = () => timing.num('calls.perScan');
  * loudly rather than failing quietly.
  */
 const maxCallsPerHour = () => timing.num('calls.maxPerHour');
-/**
- * One automatic call per phone number per this many hours.
- *
- * NOT `Number(x) || 24` — 0 is a legitimate value (disable the cooldown, which
- * is what you want while testing the form end to end) and is falsy, so that
- * form silently snapped back to 24h and made the feature untestable. Same trap
- * as the calling-window envs above.
- */
-function hoursEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw == null || raw.trim() === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
 /** Exported so the other diallers share the same cooldown policy. */
-export const PER_PHONE_COOLDOWN_HOURS = hoursEnv('LEAD_CALL_PHONE_COOLDOWN_HOURS', 24);
+/** Admin → Timings (limits.phoneCooldownHours; env LEAD_CALL_PHONE_COOLDOWN_HOURS is the fallback). Read live, shared by every dialler. */
+export const phoneCooldownHours = () => timing.num('limits.phoneCooldownHours');
 
 /**
  * Whether we may call right now.
@@ -94,7 +82,7 @@ export function withinCallingHours(now: Date = new Date()): boolean {
  * 1 h) — there is no pop-up asking first any more.
  */
 export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
-  if (!ENABLED) return 0;
+  if (!enabled()) return 0;
   if (!withinCallingHours(now)) return 0;
 
   // Global hourly ceiling, counted from what was actually dialled rather than
@@ -184,8 +172,8 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
     // Per-phone cooldown: the same human can arrive as a second Customer
     // (different email, say) — this catches that by number. Shared with every
     // other dialler so a number is never double-dialled by two jobs.
-    if (await isPhoneInCooldown(lead.phone!, PER_PHONE_COOLDOWN_HOURS, now)) {
-      console.log(`[lead-call] ${lead.phone}: SKIP — within cooldown (${PER_PHONE_COOLDOWN_HOURS}h)`);
+    if (await isPhoneInCooldown(lead.phone!, phoneCooldownHours(), now)) {
+      console.log(`[lead-call] ${lead.phone}: SKIP — within cooldown (${phoneCooldownHours()}h)`);
       continue;
     }
 
