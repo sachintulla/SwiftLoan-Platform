@@ -59,8 +59,12 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
     if (limit > 0 && today >= limit) break;
     try {
       const loaded = c.userId ? await loadSnapshot(c.userId) : null;
-      const status = loaded ? deriveDropoff(loaded.snapshot).status : null;
-      const stoppedAt = c.userId ? await lastActivityFor(c.userId, c.phone, c.lastActivityAt) : c.lastActivityAt;
+      const state = loaded ? deriveDropoff(loaded.snapshot) : null;
+      const status = state?.status ?? null;
+      // The clock's floor is when they reached the step, NEVER `Customer.lastActivityAt`: old rows of that column were bumped by our own
+      // nudges (2026-11-03: with it as the floor, 135 weeks-old rejections looked like "stopped yesterday" and would all have been rung).
+      const stoppedAt = c.userId && state?.since ? await lastActivityFor(c.userId, c.phone, state.since) : null;
+      if (!stoppedAt) { out.skipped++; continue; }
       const key = `inactive:${c.id}:${istDateKey(now)}`;
       const [calledToday, messagedRecently] = await Promise.all([
         prisma.outboundRequest.count({ where: { idempotencyKey: key } }),
