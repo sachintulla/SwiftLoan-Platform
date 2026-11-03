@@ -50,7 +50,7 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
   const key = `noffers:${r.id}`;
   const [claimed, earlier] = await Promise.all([
     prisma.outboundRequest.findUnique({ where: { idempotencyKey: key }, select: { id: true } }),
-    customer ? prisma.outboundRequest.findFirst({ where: { customerId: customer.id, kind: 'no_offers_call' }, select: { id: true } }) : Promise.resolve(null),
+    customer ? prisma.outboundRequest.count({ where: { customerId: customer.id, kind: 'no_offers_call' } }) : Promise.resolve(0),
   ]);
   // A "would call" entry (log-only mode) must NOT count as a call: only a real attempt (sent or failed) does, or switching the
   // feature on later would never ring the people who were logged while it was off.
@@ -67,7 +67,8 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
     delayMs: timing.minutesMs('dropoff.noOffersCallDelayMinutes'),
     quietAfterMessageMs: timing.minutesMs('calls.quietAfterMessageMinutes'),
     inCallingHours: withinCallingHours(now),
-    alreadyCalled: !!claimed || !!earlier || hasAttempt,
+    // Admin → Timings limits.noOffersCallsPerPerson (1 = once ever; 0 = no limit).
+    alreadyCalled: !!claimed || hasAttempt || (timing.num('limits.noOffersCallsPerPerson') > 0 && earlier >= timing.num('limits.noOffersCallsPerPerson')),
     doNotContact: customer?.currentStage === 'lost',
     callAllowed: isCallAllowed(r.phone),
   });

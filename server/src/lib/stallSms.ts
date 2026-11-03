@@ -18,6 +18,7 @@
  */
 import type { StallRule } from '@prisma/client';
 import { prisma } from './prisma.js';
+import { timing } from './timings.js';
 import { JOURNEY_EVENTS, recordJourneyEvent } from './journey.js';
 import { getProviderConfig } from './integrations.js';
 import { withinCallingHours } from './leadCaller.js';
@@ -30,9 +31,8 @@ export interface SmsTemplate {
 }
 export type SmsTemplateMap = Record<string, SmsTemplate>;
 
-const COOLDOWN_HOURS = Number(process.env.STALL_SMS_COOLDOWN_HOURS ?? 24) || 24;
-const MAX_PER_CUSTOMER = Number(process.env.STALL_SMS_MAX_PER_CUSTOMER ?? 3) || 3;
-export const STALL_SMS_MAX_AGE_HOURS = Number(process.env.STALL_SMS_MAX_AGE_HOURS ?? 24) || 24;
+// Admin → Timings (limits.stallSms*); the old STALL_SMS_* env names remain the fallbacks.
+export const stallSmsMaxAgeHours = () => timing.num('limits.stallSmsMaxAgeHours');
 
 /** The text for a stage: a per-stage override if configured, else the default. */
 export function smsFor(settings: Record<string, any>, triggerEvent: string): SmsTemplate | null {
@@ -70,7 +70,7 @@ export async function sendStallSms(
   if (!withinCallingHours(now)) return false; // leaves them eligible once it opens
   if (await hasActiveInstallReminder(customer.phone)) return false; // the app-link reminders own this person
 
-  const since = new Date(now.getTime() - COOLDOWN_HOURS * 3_600_000);
+  const since = new Date(now.getTime() - timing.hoursMs('limits.stallSmsCooldownHours'));
   const recent = await prisma.outboundRequest.count({
     where: { customerId: customer.id, kind: 'sms_template', status: 'sent', createdAt: { gte: since } },
   });
@@ -78,7 +78,8 @@ export async function sendStallSms(
   const ever = await prisma.outboundRequest.count({
     where: { customerId: customer.id, kind: 'sms_template', status: 'sent' },
   });
-  if (ever >= MAX_PER_CUSTOMER) return false;
+  const perPerson = timing.num('limits.stallSmsPerPerson');
+  if (perPerson > 0 && ever >= perPerson) return false;
 
   let claimId: string;
   try {

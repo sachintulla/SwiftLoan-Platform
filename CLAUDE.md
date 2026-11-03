@@ -824,6 +824,15 @@ claim, so the write was rejected and failed claims stayed `sent`.
 and the deploy (178 runs), and the 7 AM dailies then sent 118 more `dropoff_no_offers_callback` messages. When a bad arming rule is fixed, delete every run
 armed before the fix is RUNNING, not just those armed after.
 
+## Per-person limits live in Admin → Timings → "Per-person limits" (2026-11-03)
+
+Owner's rule: anything that is a number or a switch is set in Admin, never in code or env. The limits that were env variables / constants are now registry
+entries (group `limits`; the old env names stay as fallbacks, so nothing changes until an admin edits): `limits.phoneCooldownHours` (24; one dialler-wide gap,
+read by the enquiry, stuck-step and evening callers), `limits.stallCallsPerPerson` (2), `limits.noOffersCallsPerPerson` (1), `limits.dropoffRerunDays` (14),
+`limits.stallWhatsapp{CooldownHours,PerPerson,MaxAgeHours}` and `limits.stallSms{…}` (24 / 3 / 24), plus `calls.leadAutocallEnabled` (env `LEAD_AUTOCALL_ENABLED`).
+0 on a per-person count = no limit. What is deliberately NOT a setting: which stored states count as a journey step, which columns mean "the customer acted",
+batch sizes per tick, call-reason labels — those are logic, and changing them is a code change.
+
 ## "Why did you stop?" at 30 min, and "you left this 2 days ago" calls
 
 - **Stuck-stage CALL rules now default to 30 minutes** (`calls.stallMinStuckMinutes` 30, every seeded `CALL — …` rule `delayMinutes` 30). Seeds only insert missing rules,

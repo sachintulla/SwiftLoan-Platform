@@ -14,7 +14,7 @@
 
 import { STAGE_LABELS, STAGE_SCHEDULE_STAGES, stageScheduleKey, type SharedSchedule } from './stageSchedules.js';
 
-export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 'website' | 'stage';
+export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 'website' | 'stage' | 'limits';
 export type TimingUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'count' | 'minuteOfDay' | 'none';
 
 export interface ScheduleRow {
@@ -294,6 +294,63 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'status.windowEnd', group: 'hours', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 1140, min: 0, max: 1439, env: 'STATUS_POLL_WINDOW_END',
     label: 'Status poll hours end',
     help: 'See "Status poll hours start". Default 7:00pm; polling is skipped overnight.',
+  },
+
+  /* ───────────── B4. Per-person limits that used to be env variables / code constants (owner, 2026-11-03) ───────────── */
+  {
+    key: 'calls.leadAutocallEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: true, env: 'LEAD_AUTOCALL_ENABLED',
+    label: 'Call website enquiries automatically',
+    help: 'Off: nobody is called after a website enquiry. On: every verified enquiry is called once after the wait below.',
+  },
+  {
+    key: 'limits.phoneCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'LEAD_CALL_PHONE_COOLDOWN_HOURS',
+    label: 'Gap between two automatic calls to one number',
+    help: 'Whatever job wants to call, a number that was dialled within this many hours is skipped. Shared by every automatic call. 0 = no gap (testing only).',
+  },
+  {
+    key: 'limits.stallCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 2, min: 0, max: 20, env: 'STALL_CALL_MAX_PER_CUSTOMER',
+    label: '"Stuck on a step" calls per person, ever',
+    help: 'Across all the CALL rules. Someone who ignores this many does not want another. 0 = no limit.',
+  },
+  {
+    key: 'limits.noOffersCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 1, min: 0, max: 10,
+    label: '"No offers" calls per person, ever',
+    help: 'One empty eligibility result = one call, by default. 0 = no limit.',
+  },
+  {
+    key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 1, max: 90,
+    label: 'Same stopped-at step not messaged again within',
+    help: 'After a WhatsApp journey for one step ends (finished, or they moved on), the same step does not start a new journey for this many days. Coming back and stopping again is always a new journey.',
+  },
+  {
+    key: 'limits.stallWhatsappCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'STALL_WA_COOLDOWN_HOURS',
+    label: 'Stuck-stage WhatsApp: one per person per',
+    help: 'Across all the WHATSAPP rules (Stage outreach).',
+  },
+  {
+    key: 'limits.stallWhatsappPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 3, min: 0, max: 20, env: 'STALL_WA_MAX_PER_CUSTOMER',
+    label: 'Stuck-stage WhatsApp per person, ever',
+    help: '0 = no limit.',
+  },
+  {
+    key: 'limits.stallWhatsappMaxAgeHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168, env: 'STALL_WA_MAX_AGE_HOURS',
+    label: 'Stuck-stage WhatsApp only for stalls newer than',
+    help: 'Switching a rule on never messages the backlog: only people who stalled within this many hours.',
+  },
+  {
+    key: 'limits.stallSmsCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'STALL_SMS_COOLDOWN_HOURS',
+    label: 'Stuck-stage SMS: one per person per',
+    help: 'Across all the SMS rules (Stage outreach).',
+  },
+  {
+    key: 'limits.stallSmsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 3, min: 0, max: 20, env: 'STALL_SMS_MAX_PER_CUSTOMER',
+    label: 'Stuck-stage SMS per person, ever',
+    help: '0 = no limit.',
+  },
+  {
+    key: 'limits.stallSmsMaxAgeHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168, env: 'STALL_SMS_MAX_AGE_HOURS',
+    label: 'Stuck-stage SMS only for stalls newer than',
+    help: 'Same rule as for WhatsApp.',
   },
 
   /* ───────────── C. Website enquiry → automatic call (lib/leadCaller.ts) ───────────── */

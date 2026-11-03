@@ -12,7 +12,8 @@
  */
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
-import { withinCallingHours } from './leadCaller.js';
+import { phoneCooldownHours, withinCallingHours } from './leadCaller.js';
+import { isPhoneInCooldown } from './callThrottle.js';
 import { buildLeadCallContext, compactContext } from './callContext.js';
 import { agentIdFor } from './agents.js';
 import { isCallAllowed } from './callGate.js';
@@ -59,8 +60,12 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
     if (limit > 0 && today >= limit) break;
     try {
       const loaded = c.userId ? await loadSnapshot(c.userId) : null;
-      const status = loaded ? deriveDropoff(loaded.snapshot).status : null;
-      const stoppedAt = c.userId ? await lastActivityFor(c.userId, c.phone, c.lastActivityAt) : c.lastActivityAt;
+      const state = loaded ? deriveDropoff(loaded.snapshot) : null;
+      const status = state?.status ?? null;
+      // The clock's floor is when they reached the step, NEVER `Customer.lastActivityAt`: old rows of that column were bumped by our own
+      // nudges (2026-11-03: with it as the floor, 135 weeks-old rejections looked like "stopped yesterday" and would all have been rung).
+      const stoppedAt = c.userId && state?.since ? await lastActivityFor(c.userId, c.phone, state.since) : null;
+      if (!stoppedAt) { out.skipped++; continue; }
       const key = `inactive:${c.id}:${istDateKey(now)}`;
       const [calledToday, messagedRecently] = await Promise.all([
         prisma.outboundRequest.count({ where: { idempotencyKey: key } }),
@@ -73,6 +78,9 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
         doNotContact: c.currentStage === 'lost', dailyLimitReached: limit > 0 && today >= limit,
       });
       if (!verdict.due || !status || status === 'finished' || status === 'failed') { out.skipped++; continue; }
+      // Same 24 h per-phone cooldown as every other dialler: someone who spoke to the agent this morning (no-offers call) is not rung
+      // again this evening by a different job.
+      if (await isPhoneInCooldown(c.phone, phoneCooldownHours(), now)) { out.skipped++; continue; }
 
       try {
         await prisma.outboundRequest.create({
