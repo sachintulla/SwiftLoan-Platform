@@ -101,6 +101,12 @@ their live values — check the file on the box for the actual current value.
 | `ELLO_AGENT_ID` | Workspace-default Ello agent id, used when no role-specific override exists — see `server/src/lib/agents.ts` |
 | `ELLO_BASE_URL` | Ello API host override; unset = defaults to `https://api.getello.ai` |
 | `PUBLIC_BASE_URL` | ⚠️ **Not currently set on either box.** Used by `server/src/config/downloads.ts` for QR/app-download links; without it, that one feature falls back to a dead `onrender.com` URL. Low priority (doesn't affect auth, voice, or lead capture) but worth fixing before those links are used for real. |
+| `YUBI_ENABLED` | `true` to enable the Yubi/YMPL alternative-offers facility (auto-disabled if base/key/referrer are blank). See `server/src/lib/yubiReferral.ts`. |
+| `YUBI_BASE_URL` | YMPL API base, **including the `/api/v1` path**. Dev/UAT = `https://api-uat.yubimarkets.in/api/v1`; **prod = `https://api.yubimarkets.com/api/v1`** (note the host differs: UAT is `.in`, prod is `.com` — confirmed by Yubi Nov 2026). |
+| `YUBI_API_KEY` | Secret, sent as the `X-Api-Key` header. UAT keys start `ref_uat_`, prod `ref_live_`. Value lives only on the box. |
+| `YUBI_REFERRER_ID` | The YMPL "Referrer Partner ID", sent as the `x-referrer-id` header (prod referrer name is `SWIFT_LOANS`). Value lives only on the box. |
+| `YUBI_RETURN_URL` | Where YMPL returns the applicant after their hosted journey; defaults to `https://swiftloan.ai/partner/return`. |
+| `YUBI_WEBHOOK_SECRET` | Shared secret verifying inbound YMPL status callbacks (`/api/webhooks/yubi`, see `docs/YUBI_WEBHOOK_API.md`). If unset, the webhook accepts all (dev-only). |
 
 ### Next.js build-time vars (baked in at `docker build`, one set per app)
 
