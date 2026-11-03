@@ -308,6 +308,11 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Whatever job wants to call, a number that was dialled within this many hours is skipped. Shared by every automatic call. 0 = no gap (testing only).',
   },
   {
+    key: 'limits.inactiveCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 3, min: 0, max: 30,
+    label: 'Drop-off (evening) calls per person, per journey',
+    help: 'Counted since they reached the step they stopped at; coming back and stopping again starts a new count. Keeps "for how many days" from meaning one call every day for a month. 0 = no cap.',
+  },
+  {
     key: 'limits.stallCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 2, min: 0, max: 20, env: 'STALL_CALL_MAX_PER_CUSTOMER',
     label: '"Stuck on a step" calls per person, ever',
     help: 'Across all the CALL rules. Someone who ignores this many does not want another. 0 = no limit.',
@@ -412,6 +417,11 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'calls.inactiveDays', group: 'calls', kind: 'number', unit: 'days', def: 3, min: 1, max: 30,
     label: 'For how many days',
     help: 'One call on each of this many days after the day they stopped (3 = tomorrow, the day after, and the day after that).',
+  },
+  {
+    key: 'calls.inactiveSameDay', group: 'calls', kind: 'boolean', unit: 'none', def: false,
+    label: 'Also call people who stopped today',
+    help: 'Off: the first call is the day after they stopped. On: someone who stopped TODAY is also called at the call time, once they have been idle for at least "Call someone who stopped only after at least" (the stuck-step minimum).',
   },
   {
     key: 'calls.inactiveDailyLimit', group: 'calls', kind: 'number', unit: 'count', def: 50, min: 0, max: 1000,

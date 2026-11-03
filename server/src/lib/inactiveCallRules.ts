@@ -8,7 +8,7 @@ import { istDayStart } from './stallCallLimits.js';
 const DAY_MS = 86_400_000;
 
 export type InactiveSkip =
-  | 'acted_since' | 'not_yet_time' | 'past_last_day' | 'same_day' | 'nothing_started' | 'journey_over' | 'called_today' | 'after_message'
+  | 'acted_since' | 'not_yet_time' | 'past_last_day' | 'same_day' | 'too_soon' | 'person_cap' | 'nothing_started' | 'journey_over' | 'called_today' | 'after_message'
   | 'outside_hours' | 'not_allowed' | 'do_not_contact' | 'daily_limit';
 
 /** Which day after the stop `now` is: 0 = the day they stopped, 1 = the next day … (India days). */
@@ -24,6 +24,13 @@ export function inactiveCallDue(i: {
   callAtMinute: number;
   /** How many days after the stop day get a call (3 = days 1, 2, 3). */
   days: number;
+  /** Also call on the day they stopped (day 0), once they have been idle for `minStuckMinutes`. Admin: calls.inactiveSameDay. */
+  sameDay?: boolean;
+  /** Minimum idle time before a same-day call (Admin: calls.stallMinStuckMinutes). */
+  minStuckMinutes?: number;
+  /** Evening calls already placed to this person for this journey, and the cap (Admin: limits.inactiveCallsPerPerson; 0 = no cap). */
+  callsSoFar?: number;
+  perPersonCap?: number;
   /** Where they stopped (deriveDropoff); null = nothing started. */
   status: DropoffStatus | null;
   /** A drop-off call to this person already today. */
@@ -37,8 +44,12 @@ export function inactiveCallDue(i: {
   dailyLimitReached: boolean;
 }): { due: true; day: number } | { due: false; reason: InactiveSkip } {
   const day = dayAfterStop(i.stoppedAt, i.now);
-  if (day < 1) return { due: false, reason: 'same_day' };
+  if (day < 1) {
+    if (!i.sameDay) return { due: false, reason: 'same_day' };
+    if ((i.now.getTime() - i.stoppedAt.getTime()) / 60_000 < (i.minStuckMinutes ?? 0)) return { due: false, reason: 'too_soon' };
+  }
   if (day > i.days) return { due: false, reason: 'past_last_day' };
+  if ((i.perPersonCap ?? 0) > 0 && (i.callsSoFar ?? 0) >= (i.perPersonCap ?? 0)) return { due: false, reason: 'person_cap' };
   if (!i.status) return { due: false, reason: 'nothing_started' };
   if (i.status === 'finished' || i.status === 'failed') return { due: false, reason: 'journey_over' };
   if (i.doNotContact) return { due: false, reason: 'do_not_contact' };
@@ -56,7 +67,7 @@ export function inactiveCallDue(i: {
 export function inactiveBrief(status: Exclude<DropoffStatus, 'finished' | 'failed'>, days: number, stepLabel: string): {
   reason: string; lastStep: string; expectedStep: string; help: string;
 } {
-  const since = days === 1 ? 'yesterday' : `${days} days ago`;
+  const since = days === 0 ? 'earlier today' : days === 1 ? 'yesterday' : `${days} days ago`;
   const where: Record<typeof status, { last: string; next: string }> = {
     otp_verified: { last: 'verified their mobile number', next: 'verify their PAN' },
     pan_verified: { last: 'verified their PAN', next: 'fill in their basic details' },

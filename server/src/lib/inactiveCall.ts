@@ -67,12 +67,16 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
       const stoppedAt = c.userId && state?.since ? await lastActivityFor(c.userId, c.phone, state.since) : null;
       if (!stoppedAt) { out.skipped++; continue; }
       const key = `inactive:${c.id}:${istDateKey(now)}`;
-      const [calledToday, messagedRecently] = await Promise.all([
+      const [calledToday, messagedRecently, callsSoFar] = await Promise.all([
         prisma.outboundRequest.count({ where: { idempotencyKey: key } }),
         prisma.outboundRequest.count({ where: { customerId: c.id, channel: { in: ['push', 'sms', 'whatsapp'] }, createdAt: { gte: quietSince } } }),
+        // calls this journey has already had (since they reached the step), for the per-person cap
+        prisma.outboundRequest.count({ where: { customerId: c.id, kind: INACTIVE_KIND, createdAt: { gte: state!.since! } } }),
       ]);
       const verdict = inactiveCallDue({
         stoppedAt, now, callAtMinute: callAt, days, status,
+        sameDay: timing.bool('calls.inactiveSameDay'), minStuckMinutes: timing.num('calls.stallMinStuckMinutes'),
+        callsSoFar, perPersonCap: timing.num('limits.inactiveCallsPerPerson'),
         calledToday: calledToday > 0, messagedRecently: messagedRecently > 0,
         inCallingHours: true, callAllowed: isCallAllowed(c.phone) && !isReviewPhone(c.phone),
         doNotContact: c.currentStage === 'lost', dailyLimitReached: limit > 0 && today >= limit,
