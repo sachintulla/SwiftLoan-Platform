@@ -7,7 +7,7 @@ describe('per-stage schedule map', () => {
   it('names a key per sequence and stage', () => {
     expect(stageScheduleKey('install.schedule', 'otp_verified')).toBe('install.schedule.otp_verified');
     expect(allStageScheduleKeys().sort()).toEqual([
-      'dropoff.schedule.eligibility_started', 'dropoff.schedule.offer_viewed', 'install.schedule.eligibility_started', 'install.schedule.otp_verified',
+      'dropoff.schedule.eligibility_started', 'dropoff.schedule.offer_viewed', 'dropoff.schedule.otp_verified', 'install.schedule.eligibility_started', 'install.schedule.otp_verified',
     ]);
   });
 

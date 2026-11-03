@@ -20,11 +20,14 @@ async function seed(
 ) {
   const existing = await prisma.integrationConfig.findUnique({ where: { provider } });
 
+  const saved = (existing?.settings as Record<string, unknown>) ?? {};
   const mergedSettings = {
     ...DEFAULT_SETTINGS[provider],
-    ...((existing?.settings as Record<string, unknown>) ?? {}),
-    // Only override with env values that are actually set.
-    ...Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== '' && v != null)),
+    ...saved,
+    // Only FILL IN settings that are not saved yet. The admin dashboard is the source of truth once a value exists there:
+    // this runs on every deploy, and an env value overriding a saved one put the http:// Ello webhook URL back over the
+    // admin's https:// one on 2026-11-02, so every no-offers call that evening failed.
+    ...Object.fromEntries(Object.entries(settings).filter(([k, v]) => v !== '' && v != null && (saved[k] === undefined || saved[k] === '' || saved[k] === null))),
   };
 
   const mergedSecrets = { ...((existing?.secrets as Record<string, unknown>) ?? {}) };

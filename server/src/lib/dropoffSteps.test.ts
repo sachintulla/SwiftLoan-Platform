@@ -13,7 +13,10 @@ const app = (over: Partial<NonNullable<DropoffSnapshot['application']>> = {}): N
 });
 
 describe('deriveDropoff: where did this person stop', () => {
-  it('OTP only (no PAN, no application) is nothing: the website reminder owns it', () => {
+  it('number verified, nothing else = otp_verified, counted from the verification (owner: part of the journey, 2026-11-03)', () => {
+    expect(deriveDropoff({ otpVerifiedAt: T0, panOnFile: false, panSince: null, application: null })).toEqual({ status: 'otp_verified', since: T0, reason: null });
+  });
+  it('never signed in at all is nothing', () => {
     expect(deriveDropoff({ panOnFile: false, panSince: null, application: null }).status).toBeNull();
   });
 
@@ -72,7 +75,8 @@ describe('deriveDropoff: where did this person stop', () => {
 });
 
 describe('what gets messaged', () => {
-  it('only the four agreed statuses start a sequence', () => {
+  it('only the five agreed statuses start a sequence', () => {
+    expect(isMessageable('otp_verified')).toBe(true);
     expect(isMessageable('pan_verified')).toBe(true);
     expect(isMessageable('application_filled')).toBe(true);
     expect(isMessageable('rejected')).toBe(true);
@@ -81,6 +85,7 @@ describe('what gets messaged', () => {
   });
 
   it('maps each status to its message', () => {
+    expect(messageKindFor('otp_verified')).toBe('continue');
     expect(messageKindFor('pan_verified')).toBe('continue');
     expect(messageKindFor('application_filled')).toBe('continue');
     expect(messageKindFor('rejected')).toBe('no_offers');

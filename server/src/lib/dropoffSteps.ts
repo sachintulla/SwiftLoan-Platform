@@ -19,6 +19,7 @@
  */
 
 export type DropoffStatus =
+  | 'otp_verified'
   | 'pan_verified'
   | 'application_filled'
   | 'rejected'
@@ -41,6 +42,8 @@ export interface DropoffState {
 }
 
 export interface DropoffSnapshot {
+  /** When they verified their number (latest `otp_verified` journey event; website or app). Null = never signed in. */
+  otpVerifiedAt?: Date | null;
   panOnFile: boolean;
   /** When the PAN was saved (User.updatedAt is the closest we have; it can only be later than the real moment). */
   panSince: Date | null;
@@ -57,7 +60,7 @@ export interface DropoffSnapshot {
 }
 
 /** Statuses that start a message sequence. `applied`/`finished` belong to the lender sequence; `failed` is retried, not messaged. */
-export const MESSAGEABLE: readonly DropoffStatus[] = ['pan_verified', 'application_filled', 'rejected', 'offers_not_applied'];
+export const MESSAGEABLE: readonly DropoffStatus[] = ['otp_verified', 'pan_verified', 'application_filled', 'rejected', 'offers_not_applied'];
 
 const LATER_THAN_OFFERS = new Set(['handoff', 'under_review', 'approved', 'disbursed', 'closed']);
 const BEFORE_OFFERS = new Set(['draft', 'pan_pending', 'prequalifying']);
@@ -71,7 +74,9 @@ export function deriveDropoff(s: DropoffSnapshot): DropoffState {
   const a = s.application;
 
   if (!a) {
-    return s.panOnFile && s.panSince ? { status: 'pan_verified', since: s.panSince, reason: null } : none;
+    if (s.panOnFile && s.panSince) return { status: 'pan_verified', since: s.panSince, reason: null };
+    // Verified the number and stopped before the PAN (owner's ask, 2026-11-03): part of the one WhatsApp journey too.
+    return s.otpVerifiedAt ? { status: 'otp_verified', since: s.otpVerifiedAt, reason: null } : none;
   }
   if (a.appliedToLender) return { status: 'applied', since: a.updatedAt, reason: null };
   if (LATER_THAN_OFFERS.has(a.status)) return { status: 'finished', since: a.updatedAt, reason: null };
@@ -97,6 +102,7 @@ export function isMessageable(status: DropoffStatus | null): status is DropoffSt
 /** Which of our messages goes with a status. */
 export function messageKindFor(status: DropoffStatus): DropoffMessageKind | null {
   switch (status) {
+    case 'otp_verified':
     case 'pan_verified':
     case 'application_filled':
       return 'continue';
@@ -111,6 +117,7 @@ export function messageKindFor(status: DropoffStatus): DropoffMessageKind | null
 
 /** What the message calls the step they stopped at (the sentence reads "you left at <step>"). Admin can override. */
 export const DROPOFF_STEP_LABELS: Readonly<Record<DropoffStatus, string>> = Object.freeze({
+  otp_verified: 'PAN verification',
   pan_verified: 'Basic details',
   application_filled: 'Finding offers',
   rejected: 'Offers',

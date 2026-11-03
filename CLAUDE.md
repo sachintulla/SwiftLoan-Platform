@@ -797,6 +797,10 @@ that day was removed. App and website are one journey because the state is read 
   paused, no calls went out, the runs were deleted). Now system events do not touch `lastActivityAt` and mirror as `eventType: 'system'`; `lastActivityFor`
   reads only customer-caused rows (`SYSTEM_EVENT_NAMES` excluded for old rows); and arming requires BOTH the step and the last action to be inside
   `dropoff.maxAgeHours`. Test: `journeyActivity.test.ts`.
+- **"Number verified, stopped before the PAN" is a journey step too** (owner, 2026-11-03): `DropoffStatus` `otp_verified` (since = latest `otp_verified`
+  journey event, website or app; `loadSnapshot` reads it), messageable, message kind `continue` with step label "PAN verification" (`dropoff_continue_app` /
+  `install_app_resume_step`), stage `otp_verified` (own schedule key `dropoff.schedule.otp_verified`; Stage outreach shows the drop-off job on that stage for
+  both tabs). Arming candidates include recent `otp_verified` events. The 8 PM call brief covers it ("verified their mobile number → verify their PAN").
 - `otherSequenceActive` now only yields to the install reminder / "you applied" sequence while THEIR switch is on, so a log-only run never silences this journey.
 - Tests: `dropoffDaily.test.ts` (daily rows, return rules); the pure drop-off rules in `dropoffSteps.test.ts` are unchanged.
 
@@ -807,6 +811,18 @@ The owner removed the callback-consent pop-up: every verified website enquiry is
 settings `calls.firstDelaySeconds` / `calls.retryMinutes` / `calls.maxAttempts` (`calls.declineFollowupMinutes` renamed to `calls.leadFollowupMinutes`), the website
 `CallbackModal` / `submitCallbackChoice` / `callback*` strings. The `Customer.callback*` columns and the `callback_requested` / `callback_declined` journey events stay
 (additive schema; history), and the `immediate_callback_optin` call reason keeps its label for old calls.
+
+## Deploy seed never overrides an admin-saved integration setting (2026-11-02 incident 2)
+
+`prisma/seed.integrations.ts` runs on every prod deploy (`deploy-prod.yml`) with the box's `~/secrets/server.env`. It used to let a non-empty env value
+override a saved setting, so the box's `ELLO_WEBHOOK_URL=http://13.232.60.204:4000/…` overwrote the admin's `https://api.swiftloan.ai/…` on each deploy and
+every no-offers call after the deploy failed (`webhookUrl must be https://`). Now env values only FILL IN settings that are not saved yet. The box env was also
+corrected to the https URL (backup `server.env.bak-<ts>-pre-https-webhook`). Also fixed: `noOffersCall.ts` wrote `error` instead of `lastError` on a failed
+claim, so the write was rejected and failed claims stayed `sent`.
+
+**Second lesson from the same day:** the first clean-up deleted only runs armed AFTER the fixed deploy; the OLD container kept arming between the clean-up
+and the deploy (178 runs), and the 7 AM dailies then sent 118 more `dropoff_no_offers_callback` messages. When a bad arming rule is fixed, delete every run
+armed before the fix is RUNNING, not just those armed after.
 
 ## "Why did you stop?" at 30 min, and "you left this 2 days ago" calls
 

@@ -13,7 +13,7 @@ export type SharedSchedule = 'install.schedule' | 'dropoff.schedule';
 /** The stages (Stage outreach keys) that may have their own copy of each shared schedule. */
 export const STAGE_SCHEDULE_STAGES: Readonly<Record<SharedSchedule, readonly string[]>> = Object.freeze({
   'install.schedule': ['otp_verified', 'eligibility_started'],
-  'dropoff.schedule': ['eligibility_started', 'offer_viewed'],
+  'dropoff.schedule': ['otp_verified', 'eligibility_started', 'offer_viewed'],
 });
 
 export const STAGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
@@ -34,6 +34,7 @@ export const INSTALL_STAGE_OF_STEP: Readonly<Record<string, string>> = Object.fr
 
 /** Where a drop-off run is (its status) → the stage it belongs to. */
 export const DROPOFF_STAGE_OF_STATUS: Readonly<Record<string, string>> = Object.freeze({
+  otp_verified: 'otp_verified',
   pan_verified: 'eligibility_started',
   application_filled: 'eligibility_started',
   offers_not_applied: 'offer_viewed',
