@@ -193,19 +193,28 @@ export default function MyOffers() {
   return (
     <Screen scroll={false} bottomNav padded={false}>
       <View style={{ paddingHorizontal: 18 }}>{header}</View>
-      {/* Explore lenders: lazily mounted on first visit, then kept alive but
-          hidden on other tabs so the partner journey doesn't reload on every
-          switch (its place is preserved). `yubiKey` remounts it on refresh. */}
-      {yubiMounted ? (
-        <View style={[{ flex: 1, marginTop: 8 }, tab !== 'yubi' && styles.hidden]} pointerEvents={tab === 'yubi' ? 'auto' : 'none'}>
-          <YubiOffersTab key={yubiKey} onApply={startApply} />
-        </View>
-      ) : null}
-      {tab === 'knight' ? (
+      {/* Body area below the header + tab bar. Both tab bodies live here and fill
+          it exactly (absolute). The Explore-lenders body is lazily mounted on first
+          visit, then kept MOUNTED and on-screen-sized across tab switches — when it
+          is not the active tab it is moved BEHIND (opacity 0, zIndex -1), NOT set to
+          display:none. Toggling a react-native-webview (or an ancestor) to
+          display:none detaches the native web view, which RELOADS the partner page
+          on return and loses the user's place in the journey; keeping it laid out
+          and attached preserves it. `yubiKey` remounts it on an explicit refresh. */}
+      <View style={{ flex: 1, marginTop: 8 }}>
+        {yubiMounted ? (
+          <View
+            style={tab === 'yubi' ? styles.tabBody : styles.tabBodyHidden}
+            pointerEvents={tab === 'yubi' ? 'auto' : 'none'}
+          >
+            <YubiOffersTab key={yubiKey} onApply={startApply} />
+          </View>
+        ) : null}
+        {tab === 'knight' ? (
         // Instant offers: the matched offers list / empty state, scrolling
         // inside the stable frame.
         <ScrollView
-          style={{ flex: 1 }}
+          style={styles.tabBody}
           contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120 }}
           showsVerticalScrollIndicator={false}
         >
@@ -252,7 +261,8 @@ export default function MyOffers() {
             />
           )}
         </ScrollView>
-      ) : null}
+        ) : null}
+      </View>
     </Screen>
   );
 }
@@ -484,7 +494,12 @@ const styles = StyleSheet.create({
   moreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18, paddingHorizontal: 20 },
   // Two-source tab bar (Knight Fintech | Yubi)
   tabsRow: { flexDirection: 'row', marginTop: 4, marginBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
-  hidden: { display: 'none' },
+  // Both tab bodies fill the body area exactly (same geometry, so switching never
+  // resizes the WebView). The inactive Explore-lenders body is layered behind and
+  // made invisible — NOT display:none — so its WebView stays attached and keeps its
+  // page (see the body comment in the render).
+  tabBody: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+  tabBodyHidden: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: 0, zIndex: -1 },
   tabBtn: { flex: 1, alignItems: 'center', paddingBottom: 0 },
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tabTxt: { fontSize: 14.5, color: colors.textSoft, paddingVertical: 10 },
