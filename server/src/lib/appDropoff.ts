@@ -42,8 +42,8 @@ const log = scoped('app-dropoff');
 const PAGE_SIZE = 200;
 const MAX_PAGES = 10;
 const ARM_BATCH = 500;
-/** After a run that finished (or stopped for anything but their coming back), the same drop point is not messaged again for this long. */
-const RERUN_AFTER_MS = 14 * 24 * 3_600_000;
+/** After a run that finished (or stopped for anything but their coming back), the same drop point is not messaged again for this long. Admin → Timings limits.dropoffRerunDays. */
+const rerunAfterMs = () => timing.daysMs('limits.dropoffRerunDays');
 
 export const appDropoffSendEnabled = () => timing.bool('dropoff.sendEnabled');
 
@@ -183,7 +183,7 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
 
   // A run that ended because they came back may be followed by a new one (they stopped again); any other recent run blocks a repeat.
   const recent = await prisma.appDropoff.findFirst({
-    where: { userId, dropStatus: state.status, createdAt: { gte: new Date(now.getTime() - RERUN_AFTER_MS) }, NOT: { stopReason: 'returned' } },
+    where: { userId, dropStatus: state.status, createdAt: { gte: new Date(now.getTime() - rerunAfterMs()) }, NOT: { stopReason: 'returned' } },
     select: { id: true },
   });
   if (recent) return 'skipped';

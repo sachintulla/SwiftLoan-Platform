@@ -20,7 +20,9 @@ describe('registry', () => {
     const want: Record<string, unknown> = {
       'install.idleMinutes': 5, 'install.minGapMinutes': 30, 'install.maxLateHours': 14, 'install.maxCycles': 2, 'install.recheckMinutes': 15,
       'install.resumeMaxAgeDays': 14, 'website.pingEverySeconds': 60, 'calling.windowStart': 540, 'calling.windowEnd': 1260,
-      'calls.leadFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25,
+      'calls.leadFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25, 'calls.leadAutocallEnabled': true,
+      'limits.phoneCooldownHours': 24, 'limits.stallCallsPerPerson': 2, 'limits.noOffersCallsPerPerson': 1, 'limits.dropoffRerunDays': 14,
+      'limits.stallWhatsappCooldownHours': 24, 'limits.stallWhatsappPerPerson': 3, 'limits.stallWhatsappMaxAgeHours': 24, 'limits.stallSmsCooldownHours': 24, 'limits.stallSmsPerPerson': 3, 'limits.stallSmsMaxAgeHours': 24,
       'auth.otpValidityMinutes': 5, 'auth.otpResendWindowMinutes': 10, 'auth.accessTokenMinutes': 15, 'auth.refreshTokenDays': 30, 'auth.websiteSessionMinutes': 120, 'auth.adminIdleMinutes': 30,
       'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 0, 'referral.eligibleDays': 7,
       'install.sendEnabled': false,

@@ -23,8 +23,8 @@ import { agentIdFor } from './agents.js';
 import { stageCallSetting, renderBrief } from './stageOutreach.js';
 import { isCallAllowed } from './callGate.js';
 import { timing } from './timings.js';
-import { directWhatsAppConfig, templateFor, sendStallWhatsApp, STALL_WA_MAX_AGE_HOURS } from './stallWhatsapp.js';
-import { directSmsConfig, smsFor, sendStallSms, STALL_SMS_MAX_AGE_HOURS } from './stallSms.js';
+import { directWhatsAppConfig, templateFor, sendStallWhatsApp } from './stallWhatsapp.js';
+import { directSmsConfig, smsFor, sendStallSms } from './stallSms.js';
 
 /** Scanned per rule per tick — bounds the blast radius of a bad rule. */
 const MAX_PER_RULE = 200;
@@ -408,7 +408,7 @@ export async function evaluateRule(rule: StallRule, now: Date = new Date()): Pro
   // An sms rule texts the registered Vox SMS template when that gateway is on.
   const directSms = rule.channel === 'sms' ? await directSmsConfig() : null;
   const smsTemplate = directSms ? smsFor(directSms.settings, rule.triggerEvent) : null;
-  const maxAgeHours = waTemplate ? STALL_WA_MAX_AGE_HOURS : smsTemplate ? STALL_SMS_MAX_AGE_HOURS : null;
+  const maxAgeHours = waTemplate ? timing.num('limits.stallWhatsappMaxAgeHours') : smsTemplate ? timing.num('limits.stallSmsMaxAgeHours') : null;
 
   const triggers = await prisma.journeyEvent.findMany({
     where: {
@@ -563,8 +563,7 @@ export async function stepStallDetector(now: Date = new Date()): Promise<number>
  *
  * Returns true only if a call was actually placed.
  */
-const DROPOFF_PHONE_COOLDOWN_HOURS = Number(process.env.STALL_CALL_PHONE_COOLDOWN_HOURS ?? 24) || 24;
-const DROPOFF_MAX_PER_CUSTOMER = Number(process.env.STALL_CALL_MAX_PER_CUSTOMER ?? 2) || 2;
+// Admin → Timings (limits.*); the old env names remain the fallbacks.
 
 async function placeStallCall(
   rule: StallRule,
@@ -603,7 +602,7 @@ async function placeStallCall(
     if (recentMsg > 0) return false;
   }
 
-  const since = new Date(now.getTime() - DROPOFF_PHONE_COOLDOWN_HOURS * 3_600_000);
+  const since = new Date(now.getTime() - timing.hoursMs('limits.phoneCooldownHours'));
   const recentAny = await prisma.callAttempt.count({
     where: { phone: customer.phone, queuedAt: { gte: since } },
   });
@@ -614,7 +613,8 @@ async function placeStallCall(
   const everDropoff = await prisma.outboundRequest.count({
     where: { customerId: customer.id, kind: 'dropoff_call' },
   });
-  if (everDropoff >= DROPOFF_MAX_PER_CUSTOMER) return false;
+  const perPerson = timing.num('limits.stallCallsPerPerson');
+  if (perPerson > 0 && everDropoff >= perPerson) return false;
 
   // Daily cap across every call rule (Admin → Timings, 3 by default; 0 = none). Not claiming the key means the person stays
   // eligible and is picked up tomorrow while their drop-off is still inside `calls.stallMaxStuckHours`.
