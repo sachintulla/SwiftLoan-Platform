@@ -300,7 +300,7 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'When a call from a stage timeline is not answered, one WhatsApp with the app link goes this long after the call ended (same template as the welcome). Part of the call, so it does not count towards the touch limits. Needs drop-off sending on.',
   },
   {
-    key: 'dropoff.noOffersCallDelayMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 45, min: 5, max: 1440,
+    key: 'dropoff.noOffersCallDelayMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 2, min: 1, max: 1440,
     label: 'Wait before the no-offers call',
     help: 'Counted from when they got no offers. The default (45) lets the WhatsApp message (first one at 30 minutes) land first. Calling hours and the quiet gap after a message still apply.',
   },

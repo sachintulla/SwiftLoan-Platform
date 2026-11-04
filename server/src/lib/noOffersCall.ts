@@ -65,7 +65,9 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
     lastSentAt: r.lastSentAt,
     now,
     delayMs: timing.minutesMs('dropoff.noOffersCallDelayMinutes'),
-    quietAfterMessageMs: timing.minutesMs('calls.quietAfterMessageMinutes'),
+    // A critical moment (Sachin's review): not held back by the quiet gap after a message. Calling hours, do-not-contact and
+    // once-per-person still apply.
+    quietAfterMessageMs: 0,
     inCallingHours: withinCallingHours(now),
     // Admin → Timings limits.noOffersCallsPerPerson (1 = once ever; 0 = no limit).
     alreadyCalled: !!claimed || hasAttempt || (timing.num('limits.noOffersCallsPerPerson') > 0 && earlier >= timing.num('limits.noOffersCallsPerPerson')),

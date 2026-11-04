@@ -21,7 +21,7 @@ export interface TouchCaps { perDay: number; perWeek: number; noCallAndMessageSa
 
 // welcome_sms: the SMS half of the welcome (the WhatsApp welcome is the touch).
 // sms_fallback: the SMS copy of a WhatsApp that was not delivered (the WhatsApp is the touch).
-const EXEMPT_KINDS = ['test', 'conversation_summary', 'missed_call_note', 'welcome_sms', 'sms_fallback'];
+const EXEMPT_KINDS = ['test', 'conversation_summary', 'missed_call_note', 'welcome_sms', 'sms_fallback', 'agent_link'];
 
 export function touchVerdict(c: TouchCounts, kind: TouchKind, caps: TouchCaps): { ok: true } | { ok: false; reason: string } {
   if (caps.perDay > 0 && c.today >= caps.perDay) return { ok: false, reason: `already ${c.today} touches today (limit ${caps.perDay})` };
