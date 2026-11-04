@@ -22,6 +22,8 @@ export interface CallAttemptDetail {
   employment?: string | null;
   preferredChannel?: string | null;
   callbackAt?: string | null;
+  /** From the agent's report; `requirement` = what a "no offers" customer needs, for the team's follow-up. */
+  details?: { requirement?: Record<string, string> } | null;
   callContext?: unknown;
   transcript?: unknown;
   recordingUrl?: string | null;
@@ -101,6 +103,11 @@ function CapturedDetails({ call }: { call: CallAttemptDetail }) {
   if (call.employment) rows.push(['Employment', humanStatus(call.employment)]);
   if (call.preferredChannel) rows.push(['Preferred channel', humanStatus(call.preferredChannel)]);
   if (call.callbackAt) rows.push(['Callback requested', `${dateStr(call.callbackAt)} · ${timeAgo(call.callbackAt)}`]);
+  const REQ: [string, string][] = [
+    ['loanAmount', 'Loan amount needed'], ['purpose', 'Purpose'], ['existingEmis', 'Existing EMIs'], ['city', 'City / PIN'],
+    ['neededBy', 'Needs the money by'], ['bestTimeToCall', 'Best time to call back'], ['shareWithOtherLenders', 'OK to share with other lenders'],
+  ];
+  for (const [key, label] of REQ) { const v = call.details?.requirement?.[key]; if (v) rows.push([label, v]); }
   if (rows.length === 0) return null;
   return (
     <div style={{ marginTop: 12 }}>

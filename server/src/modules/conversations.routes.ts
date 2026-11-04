@@ -256,8 +256,9 @@ conversationsRouter.post('/', ah(async (req, res) => {
 /**
  * POST /api/conversations/send-link   { conversation_id?, phone? }
  *
- * The outbound agent's `send_app_link` tool: the customer said "yes, send me the link" on a call. Sends the existing
- * drop-off WhatsApp template (lib/agentLink.ts) for where they stopped. `conversation_id` (Ello's `{{conversation_id}}`)
+ * The agent's `send_app_link` tool: the customer said "yes, send me the link" on a call. Sends the app link by SMS AND
+ * WhatsApp (lib/agentLink.ts): name (from our records, else "Customer"), status "Starting a Loan Application", and the link
+ * (with their reference when we know them). Works for any valid number. `conversation_id` (Ello's `{{conversation_id}}`)
  * is preferred: it resolves to the number WE dialled, so a mis-filled `phone` on the tool cannot send to someone else.
  * Always 200 with `sent` true/false and a `say` line for the agent; the agent may only claim "sent" when `sent` is true.
  */
