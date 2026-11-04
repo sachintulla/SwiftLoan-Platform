@@ -70,40 +70,6 @@ const STATE_ACCENT: Record<AgentStatus, string> = {
 };
 
 /**
- * Stylized voice-activity bars — not literally driven by mic/speaker audio
- * levels (no PCM level access is wired to this component), just a loop that
- * reads as "something is actively happening" in place of a static icon.
- */
-function EqualizerBars({ color }: { color: string }) {
-  const bars = useRef([0, 1, 2, 3].map(() => new Animated.Value(0.35))).current;
-
-  useEffect(() => {
-    const loops = bars.map((v, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 90),
-          Animated.timing(v, { toValue: 1, duration: 260 + i * 40, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
-          Animated.timing(v, { toValue: 0.3, duration: 260 + i * 40, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
-        ]),
-      ),
-    );
-    loops.forEach(l => l.start());
-    return () => loops.forEach(l => l.stop());
-  }, [bars]);
-
-  return (
-    <View style={styles.eqRow}>
-      {bars.map((v, i) => (
-        <Animated.View
-          key={i}
-          style={[styles.eqBar, { backgroundColor: color, height: v.interpolate({ inputRange: [0, 1], outputRange: [6, 22] }) }]}
-        />
-      ))}
-    </View>
-  );
-}
-
-/**
  * Idle-state icon: a small animated robot head, replacing the static mic
  * glyph. `phase` drives both the head sway and the antenna sway off one
  * shared 2.4s loop (they're just different curves over the same value) —
@@ -209,7 +175,7 @@ function SiriGlow({ status, scale }: { status: AgentStatus; scale: Animated.Anim
  * Native-driven (scale + opacity), staggered so it reads as a continuous ripple.
  */
 const SONAR_COUNT = 3;
-function SonarRings({ status, scale }: { status: AgentStatus; scale: Animated.AnimatedInterpolation<number> | Animated.Value }) {
+function SonarRings({ status, scale, isTab }: { status: AgentStatus; scale: Animated.AnimatedInterpolation<number> | Animated.Value; isTab?: boolean }) {
   const live = status !== 'idle' && status !== 'ended';
   const speaking = status === 'speaking';
   const rings = useRef(Array.from({ length: SONAR_COUNT }, () => new Animated.Value(0))).current;
@@ -234,7 +200,12 @@ function SonarRings({ status, scale }: { status: AgentStatus; scale: Animated.An
     // Restart with new pacing/spread when the turn flips listening ⇄ speaking.
   }, [live, speaking, rings]);
 
-  if (!live) return null;
+  // Nested in the tab-bar notch there's no room to radiate: Ruby is 1.4x here and
+  // the tab label ("Listening…"/"Speaking…") sits only ~18pt below her, so the
+  // expanding rings wash straight over it. Suppress the wide ripple there — the
+  // FAB pulse, the soft glow and the changing tab label already signal activity.
+  // The full sonar still plays on the floating corner, where there is space.
+  if (!live || isTab) return null;
   // Speaking spreads wide; listening stays tight (the requested difference).
   const maxScale = speaking ? 2.9 : 1.85;
   const startOpacity = speaking ? 0.5 : 0.4;
@@ -278,10 +249,27 @@ export default function VoiceWidget() {
   // effect below) so a fresh call always starts collapsed.
   const [expanded, setExpanded] = useState(false);
   const [muted, setMuted] = useState(false);
-  const expand = useRef(new Animated.Value(0)).current;
+  // Two roll-out controls (mute + end). Each spins out of Ruby's circle, bumps
+  // into its flank position, and spins back in on close — one Animated value per
+  // button so the end button can TRAIL the mute on the way out (a cascade),
+  // while both close together with no lag. A spring's natural overshoot past 1
+  // gives the arrival its little bounce; the rotate interpolation turns the
+  // travel into a roll. Placement differs by where the FAB lives: a shallow arc
+  // above Ruby in the tab-bar notch, an up-left flank in the floating corner.
+  const mOut = useRef(new Animated.Value(0)).current;
+  const eOut = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.spring(expand, { toValue: expanded ? 1 : 0, friction: 7, tension: 70, useNativeDriver: true }).start();
-  }, [expanded, expand]);
+    if (expanded) {
+      // Roll OUT: spin + bump; end trails mute slightly so they cascade.
+      Animated.spring(mOut, { toValue: 1, friction: 6, tension: 72, useNativeDriver: true }).start();
+      Animated.spring(eOut, { toValue: 1, friction: 6, tension: 72, delay: 90, useNativeDriver: true }).start();
+    } else {
+      // Roll IN together — one smooth continuous spin that settles with a gentle
+      // bounce (slightly springy), no stagger between the two.
+      Animated.spring(mOut, { toValue: 0, friction: 7, tension: 80, useNativeDriver: true }).start();
+      Animated.spring(eOut, { toValue: 0, friction: 7, tension: 80, useNativeDriver: true }).start();
+    }
+  }, [expanded, mOut, eOut]);
 
   // One-time GRAND ENTRANCE the first time the FAB appears: it springs in from
   // nothing with a spin + overshoot while a ring bursts out around it.
@@ -346,23 +334,13 @@ export default function VoiceWidget() {
       // Every call starts collapsed and unmuted — don't carry either state
       // over into the next session.
       setExpanded(false);
-      expand.setValue(0);
+      mOut.setValue(0);
+      eOut.setValue(0);
       setMuted(false);
       agent.setMuted(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
-
-  // Call duration shown in the expanded panel (mm:ss) — counts from 0 each
-  // time a call goes live, stops (but doesn't reset the display) on end.
-  const [elapsedSec, setElapsedSec] = useState(0);
-  useEffect(() => {
-    // `active` isn't computed until after this component's early-return guard
-    // below, so this checks status directly rather than depending on it.
-    if (status === 'idle' || status === 'ended') { setElapsedSec(0); return undefined; }
-    const id = setInterval(() => setElapsedSec(s => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [status]);
 
   useEffect(() => {
     if (status === 'listening' || status === 'speaking') {
@@ -413,6 +391,11 @@ export default function VoiceWidget() {
   // application that is under review.
   // Start a voice session (shared by the FAB tap and the dashboard's "Ask Ruby").
   const startAgent = () => {
+    // Never start a call while the Ruby welcome intro is playing — the GIF has its
+    // own voice-over, so a live agent would talk over it. The FAB tap and "Ask Ruby"
+    // already guard on welcomePending; this is the shared belt-and-suspenders so any
+    // path into startAgent (e.g. the voiceTrigger attention effect) is covered too.
+    if (state.welcomePending) return;
     (state.authUser ? refreshUserContext() : Promise.resolve()).then(() => agent.start(state.authUser?.phone)).then(() => {
       // Runs after voice-session-start (and this call's own first
       // page_context, carrying whatever heard_intro_pitch was at the time)
@@ -467,12 +450,6 @@ export default function VoiceWidget() {
       agent.setMuted(next);
       return next;
     });
-  };
-
-  const formatElapsed = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   // Shared "look at me" flourish: a quick spring wiggle + a burst ring.
@@ -627,20 +604,60 @@ export default function VoiceWidget() {
   // `isTab`) it's dead centre, so the panel opens upward, vertically; docked to
   // a screen edge (e.g. mid-application screens) it opens sideways, horizontally,
   // same as the FAB itself only ever sits at a left/right edge there.
-  const isHorizontal = !isTab;
-  const panelOpacity = expand.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
-  const panelScale = expand.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
-  const panelSlide = expand.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
+  // Where the two controls roll OUT to, measured from the FAB centre (negative
+  // y = up, negative x = left). Notch screens: a shallow arc above Ruby, clear
+  // of the greyed tab labels (#2). Corner screens: an up-left flank into the
+  // screen, away from the edge (#7) — mirrored when the FAB is docked left.
+  // End-call always sits to the LEFT, mute to the RIGHT. Notch: a flat arc
+  // directly above Ruby. Corner: a diagonal flank suited to the screen edge —
+  // mute up (right), end up-left (left) — mirrored when the FAB is docked left.
+  const dir = (!isTab && side === 'left') ? -1 : 1;
+  const ctl = isTab
+    ? { mx: 44, my: -52, ex: -44, ey: -52 }
+    : { mx: 0, my: -72, ex: -66 * dir, ey: -44 };
+  // Turn one spring value (0→1, overshooting past 1 on the way out) into the
+  // roll: translate to the offset, a full 360° spin, scale up from a dot. The
+  // overshoot carries translate/rotate/scale slightly past target → the bump.
+  const rollStyle = (val: Animated.Value, ox: number, oy: number) => ({
+    opacity: val.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 1, 1] }),
+    transform: [
+      { translateX: val.interpolate({ inputRange: [0, 1], outputRange: [0, ox] }) },
+      { translateY: val.interpolate({ inputRange: [0, 1], outputRange: [0, oy] }) },
+      { rotate: val.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+      { scale: val.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }) },
+    ],
+  });
+  // Screen dims behind the controls (greys the tab bar); tapping it dismisses.
+  const scrimOpacity = mOut.interpolate({ inputRange: [0, 1], outputRange: [0, 0.42], extrapolate: 'clamp' });
 
   // On screens with a pinned bottom CTA bar (the Screen `footer`), lift the
   // floating FAB above that bar so the button and the FAB never overlap.
   const footerLift = SCREENS_WITH_FOOTER_CTA.has(state.screen) ? FOOTER_CTA_LIFT : 0;
 
   return (
-    <Animated.View
-      pointerEvents="box-none"
-      style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
-    >
+    <>
+      {/* Full-screen dim behind the open controls — greys the whole screen
+          (the tab bar included, since it sits over everything), so a live call
+          reads as "focused". Tapping the dimmed area dismisses the controls.
+          Only mounted during a live call; invisible + non-interactive until the
+          controls are opened. */}
+      {active ? (
+        <Animated.View
+          pointerEvents={expanded ? 'auto' : 'none'}
+          style={[StyleSheet.absoluteFill, styles.scrim, { opacity: scrimOpacity }]}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => { setExpanded(false); Vibration.vibrate(10); }}
+            accessibilityLabel="Close call controls"
+            accessibilityRole="button"
+          />
+        </Animated.View>
+      ) : null}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.wrap, { right: EDGE_MARGIN, bottom: 24 + insets.bottom + footerLift, transform: [{ translateX }, { translateY }] }]}
+      >
       {/* Proactive-help label — an informational speech bubble above the FAB.
           The bubble body isn't tappable (starting a call is the FAB's job); only the
           ✕ badge is, to dismiss the tip for this screen. */}
@@ -708,51 +725,47 @@ export default function VoiceWidget() {
         />
         {/* Sonar ripple (reference video): expanding rings, wide while speaking,
             tight while listening. Behind the glow/avatar so it radiates from under. */}
-        <SonarRings status={status} scale={Animated.multiply(sizeScale, entranceScale)} />
+        <SonarRings status={status} scale={Animated.multiply(sizeScale, entranceScale)} isTab={isTab} />
         {/* Same size transform as the ball (notch 70pt ⇄ floating 50/60pt),
             so the ring shrinks and grows with it instead of staying notch-sized. */}
         <SiriGlow status={status} scale={Animated.multiply(sizeScale, entranceScale)} />
-        {/* Call panel — status/timer + mic/end-call. Only exists during a live
-            call; grows directly out of the FAB circle it's anchored to
-            (transformOrigin), horizontally when the FAB floats at a screen
-            edge, vertically (opening upward) when nested in the dashboard's
-            tab-bar notch. */}
+        {/* Roll-out controls — just mute + end, kept small so they never cover
+            the screen. Each rolls out of the FAB circle with a spin + bump and
+            rolls back in on close. Placement set by `ctl`: a shallow arc above
+            Ruby in the tab-bar notch, an up-left flank in the floating corner.
+            Rendered before the FAB Pressable so they emerge from behind Ruby and
+            are only tappable once rolled clear of her. */}
         {active ? (
-          <Animated.View
-            pointerEvents={expanded ? 'auto' : 'none'}
-            style={[
-              styles.callPanel,
-              isHorizontal ? styles.callPanelHorizontal : styles.callPanelVertical,
-              {
-                opacity: panelOpacity,
-                transformOrigin: isHorizontal ? 'right center' : 'center bottom',
-                transform: [
-                  { scale: panelScale },
-                  isHorizontal ? { translateX: panelSlide } : { translateY: panelSlide },
-                ],
-              },
-            ]}
-          >
-            {/* The bars already say "something's happening" — a "Listening…"
-                label next to them is redundant, so the meta block is just
-                level + timer. Vertical stacks the timer under the bars;
-                horizontal keeps them side by side (see styles). */}
-            <View style={isHorizontal ? styles.callPanelMetaHorizontal : styles.callPanelMetaVertical}>
-              <EqualizerBars color={colors.mint} />
-              <Text style={styles.callPanelTimer}>{formatElapsed(elapsedSec)}</Text>
-            </View>
-            <Pressable
-              onPress={toggleMute}
-              accessibilityLabel={muted ? 'Unmute microphone' : 'Mute microphone'}
-              accessibilityRole="button"
-              style={[styles.callPanelBtn, muted ? styles.callPanelBtnMuted : styles.callPanelBtnGray]}
+          <>
+            <Animated.View
+              pointerEvents={expanded ? 'auto' : 'none'}
+              style={[styles.rollBtn, rollStyle(mOut, ctl.mx, ctl.my)]}
             >
-              <Icon name={muted ? 'mic_off' : 'mic'} size={17} color={muted ? '#fff' : colors.ink} />
-            </Pressable>
-            <Pressable onPress={endCall} accessibilityLabel="End call" accessibilityRole="button" style={[styles.callPanelBtn, styles.endCallBtn]}>
-              <Icon name="call_end" size={17} color="#fff" />
-            </Pressable>
-          </Animated.View>
+              <Pressable
+                onPress={toggleMute}
+                hitSlop={8}
+                accessibilityLabel={muted ? 'Unmute microphone' : 'Mute microphone'}
+                accessibilityRole="button"
+                style={[styles.rollBtnInner, muted ? styles.rollBtnMuted : styles.rollBtnGray]}
+              >
+                <Icon name={muted ? 'mic_off' : 'mic'} size={18} color={muted ? '#fff' : colors.ink} />
+              </Pressable>
+            </Animated.View>
+            <Animated.View
+              pointerEvents={expanded ? 'auto' : 'none'}
+              style={[styles.rollBtn, rollStyle(eOut, ctl.ex, ctl.ey)]}
+            >
+              <Pressable
+                onPress={endCall}
+                hitSlop={8}
+                accessibilityLabel="End call"
+                accessibilityRole="button"
+                style={[styles.rollBtnInner, styles.rollBtnEnd]}
+              >
+                <Icon name="call_end" size={18} color="#fff" />
+              </Pressable>
+            </Animated.View>
+          </>
         ) : null}
         <Pressable onPress={onPress} accessibilityLabel={a11yLabel} accessibilityRole="button" style={styles.pressable}>
           <Animated.View style={[styles.fabRing, styles.fabRingBare, { opacity: entranceOpacity, transform: [{ scale: Animated.multiply(Animated.multiply(Animated.multiply(pulse, sizeScale), entranceScale), attentionScale) }, { rotate: roll }, { rotate: entranceRotate }, { rotate: attentionRotate }] }]}>
@@ -763,16 +776,36 @@ export default function VoiceWidget() {
               </LinearGradient>
             </Animated.View>
             {/* Ruby as a free-standing person — the transparent cutout floating on
-                the screen (a soft shadow keeps her legible over light content). */}
-            <Animated.View style={[styles.fabSwapLayer, { opacity: rubyOpacity, transform: [{ scale: rubyScale }] }]} pointerEvents="none">
-              <View style={styles.fabPerson}>
-                <Image source={require('../../../assets/brand/agent-ruby.png')} style={styles.fabPersonImg} resizeMode="contain" />
+                the screen. While muted she's shown desaturated inside a soft round
+                disc (which also crops her flat cutout bottom cleanly) with a red
+                mic-off badge, so the muted state reads at a glance even collapsed.
+                box-none so the unmute badge is tappable while taps elsewhere still
+                reach the FAB Pressable underneath. */}
+            <Animated.View style={[styles.fabSwapLayer, { opacity: rubyOpacity, transform: [{ scale: rubyScale }] }]} pointerEvents="box-none">
+              <View style={[styles.fabPerson, muted && styles.fabPersonMuted]}>
+                <Image
+                  source={muted ? require('../../../assets/brand/agent-ruby-gray.png') : require('../../../assets/brand/agent-ruby.png')}
+                  style={styles.fabPersonImg}
+                  resizeMode="contain"
+                />
               </View>
+              {muted && !expanded ? (
+                <Pressable
+                  onPress={toggleMute}
+                  hitSlop={8}
+                  accessibilityLabel="Unmute microphone"
+                  accessibilityRole="button"
+                  style={styles.mutedBadge}
+                >
+                  <Icon name="mic_off" size={13} color="#fff" />
+                </Pressable>
+              ) : null}
             </Animated.View>
           </Animated.View>
         </Pressable>
       </View>
-    </Animated.View>
+      </Animated.View>
+    </>
   );
 }
 
@@ -798,9 +831,7 @@ const HALO_SIZE = FAB_SIZE + 20;
 const GLOW_SIZE = FAB_SIZE + 32;
 const ROBOT_HEAD_W = Platform.OS === 'ios' ? 24 : 28;
 const ROBOT_HEAD_H = Platform.OS === 'ios' ? 20 : 24;
-// The panel's "cross-axis" size: its height when horizontal, its width when
-// vertical — the dimension perpendicular to how its contents stack.
-const CALL_PANEL_CROSS = 52;
+// Diameter of each roll-out control (mute / end).
 const CALL_BTN_SIZE = 38;
 
 const styles = StyleSheet.create({
@@ -873,56 +904,36 @@ const styles = StyleSheet.create({
   nudgeTailNotch: { right: NUDGE_W / 2 - 5 },
   fabZone: { width: HALO_SIZE, height: HALO_SIZE, alignItems: 'center', justifyContent: 'center' },
   pressable: { alignItems: 'center', justifyContent: 'center' },
-  // The frosted "growing out of the FAB" panel. No native blur view is wired
-  // up in this project (see CLAUDE.md — no Expo, and no
-  // @react-native-community/blur dependency either), so this approximates
-  // frosted glass with a translucent light-gray fill instead of a real blur.
-  callPanel: {
+  // Full-screen dim behind the open controls — focuses the call and greys the
+  // tab bar. Taps on it (anywhere outside the controls/FAB) dismiss. No zIndex:
+  // it's rendered BEFORE the FAB wrap, so the wrap (and its roll-out buttons)
+  // naturally paint and receive touches on top of it — a zIndex here would lift
+  // the scrim above the wrap and swallow the buttons' taps.
+  scrim: { backgroundColor: '#0A1E1E' },
+  // Roll-out control wrapper: centred on the FAB, moved to its flank by the
+  // per-button transform. CALL_BTN_SIZE circle.
+  rollBtn: {
     position: 'absolute',
-    backgroundColor: 'rgba(244,247,246,0.97)',
-    borderWidth: 1,
-    borderColor: colors.line,
-    shadowColor: '#0A3F41',
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
-  },
-  callPanelHorizontal: {
-    right: HALO_SIZE,
-    top: (HALO_SIZE - CALL_PANEL_CROSS) / 2,
-    height: CALL_PANEL_CROSS,
-    borderRadius: CALL_PANEL_CROSS / 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    gap: 8,
-  },
-  callPanelVertical: {
-    bottom: HALO_SIZE,
-    right: (HALO_SIZE - CALL_PANEL_CROSS) / 2,
-    width: CALL_PANEL_CROSS,
-    borderRadius: CALL_PANEL_CROSS / 2,
-    alignItems: 'center',
-    paddingVertical: 10,
-    gap: 8,
-  },
-  // Horizontal: bars beside the timer, both beside the buttons. Vertical: the
-  // timer sits directly under the bars, stacked as one small block above the
-  // mic/end-call buttons.
-  callPanelMetaHorizontal: { flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 34 },
-  callPanelMetaVertical: { flexDirection: 'column', alignItems: 'center', gap: 3, marginBottom: 14 },
-  callPanelTimer: { ...font(600), fontSize: 10.5, color: colors.muted },
-  callPanelBtn: {
+    left: (HALO_SIZE - CALL_BTN_SIZE) / 2,
+    top: (HALO_SIZE - CALL_BTN_SIZE) / 2,
     width: CALL_BTN_SIZE,
     height: CALL_BTN_SIZE,
+    borderRadius: CALL_BTN_SIZE / 2,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  rollBtnInner: {
+    flex: 1,
     borderRadius: CALL_BTN_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  callPanelBtnGray: { backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.line },
-  callPanelBtnMuted: { backgroundColor: colors.amber },
-  endCallBtn: { backgroundColor: colors.redDeep },
+  rollBtnGray: { backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.line },
+  rollBtnMuted: { backgroundColor: colors.amber },
+  rollBtnEnd: { backgroundColor: colors.redDeep },
   // Fills `.fab` exactly (which already clips to a circle via overflow:hidden)
   // — a translucent dark scrim plus a gray icon, not a separate badge shape.
   entranceBurst: {
@@ -970,12 +981,24 @@ const styles = StyleSheet.create({
     shadowColor: '#0A3F41', shadowOpacity: 0.32, shadowRadius: 16, shadowOffset: { width: 0, height: 10 }, elevation: 10,
   },
   fabPerson: { width: FAB_SIZE, height: FAB_SIZE, alignItems: 'center', justifyContent: 'center' },
+  // Muted look: a soft round disc that holds the desaturated Ruby and crops her
+  // flat cutout bottom into a clean circle.
+  fabPersonMuted: { borderRadius: FAB_SIZE / 2, backgroundColor: '#C3CFCD', overflow: 'hidden' },
+  // Red mic-off badge tucked into Ruby's lower-right while muted (tap to unmute).
+  mutedBadge: {
+    position: 'absolute', right: -1, bottom: -1,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.redDeep,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#fff',
+  },
   fabPersonImg: {
     width: '122%', height: '122%',
-    shadowColor: '#0A3F41', shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
+    // No drop shadow: Ruby's cutout is cropped flat across the bottom, so ANY
+    // shadow (even a centred blur) traced that straight edge and read as a faint
+    // squared-off box under her. Her dark hair + teal kurta have enough contrast
+    // on the notch bar and on light content to stand on their own.
   },
-  eqRow: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 22 },
-  eqBar: { width: 3.5, borderRadius: 2 },
   robotFace: {
     width: ROBOT_HEAD_W,
     height: ROBOT_HEAD_H,
