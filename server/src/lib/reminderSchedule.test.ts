@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SCHEDULE_STEPS, nextAction, deriveLastStep, isIdle, stopReason, buildInstallLink, isFinishedApplicationStatus,
+  SCHEDULE_STEPS, nextAction, deriveLastStep, isIdle, stopReason, buildInstallLink, isFinishedApplicationStatus, isNoOffersOutcome,
   stepDueAt, MAX_LATE_MS, MIN_GAP_MS, IDLE_MS,
 } from './reminderSchedule.js';
 
@@ -85,6 +85,21 @@ describe('deriveLastStep', () => {
     expect(deriveLastStep({ panOnFile: false, hasApplication: false, unverified: true })).toBe('otp_requested');
     expect(deriveLastStep({ panOnFile: true, hasApplication: true, unverified: true })).toBe('otp_requested');
     expect(deriveLastStep({ panOnFile: false, hasApplication: false, unverified: false })).toBe('otp_only');
+  });
+  it('offers shown and none applied for is its own step; without the flag (the app resume) it stays application_started', () => {
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true, offersReady: true })).toBe('offers_ready');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true })).toBe('application_started');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: false, offersReady: true })).toBe('pan_done');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true, offersReady: true, unverified: true })).toBe('otp_requested');
+  });
+});
+
+describe('isNoOffersOutcome', () => {
+  it('"already registered with the lender" is a no-offers outcome; a technical failure is not', () => {
+    expect(isNoOffersOutcome({ status: 'failed', prequalifyReason: 'duplicate' })).toBe(true);
+    expect(isNoOffersOutcome({ status: 'failed', prequalifyReason: 'timeout' })).toBe(false);
+    expect(isNoOffersOutcome({ status: 'failed', prequalifyReason: null })).toBe(false);
+    expect(isNoOffersOutcome({ status: 'offers_ready', prequalifyReason: 'duplicate' })).toBe(false);
   });
 });
 
@@ -193,10 +208,12 @@ describe('renderSmsBody', () => {
     expect(renderSmsBody('Continue: {link} -X', { name: 'Asha', step: 'S', link: 'L' })).toBe('Continue: L -X');
   });
   it('has a label for every step', () => {
-    expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'otp_only', 'otp_requested', 'pan_done']);
+    expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'offers_ready', 'otp_only', 'otp_requested', 'pan_done']);
   });
-  it('names the step they are stuck on: OTP verification, then 1 PAN verification, 2 Basic details, 3 Finding offers', () => {
-    expect(DEFAULT_STEP_LABELS).toEqual({ otp_requested: 'OTP verification', otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers' });
+  it('names the step they are stuck on: OTP verification, then 1 PAN verification, 2 Basic details, 3 Finding offers, then choosing an offer', () => {
+    expect(DEFAULT_STEP_LABELS).toEqual({
+      otp_requested: 'OTP verification', otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers', offers_ready: 'Choosing an offer',
+    });
   });
 });
 

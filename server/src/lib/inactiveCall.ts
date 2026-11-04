@@ -10,6 +10,7 @@
  * a daily cap (`calls.inactiveDailyLimit`), and the `OutboundRequest` claim (kind `inactive_call`, key `inactive:<customerId>:<YYYY-MM-DD>`,
  * one per person per day) written BEFORE dialling so a crash can never double-ring. A failed dial keeps its claim: no retry that day.
  */
+import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
 import { phoneCooldownHours, withinCallingHours } from './leadCaller.js';
@@ -20,7 +21,9 @@ import { isCallAllowed } from './callGate.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { JOURNEY_EVENTS, recordJourneyEvent } from './journey.js';
 import { scoped } from './log.js';
-import { timing } from './timings.js';
+import { timing, hasStageSchedule } from './timings.js';
+import { dropoffStageOf } from './stageSchedules.js';
+import { touchAllowed } from './contactPolicy.js';
 import { istDateKey, istDayStart } from './stallCallLimits.js';
 import { DROPOFF_STEP_LABELS, deriveDropoff, type DropoffStatus } from './dropoffSteps.js';
 import { lastActivityFor, loadSnapshot } from './appDropoff.js';
@@ -47,14 +50,23 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
   // Candidates: stopped at least a day ago (India days) and at most `days` days ago. `lastActivityAt` is a lower bound for the real last
   // action (app events and website pings are also read below), so the window is widened by a day on each side and the rules decide.
   const dayStart = istDayStart(now);
-  const rows = await prisma.customer.findMany({
-    where: {
-      userId: { not: null }, currentStage: { notIn: ['lost', 'disbursed'] },
-      lastActivityAt: { lt: dayStart, gte: new Date(dayStart.getTime() - (days + 1) * 86_400_000) },
-    },
-    orderBy: { lastActivityAt: 'asc' },
-    take: BATCH,
-  });
+  const where: Prisma.CustomerWhereInput = {
+    userId: { not: null }, currentStage: { notIn: ['lost', 'disbursed'] },
+    lastActivityAt: { lt: dayStart, gte: new Date(dayStart.getTime() - (days + 1) * 86_400_000) },
+  };
+  // Page through EVERY candidate (cursor on id), oldest first. The first version took only the 25 oldest and, since a skipped
+  // row stays a candidate, re-read the same 25 every tick and never reached anyone further down (2026-11-03: the 13:30 run
+  // placed nothing while the dry run found two people due).
+  let cursor: string | undefined;
+  const rows: Awaited<ReturnType<typeof prisma.customer.findMany>> = [];
+  for (;;) {
+    const page = await prisma.customer.findMany({
+      where, orderBy: [{ lastActivityAt: 'asc' }, { id: 'asc' }], take: BATCH, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    rows.push(...page);
+    if (page.length < BATCH) break;
+    cursor = page[page.length - 1].id;
+  }
 
   for (const c of rows) {
     if (limit > 0 && today >= limit) break;
@@ -62,17 +74,23 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
       const loaded = c.userId ? await loadSnapshot(c.userId) : null;
       const state = loaded ? deriveDropoff(loaded.snapshot) : null;
       const status = state?.status ?? null;
+      // A stage with its own saved timeline places its own calls (appDropoff.ts → dropoffCall.ts): this daily call stays out of it.
+      if (hasStageSchedule('dropoff.schedule', dropoffStageOf(status))) { out.skipped++; continue; }
       // The clock's floor is when they reached the step, NEVER `Customer.lastActivityAt`: old rows of that column were bumped by our own
       // nudges (2026-11-03: with it as the floor, 135 weeks-old rejections looked like "stopped yesterday" and would all have been rung).
       const stoppedAt = c.userId && state?.since ? await lastActivityFor(c.userId, c.phone, state.since) : null;
       if (!stoppedAt) { out.skipped++; continue; }
       const key = `inactive:${c.id}:${istDateKey(now)}`;
-      const [calledToday, messagedRecently] = await Promise.all([
+      const [calledToday, messagedRecently, callsSoFar] = await Promise.all([
         prisma.outboundRequest.count({ where: { idempotencyKey: key } }),
         prisma.outboundRequest.count({ where: { customerId: c.id, channel: { in: ['push', 'sms', 'whatsapp'] }, createdAt: { gte: quietSince } } }),
+        // calls this journey has already had (since they reached the step), for the per-person cap
+        prisma.outboundRequest.count({ where: { customerId: c.id, kind: INACTIVE_KIND, createdAt: { gte: state!.since! } } }),
       ]);
       const verdict = inactiveCallDue({
         stoppedAt, now, callAtMinute: callAt, days, status,
+        sameDay: timing.bool('calls.inactiveSameDay'), minStuckMinutes: timing.num('calls.stallMinStuckMinutes'),
+        callsSoFar, perPersonCap: timing.num('limits.inactiveCallsPerPerson'),
         calledToday: calledToday > 0, messagedRecently: messagedRecently > 0,
         inCallingHours: true, callAllowed: isCallAllowed(c.phone) && !isReviewPhone(c.phone),
         doNotContact: c.currentStage === 'lost', dailyLimitReached: limit > 0 && today >= limit,
@@ -81,6 +99,7 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
       // Same 24 h per-phone cooldown as every other dialler: someone who spoke to the agent this morning (no-offers call) is not rung
       // again this evening by a different job.
       if (await isPhoneInCooldown(c.phone, phoneCooldownHours(), now)) { out.skipped++; continue; }
+      if (!(await touchAllowed(c.phone, 'call', now)).ok) { out.skipped++; continue; } // the one contact limit (contactPolicy.ts)
 
       try {
         await prisma.outboundRequest.create({

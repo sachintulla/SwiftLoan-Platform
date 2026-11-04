@@ -191,7 +191,7 @@ export function renderBrief(template: string, vars: Record<string, string | unde
     .trim();
 }
 
-export type VariableGroup = 'Customer' | 'Journey' | 'Lead' | 'Drop-off' | 'Agent';
+export type VariableGroup = 'Customer' | 'Journey' | 'Lead' | 'Drop-off' | 'Agent' | 'Offers';
 
 export interface VariableInfo {
   group: VariableGroup;
@@ -213,6 +213,7 @@ export const VARIABLE_INFO: Record<LeadCallVariable, VariableInfo> = {
   lead_amount_words: { group: 'Lead', description: 'Amount requested, as spoken', example: '3 lakh rupees' },
   lead_submitted_ago: { group: 'Lead', description: 'How long ago the form was submitted', example: '2 hours ago' },
   lead_source: { group: 'Lead', description: 'Where they came from', example: 'website' },
+  lead_language: { group: 'Customer', description: 'Language to open the call in: what they spoke to the agent before, else the app language. Blank = the agent starts in Hindi', example: 'Telugu' },
   lead_campaign: { group: 'Lead', description: 'Campaign that brought them', example: 'diwali_offer' },
   lead_stage: { group: 'Journey', description: 'Where they are now, in words', example: 'Offers viewed' },
   lead_stage_key: { group: 'Journey', description: 'Where they are now, as a code', example: 'offer_viewed' },
@@ -235,6 +236,14 @@ export const VARIABLE_INFO: Record<LeadCallVariable, VariableInfo> = {
   stall_minutes: { group: 'Drop-off', description: 'Minutes since they stopped', example: '35' },
   stall_channel: { group: 'Drop-off', description: 'Where they stopped', example: 'the app' },
   stall_help: { group: 'Drop-off', description: 'What the agent should offer to do', example: 'help compare the offers' },
+  call_situation: { group: 'Journey', description: 'One plain sentence of what is true now, from stored data (signed-in customers)', example: 'They got 3 loan offers and have not applied yet. The best one is ₹2,00,000 from KreditBee, EMI about ₹9,800 a month for 24 months.' },
+  offer_count: { group: 'Offers', description: 'How many loan offers they have (blank if none)', example: '3' },
+  best_offer_lender: { group: 'Offers', description: 'Lender of the best (highest-amount) offer', example: 'KreditBee' },
+  best_offer_amount: { group: 'Offers', description: 'Amount of the best offer', example: '₹2,00,000' },
+  best_offer_amount_words: { group: 'Offers', description: 'Amount of the best offer, in words', example: '2 lakh rupees' },
+  best_offer_emi: { group: 'Offers', description: 'Monthly EMI of the best offer', example: '₹9,800' },
+  best_offer_emi_words: { group: 'Offers', description: 'Monthly EMI of the best offer, in words', example: '9,800 rupees' },
+  best_offer_tenure_months: { group: 'Offers', description: 'Tenure of the best offer, in months', example: '24' },
 };
 
 export const VARIABLE_LIST: Array<VariableInfo & { name: LeadCallVariable }> = LEAD_CALL_VARIABLES.map((name) => ({ name, ...VARIABLE_INFO[name] }));

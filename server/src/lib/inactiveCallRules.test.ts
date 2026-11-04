@@ -21,6 +21,14 @@ describe('inactiveCallDue — 8 PM on the next three days', () => {
   it('never on the day they stopped, even after 8 PM', () => {
     expect(inactiveCallDue(at('2026-11-02T14:30:00Z'))).toEqual({ due: false, reason: 'same_day' });
   });
+  it('same-day switch: calls on day 0 once idle for the minimum, never sooner', () => {
+    expect(inactiveCallDue({ ...at('2026-11-02T14:30:00Z'), sameDay: true, minStuckMinutes: 30 })).toEqual({ due: true, day: 0 }); // stopped 15:00, now 20:00 IST
+    expect(inactiveCallDue({ ...at('2026-11-02T09:40:00Z'), sameDay: true, minStuckMinutes: 30, callAtMinute: 900 })).toEqual({ due: false, reason: 'too_soon' }); // 10 min idle
+  });
+  it('per-person cap across the journey', () => {
+    expect(inactiveCallDue({ ...at('2026-11-04T14:35:00Z'), callsSoFar: 2, perPersonCap: 2 })).toEqual({ due: false, reason: 'person_cap' });
+    expect(inactiveCallDue({ ...at('2026-11-04T14:35:00Z'), callsSoFar: 2, perPersonCap: 0 })).toEqual({ due: true, day: 2 });
+  });
   it('next day: not before 8 PM, due from 8 PM', () => {
     expect(inactiveCallDue(at('2026-11-03T14:29:00Z'))).toEqual({ due: false, reason: 'not_yet_time' });
     expect(inactiveCallDue(at('2026-11-03T14:30:00Z'))).toEqual({ due: true, day: 1 });
@@ -54,6 +62,9 @@ describe('inactiveBrief', () => {
     expect(inactiveBrief('pan_verified', 3, 'Basic details').reason).toContain('3 days ago');
     expect(b.help).toContain('left this yesterday');
     expect(b.help).toContain('Ask why they have not continued');
+  });
+  it('day 0 reads "earlier today"', () => {
+    expect(inactiveBrief('rejected', 0, 'Offers').reason).toContain('earlier today');
   });
   it('never uses the lender word "duplicate" or a reason for no offers', () => {
     expect(inactiveBrief('rejected', 2, 'Offers').reason).not.toMatch(/duplicate|credit|score/i);
