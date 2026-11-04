@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   STALL_REASONS, STALL_HELP, stallReasonFor, stallHelpFor,
-  LEAD_CALL_VARIABLES, compactContext,
+  LEAD_CALL_VARIABLES, compactContext, spokenLanguageLabel,
 } from './callContext.js';
 
 /**
@@ -112,7 +112,7 @@ describe('LEAD_CALL_VARIABLES', () => {
       'user_name',
       'lead_name', 'lead_first_name', 'lead_city', 'lead_phone',
       'lead_product', 'lead_amount', 'lead_amount_words', 'lead_submitted_ago',
-      'lead_source', 'lead_campaign',
+      'lead_source', 'lead_language', 'lead_campaign',
       'lead_stage', 'lead_summary', 'lead_next_action', 'lead_prior_inquiries', 'lead_is_returning',
       'agent_purpose',
       'conversation_history', 'conversation_count',
@@ -127,6 +127,17 @@ describe('LEAD_CALL_VARIABLES', () => {
 
   it('uses snake_case only, matching the {{...}} placeholders in the prompts', () => {
     for (const v of LEAD_CALL_VARIABLES) expect(v).toMatch(/^[a-z][a-z0-9_]*$/);
+  });
+});
+
+describe('spokenLanguageLabel (lead_language in the briefing)', () => {
+  it('prefers what they spoke to the agent, then the app language; blank when unknown so the prompt defaults to Hindi', () => {
+    expect(spokenLanguageLabel('te', 'en')).toBe('Telugu');
+    expect(spokenLanguageLabel(null, 'hi')).toBe('Hindi');
+    expect(spokenLanguageLabel(null, 'hinglish')).toBe('Hindi');
+    expect(spokenLanguageLabel(null, 'tenglish')).toBe('Telugu');
+    expect(spokenLanguageLabel(null, 'en')).toBe('English');
+    expect(spokenLanguageLabel(null, null)).toBe('');
   });
 });
 

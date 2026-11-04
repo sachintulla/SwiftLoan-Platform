@@ -121,7 +121,12 @@ trackingRouter.post('/event', ah(async (req, res) => {
   // anyone advance another person's funnel — and a fabricated
   // `eligibility_completed` silences the very rule meant to catch a drop-off.
   const journeyName = journeyNameFor(String(eventName));
-  if (journeyName && userId) {
+  // The app fires `application_submitted` when its status screen opens, which people reach without applying. It only counts as a
+  // journey step for someone who really has a lender application; otherwise it moved them to "Application submitted / KYC done"
+  // and the voice agent's briefing contradicted itself (2026-11-04).
+  const fakeSubmit = journeyName === JOURNEY_EVENTS.APPLICATION_SUBMITTED && !!userId
+    && !(await prisma.lenderApplication.findFirst({ where: { application: { userId } }, select: { id: true } }).catch(() => null));
+  if (journeyName && userId && !fakeSubmit) {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } }).catch(() => null);
     if (user?.phone) {
       // Fire-and-forget: analytics must never fail on a journey write.

@@ -25,6 +25,7 @@ import { isCallAllowed } from './callGate.js';
 import { timing } from './timings.js';
 import { directWhatsAppConfig, templateFor, sendStallWhatsApp } from './stallWhatsapp.js';
 import { directSmsConfig, smsFor, sendStallSms } from './stallSms.js';
+import { touchAllowed } from './contactPolicy.js';
 
 /** Scanned per rule per tick — bounds the blast radius of a bad rule. */
 const MAX_PER_RULE = 200;
@@ -601,6 +602,7 @@ async function placeStallCall(
     });
     if (recentMsg > 0) return false;
   }
+  if (!(await touchAllowed(customer.phone, 'call', now)).ok) return false; // the one contact limit (contactPolicy.ts)
 
   const since = new Date(now.getTime() - timing.hoursMs('limits.phoneCooldownHours'));
   const recentAny = await prisma.callAttempt.count({

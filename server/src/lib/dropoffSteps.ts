@@ -17,6 +17,7 @@
  *   applied             applied to a lender (the "you applied with <lender>" sequence owns this, see lenderNudge.ts)
  *   failed              a technical failure, NOT a decision: retried by the user, never messaged as "no offers"
  */
+import { LINK_SMS } from './smsRoute.js';
 
 export type DropoffStatus =
   | 'otp_verified'
@@ -171,12 +172,16 @@ export type DropoffMessages = Partial<Record<DropoffMessageKind, MessageConfig>>
  */
 export const DEFAULT_DROPOFF_MESSAGES: DropoffMessages = Object.freeze({
   continue: {
+    // SMS (owner, 2026-11-04): the one registered link text for every step, app and website (smsRoute.ts LINK_SMS). The app-user-before-PAN
+    // case uses PAN_PENDING_SMS instead (appDropoff.ts deliver).
+    sms: { withLink: { ...LINK_SMS }, noLink: { ...LINK_SMS } },
     whatsapp: {
       withLink: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] },
       noLink: { template: 'dropoff_continue_app', language: 'en', placeholders: ['{name}', '{step}'] },
     },
   },
   apply_offers: {
+    sms: { withLink: { ...LINK_SMS }, noLink: { ...LINK_SMS } },
     whatsapp: {
       withLink: { template: 'offers_ready', language: 'en', placeholders: ['{name}', '{offerCount}', '{ref}', '{link}'] },
       noLink: { template: 'dropoff_apply_offers_app', language: 'en', placeholders: ['{name}'] },
