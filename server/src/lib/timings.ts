@@ -18,9 +18,12 @@ export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 
 export type TimingUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'count' | 'minuteOfDay' | 'none';
 
 export interface ScheduleRow {
-  channel: 'sms' | 'whatsapp';
-  /** Minutes after the visitor dropped off. */
+  /** 'call' (a Ruby call) only in a drop-off STAGE timeline (`ScheduleDef.timeline`). */
+  channel: 'sms' | 'whatsapp' | 'call';
+  /** Minutes after the visitor dropped off; with `atClock`, day × 1440 + minute of the India day (day 1 at 11:00 = 1440 + 660). */
   afterMinutes: number;
+  /** Timeline rows only: a set clock time on a later India day ("day 3 at 7 PM"), not a delay after they stopped. */
+  atClock?: boolean;
 }
 
 interface Base {
@@ -60,6 +63,8 @@ export interface ScheduleDef extends Base {
   def: ScheduleRow[];
   maxRows: number;
   maxMinutes: number;
+  /** A drop-off stage's own timeline: rows may be calls and may be set clock times on a later day. */
+  timeline?: boolean;
 }
 export interface PhonesDef extends Base {
   kind: 'phones';
@@ -138,9 +143,26 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Each message is one SMS or WhatsApp, sent a set time after the visitor leaves the website. Use Edit schedule to change, add or remove messages.',
   },
   {
+    key: 'welcome.sendEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the welcome WhatsApp after a website sign-in',
+    help: 'Within a minute of a website visitor verifying their mobile number (once per number): thanks, and their own app link. Needs the "welcome" WhatsApp template approved (Configs → Voxvalley → welcomeWhatsapp). Uses the test-number list above.',
+    warn: 'Turning this on messages every new website sign-in, unless the test-number list is filled in.',
+  },
+  {
+    key: 'welcome.smsEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the welcome SMS after OTP verification',
+    help: 'Right after someone verifies their mobile number, once per number: in the app the "verify your PAN" SMS (no link), on the website the "continue in the app" SMS with their own link. Registered DLT texts, sender PTSLA. Uses the test-number list above.',
+    warn: 'Turning this on texts every new sign-in, unless the test-number list is filled in.',
+  },
+  {
+    key: 'install.verifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false, env: 'INSTALL_REMINDER_VERIFIED',
+    label: 'Also send the old reminders to visitors who verified their number',
+    help: 'Off (default): the website reminders only go to people who asked for an OTP and never entered it (Scenario 1). Verified visitors are covered by the scenario timelines instead. On: they also get the schedule above. Their personal app link is created either way.',
+  },
+  {
     key: 'install.unverifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: true,
     label: 'Also remind people who asked for an OTP but never entered it',
-    help: 'They have not proved the number is theirs, so this is a short sequence (below), once per number, and only on the website. Still needs "Send the reminders for real" to be on.',
+    help: 'They have not proved the number is theirs, so this is a short sequence (below), once per number, on the website and in the app. Still needs "Send the reminders for real" to be on.',
   },
   {
     key: 'install.unverifiedSchedule', group: 'install', kind: 'schedule', unit: 'minutes', def: DEFAULT_UNVERIFIED_SCHEDULE.map((r) => ({ ...r })), maxRows: 5, maxMinutes: 7 * 1440,
@@ -258,6 +280,26 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     warn: 'Turning this on rings real customers. Only do it once the Ello agent prompt has the "no offers" section and the call test-number list is set for the first run.',
   },
   {
+    key: 'dropoff.smsFallbackEnabled', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: 'Send every drop-off WhatsApp also as an SMS',
+    help: 'Each drop-off WhatsApp is followed, after the gap below, by the same step as an SMS (registered texts: "verify your PAN" for an app user before PAN, otherwise the link text naming the step). Same touch, not counted twice. Needs drop-off sending on.',
+  },
+  {
+    key: 'dropoff.smsOnlyIfUndelivered', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Only send that SMS when the WhatsApp was not delivered',
+    help: 'Off (default): WhatsApp and SMS both go, with the gap below between them. On: the SMS goes only if the WhatsApp is not reported delivered within the gap.',
+  },
+  {
+    key: 'dropoff.smsFallbackMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 10, min: 2, max: 240,
+    label: 'Gap between the WhatsApp and its SMS',
+    help: 'How long after each drop-off WhatsApp its SMS goes. If they come back or move on in between, the SMS is not sent.',
+  },
+  {
+    key: 'dropoff.missedNoteMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 5, min: 1, max: 240,
+    label: '"Sorry we missed you" WhatsApp after an unanswered call',
+    help: 'When a call from a stage timeline is not answered, one WhatsApp with the app link goes this long after the call ended (same template as the welcome). Part of the call, so it does not count towards the touch limits. Needs drop-off sending on.',
+  },
+  {
     key: 'dropoff.noOffersCallDelayMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 45, min: 5, max: 1440,
     label: 'Wait before the no-offers call',
     help: 'Counted from when they got no offers. The default (45) lets the WhatsApp message (first one at 30 minutes) land first. Calling hours and the quiet gap after a message still apply.',
@@ -326,6 +368,21 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 1, max: 90,
     label: 'Same stopped-at step not messaged again within',
     help: 'After a WhatsApp journey for one step ends (finished, or they moved on), the same step does not start a new journey for this many days. Coming back and stopping again is always a new journey.',
+  },
+  {
+    key: 'limits.touchesPerDay', group: 'limits', kind: 'number', unit: 'count', def: 2, min: 0, max: 20,
+    label: 'Touches per person per day (all channels)',
+    help: 'Scheduled WhatsApp, SMS and calls together, per India day. A touch that would go over is skipped. Not counted: the recap after a call, the "sorry we missed you" note, a link the customer asked for. 0 = no limit.',
+  },
+  {
+    key: 'limits.touchesPerWeek', group: 'limits', kind: 'number', unit: 'count', def: 6, min: 0, max: 50,
+    label: 'Touches per person per 7 days (all channels)',
+    help: 'Same counting as the daily limit, over the last 7 days. 0 = no limit.',
+  },
+  {
+    key: 'limits.noCallAndMessageSameDay', group: 'limits', kind: 'boolean', unit: 'none', def: true,
+    label: 'Never a call and a new message on the same day',
+    help: 'On: if we already called someone today, no new WhatsApp/SMS goes to them today, and the other way round. The "sorry we missed you" note after an unanswered call is part of the call, so it is allowed.',
   },
   {
     key: 'limits.stallWhatsappCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'STALL_WA_COOLDOWN_HOURS',
@@ -517,8 +574,11 @@ function stageScheduleDefs(): ScheduleDef[] {
       out.push({
         key: stageScheduleKey(shared, stage), group: 'stage', kind: 'schedule', unit: 'minutes', def: base.def.map((r) => ({ ...r })),
         maxRows: base.maxRows, maxMinutes: base.maxMinutes,
+        ...(shared === 'dropoff.schedule' ? { timeline: true } : {}),
         label: `${base.label} (${where})`,
-        help: `A schedule for “${where}” only. Until one is saved here, this stage uses “${base.label}”.`,
+        help: shared === 'dropoff.schedule'
+          ? `The whole timeline for “${where}” only: messages and calls, each a delay after they stop or a set time on a later day. Once one is saved here it replaces “${base.label}”, the daily reminders and the daily follow-up call for this stage.`
+          : `A schedule for “${where}” only. Until one is saved here, this stage uses “${base.label}”.`,
       });
     }
   }
@@ -580,12 +640,16 @@ export function checkTiming(def: TimingDef, raw: unknown): Checked {
       for (let i = 0; i < raw.length; i++) {
         const r = raw[i] as Partial<ScheduleRow> | null;
         const n = Number(r?.afterMinutes);
-        if (r?.channel !== 'sms' && r?.channel !== 'whatsapp') return bad(`Row ${i + 1}: channel must be SMS or WhatsApp`);
+        const call = r?.channel === 'call';
+        if (call && !def.timeline) return bad(`Row ${i + 1}: calls can only be added to a stage timeline`);
+        if (r?.channel !== 'sms' && r?.channel !== 'whatsapp' && !call) return bad(`Row ${i + 1}: channel must be SMS, WhatsApp${def.timeline ? ' or Call' : ''}`);
+        if (r?.atClock && !def.timeline) return bad(`Row ${i + 1}: a set time of day is only for a stage timeline`);
         if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return bad(`Row ${i + 1}: enter whole minutes (0 or more)`);
         if (n > def.maxMinutes) return bad(`Row ${i + 1}: at most ${def.maxMinutes} minutes (${def.maxMinutes / 1440} days)`);
+        if (r?.atClock && n < 1440) return bad(`Row ${i + 1}: a set time of day must be on day 1 or later`);
         if (n < prev) return bad(`Row ${i + 1}: must not be earlier than the row above`);
         prev = n;
-        rows.push({ channel: r.channel, afterMinutes: n });
+        rows.push({ channel: r!.channel as ScheduleRow['channel'], afterMinutes: n, ...(r?.atClock ? { atClock: true } : {}) });
       }
       return { ok: true, value: rows };
     }

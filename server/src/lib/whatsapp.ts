@@ -203,6 +203,8 @@ export async function sendWhatsAppTemplate(opts: {
   track?: SendTrack;
   /** UTILITY | MARKETING | AUTHENTICATION for THIS template; falls back to the card's category. */
   category?: string;
+  /** For a template with an IMAGE header: the public https URL of the image, sent with every message (WhatsApp requires it). */
+  headerImageUrl?: string;
 }): Promise<WhatsAppResult> {
   const r = await ready();
   if (typeof r === 'string') return { ok: false, status: 0, error: r };
@@ -214,9 +216,14 @@ export async function sendWhatsAppTemplate(opts: {
   const template = {
     name: templateName,
     language: { code: opts.language || String(r.settings.defaultLanguage || 'en') },
-    // A template with no variables must omit `components` entirely.
-    ...(placeholders.length
-      ? { components: [{ type: 'body', parameters: placeholders.map((text) => ({ type: 'text', text })) }] }
+    // A template with no variables (and no image header) must omit `components` entirely.
+    ...(placeholders.length || opts.headerImageUrl
+      ? {
+          components: [
+            ...(opts.headerImageUrl ? [{ type: 'header', parameters: [{ type: 'image', image: { link: opts.headerImageUrl } }] }] : []),
+            ...(placeholders.length ? [{ type: 'body', parameters: placeholders.map((text) => ({ type: 'text', text })) }] : []),
+          ],
+        }
       : {}),
   };
 

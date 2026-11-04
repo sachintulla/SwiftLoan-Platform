@@ -10,8 +10,8 @@
 
 import { DEFAULT_SCHEDULE, type ScheduleRow } from './timings.js';
 
-export type ReminderChannel = 'sms' | 'whatsapp';
-export type LastStep = 'otp_requested' | 'otp_only' | 'pan_done' | 'application_started';
+export type ReminderChannel = 'sms' | 'whatsapp' | 'call';
+export type LastStep = 'otp_requested' | 'otp_only' | 'pan_done' | 'application_started' | 'offers_ready';
 export type StopReason = 'installed' | 'app_login' | 'application_finished' | 'do_not_contact' | 'returned';
 
 export interface ScheduleStep {
@@ -47,14 +47,34 @@ export function offsetLabel(minutes: number): string {
   return `day ${days} ${offsetLabel(rest)}`;
 }
 
-/** The schedule as the code uses it, from the editable rows (admin → Timings). */
-export function stepsFromRows(rows: readonly ScheduleRow[]): ScheduleStep[] {
-  return rows.map((r, index) => ({
-    index,
-    channel: r.channel,
-    offsetMs: r.afterMinutes * MIN,
-    label: `${offsetLabel(r.afterMinutes)} ${r.channel}`,
-  }));
+const IST_OFFSET_MS = 330 * MIN;
+const DAY_MS = 24 * HOUR;
+
+/** "day 3 19:00": a set-time row's name (day × 1440 + minute of the India day). */
+export function clockLabel(minutes: number): string {
+  const day = Math.floor(minutes / 1440);
+  const m = minutes % 1440;
+  return `day ${day} ${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The schedule as the code uses it, from the editable rows (admin → Timings). A set-time row (`atClock`, stage timelines only) becomes
+ * a delay once `startAt` is known: that India day (startAt's day + N) at that clock time. Without `startAt` it is read as a plain delay.
+ * Steps are kept in time order, so a set-time row sits between the delays around it.
+ */
+export function stepsFromRows(rows: readonly ScheduleRow[], startAt?: Date): ScheduleStep[] {
+  const steps = rows.map((r) => {
+    let offsetMs = r.afterMinutes * MIN;
+    if (r.atClock && startAt) {
+      const localDayStart = Math.floor((startAt.getTime() + IST_OFFSET_MS) / DAY_MS) * DAY_MS - IST_OFFSET_MS;
+      offsetMs = localDayStart + r.afterMinutes * MIN - startAt.getTime();
+    }
+    return { channel: r.channel, offsetMs, label: `${r.atClock ? clockLabel(r.afterMinutes) : offsetLabel(r.afterMinutes)} ${r.channel}` };
+  });
+  return steps
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => a.s.offsetMs - b.s.offsetMs || a.i - b.i)
+    .map(({ s }, index) => ({ index, ...s }));
 }
 
 export const SCHEDULE_STEPS: readonly ScheduleStep[] = Object.freeze(stepsFromRows(DEFAULT_SCHEDULE));
@@ -106,10 +126,13 @@ export function nextAction(i: NextActionInput): NextAction {
   return { kind: 'send', step };
 }
 
-/** Where the visitor got to, from what the server knows about them. */
-export function deriveLastStep(i: { panOnFile: boolean; hasApplication: boolean; unverified?: boolean }): LastStep {
+/**
+ * Where the visitor got to, from what the server knows about them. `offersReady` (offers shown, none applied for) is only passed by
+ * the reminder job: the app's resume flow (journeyResume.ts) leaves it out and keeps the three steps it understands.
+ */
+export function deriveLastStep(i: { panOnFile: boolean; hasApplication: boolean; unverified?: boolean; offersReady?: boolean }): LastStep {
   if (i.unverified) return 'otp_requested';
-  if (i.hasApplication) return 'application_started';
+  if (i.hasApplication) return i.offersReady ? 'offers_ready' : 'application_started';
   return i.panOnFile ? 'pan_done' : 'otp_only';
 }
 
@@ -146,6 +169,15 @@ export function isFinishedApplicationStatus(status: string | null | undefined): 
   return !!status && (FINISHED_APPLICATION_STATUSES as readonly string[]).includes(status);
 }
 
+/**
+ * The lookup ended with no offers because the number is already registered with the lender (stored as `failed` + `duplicate`, see
+ * dropoffSteps.ts). Like a rejection, there is nothing left for them to finish, so "your application is incomplete" would be untrue.
+ * A plain `failed` (technical error) is not this: they can still retry, so the reminders carry on.
+ */
+export function isNoOffersOutcome(a: { status: string | null | undefined; prequalifyReason?: string | null }): boolean {
+  return a.status === 'failed' && a.prequalifyReason === 'duplicate';
+}
+
 /** The app link: opens the store or TestFlight and records the click against this visitor's reference ID. */
 export function buildInstallLink(publicBase: string, token: string): string {
   return `${publicBase.replace(/\/$/, '')}/dl?ref=${encodeURIComponent(token)}`;
@@ -159,12 +191,14 @@ export function buildInstallLink(publicBase: string, token: string): string {
  *   otp_only            mobile verified, PAN not done      → step 1
  *   pan_done            PAN done, details not submitted    → step 2
  *   application_started details submitted (application row) → step 3
+ *   offers_ready        offers shown, none applied for     → choosing one
  */
 export const DEFAULT_STEP_LABELS: Readonly<Record<LastStep, string>> = Object.freeze({
   otp_requested: 'OTP verification',
   otp_only: 'PAN verification',
   pan_done: 'Basic details',
   application_started: 'Finding offers',
+  offers_ready: 'Choosing an offer',
 });
 
 /** A DLT variable is capped (30 characters is common): keep the whole name if it fits, else its first word. */

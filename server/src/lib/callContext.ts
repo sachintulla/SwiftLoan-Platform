@@ -20,6 +20,8 @@ import { prisma } from './prisma.js';
 import { STAGE_LABELS, journeyProgress } from './journey.js';
 import { nextActionFor } from './nextAction.js';
 import { rupeesDigits, rupeesInWords } from './rupees.js';
+import { loadCallSituation } from './callSituation.js';
+import { tidyName } from './installReminder.js';
 
 /**
  * Every variable the lead-callback agent may reference.
@@ -90,6 +92,16 @@ export const LEAD_CALL_VARIABLES = [
   'stall_minutes',
   'stall_channel',
   'stall_help',
+  // ── What is TRUE about a signed-in customer now (callSituation.ts), from stored data ──
+  // One sentence the agent opens from, and — when they have offers — the count and the best (highest-amount) offer.
+  'call_situation',
+  'offer_count',
+  'best_offer_lender',
+  'best_offer_amount',
+  'best_offer_amount_words',
+  'best_offer_emi',
+  'best_offer_emi_words',
+  'best_offer_tenure_months',
 ] as const;
 
 export type LeadCallVariable = (typeof LEAD_CALL_VARIABLES)[number];
@@ -183,13 +195,18 @@ export async function buildLeadCallContext(
 
   // Where the customer sits in the defined journey — sent on every call.
   const journey = journeyProgress(customer.currentStage);
+  // For a signed-in customer, what is true now, from stored data (callSituation.ts). It replaces the stage/journey lines below, which
+  // come from Customer.currentStage and can be wrong (the app's status screen used to count as "application submitted").
+  const situation = account ? await loadCallSituation(account.id).catch(() => null) : null;
+  const displayName = tidyName(full || accountName) ?? '';
 
   return {
     // Prefer the registered account name; fall back to the lead's own name so
     // the variable resolves rather than rendering blank.
     user_name: accountName || full,
-    lead_name: full,
-    lead_first_name: full ? full.split(/\s+/)[0] : '',
+    // The enquiry's name, else the account's (app users have no enquiry), in normal capitals ("Dushyant", not "DUSHYANT").
+    lead_name: displayName,
+    lead_first_name: displayName ? displayName.split(/\s+/)[0] : '',
     lead_city: str(customer.city),
     lead_phone: str(customer.phone),
     // Ello's tool-calling placeholder resolver only does an exact key match
@@ -205,17 +222,17 @@ export async function buildLeadCallContext(
     lead_source: str(customer.firstSource),
     lead_language: account ? spokenLanguageLabel(account.voiceLang, account.lang) : '',
     lead_campaign: str(customer.campaignId ?? customer.utmCampaign),
-    lead_stage: STAGE_LABELS[customer.currentStage] ?? str(customer.currentStage),
+    lead_stage: situation?.lead_stage ?? STAGE_LABELS[customer.currentStage] ?? str(customer.currentStage),
     // Full journey context (the defined funnel + progress) so the agent can say
     // "you're at step 7 of 12, offers viewed, next is selecting an offer".
-    lead_stage_key: str(customer.currentStage),
-    lead_stage_number: journey.index ? String(journey.index) : '',
-    lead_stage_total: String(journey.total),
-    lead_journey: journey.line,
-    lead_journey_done: journey.done.join(', '),
-    lead_journey_next: journey.next ?? '',
+    lead_stage_key: situation ? '' : str(customer.currentStage),
+    lead_stage_number: situation ? '' : journey.index ? String(journey.index) : '',
+    lead_stage_total: situation ? '' : String(journey.total),
+    lead_journey: situation?.call_situation ?? journey.line,
+    lead_journey_done: situation?.lead_journey_done ?? journey.done.join(', '),
+    lead_journey_next: situation?.lead_journey_next ?? journey.next ?? '',
     lead_summary: str(lead?.note),
-    lead_next_action: nextActionFor(customer.currentStage),
+    lead_next_action: situation?.lead_journey_next ?? nextActionFor(customer.currentStage),
     lead_prior_inquiries: priorCount ? String(priorCount) : '',
     lead_is_returning: priorCount > 0 ? 'yes' : 'no',
     agent_purpose: opts.purpose ?? 'website_lead_followup',
@@ -230,6 +247,14 @@ export async function buildLeadCallContext(
     stall_minutes: opts.stall?.minutes != null ? String(opts.stall.minutes) : '',
     stall_channel: opts.stall?.channel ?? '',
     stall_help: opts.stall?.help ?? '',
+    call_situation: situation?.call_situation ?? '',
+    offer_count: situation?.offer_count ?? '',
+    best_offer_lender: situation?.best_offer_lender ?? '',
+    best_offer_amount: situation?.best_offer_amount ?? '',
+    best_offer_amount_words: situation?.best_offer_amount_words ?? '',
+    best_offer_emi: situation?.best_offer_emi ?? '',
+    best_offer_emi_words: situation?.best_offer_emi_words ?? '',
+    best_offer_tenure_months: situation?.best_offer_tenure_months ?? '',
   };
 }
 

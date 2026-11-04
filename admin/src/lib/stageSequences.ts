@@ -10,7 +10,7 @@
 // (server/src/lib/timings.ts). `ownSchedule` mirrors the per-stage schedules the server supports (server/src/lib/stageSchedules.ts).
 // Pure data and helpers, so it is unit-tested; the screen only renders it.
 
-export interface SchedRow { channel: 'sms' | 'whatsapp'; afterMinutes: number }
+export interface SchedRow { channel: 'sms' | 'whatsapp' | 'call'; afterMinutes: number; atClock?: boolean }
 
 export type FlowSide = 'app' | 'website';
 const BOTH: readonly FlowSide[] = ['app', 'website'];
@@ -209,7 +209,9 @@ export function jobSteps(
   for (const s of seq.sources) {
     const live = s.switches.every(isOn);
     rowsFor(s).forEach((r, index) => out.push({
-      key: `${s.id}:${index}`, group: 'job', sourceId: s.id, kind: 'message', index, channel: r.channel, afterMinutes: r.afterMinutes, live, label: s.label,
+      // A call row of a stage timeline shows as a call; a set-time row ("day 3 at 19:00") is placed at that many minutes for ordering.
+      key: `${s.id}:${index}`, group: 'job', sourceId: s.id, kind: r.channel === 'call' ? 'call' : 'message', index,
+      channel: r.channel === 'call' ? 'voice' : r.channel, afterMinutes: r.afterMinutes, live, label: s.label,
     }));
   }
   if (seq.call) {

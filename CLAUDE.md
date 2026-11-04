@@ -481,6 +481,12 @@ resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin 
   what it would send in `JourneyReminder.history`. Real sends need Voxvalley settings `installSmsTemplateId` + `installSmsBody` (must contain `{link}`; may also use `{name}` and `{step}`, with `installStepLabels` renaming the steps)
   and `installWhatsapp` `{template, language, placeholders: ['{name}','{link}']}` (`{step}` is also available; `install_app_resume_step` takes name, step, link) (a registered DLT template / approved WhatsApp template).
 - `stallSms` / `stallWhatsapp` stand down for anyone with an active reminder (`lib/installReminderGuard.ts`), so no two sequences overlap.
+- **Website drop-off SMS (owner, 2026-11-04): all SMS/WhatsApp come from our code; Upshot is for push only.** The install reminder is meant to run
+  SMS-only (`install.schedule` rows all `sms`), sending the DLT text "…incomplete at {step}… :{link}" through the OTP Vox project (`installSmsGateway: "otp"`).
+  An SMS-only reminder no longer silences the drop-off WhatsApp journey (`reminderSendsWhatsapp`, used by `appDropoff.ts otherSequenceActive`): the two
+  run together. Extra step `offers_ready` → "Choosing an offer" (reminder only; the app resume still gets the three old steps), and "already registered
+  with the lender" (`failed` + `duplicate`) stops the reminder like a rejection. Upshot's own SMS journeys (Swiftloan_Web / Swiftloan_prod) are still
+  live until this is verified; an Upshot journey can only be made Inactive by deleting its campaigns (permanent), so plan the switch-off with the Upshot owner.
 - **App resume (phase 2).** `POST /attribution/claim` returns a `resume` block ONLY for a deterministic match (Play referrer / clipboard token; never
   a same-IP guess): reference token, first name, phone, last step (`lib/journeyResume.ts`). `src/components/ResumePrompt.tsx` (mounted in `App.tsx`)
   shows "Okay, continue" / "Take help from agent"; both open `mobile` with the number pre-filled and the consent box UNTICKED (the agent asks before
@@ -589,7 +595,8 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
   <lender>" is 2 WhatsApp messages (10 min, next day) per lender. All editable in Admin → Timings; a value already saved in `PlatformSetting` (e.g. prod's old
   20-message schedule) overrides the new default until reset. `reminderSchedule.test.ts` and integration S01-S89 pin the ORIGINAL 20-message pattern on purpose
   (it exercises every rule branch); S90+ run on the real defaults.
-- **Asked for an OTP but never entered it** (`armUnverifiedReminder`, called from the website `/otp/request` only; the app's own OTP never arms it).
+- **Asked for an OTP but never entered it** (`armUnverifiedReminder`, called from the website `/otp/request` and, since 2026-11-04, the app's `/auth/otp/request` too (Android + iOS; an app
+  verify ends it through the `app_login` stop)).
   `JourneyReminder.unverified` (migration `20261023130000_journey_reminder_unverified`), step `otp_requested` → label "OTP verification", name "there". Its own
   short schedule (`install.unverifiedSchedule`: WhatsApp 10 min, SMS 1 day), switch `install.unverifiedEnabled`, ONCE per number ever (a number that already has any
   reminder is skipped) because the number is unproven: anyone can type any number. Entering the code later stops it (`verified`) and starts the normal run with the
@@ -864,3 +871,43 @@ Ello's 5,000-token limit (~3,530 words).
 - **Calls on the user profile.** Admin → Users → a user now has a "Voice calls" card (`CallList`, the same rows and detail as the Customer profile's Calls tab:
   context given, outcome + source, summary, transcript, recording), from `GET /api/admin/users/:id` → `calls` (by phone, 50 newest), with a "Full journey" link to
   `/customers/:id`. Before this only the Customer profile showed calls.
+
+---
+
+## Outreach scenarios (Sachin's review, built 2026-11-04; sheet `docs/Outreach_Scenarios_Plan.xlsx`)
+
+- **Scenario 1 (mobile entered, OTP not verified, app + website):** the install reminder's "unverified" run, SMS-only (5 min + 1 day), armed
+  from the website AND the app OTP request. Old call rule "CALL — entered phone but never verified OTP" is switched off on prod.
+- **Scenario 2 (OTP verified, PAN not done):** a drop-off STAGE TIMELINE (`dropoff.schedule.otp_verified`, Configs → Stage outreach). Timeline
+  rows may be **calls** (`channel: 'call'`, placed by `lib/dropoffCall.ts`) and **set times on a later India day** (`atClock: true`,
+  afterMinutes = day × 1440 + minute of day; `stepsFromRows(rows, startAt)` turns them into delays). A stage with a SAVED timeline uses it
+  alone: no 7 AM daily WhatsApp, and `inactiveCall.ts` leaves it out. Sachin's timeline: WA 30 min, WA 4 h, call D1 11:00, WA D3 19:00,
+  call D5 18:00, WA D7 10:00. Prod needs the deploy before such a timeline can be saved (old code rejects calls/set times).
+- **Welcome WhatsApp** after a WEBSITE OTP verify (`lib/welcomeMessage.ts`, switch `welcome.sendEnabled`, off): template
+  `welcome_continue_app` (approved 2026-11-04 as MARKETING by Meta though submitted as Utility; image header = `https://swiftloan.ai/whatsapp-welcome.png`, which every send must carry; {{1}} name,
+  {{2}} link; Meta id 1745051353263012, submitted 2026-11-04). Once per number. Meta rejects a body that ends with a variable.
+- **Missed call → "sorry we missed you"** (`lib/missedCallNote.ts`, from the drop-off tick): an unanswered timeline call gets one WhatsApp
+  with the SAME welcome template `dropoff.missedNoteMinutes` (5) after it ended. Not counted as a touch.
+- **One contact limit** (`lib/contactPolicy.ts`, Admin → Timings → Per-person limits): `limits.touchesPerDay` (2), `limits.touchesPerWeek`
+  (6), `limits.noCallAndMessageSameDay` (on). Checked by the drop-off timeline, install reminders, welcome, the daily call and the
+  stuck-step call rules; a touch over the limit is SKIPPED (recorded), not delayed. Pass the job's `now` (tests time-travel).
+- **SMS in every scenario (owner, 2026-11-04): only two registered texts** (`lib/smsRoute.ts`): `LINK_SMS` (1277179300146510723,
+  "…incomplete at {step}… :{link}") everywhere, `PAN_PENDING_SMS` (1277179266527595706, "verify your PAN") only for an APP user stopped
+  before PAN. `sendRegisteredSms` honours `installSmsGateway: "otp"`. Welcome SMS right after OTP verify (`sendWelcomeSms`, switch
+  `welcome.smsEnabled`): app → PAN text, website → link text. **Every drop-off WhatsApp is followed by its SMS** (`lib/smsFallback.ts`,
+  owner: both, with a gap): `dropoff.smsFallbackMinutes` (10) after each WhatsApp, the same step goes once by SMS (`dropoff.smsFallbackEnabled`,
+  on); `dropoff.smsOnlyIfUndelivered` (off) narrows it to undelivered WhatsApps only. Not sent if they came back or moved on in between. Welcome SMS and fallback SMS are exempt from the touch count (same touch).
+- **Scenario 3/4 timelines** (to save after the deploy): `dropoff.schedule.eligibility_started` = WA 30 m, WA 4 h, call D1 11:00, WA D3 19:00,
+  call D5 18:00, WA D7 10:00; `dropoff.schedule.offer_viewed` = call 10 m, WA D1 10:00, call D2 18:00, WA D4 10:00, call D5 14:00, WA D7 10:00.
+- **Voice agent briefing tells the truth (2026-11-04, `lib/callSituation.ts`):** for a signed-in customer, `lead_stage` / `lead_journey*` /
+  `lead_next_action` and the new `call_situation` come from stored data (`deriveDropoff`), not `Customer.currentStage` (the app's status
+  screen fired `application_submitted`, putting people who never applied at "stage 10, KYC completed"; `tracking.routes.ts` now ignores that
+  event unless a LenderApplication exists). With offers: `offer_count` + best offer (highest amount; `best_offer_*`). `lead_first_name` /
+  `lead_name` fall back to the account name in normal capitals. Ruby's prompt opens from `{{call_situation}}` and, with offers, the best
+  offer first (`prompts/ello-outbound-ruby-prompt.md`, local; paste into Ello; keep ≤ ~3,530 words). Ello's own default first message
+  ("Hi! How can I assist you today?") must be blank on the Ello dashboard.
+- **Only the Journey sheet runs (owner, 2026-11-04).** On prod every stuck-step call rule, the daily 1:30 PM call, the no-offers call, the
+  website enquiry call and the drop-off WhatsApp switch (`dropoff.sendEnabled`, back on with the timelines at go-live) are OFF. The old
+  verified-visitor install reminders have their own switch `install.verifiedEnabled` (env `INSTALL_REMINDER_VERIFIED`, default off); the
+  reminder row and its link are still created. Code was switched off, not deleted (the same engines run the scenarios). Upshot's own
+  SMS journeys are still on in the Upshot dashboard.

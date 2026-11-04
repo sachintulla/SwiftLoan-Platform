@@ -19,15 +19,19 @@ import type { AppDropoff } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { downloads } from '../config/downloads.js';
 import { getProviderConfig } from './integrations.js';
-import { sendVoxSms, smsConfigured } from './voxSms.js';
 import { sendWhatsAppTemplate, whatsappConfigured } from './whatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { withinCallingHours } from './leadCaller.js';
 import { scoped } from './log.js';
 import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
 import { dropoffStageOf } from './stageSchedules.js';
-import { alreadyInApp, notOnTestList, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
+import { alreadyInApp, notOnTestList, reminderSendsWhatsapp, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
 import { placeNoOffersCalls } from './noOffersCall.js';
+import { placeDropoffCall } from './dropoffCall.js';
+import { PAN_PENDING_SMS, sendRegisteredSms } from './smsRoute.js';
+import { touchAllowed } from './contactPolicy.js';
+import { sendMissedCallNotes } from './missedCallNote.js';
+import { sendSmsFallbacks } from './smsFallback.js';
 import { CUSTOMER_ACTION_CHANNELS, SYSTEM_EVENT_NAMES } from './journey.js';
 import { dailyRows, returnVerdict } from './dropoffDaily.js';
 import { buildInstallLink, nextAction, nextCheckTime, renderSmsBody, stepsFromRows, type ScheduleConfig, type ScheduleStep } from './reminderSchedule.js';
@@ -112,10 +116,13 @@ async function isDoNotContact(phone: string): Promise<boolean> {
  */
 async function otherSequenceActive(phone: string): Promise<boolean> {
   const [reminder, nudge] = await Promise.all([
-    timing.bool('install.sendEnabled') ? prisma.journeyReminder.findFirst({ where: { phone, status: 'active' }, select: { id: true } }) : Promise.resolve(null),
+    timing.bool('install.sendEnabled')
+      ? prisma.journeyReminder.findFirst({ where: { phone, status: 'active' }, select: { unverified: true, lastStep: true } })
+      : Promise.resolve(null),
     timing.bool('applied.sendEnabled') ? prisma.lenderNudge.findFirst({ where: { phone, status: 'active' }, select: { id: true } }) : Promise.resolve(null),
   ]);
-  return !!reminder || !!nudge;
+  // An SMS-only website reminder does not own the person: its SMS and this job's WhatsApp are the two halves of one journey.
+  return (!!reminder && reminderSendsWhatsapp(reminder)) || !!nudge;
 }
 
 /**
@@ -253,10 +260,15 @@ interface DeliverResult { outcome: HistoryOutcome; reason?: string }
  * Shipped defaults (dropoffSteps.ts DEFAULT_DROPOFF_MESSAGES) sit underneath what is saved, one variant at a time.
  * Tokens: {name}, {step}, {link}, {ref} (application reference), {offerCount}. `settings.dropoffStepLabels` renames the step labels.
  */
-async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKind, withLink: boolean): Promise<DeliverResult> {
+async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKind, withLink: boolean, now: Date = new Date()): Promise<DeliverResult> {
   if (!appDropoffSendEnabled()) return { outcome: 'logged' };
   // While a test list is set, nobody else is messaged. The step is used up (not saved for later), so clearing the list never sends a backlog.
   if (notOnTestList(r.phone)) return { outcome: 'skipped', reason: 'not on the test-number list' };
+  // The one contact limit (contactPolicy.ts): touches per day / week, and never a call and a new message on the same day.
+  const allowed = await touchAllowed(r.phone, step.channel === 'call' ? 'call' : 'message', now);
+  if (!allowed.ok) return { outcome: 'skipped', reason: allowed.reason };
+  // A call step of a stage timeline (dropoffCall.ts): Ruby, not a message, so the link and template do not apply.
+  if (step.channel === 'call') return placeDropoffCall(r, step.index, now);
   if (withLink && !r.token) return { outcome: 'skipped', reason: 'no link to carry' };
 
   const cfg = await getProviderConfig('voxvalley');
@@ -266,11 +278,12 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
   const link = withLink && r.token ? buildInstallLink(downloads.publicBase, r.token) : '';
 
   if (step.channel === 'sms') {
-    const ref = pickSms(messages, kind, withLink);
+    // The two registered texts (smsRoute.ts): an app user stopped before PAN gets "verify your PAN"; everyone else the link text. Someone
+    // already in the app has no personal link, so the plain app link (/dl) goes in its place.
+    const ref = r.dropStatus === 'otp_verified' && !withLink ? PAN_PENDING_SMS : pickSms(messages, kind, withLink);
     if (!ref) return { outcome: 'skipped', reason: 'sms template not configured' };
-    if (!(await smsConfigured())) return { outcome: 'skipped', reason: 'sms gateway not configured' };
-    const text = renderSmsBody(ref.body!, { name: r.firstName, step: stepLabel, link });
-    const res = await sendVoxSms({ phone: r.phone, body: text, templateId: ref.templateId, track: { kind: 'app_dropoff', customerId: r.customerId } });
+    const text = renderSmsBody(ref.body!, { name: r.firstName, step: stepLabel, link: link || `${downloads.publicBase}/dl` });
+    const res = await sendRegisteredSms({ phone: r.phone, templateId: ref.templateId!, text, track: { kind: 'app_dropoff', customerId: r.customerId } });
     return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'sms failed').slice(0, 200) };
   }
 
@@ -297,10 +310,14 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
 
 export interface AppDropoffTickResult { armed: number; scanned: number; stopped: number; handled: number; completed: number; calls: number }
 
-/** The rules for one run: the shared ones, except a stage with its own schedule (Configs → Stage outreach) uses that. */
+/**
+ * The rules for one run: the shared schedule plus the daily reminders, except a stage with its own saved timeline (Configs → Stage outreach)
+ * uses that timeline ALONE (its messages, calls and set-time days; no daily 7 AM reminders, and inactiveCall.ts leaves it out too).
+ */
 export function dropoffConfigFor(status: string, base: ScheduleConfig, startAt: Date): ScheduleConfig {
   const stage = dropoffStageOf(status);
-  const first = hasStageSchedule('dropoff.schedule', stage) ? stageScheduleRows('dropoff.schedule', stage) : timing.schedule('dropoff.schedule');
+  if (hasStageSchedule('dropoff.schedule', stage)) return { ...base, steps: stepsFromRows(stageScheduleRows('dropoff.schedule', stage), startAt) };
+  const first = timing.schedule('dropoff.schedule');
   // The journey: the first message(s) counted from the last action, then one WhatsApp at `dropoff.dailyAt` each day for `dropoff.dailyDays`.
   return { ...base, steps: stepsFromRows([...first, ...dailyRows(startAt, first, timing.num('dropoff.dailyAt'), timing.num('dropoff.dailyDays'))]) };
 }
@@ -367,7 +384,7 @@ async function processRow(r: AppDropoff, now: Date, out: AppDropoffTickResult, b
   const kind = messageKindFor(r.dropStatus as DropoffStatus) ?? 'continue';
   const withLink = includeAppLink(kind, await alreadyInApp(r.phone));
   const step = action.step;
-  const result: DeliverResult = action.kind === 'skip' ? { outcome: 'skipped', reason: action.reason } : await deliver(r, step, kind, withLink);
+  const result: DeliverResult = action.kind === 'skip' ? { outcome: 'skipped', reason: action.reason } : await deliver(r, step, kind, withLink, now);
   const entry: DropoffHistoryEntry = {
     step: step.index, channel: step.channel, label: step.label, at: now.toISOString(), outcome: result.outcome,
     ...(result.reason ? { reason: result.reason } : {}), message: kind, withLink,
@@ -414,6 +431,18 @@ export async function appDropoffTick(now: Date = new Date()): Promise<AppDropoff
     out.calls = (await placeNoOffersCalls(now)).placed;
   } catch (e) {
     log.error('no-offers call pass failed', { error: (e as Error).message });
+  }
+  // "Sorry we missed you" after an unanswered timeline call (missedCallNote.ts), isolated the same way.
+  try {
+    await sendMissedCallNotes(now);
+  } catch (e) {
+    log.error('missed-call note pass failed', { error: (e as Error).message });
+  }
+  // WhatsApp not delivered in time → the same step by SMS (smsFallback.ts), isolated the same way.
+  try {
+    await sendSmsFallbacks(now);
+  } catch (e) {
+    log.error('sms fallback pass failed', { error: (e as Error).message });
   }
   return out;
 }

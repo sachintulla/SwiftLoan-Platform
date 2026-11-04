@@ -21,7 +21,9 @@ import { isCallAllowed } from './callGate.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { JOURNEY_EVENTS, recordJourneyEvent } from './journey.js';
 import { scoped } from './log.js';
-import { timing } from './timings.js';
+import { timing, hasStageSchedule } from './timings.js';
+import { dropoffStageOf } from './stageSchedules.js';
+import { touchAllowed } from './contactPolicy.js';
 import { istDateKey, istDayStart } from './stallCallLimits.js';
 import { DROPOFF_STEP_LABELS, deriveDropoff, type DropoffStatus } from './dropoffSteps.js';
 import { lastActivityFor, loadSnapshot } from './appDropoff.js';
@@ -72,6 +74,8 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
       const loaded = c.userId ? await loadSnapshot(c.userId) : null;
       const state = loaded ? deriveDropoff(loaded.snapshot) : null;
       const status = state?.status ?? null;
+      // A stage with its own saved timeline places its own calls (appDropoff.ts → dropoffCall.ts): this daily call stays out of it.
+      if (hasStageSchedule('dropoff.schedule', dropoffStageOf(status))) { out.skipped++; continue; }
       // The clock's floor is when they reached the step, NEVER `Customer.lastActivityAt`: old rows of that column were bumped by our own
       // nudges (2026-11-03: with it as the floor, 135 weeks-old rejections looked like "stopped yesterday" and would all have been rung).
       const stoppedAt = c.userId && state?.since ? await lastActivityFor(c.userId, c.phone, state.since) : null;
@@ -95,6 +99,7 @@ export async function inactiveCallTick(now: Date = new Date()): Promise<Inactive
       // Same 24 h per-phone cooldown as every other dialler: someone who spoke to the agent this morning (no-offers call) is not rung
       // again this evening by a different job.
       if (await isPhoneInCooldown(c.phone, phoneCooldownHours(), now)) { out.skipped++; continue; }
+      if (!(await touchAllowed(c.phone, 'call', now)).ok) { out.skipped++; continue; } // the one contact limit (contactPolicy.ts)
 
       try {
         await prisma.outboundRequest.create({

@@ -12,6 +12,7 @@ import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
 import { scoped } from '../lib/log.js';
 import { armInstallReminder, armUnverifiedReminder } from '../lib/installReminder.js';
+import { sendWelcome, sendWelcomeSms } from '../lib/welcomeMessage.js';
 
 const log = scoped('websiteAuth');
 
@@ -89,7 +90,14 @@ websiteAuthRouter.post(
     });
     setRefreshCookie(res, tokens.refreshToken);
     // Start the app-link reminders for this visitor (fire-and-forget; never blocks or fails the login).
-    armInstallReminder({ id: user.id, phone: user.phone }).catch((e) => log.warn('arm install reminder failed', { error: (e as Error).message }));
+    // Then the welcome WhatsApp with that visitor's own app link (welcomeMessage.ts; off unless Admin → Timings "welcome.sendEnabled").
+    armInstallReminder({ id: user.id, phone: user.phone })
+      .catch((e) => { log.warn('arm install reminder failed', { error: (e as Error).message }); return null; })
+      .then(async (r) => {
+        const token = r?.token ?? (await prisma.journeyReminder.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, select: { token: true } }))?.token;
+        await Promise.all([sendWelcome(user, token), sendWelcomeSms(user, 'website', token)]);
+      })
+      .catch((e) => log.warn('welcome failed', { error: (e as Error).message }));
     const { hasApplication, applicationId } = await findHasApplication(user.id);
     res.json({
       success: true,
