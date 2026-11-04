@@ -666,7 +666,7 @@ real sending (templates await Meta / Vox delivery), admin view, retiring the ove
   until the call is switched on and the wording says the SwiftLoan assistant (not "a team") will call. Until then it is recorded as skipped ("whatsapp template not configured"). Turn it on by saving
   `no_offers.whatsapp.noLink = {"template":"dropoff_no_offers_callback","placeholders":["{name}"]}`.
 - **"No offers" follow-up CALL** (`lib/noOffersCall.ts`, run from the end of `appDropoffTick`, isolated so a failure never stops the messages): the existing Ello
-  `leadCallback` agent (`placeCall`, no new agent) rings a person whose lookup found no offers, once, `dropoff.noOffersCallDelayMinutes` (45) after they got none.
+  `leadCallback` agent (`placeCall`, no new agent) rings a person whose lookup found no offers, once, `dropoff.noOffersCallDelayMinutes` (2; was 45) after they got none.
   Own switch `dropoff.noOffersCallEnabled` (**off**: records one "would call" entry in the run's `history`, nothing is dialled); it ALSO needs the master `calls.nudgeEnabled`
   and respects `calls.allowedNumbers`, calling hours, do-not-contact and `calls.quietAfterMessageMinutes` (a logged/sent WhatsApp before it counts, so ticks closer than that wait).
   The `OutboundRequest` (kind `no_offers_call`, key `noffers:<run id>`) is claimed BEFORE dialling; one call per person ever; a failed dial is recorded and NOT retried; a "would call" entry
@@ -906,6 +906,17 @@ Ello's 5,000-token limit (~3,530 words).
   `lead_name` fall back to the account name in normal capitals. Ruby's prompt opens from `{{call_situation}}` and, with offers, the best
   offer first (`prompts/ello-outbound-ruby-prompt.md`, local; paste into Ello; keep ≤ ~3,530 words). Ello's own default first message
   ("Hi! How can I assist you today?") must be blank on the Ello dashboard.
+- **Scenario 5 (no offers, critical moment):** the `rejected` drop-off run is armed at once (no idle wait, `startAt` = the lookup time) and
+  coming back never restarts or ends it; the no-offers call ignores the quiet gap after a message. Ruby (prompt section A) asks what they need
+  (amount + purpose, employment, take-home, EMIs, city/PIN, how soon, callback time/language, OK to share with other lenders) and reports it with
+  `report_call_outcome`; the webhook keeps the extra answers in `CallAttempt.details.requirement`, shown in Admin → the call → "Captured on the call".
+  The Ello `report_call_outcome` tool needs those parameters added on the Ello dashboard. Live once `dropoff.noOffersCallEnabled` is on.
+- **"I'll send you the link" on a call (`send_app_link` → `POST /api/conversations/send-link`, `lib/agentLink.ts`):** sends the app link by SMS
+  (LINK_SMS) AND WhatsApp (`install_app_resume_step`), same three values: name (our records, else "Customer"), status "Starting a Loan
+  Application" (Voxvalley `callLinkStep` overrides), link `/dl?ref=<their token>` (made as an ended `JourneyReminder` row if they had none, so no
+  reminder job runs it) or `/dl?campaign=voice_agent` for an unknown number. Any valid number; do-not-contact / review phone / test list refused;
+  one per phone per hour; kind `agent_link`, exempt from the touch limit. Test: `bash scripts/journey/run-agent-link.sh`. Ello setup:
+  `docs/ELLO_TOOL_CONFIG.md` §1d.
 - **Only the Journey sheet runs (owner, 2026-11-04).** On prod every stuck-step call rule, the daily 1:30 PM call, the no-offers call, the
   website enquiry call and the drop-off WhatsApp switch (`dropoff.sendEnabled`, back on with the timelines at go-live) are OFF. The old
   verified-visitor install reminders have their own switch `install.verifiedEnabled` (env `INSTALL_REMINDER_VERIFIED`, default off); the

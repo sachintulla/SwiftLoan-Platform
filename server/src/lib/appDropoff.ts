@@ -157,7 +157,11 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
   const active = await prisma.appDropoff.findFirst({ where: { userId, status: 'active' } });
   const idleMs = timing.minutesMs('dropoff.idleMinutes');
   const lastActivity = state.since ? await lastActivityFor(userId, user.phone, state.since) : null;
+  // "No offers" is a critical moment (Sachin's review): the follow-up call goes straight away, so coming back to the app never
+  // restarts or ends that run, and it does not wait for them to go idle.
+  const critical = state.status === 'rejected';
   if (active && active.dropStatus === state.status) {
+    if (critical) return 'skipped';
     // Still at the same step. Came back since the run was anchored? Before any message: restart the clock from the new last action
     // once they are idle again. After a message: the run is over (they acted); if they stop again a fresh run starts.
     const verdict = lastActivity ? returnVerdict({ startAt: active.startAt, stepsSent: active.stepsSent, lastActivityAt: lastActivity, now, idleMs }) : 'none';
@@ -181,8 +185,8 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
   }
   if (!isMessageable(state.status)) return stopped ? 'stopped' : 'skipped';
 
-  const since = lastActivity!;
-  if (now.getTime() - since.getTime() < idleMs) return 'skipped'; // still active: not stopped yet
+  const since = critical ? state.since! : lastActivity!;
+  if (!critical && now.getTime() - since.getTime() < idleMs) return 'skipped'; // still active: not stopped yet
   // Never message old history: BOTH the step itself and their last action must be recent. Someone rejected weeks ago who merely
   // opened the app today is not "someone who just got no offers".
   const maxAgeMs = timing.hoursMs('dropoff.maxAgeHours');
@@ -329,7 +333,8 @@ async function processRow(r: AppDropoff, now: Date, out: AppDropoffTickResult, b
   // Any action since the run was anchored: restart the clock (nothing sent yet) or end the run (a message went out). The arming
   // pass does the same, but it only sees people with recent activity rows; this covers every run that is due.
   const lastActivity = await lastActivityFor(r.userId, r.phone, r.startAt);
-  const back = returnVerdict({ startAt: r.startAt, stepsSent: r.stepsSent, lastActivityAt: lastActivity, now, idleMs: timing.minutesMs('dropoff.idleMinutes') });
+  const back = r.dropStatus === 'rejected' ? 'none' // "no offers": activity never restarts or ends it (see armOne)
+    : returnVerdict({ startAt: r.startAt, stepsSent: r.stepsSent, lastActivityAt: lastActivity, now, idleMs: timing.minutesMs('dropoff.idleMinutes') });
   if (back === 'returned') {
     await prisma.appDropoff.update({ where: { id: r.id }, data: { status: 'stopped', stopReason: 'returned' } });
     out.stopped++;

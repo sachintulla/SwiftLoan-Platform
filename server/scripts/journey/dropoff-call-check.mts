@@ -69,7 +69,8 @@ import http from 'node:http';
   check('the lookup-found-nothing people were armed as "rejected" runs', (await prisma.appDropoff.count({ where: { dropStatus: 'rejected', phone: { in: [P.dup, P.noMatch, P.early, P.other] } } })) === 4);
 
   // ── PASS B (16 min later, past the 15-minute quiet gap after the logged WhatsApp): master switch on, the no-offers call switch still OFF → people are only recorded once as "would call"
-  await save({ 'calls.nudgeEnabled': true }, 'master call switch on');
+  // The shipped wait is 2 minutes; this check spaces its passes for a 45-minute wait, so it sets that explicitly.
+  await save({ 'calls.nudgeEnabled': true, 'dropoff.noOffersCallDelayMinutes': 45 }, 'master call switch on');
   await tick(new Date(T.getTime() + 16 * 60_000));
   check('no-offers switch off: nobody is dialled', calls.length === 0, `calls ${calls.length}`);
   check('no-offers switch off: due people are recorded once as "would call"', (await hist(P.dup))[0]?.outcome === 'logged' && (await hist(P.noMatch))[0]?.outcome === 'logged');
