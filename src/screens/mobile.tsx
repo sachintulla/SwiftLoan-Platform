@@ -15,6 +15,7 @@ import { VoiceHidden } from '../voice/screenGraph';
 import { setScreenHint } from '../voice/actionRegistry';
 import { agent } from '../voice';
 import { parseResume, resumeDestination } from '../utils/resume';
+import { isWelcomeReady } from '../config/welcome';
 
 // Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
 // ("0000000000", "9999999999") — the server's own phoneSchema only checked
@@ -135,7 +136,9 @@ export default function Mobile() {
         // mid-conversation). The welcome GIF carries its own voice-over, so playing
         // it over a live agent talks on top of her. The live agent IS the welcome,
         // so skip the canned intro and let the call continue uninterrupted.
-        welcomePending: !callLive,
+        // Only play the intro when its CDN assets are cached (isWelcomeReady);
+        // otherwise skip it this login — the prefetch makes it available next time.
+        welcomePending: !callLive && isWelcomeReady(),
         // otpSent stays true until we navigate (reset alongside each go() below). Resetting it here
         // flipped this screen back to "enter your number" for the 1-3 s the lookups below take.
         priorInquiries: r.priorInquiries,

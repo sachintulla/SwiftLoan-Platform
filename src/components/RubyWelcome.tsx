@@ -3,15 +3,14 @@ import {
   Animated,
   Dimensions,
   Easing,
-  Image,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { font } from '../theme/tokens';
+import { welcomeAudioUrl, welcomeConfigured, welcomeGifUrl } from '../config/welcome';
 
 // Jest's faked clock makes the timers spin — the rest of the app guards the same
 // way (agentFx / LoginHero).
@@ -21,25 +20,21 @@ const UNDER_JEST =
 
 // The welcome is a transparent GIF of ONLY Ruby plus the matching voice-over as a
 // separate audio track; played together they give a see-through talking Ruby over
-// the live dashboard without any video-alpha codec. Both are bundled Metro assets
-// (gif is a default asset type; m4a added to assetExts). In dev these resolve to
-// http://localhost URLs the WebView loads directly.
-const GIF = Image.resolveAssetSource(require('../../assets/video/ruby-welcome-transparent.gif'));
-const AUDIO = Image.resolveAssetSource(require('../../assets/video/ruby-welcome.m4a'));
-
-// Android RELEASE builds: React Native packs bundled assets as app resources, so
-// resolveAssetSource returns a bare resource name ("assets_video_ruby_welcome"),
-// not a URL a WebView can load (Metro's http URLs only exist in dev). Both files
-// are therefore also shipped as raw Android assets (android/app/src/main/assets/)
-// and loaded from file:///android_asset/ with that folder as the page's base URL.
-const FROM_ANDROID_ASSETS = Platform.OS === 'android' && !__DEV__;
-const ANDROID_ASSET_BASE = 'file:///android_asset/';
-const GIF_URI = FROM_ANDROID_ASSETS ? `${ANDROID_ASSET_BASE}ruby-welcome-transparent.gif` : GIF.uri;
-const AUDIO_URI = FROM_ANDROID_ASSETS ? `${ANDROID_ASSET_BASE}ruby-welcome.m4a` : AUDIO.uri;
+// the live dashboard without any video-alpha codec. Both are served from the CDN
+// (see src/config/welcome.ts) — NOT bundled in the app — and are prefetched into
+// the WebView cache on first launch (WelcomePrefetch), so by the time this plays
+// they load from cache. The upstream gate (isWelcomeReady) only mounts this once
+// the assets are cached.
+const GIF_URI = welcomeGifUrl();
+const AUDIO_URI = welcomeAudioUrl();
 
 // Hard ceiling so a blocked autoplay / load failure can never trap the user
 // behind the overlay. The clip is ~10s.
 const MAX_MS = 12500;
+// If the GIF hasn't reported loaded within this budget (cold cache / slow / offline),
+// skip the intro rather than show a blank overlay. The prefetch means a cached
+// launch reports loaded almost immediately.
+const REVEAL_MS = 3500;
 const RISE_MS = 440;   // gentle settle-in of the layover
 const SINK_MS = 760;   // …then it recedes and dissolves into the background
 
@@ -57,12 +52,16 @@ img{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;object-posi
     -webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent 88%);
     mask-image:linear-gradient(to bottom,#000 82%,transparent 88%)}</style>
 </head><body>
-<img src="${gifUri}" />
+<img id="g" src="${gifUri}" />
 <audio id="a" src="${audioUri}" autoplay preload="auto"></audio>
 <script>
 (function(){
   var a=document.getElementById('a');
+  var g=document.getElementById('g');
   function post(m){try{window.ReactNativeWebView.postMessage(m);}catch(e){}}
+  // Tell native the GIF is actually painted, so the overlay only rises once there
+  // is something to show (never a blank frame).
+  if(g.complete){post('loaded');}else{g.onload=function(){post('loaded');};}
   a.addEventListener('ended',function(){post('ended');});
   a.addEventListener('error',function(){post('error');});
   // Autoplay-with-sound can be refused on first load; retry on any tap.
@@ -109,24 +108,37 @@ export default function RubyWelcome({ onDone }: Props) {
     });
   }).current;
 
-  // Only the audio ending dismisses the intro. A GIF/audio load 'error' is ignored
-  // (the safety timeout still guarantees an exit) so a slow 37MB GIF can't drop the
-  // overlay — and its touch-block — prematurely.
-  const onWebMessage = useRef((e: { nativeEvent: { data: string } }) => {
-    if (e.nativeEvent.data === 'ended') finish();
-  }).current;
-
-  useEffect(() => {
-    if (UNDER_JEST) return undefined;
+  // The overlay stays invisible (anim at 0) until the GIF reports it has painted,
+  // so a cold-cache / offline launch never flashes a blank frame — it just skips.
+  const revealed = useRef(false);
+  const rise = useRef(() => {
+    if (revealed.current || finished.current) return;
+    revealed.current = true;
     Animated.timing(anim, {
       toValue: 1,
       duration: RISE_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
+  }).current;
+
+  // 'loaded' → rise; 'ended' (audio finished) → dismiss. A load 'error' is ignored
+  // (the reveal/safety timeouts guarantee an exit) so a slow asset can't drop the
+  // overlay — and its touch-block — prematurely.
+  const onWebMessage = useRef((e: { nativeEvent: { data: string } }) => {
+    const d = e.nativeEvent.data;
+    if (d === 'loaded') rise();
+    else if (d === 'ended') finish();
+  }).current;
+
+  useEffect(() => {
+    if (UNDER_JEST) return undefined;
+    // Defensive: the upstream gate only mounts this when the CDN is configured.
+    if (!welcomeConfigured()) { finish(); return undefined; }
+    const reveal = setTimeout(() => { if (!revealed.current) finish(); }, REVEAL_MS);
     const t = setTimeout(finish, MAX_MS);
-    return () => clearTimeout(t);
-  }, [anim, finish]);
+    return () => { clearTimeout(reveal); clearTimeout(t); };
+  }, [finish, rise]);
 
   if (gone) return null;
 
@@ -145,7 +157,7 @@ export default function RubyWelcome({ onDone }: Props) {
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={finish}>
       <Animated.View style={[styles.fill, { opacity, transform: [{ translateY }, { scale }] }]}>
         <WebView
-          source={FROM_ANDROID_ASSETS ? { html, baseUrl: ANDROID_ASSET_BASE } : { html }}
+          source={{ html }}
           style={styles.web}
           backgroundColor="transparent"
           opaque={false}

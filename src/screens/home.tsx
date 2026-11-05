@@ -10,6 +10,7 @@ import { VoiceHidden } from '../voice/screenGraph';
 import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
+import { isWelcomeReady } from '../config/welcome';
 import { api, isAuthed, Offer, PrequalifyingOffer } from '../api/client';
 import { displayLenderName } from './offers';
 import { useUnreadCount } from './notifications';
@@ -119,7 +120,7 @@ export default function Home() {
             the content so the "Ask Ruby" bubble and headline paint in front. */}
         <Pressable
           onPress={askRuby}
-          onLongPress={() => set({ welcomePending: true })}
+          onLongPress={() => { if (isWelcomeReady()) set({ welcomePending: true }); }}
           delayLongPress={450}
           style={styles.rubyWrap}
           accessibilityLabel="Ask Ruby for help"

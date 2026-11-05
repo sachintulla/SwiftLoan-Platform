@@ -9,6 +9,7 @@ import { StoreProvider, useStore } from './src/state/store';
 import Router from './src/Router';
 import { BottomNav } from './src/components/Frame';
 import RubyWelcome from './src/components/RubyWelcome';
+import WelcomePrefetch from './src/components/WelcomePrefetch';
 import ContextBanner from './src/components/ContextBanner';
 import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
@@ -169,6 +170,9 @@ function AppShell() {
           until it finishes (see RubyWelcome). Driven by store.welcomePending, set on
           login / long-press and cleared here when the intro ends. */}
       {state.welcomePending && <RubyWelcome onDone={() => set({ welcomePending: false })} />}
+      {/* Warms the welcome-intro CDN assets into cache on first launch (no-op once
+          cached or when no CDN is configured), so the intro plays from next launch. */}
+      <WelcomePrefetch />
     </View>
   );
 }
