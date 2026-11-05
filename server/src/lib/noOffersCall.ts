@@ -26,6 +26,8 @@ import { noOffersCallBrief, noOffersCallDue } from './dropoffSteps.js';
 
 const log = scoped('no-offers-call');
 const BATCH = 25;
+/** How many of the newest active "no offers" runs one pass looks at before dropping the ones already called. */
+const SCAN = 500;
 
 export const noOffersCallEnabled = () => timing.bool('dropoff.noOffersCallEnabled');
 
@@ -139,11 +141,20 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
 export async function placeNoOffersCalls(now: Date = new Date()): Promise<NoOffersCallResult> {
   const out: NoOffersCallResult = { placed: 0, logged: 0, skipped: 0 };
   const waitedEnough = new Date(now.getTime() - timing.minutesMs('dropoff.noOffersCallDelayMinutes'));
-  const rows = await prisma.appDropoff.findMany({
+  // Newest first, and only runs not called yet. A run stays active for a week of daily messages after its call, so taking the
+  // oldest BATCH rows used to fill every pass with people already called and never reach anyone new (5 Nov 2026: 25 of 28).
+  const candidates = await prisma.appDropoff.findMany({
     where: { dropStatus: 'rejected', status: 'active', startAt: { lte: waitedEnough } },
-    orderBy: { startAt: 'asc' },
-    take: BATCH,
+    orderBy: { startAt: 'desc' },
+    take: SCAN,
   });
+  const claimed = new Set(
+    (await prisma.outboundRequest.findMany({
+      where: { idempotencyKey: { in: candidates.map((r) => `noffers:${r.id}`) } },
+      select: { idempotencyKey: true },
+    })).map((c) => c.idempotencyKey),
+  );
+  const rows = candidates.filter((r) => !claimed.has(`noffers:${r.id}`)).slice(0, BATCH);
   for (const r of rows) {
     try {
       await processOne(r, now, out);
