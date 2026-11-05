@@ -921,6 +921,8 @@ Ello's 5,000-token limit (~3,530 words).
   limit), `limits.phoneCooldownHours` 0, `limits.dropoffRerunDays` 1 (0 allowed after this change), no-offers call ON (`dropoff.noOffersCallDelayMinutes` 1;
   still once per person ever via `limits.noOffersCallsPerPerson`). New switches `welcome.oncePerNumber` and `install.unverifiedOncePerNumber` (default
   on = old once-ever behaviour; off = welcome at most once per India day, Scenario 1 again on every unentered OTP unless a run is active).
+  "Skip a message that is this late" (`dropoff.maxLateHours`, `install.maxLateHours`, `applied.maxLateHours`) set to 168 h on prod (owner: a held message
+  must still go); after this change 0 = never skip (`reminderSchedule.ts nextAction`). Calling hours still hold a message until 7 AM.
 - **Only the Journey sheet runs (owner, 2026-11-04).** On prod every stuck-step call rule, the daily 1:30 PM call, the no-offers call, the
   website enquiry call and the drop-off WhatsApp switch (`dropoff.sendEnabled`, back on with the timelines at go-live) are OFF. The old
   verified-visitor install reminders have their own switch `install.verifiedEnabled` (env `INSTALL_REMINDER_VERIFIED`, default off); the
