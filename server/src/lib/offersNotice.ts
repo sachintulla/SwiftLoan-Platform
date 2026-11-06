@@ -2,11 +2,10 @@
  * WhatsApp notice when the eligibility check produces no offers.
  *
  * Two utility templates cover the two real situations (see lib/whatsappTemplates.ts):
- *  - `not_eligible`: the lender replied and none of its partners can offer a loan
- *    for this profile. Template `no_offers_update`.
+ *  - `not_eligible` or `duplicate` (number already registered with the lender): no offers for them. Template
+ *    `no_offers_ruby_call` (owner, 2026-11-06: "don't worry, our assistant will call you"), sent at once with its image header.
  *  - `technical`: the check could not complete because of a fault, so the customer
  *    is told their details are saved and to try again. Template `eligibility_retry_update`.
- * A `duplicate` (same number already with a lender) is not a decline and gets nothing.
  *
  * Same rules as the conversation recap: off until an admin names a template, never to
  * someone who asked us to stop, test mode honours the allowed numbers, one send per
@@ -40,10 +39,19 @@ export const DEFAULT_RETRY_CONFIG: ConversationSummaryConfig = { enabled: false,
 
 /** Which notice, if any, a prequalify result calls for. */
 export function noticeKindFor(reason: PrequalifyReason): OffersNoticeKind | null {
-  if (reason === 'not_eligible') return 'no_offers';
+  // "Already registered with the lender" is no offers for the customer too, and gets the same notice.
+  if (reason === 'not_eligible' || reason === 'duplicate') return 'no_offers';
   if (reason === 'technical') return 'eligibility_retry';
-  return null; // duplicate, unknown or no reason: nothing to say
+  return null; // unknown or no reason: nothing to say
 }
+
+/**
+ * Templates approved with an IMAGE header: WhatsApp needs the image's public https URL on every send. The banner is served by the
+ * website (website-next/public), like the welcome template's.
+ */
+export const NOTICE_HEADER_IMAGES: Readonly<Record<string, string>> = Object.freeze({
+  no_offers_ruby_call: 'https://swiftloan.ai/whatsapp-no-offers.png',
+});
 
 /** What the customer is told to do next. Plain and honest; never lender wording. */
 export const NO_OFFERS_GUIDANCE = 'You can review or update your details in the SwiftLoan app and check again.';
@@ -119,6 +127,7 @@ export async function sendOffersNotice(i: OffersNoticeInput): Promise<OffersNoti
       templateName: cfg.template,
       language: cfg.language,
       placeholders,
+      ...(NOTICE_HEADER_IMAGES[cfg.template] ? { headerImageUrl: NOTICE_HEADER_IMAGES[cfg.template] } : {}),
       referenceId: claimId,
       track: { kind: `offers_notice_${kind}`, customerId: customer?.id ?? null },
     });
