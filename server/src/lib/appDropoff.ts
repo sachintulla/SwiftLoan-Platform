@@ -26,7 +26,7 @@ import { scoped } from './log.js';
 import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
 import { dropoffStageOf } from './stageSchedules.js';
 import { alreadyInApp, notOnTestList, reminderSendsWhatsapp, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
-import { placeNoOffersCalls } from './noOffersCall.js';
+import { callNoOffersRun, placeNoOffersCalls } from './noOffersCall.js';
 import { placeDropoffCall } from './dropoffCall.js';
 import { PAN_PENDING_SMS, sendRegisteredSms } from './smsRoute.js';
 import { touchAllowed } from './contactPolicy.js';
@@ -193,7 +193,8 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
   if (now.getTime() - since.getTime() > maxAgeMs || now.getTime() - state.since!.getTime() > maxAgeMs) return 'skipped';
 
   // A run that ended because they came back may be followed by a new one (they stopped again); any other recent run blocks a repeat.
-  const recent = await prisma.appDropoff.findFirst({
+  // Not for "no offers": every such result gets its own run and its call (owner, 6 Nov 2026), whatever happened before.
+  const recent = critical ? null : await prisma.appDropoff.findFirst({
     where: { userId, dropStatus: state.status, createdAt: { gte: new Date(now.getTime() - rerunAfterMs()) }, NOT: { stopReason: 'returned' } },
     select: { id: true },
   });
@@ -201,7 +202,8 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
 
   if (isReviewPhone(user.phone)) return 'skipped';
   if (await isDoNotContact(user.phone)) return 'skipped';
-  if (await otherSequenceActive(user.phone)) return 'skipped'; // the website reminder / "you applied" sequence owns this person for now
+  // The website reminder / "you applied" sequence owns this person for now. Never blocks "no offers": its call goes regardless.
+  if (!critical && (await otherSequenceActive(user.phone))) return 'skipped';
 
   const customer = await prisma.customer.findUnique({ where: { phone: user.phone }, select: { id: true } });
   const jr = await prisma.journeyReminder.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' }, select: { token: true, firstName: true } });
@@ -218,6 +220,21 @@ async function armOne(userId: string, now: Date): Promise<'created' | 'stopped' 
     throw e;
   }
   return 'created';
+}
+
+/**
+ * The moment the offers lookup ends with none (applications.routes.ts prequalify): open the "no offers" run for this person and
+ * ring straight away, without waiting for the minute job or the call delay. Outside calling hours the run waits and the tick
+ * rings at the next opening. Someone whose earlier no-offers run is still on (and was called) is not rung again. Never throws.
+ */
+export async function callNoOffersNow(userId: string, now: Date = new Date()): Promise<void> {
+  try {
+    await armOne(userId, now);
+    const run = await prisma.appDropoff.findFirst({ where: { userId, status: 'active', dropStatus: 'rejected' } });
+    if (run) await callNoOffersRun(run, now, { placed: 0, logged: 0, skipped: 0 }, 0);
+  } catch (e) {
+    log.error('immediate no-offers call failed', { userId, error: (e as Error).message });
+  }
 }
 
 /**

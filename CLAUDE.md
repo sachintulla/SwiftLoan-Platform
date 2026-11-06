@@ -911,6 +911,11 @@ Ello's 5,000-token limit (~3,530 words).
   (amount + purpose, employment, take-home, EMIs, city/PIN, how soon, callback time/language, OK to share with other lenders) and reports it with
   `report_call_outcome`; the webhook keeps the extra answers in `CallAttempt.details.requirement`, shown in Admin → the call → "Captured on the call".
   The Ello `report_call_outcome` tool needs those parameters added on the Ello dashboard. Live once `dropoff.noOffersCallEnabled` is on.
+  **Every no-offers person is called, at once (owner, 2026-11-06):** the prequalify route calls `callNoOffersNow` (`appDropoff.ts`) the moment
+  the lookup ends with none (fresh or reused result), so Ruby rings without waiting for the minute job or the call delay. No per-pass cap, no
+  lifetime cap (`limits.noOffersCallsPerPerson` default 0), and the "once per step per day" and "another sequence owns them" arming rules do not
+  apply to no offers. Still: the switches, do-not-contact, the store-reviewer phone, calling hours (out of hours → the tick rings at the next
+  opening) and one call per no-offers run (a person whose run is still on is not rung again; a new result after it ended is).
 - **"I'll send you the link" on a call (`send_app_link` → `POST /api/conversations/send-link`, `lib/agentLink.ts`):** sends the app link by SMS
   (LINK_SMS) AND WhatsApp (`install_app_resume_step`), same three values: name (our records, else "Customer"), status "Starting a Loan
   Application" (Voxvalley `callLinkStep` overrides), link `/dl?ref=<their token>` (made as an ended `JourneyReminder` row if they had none, so no
@@ -919,7 +924,7 @@ Ello's 5,000-token limit (~3,530 words).
   `docs/ELLO_TOOL_CONFIG.md` §1d.
 - **Contact limits loosened on prod (owner, 2026-11-05):** `limits.noCallAndMessageSameDay` off, `limits.touchesPerDay` / `touchesPerWeek` 0 (no
   limit), `limits.phoneCooldownHours` 0, `limits.dropoffRerunDays` 1 (0 allowed after this change), no-offers call ON (`dropoff.noOffersCallDelayMinutes` 1;
-  still once per person ever via `limits.noOffersCallsPerPerson`). New switches `welcome.oncePerNumber` and `install.unverifiedOncePerNumber` (default
+  since 2026-11-06 no lifetime cap, see Scenario 5). New switches `welcome.oncePerNumber` and `install.unverifiedOncePerNumber` (default
   on = old once-ever behaviour; off = welcome at most once per India day, Scenario 1 again on every unentered OTP unless a run is active).
   "Skip a message that is this late" (`dropoff.maxLateHours`, `install.maxLateHours`, `applied.maxLateHours`) set to 168 h on prod (owner: a held message
   must still go); after this change 0 = never skip (`reminderSchedule.ts nextAction`). Calling hours still hold a message until 7 AM.

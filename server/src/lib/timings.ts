@@ -370,9 +370,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Across all the CALL rules. Someone who ignores this many does not want another. 0 = no limit.',
   },
   {
-    key: 'limits.noOffersCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 1, min: 0, max: 10,
+    key: 'limits.noOffersCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 0, min: 0, max: 10,
     label: '"No offers" calls per person, ever',
-    help: 'One empty eligibility result = one call, by default. 0 = no limit.',
+    help: 'Every empty eligibility result gets its call at once. 0 (the default) = no lifetime limit; a number caps calls per person.',
   },
   {
     key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 0, max: 90,

@@ -141,6 +141,50 @@ import http from 'node:http';
   await prisma.user.deleteMany({ where: { phone: { in: [...oldPhones, NEW] } } });
   await prisma.customer.deleteMany({ where: { phone: { in: [...oldPhones, NEW] } } });
 
+  // ── PASS I: no cap. 30 new no-offers people waiting at once are ALL rung in one pass (owner, 6 Nov 2026: no limit).
+  const T3 = new Date(T.getTime() + 72 * 3_600_000); // 12:00 IST three days later
+  const many = Array.from({ length: 30 }, (_, i) => `90000007${String(i).padStart(2, '0')}`);
+  await prisma.user.deleteMany({ where: { phone: { in: many } } });
+  await prisma.customer.deleteMany({ where: { phone: { in: many } } });
+  for (const phone of many) {
+    const u = await prisma.user.create({ data: { phone } });
+    await prisma.customer.create({ data: { phone, name: 'Test' } });
+    await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: 'rejected', reason: 'not_eligible', status: 'active', startAt: new Date(T3.getTime() - 50 * 60_000), nextCheckAt: new Date(T3.getTime() + 3_600_000) } });
+  }
+  const beforeI = calls.length;
+  await placeNoOffersCalls(T3);
+  const rungI = new Set(calls.slice(beforeI).map((c) => String(c.body?.to_number ?? '').replace(/\D/g, '').slice(-10)));
+  check('no cap: all 30 waiting no-offers people are rung in one pass', many.every((p) => rungI.has(p)), `rung ${rungI.size}`);
+  await prisma.user.deleteMany({ where: { phone: { in: many } } });
+  await prisma.customer.deleteMany({ where: { phone: { in: many } } });
+
+  // ── PASS J: straight from the offers lookup. The call goes the moment the result is stored: no minute job, no 45-minute wait.
+  const { callNoOffersNow } = await import(`${S}/appDropoff.js`);
+  const T4 = new Date(T.getTime() + 96 * 3_600_000); // 12:00 IST four days later
+  const NOW1 = '9000000801', NOW2 = '9000000802';
+  await prisma.user.deleteMany({ where: { phone: { in: [NOW1, NOW2] } } });
+  await prisma.customer.deleteMany({ where: { phone: { in: [NOW1, NOW2] } } });
+  const u1 = await noOffers(NOW1, 'Asha', 0, 'not_eligible', T4);
+  let beforeJ = calls.length;
+  await callNoOffersNow(u1.id, T4);
+  check('the lookup itself rings: dialled at the moment of the no-offers result', calls.length === beforeJ + 1 && ph(calls.length - 1) === NOW1, `calls ${calls.length - beforeJ}`);
+  beforeJ = calls.length;
+  await callNoOffersNow(u1.id, new Date(T4.getTime() + 60_000)); // they press "check again" and still get none
+  await tick(new Date(T4.getTime() + 2 * 60_000));
+  check('the same no-offers result is never rung twice (lookup again + job)', calls.length === beforeJ, `calls ${calls.length - beforeJ}`);
+
+  // ── PASS K: someone whose earlier no-offers run already ended (they had moved on) gets a NEW call for a new no-offers result,
+  // even within the same day (the "once per step per day" rule does not apply to no offers).
+  const u2 = await noOffers(NOW2, 'Bala', 0, 'not_eligible', T4);
+  await callNoOffersNow(u2.id, T4);
+  await prisma.appDropoff.updateMany({ where: { phone: NOW2, status: 'active' }, data: { status: 'stopped', stopReason: 'progressed' } });
+  await prisma.loanApplication.updateMany({ where: { userId: u2.id }, data: { offersFetchedAt: new Date(T4.getTime() + 3 * 3_600_000), updatedAt: new Date(T4.getTime() + 3 * 3_600_000) } });
+  const beforeK = calls.length;
+  await callNoOffersNow(u2.id, new Date(T4.getTime() + 3 * 3_600_000));
+  check('a new no-offers result after the earlier run ended is rung again, same day', calls.length === beforeK + 1 && ph(calls.length - 1) === NOW2, `calls ${calls.length - beforeK}`);
+  await prisma.user.deleteMany({ where: { phone: { in: [NOW1, NOW2] } } });
+  await prisma.customer.deleteMany({ where: { phone: { in: [NOW1, NOW2] } } });
+
   server.close();
   await prisma.user.deleteMany({ where: { phone: { in: phones } } });
   await prisma.customer.deleteMany({ where: { phone: { in: phones } } });

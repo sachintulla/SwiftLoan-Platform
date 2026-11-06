@@ -7,9 +7,11 @@
  *   - the master call switch `calls.nudgeEnabled` and the call test-number list `calls.allowedNumbers` (callGate.ts)
  *   - calling hours, do-not-contact, and the quiet gap after a message (`calls.quietAfterMessageMinutes`)
  *
- * Guard rails: its OWN switch `dropoff.noOffersCallEnabled` (off: the job only records that it would call), at most ONE call per
- * person ever, the call is claimed in the database BEFORE dialling so a crash cannot double-ring, and a failed attempt is
- * recorded and not retried. Runs from the drop-off tick, only for runs that are still active (they have not moved on).
+ * When it rings (owner, 6 Nov 2026: every no-offers person is called, at once, however many there are): straight from the offers
+ * lookup (`callNoOffersNow`, appDropoff.ts), and from the drop-off tick as a safety net (a result outside calling hours, a crash
+ * before the call). No per-pass cap. Guard rails: its OWN switch `dropoff.noOffersCallEnabled` (off: the job only records that it
+ * would call), ONE call per no-offers run (`limits.noOffersCallsPerPerson`, 0 = no lifetime limit), the call is claimed in the
+ * database BEFORE dialling so a crash cannot double-ring, and a failed attempt is recorded and not retried.
  */
 import type { AppDropoff } from '@prisma/client';
 import { prisma } from './prisma.js';
@@ -25,9 +27,6 @@ import { timing } from './timings.js';
 import { noOffersCallBrief, noOffersCallDue } from './dropoffSteps.js';
 
 const log = scoped('no-offers-call');
-const BATCH = 25;
-/** How many of the newest active "no offers" runs one pass looks at before dropping the ones already called. */
-const SCAN = 500;
 
 export const noOffersCallEnabled = () => timing.bool('dropoff.noOffersCallEnabled');
 
@@ -47,7 +46,13 @@ async function note(r: AppDropoff, entry: { outcome: 'logged' | 'sent' | 'failed
   });
 }
 
-async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Promise<void> {
+/** Call (or log) for one "no offers" run. `delayMs` 0 = ring now (the lookup itself calls it that way). */
+export async function callNoOffersRun(
+  r: AppDropoff,
+  now: Date,
+  out: NoOffersCallResult,
+  delayMs: number = timing.minutesMs('dropoff.noOffersCallDelayMinutes'),
+): Promise<void> {
   const customer = await prisma.customer.findUnique({ where: { phone: r.phone } });
   const key = `noffers:${r.id}`;
   const [claimed, earlier] = await Promise.all([
@@ -66,12 +71,12 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
     startAt: r.startAt,
     lastSentAt: r.lastSentAt,
     now,
-    delayMs: timing.minutesMs('dropoff.noOffersCallDelayMinutes'),
+    delayMs,
     // A critical moment (Sachin's review): not held back by the quiet gap after a message. Calling hours, do-not-contact and
     // once-per-person still apply.
     quietAfterMessageMs: 0,
     inCallingHours: withinCallingHours(now),
-    // Admin → Timings limits.noOffersCallsPerPerson (1 = once ever; 0 = no limit).
+    // One call per run. Admin → Timings limits.noOffersCallsPerPerson can add a lifetime cap (0, the default = none).
     alreadyCalled: !!claimed || hasAttempt || (timing.num('limits.noOffersCallsPerPerson') > 0 && earlier >= timing.num('limits.noOffersCallsPerPerson')),
     doNotContact: customer?.currentStage === 'lost',
     callAllowed: isCallAllowed(r.phone),
@@ -137,16 +142,15 @@ async function processOne(r: AppDropoff, now: Date, out: NoOffersCallResult): Pr
   out.placed++;
 }
 
-/** One pass over the "no offers" runs that are old enough to need a call. Safe to run every minute and from several workers. */
+/** One pass over the "no offers" runs that still need a call: every one of them, no cap. Safe to run every minute and from several workers. */
 export async function placeNoOffersCalls(now: Date = new Date()): Promise<NoOffersCallResult> {
   const out: NoOffersCallResult = { placed: 0, logged: 0, skipped: 0 };
   const waitedEnough = new Date(now.getTime() - timing.minutesMs('dropoff.noOffersCallDelayMinutes'));
-  // Newest first, and only runs not called yet. A run stays active for a week of daily messages after its call, so taking the
-  // oldest BATCH rows used to fill every pass with people already called and never reach anyone new (5 Nov 2026: 25 of 28).
+  // Newest first, and only runs not called yet. A run stays active for a week of daily messages after its call, so a capped pass
+  // over the oldest rows used to fill up with people already called and never reach anyone new (5 Nov 2026: 25 of 28).
   const candidates = await prisma.appDropoff.findMany({
     where: { dropStatus: 'rejected', status: 'active', startAt: { lte: waitedEnough } },
     orderBy: { startAt: 'desc' },
-    take: SCAN,
   });
   const claimed = new Set(
     (await prisma.outboundRequest.findMany({
@@ -154,10 +158,10 @@ export async function placeNoOffersCalls(now: Date = new Date()): Promise<NoOffe
       select: { idempotencyKey: true },
     })).map((c) => c.idempotencyKey),
   );
-  const rows = candidates.filter((r) => !claimed.has(`noffers:${r.id}`)).slice(0, BATCH);
+  const rows = candidates.filter((r) => !claimed.has(`noffers:${r.id}`));
   for (const r of rows) {
     try {
-      await processOne(r, now, out);
+      await callNoOffersRun(r, now, out);
     } catch (e) {
       log.error('no-offers call failed for one person', { id: r.id, error: (e as Error).message }); // one bad row never aborts the pass
     }
