@@ -2,11 +2,10 @@
  * WhatsApp notice when the eligibility check produces no offers.
  *
  * Two utility templates cover the two real situations (see lib/whatsappTemplates.ts):
- *  - `not_eligible`: the lender replied and none of its partners can offer a loan
- *    for this profile. Template `no_offers_update`.
+ *  - `not_eligible` or `duplicate` (number already registered with the lender): no offers for them. Template
+ *    `no_offers_call` (owner, 2026-11-06: "don't worry, our assistant will call you"), sent at once; its image header is added by whatsapp.ts (templateImages.ts).
  *  - `technical`: the check could not complete because of a fault, so the customer
  *    is told their details are saved and to try again. Template `eligibility_retry_update`.
- * A `duplicate` (same number already with a lender) is not a decline and gets nothing.
  *
  * Same rules as the conversation recap: off until an admin names a template, never to
  * someone who asked us to stop, test mode honours the allowed numbers, one send per
@@ -40,9 +39,10 @@ export const DEFAULT_RETRY_CONFIG: ConversationSummaryConfig = { enabled: false,
 
 /** Which notice, if any, a prequalify result calls for. */
 export function noticeKindFor(reason: PrequalifyReason): OffersNoticeKind | null {
-  if (reason === 'not_eligible') return 'no_offers';
+  // "Already registered with the lender" is no offers for the customer too, and gets the same notice.
+  if (reason === 'not_eligible' || reason === 'duplicate') return 'no_offers';
   if (reason === 'technical') return 'eligibility_retry';
-  return null; // duplicate, unknown or no reason: nothing to say
+  return null; // unknown or no reason: nothing to say
 }
 
 /** What the customer is told to do next. Plain and honest; never lender wording. */

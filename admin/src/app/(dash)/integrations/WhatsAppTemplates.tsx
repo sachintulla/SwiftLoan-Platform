@@ -30,9 +30,9 @@ const varsIn = (body: string) => new Set([...body.matchAll(/\{\{\s*(\d+)\s*\}\}/
 
 /* ─────────────────────────────── add / edit one template ─────────────────────────────── */
 
-interface Draft { name: string; language: string; category: string; status: string; body: string; note: string }
+interface Draft { name: string; language: string; category: string; status: string; body: string; note: string; headerImageUrl: string }
 
-function TemplateEditor({ initial, isNew, canEdit, onDone, onCancel }: { initial: Draft; isNew: boolean; canEdit: boolean; onDone: () => void; onCancel: () => void }) {
+function TemplateEditor({ initial, isNew, canEdit, defaultImageUrl = '', onDone, onCancel }: { initial: Draft; isNew: boolean; canEdit: boolean; defaultImageUrl?: string; onDone: () => void; onCancel: () => void }) {
   const [d, setD] = useState<Draft>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -42,6 +42,8 @@ function TemplateEditor({ initial, isNew, canEdit, onDone, onCancel }: { initial
   const set = (patch: Partial<Draft>) => { setD((x) => ({ ...x, ...patch })); setErrors({}); setMsg(null); };
   const dirty = JSON.stringify(d) !== JSON.stringify(initial);
   const vars = varsIn(d.body);
+  // The image that will actually go out: the saved address, else the one the server ships for this template.
+  const image = d.headerImageUrl.trim() || defaultImageUrl;
 
   async function call(init: RequestInit, done: string) {
     setSaving(true); setMsg(null);
@@ -79,6 +81,18 @@ function TemplateEditor({ initial, isNew, canEdit, onDone, onCancel }: { initial
       <Field label="Text" error={errors.body} hint={d.body.trim() ? `${vars} variable${vars === 1 ? '' : 's'}` : undefined}>
         <textarea className="input" style={{ minHeight: 96, resize: 'vertical' }} value={d.body} disabled={!canEdit} onChange={(e) => set({ body: e.target.value })} />
       </Field>
+      <Field
+        label="Image address"
+        error={errors.headerImageUrl}
+        hint={d.headerImageUrl.trim()
+          ? 'Sent as the image with every message from this template.'
+          : defaultImageUrl ? 'Empty: the built-in image below is sent.' : 'Only for a template approved with an image header. Paste a public https:// link to the picture.'}
+      >
+        <input className="input mono" placeholder="https://…" value={d.headerImageUrl} disabled={!canEdit} onChange={(e) => set({ headerImageUrl: e.target.value })} />
+      </Field>
+      {image && /^https:\/\//.test(image) && (
+        <img src={image} alt="" style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid var(--line)' }} />
+      )}
       <Field label="Note" error={errors.note}>
         <input className="input" value={d.note} disabled={!canEdit} onChange={(e) => set({ note: e.target.value })} />
       </Field>
@@ -153,7 +167,7 @@ export default function WhatsAppTemplates({
     <div className="card card-pad" style={{ display: 'grid', gap: 14 }}>
       <div className="row between wrap" style={{ gap: 12, alignItems: 'center' }}>
         <h3 className="card-title" style={{ margin: 0 }}>Templates</h3>
-        {canEdit && !adding && <button className="btn btn-primary" onClick={() => { setAdding({ name: '', language: 'en', category: '', status: '', body: '', note: '' }); setOpenName(null); }}>+ Add template</button>}
+        {canEdit && !adding && <button className="btn btn-primary" onClick={() => { setAdding({ name: '', language: 'en', category: '', status: '', body: '', note: '', headerImageUrl: '' }); setOpenName(null); }}>+ Add template</button>}
       </div>
 
 
@@ -220,8 +234,9 @@ export default function WhatsAppTemplates({
         <Modal title={<span className="mono">{openRow.name}</span>} onClose={() => setOpenName(null)}>
           {openRow.usedBy.some((u) => u.on) && <div className="muted" style={{ fontSize: 12.5, marginBottom: 14 }}>Used in: {openRow.usedBy.filter((u) => u.on).map((u) => u.label).join(', ')}</div>}
           <TemplateEditor
-            key={`${openRow.name}:${openRow.inLibrary}:${openRow.category}:${openRow.status}:${openRow.body}:${openRow.note}:${openRow.language}`}
-            initial={{ name: openRow.name, language: openRow.language, category: openRow.category, status: openRow.status, body: openRow.body, note: openRow.note }}
+            key={`${openRow.name}:${openRow.inLibrary}:${openRow.category}:${openRow.status}:${openRow.body}:${openRow.note}:${openRow.language}:${openRow.headerImageUrl}`}
+            initial={{ name: openRow.name, language: openRow.language, category: openRow.category, status: openRow.status, body: openRow.body, note: openRow.note, headerImageUrl: openRow.headerImageUrl ?? '' }}
+            defaultImageUrl={openRow.defaultImageUrl}
             isNew={!openRow.inLibrary}
             canEdit={canEdit}
             onDone={done}

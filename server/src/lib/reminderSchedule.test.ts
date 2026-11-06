@@ -272,6 +272,11 @@ describe('nextAction and nextCheckTime with custom settings', () => {
     expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN + 61 * MIN) })).toMatchObject({ kind: 'skip', reason: 'too_late' });
     expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN + 59 * MIN) })).toMatchObject({ kind: 'send' });
   });
+  it('a "too late" limit of 0 never skips: a step days late still goes (and still waits for calling hours)', () => {
+    const never = { ...input, cfg: { ...cfg, maxLateMs: 0 } };
+    expect(nextAction({ ...never, stepsHandled: 0, now: at(10 * MIN + 3 * 24 * 60 * MIN) })).toMatchObject({ kind: 'send' });
+    expect(nextAction({ ...never, stepsHandled: 0, inCallingWindow: false, now: at(10 * MIN + 3 * 24 * 60 * MIN) })).toMatchObject({ kind: 'wait', reason: 'quiet_hours' });
+  });
   it('a step number past a shortened schedule just finishes (no crash for a visitor already deep in the old one)', () => {
     expect(nextAction({ ...input, stepsHandled: 7, now: at(5000 * MIN) })).toEqual({ kind: 'finished' });
   });

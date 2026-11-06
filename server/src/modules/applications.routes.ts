@@ -12,6 +12,7 @@ import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { surfaceOf } from '../lib/surface.js';
 import { sendOffersNotice } from '../lib/offersNotice.js';
+import { callNoOffersNow } from '../lib/appDropoff.js';
 import { kickoffRedirect, ensureRedirectUrl, yubiEnabled, markReferralApplied, getReferralStatus } from '../lib/yubiReferral.js';
 import { createRevasureLead } from '../lib/revasureLead.js';
 import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offersReuse.js';
@@ -249,6 +250,8 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
       log.info('prequalify reused stored offers — details unchanged, lender not called', {
         applicationId: app.id, from: reusable.id, offerCount: offers.length,
       });
+      // Still no offers with the same details: the no-offers call (if this person's run has not had it yet), fire-and-forget.
+      if (offers.length === 0) void callNoOffersNow(req.user!.sub);
       const revasureReused = await revasurePromise.catch(() => null);
       res.json({ offers, reason: offers.length === 0 ? (app.prequalifyReason ?? 'not_eligible') : null, revasure: revasureReused, reused: true });
       return;
@@ -411,6 +414,9 @@ applicationsRouter.post('/:id/prequalify', ah(async (req, res) => {
       },
     ).catch(() => {});
     void sendOffersNotice({ applicationId: app.id, userId: req.user!.sub, reason: prequalifyReason });
+    // Ruby rings them now (owner, 6 Nov 2026), not on the next minute job. A technical failure is not "no offers" and gets no call
+    // (the drop-off rules decide from the stored result). Fire-and-forget: never slows or fails the response.
+    void callNoOffersNow(req.user!.sub);
   }
 
   if (outcome?.lenderMessage) log.info('prequalify lender message (not shown to applicant)', { applicationId: app.id, reason: outcome.reason, lenderMessage: outcome.lenderMessage });

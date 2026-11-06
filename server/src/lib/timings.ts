@@ -185,9 +185,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Never send two reminders to the same person closer together than this, even if both are due.',
   },
   {
-    key: 'install.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 14, min: 1, max: 168,
+    key: 'install.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 14, min: 0, max: 168,
     label: 'Skip a message that is this late',
-    help: 'A step that could not go out on time (for example overnight quiet hours or an outage) is skipped, not sent, after this long.',
+    help: 'A step that could not go out on time (for example overnight quiet hours or an outage) is skipped, not sent, after this long. 0 = never skip: it goes as soon as it can, however late.',
   },
   {
     key: 'install.maxCycles', group: 'install', kind: 'number', unit: 'count', def: 2, min: 1, max: 10,
@@ -229,9 +229,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'If someone applied to several lenders, a message about the next lender waits until this long after the previous lender\'s message. One lender\'s own messages follow the schedule above.',
   },
   {
-    key: 'applied.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    key: 'applied.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 0, max: 168,
     label: 'Skip an applied message that is this late',
-    help: 'A message that could not go out on time (quiet hours, an outage, waiting behind the gap) is skipped, not sent, after this long.',
+    help: 'A message that could not go out on time (quiet hours, an outage, waiting behind the gap) is skipped, not sent, after this long. 0 = never skip: it goes as soon as it can, however late.',
   },
   {
     key: 'applied.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
@@ -273,9 +273,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'A message that would follow the previous one by less than this waits.',
   },
   {
-    key: 'dropoff.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    key: 'dropoff.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 0, max: 168,
     label: 'Skip a drop-off message that is this late',
-    help: 'A message that could not go out on time (quiet hours, an outage) is skipped, not sent, after this long.',
+    help: 'A message that could not go out on time (quiet hours, an outage) is skipped, not sent, after this long. 0 = never skip: it goes as soon as it can, however late.',
   },
   {
     key: 'dropoff.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
@@ -370,9 +370,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Across all the CALL rules. Someone who ignores this many does not want another. 0 = no limit.',
   },
   {
-    key: 'limits.noOffersCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 1, min: 0, max: 10,
+    key: 'limits.noOffersCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 0, min: 0, max: 10,
     label: '"No offers" calls per person, ever',
-    help: 'One empty eligibility result = one call, by default. 0 = no limit.',
+    help: 'Every empty eligibility result gets its call at once. 0 (the default) = no lifetime limit; a number caps calls per person.',
   },
   {
     key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 0, max: 90,

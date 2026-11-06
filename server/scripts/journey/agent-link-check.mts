@@ -52,7 +52,7 @@ import http from 'node:http';
 
   const SMS_TEXT = (name: string, link: string) =>
     `Dear ${name} , your SwiftLoan loan application is incomplete at Starting a Loan Application. Please open the SwiftLoan app to continue where you left off :${link}. Team SwiftLoan\n-PurpleTalk IPL`;
-  const params = (b: any) => (b?.template?.components?.[0]?.parameters ?? []).map((p: any) => p.text);
+  const params = (b: any) => ((b?.template?.components ?? []).find((c: any) => c.type === 'body')?.parameters ?? []).map((p: any) => p.text);
   const t0 = new Date();
 
   // ── 1. a known person with no link reference yet
@@ -63,7 +63,7 @@ import http from 'node:http';
   check('known number: a link reference was made for them, ended (no reminder job runs it), resuming at Basic details',
     !!ref1 && ref1.status === 'completed' && ref1.stopReason === 'agent_link' && ref1.lastStep === 'pan_done', JSON.stringify({ status: ref1?.status, step: ref1?.lastStep }));
   check('SMS: the registered DLT text with their name, the status and their link', sms[0]?.template_id === '1277179300146510723' && sms[0]?.body === SMS_TEXT('Priya Sharma', link1) && sms[0]?.from === 'PTSLA', sms[0]?.body);
-  check('WhatsApp: install_app_resume_step with the SAME three values', wa[0]?.template?.name === 'install_app_resume_step' && JSON.stringify(params(wa[0])) === JSON.stringify(['Priya Sharma', 'Starting a Loan Application', link1]), JSON.stringify(params(wa[0])));
+  check('WhatsApp: continue_application_link with the SAME three values', wa[0]?.template?.name === 'continue_application_link' && JSON.stringify(params(wa[0])) === JSON.stringify(['Priya Sharma', 'Starting a Loan Application', link1]), JSON.stringify(params(wa[0])));
   check('the agent is told it was sent by SMS and WhatsApp', /by SMS and WhatsApp/.test(r1.say));
 
   // ── 2. asked again within the hour → nothing more
