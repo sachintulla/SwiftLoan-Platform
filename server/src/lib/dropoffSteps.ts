@@ -163,12 +163,12 @@ export type DropoffMessages = Partial<Record<DropoffMessageKind, MessageConfig>>
  * The approved WhatsApp templates each message uses out of the box (WhatsApp only). Placeholder COUNT AND ORDER must match the
  * template exactly or WhatsApp rejects the send. Tokens: {name}, {step}, {link}, {ref} (application reference), {offerCount}.
  *
- * Category is not a constraint on us: Meta decides it (see docs/JOURNEY_RESUME_TEMPLATES.md §6); these are the approved ones.
+ * Category is not a constraint on us: Meta decides it (see docs/JOURNEY_RESUME_TEMPLATES.md §6); `category` here is what Meta approved,
+ * so the send is labelled the same. All of these carry an IMAGE header; whatsapp.ts adds each one's banner (templateImages.ts).
+ * Image templates submitted and approved on 6 Nov 2026 (owner): the continue_* pair came back Marketing, the offers pair Utility.
  *
- * `no_offers` is deliberately NOT here: its approved text promises that a team member will call, and nothing places that call
- * yet. Until the Ello follow-up call exists, that step is recorded as "not configured" and nothing is sent. Add it under
- * `dropoffMessages` in Admin → Configs → Voxvalley once the call is in place:
- *   no_offers.whatsapp.noLink = { template: 'dropoff_no_offers_callback', placeholders: ['{name}'] }
+ * `no_offers` uses `no_offers_call` ("our assistant will call you shortly"): the call now goes out the moment the result comes in
+ * (noOffersCall.ts). A blank template saved under `dropoffMessages.no_offers` in Admin still switches it off.
  */
 export const DEFAULT_DROPOFF_MESSAGES: DropoffMessages = Object.freeze({
   continue: {
@@ -176,16 +176,19 @@ export const DEFAULT_DROPOFF_MESSAGES: DropoffMessages = Object.freeze({
     // case uses PAN_PENDING_SMS instead (appDropoff.ts deliver).
     sms: { withLink: { ...LINK_SMS }, noLink: { ...LINK_SMS } },
     whatsapp: {
-      withLink: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] },
-      noLink: { template: 'dropoff_continue_app', language: 'en', placeholders: ['{name}', '{step}'] },
+      withLink: { template: 'continue_application_link', language: 'en', placeholders: ['{name}', '{step}', '{link}'], category: 'MARKETING' },
+      noLink: { template: 'continue_application_app', language: 'en', placeholders: ['{name}', '{step}'], category: 'MARKETING' },
     },
   },
   apply_offers: {
     sms: { withLink: { ...LINK_SMS }, noLink: { ...LINK_SMS } },
     whatsapp: {
-      withLink: { template: 'offers_ready', language: 'en', placeholders: ['{name}', '{offerCount}', '{ref}', '{link}'] },
-      noLink: { template: 'dropoff_apply_offers_app', language: 'en', placeholders: ['{name}'] },
+      withLink: { template: 'offers_ready_view_link', language: 'en', placeholders: ['{name}', '{ref}', '{link}'], category: 'UTILITY' },
+      noLink: { template: 'offers_ready_open_app', language: 'en', placeholders: ['{name}', '{ref}'], category: 'UTILITY' },
     },
+  },
+  no_offers: {
+    whatsapp: { noLink: { template: 'no_offers_call', language: 'en', placeholders: ['{name}'], category: 'MARKETING' } },
   },
 }) as DropoffMessages;
 

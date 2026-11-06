@@ -19,7 +19,7 @@ describe('readCatalog', () => {
   it('shows the shipped defaults when nothing is saved', () => {
     const list = readCatalog({}, defaults);
     const e = find(list, 'dropoff.continue.withLink');
-    expect(e.spec.template).toBe('install_app_resume_step');
+    expect(e.spec.template).toBe('continue_application_link');
     expect(e.source).toBe('default');
     expect(e.on).toBe(true);
     expect(find(list, 'install.reminder').spec.template).toBe('install_app_resume_step');
@@ -37,7 +37,7 @@ describe('readCatalog', () => {
     expect(changed.spec.category).toBe('UTILITY');
     expect(changed.source).toBe('saved');
     // the sibling variant was never saved: still the shipped default
-    expect(find(list, 'dropoff.continue.withLink').spec.template).toBe('install_app_resume_step');
+    expect(find(list, 'dropoff.continue.withLink').spec.template).toBe('continue_application_link');
     expect(find(list, 'dropoff.continue.withLink').source).toBe('default');
   });
 

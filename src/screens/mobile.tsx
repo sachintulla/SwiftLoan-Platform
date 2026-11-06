@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Platform, Linking, Keyboard } from 'react-native';
-import { PRIVACY_POLICY_URL } from '../content/legal';
+import { View, Text, TextInput, Pressable, StyleSheet, Platform, Keyboard } from 'react-native';
 import { getScroller } from '../feedback/agentFx';
 import { Screen } from '../components/Frame';
 import { WelcomeHero } from '../components/LoginHero';
@@ -26,6 +25,9 @@ function isValidMobile(v: string): boolean {
 
 export default function Mobile() {
   const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
+  // Terms and Privacy are two different documents: each opens its own page in the
+  // in-app legal viewer (Back returns here with the number still filled in).
+  const openLegal = (doc: 'terms' | 'privacy') => { set({ legalDoc: doc }); go('legal'); };
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -373,8 +375,8 @@ export default function Mobile() {
             <VoiceHidden>
               <View style={styles.ccBox}>
                 <Text style={{ fontSize: 18, marginRight: 6 }}>🇮🇳</Text>
+                {/* India only: no country picker, so no dropdown arrow. */}
                 <Text style={[font(700), { fontSize: 15, color: colors.text, marginRight: 2 }]}>+91</Text>
-                <Icon name="expand_more" size={18} color={colors.muted} />
               </View>
             </VoiceHidden>
             <View style={styles.ccDivider} />
@@ -426,8 +428,8 @@ export default function Mobile() {
               By proceeding, you agree to our{' '}
               {/* onPress on these inner Text spans opens the link and does not bubble to
                   the row Pressable, so tapping a link never toggles consent. */}
-              <Text style={styles.link} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>Terms of Service</Text>,{' '}
-              <Text style={styles.link} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>Privacy Policy</Text>
+              <Text style={styles.link} onPress={() => openLegal('terms')}>Terms of Service</Text>,{' '}
+              <Text style={styles.link} onPress={() => openLegal('privacy')}>Privacy Policy</Text>
               {' '}&amp; allow WhatsApp updates.
             </Text>
           </Pressable>

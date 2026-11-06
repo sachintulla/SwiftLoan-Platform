@@ -2,6 +2,7 @@
 
 import { useCallback, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
@@ -66,13 +67,22 @@ export default function Step1PanPage() {
         return;
       }
       const msg = { not_image: t.scanNotImage, too_big: t.scanTooBig, not_found: t.scanNotFound, error: t.scanFailed }[res.reason];
-      setAlert({ tone: res.reason === 'error' ? 'warning' : 'error', message: msg });
+      // A toast at the top, not a sheet pinned to the bottom of a phone screen.
+      if (res.reason === 'error') toast.warning(msg); else toast.error(msg);
     } finally {
       setScanning(false);
     }
   };
 
   const panValid = isValidPan(pan);
+  // A full-length PAN that fails the format check: say so right away, as a toast
+  // plus a red hint under the field, instead of only in the line at the bottom.
+  const panWrong = pan.length === 10 && !panValid;
+  const onPanChange = (raw: string) => {
+    const next = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    if (next.length === 10 && !isValidPan(next) && next !== pan) toast.error(t.panInvalid, { id: 'pan-invalid' });
+    setPan(next);
+  };
   const valid = panValid && consent;
   const missing: string[] = [];
   if (!panValid) missing.push(pan ? t.missingPanValid : t.missingPan);
@@ -168,52 +178,58 @@ export default function Step1PanPage() {
         </div>
       </div>
 
-      <Card className="flex flex-col gap-6 sm:p-7">
-        <div>
-          <SectionLabel>{t.uploadLabel}</SectionLabel>
-          <label
-            htmlFor="pan-upload"
-            className="border-border hover:border-primary hover:bg-accent/40 group flex cursor-pointer flex-col items-center gap-2.5 rounded-2xl border-2 border-dashed p-8 text-center transition-colors"
-          >
-            <span className="bg-accent grid h-12 w-12 place-items-center rounded-2xl transition-transform group-hover:scale-105">
-              <UploadCloud className="text-primary h-6 w-6" />
+      <Card className="flex flex-col gap-5 sm:p-7">
+        {/* Upload and manual entry side by side, so both fit on one screen. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2.5 sm:gap-5">
+          <div className="flex min-w-0 flex-col">
+            <SectionLabel>{t.uploadLabel}</SectionLabel>
+            <label
+              htmlFor="pan-upload"
+              className="border-border hover:border-primary hover:bg-accent/40 group flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed p-3 text-center transition-colors sm:p-4"
+            >
+              <span className="bg-accent grid h-9 w-9 place-items-center rounded-xl transition-transform group-hover:scale-105">
+                <UploadCloud className="text-primary h-5 w-5" />
+              </span>
+              <p className="text-xs font-bold sm:text-sm">{scanning ? t.scanning : t.uploadDrop}</p>
+              <p className="text-muted-foreground hidden text-[11px] sm:block">{t.uploadDetect}</p>
+              <span className="border-border bg-card rounded-full border px-3 py-1 text-[11px] font-bold">{t.chooseFile}</span>
+              <input
+                id="pan-upload"
+                type="file"
+                accept="image/*"
+                disabled={scanning}
+                onChange={onPickFile}
+                aria-busy={scanning}
+                className="sr-only"
+              />
+            </label>
+          </div>
+
+          <div className="text-muted-foreground flex flex-col items-center gap-2 pt-6 text-[10px] font-bold">
+            <span className="bg-border w-px flex-1" />
+            <span className="[writing-mode:vertical-rl] rotate-180 tracking-wider">{t.orManual}</span>
+            <span className="bg-border w-px flex-1" />
+          </div>
+
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+            <span className="text-foreground text-xs font-semibold sm:text-sm">
+              {t.panLabel}<span className="text-danger ml-0.5">*</span>
             </span>
-            <p className="text-sm font-bold">{scanning ? t.scanning : t.uploadDrop}</p>
-            <p className="text-muted-foreground text-xs">{t.uploadDetect}</p>
-            <span className="border-border bg-card mt-1 rounded-full border px-4 py-2 text-xs font-bold">{t.chooseFile}</span>
             <input
-              id="pan-upload"
-              type="file"
-              accept="image/*"
-              disabled={scanning}
-              onChange={onPickFile}
-              aria-busy={scanning}
-              className="sr-only"
+              value={pan}
+              maxLength={10}
+              onChange={(e) => onPanChange(e.target.value)}
+              placeholder="ABCDE1234F"
+              aria-invalid={panWrong}
+              data-voice-sensitive="pan"
+              className={`input-interactive field-input h-11 w-full min-w-0 rounded-xl px-2.5 text-sm font-bold tracking-[0.06em] sm:px-3.5 sm:text-base sm:tracking-[0.15em] ${panWrong ? 'border-danger' : ''}`}
             />
+            <span className={`text-[11px] sm:text-xs ${panWrong ? 'text-danger font-semibold' : 'text-muted-foreground'}`}>
+              {panWrong ? t.missingPanValid : t.panHint}
+            </span>
           </label>
-          {scanNote && <p role="status" className="text-primary mt-2 text-xs font-semibold">{scanNote}</p>}
         </div>
-
-        <div className="text-muted-foreground flex items-center gap-3 text-xs font-bold">
-          <span className="bg-border h-px flex-1" />
-          {t.orManual}
-          <span className="bg-border h-px flex-1" />
-        </div>
-
-        <label className="flex max-w-xs flex-col gap-1.5 text-sm">
-          <span className="text-foreground font-semibold">
-            {t.panLabel}<span className="text-danger ml-0.5">*</span>
-          </span>
-          <input
-            value={pan}
-            maxLength={10}
-            onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-            placeholder="ABCDE1234F"
-            data-voice-sensitive="pan"
-            className="input-interactive field-input h-12 rounded-xl px-3.5 text-base font-bold tracking-[0.15em]"
-          />
-          <span className="text-muted-foreground text-xs">{t.panHint}</span>
-        </label>
+        {scanNote && <p role="status" className="text-primary -mt-2 text-xs font-semibold">{scanNote}</p>}
 
         <label className="bg-accent flex items-start gap-3 rounded-xl p-4">
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required className="accent-primary mt-0.5 h-5 w-5 shrink-0" />

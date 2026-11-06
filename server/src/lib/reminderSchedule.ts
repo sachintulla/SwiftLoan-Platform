@@ -118,7 +118,8 @@ export function nextAction(i: NextActionInput): NextAction {
 
   const dueAt = stepDueAt(i.startAt, step);
   if (i.now.getTime() < dueAt.getTime()) return { kind: 'wait', step, reason: 'not_due', dueAt };
-  if (i.now.getTime() - dueAt.getTime() > cfg.maxLateMs) return { kind: 'skip', step, reason: 'too_late' };
+  // 0 = never skip: a held step still goes, however late (owner, 2026-11-05).
+  if (cfg.maxLateMs > 0 && i.now.getTime() - dueAt.getTime() > cfg.maxLateMs) return { kind: 'skip', step, reason: 'too_late' };
   if (!i.inCallingWindow) return { kind: 'wait', step, reason: 'quiet_hours', dueAt };
   if (i.lastSentAt && i.now.getTime() - i.lastSentAt.getTime() < cfg.minGapMs) {
     return { kind: 'wait', step, reason: 'gap', dueAt };

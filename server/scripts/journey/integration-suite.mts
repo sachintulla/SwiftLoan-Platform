@@ -1526,6 +1526,23 @@ await t('S159', 'missed-call', 'an unanswered timeline call gets ONE "sorry we m
   } finally { await clearTimings(); }
 });
 
+await t('S159b', 'missed-call', 'an unanswered "no offers" call gets ONE note with its own template (no_offers_missed_call, name only), not the welcome text', async () => {
+  const mc = await import(`${ROOT}/lib/missedCallNote.js`);
+  await isolateN(); hits.length = 0;
+  try {
+    await TS.saveTimings({ 'dropoff.sendEnabled': true, 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
+    const phone = newPhone(); const u = await prisma.user.create({ data: { phone } });
+    const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: 'rejected', reason: 'not_eligible', firstName: 'Ravi', startAt: new Date(), nextCheckAt: new Date() } as any });
+    const att = await prisma.callAttempt.create({ data: { phone, channel: 'phone_outbound', status: 'no_answer', answered: false, endedAt: new Date(Date.now() - 6 * 60_000) } as any });
+    await prisma.outboundRequest.create({ data: { channel: 'voice', kind: 'no_offers_call', idempotencyKey: `noffers:${run.id}`, status: 'sent', payload: { dropoffId: run.id, reason: 'not_eligible', callAttemptId: att.id } } as any });
+    await mc.sendMissedCallNotes(new Date()); await mc.sendMissedCallNotes(new Date());
+    const wa = hitsFor('/api/v1/whatsapp'); assert.equal(wa.length, 1, 'one note, not repeated');
+    const b = wa[0].body; assert.equal(b.template.name, 'no_offers_missed_call');
+    const params = b.template.components.find((c: any) => c.type === 'body').parameters.map((x: any) => x.text);
+    assert.deepEqual(params, ['Ravi']);
+  } finally { await clearTimings(); }
+});
+
 await t('S160', 'welcome-sms', 'welcome SMS on OTP verify: app → "verify your PAN" (no link), website → link SMS; once per number; nothing when off', async () => {
   const { downloads } = await import(`${ROOT}/config/downloads.js`);
   await isolateN(); hits.length = 0;
@@ -1549,28 +1566,32 @@ await t('S160', 'welcome-sms', 'welcome SMS on OTP verify: app → "verify your 
   } finally { await clearTimings(); }
 });
 
-await t('S161', 'sms-fallback', 'every drop-off WhatsApp is followed once by its SMS after the gap (website: link text naming the step; app before PAN: "verify your PAN"); "only if undelivered" skips delivered ones', async () => {
+await t('S161', 'sms-fallback', 'every drop-off WhatsApp STEP is followed once by its SMS after the gap, even when the WhatsApp failed (website: link text naming the step; app before PAN: "verify your PAN"); "only if undelivered" skips delivered ones', async () => {
   const fb = await import(`${ROOT}/lib/smsFallback.js`);
   const { downloads } = await import(`${ROOT}/config/downloads.js`);
   await isolateN(); hits.length = 0;
   try {
     await TS.saveTimings({ 'dropoff.sendEnabled': true, 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
-    const mk = async (status: string, opts: { inApp?: boolean; waStatus?: string }) => {
+    const mk = async (status: string, opts: { inApp?: boolean; waStatus?: string; waFailed?: boolean }) => {
       const phone = newPhone(); const u = await prisma.user.create({ data: { phone } });
       if (opts.inApp) {
         const c = await prisma.customer.create({ data: { phone, userId: u.id } as any });
         await prisma.journeyEvent.create({ data: { customerId: c.id, channel: 'app', name: 'otp_verified', occurredAt: new Date(Date.now() - 3_600_000) } });
       }
-      const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: status, token: opts.inApp ? null : `FB${Math.floor(Math.random() * 1e6)}`, firstName: 'Asha', startAt: new Date(), nextCheckAt: new Date(Date.now() + 86_400_000) } as any });
-      await prisma.messageDelivery.create({ data: { channel: 'whatsapp', phone, kind: 'app_dropoff', status: opts.waStatus ?? 'queued', referenceId: `${run.id}:0`, providerRef: `fb-${run.id}`, createdAt: new Date(Date.now() - 15 * 60_000) } as any });
+      const at = new Date(Date.now() - 15 * 60_000).toISOString();
+      const history = [{ step: 0, channel: 'whatsapp', label: '+30m whatsapp', at, outcome: opts.waFailed ? 'failed' : 'sent', ...(opts.waFailed ? { reason: 'Meta refused it' } : {}), message: 'continue', withLink: !opts.inApp }];
+      const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: status, token: opts.inApp ? null : `FB${Math.floor(Math.random() * 1e6)}`, firstName: 'Asha', startAt: new Date(), nextCheckAt: new Date(Date.now() + 86_400_000), history } as any });
+      if (!opts.waFailed) await prisma.messageDelivery.create({ data: { channel: 'whatsapp', phone, kind: 'app_dropoff', status: opts.waStatus ?? 'queued', referenceId: `${run.id}:0`, providerRef: `fb-${run.id}`, createdAt: new Date(at) } as any });
       return { phone, run };
     };
     const web = await mk('pan_verified', {}); const app = await mk('otp_verified', { inApp: true }); const done = await mk('pan_verified', { waStatus: 'delivered' });
+    const failed = await mk('pan_verified', { waFailed: true }); // the WhatsApp never went out: the SMS still does (owner, 2026-11-06)
     await fb.sendSmsFallbacks(new Date()); await fb.sendSmsFallbacks(new Date());
-    const sms = hitsFor('/sms'); assert.equal(sms.length, 3, 'one SMS after each WhatsApp, delivered or not, never repeated');
+    const sms = hitsFor('/sms'); assert.equal(sms.length, 4, 'one SMS after each WhatsApp step, delivered, undelivered or failed, never repeated');
+    assert.ok(sms.some((h) => JSON.stringify(h.body).includes(failed.phone.slice(-10))), 'a failed WhatsApp is still followed by its SMS');
     hits.length = 0; await TS.saveTimings({ 'dropoff.smsOnlyIfUndelivered': true }, 't');
     await prisma.outboundRequest.deleteMany({ where: { kind: 'sms_fallback' } }); await fb.sendSmsFallbacks(new Date());
-    assert.equal(hitsFor('/sms').length, 2, 'narrowed: the delivered WhatsApp gets no SMS'); void done;
+    assert.equal(hitsFor('/sms').length, 3, 'narrowed: only the delivered WhatsApp gets no SMS'); void done;
     const byPhone = (p: string) => JSON.stringify(sms.find((h) => JSON.stringify(h.body).includes(p.slice(-10)))?.body ?? {});
     assert.ok(byPhone(web.phone).includes('1277179300146510723') && byPhone(web.phone).includes('incomplete at Basic details') && byPhone(web.phone).includes(`${downloads.publicBase}/dl?ref=${web.run.token}`), 'website: link text naming the step');
     assert.ok(byPhone(app.phone).includes('1277179266527595706') && byPhone(app.phone).includes('please verify your PAN'), 'app user before PAN: verify your PAN');

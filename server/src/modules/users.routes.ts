@@ -11,7 +11,7 @@ import { isAdult } from '../lib/age.js';
 import { fail } from '../lib/http.js';
 import { userPanData } from '../lib/storedPan.js';
 import { parseDeletionFeedback } from '../lib/accountDeletion.js';
-import { phoneKey } from '../lib/messageStatus.js';
+import { crmErasureOps } from '../lib/customerErasure.js';
 
 const log = scoped('users');
 
@@ -232,20 +232,24 @@ usersRouter.delete('/me', ah(async (req, res) => {
 
   // Right to erasure (DPDP): deleting the User cascades its relational children
   // (applications → offers → lender applications, loans, kyc, consents, tokens).
-  // But the partner-lead models are plain-FK (no relation, no cascade), so they
-  // would be orphaned with PII still attached — delete them explicitly first.
-  // The message-delivery log keeps the recipient's number, so it goes with the account (no FK to cascade).
+  // The partner-lead models are plain-FK (no relation, no cascade), and the CRM
+  // side (Customer → journey events, calls, conversation summaries, campaign
+  // contacts, outbound requests, message log, leads) is linked by phone / a plain
+  // userId — delete all of it explicitly first, the same set the admin erasure removes.
   const me = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } });
-  const myPhoneKey = phoneKey(me?.phone) ?? '__none__';
+  const customers = await prisma.customer.findMany({
+    where: { OR: [{ userId }, ...(me?.phone ? [{ phone: me.phone }] : [])] },
+    select: { id: true },
+  });
   await prisma.$transaction([
     ...(parsed.value
       ? [prisma.accountDeletionFeedback.create({
           data: { ...parsed.value, hadApplication: !!application, hadActiveLoan: !!activeLoan },
         })]
       : []),
+    ...crmErasureOps({ customerIds: customers.map(c => c.id), phone: me?.phone, userId }),
     prisma.partnerReferral.deleteMany({ where: { userId } }), // Yubi
     prisma.revasureLead.deleteMany({ where: { userId } }),    // Revasure
-    prisma.messageDelivery.deleteMany({ where: { phone: myPhoneKey } }), // WhatsApp/SMS delivery log
     prisma.user.delete({ where: { id: userId } }),
   ]);
   log.warn('account deleted (incl. partner leads)', { userId, reason: parsed.value?.reasonCode ?? null, source: parsed.value?.source ?? 'app' });

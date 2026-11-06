@@ -614,7 +614,7 @@ export default function VoiceWidget() {
   const dir = (!isTab && side === 'left') ? -1 : 1;
   const ctl = isTab
     ? { mx: 44, my: -52, ex: -44, ey: -52 }
-    : { mx: 0, my: -72, ex: -66 * dir, ey: -44 };
+    : { mx: 0, my: -60, ex: -52 * dir, ey: -30 };
   // Turn one spring value (0→1, overshooting past 1 on the way out) into the
   // roll: translate to the offset, a full 360° spin, scale up from a dot. The
   // overshoot carries translate/rotate/scale slightly past target → the bump.

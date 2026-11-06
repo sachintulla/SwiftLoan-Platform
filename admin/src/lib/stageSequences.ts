@@ -109,10 +109,12 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
     rules: [DROPOFF_RULES, WEBSITE_REMINDER_RULES],
   },
   eligibility_completed: {
-    sources: [],
+    // "No offers" (owner, 2026-11-06): the drop-off run of someone whose check found none, with its own timeline once one is saved here
+    // (otherwise the shared drop-off schedule and the 7 AM daily messages, as before).
+    sources: [{ ...DROPOFF, label: 'No-offers follow-up', messages: [], from: 'the offer check found none' }],
     call: { id: 'nooffers', label: 'Call when the lender finds no offers', audience: 'App and website', delayKey: 'dropoff.noOffersCallDelayMinutes', switches: ['dropoff.noOffersCallEnabled', 'calls.nudgeEnabled'] },
-    rules: [],
-    note: 'The "no offers" and "could not complete" WhatsApp notices, at the top of this step, go out the moment the check ends.',
+    rules: [DROPOFF_RULES],
+    note: 'The "no offers" WhatsApp notice and the call go out the moment the check ends; an unanswered call gets one "we tried to call you" WhatsApp. The timeline here is what follows.',
   },
   offer_viewed: {
     sources: [{ ...DROPOFF, messages: ['dropoff.apply_offers.withLink', 'dropoff.apply_offers.noLink'] }],

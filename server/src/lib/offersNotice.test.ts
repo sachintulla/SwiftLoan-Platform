@@ -11,8 +11,11 @@ describe('noticeKindFor', () => {
     expect(noticeKindFor('technical')).toBe('eligibility_retry');
   });
 
-  it('says nothing for a duplicate number, an unknown reason or no reason', () => {
-    for (const r of ['duplicate', 'something_new', '', null, undefined]) expect(noticeKindFor(r as string | null | undefined), String(r)).toBeNull();
+  it('"already registered with the lender" gets the no-offers notice too', () => {
+    expect(noticeKindFor('duplicate')).toBe('no_offers');
+  });
+  it('says nothing for an unknown reason or no reason', () => {
+    for (const r of ['something_new', '', null, undefined]) expect(noticeKindFor(r as string | null | undefined), String(r)).toBeNull();
   });
 });
 

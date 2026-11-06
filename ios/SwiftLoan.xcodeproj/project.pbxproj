@@ -24,6 +24,8 @@
 		F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0004 /* UiSoundModule.m */; };
 		F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0005 /* AttributionModule.swift */; };
 		F00DFACE00000000000B0006 /* AttributionModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0006 /* AttributionModule.m */; };
+		F00DFACE00000000000B0007 /* PanOcrModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0007 /* PanOcrModule.swift */; };
+		F00DFACE00000000000B0008 /* PanOcrModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0008 /* PanOcrModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +50,8 @@
 		F00DFACE00000000000A0004 /* UiSoundModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = UiSoundModule.m; path = SwiftLoan/UiSound/UiSoundModule.m; sourceTree = "<group>"; };
 		F00DFACE00000000000A0005 /* AttributionModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AttributionModule.swift; path = SwiftLoan/Attribution/AttributionModule.swift; sourceTree = "<group>"; };
 		F00DFACE00000000000A0006 /* AttributionModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AttributionModule.m; path = SwiftLoan/Attribution/AttributionModule.m; sourceTree = "<group>"; };
+		F00DFACE00000000000A0007 /* PanOcrModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PanOcrModule.swift; path = SwiftLoan/PanOcrModule.swift; sourceTree = "<group>"; };
+		F00DFACE00000000000A0008 /* PanOcrModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PanOcrModule.m; path = SwiftLoan/PanOcrModule.m; sourceTree = "<group>"; };
 		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -77,6 +81,8 @@
 				F00DFACE00000000000A0004 /* UiSoundModule.m */,
 				F00DFACE00000000000A0005 /* AttributionModule.swift */,
 				F00DFACE00000000000A0006 /* AttributionModule.m */,
+				F00DFACE00000000000A0007 /* PanOcrModule.swift */,
+				F00DFACE00000000000A0008 /* PanOcrModule.m */,
 			);
 			name = SwiftLoan;
 			sourceTree = "<group>";
@@ -242,13 +248,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -285,13 +287,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -312,6 +310,8 @@
 				F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */,
 				F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */,
 				F00DFACE00000000000B0006 /* AttributionModule.m in Sources */,
+				F00DFACE00000000000B0007 /* PanOcrModule.swift in Sources */,
+				F00DFACE00000000000B0008 /* PanOcrModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -159,10 +159,11 @@ describe('picking the configured template', () => {
 describe('the shipped default templates (WhatsApp)', () => {
   // How many {{n}} each approved Vox template has. WhatsApp rejects a send whose placeholder count differs.
   const VARIABLES: Record<string, number> = {
-    install_app_resume_step: 3, // name, step, link
-    dropoff_continue_app: 2, // name, step
-    offers_ready: 4, // name, offer count, application ref, link
-    dropoff_apply_offers_app: 1, // name
+    continue_application_link: 3, // name, step, link
+    continue_application_app: 2, // name, step
+    offers_ready_view_link: 3, // name, application ref, link
+    offers_ready_open_app: 2, // name, application ref
+    no_offers_call: 1, // name
   };
 
   it('each placeholder list matches its approved template exactly', () => {
@@ -182,16 +183,26 @@ describe('the shipped default templates (WhatsApp)', () => {
     }
   });
 
-  it('leaves "no offers" OFF until the follow-up call exists (its text promises a call)', () => {
-    expect(pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'no_offers', false)).toBeNull();
+  it('"no offers" uses no_offers_call ("our assistant will call you"), never with a link', () => {
+    const ref = pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'no_offers', false)!;
+    expect(ref.template).toBe('no_offers_call');
+    expect(ref.placeholders?.length).toBe(VARIABLES.no_offers_call);
+    expect(pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'no_offers', true)).toBeNull();
+  });
+
+  it('sends each with the category Meta approved it as', () => {
+    expect(pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'continue', true)?.category).toBe('MARKETING');
+    expect(pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'continue', false)?.category).toBe('MARKETING');
+    expect(pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'apply_offers', true)?.category).toBe('UTILITY');
+    expect(pickWhatsapp(DEFAULT_DROPOFF_MESSAGES, 'apply_offers', false)?.category).toBe('UTILITY');
   });
 
   it('fills every default with real values', () => {
     const vars = { name: 'Priya', step: 'Basic details', link: 'https://x.test/dl?ref=AB', ref: 'SL-1', offerCount: 3 };
-    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'continue', true, vars)).toMatchObject({ ok: true, template: 'install_app_resume_step', placeholders: ['Priya', 'Basic details', 'https://x.test/dl?ref=AB'] });
-    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'continue', false, vars)).toMatchObject({ ok: true, template: 'dropoff_continue_app', placeholders: ['Priya', 'Basic details'] });
-    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'apply_offers', true, vars)).toMatchObject({ ok: true, template: 'offers_ready', placeholders: ['Priya', '3', 'SL-1', 'https://x.test/dl?ref=AB'] });
-    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'apply_offers', false, vars)).toMatchObject({ ok: true, template: 'dropoff_apply_offers_app', placeholders: ['Priya'] });
+    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'continue', true, vars)).toMatchObject({ ok: true, template: 'continue_application_link', placeholders: ['Priya', 'Basic details', 'https://x.test/dl?ref=AB'] });
+    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'continue', false, vars)).toMatchObject({ ok: true, template: 'continue_application_app', placeholders: ['Priya', 'Basic details'] });
+    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'apply_offers', true, vars)).toMatchObject({ ok: true, template: 'offers_ready_view_link', placeholders: ['Priya', 'SL-1', 'https://x.test/dl?ref=AB'] });
+    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'apply_offers', false, vars)).toMatchObject({ ok: true, template: 'offers_ready_open_app', placeholders: ['Priya', 'SL-1'] });
   });
 });
 
@@ -202,7 +213,7 @@ describe('resolving a message', () => {
   });
 
   it('says so when the message has no template yet', () => {
-    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'no_offers', false, { name: 'Priya' })).toEqual({ ok: false, reason: 'whatsapp template not configured' });
+    expect(resolveWhatsappMessage(DEFAULT_DROPOFF_MESSAGES, 'no_offers', true, { name: 'Priya' })).toEqual({ ok: false, reason: 'whatsapp template not configured' });
   });
 
   it('treats a zero offer count as a real value, not a missing one', () => {
@@ -215,22 +226,22 @@ describe('resolving a message', () => {
 describe('merging saved settings over the shipped defaults', () => {
   it('keeps defaults for variants nobody saved', () => {
     const merged = mergeDropoffMessages(DEFAULT_DROPOFF_MESSAGES, undefined);
-    expect(pickWhatsapp(merged, 'continue', true)?.template).toBe('install_app_resume_step');
+    expect(pickWhatsapp(merged, 'continue', true)?.template).toBe('continue_application_link');
   });
 
   it('a saved variant wins, and the other variant keeps its default', () => {
     const merged = mergeDropoffMessages(DEFAULT_DROPOFF_MESSAGES, { continue: { whatsapp: { noLink: { template: 'my_template', placeholders: ['{name}'] } } } });
     expect(pickWhatsapp(merged, 'continue', false)?.template).toBe('my_template');
-    expect(pickWhatsapp(merged, 'continue', true)?.template).toBe('install_app_resume_step');
+    expect(pickWhatsapp(merged, 'continue', true)?.template).toBe('continue_application_link');
   });
 
   it('a blank saved template switches that variant off', () => {
     const merged = mergeDropoffMessages(DEFAULT_DROPOFF_MESSAGES, { apply_offers: { whatsapp: { withLink: { template: '' } } } });
     expect(pickWhatsapp(merged, 'apply_offers', true)).toBeNull();
-    expect(pickWhatsapp(merged, 'apply_offers', false)?.template).toBe('dropoff_apply_offers_app');
+    expect(pickWhatsapp(merged, 'apply_offers', false)?.template).toBe('offers_ready_open_app');
   });
 
-  it('adds a message the defaults do not have (how "no offers" gets turned on)', () => {
+  it('a saved "no offers" template replaces the default one', () => {
     const merged = mergeDropoffMessages(DEFAULT_DROPOFF_MESSAGES, { no_offers: { whatsapp: { noLink: { template: 'dropoff_no_offers_callback', placeholders: ['{name}'] } } } });
     expect(pickWhatsapp(merged, 'no_offers', false)?.template).toBe('dropoff_no_offers_callback');
   });

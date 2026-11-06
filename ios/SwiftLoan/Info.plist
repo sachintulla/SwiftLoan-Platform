@@ -62,7 +62,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>SwiftLoan uses your camera to take a profile photo.</string>
+	<string>SwiftLoan uses your camera to take a profile photo or a photo of your PAN card.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SwiftLoan does not track your location. If a lender's verification page opened inside the app asks for your location (for example for address or fraud checks), it is used only for that check. You can choose Don't Allow.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -6,6 +6,7 @@ import { renderWithProviders } from './test-utils';
 import Referral from '../src/screens/referral';
 import { SCREENS } from '../src/screens';
 import { SCREEN_NAMES, PREV_MAP } from '../src/state/store';
+import * as client from '../src/api/client';
 import { api } from '../src/api/client';
 import { readInstallSignals } from '../src/utils/installSignals';
 import { loadPendingReferral, savePendingReferral, clearPendingReferral } from '../src/state/session';
@@ -23,7 +24,18 @@ const SUMMARY = {
 };
 
 describe('Refer a friend screen', () => {
+  // The screen only asks the API for a signed-in user (a guest gets a log-in prompt).
+  beforeEach(() => { jest.spyOn(client, 'isAuthed').mockReturnValue(true); });
   afterEach(() => jest.restoreAllMocks());
+
+  it('asks a guest to log in instead of showing an error', async () => {
+    jest.spyOn(client, 'isAuthed').mockReturnValue(false);
+    const spy = jest.spyOn(api, 'referralMe');
+    const { findByText, queryByText } = renderWithProviders(<Referral />);
+    expect(await findByText('Log in to get your referral link')).toBeTruthy();
+    expect(queryByText('Could not load your referral details.')).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
 
   it('is registered as a screen with a back target', () => {
     expect(SCREEN_NAMES).toContain('referral');

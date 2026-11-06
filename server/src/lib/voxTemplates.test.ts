@@ -6,7 +6,7 @@ import {
 } from './voxTemplates.js';
 
 const catalog = (saved: Record<string, any> = {}) => readCatalog(saved, DEFAULT_SETTINGS.voxvalley as Record<string, any>);
-const entry = (over: Partial<TemplateEntry> = {}): TemplateEntry => ({ name: 'my_template', language: 'en', category: 'UTILITY', status: 'APPROVED', body: '', note: '', ...over });
+const entry = (over: Partial<TemplateEntry> = {}): TemplateEntry => ({ name: 'my_template', language: 'en', category: 'UTILITY', status: 'APPROVED', body: '', note: '', headerImageUrl: '', ...over });
 const row = (rows: ReturnType<typeof buildTemplateRows>, name: string) => rows.find((r) => r.name === name)!;
 
 describe('templateVariables', () => {
@@ -21,7 +21,7 @@ describe('templateVariables', () => {
 describe('validateEntry', () => {
   it('accepts a good entry and normalises it', () => {
     expect(validateEntry({ name: ' my_template ', language: '', category: 'utility', status: 'approved', body: ' Hi {{1}} ', note: ' x ' })).toEqual({
-      ok: true, entry: { name: 'my_template', language: 'en', category: 'UTILITY', status: 'APPROVED', body: 'Hi {{1}}', note: 'x' },
+      ok: true, entry: { name: 'my_template', language: 'en', category: 'UTILITY', status: 'APPROVED', body: 'Hi {{1}}', note: 'x', headerImageUrl: '' },
     });
   });
   it('category and status may be left blank (not recorded)', () => {
@@ -70,7 +70,7 @@ describe('library storage', () => {
     const copy = JSON.parse(JSON.stringify(before));
     libraryAfterChange(before, { kind: 'remove', name: 'a' });
     expect(before).toEqual(copy);
-    expect(readLibrary({ x: null, y: 5, z: { name: 'ok', category: 'WEIRD', status: 'huh' } })).toEqual([{ name: 'ok', language: 'en', category: '', status: '', body: '', note: '' }]);
+    expect(readLibrary({ x: null, y: 5, z: { name: 'ok', category: 'WEIRD', status: 'huh' } })).toEqual([{ name: 'ok', language: 'en', category: '', status: '', body: '', note: '', headerImageUrl: '' }]);
   });
 });
 
@@ -165,5 +165,29 @@ describe('catalogue proposals', () => {
 
   it('a proposal never raises a category or approval flag', () => {
     expect(buildTemplateRows([], [], [proposal])[0].flags).toEqual([]);
+  });
+});
+
+describe('image address per template', () => {
+  it('keeps a public https address and rejects anything else', () => {
+    const ok = validateEntry({ name: 'my_image_template', headerImageUrl: ' https://cdn.example.com/banner.jpg ' });
+    expect(ok.ok && ok.entry.headerImageUrl).toBe('https://cdn.example.com/banner.jpg');
+    const bad = validateEntry({ name: 'my_image_template', headerImageUrl: 'http://cdn.example.com/banner.jpg' });
+    expect(bad.ok).toBe(false);
+    expect(!bad.ok && bad.errors.headerImageUrl).toMatch(/https/);
+    const none = validateEntry({ name: 'my_text_template' });
+    expect(none.ok && none.entry.headerImageUrl).toBe('');
+  });
+
+  it('survives a save and a read, and drops an unusable stored value', () => {
+    const lib = libraryAfterChange({}, { kind: 'set', entry: entry({ name: 'img', headerImageUrl: 'https://x.test/a.png' }) });
+    expect(readLibrary(lib)[0].headerImageUrl).toBe('https://x.test/a.png');
+    expect(readLibrary({ img: { name: 'img', headerImageUrl: 'ftp://x/a.png' } })[0].headerImageUrl).toBe('');
+  });
+
+  it('each row says which image the code sends when nothing is saved', () => {
+    const rows = buildTemplateRows([entry({ name: 'no_offers_call' }), entry({ name: 'dropoff_pending_step_app' })], []);
+    expect(row(rows, 'no_offers_call').defaultImageUrl).toMatch(/whatsapp-no-offers\.png$/);
+    expect(row(rows, 'dropoff_pending_step_app').defaultImageUrl).toBe('');
   });
 });

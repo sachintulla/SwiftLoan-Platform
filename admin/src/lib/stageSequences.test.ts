@@ -30,11 +30,11 @@ describe('STAGE_SEQUENCES', () => {
     }
   });
 
-  it('per-stage schedules exist only where the server supports them (install: Signed in, Application started; drop-off: Application started, Offers viewed)', () => {
+  it('per-stage schedules exist only where the server supports them (install: Signed in, Application started; drop-off: also No offers found, Offers viewed)', () => {
     const own: Record<string, string[]> = {};
     for (const [stage, seq] of Object.entries(STAGE_SEQUENCES)) for (const s of seq.sources) if (s.ownSchedule) (own[s.scheduleKey] ??= []).push(stage);
     expect(own['install.schedule'].sort()).toEqual(['eligibility_started', 'otp_verified']);
-    expect(own['dropoff.schedule'].sort()).toEqual(['eligibility_started', 'offer_viewed', 'otp_verified']);
+    expect(own['dropoff.schedule'].sort()).toEqual(['eligibility_completed', 'eligibility_started', 'offer_viewed', 'otp_verified']);
     expect(Object.keys(own).sort()).toEqual(['dropoff.schedule', 'install.schedule']);
   });
 
@@ -64,7 +64,7 @@ describe('what stays on the Timings page', () => {
 
   it('says which other stages share a setting', () => {
     expect(stagesUsing('install.schedule', 'otp_verified')).toEqual(['eligibility_started']);
-    expect(stagesUsing('dropoff.schedule', 'offer_viewed').sort()).toEqual(['eligibility_started', 'otp_verified']);
+    expect(stagesUsing('dropoff.schedule', 'offer_viewed').sort()).toEqual(['eligibility_completed', 'eligibility_started', 'otp_verified']);
     expect(stagesUsing('applied.schedule', 'offer_selected')).toEqual([]);
   });
 });
