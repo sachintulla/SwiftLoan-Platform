@@ -925,6 +925,16 @@ Ello's 5,000-token limit (~3,530 words).
   report the status ("has a pending step: …", "offers … are ready") and end with "Reply to this message if you need help."; "incomplete …
   continue where you left off" / "open the app and apply" become Marketing. Vox's template image upload fails (500) on large PNGs with spaces in
   the name: upload a ~100 KB 1424×752 JPG with a plain name.
+- **WhatsApp, SMS and call are independent (owner, 2026-11-06).** The drop-off follow-up SMS (`lib/smsFallback.ts`) now follows each WhatsApp
+  STEP in the run's history (`whatsappStepsDueSms`), whether the WhatsApp was sent, failed or skipped for a WhatsApp-only reason; before, a
+  WhatsApp that never left meant no SMS. Not for log-only steps or ones held back by the test list / a contact limit. Claim key
+  `smsfb:<run id>:<step>` (old per-message keys are still honoured). "No offers" has no registered SMS text yet, so it still gets none.
+- **Missed no-offers call → note (owner, 2026-11-06).** `missedCallNote.ts` also follows an unanswered no-offers call (`noOffersCall.ts` now stores
+  `callAttemptId` on its claim), with its own Utility template `no_offers_missed_call` ({name}; Voxvalley setting `missedNoteNoOffers` overrides,
+  blank = off) instead of the welcome text. **The template must be approved in Vox before this sends.**
+- **No offers is its own Stage outreach stage.** A `rejected` drop-off run belongs to stage `eligibility_completed` ("Fetching offers" /
+  "No offers found"), so it can have its own timeline (`dropoff.schedule.eligibility_completed`, Stage outreach → that step). Until one is saved it
+  keeps the shared schedule + 7 AM daily messages, as before; a saved one replaces both.
 - **"I'll send you the link" on a call (`send_app_link` → `POST /api/conversations/send-link`, `lib/agentLink.ts`):** sends the app link by SMS
   (LINK_SMS) AND WhatsApp (the drop-off "continue with link" template, now `continue_application_link`), same three values: name (our records, else "Customer"), status "Starting a Loan
   Application" (Voxvalley `callLinkStep` overrides), link `/dl?ref=<their token>` (made as an ended `JourneyReminder` row if they had none, so no

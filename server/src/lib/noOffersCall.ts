@@ -29,6 +29,8 @@ import { noOffersCallBrief, noOffersCallDue } from './dropoffSteps.js';
 const log = scoped('no-offers-call');
 
 export const noOffersCallEnabled = () => timing.bool('dropoff.noOffersCallEnabled');
+/** OutboundRequest kind of the call; its payload carries `dropoffId` and, once placed, `callAttemptId` (missedCallNote.ts reads both). */
+export const NO_OFFERS_CALL_KIND = 'no_offers_call';
 
 export interface NoOffersCallResult { placed: number; logged: number; skipped: number }
 
@@ -57,7 +59,7 @@ export async function callNoOffersRun(
   const key = `noffers:${r.id}`;
   const [claimed, earlier] = await Promise.all([
     prisma.outboundRequest.findUnique({ where: { idempotencyKey: key }, select: { id: true } }),
-    customer ? prisma.outboundRequest.count({ where: { customerId: customer.id, kind: 'no_offers_call' } }) : Promise.resolve(0),
+    customer ? prisma.outboundRequest.count({ where: { customerId: customer.id, kind: NO_OFFERS_CALL_KIND } }) : Promise.resolve(0),
   ]);
   // A "would call" entry (log-only mode) must NOT count as a call: only a real attempt (sent or failed) does, or switching the
   // feature on later would never ring the people who were logged while it was off.
@@ -98,7 +100,7 @@ export async function callNoOffersRun(
   // Claim BEFORE dialling: a crash between the dial and the write must never lead to a second call.
   try {
     await prisma.outboundRequest.create({
-      data: { customerId: customer.id, channel: 'voice', kind: 'no_offers_call', idempotencyKey: key, status: 'sent', payload: { dropoffId: r.id, reason: r.reason ?? null } },
+      data: { customerId: customer.id, channel: 'voice', kind: NO_OFFERS_CALL_KIND, idempotencyKey: key, status: 'sent', payload: { dropoffId: r.id, reason: r.reason ?? null } },
     });
   } catch {
     out.skipped++; // another worker claimed it first
@@ -132,6 +134,8 @@ export async function callNoOffersRun(
   }
 
   await note(r, { outcome: 'sent' }, now);
+  // So an unanswered call can be followed by the "we tried to call you" WhatsApp (missedCallNote.ts).
+  await prisma.outboundRequest.updateMany({ where: { idempotencyKey: key }, data: { payload: { dropoffId: r.id, reason: r.reason ?? null, callAttemptId: result.attempt.id } } }).catch(() => undefined);
   await recordJourneyEvent(customer.id, {
     channel: 'system',
     name: JOURNEY_EVENTS.NUDGE_SENT,

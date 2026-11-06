@@ -13,12 +13,14 @@ export type SharedSchedule = 'install.schedule' | 'dropoff.schedule';
 /** The stages (Stage outreach keys) that may have their own copy of each shared schedule. */
 export const STAGE_SCHEDULE_STAGES: Readonly<Record<SharedSchedule, readonly string[]>> = Object.freeze({
   'install.schedule': ['otp_verified', 'eligibility_started'],
-  'dropoff.schedule': ['otp_verified', 'eligibility_started', 'offer_viewed'],
+  // eligibility_completed = "no offers" (owner, 2026-11-06): its own short timeline instead of the shared one + 7 AM daily for a week.
+  'dropoff.schedule': ['otp_verified', 'eligibility_started', 'eligibility_completed', 'offer_viewed'],
 });
 
 export const STAGE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   otp_verified: 'Signed in',
   eligibility_started: 'Application started',
+  eligibility_completed: 'No offers found',
   offer_viewed: 'Offers viewed',
 });
 
@@ -37,6 +39,7 @@ export const DROPOFF_STAGE_OF_STATUS: Readonly<Record<string, string>> = Object.
   otp_verified: 'otp_verified',
   pan_verified: 'eligibility_started',
   application_filled: 'eligibility_started',
+  rejected: 'eligibility_completed',
   offers_not_applied: 'offer_viewed',
 });
 
