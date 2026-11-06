@@ -18,6 +18,8 @@ import { LEGAL_DOCS, PRIVACY_POLICY_URL, type LegalDocKey } from '../content/leg
  * yet reachable) it falls back to the built-in copy so the policy is always
  * viewable. The other docs render their built-in content directly.
  */
+const SHRINK_TEXT_JS = `(function(){var s=document.createElement('style');s.innerHTML='html{font-size:87.5% !important;-webkit-text-size-adjust:87.5% !important;text-size-adjust:87.5% !important}';document.head.appendChild(s);})();true;`;
+
 export default function Legal() {
   const { state } = useStore();
   const key: LegalDocKey = (state.legalDoc as LegalDocKey) || 'privacy';
@@ -37,6 +39,9 @@ export default function Legal() {
         <View style={{ flex: 1 }}>
           <WebView
             source={{ uri: PRIVACY_POLICY_URL }}
+            // The website's type is sized for a desktop page; scale it down to
+            // read like the rest of the app on a phone.
+            injectedJavaScript={SHRINK_TEXT_JS}
             onError={() => setWebFailed(true)}
             onHttpError={() => setWebFailed(true)}
             onLoadEnd={() => setWebLoading(false)}
@@ -64,13 +69,13 @@ export default function Legal() {
       <AppHeader title={doc.title} />
       <Text style={[font(400), { fontSize: 12, color: colors.muted, marginTop: 2 }]}>{doc.subtitle}</Text>
 
-      <Text style={[font(500), { fontSize: 13.5, lineHeight: 20, color: colors.textMid, marginTop: 16 }]}>{doc.intro}</Text>
+      <Text style={[font(500), { fontSize: 12.5, lineHeight: 18, color: colors.textMid, marginTop: 14 }]}>{doc.intro}</Text>
 
       <View style={{ marginTop: 8 }}>
         {doc.sections.map(s => (
-          <View key={s.title} style={{ marginTop: 18 }}>
-            <Text style={[font(700), { fontSize: 15, color: colors.text }]}>{s.title}</Text>
-            <Text style={[font(400), { fontSize: 13, lineHeight: 20, color: colors.textSoft, marginTop: 5 }]}>{s.body}</Text>
+          <View key={s.title} style={{ marginTop: 14 }}>
+            <Text style={[font(700), { fontSize: 13.5, color: colors.text }]}>{s.title}</Text>
+            <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 4 }]}>{s.body}</Text>
           </View>
         ))}
       </View>

@@ -120,6 +120,11 @@ adapters.
   is on :8081 — kill it and `npx react-native start --reset-cache` from this repo.
 - New Architecture (bridgeless) is on; `console.log` does not stream to the Metro
   terminal by default.
+- **Android push (Upshot):** needs `android/app/google-services.json` from Firebase project
+  **`swiftloan-ai`** (client `ai.swiftloan.app`). It is gitignored, so a release built from a clean
+  git copy must have it copied in. `assembleRelease`/`bundleRelease` now fail without it (or with
+  the old `swiftloan-de051` file); `-PallowNoFirebase` overrides. Play codes 24–35 shipped with no
+  push token because of this.
 
 ---
 

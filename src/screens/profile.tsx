@@ -199,17 +199,41 @@ export default function Profile() {
       showToast(t.couldNotSaveLanguage);
     }
   };
+  const [exporting, setExporting] = useState(false);
+  const requestDataExport = async () => {
+    if (!isAuthed()) { showToast(t.tExportLogin); return; }
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await api.createTicket(
+        'Data export request',
+        'query',
+        'Please send me a copy of the personal data SwiftLoan holds about me (requested from the app: Profile → Consent & Privacy).',
+        'privacy',
+      );
+      showToast(t.tExportSent);
+    } catch {
+      showToast(t.tExportFailed);
+    } finally {
+      setExporting(false);
+    }
+  };
   const changeNotif = async (patch: Partial<{ loan: boolean; security: boolean; promo: boolean }>, on: boolean) => {
     const prevNotif = state.notif;
     set({ notif: { ...state.notif, ...patch } });
-    if (!isAuthed()) { showToast(on ? t.tOn : t.tOff); return; }
+    // Name the setting that changed, not a generic "Notifications on/off".
+    const msg = 'loan' in patch ? (on ? t.tLoanOn : t.tLoanOff)
+      : 'security' in patch ? (on ? t.tSecurityOn : t.tSecurityOff)
+      : 'promo' in patch ? (on ? t.tPromoOn : t.tPromoOff)
+      : (on ? t.tOn : t.tOff);
+    if (!isAuthed()) { showToast(msg); return; }
     const map: any = {};
     if ('loan' in patch) map.loanUpdates = patch.loan;
     if ('security' in patch) map.securityAlerts = patch.security;
     if ('promo' in patch) map.promoOffers = patch.promo;
     try {
       await api.setNotifications(map);
-      showToast(on ? t.tOn : t.tOff);
+      showToast(msg);
     } catch {
       set({ notif: prevNotif });
       showToast('Could not save. Please try again.');
@@ -449,11 +473,13 @@ export default function Profile() {
           <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 12 }]}>{t.dataSharingBody}</Text>
         </VoiceHidden>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-          <Pressable style={styles.partnerBtn} onPress={() => showToast(t.tSoon)}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.managePartners}</Text></Pressable>
-          <Pressable style={styles.partnerBtn} onPress={() => showToast(t.tSoon)}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.requestExport}</Text></Pressable>
+          {/* Who the data goes to and how to withdraw consent: the Grievance & Consent Withdrawal document. */}
+          <Pressable style={styles.partnerBtn} onPress={() => { set({ legalDoc: 'grievance' }); go('legal'); }}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.managePartners}</Text></Pressable>
+          {/* A privacy support ticket: it reaches the team on Admin → Support, like any other ticket. */}
+          <Pressable style={styles.partnerBtn} onPress={requestDataExport} disabled={exporting}><Text style={[font(600), { fontSize: 12.5, color: colors.text }]}>{t.requestExport}</Text></Pressable>
         </View>
         <VoiceHidden>
-          <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, marginTop: 12 }]}>{t.privacyNote} <Text style={{ color: colors.primary }}>{t.privacyPolicy}</Text>.</Text>
+          <Text style={[font(400), { fontSize: 10.5, lineHeight: 15, color: colors.muted, marginTop: 12 }]}>{t.privacyNote} <Text style={{ color: colors.primary }} onPress={() => { set({ legalDoc: 'privacy' }); go('legal'); }}>{t.privacyPolicy}</Text>.</Text>
         </VoiceHidden>
       </SectionCard>
 

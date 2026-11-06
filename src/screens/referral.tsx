@@ -7,7 +7,7 @@ import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
-import { api } from '../api/client';
+import { api, isAuthed } from '../api/client';
 
 interface Friend { id: string; name: string; status: 'signed_up' | 'applied' | 'disbursed'; createdAt: string }
 interface Summary {
@@ -27,19 +27,23 @@ const STATUS_COLOR = { signed_up: colors.textSoft, applied: colors.primary, disb
  */
 export default function Referral() {
   const t = useT();
-  const { back } = useStore();
+  const { back, go } = useStore();
+  // A guest has no account to hang a code on: the API answers 401, which used to show
+  // as "Could not load". Ask them to log in instead.
+  const signedIn = isAuthed();
   const [data, setData] = useState<Summary | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
+    if (!signedIn) { setLoading(false); return; }
     setLoading(true);
     setErr('');
     api.referralMe()
       .then((r: any) => setData(r?.data ?? null))
       .catch(() => setErr(t.refLoadError))
       .finally(() => setLoading(false));
-  }, [t.refLoadError]);
+  }, [t.refLoadError, signedIn]);
 
   useEffect(load, [load]);
 
@@ -60,7 +64,14 @@ export default function Referral() {
         </View>
       </View>
 
-      {loading ? (
+      {!signedIn ? (
+        <View style={styles.codeCard}>
+          <Icon name="group_add" size={32} color="#fff" />
+          <Text style={[font(800), { fontSize: 17, color: '#fff', marginTop: 8, textAlign: 'center' }]}>{t.refLoginTitle}</Text>
+          <Text style={[font(400), { fontSize: 13, lineHeight: 19, color: 'rgba(255,255,255,0.85)', marginTop: 6, textAlign: 'center' }]}>{t.refLoginSub}</Text>
+          <PrimaryButton label={t.refLoginCta} icon="login" onPress={() => go('mobile')} solid style={{ marginTop: 14 }} />
+        </View>
+      ) : loading ? (
         <Loading />
       ) : err || !data ? (
         <ErrorState message={err || t.refLoadError} onRetry={load} />

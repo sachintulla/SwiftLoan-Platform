@@ -128,6 +128,16 @@ describe('mapPanResponse — live UAT structure', () => {
     const m = mapPanResponse(live({ ...PERSON, FullName: 'MADHAVI', FullNameSplit: ['MADHAVI'] }));
     expect(m.prefill).toMatchObject({ firstName: 'MADHAVI', lastName: undefined });
   });
+  it('re-splits a FullNameSplit slot that holds the whole name', () => {
+    const m = mapPanResponse(live({ ...PERSON, FullName: 'PRIYA REDDY', FullNameSplit: ['PRIYA REDDY', '', ''] }));
+    expect(m.prefill).toMatchObject({ firstName: 'PRIYA', lastName: 'REDDY', middleName: undefined });
+  });
+  it('splits a FirstName that holds the whole name when LastName is missing', () => {
+    const m = mapPanResponse(live({ ...PERSON, FirstName: 'RAVI KUMAR SHARMA' }));
+    expect(m.prefill).toMatchObject({ firstName: 'RAVI', middleName: 'KUMAR', lastName: 'SHARMA' });
+    const kept = mapPanResponse(live({ ...PERSON, FirstName: 'RAVI', LastName: 'SHARMA' }));
+    expect(kept.prefill).toMatchObject({ firstName: 'RAVI', lastName: 'SHARMA' });
+  });
   it('falls back to splitting FullName when FullNameSplit is missing', () => {
     const { FullNameSplit: _, ...noSplit } = PERSON;
     expect(mapPanResponse(live(noSplit)).prefill).toMatchObject({ firstName: 'RAVI', middleName: 'KUMAR', lastName: 'SHARMA' });

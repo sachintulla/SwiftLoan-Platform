@@ -48,18 +48,18 @@ export default function Privacy() {
           <LogoMark size={56} />
         </Animated.View>
       </View>
-      <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text, textAlign: 'center' }]}>Privacy Policy</Text>
+      <Text style={[font(800), { fontSize: 21, letterSpacing: -0.4, color: colors.text, textAlign: 'center' }]}>Privacy Policy</Text>
       <Text style={[font(400), { fontSize: 12, color: colors.muted, textAlign: 'center', marginTop: 4 }]}>
         Version {PRIVACY_POLICY_VERSION} · DPDP Act · RBI Digital Lending Guidelines
       </Text>
 
-      <Text style={[font(500), { fontSize: 13.5, lineHeight: 20, color: colors.textMid, marginTop: 16 }]}>{PRIVACY_INTRO}</Text>
+      <Text style={[font(500), { fontSize: 12.5, lineHeight: 18, color: colors.textMid, marginTop: 14 }]}>{PRIVACY_INTRO}</Text>
 
       <View style={{ marginTop: 8 }}>
         {PRIVACY_SECTIONS.map(s => (
-          <View key={s.title} style={{ marginTop: 18 }}>
-            <Text style={[font(700), { fontSize: 15, color: colors.text }]}>{s.title}</Text>
-            <Text style={[font(400), { fontSize: 13, lineHeight: 20, color: colors.textSoft, marginTop: 5 }]}>{s.body}</Text>
+          <View key={s.title} style={{ marginTop: 14 }}>
+            <Text style={[font(700), { fontSize: 13.5, color: colors.text }]}>{s.title}</Text>
+            <Text style={[font(400), { fontSize: 12, lineHeight: 18, color: colors.textSoft, marginTop: 4 }]}>{s.body}</Text>
           </View>
         ))}
       </View>
