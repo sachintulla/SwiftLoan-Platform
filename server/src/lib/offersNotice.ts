@@ -3,7 +3,7 @@
  *
  * Two utility templates cover the two real situations (see lib/whatsappTemplates.ts):
  *  - `not_eligible` or `duplicate` (number already registered with the lender): no offers for them. Template
- *    `no_offers_ruby_call` (owner, 2026-11-06: "don't worry, our assistant will call you"), sent at once with its image header.
+ *    `no_offers_call` (owner, 2026-11-06: "don't worry, our assistant will call you"), sent at once with its image header.
  *  - `technical`: the check could not complete because of a fault, so the customer
  *    is told their details are saved and to try again. Template `eligibility_retry_update`.
  *
@@ -50,7 +50,7 @@ export function noticeKindFor(reason: PrequalifyReason): OffersNoticeKind | null
  * website (website-next/public), like the welcome template's.
  */
 export const NOTICE_HEADER_IMAGES: Readonly<Record<string, string>> = Object.freeze({
-  no_offers_ruby_call: 'https://swiftloan.ai/whatsapp-no-offers.png',
+  no_offers_call: 'https://swiftloan.ai/whatsapp-no-offers.png',
 });
 
 /** What the customer is told to do next. Plain and honest; never lender wording. */

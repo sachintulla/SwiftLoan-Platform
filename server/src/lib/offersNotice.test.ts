@@ -60,6 +60,6 @@ describe('wiring', () => {
 
 describe('image header', () => {
   it('the no-offers template carries its banner (an https URL, as WhatsApp requires)', () => {
-    expect(NOTICE_HEADER_IMAGES.no_offers_ruby_call).toMatch(/^https:\/\/.+\.png$/);
+    expect(NOTICE_HEADER_IMAGES.no_offers_call).toMatch(/^https:\/\/.+\.png$/);
   });
 });
