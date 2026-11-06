@@ -20,6 +20,10 @@ export interface Summary { counts: Record<string, Record<string, number>>; stuck
 export type TemplateFlag = 'category_differs' | 'not_approved';
 export interface TemplateRow {
   name: string; language: string; category: string; status: string; body: string; note: string; variables: number;
+  /** Image address saved for a template approved with an IMAGE header ('' = none saved). */
+  headerImageUrl: string;
+  /** The image the server sends when no address is saved ('' = this template has no image). */
+  defaultImageUrl: string;
   /** false = a message uses this name but nobody has added it to the library yet. */
   inLibrary: boolean;
   /** true = from the template catalogue (Stage outreach), not recorded or submitted yet. */

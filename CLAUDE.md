@@ -916,8 +916,17 @@ Ello's 5,000-token limit (~3,530 words).
   lifetime cap (`limits.noOffersCallsPerPerson` default 0), and the "once per step per day" and "another sequence owns them" arming rules do not
   apply to no offers. Still: the switches, do-not-contact, the store-reviewer phone, calling hours (out of hours → the tick rings at the next
   opening) and one call per no-offers run (a person whose run is still on is not rung again; a new result after it ended is).
+- **WhatsApp image templates (owner, 2026-11-06).** Every send of a template approved with an IMAGE header must carry the image's https URL;
+  `sendWhatsAppTemplate` now adds it by itself (`lib/templateImages.ts`): the "Image address" saved on the template in Admin → Configs →
+  WhatsApp (Vox) → Templates, else the shipped banner (`website-next/public/whatsapp-*.{png,jpg}`). A new image template = upload the picture
+  anywhere public over https and paste the address; no deploy. Drop-off defaults now use the image templates: continue → `continue_application_link`
+  ({name},{step},{link}) / `continue_application_app` ({name},{step}) (Meta made both MARKETING), offers → `offers_ready_view_link`
+  ({name},{ref},{link}) / `offers_ready_open_app` ({name},{ref}) (UTILITY), no offers → `no_offers_call` ({name}). Utility wording that Meta keeps:
+  report the status ("has a pending step: …", "offers … are ready") and end with "Reply to this message if you need help."; "incomplete …
+  continue where you left off" / "open the app and apply" become Marketing. Vox's template image upload fails (500) on large PNGs with spaces in
+  the name: upload a ~100 KB 1424×752 JPG with a plain name.
 - **"I'll send you the link" on a call (`send_app_link` → `POST /api/conversations/send-link`, `lib/agentLink.ts`):** sends the app link by SMS
-  (LINK_SMS) AND WhatsApp (`install_app_resume_step`), same three values: name (our records, else "Customer"), status "Starting a Loan
+  (LINK_SMS) AND WhatsApp (the drop-off "continue with link" template, now `continue_application_link`), same three values: name (our records, else "Customer"), status "Starting a Loan
   Application" (Voxvalley `callLinkStep` overrides), link `/dl?ref=<their token>` (made as an ended `JourneyReminder` row if they had none, so no
   reminder job runs it) or `/dl?campaign=voice_agent` for an unknown number. Any valid number; do-not-contact / review phone / test list refused;
   one per phone per hour; kind `agent_link`, exempt from the touch limit. Test: `bash scripts/journey/run-agent-link.sh`. Ello setup:

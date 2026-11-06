@@ -82,28 +82,29 @@ import http from 'node:http';
   console.log('tick', JSON.stringify(r));
 
   const body = (i: number) => received[i]?.body;
-  const params = (b: any) => (b?.template?.components?.[0]?.parameters ?? []).map((p: any) => p.text);
+  const params = (b: any) => ((b?.template?.components ?? []).find((c: any) => c.type === 'body')?.parameters ?? []).map((p: any) => p.text);
   const byTo = (phone: string) => received.find((x) => String(x.body?.to ?? '').endsWith(phone))?.body;
 
-  check('exactly 4 messages went out (and none for "no offers" or the user with no link)', received.length === 4, `got ${received.length}`);
+  check('exactly 5 messages went out (the four drop-offs plus "no offers"; none for the user with no link)', received.length === 5, `got ${received.length}`);
   check('every request carries the Bearer token and the project id', received.every((x) => x.auth === 'Bearer test-token' && x.body.projectid === 'PRJTEST'));
   check('every request is a template message to a +91 number from the configured sender', received.every((x) => x.body.type === 'template' && /^\+91\d{10}$/.test(x.body.to) && x.body.from === '917842712346'));
 
   const web = byTo(P.webPan);
-  check('website, PAN done → install_app_resume_step with name, step and the LINK', web?.template?.name === 'install_app_resume_step' && params(web).length === 3 && params(web)[0] === 'Priya' && params(web)[1] === 'Basic details' && /\/dl\?ref=TOKPAN1$/.test(params(web)[2]), JSON.stringify(params(web)));
+  check('website, PAN done → continue_application_link (with its banner) with name, step and the LINK', web?.template?.name === 'continue_application_link' && JSON.stringify(web).includes('whatsapp-continue-link.jpg') && params(web).length === 3 && params(web)[0] === 'Priya' && params(web)[1] === 'Basic details' && /\/dl\?ref=TOKPAN1$/.test(params(web)[2]), JSON.stringify(params(web)));
   const app = byTo(P.appFilled);
   check('already in the app, details filled → dropoff_continue_app with name and step, NO link', app?.template?.name === 'dropoff_continue_app' && params(app).length === 2 && params(app)[0] === 'Ravi' && params(app)[1] === 'Finding offers' && !JSON.stringify(app).includes('/dl?ref='), JSON.stringify(params(app)));
   const wo = byTo(P.webOffers);
-  check('website, 3 offers → offers_ready with name, offer count, application ref and the LINK', wo?.template?.name === 'offers_ready' && params(wo).length === 4 && params(wo)[0] === 'Meena' && params(wo)[1] === '3' && /^T-\d+$/.test(params(wo)[2]) && /\/dl\?ref=TOKOFF1$/.test(params(wo)[3]), JSON.stringify(params(wo)));
+  check('website, 3 offers → offers_ready_view_link with name, application ref and the LINK', wo?.template?.name === 'offers_ready_view_link' && params(wo).length === 3 && params(wo)[0] === 'Meena' && /^T-\d+$/.test(params(wo)[1]) && /\/dl\?ref=TOKOFF1$/.test(params(wo)[2]), JSON.stringify(params(wo)));
   const ao = byTo(P.appOffers);
-  check('already in the app, 2 offers → dropoff_apply_offers_app with just the name, NO link', ao?.template?.name === 'dropoff_apply_offers_app' && params(ao).length === 1 && params(ao)[0] === 'Arun' && !JSON.stringify(ao).includes('/dl?ref='), JSON.stringify(params(ao)));
+  check('already in the app, 2 offers → offers_ready_open_app with the name and application ref, NO link', ao?.template?.name === 'offers_ready_open_app' && params(ao).length === 2 && params(ao)[0] === 'Arun' && /^T-\d+$/.test(params(ao)[1]) && !JSON.stringify(ao).includes('/dl?ref='), JSON.stringify(params(ao)));
 
   check('a template with its own category sends THAT category (Utility), not the card default', app?.messageCategory === 'UTILITY', String(app?.messageCategory));
-  check('a template with no category of its own falls back to the card category (Marketing)', web?.messageCategory === 'MARKETING' && wo?.messageCategory === 'MARKETING' && ao?.messageCategory === 'MARKETING', JSON.stringify([web?.messageCategory, wo?.messageCategory, ao?.messageCategory]));
+  check('each default goes out with the category Meta approved (continue = Marketing, offers = Utility)', web?.messageCategory === 'MARKETING' && wo?.messageCategory === 'UTILITY' && ao?.messageCategory === 'UTILITY', JSON.stringify([web?.messageCategory, wo?.messageCategory, ao?.messageCategory]));
 
   const histOf = async (phone: string) => ((await prisma.appDropoff.findMany({ where: { phone } }))[0]?.history as any[]) ?? [];
   const no = await histOf(P.noOffers);
-  check('"already registered" counts as no offers, and nothing is sent until its template is switched on', (await prisma.appDropoff.findFirst({ where: { phone: P.noOffers } }))?.dropStatus === 'rejected' && no[0]?.outcome === 'skipped' && no[0]?.reason === 'whatsapp template not configured', JSON.stringify(no[0]));
+  const nob = byTo(P.noOffers);
+  check('"already registered" counts as no offers and gets no_offers_call (with its banner), name only, no link', (await prisma.appDropoff.findFirst({ where: { phone: P.noOffers } }))?.dropStatus === 'rejected' && no[0]?.outcome === 'sent' && nob?.template?.name === 'no_offers_call' && JSON.stringify(nob).includes('whatsapp-no-offers.png') && JSON.stringify(params(nob)) === '["Zoya"]', JSON.stringify(params(nob)));
   const nt = await histOf(P.webNoToken);
   check('website user with no link to carry → skipped, never sent without it', nt.length === 0 || (nt[0]?.outcome === 'skipped'), JSON.stringify(nt[0] ?? 'not armed'));
 

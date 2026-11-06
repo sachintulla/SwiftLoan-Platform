@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NOTICE_HEADER_IMAGES, noticeKindFor, buildNoticeVars, NO_OFFERS_GUIDANCE, OFFERS_NOTICE_SETTING, DEFAULT_NO_OFFERS_CONFIG, DEFAULT_RETRY_CONFIG } from './offersNotice.js';
+import { noticeKindFor, buildNoticeVars, NO_OFFERS_GUIDANCE, OFFERS_NOTICE_SETTING, DEFAULT_NO_OFFERS_CONFIG, DEFAULT_RETRY_CONFIG } from './offersNotice.js';
 import { buildPlaceholders } from './stallWhatsapp.js';
 import { DEFAULT_SETTINGS } from './integrations.js';
 import { templateByName } from './whatsappTemplates.js';
@@ -55,11 +55,5 @@ describe('wiring', () => {
 
   it('records the missing offers as their own journey event', () => {
     expect(JOURNEY_EVENTS.OFFERS_NOT_RECEIVED).toBe('offers_not_received');
-  });
-});
-
-describe('image header', () => {
-  it('the no-offers template carries its banner (an https URL, as WhatsApp requires)', () => {
-    expect(NOTICE_HEADER_IMAGES.no_offers_call).toMatch(/^https:\/\/.+\.png$/);
   });
 });
