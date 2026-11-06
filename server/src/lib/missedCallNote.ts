@@ -30,7 +30,7 @@ import { scoped } from './log.js';
 const log = scoped('missed-call-note');
 export const MISSED_NOTE_KIND = 'missed_call_note';
 
-/** The note after an unanswered "no offers" call: Utility, text only, name only. A blank saved template switches it off. */
+/** The note after an unanswered "no offers" call: Utility, name only, with its banner (templateImages.ts). A blank saved template switches it off. */
 export const DEFAULT_NO_OFFERS_MISSED: WelcomeTemplate = Object.freeze({ template: 'no_offers_missed_call', language: 'en', placeholders: ['{name}'], category: 'UTILITY' });
 
 export async function noOffersMissedTemplate(): Promise<WelcomeTemplate> {

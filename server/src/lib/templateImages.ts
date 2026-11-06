@@ -22,6 +22,7 @@ export const DEFAULT_TEMPLATE_IMAGES: Readonly<Record<string, string>> = Object.
   continue_application_app: `${SITE}/whatsapp-continue-app.jpg`,
   offers_ready_view_link: `${SITE}/whatsapp-offers-link.png`,
   offers_ready_open_app: `${SITE}/whatsapp-offers-app.jpg`,
+  no_offers_missed_call: `${SITE}/whatsapp-missed-call.jpg`, // "we tried to call you" after an unanswered no-offers call
 });
 
 /** A usable image address: https only (WhatsApp fetches it from Meta's servers), at most 2,000 characters. */

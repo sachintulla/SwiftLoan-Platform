@@ -7,7 +7,7 @@ describe('headerImageFor', () => {
   });
 
   it('the image templates approved on 6 Nov 2026 all have one', () => {
-    for (const name of ['no_offers_call', 'continue_application_link', 'continue_application_app', 'offers_ready_view_link', 'offers_ready_open_app', 'welcome_continue_app']) {
+    for (const name of ['no_offers_call', 'continue_application_link', 'continue_application_app', 'offers_ready_view_link', 'offers_ready_open_app', 'welcome_continue_app', 'no_offers_missed_call']) {
       expect(headerImageFor(name, undefined)).toMatch(/^https:\/\/swiftloan\.ai\/whatsapp-/);
     }
   });
