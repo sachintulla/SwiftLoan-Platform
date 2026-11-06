@@ -187,9 +187,19 @@ export function mapPanResponse(body: any): {
   const negativeStatus = !!status && /invalid|deactivat|not ?found|fake|deleted|inoperative|no record/.test(status);
   const verified = success && explicit !== false && !negativeStatus;
 
-  const split: string[] = Array.isArray(d?.FullNameSplit) ? d.FullNameSplit.map((x: any) => String(x).trim()).filter(Boolean) : [];
+  // FullNameSplit is not always one word per slot: a live answer can carry the whole
+  // name in the first slot (['RAVI SHARMA', '', '']), which used to land first + last
+  // name in the first-name field. Re-split every slot on whitespace.
+  const split: string[] = Array.isArray(d?.FullNameSplit)
+    ? d.FullNameSplit.flatMap((x: any) => String(x ?? '').trim().split(/\s+/)).filter(Boolean)
+    : [];
   const full = str(pick('FullName', 'Name', 'NameOnCard')) || (split.length ? split.join(' ') : undefined);
   const words = split.length ? split : full ? full.split(/\s+/) : [];
+  // Same for an explicit FirstName that holds the whole name with no LastName.
+  const firstRaw = str(pick('FirstName'));
+  const lastRaw = str(pick('LastName'));
+  const firstWords = firstRaw?.split(/\s+/) ?? [];
+  const firstWhole = !lastRaw && firstWords.length > 1;
   const email = str(pick('EmailId', 'Email'));
   // Pass the masked Aadhaar on only if it really is masked (≤ 4 visible
   // digits) — never forward a full Aadhaar number, whatever Aurix sends.
@@ -212,9 +222,11 @@ export function mapPanResponse(body: any): {
     aadhaarLinked: toBool(pick('AadhaarLinked', 'AadhaarSeedingStatus', 'IsAadhaarLinked')),
     prefill: {
       fullName: full,
-      firstName: str(pick('FirstName')) ?? words[0],
-      middleName: str(pick('MiddleName')) ?? (words.length > 2 ? words.slice(1, -1).join(' ') : undefined),
-      lastName: str(pick('LastName')) ?? (words.length > 1 ? words[words.length - 1] : undefined),
+      firstName: firstWhole ? firstWords[0] : firstRaw ?? words[0],
+      middleName: str(pick('MiddleName')) ?? (firstWhole
+        ? (firstWords.length > 2 ? firstWords.slice(1, -1).join(' ') : undefined)
+        : (words.length > 2 ? words.slice(1, -1).join(' ') : undefined)),
+      lastName: firstWhole ? firstWords[firstWords.length - 1] : lastRaw ?? (words.length > 1 ? words[words.length - 1] : undefined),
       dob: toIsoDate(pick('DateOfBirth', 'Dob', 'DOB')),
       gender: toGender(pick('Gender', 'Sex')),
       email: email && /^\S+@\S+\.\S+$/.test(email) ? email : undefined,

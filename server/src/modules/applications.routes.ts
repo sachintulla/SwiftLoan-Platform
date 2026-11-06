@@ -45,7 +45,7 @@ applicationsRouter.post('/',
     tenureMonths: z.number().int().min(6).max(72).default(12),
     purpose: z.string().max(200).optional(),
     employment: z.enum(['salaried', 'self_employed', 'business_owner', 'gig_worker', 'student', 'retired', 'other']).optional(),
-    monthlyIncome: z.number().int().optional(),
+    monthlyIncome: z.number().int().min(0).max(999_999_999).optional(),
     residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
   })),
   ah(async (req, res) => {

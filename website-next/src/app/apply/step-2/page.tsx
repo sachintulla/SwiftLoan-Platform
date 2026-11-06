@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Wallet, User, MapPin, Briefcase, BadgeCheck, ShieldCheck } from 'lucide-react';
 import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
 import { Card, Field, TextInput, ChipGroup } from '@/components/apply/primitives';
@@ -23,6 +24,22 @@ const RESIDENCE = ['Own', 'Rented', 'Family', 'Company'];
 const EMPLOYMENT = ['Salaried', 'Self-employed', 'Business owner', 'Gig worker', 'Student', 'Retired', 'Other'];
 const SALARY_MODE = ['Bank transfer', 'Cheque', 'Cash'];
 
+const AMOUNT_MIN = 25000;
+const AMOUNT_MAX = 1500000;
+// Same limits the server enforces on a profile save (users.routes.ts).
+const NAME_MAX = 60;
+const INCOME_MIN = 5000;
+const INCOME_DIGITS = 9;
+/** Letters, spaces and the punctuation real names use — what the server accepts. */
+const cleanName = (v: string) => v.replace(/[^A-Za-z '.-]/g, '').slice(0, NAME_MAX);
+/** A first name that holds the whole name ("RAVI SHARMA", no last name) is split
+ *  into first + last, so the full name never lands in the first-name field. */
+function splitName(first?: string, last?: string): { first?: string; last?: string } {
+  const words = first?.trim().split(/\s+/) ?? [];
+  if (!last?.trim() && words.length > 1) return { first: words.slice(0, -1).join(' '), last: words[words.length - 1] };
+  return { first, last };
+}
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
 /** Reverse of slug() for the fixed chip sets above — turns the server's enum
  *  value (e.g. "self_employed") back into the exact label the chip renders. */
@@ -41,7 +58,9 @@ export default function Step2BasicsPage() {
   // make the client's first render disagree with the server-rendered HTML and
   // React would throw a hydration-mismatch error. The draft is applied below,
   // inside the effect, which only ever runs on the client after hydration.
-  const [amount, setAmount] = useState(325000);
+  // No amount is chosen for the applicant: 0 = not chosen yet, and Continue stays
+  // off until they type or slide one inside the allowed range.
+  const [amount, setAmount] = useState(0);
   const [purpose, setPurpose] = useState(PURPOSES[0]!);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -120,8 +139,9 @@ export default function Step2BasicsPage() {
     const applyPan = (p: PanPrefill) => {
       let any = false;
       const put = (v: string | undefined, set: (x: string) => void) => { if (v) { set(v); any = true; } };
-      put(p.firstName, setFirstName);
-      put(p.lastName, setLastName);
+      const n = splitName(p.firstName, p.lastName);
+      put(n.first, setFirstName);
+      put(n.last, setLastName);
       put(p.dob, setDob);
       put(p.gender ? unslug(GENDERS, p.gender) ?? undefined : undefined, setGender);
       put(p.email, setEmail);
@@ -147,8 +167,9 @@ export default function Step2BasicsPage() {
         // identity (name/DOB/gender/address) from the old account — that's the
         // previous PAN's holder. Non-identity fields still pre-fill.
         const idOk = !handoff?.clearedForNewPan;
-        if (idOk && user.firstName) setFirstName(user.firstName);
-        if (idOk && user.lastName) setLastName(user.lastName);
+        const n = splitName(user.firstName ?? undefined, user.lastName ?? undefined);
+        if (idOk && n.first) setFirstName(n.first);
+        if (idOk && n.last) setLastName(n.last);
         if (idOk && user.dob) setDob(String(user.dob).slice(0, 10));
         const g = unslug(GENDERS, user.gender);
         if (idOk && g) setGender(g);
@@ -204,6 +225,7 @@ export default function Step2BasicsPage() {
   }, [pincode]);
 
   const missing: string[] = [];
+  if (amount < AMOUNT_MIN || amount > AMOUNT_MAX) missing.push(t.missing.amount);
   if (!firstName.trim()) missing.push(t.missing.firstName);
   if (!lastName.trim()) missing.push(t.missing.lastName);
   if (!dob) missing.push(t.missing.dob);
@@ -213,6 +235,7 @@ export default function Step2BasicsPage() {
   if (!city.trim()) missing.push(t.missing.city);
   if (!state.trim()) missing.push(t.missing.state);
   if (!/^\d+$/.test(income)) missing.push(t.missing.income);
+  else if (Number(income) < INCOME_MIN) missing.push(t.missing.incomeMin);
   // The lender needs an employer name; a student or retired person has none to give.
   const companyIsRequired = companyRequired(employment);
   if (companyIsRequired && !company.trim()) missing.push(t.missing.company);
@@ -261,14 +284,16 @@ export default function Step2BasicsPage() {
       }
       router.push('/apply/step-3');
     } catch (e) {
-      setError(e instanceof Error ? e.message : t.saveFailed);
+      const msg = e instanceof Error ? e.message : t.saveFailed;
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ApplyShell backHref="/apply/step-1" stepLabel={t.stepLabel} progressPct={52} accountUser={accountUser}>
+    <ApplyShell backHref="/apply/step-1" stepLabel={t.stepLabel} progressPct={52} accountUser={accountUser} wide>
       <Stepper step={2} />
       <h1 className="text-2xl font-extrabold">{t.title}</h1>
       <p className="text-muted-foreground mt-2 mb-6 text-sm">
@@ -276,15 +301,31 @@ export default function Step2BasicsPage() {
       </p>
       {panInfo && <PanConfirmation info={panInfo} prefilled={fromPan} />}
 
-      <div className="flex flex-col gap-5">
+      {/* Two cards per row on a wide screen, so the step fits without long scrolling. */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
         <Card className="sm:p-7">
           <SectionHead icon={Wallet} label={t.secLoanAmount} />
           <div className="bg-accent rounded-2xl p-5">
-            <div className="text-primary text-3xl font-extrabold">{fmtINR(amount)}</div>
-            <Slider className="mt-4" aria-label={t.loanAmountAria} min={25000} max={1500000} step={25000} value={[amount]} onValueChange={([v]) => v != null && setAmount(v)} />
+            <label className="border-primary/30 bg-card focus-within:border-primary focus-within:ring-primary/20 flex items-center gap-2 rounded-xl border px-3.5 py-2.5 focus-within:ring-2">
+              <span aria-hidden className="text-primary text-2xl font-extrabold leading-none">₹</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                aria-label={t.loanAmountAria}
+                aria-required="true"
+                required
+                placeholder={t.amountPlaceholder}
+                value={amount ? amount.toLocaleString('en-IN') : ''}
+                onChange={(e) => setAmount(Number(e.target.value.replace(/\D/g, '').slice(0, 7)) || 0)}
+                className="text-primary placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-2xl font-extrabold leading-none outline-none placeholder:text-base placeholder:font-semibold"
+              />
+            </label>
+            <p className={`mt-2 text-xs ${amount && (amount < AMOUNT_MIN || amount > AMOUNT_MAX) ? 'text-danger font-semibold' : 'text-muted-foreground'}`}>{t.amountRange}</p>
+            <Slider className="mt-4" aria-label={t.loanAmountAria} min={AMOUNT_MIN} max={AMOUNT_MAX} step={25000} value={[Math.min(AMOUNT_MAX, Math.max(AMOUNT_MIN, amount))]} onValueChange={([v]) => v != null && setAmount(v)} />
             <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
-              <span>{fmtINR(25000)}</span>
-              <span>{fmtINR(1500000)}</span>
+              <span>{fmtINR(AMOUNT_MIN)}</span>
+              <span>{fmtINR(AMOUNT_MAX)}</span>
             </div>
           </div>
           <p className="text-foreground mt-5 mb-3 text-sm font-semibold">{t.purposeQuestion}</p>
@@ -294,8 +335,8 @@ export default function Step2BasicsPage() {
         <Card className="sm:p-7">
           <SectionHead icon={User} label={t.secAboutYou} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label={t.firstName} required><TextInput value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" /></Field>
-            <Field label={t.lastName} required><TextInput value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" /></Field>
+            <Field label={t.firstName} required><TextInput value={firstName} maxLength={NAME_MAX} onChange={(e) => setFirstName(cleanName(e.target.value))} autoComplete="given-name" /></Field>
+            <Field label={t.lastName} required><TextInput value={lastName} maxLength={NAME_MAX} onChange={(e) => setLastName(cleanName(e.target.value))} autoComplete="family-name" /></Field>
             <Field label={t.dob} required><TextInput type="date" value={dob} onChange={(e) => setDob(e.target.value)} autoComplete="bday" /></Field>
             <Field label={t.gender}><ChipGroup options={GENDERS} value={gender} renderLabel={(o) => t.options[o] ?? o} onChange={setGender} /></Field>
           </div>
@@ -327,7 +368,7 @@ export default function Step2BasicsPage() {
           <SectionHead icon={Briefcase} label={t.secEmployment} />
           <Field label={t.employmentType}><ChipGroup options={EMPLOYMENT} value={employment} renderLabel={(o) => t.options[o] ?? o} onChange={setEmployment} /></Field>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label={t.monthlyIncome} required><TextInput inputMode="numeric" value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, ''))} /></Field>
+            <Field label={t.monthlyIncome} required><TextInput inputMode="numeric" maxLength={INCOME_DIGITS} value={income} onChange={(e) => setIncome(e.target.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, INCOME_DIGITS))} /></Field>
             <Field label={t.company} required={companyIsRequired}><TextInput value={company} onChange={(e) => setCompany(e.target.value)} /></Field>
           </div>
           <div className="mt-4">
@@ -335,9 +376,9 @@ export default function Step2BasicsPage() {
           </div>
         </Card>
 
-        {error && <p className="text-danger text-sm font-semibold">{error}</p>}
+        {error && <p className="text-danger text-sm font-semibold xl:col-span-2">{error}</p>}
         {!valid && !error && (
-          <p className="text-muted-foreground text-xs">
+          <p className="text-muted-foreground text-xs xl:col-span-2">
             <span className="text-danger font-semibold">{t.requiredToContinue}</span> {missing.join(', ')}{t.sentenceEnd}
           </p>
         )}

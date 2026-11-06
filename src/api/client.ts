@@ -680,8 +680,8 @@ export const api = {
   referralMe: () => request('GET', '/referrals/me'),
   redeemReferral: (code: string, downloadId?: string | null, matchMethod?: string | null) =>
     request('POST', '/referrals/redeem', { code, download_id: downloadId ?? null, match_method: matchMethod ?? null }),
-  createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string) =>
-    request('POST', '/support/tickets', { subject, type, body }),
+  createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string, category?: 'privacy' | 'other') =>
+    request('POST', '/support/tickets', { subject, type, body, ...(category ? { category } : {}) }),
 };
 
 // ─────────────────────────── WS4 activity tracking ───────────────────────────

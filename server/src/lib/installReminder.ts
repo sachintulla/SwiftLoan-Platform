@@ -173,7 +173,9 @@ export async function armInstallReminder(user: { id: string; phone: string }, no
 export async function armUnverifiedReminder(user: { id: string; phone: string }, now: Date = new Date()): Promise<JourneyReminder | null> {
   if (!timing.bool('install.unverifiedEnabled')) return null;
   if (isReviewPhone(user.phone)) return null;
-  if (await prisma.journeyReminder.findFirst({ where: { userId: user.id }, select: { id: true } })) return null;
+  // Once per number ever (default), or — with `install.unverifiedOncePerNumber` off — only while no run is going for them.
+  const blocking = timing.bool('install.unverifiedOncePerNumber') ? { userId: user.id } : { userId: user.id, status: 'active' };
+  if (await prisma.journeyReminder.findFirst({ where: blocking, select: { id: true } })) return null;
   if (await alreadyInApp(user.phone)) return null;
   return createReminder(user, 1, now, null, true);
 }

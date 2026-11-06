@@ -118,6 +118,29 @@ import http from 'node:http';
   await tick(LATE);
   check('outside calling hours (02:00 IST) nobody is dialled', calls.length === afterEarly, `calls ${calls.length}`);
 
+  // ── PASS H: 30 older people already called (their runs stay active for the daily messages) must not hide a new one.
+  // Until 5 Nov 2026 the job took the 25 OLDEST active runs, so a newcomer behind them was never rung.
+  const { placeNoOffersCalls } = await import(`${S}/noOffersCall.js`);
+  const T2 = new Date(T.getTime() + 48 * 3_600_000); // 12:00 IST two days later
+  const oldPhones = Array.from({ length: 30 }, (_, i) => `90000006${String(i).padStart(2, '0')}`);
+  const NEW = '9000000699';
+  await prisma.user.deleteMany({ where: { phone: { in: [...oldPhones, NEW] } } });
+  await prisma.customer.deleteMany({ where: { phone: { in: [...oldPhones, NEW] } } });
+  for (const [i, phone] of oldPhones.entries()) {
+    const u = await prisma.user.create({ data: { phone } });
+    const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: 'rejected', status: 'active', startAt: new Date(T2.getTime() - (72 - i) * 3_600_000), nextCheckAt: new Date(T2.getTime() + 3_600_000) } });
+    await prisma.outboundRequest.create({ data: { channel: 'voice', kind: 'no_offers_call', idempotencyKey: `noffers:${run.id}`, status: 'sent', payload: {} } });
+  }
+  const nu = await prisma.user.create({ data: { phone: NEW, firstName: 'Neha' } });
+  await prisma.customer.create({ data: { phone: NEW, name: 'Neha' } });
+  await prisma.appDropoff.create({ data: { userId: nu.id, phone: NEW, dropStatus: 'rejected', reason: 'not_eligible', status: 'active', startAt: new Date(T2.getTime() - 50 * 60_000), nextCheckAt: new Date(T2.getTime() + 3_600_000) } });
+  const beforeH = calls.length;
+  await placeNoOffersCalls(T2);
+  const newly = calls.slice(beforeH).map((c) => String(c.body?.to_number ?? '').replace(/\D/g, '').slice(-10));
+  check('30 older already-called runs do not hide a new no-offers person: the newcomer is dialled', newly.includes(NEW) && !newly.some((p) => oldPhones.includes(p)), JSON.stringify(newly));
+  await prisma.user.deleteMany({ where: { phone: { in: [...oldPhones, NEW] } } });
+  await prisma.customer.deleteMany({ where: { phone: { in: [...oldPhones, NEW] } } });
+
   server.close();
   await prisma.user.deleteMany({ where: { phone: { in: phones } } });
   await prisma.customer.deleteMany({ where: { phone: { in: phones } } });

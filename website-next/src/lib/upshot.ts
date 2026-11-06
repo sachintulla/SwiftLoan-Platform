@@ -125,6 +125,7 @@ export const UPSHOT_SCREEN_LABELS: Record<string, string> = {
   '/account/support': 'Support',
   '/account/partners': 'Partner Lenders',
   '/account/privacy': 'Privacy',
+  '/account/terms': 'Terms',
   '/account/faqs': 'FAQs',
   '/faqs': 'FAQs',
   '/privacy-policy': 'Privacy Policy',

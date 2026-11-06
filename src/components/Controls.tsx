@@ -13,6 +13,9 @@ import {
   TextStyle,
   Modal,
   ScrollView,
+  Keyboard,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from './Icon';
@@ -481,6 +484,22 @@ export function Select({
   const fx = useAgentFx(id);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
+  // The search box opens the keyboard, which used to cover the list (the sheet is
+  // pinned to the bottom of a Modal, which neither platform resizes for it). Lift
+  // the sheet above the keyboard and shrink the list to the space that is left.
+  const [kb, setKb] = useState(0);
+  const { height: winH } = useWindowDimensions();
+  useEffect(() => {
+    if (!open) { setKb(0); return; }
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const a = Keyboard.addListener(showEvt, e => setKb(e.endCoordinates?.height ?? 0));
+    const b = Keyboard.addListener(hideEvt, () => setKb(0));
+    return () => { a.remove(); b.remove(); };
+  }, [open]);
+  // Room for the list: screen minus keyboard, minus the sheet's handle/title/search
+  // (~150) and a gap at the top so the sheet never reaches the status bar (~90).
+  const listMax = Math.max(120, Math.min(340, winH - kb - 240));
 
   useVoiceTarget(
     id,
@@ -523,7 +542,7 @@ export function Select({
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.selectBackdrop} onPress={() => setOpen(false)} />
-        <View style={styles.selectSheet}>
+        <View style={[styles.selectSheet, kb ? { bottom: kb, paddingBottom: 12 } : null]}>
           <View style={styles.selectHandle} />
           {label ? <Text style={[font(800), { fontSize: 16, color: colors.text, marginBottom: 10 }]}>{label}</Text> : null}
           {searchable ? (
@@ -536,7 +555,7 @@ export function Select({
               style={[styles.input, font(500)]}
             />
           ) : null}
-          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 340, marginTop: 10 }}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: listMax, marginTop: 10 }}>
             {filtered.map(o => (
               <Pressable key={o} onPress={() => pick(o)} style={styles.selectOption}>
                 <Text style={[font(value === o ? 700 : 500), { fontSize: 15, color: value === o ? colors.primary : colors.text, flex: 1 }]}>{o}</Text>

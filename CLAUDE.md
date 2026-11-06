@@ -120,6 +120,11 @@ adapters.
   is on :8081 — kill it and `npx react-native start --reset-cache` from this repo.
 - New Architecture (bridgeless) is on; `console.log` does not stream to the Metro
   terminal by default.
+- **Android push (Upshot):** needs `android/app/google-services.json` from Firebase project
+  **`swiftloan-ai`** (client `ai.swiftloan.app`). It is gitignored, so a release built from a clean
+  git copy must have it copied in. `assembleRelease`/`bundleRelease` now fail without it (or with
+  the old `swiftloan-de051` file); `-PallowNoFirebase` overrides. Play codes 24–35 shipped with no
+  push token because of this.
 
 ---
 
@@ -917,6 +922,10 @@ Ello's 5,000-token limit (~3,530 words).
   reminder job runs it) or `/dl?campaign=voice_agent` for an unknown number. Any valid number; do-not-contact / review phone / test list refused;
   one per phone per hour; kind `agent_link`, exempt from the touch limit. Test: `bash scripts/journey/run-agent-link.sh`. Ello setup:
   `docs/ELLO_TOOL_CONFIG.md` §1d.
+- **Contact limits loosened on prod (owner, 2026-11-05):** `limits.noCallAndMessageSameDay` off, `limits.touchesPerDay` / `touchesPerWeek` 0 (no
+  limit), `limits.phoneCooldownHours` 0, `limits.dropoffRerunDays` 1 (0 allowed after this change), no-offers call ON (`dropoff.noOffersCallDelayMinutes` 1;
+  still once per person ever via `limits.noOffersCallsPerPerson`). New switches `welcome.oncePerNumber` and `install.unverifiedOncePerNumber` (default
+  on = old once-ever behaviour; off = welcome at most once per India day, Scenario 1 again on every unentered OTP unless a run is active).
 - **Only the Journey sheet runs (owner, 2026-11-04).** On prod every stuck-step call rule, the daily 1:30 PM call, the no-offers call, the
   website enquiry call and the drop-off WhatsApp switch (`dropoff.sendEnabled`, back on with the timelines at go-live) are OFF. The old
   verified-visitor install reminders have their own switch `install.verifiedEnabled` (env `INSTALL_REMINDER_VERIFIED`, default off); the

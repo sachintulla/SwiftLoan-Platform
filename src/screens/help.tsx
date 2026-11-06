@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { Screen } from '../components/Frame';
+import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
@@ -17,9 +17,9 @@ export default function Help() {
   const { showToast, set, go } = useStore();
   return (
     <Screen scroll bottomNav padded>
-      <View style={{ marginTop: 8 }}>
-        <Text style={[font(800), { fontSize: 24, letterSpacing: -0.5, color: colors.text }]}>{t.helpTitle}</Text>
-        <View style={styles.search}>
+      <AppHeader title={t.helpTitle} />
+      <View>
+        <View style={[styles.search, { marginTop: 4 }]}>
           <Icon name="search" size={20} color={colors.muted} />
           <TextInput style={[styles.searchInput, font(500)]} placeholder={t.searchPlaceholder} placeholderTextColor={colors.muted} maxLength={100} />
         </View>

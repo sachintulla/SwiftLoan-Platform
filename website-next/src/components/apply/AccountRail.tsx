@@ -79,7 +79,7 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
       <aside
         data-collapsed={collapsed ? '1' : '0'}
         className={`bg-deep-gradient relative hidden h-screen shrink-0 flex-col self-start overflow-y-auto overflow-x-hidden text-white transition-[width] duration-200 lg:sticky lg:top-0 lg:flex ${
-          collapsed ? 'w-[76px] items-center gap-5 px-3 py-6' : 'w-[320px] gap-6 p-8'
+          collapsed ? 'w-[76px] items-center gap-5 px-3 py-6' : 'w-[256px] gap-5 p-6'
         }`}
       >
         <div className={`flex items-center ${collapsed ? 'flex-col gap-4' : 'justify-between gap-2.5'}`}>

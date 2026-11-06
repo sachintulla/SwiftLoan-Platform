@@ -24,6 +24,13 @@ import { scoped } from './log.js';
 
 const log = scoped('welcome');
 
+/** `welcome:<phone>` (once ever) or, with Admin → Timings `welcome.oncePerNumber` off, `welcome:<phone>:<India date>` (once a day). */
+export function welcomeKey(prefix: string, phone: string, now: Date, oncePerNumber: boolean = timing.bool('welcome.oncePerNumber')): string {
+  if (oncePerNumber) return `${prefix}:${phone}`;
+  const day = new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
+  return `${prefix}:${phone}:${day}`;
+}
+
 export const WELCOME_KIND = 'welcome';
 
 export interface WelcomeTemplate { template: string; language?: string; placeholders?: string[]; category?: string; headerImageUrl?: string }
@@ -63,8 +70,8 @@ export async function sendWelcome(user: { id: string; phone: string }, token: st
   const placeholders = buildPlaceholders(t.placeholders, { name: (u?.firstName ?? '').trim() || 'there', link: buildInstallLink(downloads.publicBase, token) });
   if (!placeholders) return skip('a placeholder has no value');
 
-  // Once per number, ever: the claim is the idempotency key, taken BEFORE sending.
-  const key = `welcome:${user.phone}`;
+  // The claim is the idempotency key, taken BEFORE sending: once per number ever, or once per India day when that rule is off.
+  const key = welcomeKey('welcome', user.phone, now);
   try {
     await prisma.outboundRequest.create({ data: { customerId: customer?.id ?? null, channel: 'whatsapp', kind: WELCOME_KIND, idempotencyKey: key, status: 'sent', payload: { template: t.template } } });
   } catch {
@@ -119,7 +126,7 @@ export async function sendWelcomeSms(
   const u = await prisma.user.findUnique({ where: { id: user.id }, select: { firstName: true } });
   const text = renderSmsBody(t.body, { name: u?.firstName, step: 'PAN verification', link: token ? buildInstallLink(downloads.publicBase, token) : '' });
 
-  const key = `welcomesms:${user.phone}`;
+  const key = welcomeKey('welcomesms', user.phone, now);
   try {
     await prisma.outboundRequest.create({ data: { customerId: customer?.id ?? null, channel: 'sms', kind: WELCOME_SMS_KIND, idempotencyKey: key, status: 'sent', payload: { side, templateId: t.templateId } } });
   } catch {
