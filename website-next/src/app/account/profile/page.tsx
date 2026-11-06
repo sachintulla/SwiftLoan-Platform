@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { toast } from 'sonner';
 import Link from 'next/link';
 import { AccountShell } from '@/components/apply/AccountShell';
 import { DeleteAccountCard } from '@/components/account/DeleteAccountCard';
 import { Card, SectionLabel, TextInput } from '@/components/apply/primitives';
 import { useAccount } from '@/lib/accountContext';
-import { patchProfile, patchNotifications } from '@/lib/applyApi';
+import { patchProfile, patchNotifications, uploadAvatar, removeAvatar } from '@/lib/applyApi';
 import { useCopy } from '@/lib/i18n';
 import { accountCopy } from '@/i18n/account';
 
@@ -16,7 +17,7 @@ export default function ProfilePage() {
   const LINKS = [
     { label: t.linkFaqs, href: '/account/faqs' },
     { label: t.linkPrivacy, href: '/account/privacy' },
-    { label: t.linkTerms, href: '#' },
+    { label: t.linkTerms, href: '/account/terms' },
     { label: t.linkPartners, href: '/account/partners' },
     { label: t.linkGrievance, href: '/account/support' },
   ];
@@ -25,6 +26,40 @@ export default function ProfilePage() {
   const [email, setEmail] = useState((user?.email as string) || '');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const avatarUrl = (user?.avatarUrl as string | null | undefined) || null;
+
+  const onPickPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // picking the same photo again must re-run
+    if (!file || photoBusy) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { toast.error(t.photoWrongType); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error(t.photoTooBig); return; }
+    setPhotoBusy(true);
+    try {
+      await uploadAvatar(file);
+      refresh();
+      toast.success(t.photoSaved);
+    } catch (err) {
+      toast.error(err instanceof Error && err.message && err.message !== 'Request failed' ? err.message : t.photoFailed);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const onRemovePhoto = async () => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      await removeAvatar();
+      refresh();
+    } catch {
+      toast.error(t.photoFailed);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
   const [notif, setNotif] = useState({
     loanUpdates: !!user?.notifyLoanUpdates,
     securityAlerts: !!user?.notifySecurityAlerts,
@@ -86,14 +121,29 @@ export default function ProfilePage() {
 
       <div className="flex flex-col gap-5">
         <Card className="flex items-center gap-4">
-          <div className="bg-brand-gradient grid h-14 w-14 place-items-center rounded-full text-lg font-extrabold text-white">
-            {((user.fullName as string) || 'U').slice(0, 2).toUpperCase()}
-          </div>
-          <div className="flex-1">
-            <div className="font-extrabold">{(user.fullName as string) || t.addYourName}</div>
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" />
+          ) : (
+            <div className="bg-brand-gradient grid h-14 w-14 shrink-0 place-items-center rounded-full text-lg font-extrabold text-white">
+              {((user.fullName as string) || 'U').slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-extrabold">{(user.fullName as string) || t.addYourName}</div>
             <div className="text-muted-foreground text-xs">
               {t.memberSince(user.createdAt ? new Date(user.createdAt as string).getFullYear() : '—')}
             </div>
+            <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-bold">
+              <button type="button" onClick={() => photoInput.current?.click()} disabled={photoBusy} aria-busy={photoBusy} className="text-primary">
+                {photoBusy ? t.photoUploading : avatarUrl ? t.photoChange : t.photoAdd}
+              </button>
+              {avatarUrl && !photoBusy && (
+                <button type="button" onClick={onRemovePhoto} className="text-muted-foreground">
+                  {t.photoRemove}
+                </button>
+              )}
+            </div>
+            <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={onPickPhoto} className="sr-only" tabIndex={-1} aria-hidden />
           </div>
         </Card>
 
@@ -108,7 +158,7 @@ export default function ProfilePage() {
           </div>
           {editing ? (
             <div className="flex flex-col gap-3">
-              <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t.fullNamePlaceholder} />
+              <TextInput value={fullName} maxLength={120} onChange={(e) => setFullName(e.target.value.replace(/[^A-Za-z '.-]/g, '').slice(0, 120))} placeholder={t.fullNamePlaceholder} />
               <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t.emailPlaceholder} type="email" />
               {saveError && (
                 <p className="text-danger text-xs font-semibold" role="alert">

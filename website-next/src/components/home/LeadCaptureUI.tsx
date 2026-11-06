@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from "react";
-import { X, type LucideIcon } from "lucide-react";
+import { Pencil, X, type LucideIcon } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { fmtINR } from "@/lib/core";
 import { AMOUNT_MIN, AMOUNT_MAX, AMOUNT_STEP, type LeadCapture } from "@/hooks/useLeadCapture";
@@ -47,8 +47,8 @@ export function AmountInput({
   };
 
   return (
-    <label className={`text-primary flex min-w-0 items-center justify-end gap-1 rounded-lg border border-transparent px-2 py-0.5 font-extrabold transition-colors hover:border-primary/30 focus-within:border-primary/50 focus-within:bg-primary/5 ${className}`}>
-      <span aria-hidden className={shown ? "" : "opacity-40"}>₹</span>
+    <label className={`text-primary border-primary/30 bg-primary/5 flex min-w-0 cursor-text items-center gap-1.5 rounded-lg border px-2.5 py-1 font-extrabold transition-colors hover:border-primary/60 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${className}`}>
+      <span aria-hidden className="leading-none">₹</span>
       <input
         type="text"
         inputMode="numeric"
@@ -56,7 +56,8 @@ export function AmountInput({
         aria-label={label}
         placeholder={placeholder}
         value={text}
-        size={Math.max(text.length, placeholder.length, 4)}
+        // Sized to what is shown, so the ₹ sits right beside the digits.
+        size={Math.max(text ? text.length : placeholder.length, 4)}
         onChange={(e) => {
           const digits = e.target.value.replace(/\D/g, "").replace(/^0+/, "").slice(0, 8);
           setDraft(digits);
@@ -66,8 +67,9 @@ export function AmountInput({
         onFocus={(e) => e.currentTarget.select()}
         onBlur={finish}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
-        className="placeholder:text-primary/50 min-w-0 bg-transparent text-right font-extrabold outline-none placeholder:font-bold"
+        className="placeholder:text-primary/50 min-w-0 bg-transparent font-extrabold leading-none outline-none placeholder:font-bold"
       />
+      <Pencil aria-hidden className="h-3.5 w-3.5 shrink-0 opacity-60" />
     </label>
   );
 }

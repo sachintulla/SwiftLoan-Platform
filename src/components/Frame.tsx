@@ -816,8 +816,12 @@ function SupportTab() {
       <View style={styles.supportWrap}>
         {live ? <Animated.View style={[styles.supportGlow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]} pointerEvents="none" /> : null}
         {connecting ? <Animated.View style={[styles.supportSpinner, { transform: [{ rotate }] }]} pointerEvents="none" /> : null}
-        <Animated.View style={[styles.supportAvatar, { transform: [{ scale: talkScale }, { translateY: talkBob }] }]}>
-          <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
+        {/* Shadow on the outer view, clipping on the inner one: iOS drops a shadow on a
+            view that also clips (overflow hidden), so the two platforms looked different. */}
+        <Animated.View style={[styles.supportAvatarShadow, { transform: [{ scale: talkScale }, { translateY: talkBob }] }]}>
+          <View style={styles.supportAvatar}>
+            <Image source={require('../../assets/brand/agent-ruby.png')} style={styles.rubyImg} resizeMode="cover" />
+          </View>
         </Animated.View>
         {online ? <View style={[styles.supportDot, { backgroundColor: live ? colors.green : colors.amber }]} /> : null}
       </View>
@@ -893,6 +897,17 @@ const styles = StyleSheet.create({
     borderTopColor: colors.primary,
     borderRightColor: colors.primary,
   },
+  supportAvatarShadow: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: colors.chip,
+    shadowColor: '#0A3F41',
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
   supportAvatar: {
     width: 70,
     height: 70,
@@ -901,11 +916,6 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#fff',
     backgroundColor: colors.chip,
-    shadowColor: '#0A3F41',
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 9,
   },
   rubyImg: { width: '100%', height: '100%' },
   supportDot: {

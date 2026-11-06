@@ -161,6 +161,24 @@ export async function getApplication(id: string) {
   return body.application as LoanApplication;
 }
 
+/** Profile photo: presigned S3 PUT, then confirm — the same flow as the app (src/api/client.ts uploadAvatar). */
+export async function uploadAvatar(file: File) {
+  const contentType = file.type as 'image/jpeg' | 'image/png' | 'image/webp';
+  const { uploadUrl, publicUrl } = await authFetch('/api/users/me/avatar/presign', {
+    method: 'POST',
+    body: JSON.stringify({ contentType }),
+  });
+  const put = await fetch(uploadUrl, { method: 'PUT', headers: { 'content-type': contentType }, body: file });
+  if (!put.ok) throw new Error(`Photo upload failed (${put.status})`);
+  const body = await authFetch('/api/users/me/avatar', { method: 'PATCH', body: JSON.stringify({ avatarUrl: publicUrl }) });
+  return body.user;
+}
+
+export async function removeAvatar() {
+  const body = await authFetch('/api/users/me/avatar', { method: 'DELETE' });
+  return body.user;
+}
+
 export async function listApplications() {
   const body = await authFetch('/api/applications');
   return body.applications as LoanApplication[];

@@ -155,6 +155,11 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     warn: 'Turning this on texts every new sign-in, unless the test-number list is filled in.',
   },
   {
+    key: 'welcome.oncePerNumber', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: 'Welcome WhatsApp / SMS only once per number, ever',
+    help: 'On (default): someone who verifies again later never gets a second welcome. Off: a welcome goes after every OTP verification, at most once per number per India day.',
+  },
+  {
     key: 'install.verifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false, env: 'INSTALL_REMINDER_VERIFIED',
     label: 'Also send the old reminders to visitors who verified their number',
     help: 'Off (default): the website reminders only go to people who asked for an OTP and never entered it (Scenario 1). Verified visitors are covered by the scenario timelines instead. On: they also get the schedule above. Their personal app link is created either way.',
@@ -162,7 +167,12 @@ const BASE_TIMINGS: readonly TimingDef[] = [
   {
     key: 'install.unverifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: true,
     label: 'Also remind people who asked for an OTP but never entered it',
-    help: 'They have not proved the number is theirs, so this is a short sequence (below), once per number, on the website and in the app. Still needs "Send the reminders for real" to be on.',
+    help: 'They have not proved the number is theirs, so this is a short sequence (below), on the website and in the app. Still needs "Send the reminders for real" to be on.',
+  },
+  {
+    key: 'install.unverifiedOncePerNumber', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: '"OTP never entered" reminders only once per number, ever',
+    help: 'On (default): a number that has ever had a website reminder is never sent these again. Off: every OTP request that is not entered starts them again, unless a reminder run is already going for that person.',
   },
   {
     key: 'install.unverifiedSchedule', group: 'install', kind: 'schedule', unit: 'minutes', def: DEFAULT_UNVERIFIED_SCHEDULE.map((r) => ({ ...r })), maxRows: 5, maxMinutes: 7 * 1440,
@@ -365,9 +375,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'One empty eligibility result = one call, by default. 0 = no limit.',
   },
   {
-    key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 1, max: 90,
+    key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 0, max: 90,
     label: 'Same stopped-at step not messaged again within',
-    help: 'After a WhatsApp journey for one step ends (finished, or they moved on), the same step does not start a new journey for this many days. Coming back and stopping again is always a new journey.',
+    help: 'After a WhatsApp journey for one step ends (finished, or they moved on), the same step does not start a new journey for this many days. Coming back and stopping again is always a new journey. 0 = no wait.',
   },
   {
     key: 'limits.touchesPerDay', group: 'limits', kind: 'number', unit: 'count', def: 2, min: 0, max: 20,

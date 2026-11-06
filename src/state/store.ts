@@ -151,6 +151,7 @@ const PREV: Partial<Record<Screen, Screen>> = {
   compare: 'fare',
   referral: 'profile',
   legal: 'profile',
+  help: 'profile',
   notifications: 'home',
 };
 
@@ -364,7 +365,9 @@ type Action =
 // Top-level destinations (the bottom-nav roots). Navigating to one resets the
 // back stack — each acts as a fresh root, so Back from a flow launched off a tab
 // returns to that tab, and tab↔tab switches don't accumulate history.
-const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile', 'help']);
+// `help` (FAQs) is no longer a tab: it opens from Profile / the support sheet and
+// keeps the back stack, so its Back arrow returns to where it was opened from.
+const TOP_LEVEL = new Set<Screen>(['home', 'fare', 'loans', 'profile']);
 
 // Transient/loading screens the user never chooses to sit on — leaving one is
 // never recorded on the back stack, so Back skips the splash + "finding offers"
@@ -395,6 +398,9 @@ const TRANSIENT = new Set<Screen>(['splash', 'finding']);
 // already exists when it is entered. Listing it redirected every new user
 // straight to home and skipped the permissions step.
 const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro', 'mobile', 'otp']);
+// Reachable with or without a session: the login screen links to the Terms and
+// Privacy Policy, which must open before anyone has signed in.
+const EITHER_SIDE = new Set<Screen>(['legal']);
 
 /**
  * Redirects across the login boundary in whichever direction is wrong:
@@ -406,6 +412,7 @@ const PRE_LOGIN_ONLY = new Set<Screen>(['splash', 'privacy', 'language', 'intro'
  * per-caller courtesy.
  */
 function guardScreen(screen: Screen): Screen {
+  if (EITHER_SIDE.has(screen)) return screen;
   const authed = isAuthed();
   // `privacy` is the one pre-login screen that is still legitimate WITH a session:
   // boot restores tokens and THEN routes a never-accepted user to it (see the
