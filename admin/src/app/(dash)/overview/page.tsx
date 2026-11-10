@@ -10,7 +10,7 @@ import { PERIODS, computeRange, type Period } from '@/lib/period';
 
 interface Overview {
   // NB: totalDisbursed / outstanding (and timeseries disbursed) are sums of Loan.principal / Loan.outstanding, which are stored in RUPEES despite the name.
-  stats: { totalUsers: number; totalApplications: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursed: number; outstanding: number; approvedCount: number; applicationToDisbursalPct: number };
+  stats: { totalUsers: number; totalApplications: number; requestedAmount: number; activeLoans: number; totalLeads: number; totalDownloads: number; totalDisbursed: number; outstanding: number; approvedCount: number; applicationToDisbursalPct: number };
   funnel: FunnelStage[];
   applicationsByStatus: Record<string, number>;
   lenderApplicationsByStatus?: Record<string, number>;
@@ -70,7 +70,7 @@ export default function OverviewPage() {
           Array.from({ length: 5 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
         ) : (
           <>
-            <StatCard label="Total Applications" value={num(o.stats.totalApplications)} icon="₹" tone="blue" foot={`${num(o.stats.approvedCount)} approved`} />
+            <StatCard label="Total Applications" value={num(o.stats.totalApplications)} icon="₹" tone="blue" foot={`${inrCompact(o.stats.requestedAmount)} requested · ${num(o.stats.approvedCount)} approved`} />
             <StatCard label="Active Loans" value={num(o.stats.activeLoans)} icon="◉" tone="green" foot={`${inrCompact(o.stats.outstanding)} outstanding`} />
             <StatCard label="Total Disbursed" value={inrCompact(o.stats.totalDisbursed)} icon="⬆" tone="teal" foot={period === 'all' ? 'lifetime' : (PERIODS.find((p) => p.key === period)?.label ?? '')} />
             <StatCard label="Leads" value={num(o.stats.totalLeads)} icon="✦" tone="amber" foot={`${num(o.stats.totalDownloads)} app installs`} />
