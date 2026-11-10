@@ -2,14 +2,31 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 // Firebase (FCM) is the push transport for Upshot, so push needs
-// android/app/google-services.json (Firebase project swiftloan-de051, one client per
-// applicationId — currently com.swiftloan.ai). The file is gitignored (get it from the
-// Firebase console: Project settings > Your apps). Without it the app still builds and
-// runs — it just has no push token — so a teammate/CI machine without the file is not blocked.
-if (file("google-services.json").exists()) {
+// android/app/google-services.json from Firebase project swiftloan-ai with a client for
+// ai.swiftloan.app (Upshot's push credentials are that project's; the old swiftloan-de051
+// file has no client for this package and fails the build). The file is gitignored (get it
+// from the Firebase console: Project settings > Your apps). Without it a DEBUG build still
+// builds and runs — it just has no push token — so a teammate without the file is not blocked.
+// A RELEASE build (assembleRelease / bundleRelease) refuses to build without it: releases are
+// made from clean git copies where the gitignored file is easy to miss, and every Play build
+// from 1.1.9 to code 35 shipped with no push token that way. -PallowNoFirebase overrides it.
+def firebaseProblem = null
+def googleServices = file("google-services.json")
+if (googleServices.exists()) {
     apply plugin: "com.google.gms.google-services"
+    def projectId = new groovy.json.JsonSlurper().parse(googleServices).project_info?.project_id
+    if (projectId != "swiftloan-ai") {
+        firebaseProblem = "android/app/google-services.json is from Firebase project '${projectId}', not 'swiftloan-ai' (Upshot's push project)."
+    }
 } else {
-    logger.warn("google-services.json not found in android/app: building WITHOUT Firebase (no Upshot push token).")
+    firebaseProblem = "android/app/google-services.json not found: building WITHOUT Firebase (no Upshot push token)."
+    logger.warn(firebaseProblem)
+}
+gradle.taskGraph.whenReady { graph ->
+    def releaseBuild = graph.allTasks.any { it.project == project && it.name ==~ /(assemble|bundle)Release/ }
+    if (firebaseProblem && releaseBuild && !project.hasProperty("allowNoFirebase")) {
+        throw new GradleException("${firebaseProblem}\nRelease builds must carry push. Copy the swiftloan-ai google-services.json into android/app (or pass -PallowNoFirebase to build without push on purpose).")
+    }
 }
 
 /**
@@ -67,7 +84,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -92,8 +109,8 @@ android {
         applicationId "ai.swiftloan.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 27
-        versionName "1.1.11"
+        versionCode 32
+        versionName "1.1.13"
         // WS3: build two coexisting installs from one codebase. Pass
         //   -PappIdSuffix=.ctx -PappLabel="SwiftLoan Continue"
         // for the context build; defaults give the standard app.
@@ -129,6 +146,7 @@ android {
             // otherwise fall back to the debug key (local dev builds).
             signingConfig project.hasProperty("UPLOAD_STORE_FILE") ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }

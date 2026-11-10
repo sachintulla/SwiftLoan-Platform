@@ -120,6 +120,11 @@ adapters.
   is on :8081 — kill it and `npx react-native start --reset-cache` from this repo.
 - New Architecture (bridgeless) is on; `console.log` does not stream to the Metro
   terminal by default.
+- **Android push (Upshot):** needs `android/app/google-services.json` from Firebase project
+  **`swiftloan-ai`** (client `ai.swiftloan.app`). It is gitignored, so a release built from a clean
+  git copy must have it copied in. `assembleRelease`/`bundleRelease` now fail without it (or with
+  the old `swiftloan-de051` file); `-PallowNoFirebase` overrides. Play codes 24–35 shipped with no
+  push token because of this.
 
 ---
 
@@ -440,6 +445,12 @@ Full detail in `docs/META_SDK_INTEGRATION.md`. Everything is **off until credent
   and all use a **30-minute** stall delay. Shipped `stallTemplates` defaults are merged UNDER what the dashboard saved (saved
   entry wins; blank `template` = back to Upshot), so new stages reach environments that already saved the form.
   Seeding only inserts missing rules — an existing rule's delay is edited on the Notifications rules page, not by the seed.
+- **WhatsApp has NEVER delivered (checked 2026-11-03 in the Vox portal):** every one of the 553 messages our server handed to Vox sits at status
+  `SUBMITTED` — 0 Sent / 0 Delivered / 0 Failed, cost 0 — i.e. Vox accepts (`Message queued for delivery`, validates the template name) but never
+  forwards to Meta. WABA `1073827025115920` is ACTIVE, 24 templates Approved (English), all three senders CONNECTED with quality UNKNOWN (never sent),
+  and Vox has our delivery webhook configured for `919000209457`. Nothing on our side can fix this: it is a Vox dispatch fault for the WhatsApp
+  project — raise it with Vox support quoting message ids from Admin → Messages. The Admin card ("Vox accepted N … none confirmed delivered") is
+  the live symptom. Until it is fixed, assume no WhatsApp reaches anyone (the WhatsApp journey keeps running and logging correctly).
 - **WhatsApp send is blocked on Vox's side (as of 2026-10-16):** `POST https://cpaas.voxdigitals.com/api/v1/whatsapp/send` (and `/api/v2/…`)
   return nginx `405` even from Vox's own docs "Test API" tab — the real host/path must come from Vox support. Set it via the card's
   Advanced `baseUrl`/`sendPath`. A direct **Meta Cloud API** backend also exists (`meta_whatsapp` integration: `phoneNumberId` +
@@ -475,6 +486,12 @@ resume). NOT yet: real sending (needs the SMS/WhatsApp templates) and the admin 
   what it would send in `JourneyReminder.history`. Real sends need Voxvalley settings `installSmsTemplateId` + `installSmsBody` (must contain `{link}`; may also use `{name}` and `{step}`, with `installStepLabels` renaming the steps)
   and `installWhatsapp` `{template, language, placeholders: ['{name}','{link}']}` (`{step}` is also available; `install_app_resume_step` takes name, step, link) (a registered DLT template / approved WhatsApp template).
 - `stallSms` / `stallWhatsapp` stand down for anyone with an active reminder (`lib/installReminderGuard.ts`), so no two sequences overlap.
+- **Website drop-off SMS (owner, 2026-11-04): all SMS/WhatsApp come from our code; Upshot is for push only.** The install reminder is meant to run
+  SMS-only (`install.schedule` rows all `sms`), sending the DLT text "…incomplete at {step}… :{link}" through the OTP Vox project (`installSmsGateway: "otp"`).
+  An SMS-only reminder no longer silences the drop-off WhatsApp journey (`reminderSendsWhatsapp`, used by `appDropoff.ts otherSequenceActive`): the two
+  run together. Extra step `offers_ready` → "Choosing an offer" (reminder only; the app resume still gets the three old steps), and "already registered
+  with the lender" (`failed` + `duplicate`) stops the reminder like a rejection. Upshot's own SMS journeys (Swiftloan_Web / Swiftloan_prod) are still
+  live until this is verified; an Upshot journey can only be made Inactive by deleting its campaigns (permanent), so plan the switch-off with the Upshot owner.
 - **App resume (phase 2).** `POST /attribution/claim` returns a `resume` block ONLY for a deterministic match (Play referrer / clipboard token; never
   a same-IP guess): reference token, first name, phone, last step (`lib/journeyResume.ts`). `src/components/ResumePrompt.tsx` (mounted in `App.tsx`)
   shows "Okay, continue" / "Take help from agent"; both open `mobile` with the number pre-filled and the consent box UNTICKED (the agent asks before
@@ -583,7 +600,8 @@ the app: "you applied with <lender>, install the SwiftLoan app to track it". Nev
   <lender>" is 2 WhatsApp messages (10 min, next day) per lender. All editable in Admin → Timings; a value already saved in `PlatformSetting` (e.g. prod's old
   20-message schedule) overrides the new default until reset. `reminderSchedule.test.ts` and integration S01-S89 pin the ORIGINAL 20-message pattern on purpose
   (it exercises every rule branch); S90+ run on the real defaults.
-- **Asked for an OTP but never entered it** (`armUnverifiedReminder`, called from the website `/otp/request` only; the app's own OTP never arms it).
+- **Asked for an OTP but never entered it** (`armUnverifiedReminder`, called from the website `/otp/request` and, since 2026-11-04, the app's `/auth/otp/request` too (Android + iOS; an app
+  verify ends it through the `app_login` stop)).
   `JourneyReminder.unverified` (migration `20261023130000_journey_reminder_unverified`), step `otp_requested` → label "OTP verification", name "there". Its own
   short schedule (`install.unverifiedSchedule`: WhatsApp 10 min, SMS 1 day), switch `install.unverifiedEnabled`, ONCE per number ever (a number that already has any
   reminder is skipped) because the number is unproven: anyone can type any number. Entering the code later stops it (`verified`) and starts the normal run with the
@@ -653,7 +671,7 @@ real sending (templates await Meta / Vox delivery), admin view, retiring the ove
   until the call is switched on and the wording says the SwiftLoan assistant (not "a team") will call. Until then it is recorded as skipped ("whatsapp template not configured"). Turn it on by saving
   `no_offers.whatsapp.noLink = {"template":"dropoff_no_offers_callback","placeholders":["{name}"]}`.
 - **"No offers" follow-up CALL** (`lib/noOffersCall.ts`, run from the end of `appDropoffTick`, isolated so a failure never stops the messages): the existing Ello
-  `leadCallback` agent (`placeCall`, no new agent) rings a person whose lookup found no offers, once, `dropoff.noOffersCallDelayMinutes` (45) after they got none.
+  `leadCallback` agent (`placeCall`, no new agent) rings a person whose lookup found no offers, once, `dropoff.noOffersCallDelayMinutes` (2; was 45) after they got none.
   Own switch `dropoff.noOffersCallEnabled` (**off**: records one "would call" entry in the run's `history`, nothing is dialled); it ALSO needs the master `calls.nudgeEnabled`
   and respects `calls.allowedNumbers`, calling hours, do-not-contact and `calls.quietAfterMessageMinutes` (a logged/sent WhatsApp before it counts, so ticks closer than that wait).
   The `OutboundRequest` (kind `no_offers_call`, key `noffers:<run id>`) is claimed BEFORE dialling; one call per person ever; a failed dial is recorded and NOT retried; a "would call" entry
@@ -761,3 +779,181 @@ anything else keeps the stable WebSocket `ElloAgent`. Tested working on a Redmi 
 Release builds use STUN only unless `globalThis.SWIFTLOAN_ICE_SERVERS` supplies a TURN relay (the free public relay is debug-only);
 iOS, mobile data and echo on a loudspeaker are still untested. Details and the open list: `src/voice/transports/webrtc/README.md`.
 Dev builds expose `__ello.start(phone?) / stop() / status() / introduced() / callTool()` for driving a call from the Metro inspector.
+
+---
+
+## "Why did you stop?" calls (stuck-stage voice rules, `lib/stallRules.ts`)
+
+The `CALL — …` stall rules (Admin → Configs → Stage outreach, seeded **disabled**) ring a person who started a step on the website or in the app and
+did not finish it; the agent (`app_dropoff_followup`, prompt section B) asks why they stopped and whether anything went wrong. Three global settings
+(Admin → Timings → Calls, pure rules in `lib/stallCallLimits.ts`, tested): `calls.stallMinStuckMinutes` (120: a call never goes out sooner than 2 h after
+they stopped, whatever the rule's own wait), `calls.stallMaxStuckHours` (24: the backlog is never called), `calls.stallDailyLimit` (3 per India day, newest
+first, 0 = none). Still gated by the master switch `calls.nudgeEnabled`, the call test-number list, calling hours, the quiet gap after a message, a
+24 h per-phone cooldown and 2 calls per person ever. The call context's `stall_help` starts with `STALL_WHY_ASK` (`callContext.ts`). Not covered: the
+"no offers" call has its own job (`noOffersCall.ts`).
+
+---
+
+## The ONE WhatsApp journey (owner's decision, 2026-11-02): stopped → +30 min → 7 AM daily for a week
+
+The drop-off job (`lib/appDropoff.ts`) is the only WhatsApp sender; everything else on WhatsApp is to be kept OFF (website install reminder `install.sendEnabled`,
+"you applied" `applied.sendEnabled`, the unverified-OTP run `install.unverifiedEnabled`, the `WHATSAPP — …` stall rules). The generic "every user, every day" job built earlier
+that day was removed. App and website are one journey because the state is read from stored data and the clock from the last ACTION anywhere.
+- **Clock = last action**, not when a step was saved: `lastActivityFor()` = max of the latest `ActivityEvent.ts` (app screens/events), `JourneyReminder.lastSeenAt`
+  (website "still here" ping) and `Customer.lastActivityAt` (journey events). A person counts as stopped after `dropoff.idleMinutes` (5) with no action; the run's
+  `startAt` is the last action itself, so `dropoff.schedule` (default ONE row: WhatsApp +30 min) sends 30 minutes after they stopped. Arming candidates also include
+  anyone with an activity row or ping in the last `dropoff.maxAgeHours`.
+- **Coming back** (`lib/dropoffDaily.ts returnVerdict`, pure): a newer action before any message = the clock restarts from that action once they are idle again
+  (history entry "clock restarted"); a newer action after a message = the run stops (`returned`) and a fresh run may start when they stop again (the 14-day
+  one-run-per-step rule ignores runs that ended with `returned`). Checked at arming and again on every due run.
+- **Then 7 AM daily for 7 days**: `dropoffConfigFor(status, base, startAt)` appends `dailyRows()` — one WhatsApp at `dropoff.dailyAt` (420 = 7:00 IST) each day for
+  `dropoff.dailyDays` (7), as minutes-after-startAt rows, so the ordinary schedule engine (gap / too late / calling hours) runs them unchanged. A run that is already
+  waiting keeps its next check time. The template per step is unchanged (`DEFAULT_DROPOFF_MESSAGES`; SMS rows are not part of the journey).
+- **Only the customer's own channels are activity** (`journey.ts isCustomerAction`: `website` / `app`). `Customer.lastActivityAt` and the mirrored
+  `ActivityEvent` used to be bumped by our OWN events (`nudge_sent`, `stage_stalled`, calls): on the 2026-11-02 deploy that made a stall SMS look like
+  "the customer came back", re-armed 104 weeks-old "no offers" drop-offs and sent 91 `dropoff_no_offers_callback` WhatsApps before it was stopped (sending
+  paused, no calls went out, the runs were deleted). Now system events do not touch `lastActivityAt` and mirror as `eventType: 'system'`; `lastActivityFor`
+  reads only customer-caused rows (`SYSTEM_EVENT_NAMES` excluded for old rows); and arming requires BOTH the step and the last action to be inside
+  `dropoff.maxAgeHours`. Test: `journeyActivity.test.ts`.
+- **"Number verified, stopped before the PAN" is a journey step too** (owner, 2026-11-03): `DropoffStatus` `otp_verified` (since = latest `otp_verified`
+  journey event, website or app; `loadSnapshot` reads it), messageable, message kind `continue` with step label "PAN verification" (`dropoff_continue_app` /
+  `install_app_resume_step`), stage `otp_verified` (own schedule key `dropoff.schedule.otp_verified`; Stage outreach shows the drop-off job on that stage for
+  both tabs). Arming candidates include recent `otp_verified` events. The 8 PM call brief covers it ("verified their mobile number → verify their PAN").
+- `otherSequenceActive` now only yields to the install reminder / "you applied" sequence while THEIR switch is on, so a log-only run never silences this journey.
+- Tests: `dropoffDaily.test.ts` (daily rows, return rules); the pure drop-off rules in `dropoffSteps.test.ts` are unchanged.
+
+## The website "Yes, call me now" pop-up is gone (2026-11-02)
+
+The owner removed the callback-consent pop-up: every verified website enquiry is called automatically, once, `calls.leadFollowupMinutes` (60) after it
+(`lib/leadCaller.ts`, job `lead-autocaller`), with no yes/no asked. Removed with it: `lib/immediateCallback.ts` + job `immediate-callback`, `POST /api/website/callback`,
+settings `calls.firstDelaySeconds` / `calls.retryMinutes` / `calls.maxAttempts` (`calls.declineFollowupMinutes` renamed to `calls.leadFollowupMinutes`), the website
+`CallbackModal` / `submitCallbackChoice` / `callback*` strings. The `Customer.callback*` columns and the `callback_requested` / `callback_declined` journey events stay
+(additive schema; history), and the `immediate_callback_optin` call reason keeps its label for old calls.
+
+## Deploy seed never overrides an admin-saved integration setting (2026-11-02 incident 2)
+
+`prisma/seed.integrations.ts` runs on every prod deploy (`deploy-prod.yml`) with the box's `~/secrets/server.env`. It used to let a non-empty env value
+override a saved setting, so the box's `ELLO_WEBHOOK_URL=http://13.232.60.204:4000/…` overwrote the admin's `https://api.swiftloan.ai/…` on each deploy and
+every no-offers call after the deploy failed (`webhookUrl must be https://`). Now env values only FILL IN settings that are not saved yet. The box env was also
+corrected to the https URL (backup `server.env.bak-<ts>-pre-https-webhook`). Also fixed: `noOffersCall.ts` wrote `error` instead of `lastError` on a failed
+claim, so the write was rejected and failed claims stayed `sent`.
+
+**Second lesson from the same day:** the first clean-up deleted only runs armed AFTER the fixed deploy; the OLD container kept arming between the clean-up
+and the deploy (178 runs), and the 7 AM dailies then sent 118 more `dropoff_no_offers_callback` messages. When a bad arming rule is fixed, delete every run
+armed before the fix is RUNNING, not just those armed after.
+
+## Per-person limits live in Admin → Timings → "Per-person limits" (2026-11-03)
+
+Owner's rule: anything that is a number or a switch is set in Admin, never in code or env. The limits that were env variables / constants are now registry
+entries (group `limits`; the old env names stay as fallbacks, so nothing changes until an admin edits): `limits.phoneCooldownHours` (24; one dialler-wide gap,
+read by the enquiry, stuck-step and evening callers), `limits.stallCallsPerPerson` (2), `limits.noOffersCallsPerPerson` (1), `limits.dropoffRerunDays` (14),
+`limits.stallWhatsapp{CooldownHours,PerPerson,MaxAgeHours}` and `limits.stallSms{…}` (24 / 3 / 24), plus `calls.leadAutocallEnabled` (env `LEAD_AUTOCALL_ENABLED`).
+0 on a per-person count = no limit. What is deliberately NOT a setting: which stored states count as a journey step, which columns mean "the customer acted",
+batch sizes per tick, call-reason labels — those are logic, and changing them is a code change.
+
+## Outbound agent prompt rules (owner, 2026-11-03): no language question, Hindi default, transfer only on confirmation
+
+`prompts/ello-outbound-ruby-prompt.md` (local only; the owner pastes it into Ello): Ruby never asks "which language do you prefer". She opens in
+`{{lead_language}}` — new briefing variable from `callContext.ts spokenLanguageLabel(User.voiceLang, User.lang)` (what they spoke to the agent before, else the
+app language; documented in `stageOutreach.ts VARIABLE_INFO`) — else the language the history shows, else **Hindi**. She switches only on an explicit request or a
+whole reply in another language twice, never on a single word, a name, a number or garbled audio, and never flips back. **Transfers:** never on her own; only when
+the customer asks for a person/support AND answers a clear yes to "Shall I connect you to our support team now?"; otherwise a callback is noted. Prompt stays under
+Ello's 5,000-token limit (~3,530 words).
+
+## "Why did you stop?" at 30 min, and "you left this 2 days ago" calls
+
+- **Stuck-stage CALL rules now default to 30 minutes** (`calls.stallMinStuckMinutes` 30, every seeded `CALL — …` rule `delayMinutes` 30). Seeds only insert missing rules,
+  so on prod each existing rule's wait is changed on Stage outreach (and the rules switched on there); the daily cap `calls.stallDailyLimit` (3) must be raised for a
+  real rollout. The agent asks why they stopped and `report_call_outcome` stores it on `CallAttempt.summary` (the Ello agent must have that tool configured on the dashboard).
+- **Drop-off call on the following evenings** (`lib/inactiveCall.ts`, rules `inactiveCallRules.ts`, job `inactive-call`; owner's ask 2026-11-02: "next day at
+  8 pm, and the day after, for 3 days"): anyone with an account, an unfinished journey (`deriveDropoff` not finished/failed/none) and NO action since they stopped
+  (anchor = `lastActivityFor`, the same last-action clock as the WhatsApp journey) gets one Ello `leadCallback` call at `calls.inactiveCallAt` (default 1200 = 8:00 PM IST; prod is set to 810 = 1:30 PM, the owner's choice)
+  on each of the next `calls.inactiveDays` (3) India days (day 1 = tomorrow), purpose `inactive_followup`, `days_inactive` = that day number (1 = yesterday) +
+  stall fields. Switch `calls.inactiveEnabled` (**off**), cap `calls.inactiveDailyLimit` (50); also the master `calls.nudgeEnabled`, the call test list, calling hours
+  (8 PM is inside 07:00–21:00; a tick missed past 21:00 skips that day only), quiet gap after a message, do-not-contact. Claim `inactive:<customerId>:<day>`
+  (kind `inactive_call`, one per person per day) before dialling; a failed dial is not retried that day. The 30-minute "why did you stop" CALL rules stay off for now.
+  Prompt: section E in `prompts/ello-outbound-ruby-prompt.md` (edited locally, under the 5,000-token limit; paste into Ello by hand).
+- **Calls on the user profile.** Admin → Users → a user now has a "Voice calls" card (`CallList`, the same rows and detail as the Customer profile's Calls tab:
+  context given, outcome + source, summary, transcript, recording), from `GET /api/admin/users/:id` → `calls` (by phone, 50 newest), with a "Full journey" link to
+  `/customers/:id`. Before this only the Customer profile showed calls.
+
+---
+
+## Outreach scenarios (Sachin's review, built 2026-11-04; sheet `docs/Outreach_Scenarios_Plan.xlsx`)
+
+- **Scenario 1 (mobile entered, OTP not verified, app + website):** the install reminder's "unverified" run, SMS-only (5 min + 1 day), armed
+  from the website AND the app OTP request. Old call rule "CALL — entered phone but never verified OTP" is switched off on prod.
+- **Scenario 2 (OTP verified, PAN not done):** a drop-off STAGE TIMELINE (`dropoff.schedule.otp_verified`, Configs → Stage outreach). Timeline
+  rows may be **calls** (`channel: 'call'`, placed by `lib/dropoffCall.ts`) and **set times on a later India day** (`atClock: true`,
+  afterMinutes = day × 1440 + minute of day; `stepsFromRows(rows, startAt)` turns them into delays). A stage with a SAVED timeline uses it
+  alone: no 7 AM daily WhatsApp, and `inactiveCall.ts` leaves it out. Sachin's timeline: WA 30 min, WA 4 h, call D1 11:00, WA D3 19:00,
+  call D5 18:00, WA D7 10:00. Prod needs the deploy before such a timeline can be saved (old code rejects calls/set times).
+- **Welcome WhatsApp** after a WEBSITE OTP verify (`lib/welcomeMessage.ts`, switch `welcome.sendEnabled`, off): template
+  `welcome_continue_app` (approved 2026-11-04 as MARKETING by Meta though submitted as Utility; image header = `https://swiftloan.ai/whatsapp-welcome.png`, which every send must carry; {{1}} name,
+  {{2}} link; Meta id 1745051353263012, submitted 2026-11-04). Once per number. Meta rejects a body that ends with a variable.
+- **Missed call → "sorry we missed you"** (`lib/missedCallNote.ts`, from the drop-off tick): an unanswered timeline call gets one WhatsApp
+  with the SAME welcome template `dropoff.missedNoteMinutes` (5) after it ended. Not counted as a touch.
+- **One contact limit** (`lib/contactPolicy.ts`, Admin → Timings → Per-person limits): `limits.touchesPerDay` (2), `limits.touchesPerWeek`
+  (6), `limits.noCallAndMessageSameDay` (on). Checked by the drop-off timeline, install reminders, welcome, the daily call and the
+  stuck-step call rules; a touch over the limit is SKIPPED (recorded), not delayed. Pass the job's `now` (tests time-travel).
+- **SMS in every scenario (owner, 2026-11-04): only two registered texts** (`lib/smsRoute.ts`): `LINK_SMS` (1277179300146510723,
+  "…incomplete at {step}… :{link}") everywhere, `PAN_PENDING_SMS` (1277179266527595706, "verify your PAN") only for an APP user stopped
+  before PAN. `sendRegisteredSms` honours `installSmsGateway: "otp"`. Welcome SMS right after OTP verify (`sendWelcomeSms`, switch
+  `welcome.smsEnabled`): app → PAN text, website → link text. **Every drop-off WhatsApp is followed by its SMS** (`lib/smsFallback.ts`,
+  owner: both, with a gap): `dropoff.smsFallbackMinutes` (10) after each WhatsApp, the same step goes once by SMS (`dropoff.smsFallbackEnabled`,
+  on); `dropoff.smsOnlyIfUndelivered` (off) narrows it to undelivered WhatsApps only. Not sent if they came back or moved on in between. Welcome SMS and fallback SMS are exempt from the touch count (same touch).
+- **Scenario 3/4 timelines** (to save after the deploy): `dropoff.schedule.eligibility_started` = WA 30 m, WA 4 h, call D1 11:00, WA D3 19:00,
+  call D5 18:00, WA D7 10:00; `dropoff.schedule.offer_viewed` = call 10 m, WA D1 10:00, call D2 18:00, WA D4 10:00, call D5 14:00, WA D7 10:00.
+- **Voice agent briefing tells the truth (2026-11-04, `lib/callSituation.ts`):** for a signed-in customer, `lead_stage` / `lead_journey*` /
+  `lead_next_action` and the new `call_situation` come from stored data (`deriveDropoff`), not `Customer.currentStage` (the app's status
+  screen fired `application_submitted`, putting people who never applied at "stage 10, KYC completed"; `tracking.routes.ts` now ignores that
+  event unless a LenderApplication exists). With offers: `offer_count` + best offer (highest amount; `best_offer_*`). `lead_first_name` /
+  `lead_name` fall back to the account name in normal capitals. Ruby's prompt opens from `{{call_situation}}` and, with offers, the best
+  offer first (`prompts/ello-outbound-ruby-prompt.md`, local; paste into Ello; keep ≤ ~3,530 words). Ello's own default first message
+  ("Hi! How can I assist you today?") must be blank on the Ello dashboard.
+- **Scenario 5 (no offers, critical moment):** the `rejected` drop-off run is armed at once (no idle wait, `startAt` = the lookup time) and
+  coming back never restarts or ends it; the no-offers call ignores the quiet gap after a message. Ruby (prompt section A) asks what they need
+  (amount + purpose, employment, take-home, EMIs, city/PIN, how soon, callback time/language, OK to share with other lenders) and reports it with
+  `report_call_outcome`; the webhook keeps the extra answers in `CallAttempt.details.requirement`, shown in Admin → the call → "Captured on the call".
+  The Ello `report_call_outcome` tool needs those parameters added on the Ello dashboard. Live once `dropoff.noOffersCallEnabled` is on.
+  **Every no-offers person is called, at once (owner, 2026-11-06):** the prequalify route calls `callNoOffersNow` (`appDropoff.ts`) the moment
+  the lookup ends with none (fresh or reused result), so Ruby rings without waiting for the minute job or the call delay. No per-pass cap, no
+  lifetime cap (`limits.noOffersCallsPerPerson` default 0), and the "once per step per day" and "another sequence owns them" arming rules do not
+  apply to no offers. Still: the switches, do-not-contact, the store-reviewer phone, calling hours (out of hours → the tick rings at the next
+  opening) and one call per no-offers run (a person whose run is still on is not rung again; a new result after it ended is).
+- **WhatsApp image templates (owner, 2026-11-06).** Every send of a template approved with an IMAGE header must carry the image's https URL;
+  `sendWhatsAppTemplate` now adds it by itself (`lib/templateImages.ts`): the "Image address" saved on the template in Admin → Configs →
+  WhatsApp (Vox) → Templates, else the shipped banner (`website-next/public/whatsapp-*.{png,jpg}`). A new image template = upload the picture
+  anywhere public over https and paste the address; no deploy. Drop-off defaults now use the image templates: continue → `continue_application_link`
+  ({name},{step},{link}) / `continue_application_app` ({name},{step}) (Meta made both MARKETING), offers → `offers_ready_view_link`
+  ({name},{ref},{link}) / `offers_ready_open_app` ({name},{ref}) (UTILITY), no offers → `no_offers_call` ({name}). Utility wording that Meta keeps:
+  report the status ("has a pending step: …", "offers … are ready") and end with "Reply to this message if you need help."; "incomplete …
+  continue where you left off" / "open the app and apply" become Marketing. Vox's template image upload fails (500) on large PNGs with spaces in
+  the name: upload a ~100 KB 1424×752 JPG with a plain name.
+- **WhatsApp, SMS and call are independent (owner, 2026-11-06).** The drop-off follow-up SMS (`lib/smsFallback.ts`) now follows each WhatsApp
+  STEP in the run's history (`whatsappStepsDueSms`), whether the WhatsApp was sent, failed or skipped for a WhatsApp-only reason; before, a
+  WhatsApp that never left meant no SMS. Not for log-only steps or ones held back by the test list / a contact limit. Claim key
+  `smsfb:<run id>:<step>` (old per-message keys are still honoured). "No offers" has no registered SMS text yet, so it still gets none.
+- **Missed no-offers call → note (owner, 2026-11-06).** `missedCallNote.ts` also follows an unanswered no-offers call (`noOffersCall.ts` now stores
+  `callAttemptId` on its claim), with its own Utility template `no_offers_missed_call` ({name}; Voxvalley setting `missedNoteNoOffers` overrides,
+  blank = off) instead of the welcome text. **The template must be approved in Vox before this sends.**
+- **No offers is its own Stage outreach stage.** A `rejected` drop-off run belongs to stage `eligibility_completed` ("Fetching offers" /
+  "No offers found"), so it can have its own timeline (`dropoff.schedule.eligibility_completed`, Stage outreach → that step). Until one is saved it
+  keeps the shared schedule + 7 AM daily messages, as before; a saved one replaces both.
+- **"I'll send you the link" on a call (`send_app_link` → `POST /api/conversations/send-link`, `lib/agentLink.ts`):** sends the app link by SMS
+  (LINK_SMS) AND WhatsApp (the drop-off "continue with link" template, now `continue_application_link`), same three values: name (our records, else "Customer"), status "Starting a Loan
+  Application" (Voxvalley `callLinkStep` overrides), link `/dl?ref=<their token>` (made as an ended `JourneyReminder` row if they had none, so no
+  reminder job runs it) or `/dl?campaign=voice_agent` for an unknown number. Any valid number; do-not-contact / review phone / test list refused;
+  one per phone per hour; kind `agent_link`, exempt from the touch limit. Test: `bash scripts/journey/run-agent-link.sh`. Ello setup:
+  `docs/ELLO_TOOL_CONFIG.md` §1d.
+- **Contact limits loosened on prod (owner, 2026-11-05):** `limits.noCallAndMessageSameDay` off, `limits.touchesPerDay` / `touchesPerWeek` 0 (no
+  limit), `limits.phoneCooldownHours` 0, `limits.dropoffRerunDays` 1 (0 allowed after this change), no-offers call ON (`dropoff.noOffersCallDelayMinutes` 1;
+  since 2026-11-06 no lifetime cap, see Scenario 5). New switches `welcome.oncePerNumber` and `install.unverifiedOncePerNumber` (default
+  on = old once-ever behaviour; off = welcome at most once per India day, Scenario 1 again on every unentered OTP unless a run is active).
+  "Skip a message that is this late" (`dropoff.maxLateHours`, `install.maxLateHours`, `applied.maxLateHours`) set to 168 h on prod (owner: a held message
+  must still go); after this change 0 = never skip (`reminderSchedule.ts nextAction`). Calling hours still hold a message until 7 AM.
+- **Only the Journey sheet runs (owner, 2026-11-04).** On prod every stuck-step call rule, the daily 1:30 PM call, the no-offers call, the
+  website enquiry call and the drop-off WhatsApp switch (`dropoff.sendEnabled`, back on with the timelines at go-live) are OFF. The old
+  verified-visitor install reminders have their own switch `install.verifiedEnabled` (env `INSTALL_REMINDER_VERIFIED`, default off); the
+  reminder row and its link are still created. Code was switched off, not deleted (the same engines run the scenarios). Upshot's own
+  SMS journeys are still on in the Upshot dashboard.

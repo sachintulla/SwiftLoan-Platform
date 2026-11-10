@@ -31,8 +31,9 @@ import { scoped } from './log.js';
 import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
 import { installStageOf } from './stageSchedules.js';
 import { phoneKey } from './messageStatus.js';
+import { touchAllowed } from './contactPolicy.js';
 import {
-  DEFAULT_STEP_LABELS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle,
+  DEFAULT_STEP_LABELS, buildInstallLink, deriveLastStep, isFinishedApplicationStatus, isIdle, isNoOffersOutcome,
   nextAction, nextCheckTime, renderSmsBody, stepsFromRows, stopReason, type LastStep, type ScheduleConfig, type ScheduleStep, type StopReason,
 } from './reminderSchedule.js';
 
@@ -166,12 +167,15 @@ export async function armInstallReminder(user: { id: string; phone: string }, no
  * Called when someone asks for a website OTP. If they never enter it, they get a SHORT sequence (Admin → Timings:
  * "Messages for an OTP that was never entered"), once per number ever: anyone can type any number into the box, so
  * we never repeat it and never send the full week. Not for a number that already has a reminder (verified before, or
- * armed before), a number already in the app, or the store-review phone. The app's own OTP never comes here.
+ * armed before), a number already in the app, or the store-review phone. Called from both the website and the app OTP request
+ * (Android and iOS); verifying in either place ends it (the website's verify via `armInstallReminder`, the app's via the app-login stop).
  */
 export async function armUnverifiedReminder(user: { id: string; phone: string }, now: Date = new Date()): Promise<JourneyReminder | null> {
   if (!timing.bool('install.unverifiedEnabled')) return null;
   if (isReviewPhone(user.phone)) return null;
-  if (await prisma.journeyReminder.findFirst({ where: { userId: user.id }, select: { id: true } })) return null;
+  // Once per number ever (default), or — with `install.unverifiedOncePerNumber` off — only while no run is going for them.
+  const blocking = timing.bool('install.unverifiedOncePerNumber') ? { userId: user.id } : { userId: user.id, status: 'active' };
+  if (await prisma.journeyReminder.findFirst({ where: blocking, select: { id: true } })) return null;
   if (await alreadyInApp(user.phone)) return null;
   return createReminder(user, 1, now, null, true);
 }
@@ -216,10 +220,15 @@ interface DeliverResult { outcome: HistoryOutcome; reason?: string }
  *   settings.installSmsTemplateId + settings.installSmsBody (must contain {link})
  *   settings.installWhatsapp = { template, language?, placeholders? } with {name}, {step} and {link} tokens
  */
-async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastStep = r.lastStep as LastStep): Promise<DeliverResult> {
+async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastStep = r.lastStep as LastStep, now: Date = new Date()): Promise<DeliverResult> {
   if (!installReminderSendEnabled()) return { outcome: 'logged' };
+  // Only the "never entered the OTP" run is part of the scenarios (Scenario 1); the old verified-visitor reminders have their own switch,
+  // off by default (owner, 2026-11-04: only what is in the Journey sheet). The row itself still exists: it carries the visitor's app link.
+  if (!r.unverified && !timing.bool('install.verifiedEnabled')) return { outcome: 'skipped', reason: 'verified-visitor reminders switched off' };
   // While a test list is set, nobody else is messaged. The step is used up (not saved for later), so clearing the list never sends a backlog.
   if (notOnTestList(r.phone)) return { outcome: 'skipped', reason: 'not on the test-number list' };
+  const allowed = await touchAllowed(r.phone, 'message', now); // the one contact limit (contactPolicy.ts)
+  if (!allowed.ok) return { outcome: 'skipped', reason: allowed.reason };
 
   const link = buildInstallLink(downloads.publicBase, r.token);
   const cfg = await getProviderConfig('voxvalley');
@@ -236,7 +245,8 @@ async function deliver(r: JourneyReminder, step: ScheduleStep, lastStep: LastSte
     // Voxvalley integration's project, which has no route for the PTSLA sender.
     if (String(cfg.settings.installSmsGateway ?? '').trim().toLowerCase() === 'otp') {
       if (!otpGatewayConfigured()) return { outcome: 'skipped', reason: 'sms gateway not configured (OTP gateway env)' };
-      const sender = String(cfg.settings.installSmsSender ?? cfg.settings.smsSender ?? '').trim();
+      // `||`, not `??`: the settings form saves a blank installSmsSender as '', which must still fall back to smsSender.
+      const sender = String(cfg.settings.installSmsSender || cfg.settings.smsSender || '').trim();
       const sent = await sendSmsViaOtpGateway({ phone: r.phone, body: text, templateId, from: sender, track });
       return sent.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (sent.error ?? 'sms failed').slice(0, 200) };
     }
@@ -267,7 +277,10 @@ export interface TickResult { scanned: number; stopped: number; dropped: number;
 async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | null, now: Date): Promise<{ reason: StopReason | null; lastStep: LastStep }> {
   const [customer, application, click, appliedToLender] = await Promise.all([
     prisma.customer.findUnique({ where: { phone: r.phone }, select: { id: true, currentStage: true } }),
-    prisma.loanApplication.findFirst({ where: { userId: r.userId }, orderBy: { updatedAt: 'desc' }, select: { status: true } }),
+    prisma.loanApplication.findFirst({
+      where: { userId: r.userId }, orderBy: { updatedAt: 'desc' },
+      select: { status: true, prequalifyReason: true, _count: { select: { offers: true } } },
+    }),
     prisma.appClick.findFirst({ where: { ref: r.token, status: 'matched' }, select: { id: true } }),
     // The lender's own status webhook (what moves the application to 'handoff') may never arrive, so tapping Apply is the
     // moment this stops saying "incomplete"; the "you applied with <lender>" messages (lenderNudge.ts) take over.
@@ -279,12 +292,13 @@ async function stopReasonFor(r: JourneyReminder, user: { panOnFile: boolean } | 
         select: { id: true },
       }))
     : false;
-  const lastStep = deriveLastStep({ panOnFile: !!user?.panOnFile, hasApplication: !!application, unverified: r.unverified });
+  const offersReady = application?.status === 'offers_ready' && application._count.offers > 0;
+  const lastStep = deriveLastStep({ panOnFile: !!user?.panOnFile, hasApplication: !!application, unverified: r.unverified, offersReady });
   const reason = stopReason({
     doNotContact: customer?.currentStage === 'lost',
     installed: !!click,
     appLogin,
-    applicationFinished: isFinishedApplicationStatus(application?.status) || !!appliedToLender,
+    applicationFinished: isFinishedApplicationStatus(application?.status) || (!!application && isNoOffersOutcome(application)) || !!appliedToLender,
     returned: !!r.droppedAt && r.lastSeenAt.getTime() > r.droppedAt.getTime() + 60_000 && r.lastSeenAt <= now,
   });
   return { reason, lastStep };
@@ -298,6 +312,15 @@ export function configFor(r: Pick<JourneyReminder, 'unverified' | 'lastStep'>, c
   if (r.unverified) return { ...cfg, steps: stepsFromRows(timing.schedule('install.unverifiedSchedule')) };
   const stage = installStageOf(r.lastStep);
   return hasStageSchedule('install.schedule', stage) ? { ...cfg, steps: stepsFromRows(stageScheduleRows('install.schedule', stage)) } : cfg;
+}
+
+/**
+ * Does this reminder's schedule send any WhatsApp? The drop-off job (appDropoff.ts) is the one WhatsApp journey and only stands back for a
+ * reminder that would send WhatsApp itself: an SMS-only reminder runs alongside it (SMS from here, WhatsApp from there).
+ */
+export function reminderSendsWhatsapp(r: Pick<JourneyReminder, 'unverified' | 'lastStep'>, cfg: ScheduleConfig = currentScheduleConfig()): boolean {
+  if (!r.unverified && !timing.bool('install.verifiedEnabled')) return false; // switched off: it sends nothing, so it owns nobody
+  return configFor(r, cfg).steps.some((s) => s.channel === 'whatsapp');
 }
 
 async function processReminder(r: JourneyReminder, now: Date, out: TickResult, baseCfg: ScheduleConfig = currentScheduleConfig()): Promise<void> {
@@ -364,7 +387,7 @@ async function processReminder(r: JourneyReminder, now: Date, out: TickResult, b
   if (claimed.count !== 1) return;
 
   const step = action.step;
-  const result: DeliverResult = action.kind === 'skip' ? { outcome: 'skipped', reason: action.reason } : await deliver(r, step, lastStep);
+  const result: DeliverResult = action.kind === 'skip' ? { outcome: 'skipped', reason: action.reason } : await deliver(r, step, lastStep, now);
   const entry: HistoryEntry = { step: step.index, channel: step.channel, label: step.label, at: now.toISOString(), outcome: result.outcome, ...(result.reason ? { reason: result.reason } : {}) };
   const sentNow = result.outcome === 'sent' || result.outcome === 'logged';
   const lastSentAt = sentNow ? now : r.lastSentAt;

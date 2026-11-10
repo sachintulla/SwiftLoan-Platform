@@ -20,7 +20,6 @@ import {
   inferOutcome, shouldReplaceOutcome, parseAgentOutcome, type OutcomeSource,
 } from '../lib/callOutcome.js';
 import { rebuildSummary } from '../lib/conversations.js';
-import { recordImmediateCallbackAttemptOutcome } from '../lib/immediateCallback.js';
 import { sendConversationSummary } from '../lib/conversationSummary.js';
 
 /** A call that reached a human — the only kind worth inferring an outcome from. */
@@ -374,14 +373,6 @@ webhooksRouter.post('/ello/call-outcome', ah(async (req, res) => {
         .catch(() => undefined);
     }
 
-    // Advance the "Yes, call me" retry cycle. A no-op for any customer not
-    // actually in the middle of one — see recordImmediateCallbackAttemptOutcome.
-    const callReason = (attempt.callContext as { reason?: string } | null)?.reason;
-    if (callReason === 'immediate_callback_optin') {
-      await recordImmediateCallbackAttemptOutcome(updated.customerId, isCompleted).catch((e) =>
-        console.error('[webhook] immediate-callback outcome update failed', e),
-      );
-    }
   }
 
   if (updated.campaignId) {
@@ -494,12 +485,20 @@ webhooksRouter.post('/ello/call-outcome-report', ah(async (req, res) => {
   // distinct from `summary`, which is written for colleagues and never sent.
   const customerSummary = str(b.customer_summary ?? b.customerSummary, 600);
   const actionPlan = str(b.action_plan ?? b.actionPlan, 400);
-  const keepDetails = customerSummary || actionPlan
+  // What the customer needs, asked on a "no offers" call so the team can follow up (Sachin's review). All optional.
+  const requirement = Object.fromEntries(Object.entries({
+    loanAmount: str(b.loan_amount ?? b.loanAmount, 60), purpose: str(b.loan_purpose ?? b.loanPurpose, 120),
+    existingEmis: str(b.existing_emis ?? b.existingEmis, 60), city: str(b.city ?? b.pincode, 80),
+    neededBy: str(b.needed_by ?? b.neededBy, 80), bestTimeToCall: str(b.best_time_to_call ?? b.bestTimeToCall, 80),
+    shareWithOtherLenders: str(b.share_with_other_lenders ?? b.shareWithOtherLenders, 20),
+  }).filter(([, v]) => !!v));
+  const keepDetails = customerSummary || actionPlan || Object.keys(requirement).length
     ? {
         details: {
           ...((attempt.details as Record<string, unknown> | null) ?? {}),
           ...(customerSummary ? { customerSummary } : {}),
           ...(actionPlan ? { actionPlan } : {}),
+          ...(Object.keys(requirement).length ? { requirement } : {}),
         } as Prisma.InputJsonValue,
       }
     : {};

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SCHEDULE_STEPS, nextAction, deriveLastStep, isIdle, stopReason, buildInstallLink, isFinishedApplicationStatus,
+  SCHEDULE_STEPS, nextAction, deriveLastStep, isIdle, stopReason, buildInstallLink, isFinishedApplicationStatus, isNoOffersOutcome,
   stepDueAt, MAX_LATE_MS, MIN_GAP_MS, IDLE_MS,
 } from './reminderSchedule.js';
 
@@ -85,6 +85,21 @@ describe('deriveLastStep', () => {
     expect(deriveLastStep({ panOnFile: false, hasApplication: false, unverified: true })).toBe('otp_requested');
     expect(deriveLastStep({ panOnFile: true, hasApplication: true, unverified: true })).toBe('otp_requested');
     expect(deriveLastStep({ panOnFile: false, hasApplication: false, unverified: false })).toBe('otp_only');
+  });
+  it('offers shown and none applied for is its own step; without the flag (the app resume) it stays application_started', () => {
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true, offersReady: true })).toBe('offers_ready');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true })).toBe('application_started');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: false, offersReady: true })).toBe('pan_done');
+    expect(deriveLastStep({ panOnFile: true, hasApplication: true, offersReady: true, unverified: true })).toBe('otp_requested');
+  });
+});
+
+describe('isNoOffersOutcome', () => {
+  it('"already registered with the lender" is a no-offers outcome; a technical failure is not', () => {
+    expect(isNoOffersOutcome({ status: 'failed', prequalifyReason: 'duplicate' })).toBe(true);
+    expect(isNoOffersOutcome({ status: 'failed', prequalifyReason: 'timeout' })).toBe(false);
+    expect(isNoOffersOutcome({ status: 'failed', prequalifyReason: null })).toBe(false);
+    expect(isNoOffersOutcome({ status: 'offers_ready', prequalifyReason: 'duplicate' })).toBe(false);
   });
 });
 
@@ -193,10 +208,12 @@ describe('renderSmsBody', () => {
     expect(renderSmsBody('Continue: {link} -X', { name: 'Asha', step: 'S', link: 'L' })).toBe('Continue: L -X');
   });
   it('has a label for every step', () => {
-    expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'otp_only', 'otp_requested', 'pan_done']);
+    expect(Object.keys(DEFAULT_STEP_LABELS).sort()).toEqual(['application_started', 'offers_ready', 'otp_only', 'otp_requested', 'pan_done']);
   });
-  it('names the step they are stuck on: OTP verification, then 1 PAN verification, 2 Basic details, 3 Finding offers', () => {
-    expect(DEFAULT_STEP_LABELS).toEqual({ otp_requested: 'OTP verification', otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers' });
+  it('names the step they are stuck on: OTP verification, then 1 PAN verification, 2 Basic details, 3 Finding offers, then choosing an offer', () => {
+    expect(DEFAULT_STEP_LABELS).toEqual({
+      otp_requested: 'OTP verification', otp_only: 'PAN verification', pan_done: 'Basic details', application_started: 'Finding offers', offers_ready: 'Choosing an offer',
+    });
   });
 });
 
@@ -254,6 +271,11 @@ describe('nextAction and nextCheckTime with custom settings', () => {
   it('uses the custom "too late" limit', () => {
     expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN + 61 * MIN) })).toMatchObject({ kind: 'skip', reason: 'too_late' });
     expect(nextAction({ ...input, stepsHandled: 0, now: at(10 * MIN + 59 * MIN) })).toMatchObject({ kind: 'send' });
+  });
+  it('a "too late" limit of 0 never skips: a step days late still goes (and still waits for calling hours)', () => {
+    const never = { ...input, cfg: { ...cfg, maxLateMs: 0 } };
+    expect(nextAction({ ...never, stepsHandled: 0, now: at(10 * MIN + 3 * 24 * 60 * MIN) })).toMatchObject({ kind: 'send' });
+    expect(nextAction({ ...never, stepsHandled: 0, inCallingWindow: false, now: at(10 * MIN + 3 * 24 * 60 * MIN) })).toMatchObject({ kind: 'wait', reason: 'quiet_hours' });
   });
   it('a step number past a shortened schedule just finishes (no crash for a visitor already deep in the old one)', () => {
     expect(nextAction({ ...input, stepsHandled: 7, now: at(5000 * MIN) })).toEqual({ kind: 'finished' });

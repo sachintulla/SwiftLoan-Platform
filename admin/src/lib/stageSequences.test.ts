@@ -30,11 +30,11 @@ describe('STAGE_SEQUENCES', () => {
     }
   });
 
-  it('per-stage schedules exist only where the server supports them (install: Signed in, Application started; drop-off: Application started, Offers viewed)', () => {
+  it('per-stage schedules exist only where the server supports them (install: Signed in, Application started; drop-off: also No offers found, Offers viewed)', () => {
     const own: Record<string, string[]> = {};
     for (const [stage, seq] of Object.entries(STAGE_SEQUENCES)) for (const s of seq.sources) if (s.ownSchedule) (own[s.scheduleKey] ??= []).push(stage);
     expect(own['install.schedule'].sort()).toEqual(['eligibility_started', 'otp_verified']);
-    expect(own['dropoff.schedule'].sort()).toEqual(['eligibility_started', 'offer_viewed']);
+    expect(own['dropoff.schedule'].sort()).toEqual(['eligibility_completed', 'eligibility_started', 'offer_viewed', 'otp_verified']);
     expect(Object.keys(own).sort()).toEqual(['dropoff.schedule', 'install.schedule']);
   });
 
@@ -47,7 +47,7 @@ describe('STAGE_SEQUENCES', () => {
 
 describe('what stays on the Timings page', () => {
   it('moves every schedule, its rules and the no-offers call delay to the stages', () => {
-    for (const k of ['install.schedule', 'install.unverifiedSchedule', 'dropoff.schedule', 'applied.schedule', 'install.idleMinutes', 'install.minGapMinutes', 'dropoff.maxAgeHours', 'applied.maxLateHours', 'dropoff.noOffersCallDelayMinutes', 'calls.firstDelaySeconds']) {
+    for (const k of ['install.schedule', 'install.unverifiedSchedule', 'dropoff.schedule', 'applied.schedule', 'install.idleMinutes', 'install.minGapMinutes', 'dropoff.maxAgeHours', 'applied.maxLateHours', 'dropoff.noOffersCallDelayMinutes', 'calls.leadFollowupMinutes']) {
       expect(isStageTimingKey(k), k).toBe(true);
     }
   });
@@ -64,7 +64,7 @@ describe('what stays on the Timings page', () => {
 
   it('says which other stages share a setting', () => {
     expect(stagesUsing('install.schedule', 'otp_verified')).toEqual(['eligibility_started']);
-    expect(stagesUsing('dropoff.schedule', 'offer_viewed')).toEqual(['eligibility_started']);
+    expect(stagesUsing('dropoff.schedule', 'offer_viewed').sort()).toEqual(['eligibility_completed', 'eligibility_started', 'otp_verified']);
     expect(stagesUsing('applied.schedule', 'offer_selected')).toEqual([]);
   });
 });
@@ -77,7 +77,8 @@ describe('jobSteps (what the message jobs add to a stage\'s timeline)', () => {
   it('turns a schedule into steps, live only when every switch is on', () => {
     const shared = rows(['whatsapp', 10], ['sms', 240]);
     const steps = jobSteps('otp_verified', () => shared, (k) => k === 'install.sendEnabled', none);
-    expect(steps.map((s) => [s.channel, s.afterMinutes, s.live, s.sourceId])).toEqual([['whatsapp', 10, true, 'install'], ['sms', 240, true, 'install']]);
+    expect(steps.filter((s) => s.sourceId === 'install').map((s) => [s.channel, s.afterMinutes, s.live])).toEqual([['whatsapp', 10, true], ['sms', 240, true]]);
+    expect(steps.filter((s) => s.sourceId === 'dropoff').every((s) => !s.live)).toBe(true); // the drop-off job is on this stage too (owner, 2026-11-03), its switch is off here
     expect(jobSteps('otp_verified', () => shared, () => false, none).every((s) => !s.live)).toBe(true);
   });
 
@@ -136,7 +137,8 @@ describe('sequenceForFlow (which tab shows which job)', () => {
     for (const stage of ['otp_requested', 'otp_verified', 'eligibility_started']) {
       expect(sequenceForFlow(stage, 'app').sources.some((x) => x.id === 'install' || x.id === 'unverified'), `app:${stage}`).toBe(false);
     }
-    expect(sequenceForFlow('otp_verified', 'website').sources.map((x) => x.id)).toEqual(['install']);
+    expect(sequenceForFlow('otp_verified', 'website').sources.map((x) => x.id).sort()).toEqual(['dropoff', 'install']);
+    expect(sequenceForFlow('otp_verified', 'app').sources.map((x) => x.id)).toEqual(['dropoff']); // app and website: number verified, stopped before PAN
     expect(sequenceForFlow('otp_verified', 'app').rules).toEqual([]);
     expect(sequenceForFlow('otp_verified', 'website').rules).toHaveLength(1);
   });

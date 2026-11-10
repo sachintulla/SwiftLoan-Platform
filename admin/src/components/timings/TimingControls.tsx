@@ -2,7 +2,7 @@
 // The editors for one timing setting (number, time of day, switch, numbers list, message schedule). Used by the Timings page and by Stage outreach.
 import React, { useEffect, useState } from 'react';
 import {
-  UNIT_SHORT, localError, rowsToUi, spanText, uiToRows,
+  UNIT_SHORT, channelName, localError, rowsToUi, spanText, uiToRows, whenText,
   type Draft, type Item, type SchedRow, type TimeUnit, type UiRow,
 } from '@/lib/timingsEdit';
 
@@ -67,8 +67,8 @@ export function ScheduleField({ it, rows, onChange }: { it: Item; rows: UiRow[];
       <div className="tm-chips">
         {value.map((r, i) => (
           <span key={i} className={`tm-sc ${r.channel === 'sms' ? 'tm-sc-sms' : 'tm-sc-wa'}`}>
-            <b>{r.channel === 'sms' ? 'SMS' : 'WhatsApp'}</b>
-            {r.afterMinutes === 0 ? 'right away' : `+${spanText(r.afterMinutes)}`}
+            <b>{channelName(r.channel)}</b>
+            {whenText(r)}
           </span>
         ))}
       </div>
@@ -119,20 +119,32 @@ export function ScheduleModal({ it, rows, onApply, onClose }: { it: Item; rows: 
             return (
               <div className={`tm-tr${bad ? ' tm-tr-bad' : ''}`} key={i}>
                 <span className="tm-tn">{i + 1}</span>
-                <select className="tm-chan" aria-label={`Message ${i + 1} channel`} value={r.channel} onChange={(e) => upd(i, { channel: e.target.value as 'sms' | 'whatsapp' })}>
+                <select className="tm-chan" aria-label={`Message ${i + 1} channel`} value={r.channel} onChange={(e) => upd(i, { channel: e.target.value as UiRow['channel'] })}>
                   <option value="sms">SMS</option>
                   <option value="whatsapp">WhatsApp</option>
+                  {it.timeline && <option value="call">Call</option>}
                 </select>
                 <span className="tm-when">
+                  {it.timeline && (
+                    <select aria-label={`Message ${i + 1} timing`} value={r.clock !== undefined ? 'clock' : 'after'}
+                      onChange={(e) => upd(i, e.target.value === 'clock' ? { clock: '11:00', amount: String(Math.max(1, Number(r.amount) || 1)) } : { clock: undefined })}>
+                      <option value="after">after</option>
+                      <option value="clock">on day</option>
+                    </select>
+                  )}
                   <input type="number" min={0} step={1} aria-label={`Message ${i + 1} delay`} value={r.amount} onChange={(e) => upd(i, { amount: e.target.value })} />
-                  <select aria-label={`Message ${i + 1} unit`} value={r.unit} onChange={(e) => upd(i, { unit: e.target.value as TimeUnit })}>
-                    <option value="minutes">minutes</option>
-                    <option value="hours">hours</option>
-                    <option value="days">days</option>
-                  </select>
+                  {r.clock !== undefined ? (
+                    <input type="time" aria-label={`Message ${i + 1} time of day`} value={r.clock} onChange={(e) => upd(i, { clock: e.target.value })} />
+                  ) : (
+                    <select aria-label={`Message ${i + 1} unit`} value={r.unit} onChange={(e) => upd(i, { unit: e.target.value as TimeUnit })}>
+                      <option value="minutes">minutes</option>
+                      <option value="hours">hours</option>
+                      <option value="days">days</option>
+                    </select>
+                  )}
                 </span>
                 <span className="tm-plain">
-                  {!Number.isFinite(m) ? <small>Enter a number</small> : m === 0 ? 'Right away' : spanText(m)}
+                  {!Number.isFinite(m) ? <small>Enter a number</small> : whenText(value[i])}
                 </span>
                 <span className="tm-acts">
                   <button type="button" className="tm-ibtn" title="Move up" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>↑</button>

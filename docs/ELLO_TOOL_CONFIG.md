@@ -101,6 +101,13 @@ This tool is the only source of a trustworthy outcome.
 | `callback_at` | string | no | `ISO 8601 timestamp, only if they asked to be called back. Must be in the future.` |
 | `customer_summary` | string | no | `Two short sentences for the CUSTOMER to read on WhatsApp, in the second person: what you discussed, e.g. "We talked about a Rs 3 lakh personal loan and your offers." Plain text, no line breaks. Leave out if nothing useful was discussed.` |
 | `action_plan` | string | no | `One short sentence on what happens next, e.g. "Open the SwiftLoan app tonight to pick an offer." If omitted, a standard next step is used.` |
+| `loan_amount` | string | no | `No-offers call only: the loan amount they need, as they said it, e.g. 2 lakh` |
+| `loan_purpose` | string | no | `No-offers call only: what the loan is for, e.g. medical, wedding, business` |
+| `existing_emis` | string | no | `No-offers call only: EMIs they pay now per month, roughly, e.g. 8000 or none` |
+| `city` | string | no | `No-offers call only: their city or PIN code` |
+| `needed_by` | string | no | `No-offers call only: how soon they need the money, e.g. this week` |
+| `best_time_to_call` | string | no | `No-offers call only: best time and language for our team to call back, e.g. evening, Telugu` |
+| `share_with_other_lenders` | string | no | `No-offers call only: yes or no — may we share their request with other partner lenders` |
 
 > **WhatsApp recap.** When "After every conversation" is switched on in Configs →
 > Stage outreach, the customer gets a WhatsApp built from `customer_summary` and
@@ -142,6 +149,64 @@ posting it is idempotent — it updates the same record rather than adding a sec
 
 Leave `agent_role` out entirely: the server already knows whether a call was a
 campaign or a lead callback, and letting the model guess would corrupt that.
+
+## 1c-2. `get_user_context` for this agent — add the header `x-agent-role: outbound`
+
+With that header the lookup returns only where the person stands (`hasHistory`, `applicationStatus` + `applicationStatusLabel`,
+`panOnFile`, `application {ref, status, offerCount}`, `hasLoan`), with no date of birth, email, address, income, employer or
+applicant draft. A reminder caller never needs them, and a full profile invites it to "confirm" details. Without the header the
+full reply is returned (the mobile agent still wants it). Name the phone property `phone` with default `{context_data.phone}`.
+
+---
+
+## 1d. `send_app_link` — REQUIRED when the agent offers to send the app link
+
+When the agent says "I'll send you the link on WhatsApp and SMS" and the customer says yes, the agent calls this tool and we send
+the app link **by SMS and WhatsApp**, both with the same three values:
+
+| Value | Known number (in our database) | Unknown number |
+|---|---|---|
+| name | their name (account, website visit or customer record) | `Customer` |
+| status | `Starting a Loan Application` | `Starting a Loan Application` |
+| link | `https://api.swiftloan.ai/dl?ref=<their reference>` (install is matched back to them; the app resumes with their number) | `https://api.swiftloan.ai/dl?campaign=voice_agent` |
+
+- **SMS:** DLT template `1277179300146510723` — "Dear {name} , your SwiftLoan loan application is incomplete at {status}. Please open the
+  SwiftLoan app to continue where you left off :{link}. Team SwiftLoan -PurpleTalk IPL"
+- **WhatsApp:** approved template `install_app_resume_step` — {{1}} name, {{2}} status, {{3}} link.
+- Works for any valid 10-digit Indian number. Refuses do-not-contact numbers, the review phone and numbers outside the QA test list
+  (`install.allowedNumbers`, when set); at most one send per phone per hour. Not counted against the 2-a-day / 6-a-week contact limit
+  (the customer asked for it). The status text can be changed without a deploy: Voxvalley setting `callLinkStep`.
+
+| Field | Value |
+|---|---|
+| Tool Name | `send_app_link` |
+| Description | `Send the customer the SwiftLoan app link by SMS and WhatsApp. Call this ONCE, and ONLY after the customer has said yes to receiving it. Read the returned "sent" value: say the link was sent ONLY if it is true, and say it exactly as the returned "say" line describes (SMS and WhatsApp, or only one of them); otherwise follow the "say" line.` |
+| Request URL | `https://api.swiftloan.ai/api/conversations/send-link` |
+| Timeout | `20` |
+| HTTP Method | `POST` |
+| Headers | `Content-Type: application/json`<br>`x-api-key: SECRET` (the same key as the agent's other SwiftLoan tools) |
+
+**Request Body**
+
+| Property | Type | Required | Value |
+|---|---|---|---|
+| `conversation_id` | string | yes on outbound calls | `{{conversation_id}}` — resolves to the number WE dialled, so a mis-filled phone cannot send to the wrong person |
+| `phone` | string | yes when there is no `conversation_id` (inbound / website) | `The customer's 10-digit mobile number, e.g. 9876543210 (a +91 or 0 prefix is fine)` |
+
+**Response** (always HTTP 200 when a number was given; 400 only when no valid number):
+
+```json
+{ "success": true, "message": "Link sent",
+  "data": { "sent": true, "status": "sent", "sms": "sent", "whatsapp": "sent", "known_customer": true,
+            "say": "The app link has been sent by SMS and WhatsApp to this number. You may say so, and that it can take a minute to arrive." } }
+```
+`sent` is false with `reason` = `do_not_contact` / `review_phone` / `not_on_test_list` / `sent_recently` / `send_failed`.
+
+**Response Body → variables:** map `data.sent` → `link_sent` and `data.say` → `link_say`. **Messages:** leave empty.
+
+> **Phone-number note.** A tool property named `phone_number` can resolve to Ello's own line number instead of the customer's
+> (seen on the 30 Oct call: `get_user_context` looked up the line's number and answered "No application started"). Name the
+> customer-phone property `phone`, which we send in every call's context data, and prefer `conversation_id` where a tool accepts it.
 
 ---
 

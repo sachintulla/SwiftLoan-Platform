@@ -10,7 +10,6 @@ import {
   updateLeadAmount,
   attribution,
   makeRefId,
-  submitCallbackChoice,
 } from "@/lib/leads";
 // The real login (session cookie + access token), not the lead-only
 // verification lib/leads.ts used to call here — a successful verify now signs
@@ -82,7 +81,6 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
   /** Only ever set outside prod / with no SMS provider configured — see the server's sms.ts dev fallback. */
   const [devOtpHint, setDevOtpHint] = useState<string | undefined>(undefined);
   const [showOtpModal, setShowOtpModal] = useState(false);
-  const [showCallbackModal, setShowCallbackModal] = useState(false);
   /** Rotates through otpFacts while the visitor waits for/enters the OTP —
    *  keeps them engaged instead of staring at a blank wait. */
   const [factIndex, setFactIndex] = useState(0);
@@ -160,9 +158,9 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
   }, []);
 
   useEffect(() => {
-    // Held while either popup is up — a visitor mid-verification or being
-    // asked a yes/no question must never get redirected out from under it.
-    if (panel !== "success" || showCallbackModal || showOtpModal) return;
+    // Held while the OTP popup is up — a visitor mid-verification must never
+    // get redirected out from under it.
+    if (panel !== "success" || showOtpModal) return;
     if (seconds <= 0) {
       if (isMobile) {
         window.location.href = landing || appStoreUrl;
@@ -173,7 +171,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     }
     const timer = window.setTimeout(() => setSeconds((s) => s - 1), 1000);
     return () => window.clearTimeout(timer);
-  }, [panel, showCallbackModal, showOtpModal, seconds, isMobile, landing, resetAll]);
+  }, [panel, showOtpModal, seconds, isMobile, landing, resetAll]);
 
   // 30s resend cooldown for the OTP popup.
   useEffect(() => {
@@ -252,7 +250,7 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
   );
 
   /** The lead is already saved by this point (submitLead ran before this modal
-   *  ever opens) — closing early just skips phone verification/callback, it
+   *  ever opens) — closing early just skips phone verification, it
    *  never loses the submission itself. */
   const handleCloseOtpModal = useCallback(() => {
     setShowOtpModal(false);
@@ -261,16 +259,6 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     setDevOtpHint(undefined);
     setOtpResendSeconds(0);
   }, []);
-
-  const handleCallbackChoice = useCallback(
-    (choice: "yes" | "no") => {
-      setShowCallbackModal(false);
-      // Fire-and-forget, same philosophy as upshotEvent/upshotIdentify below —
-      // the visitor's own screen never waits on this.
-      void submitCallbackChoice(mobileNumber, choice);
-    },
-    [mobileNumber],
-  );
 
   const onSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
@@ -351,7 +339,6 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     otpResendSeconds,
     devOtpHint,
     showOtpModal,
-    showCallbackModal,
     factIndex,
     handleFocus,
     handleBlur,
@@ -361,7 +348,6 @@ export function useLeadCapture(opts: { requireAmountTouched?: boolean } = {}) {
     sendOtp,
     handleVerifyOtp,
     handleCloseOtpModal,
-    handleCallbackChoice,
     onSubmit,
   };
 }

@@ -1,6 +1,6 @@
 /**
  * Dial-safety checks shared by every job that places outbound calls
- * (leadCaller.ts's passive follow-up, immediateCallback.ts's opt-in callback).
+ * (leadCaller.ts's enquiry follow-up, the drop-off and no-offers calls).
  *
  * Both count against the same `CallAttempt` table regardless of which job
  * queued the row, so a phone-level cooldown here is automatically global

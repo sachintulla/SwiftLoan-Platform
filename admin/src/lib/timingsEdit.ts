@@ -2,15 +2,19 @@
 
 export type Kind = 'number' | 'minuteOfDay' | 'boolean' | 'schedule' | 'phones';
 export type Source = 'override' | 'env' | 'default';
-export interface SchedRow { channel: 'sms' | 'whatsapp'; afterMinutes: number }
+/** `atClock` rows (stage timelines only): afterMinutes = day × 1440 + minute of the India day. */
+export interface SchedRow { channel: 'sms' | 'whatsapp' | 'call'; afterMinutes: number; atClock?: boolean }
 export interface Item {
   key: string; group: string; label: string; help: string; warn?: string; env?: string;
   kind: Kind; unit: string; def: unknown; effective: unknown; source: Source;
   min?: number; max?: number; maxRows?: number; maxMinutes?: number; maxItems?: number;
+  /** A drop-off stage timeline: rows may be calls and set times on a later day. */
+  timeline?: boolean;
   updatedAt: string | null; updatedBy: string | null;
 }
 export type TimeUnit = 'minutes' | 'hours' | 'days';
-export interface UiRow { channel: 'sms' | 'whatsapp'; amount: string; unit: TimeUnit }
+/** With `clock` set the row is "on day <amount> at <clock>" (HH:MM, India time); otherwise a delay of amount × unit. */
+export interface UiRow { channel: 'sms' | 'whatsapp' | 'call'; amount: string; unit: TimeUnit; clock?: string }
 export type Draft = string | boolean | UiRow[];
 
 
@@ -30,11 +34,20 @@ export const parseHhmm = (s: string) => {
 
 export function rowsToUi(rows: SchedRow[]): UiRow[] {
   return rows.map((r) => {
+    if (r.atClock) return { channel: r.channel, unit: 'days' as TimeUnit, amount: String(Math.floor(r.afterMinutes / 1440)), clock: hhmm(r.afterMinutes % 1440) };
     const unit: TimeUnit = r.afterMinutes > 0 && r.afterMinutes % 1440 === 0 ? 'days' : r.afterMinutes > 0 && r.afterMinutes % 60 === 0 ? 'hours' : 'minutes';
     return { channel: r.channel, unit, amount: String(r.afterMinutes / FACTOR[unit]) };
   });
 }
-export const uiToRows = (ui: UiRow[]): SchedRow[] => ui.map((r) => ({ channel: r.channel, afterMinutes: Number(r.amount) * FACTOR[r.unit] }));
+export const uiToRows = (ui: UiRow[]): SchedRow[] => ui.map((r) => (r.clock !== undefined
+  ? { channel: r.channel, afterMinutes: Number(r.amount) * 1440 + parseHhmm(r.clock), atClock: true }
+  : { channel: r.channel, afterMinutes: Number(r.amount) * FACTOR[r.unit] }));
+
+/** "day 3 at 19:00" or "+4 h": when a row goes out, in words. */
+export const whenText = (r: SchedRow) => (r.atClock
+  ? `day ${Math.floor(r.afterMinutes / 1440)} at ${hhmm(r.afterMinutes % 1440)}`
+  : r.afterMinutes === 0 ? 'right away' : `+${spanText(r.afterMinutes)}`);
+export const channelName = (c: SchedRow['channel']) => (c === 'sms' ? 'SMS' : c === 'call' ? 'Call' : 'WhatsApp');
 
 export function toDraft(it: Item): Draft {
   switch (it.kind) {
@@ -71,6 +84,8 @@ export function localError(it: Item, v: unknown): string | null {
     for (let i = 0; i < rows.length; i++) {
       const m = rows[i].afterMinutes;
       if (!Number.isFinite(m) || !Number.isInteger(m) || m < 0) return `Message ${i + 1}: enter a whole number`;
+      if (rows[i].atClock && m < 1440) return `Message ${i + 1}: a set time must be on day 1 or later`;
+      if ((rows[i].atClock || rows[i].channel === 'call') && !it.timeline) return `Message ${i + 1}: only a stage timeline can have calls or set times`;
       if (it.maxMinutes !== undefined && m > it.maxMinutes) return `Message ${i + 1}: too long (30 days at most)`;
       if (m < prev) return `Message ${i + 1}: must not be earlier than the one above`;
       prev = m;
@@ -97,7 +112,9 @@ export function show(it: Item, v: unknown): string {
     case 'schedule': {
       const rows = v as SchedRow[];
       const sms = rows.filter((r) => r.channel === 'sms').length;
-      return `${sms} SMS + ${rows.length - sms} WhatsApp over ${spanText(rows[rows.length - 1]?.afterMinutes ?? 0)}`;
+      const calls = rows.filter((r) => r.channel === 'call').length;
+      const last = rows[rows.length - 1];
+      return `${sms} SMS + ${rows.length - sms - calls} WhatsApp${calls ? ` + ${calls} call${calls > 1 ? 's' : ''}` : ''} until ${last ? whenText(last) : '–'}`;
     }
     default: return Number.isFinite(v as number) ? `${v} ${UNIT_SHORT[it.unit] ?? ''}`.trim() : '–';
   }

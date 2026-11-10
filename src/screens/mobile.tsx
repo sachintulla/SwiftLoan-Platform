@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Platform, Linking, Keyboard } from 'react-native';
-import { PRIVACY_POLICY_URL } from '../content/legal';
+import { View, Text, TextInput, Pressable, StyleSheet, Platform, Keyboard } from 'react-native';
 import { getScroller } from '../feedback/agentFx';
 import { Screen } from '../components/Frame';
 import { WelcomeHero } from '../components/LoginHero';
@@ -15,6 +14,7 @@ import { VoiceHidden } from '../voice/screenGraph';
 import { setScreenHint } from '../voice/actionRegistry';
 import { agent } from '../voice';
 import { parseResume, resumeDestination } from '../utils/resume';
+import { isWelcomeReady } from '../config/welcome';
 
 // Real Indian mobile numbers start with 6-9 and aren't just one digit repeated
 // ("0000000000", "9999999999") — the server's own phoneSchema only checked
@@ -25,6 +25,9 @@ function isValidMobile(v: string): boolean {
 
 export default function Mobile() {
   const { state, set, go, markUrgentContext, refreshUserContext } = useStore();
+  // Terms and Privacy are two different documents: each opens its own page in the
+  // in-app legal viewer (Back returns here with the number still filled in).
+  const openLegal = (doc: 'terms' | 'privacy') => { set({ legalDoc: doc }); go('legal'); };
   const t = useT();
   const otpSent = state.otpSent;
   const [otpSeconds, setOtpSeconds] = useState(29);
@@ -130,8 +133,14 @@ export default function Mobile() {
       set({
         authUser: r.user,
         // Play the Ruby welcome intro on the dashboard once per login (consumed by
-        // Home). Set on every successful OTP verify, so logout → login replays it.
-        welcomePending: true,
+        // Home). Set on every successful OTP verify, so logout → login replays it —
+        // EXCEPT when a voice call is already live (the pre-login resume agent is
+        // mid-conversation). The welcome GIF carries its own voice-over, so playing
+        // it over a live agent talks on top of her. The live agent IS the welcome,
+        // so skip the canned intro and let the call continue uninterrupted.
+        // Only play the intro when its CDN assets are cached (isWelcomeReady);
+        // otherwise skip it this login — the prefetch makes it available next time.
+        welcomePending: !callLive && isWelcomeReady(),
         // otpSent stays true until we navigate (reset alongside each go() below). Resetting it here
         // flipped this screen back to "enter your number" for the 1-3 s the lookups below take.
         priorInquiries: r.priorInquiries,
@@ -366,8 +375,8 @@ export default function Mobile() {
             <VoiceHidden>
               <View style={styles.ccBox}>
                 <Text style={{ fontSize: 18, marginRight: 6 }}>🇮🇳</Text>
+                {/* India only: no country picker, so no dropdown arrow. */}
                 <Text style={[font(700), { fontSize: 15, color: colors.text, marginRight: 2 }]}>+91</Text>
-                <Icon name="expand_more" size={18} color={colors.muted} />
               </View>
             </VoiceHidden>
             <View style={styles.ccDivider} />
@@ -419,8 +428,8 @@ export default function Mobile() {
               By proceeding, you agree to our{' '}
               {/* onPress on these inner Text spans opens the link and does not bubble to
                   the row Pressable, so tapping a link never toggles consent. */}
-              <Text style={styles.link} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>Terms of Service</Text>,{' '}
-              <Text style={styles.link} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>Privacy Policy</Text>
+              <Text style={styles.link} onPress={() => openLegal('terms')}>Terms of Service</Text>,{' '}
+              <Text style={styles.link} onPress={() => openLegal('privacy')}>Privacy Policy</Text>
               {' '}&amp; allow WhatsApp updates.
             </Text>
           </Pressable>

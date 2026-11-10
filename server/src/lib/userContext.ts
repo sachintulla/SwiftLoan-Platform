@@ -163,6 +163,24 @@ export interface UserContext {
   } | null;
 }
 
+/**
+ * The reduced view for the OUTBOUND reminder agent (tool header `x-agent-role: outbound`).
+ *
+ * That agent only reminds people to continue and never collects or confirms personal details, so it gets where they stand and
+ * nothing more: no date of birth, email, address, income, employer or applicant draft. Giving a reminder caller a full profile
+ * invites it to "confirm" those details, and it is more personal data than the call needs.
+ */
+export function outboundView(ctx: UserContext) {
+  return {
+    hasHistory: ctx.hasHistory,
+    applicationStatus: ctx.applicationStatus,
+    applicationStatusLabel: ctx.applicationStatusLabel,
+    panOnFile: ctx.profile?.panOnFile ?? false,
+    application: ctx.application ? { ref: ctx.application.ref, status: ctx.application.status, offerCount: ctx.application.offers.length } : null,
+    hasLoan: !!ctx.loan,
+  };
+}
+
 const NO_APPLICATION_LABEL = 'No application started';
 
 const EMPTY: UserContext = {

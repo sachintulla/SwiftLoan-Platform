@@ -526,8 +526,38 @@ model RevasureLead {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // ── MIS status (Revasure has NO status API; the admin uploads their MIS sheet,
+  // matched to this lead by the applicant's mobile number — see RevasureMisUpload).
+  // These are independent of `status` above (which is the lead-creation outcome).
+  misStatus           String? // Disbursed | Approved | Rejected | Pending | In Process | … (normalised)
+  misRemark           String?
+  misApprovedAmount   Int? // rupees, from the sheet's "Approved Amt"
+  misDisbursedAmount  Int? // rupees, from the sheet's "Disbursed Amt"
+  misDisbursementDate DateTime?
+  misUpdatedAt        DateTime? // when the MIS last set the fields above
+  misUploadId         String? // which RevasureMisUpload last touched this lead
+
   @@index([applicationId])
   @@index([userId])
+  @@index([misUploadId])
+}
+
+// One admin upload of a Revasure "MIS" status sheet (Excel/CSV). Revasure has no
+// status API, so the admin periodically uploads their MIS; we parse it, match each
+// row to a RevasureLead by the applicant's mobile number, and write the row's
+// status/amounts onto the lead (see lib/revasureMis.ts). One row per file upload,
+// with counts for the audit trail. Additive; plain scalar FK to RevasureLead.
+model RevasureMisUpload {
+  id            String   @id @default(uuid())
+  fileName      String?
+  uploadedBy    String? // admin email (from the authenticated admin)
+  totalRows     Int      @default(0) // non-blank data rows in the sheet
+  matchedRows   Int      @default(0) // rows matched to a RevasureLead by mobile
+  updatedRows   Int      @default(0) // leads actually written (matched & changed)
+  unmatchedRows Int      @default(0) // rows with no/invalid mobile, or no matching lead
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // One row per tenure choice offered for a given Offer — lets a single lender

@@ -44,6 +44,7 @@ export const CALL_PURPOSES = [
   'immediate_callback_optin',
   'manual_dashboard_call',
   'no_offers_followup',
+  'inactive_followup',
   'upshot_journey',
 ] as const;
 

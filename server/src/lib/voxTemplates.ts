@@ -11,6 +11,7 @@
  */
 import { cleanCategory, WHATSAPP_CATEGORIES } from './whatsapp.js';
 import type { CatalogEntry } from './whatsappCatalog.js';
+import { DEFAULT_TEMPLATE_IMAGES, isImageUrl } from './templateImages.js';
 
 const cap = (s: string) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : s);
 
@@ -27,11 +28,16 @@ export interface TemplateEntry {
   /** The message text, with {{1}}, {{2}}… (optional). */
   body: string;
   note: string;
+  /**
+   * For a template approved with an IMAGE header: the public https address of its image, sent with every message (templateImages.ts).
+   * '' = the shipped image for this template, if any.
+   */
+  headerImageUrl: string;
 }
 
 export const STARTER_AS_OF = '2026-10-27';
 
-const t = (name: string, category: string, status: string, note = '', body = ''): TemplateEntry => ({ name, language: 'en', category, status, body, note });
+const t = (name: string, category: string, status: string, note = '', body = ''): TemplateEntry => ({ name, language: 'en', category, status, body, note, headerImageUrl: '' });
 
 /** What we last saw in the Vox portal and Meta's review (docs/JOURNEY_RESUME_TEMPLATES.md §6). A starting point, to be corrected in the dashboard. */
 export const STARTER_TEMPLATES: readonly TemplateEntry[] = Object.freeze([
@@ -69,7 +75,7 @@ export function renderTemplateText(body: string, values: readonly string[]): str
 
 /* ───────────────────────────── validating ───────────────────────────── */
 
-export type EntryInput = { name?: unknown; language?: unknown; category?: unknown; status?: unknown; body?: unknown; note?: unknown };
+export type EntryInput = { name?: unknown; language?: unknown; category?: unknown; status?: unknown; body?: unknown; note?: unknown; headerImageUrl?: unknown };
 export type EntryResult = { ok: true; entry: TemplateEntry } | { ok: false; errors: Record<string, string> };
 
 /** Check what an admin typed for one template. Nothing is sent to Vox or Meta. */
@@ -94,9 +100,11 @@ export function validateEntry(input: EntryInput): EntryResult {
   if (body.length > 1024) errors.body = 'WhatsApp allows at most 1024 characters in a template text.';
   const note = String(input.note ?? '').trim();
   if (note.length > 300) errors.note = 'Keep the note under 300 characters.';
+  const headerImageUrl = String(input.headerImageUrl ?? '').trim();
+  if (headerImageUrl && !isImageUrl(headerImageUrl)) errors.headerImageUrl = 'Use a public https:// address for the image (WhatsApp downloads it on every send).';
 
   if (Object.keys(errors).length) return { ok: false, errors };
-  return { ok: true, entry: { name, language, category: category as string, status: rawStatus, body, note } };
+  return { ok: true, entry: { name, language, category: category as string, status: rawStatus, body, note, headerImageUrl } };
 }
 
 /* ───────────────────────────── storing ───────────────────────────── */
@@ -127,6 +135,7 @@ export function readLibrary(stored: unknown): TemplateEntry[] {
       status: (TEMPLATE_STATUSES as readonly string[]).includes(String(raw.status ?? '').toUpperCase()) ? String(raw.status).toUpperCase() : '',
       body: String(raw.body ?? ''),
       note: String(raw.note ?? ''),
+      headerImageUrl: isImageUrl(raw.headerImageUrl) ? String(raw.headerImageUrl).trim() : '',
     });
   }
   return out;
@@ -161,6 +170,8 @@ export interface TemplateUse { key: string; label: string; on: boolean; category
 export interface TemplateProposal { name: string; language: string; category: string; body: string; purpose: string; replaces?: string }
 
 export interface TemplateRow extends TemplateEntry {
+  /** The image the code sends for this template when no address is saved ('' = none). */
+  defaultImageUrl: string;
   variables: number;
   /** true = from the template catalogue, not submitted or recorded yet. */
   proposed: boolean;
@@ -187,16 +198,17 @@ export function buildTemplateRows(library: readonly TemplateEntry[], catalog: re
   const rows = new Map<string, TemplateRow>();
   const proposal = new Map(proposals.map((p) => [p.name, p]));
   const proposedNote = (p: TemplateProposal) => `Proposed in the template catalogue, not recorded yet: ${p.purpose}${p.replaces ? ` Replaces ${p.replaces}.` : ''} Category it was written for: ${cap(p.category)}.`;
-  for (const e of library) rows.set(e.name, { ...e, variables: templateVariables(e.body), proposed: false, inLibrary: true, usedBy: uses.get(e.name) ?? [], flags: [] });
+  const img = (name: string) => DEFAULT_TEMPLATE_IMAGES[name] ?? '';
+  for (const e of library) rows.set(e.name, { ...e, defaultImageUrl: img(e.name), variables: templateVariables(e.body), proposed: false, inLibrary: true, usedBy: uses.get(e.name) ?? [], flags: [] });
   for (const [name, usedBy] of uses) {
     if (rows.has(name)) continue;
     const spec = catalog.find((c) => c.spec.template === name)!.spec;
     const p = proposal.get(name);
-    rows.set(name, { name, language: spec.language || 'en', category: '', status: '', body: p?.body ?? '', note: p ? proposedNote(p) : '', variables: p ? templateVariables(p.body) : 0, proposed: !!p, inLibrary: false, usedBy, flags: [] });
+    rows.set(name, { name, language: spec.language || 'en', category: '', status: '', body: p?.body ?? '', note: p ? proposedNote(p) : '', headerImageUrl: '', defaultImageUrl: img(name), variables: p ? templateVariables(p.body) : 0, proposed: !!p, inLibrary: false, usedBy, flags: [] });
   }
   for (const p of proposals) {
     if (rows.has(p.name)) continue;
-    rows.set(p.name, { name: p.name, language: p.language, category: '', status: '', body: p.body, note: proposedNote(p), variables: templateVariables(p.body), proposed: true, inLibrary: false, usedBy: [], flags: [] });
+    rows.set(p.name, { name: p.name, language: p.language, category: '', status: '', body: p.body, note: proposedNote(p), headerImageUrl: '', defaultImageUrl: img(p.name), variables: templateVariables(p.body), proposed: true, inLibrary: false, usedBy: [], flags: [] });
   }
 
   for (const row of rows.values()) {

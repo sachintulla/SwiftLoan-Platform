@@ -10,7 +10,7 @@
 // (server/src/lib/timings.ts). `ownSchedule` mirrors the per-stage schedules the server supports (server/src/lib/stageSchedules.ts).
 // Pure data and helpers, so it is unit-tested; the screen only renders it.
 
-export interface SchedRow { channel: 'sms' | 'whatsapp'; afterMinutes: number }
+export interface SchedRow { channel: 'sms' | 'whatsapp' | 'call'; afterMinutes: number; atClock?: boolean }
 
 export type FlowSide = 'app' | 'website';
 const BOTH: readonly FlowSide[] = ['app', 'website'];
@@ -84,7 +84,7 @@ const DROPOFF: SequenceSource = {
 export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.freeze({
   lead_captured: {
     sources: [],
-    rules: [{ title: 'The call after a website enquiry', keys: ['calls.firstDelaySeconds', 'calls.retryMinutes', 'calls.maxAttempts', 'calls.declineFollowupMinutes'] }],
+    rules: [{ title: 'The call after a website enquiry', keys: ['calls.leadFollowupMinutes'] }],
   },
   app_installed: { sources: [], rules: [] },
   otp_requested: {
@@ -95,7 +95,10 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
     rules: [],
   },
   otp_verified: {
-    sources: [WEBSITE_REMINDER],
+    sources: [
+      { ...DROPOFF, messages: ['dropoff.continue.withLink', 'dropoff.continue.noLink'] },
+      WEBSITE_REMINDER,
+    ],
     rules: [WEBSITE_REMINDER_RULES],
   },
   eligibility_started: {
@@ -106,10 +109,12 @@ export const STAGE_SEQUENCES: Readonly<Record<string, StageSequence>> = Object.f
     rules: [DROPOFF_RULES, WEBSITE_REMINDER_RULES],
   },
   eligibility_completed: {
-    sources: [],
+    // "No offers" (owner, 2026-11-06): the drop-off run of someone whose check found none, with its own timeline once one is saved here
+    // (otherwise the shared drop-off schedule and the 7 AM daily messages, as before).
+    sources: [{ ...DROPOFF, label: 'No-offers follow-up', messages: [], from: 'the offer check found none' }],
     call: { id: 'nooffers', label: 'Call when the lender finds no offers', audience: 'App and website', delayKey: 'dropoff.noOffersCallDelayMinutes', switches: ['dropoff.noOffersCallEnabled', 'calls.nudgeEnabled'] },
-    rules: [],
-    note: 'The "no offers" and "could not complete" WhatsApp notices, at the top of this step, go out the moment the check ends.',
+    rules: [DROPOFF_RULES],
+    note: 'The "no offers" WhatsApp notice and the call go out the moment the check ends; an unanswered call gets one "we tried to call you" WhatsApp. The timeline here is what follows.',
   },
   offer_viewed: {
     sources: [{ ...DROPOFF, messages: ['dropoff.apply_offers.withLink', 'dropoff.apply_offers.noLink'] }],
@@ -206,7 +211,9 @@ export function jobSteps(
   for (const s of seq.sources) {
     const live = s.switches.every(isOn);
     rowsFor(s).forEach((r, index) => out.push({
-      key: `${s.id}:${index}`, group: 'job', sourceId: s.id, kind: 'message', index, channel: r.channel, afterMinutes: r.afterMinutes, live, label: s.label,
+      // A call row of a stage timeline shows as a call; a set-time row ("day 3 at 19:00") is placed at that many minutes for ordering.
+      key: `${s.id}:${index}`, group: 'job', sourceId: s.id, kind: r.channel === 'call' ? 'call' : 'message', index,
+      channel: r.channel === 'call' ? 'voice' : r.channel, afterMinutes: r.afterMinutes, live, label: s.label,
     }));
   }
   if (seq.call) {

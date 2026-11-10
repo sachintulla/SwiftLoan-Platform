@@ -58,7 +58,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await logoutSession();
-    router.replace('/apply');
+    router.replace('/'); // after logging out, land on the home page, not the mobile-number entry page
   }, [router]);
 
   return (

@@ -29,21 +29,16 @@ async function leadCallbackAgentId(): Promise<string | null> {
   return agentIdFor('leadCallback');
 }
 
-const ENABLED = (process.env.LEAD_AUTOCALL_ENABLED ?? 'true') !== 'false';
+/** Admin → Timings (calls.leadAutocallEnabled; env LEAD_AUTOCALL_ENABLED is the fallback). */
+const enabled = () => timing.bool('calls.leadAutocallEnabled');
 /**
- * How long after the form submit to place this job's follow-up call.
- *
- * Anyone who explicitly clicked "Yes, call me now" is excluded from this job
- * entirely (see the `callbackRequestedAt: null` filter below) — they're called
- * within about a minute by immediateCallback.ts's own opt-in ladder instead.
- * So by the time a lead reaches this job, they either explicitly declined the
- * popup, or never answered it at all — and both cases get the SAME delay: a
- * website visitor must never be called within a minute of submitting the form
- * unless they actually asked for it. A flat "no" or silence should never read
- * as an immediate, unsolicited call.
+ * How long after the enquiry to place the follow-up call. There is no "Yes, call me now" pop-up any more: every
+ * verified website enquiry is called automatically after this delay, once per submission. A website visitor must
+ * never be called within a minute of submitting the form: a call that follows the enquiry too closely reads as an
+ * unsolicited, automated dial.
  */
-/** Minutes to wait before the follow-up call after a decline. Live value: Admin → Timings (calls.declineFollowupMinutes). */
-const followupDelayMinutes = () => timing.num('calls.declineFollowupMinutes');
+/** Minutes to wait before the follow-up call. Live value: Admin → Timings (calls.leadFollowupMinutes). */
+const followupDelayMinutes = () => timing.num('calls.leadFollowupMinutes');
 /** Calling hours, minutes from local midnight. Default 09:00–21:00 IST. */
 const TIMEZONE = process.env.LEAD_CALL_TIMEZONE ?? 'Asia/Kolkata';
 /** Cap per tick so one bad batch cannot dial a whole table. */
@@ -56,22 +51,9 @@ const maxPerTick = () => timing.num('calls.perScan');
  * loudly rather than failing quietly.
  */
 const maxCallsPerHour = () => timing.num('calls.maxPerHour');
-/**
- * One automatic call per phone number per this many hours.
- *
- * NOT `Number(x) || 24` — 0 is a legitimate value (disable the cooldown, which
- * is what you want while testing the form end to end) and is falsy, so that
- * form silently snapped back to 24h and made the feature untestable. Same trap
- * as the calling-window envs above.
- */
-function hoursEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw == null || raw.trim() === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-/** Exported so immediateCallback.ts's opt-in job shares the same cooldown policy. */
-export const PER_PHONE_COOLDOWN_HOURS = hoursEnv('LEAD_CALL_PHONE_COOLDOWN_HOURS', 24);
+/** Exported so the other diallers share the same cooldown policy. */
+/** Admin → Timings (limits.phoneCooldownHours; env LEAD_CALL_PHONE_COOLDOWN_HOURS is the fallback). Read live, shared by every dialler. */
+export const phoneCooldownHours = () => timing.num('limits.phoneCooldownHours');
 
 /**
  * Whether we may call right now.
@@ -96,14 +78,11 @@ export function withinCallingHours(now: Date = new Date()): boolean {
  * has never had a call attempted. That last check is what makes the job safe to
  * run every minute — it is the idempotency guard.
  *
- * This job only ever sees leads who did NOT click "Yes, call me now" (those are
- * excluded entirely below, owned by immediateCallback.ts instead) — so every
- * candidate here either explicitly declined the popup or never answered it at
- * all. Neither case opts someone out of the follow-up call; both simply wait
- * FOLLOWUP_DELAY_MINUTES (default 1h) rather than being called right away.
+ * Every verified enquiry is called, after `calls.leadFollowupMinutes` (default
+ * 1 h) — there is no pop-up asking first any more.
  */
 export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
-  if (!ENABLED) return 0;
+  if (!enabled()) return 0;
   if (!withinCallingHours(now)) return 0;
 
   // Global hourly ceiling, counted from what was actually dialled rather than
@@ -140,14 +119,6 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
       // Set once by the website OTP flow (context.routes.ts) and never
       // re-checked per call.
       phoneVerified: true,
-      // Anyone who explicitly clicked "Yes, call me now" is already owned by
-      // immediateCallback.ts's own retry ladder (website.routes.ts sets this
-      // the moment they click yes) — this job must stay out of it entirely,
-      // or the two jobs independently decide to call the same brand-new lead
-      // in the same minute, which is a real customer getting called twice for
-      // one action. Declining the popup does NOT set this, so a decline still
-      // gets the normal follow-up below, just delayed — see FOLLOWUP_DELAY_MINUTES.
-      callbackRequestedAt: null,
     },
     orderBy: { lastActivityAt: 'asc' },
     take: Math.min(maxPerTick(), budget) * 4, // over-fetch; most are filtered out below
@@ -178,8 +149,6 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
   const leads = candidates
     .filter((c) => {
       const submittedAt = c.events[0]?.occurredAt ?? c.stageEnteredAt;
-      // Whether they explicitly declined the popup or never answered it, the
-      // follow-up call waits the same delay — see FOLLOWUP_DELAY_MINUTES above.
       const dueBefore = new Date(now.getTime() - followupDelayMinutes() * 60_000);
       if (submittedAt > dueBefore) return false; // not old enough yet
       const lastCall = c.conversations[0]?.queuedAt;
@@ -200,13 +169,11 @@ export async function leadAutoCaller(now: Date = new Date()): Promise<number> {
       console.log(`[lead-call] ${lead.phone}: SKIP — not on the call test-number allowlist`);
       continue;
     }
-    // Per-phone cooldown. `calls: { none: {} }` above already excludes anyone
-    // this Customer row has called, but the same human can arrive as a second
-    // Customer (different email, say) — this catches that by number. Shared
-    // with immediateCallback.ts so a number is never double-dialled just
-    // because two different jobs are looking at it.
-    if (await isPhoneInCooldown(lead.phone!, PER_PHONE_COOLDOWN_HOURS, now)) {
-      console.log(`[lead-call] ${lead.phone}: SKIP — within cooldown (${PER_PHONE_COOLDOWN_HOURS}h)`);
+    // Per-phone cooldown: the same human can arrive as a second Customer
+    // (different email, say) — this catches that by number. Shared with every
+    // other dialler so a number is never double-dialled by two jobs.
+    if (await isPhoneInCooldown(lead.phone!, phoneCooldownHours(), now)) {
+      console.log(`[lead-call] ${lead.phone}: SKIP — within cooldown (${phoneCooldownHours()}h)`);
       continue;
     }
 

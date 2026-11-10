@@ -14,13 +14,16 @@
 
 import { STAGE_LABELS, STAGE_SCHEDULE_STAGES, stageScheduleKey, type SharedSchedule } from './stageSchedules.js';
 
-export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 'website' | 'stage';
+export type TimingGroup = 'install' | 'hours' | 'calls' | 'auth' | 'tracking' | 'website' | 'stage' | 'limits';
 export type TimingUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'count' | 'minuteOfDay' | 'none';
 
 export interface ScheduleRow {
-  channel: 'sms' | 'whatsapp';
-  /** Minutes after the visitor dropped off. */
+  /** 'call' (a Ruby call) only in a drop-off STAGE timeline (`ScheduleDef.timeline`). */
+  channel: 'sms' | 'whatsapp' | 'call';
+  /** Minutes after the visitor dropped off; with `atClock`, day × 1440 + minute of the India day (day 1 at 11:00 = 1440 + 660). */
   afterMinutes: number;
+  /** Timeline rows only: a set clock time on a later India day ("day 3 at 7 PM"), not a delay after they stopped. */
+  atClock?: boolean;
 }
 
 interface Base {
@@ -60,6 +63,8 @@ export interface ScheduleDef extends Base {
   def: ScheduleRow[];
   maxRows: number;
   maxMinutes: number;
+  /** A drop-off stage's own timeline: rows may be calls and may be set clock times on a later day. */
+  timeline?: boolean;
 }
 export interface PhonesDef extends Base {
   kind: 'phones';
@@ -102,8 +107,6 @@ export const DEFAULT_APPLIED_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
  */
 export const DEFAULT_DROPOFF_SCHEDULE: readonly ScheduleRow[] = Object.freeze([
   { channel: 'whatsapp', afterMinutes: 30 },
-  { channel: 'sms', afterMinutes: 24 * 60 },
-  { channel: 'whatsapp', afterMinutes: 3 * 24 * 60 },
 ]);
 
 /** "900" or "15m" / "2h" / "7d" → minutes (the env format ACCESS_TTL has always used: seconds or a suffixed duration). */
@@ -140,9 +143,36 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Each message is one SMS or WhatsApp, sent a set time after the visitor leaves the website. Use Edit schedule to change, add or remove messages.',
   },
   {
+    key: 'welcome.sendEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the welcome WhatsApp after a website sign-in',
+    help: 'Within a minute of a website visitor verifying their mobile number (once per number): thanks, and their own app link. Needs the "welcome" WhatsApp template approved (Configs → Voxvalley → welcomeWhatsapp). Uses the test-number list above.',
+    warn: 'Turning this on messages every new website sign-in, unless the test-number list is filled in.',
+  },
+  {
+    key: 'welcome.smsEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Send the welcome SMS after OTP verification',
+    help: 'Right after someone verifies their mobile number, once per number: in the app the "verify your PAN" SMS (no link), on the website the "continue in the app" SMS with their own link. Registered DLT texts, sender PTSLA. Uses the test-number list above.',
+    warn: 'Turning this on texts every new sign-in, unless the test-number list is filled in.',
+  },
+  {
+    key: 'welcome.oncePerNumber', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: 'Welcome WhatsApp / SMS only once per number, ever',
+    help: 'On (default): someone who verifies again later never gets a second welcome. Off: a welcome goes after every OTP verification, at most once per number per India day.',
+  },
+  {
+    key: 'install.verifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: false, env: 'INSTALL_REMINDER_VERIFIED',
+    label: 'Also send the old reminders to visitors who verified their number',
+    help: 'Off (default): the website reminders only go to people who asked for an OTP and never entered it (Scenario 1). Verified visitors are covered by the scenario timelines instead. On: they also get the schedule above. Their personal app link is created either way.',
+  },
+  {
     key: 'install.unverifiedEnabled', group: 'install', kind: 'boolean', unit: 'none', def: true,
     label: 'Also remind people who asked for an OTP but never entered it',
-    help: 'They have not proved the number is theirs, so this is a short sequence (below), once per number, and only on the website. Still needs "Send the reminders for real" to be on.',
+    help: 'They have not proved the number is theirs, so this is a short sequence (below), on the website and in the app. Still needs "Send the reminders for real" to be on.',
+  },
+  {
+    key: 'install.unverifiedOncePerNumber', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: '"OTP never entered" reminders only once per number, ever',
+    help: 'On (default): a number that has ever had a website reminder is never sent these again. Off: every OTP request that is not entered starts them again, unless a reminder run is already going for that person.',
   },
   {
     key: 'install.unverifiedSchedule', group: 'install', kind: 'schedule', unit: 'minutes', def: DEFAULT_UNVERIFIED_SCHEDULE.map((r) => ({ ...r })), maxRows: 5, maxMinutes: 7 * 1440,
@@ -155,9 +185,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'Never send two reminders to the same person closer together than this, even if both are due.',
   },
   {
-    key: 'install.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 14, min: 1, max: 168,
+    key: 'install.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 14, min: 0, max: 168,
     label: 'Skip a message that is this late',
-    help: 'A step that could not go out on time (for example overnight quiet hours or an outage) is skipped, not sent, after this long.',
+    help: 'A step that could not go out on time (for example overnight quiet hours or an outage) is skipped, not sent, after this long. 0 = never skip: it goes as soon as it can, however late.',
   },
   {
     key: 'install.maxCycles', group: 'install', kind: 'number', unit: 'count', def: 2, min: 1, max: 10,
@@ -199,9 +229,9 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'If someone applied to several lenders, a message about the next lender waits until this long after the previous lender\'s message. One lender\'s own messages follow the schedule above.',
   },
   {
-    key: 'applied.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    key: 'applied.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 0, max: 168,
     label: 'Skip an applied message that is this late',
-    help: 'A message that could not go out on time (quiet hours, an outage, waiting behind the gap) is skipped, not sent, after this long.',
+    help: 'A message that could not go out on time (quiet hours, an outage, waiting behind the gap) is skipped, not sent, after this long. 0 = never skip: it goes as soon as it can, however late.',
   },
   {
     key: 'applied.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
@@ -219,8 +249,23 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'dropoff.schedule', group: 'install', kind: 'schedule', unit: 'minutes',
     def: DEFAULT_DROPOFF_SCHEDULE.map((r) => ({ ...r })),
     maxRows: 10, maxMinutes: 14 * 1440,
-    label: 'Messages after someone stops at a step',
-    help: 'Counted from the moment they reached the step they stopped at (so the first row is how long we wait before the first message). Quiet hours and the minimum gap still apply.',
+    label: 'Messages after someone stops',
+    help: 'Counted from their LAST action on the website or in the app (the first row is how long after they stop the first message goes; 30 = half an hour). Any new action resets the clock. After these rows, the daily reminders below take over. Quiet hours and the minimum gap still apply.',
+  },
+  {
+    key: 'dropoff.idleMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 5, min: 1, max: 120,
+    label: 'Counts as stopped after',
+    help: 'How long with no action before we treat the person as having stopped. The messages are still timed from the last action itself.',
+  },
+  {
+    key: 'dropoff.dailyAt', group: 'install', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 420, min: 0, max: 1439,
+    label: 'Daily reminder time (India time)',
+    help: 'After the messages above, one WhatsApp reminder at this time each day while the person still has not done anything. Default 7:00am.',
+  },
+  {
+    key: 'dropoff.dailyDays', group: 'install', kind: 'number', unit: 'days', def: 7, min: 0, max: 30,
+    label: 'Daily reminders for',
+    help: 'How many days the daily reminder continues. 0 = none. Any action from the person ends the run at once.',
   },
   {
     key: 'dropoff.minGapMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 30, min: 0, max: 1440,
@@ -228,13 +273,13 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'A message that would follow the previous one by less than this waits.',
   },
   {
-    key: 'dropoff.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 1, max: 168,
+    key: 'dropoff.maxLateHours', group: 'install', kind: 'number', unit: 'hours', def: 12, min: 0, max: 168,
     label: 'Skip a drop-off message that is this late',
-    help: 'A message that could not go out on time (quiet hours, an outage) is skipped, not sent, after this long.',
+    help: 'A message that could not go out on time (quiet hours, an outage) is skipped, not sent, after this long. 0 = never skip: it goes as soon as it can, however late.',
   },
   {
     key: 'dropoff.maxAgeHours', group: 'install', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168,
-    label: 'Only for people who reached the step in the last',
+    label: 'Only for people whose last action was in the last',
     help: 'Older drop-offs are never messaged, so switching this on does not message everyone who stopped in the past.',
   },
   /* ── Drop-off: the Ello agent rings someone whose offers lookup found none (lib/noOffersCall.ts) ── */
@@ -245,7 +290,27 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     warn: 'Turning this on rings real customers. Only do it once the Ello agent prompt has the "no offers" section and the call test-number list is set for the first run.',
   },
   {
-    key: 'dropoff.noOffersCallDelayMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 45, min: 5, max: 1440,
+    key: 'dropoff.smsFallbackEnabled', group: 'install', kind: 'boolean', unit: 'none', def: true,
+    label: 'Send every drop-off WhatsApp also as an SMS',
+    help: 'Each drop-off WhatsApp is followed, after the gap below, by the same step as an SMS (registered texts: "verify your PAN" for an app user before PAN, otherwise the link text naming the step). Same touch, not counted twice. Needs drop-off sending on.',
+  },
+  {
+    key: 'dropoff.smsOnlyIfUndelivered', group: 'install', kind: 'boolean', unit: 'none', def: false,
+    label: 'Only send that SMS when the WhatsApp was not delivered',
+    help: 'Off (default): WhatsApp and SMS both go, with the gap below between them. On: the SMS goes only if the WhatsApp is not reported delivered within the gap.',
+  },
+  {
+    key: 'dropoff.smsFallbackMinutes', group: 'install', kind: 'number', unit: 'minutes', def: 10, min: 2, max: 240,
+    label: 'Gap between the WhatsApp and its SMS',
+    help: 'How long after each drop-off WhatsApp its SMS goes. If they come back or move on in between, the SMS is not sent.',
+  },
+  {
+    key: 'dropoff.missedNoteMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 5, min: 1, max: 240,
+    label: '"Sorry we missed you" WhatsApp after an unanswered call',
+    help: 'When a call from a stage timeline is not answered, one WhatsApp with the app link goes this long after the call ended (same template as the welcome). Part of the call, so it does not count towards the touch limits. Needs drop-off sending on.',
+  },
+  {
+    key: 'dropoff.noOffersCallDelayMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 2, min: 1, max: 1440,
     label: 'Wait before the no-offers call',
     help: 'Counted from when they got no offers. The default (45) lets the WhatsApp message (first one at 30 minutes) land first. Calling hours and the quiet gap after a message still apply.',
   },
@@ -283,26 +348,88 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     help: 'See "Status poll hours start". Default 7:00pm; polling is skipped overnight.',
   },
 
-  /* ───────────── C. Website lead → automatic call ───────────── */
+  /* ───────────── B4. Per-person limits that used to be env variables / code constants (owner, 2026-11-03) ───────────── */
   {
-    key: 'calls.firstDelaySeconds', group: 'calls', kind: 'number', unit: 'seconds', def: 20, min: 0, max: 600, env: 'IMMEDIATE_CALLBACK_DELAY_SECONDS',
-    label: 'First call after the person says yes',
-    help: 'How long after a website lead agrees to a call before the first attempt.',
+    key: 'calls.leadAutocallEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: true, env: 'LEAD_AUTOCALL_ENABLED',
+    label: 'Call website enquiries automatically',
+    help: 'Off: nobody is called after a website enquiry. On: every verified enquiry is called once after the wait below.',
   },
   {
-    key: 'calls.retryMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 60, min: 5, max: 1440, env: 'IMMEDIATE_CALLBACK_RETRY_MINUTES',
-    label: 'Retry when a call does not connect',
-    help: 'Wait between attempts when the person does not pick up.',
+    key: 'limits.phoneCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'LEAD_CALL_PHONE_COOLDOWN_HOURS',
+    label: 'Gap between two automatic calls to one number',
+    help: 'Whatever job wants to call, a number that was dialled within this many hours is skipped. Shared by every automatic call. 0 = no gap (testing only).',
   },
   {
-    key: 'calls.maxAttempts', group: 'calls', kind: 'number', unit: 'count', def: 3, min: 1, max: 10, env: 'IMMEDIATE_CALLBACK_MAX_ATTEMPTS',
-    label: 'Maximum attempts per lead',
-    help: 'The first try plus the retries, before giving up.',
+    key: 'limits.inactiveCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 3, min: 0, max: 30,
+    label: 'Drop-off (evening) calls per person, per journey',
+    help: 'Counted since they reached the step they stopped at; coming back and stopping again starts a new count. Keeps "for how many days" from meaning one call every day for a month. 0 = no cap.',
   },
   {
-    key: 'calls.declineFollowupMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 60, min: 5, max: 1440, env: 'LEAD_CALL_DECLINE_DELAY_MINUTES',
-    label: 'Follow-up after a declined call',
-    help: 'How long to wait before the next try when someone said no or did not answer the first question.',
+    key: 'limits.stallCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 2, min: 0, max: 20, env: 'STALL_CALL_MAX_PER_CUSTOMER',
+    label: '"Stuck on a step" calls per person, ever',
+    help: 'Across all the CALL rules. Someone who ignores this many does not want another. 0 = no limit.',
+  },
+  {
+    key: 'limits.noOffersCallsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 0, min: 0, max: 10,
+    label: '"No offers" calls per person, ever',
+    help: 'Every empty eligibility result gets its call at once. 0 (the default) = no lifetime limit; a number caps calls per person.',
+  },
+  {
+    key: 'limits.dropoffRerunDays', group: 'limits', kind: 'number', unit: 'days', def: 14, min: 0, max: 90,
+    label: 'Same stopped-at step not messaged again within',
+    help: 'After a WhatsApp journey for one step ends (finished, or they moved on), the same step does not start a new journey for this many days. Coming back and stopping again is always a new journey. 0 = no wait.',
+  },
+  {
+    key: 'limits.touchesPerDay', group: 'limits', kind: 'number', unit: 'count', def: 2, min: 0, max: 20,
+    label: 'Touches per person per day (all channels)',
+    help: 'Scheduled WhatsApp, SMS and calls together, per India day. A touch that would go over is skipped. Not counted: the recap after a call, the "sorry we missed you" note, a link the customer asked for. 0 = no limit.',
+  },
+  {
+    key: 'limits.touchesPerWeek', group: 'limits', kind: 'number', unit: 'count', def: 6, min: 0, max: 50,
+    label: 'Touches per person per 7 days (all channels)',
+    help: 'Same counting as the daily limit, over the last 7 days. 0 = no limit.',
+  },
+  {
+    key: 'limits.noCallAndMessageSameDay', group: 'limits', kind: 'boolean', unit: 'none', def: true,
+    label: 'Never a call and a new message on the same day',
+    help: 'On: if we already called someone today, no new WhatsApp/SMS goes to them today, and the other way round. The "sorry we missed you" note after an unanswered call is part of the call, so it is allowed.',
+  },
+  {
+    key: 'limits.stallWhatsappCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'STALL_WA_COOLDOWN_HOURS',
+    label: 'Stuck-stage WhatsApp: one per person per',
+    help: 'Across all the WHATSAPP rules (Stage outreach).',
+  },
+  {
+    key: 'limits.stallWhatsappPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 3, min: 0, max: 20, env: 'STALL_WA_MAX_PER_CUSTOMER',
+    label: 'Stuck-stage WhatsApp per person, ever',
+    help: '0 = no limit.',
+  },
+  {
+    key: 'limits.stallWhatsappMaxAgeHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168, env: 'STALL_WA_MAX_AGE_HOURS',
+    label: 'Stuck-stage WhatsApp only for stalls newer than',
+    help: 'Switching a rule on never messages the backlog: only people who stalled within this many hours.',
+  },
+  {
+    key: 'limits.stallSmsCooldownHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 0, max: 168, env: 'STALL_SMS_COOLDOWN_HOURS',
+    label: 'Stuck-stage SMS: one per person per',
+    help: 'Across all the SMS rules (Stage outreach).',
+  },
+  {
+    key: 'limits.stallSmsPerPerson', group: 'limits', kind: 'number', unit: 'count', def: 3, min: 0, max: 20, env: 'STALL_SMS_MAX_PER_CUSTOMER',
+    label: 'Stuck-stage SMS per person, ever',
+    help: '0 = no limit.',
+  },
+  {
+    key: 'limits.stallSmsMaxAgeHours', group: 'limits', kind: 'number', unit: 'hours', def: 24, min: 1, max: 168, env: 'STALL_SMS_MAX_AGE_HOURS',
+    label: 'Stuck-stage SMS only for stalls newer than',
+    help: 'Same rule as for WhatsApp.',
+  },
+
+  /* ───────────── C. Website enquiry → automatic call (lib/leadCaller.ts) ───────────── */
+  {
+    key: 'calls.leadFollowupMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 60, min: 5, max: 1440, env: 'LEAD_CALL_DECLINE_DELAY_MINUTES',
+    label: 'Call a website enquiry after',
+    help: 'How long after someone verifies their number on the website enquiry form before the Ello agent calls them. There is no "call me" pop-up any more: every verified enquiry is called automatically, once.',
   },
   {
     key: 'calls.maxPerHour', group: 'calls', kind: 'number', unit: 'count', def: 60, min: 1, max: 600, env: 'LEAD_CALL_MAX_PER_HOUR',
@@ -325,6 +452,48 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     key: 'calls.allowedNumbers', group: 'calls', kind: 'phones', unit: 'none', def: [], maxItems: 200,
     label: 'Call test-number allowlist',
     help: 'When set, automatic calls (drop-off + daily status) only ring these numbers; everyone else is skipped. Leave empty to call all eligible customers.',
+  },
+  {
+    key: 'calls.stallMinStuckMinutes', group: 'calls', kind: 'number', unit: 'minutes', def: 30, min: 0, max: 1440,
+    label: 'Call someone who stopped only after at least',
+    help: 'A "stuck on a step" call is never placed sooner than this after the person stopped, whatever the rule\'s own wait says (a rule with a longer wait still waits longer). 30 = the agent asks "why did you stop, is there any issue?" half an hour after they left, on the website or in the app.',
+  },
+  {
+    key: 'calls.stallMaxStuckHours', group: 'calls', kind: 'number', unit: 'hours', def: 24, min: 3, max: 168,
+    label: 'Do not call someone who stopped more than this long ago',
+    help: 'Switching a call rule on never rings people who stopped days ago: only those who stopped within this many hours.',
+  },
+  {
+    key: 'calls.stallDailyLimit', group: 'calls', kind: 'number', unit: 'count', def: 3, min: 0, max: 500,
+    label: 'Most "stuck on a step" calls per day',
+    help: 'Across all call rules, at most this many such calls are placed each day (India time). The newest drop-offs go first. 0 = no limit. Keep it at 2-3 while testing.',
+  },
+  /* ── Drop-off call at a fixed evening time on the days after someone stops (lib/inactiveCall.ts) ── */
+  {
+    key: 'calls.inactiveEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false,
+    label: 'Call people who stopped, on the following evenings',
+    help: 'Off: nothing is dialled or recorded. On: someone with an unfinished loan journey who has done nothing since they stopped gets a call from the Ello agent at the time below on each of the next days ("you left this yesterday, is anything wrong?"). Stops the moment they do anything. Also needs the master call switch and respects the call test-number list, calling hours and the quiet gap after a message.',
+    warn: 'Rings real customers. Test on your own number first.',
+  },
+  {
+    key: 'calls.inactiveCallAt', group: 'calls', kind: 'minuteOfDay', unit: 'minuteOfDay', def: 1200, min: 0, max: 1439,
+    label: 'Call at (India time)',
+    help: 'Default 8:00pm. Must be inside calling hours or the call is never placed.',
+  },
+  {
+    key: 'calls.inactiveDays', group: 'calls', kind: 'number', unit: 'days', def: 3, min: 1, max: 30,
+    label: 'For how many days',
+    help: 'One call on each of this many days after the day they stopped (3 = tomorrow, the day after, and the day after that).',
+  },
+  {
+    key: 'calls.inactiveSameDay', group: 'calls', kind: 'boolean', unit: 'none', def: false,
+    label: 'Also call people who stopped today',
+    help: 'Off: the first call is the day after they stopped. On: someone who stopped TODAY is also called at the call time, once they have been idle for at least "Call someone who stopped only after at least" (the stuck-step minimum).',
+  },
+  {
+    key: 'calls.inactiveDailyLimit', group: 'calls', kind: 'number', unit: 'count', def: 50, min: 0, max: 1000,
+    label: 'Most drop-off calls per day',
+    help: 'Across everyone, per India day. The people who stopped longest ago go first. 0 = no limit.',
   },
   {
     key: 'calls.statusDailyEnabled', group: 'calls', kind: 'boolean', unit: 'none', def: false, env: 'CALLS_STATUS_DAILY_ENABLED',
@@ -415,8 +584,11 @@ function stageScheduleDefs(): ScheduleDef[] {
       out.push({
         key: stageScheduleKey(shared, stage), group: 'stage', kind: 'schedule', unit: 'minutes', def: base.def.map((r) => ({ ...r })),
         maxRows: base.maxRows, maxMinutes: base.maxMinutes,
+        ...(shared === 'dropoff.schedule' ? { timeline: true } : {}),
         label: `${base.label} (${where})`,
-        help: `A schedule for “${where}” only. Until one is saved here, this stage uses “${base.label}”.`,
+        help: shared === 'dropoff.schedule'
+          ? `The whole timeline for “${where}” only: messages and calls, each a delay after they stop or a set time on a later day. Once one is saved here it replaces “${base.label}”, the daily reminders and the daily follow-up call for this stage.`
+          : `A schedule for “${where}” only. Until one is saved here, this stage uses “${base.label}”.`,
       });
     }
   }
@@ -478,12 +650,16 @@ export function checkTiming(def: TimingDef, raw: unknown): Checked {
       for (let i = 0; i < raw.length; i++) {
         const r = raw[i] as Partial<ScheduleRow> | null;
         const n = Number(r?.afterMinutes);
-        if (r?.channel !== 'sms' && r?.channel !== 'whatsapp') return bad(`Row ${i + 1}: channel must be SMS or WhatsApp`);
+        const call = r?.channel === 'call';
+        if (call && !def.timeline) return bad(`Row ${i + 1}: calls can only be added to a stage timeline`);
+        if (r?.channel !== 'sms' && r?.channel !== 'whatsapp' && !call) return bad(`Row ${i + 1}: channel must be SMS, WhatsApp${def.timeline ? ' or Call' : ''}`);
+        if (r?.atClock && !def.timeline) return bad(`Row ${i + 1}: a set time of day is only for a stage timeline`);
         if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return bad(`Row ${i + 1}: enter whole minutes (0 or more)`);
         if (n > def.maxMinutes) return bad(`Row ${i + 1}: at most ${def.maxMinutes} minutes (${def.maxMinutes / 1440} days)`);
+        if (r?.atClock && n < 1440) return bad(`Row ${i + 1}: a set time of day must be on day 1 or later`);
         if (n < prev) return bad(`Row ${i + 1}: must not be earlier than the row above`);
         prev = n;
-        rows.push({ channel: r.channel, afterMinutes: n });
+        rows.push({ channel: r!.channel as ScheduleRow['channel'], afterMinutes: n, ...(r?.atClock ? { atClock: true } : {}) });
       }
       return { ok: true, value: rows };
     }

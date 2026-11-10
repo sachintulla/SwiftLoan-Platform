@@ -19,6 +19,7 @@
 import { getProviderConfig } from './integrations.js';
 import { defaultCallbackUrl } from './messageCallback.js';
 import { recordSend, type TriggerInfo } from './messageDelivery.js';
+import { headerImageFor } from './templateImages.js';
 
 export interface WhatsAppResult {
   ok: boolean;
@@ -203,6 +204,11 @@ export async function sendWhatsAppTemplate(opts: {
   track?: SendTrack;
   /** UTILITY | MARKETING | AUTHENTICATION for THIS template; falls back to the card's category. */
   category?: string;
+  /**
+   * For a template with an IMAGE header: the public https URL of the image, sent with every message (WhatsApp requires it). Left out =
+   * the template's own image (Admin → Templates, else templateImages.ts); '' = send no image.
+   */
+  headerImageUrl?: string;
 }): Promise<WhatsAppResult> {
   const r = await ready();
   if (typeof r === 'string') return { ok: false, status: 0, error: r };
@@ -211,12 +217,19 @@ export async function sendWhatsAppTemplate(opts: {
   if (!templateName) return { ok: false, status: 0, error: 'No WhatsApp template name configured' };
 
   const placeholders = opts.placeholders ?? [];
+  // An image template needs its image on every send: the caller's, else the one recorded for the template (templateImages.ts).
+  const headerImageUrl = opts.headerImageUrl ?? headerImageFor(templateName, r.settings.templateLibrary);
   const template = {
     name: templateName,
     language: { code: opts.language || String(r.settings.defaultLanguage || 'en') },
-    // A template with no variables must omit `components` entirely.
-    ...(placeholders.length
-      ? { components: [{ type: 'body', parameters: placeholders.map((text) => ({ type: 'text', text })) }] }
+    // A template with no variables (and no image header) must omit `components` entirely.
+    ...(placeholders.length || headerImageUrl
+      ? {
+          components: [
+            ...(headerImageUrl ? [{ type: 'header', parameters: [{ type: 'image', image: { link: headerImageUrl } }] }] : []),
+            ...(placeholders.length ? [{ type: 'body', parameters: placeholders.map((text) => ({ type: 'text', text })) }] : []),
+          ],
+        }
       : {}),
   };
 

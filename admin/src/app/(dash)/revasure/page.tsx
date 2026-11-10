@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, Stat, StatusBadge, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
+import RevasureMisUpload from '@/components/RevasureMisUpload';
 import { num, dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import {
@@ -28,6 +29,12 @@ interface RevasureLead {
   createdAt: string;
   updatedAt: string;
   customer: Customer | null;
+  // MIS status (uploaded from Revasure's status sheet; see RevasureMisUpload).
+  misStatus: string | null;
+  misApprovedAmount: number | null;
+  misDisbursedAmount: number | null;
+  misDisbursementDate: string | null;
+  misUpdatedAt: string | null;
 }
 
 interface Payload {
@@ -54,6 +61,26 @@ const STATUS_TONE: Record<string, string> = {
 
 function RevasureStatus({ status }: { status: string }) {
   return <StatusBadge status={STATUS_TONE[status] ?? status} label={REVASURE_STATUS_LABEL[status] ?? status} />;
+}
+
+// MIS loan-status label → a tone-carrying keyword (global status-colour convention):
+// disbursed/approved = green, in process/login = blue, pending/on hold = amber,
+// rejected/ineligible/cancelled = red, duplicate = teal.
+const MIS_TONE: Record<string, string> = {
+  disbursed: 'disbursed',
+  approved: 'approved',
+  rejected: 'rejected',
+  ineligible: 'rejected',
+  cancelled: 'failed',
+  pending: 'pending',
+  'on hold': 'on_hold',
+  'in process': 'in_progress',
+  login: 'submitted',
+  duplicate: 'converted',
+};
+
+function MisStatusBadge({ label }: { label: string }) {
+  return <StatusBadge status={MIS_TONE[label.toLowerCase()] ?? label.toLowerCase()} label={label} />;
 }
 
 const STATUS_FILTERS: { key: string; label: string }[] = [
@@ -179,6 +206,9 @@ export default function RevasurePage() {
         <ListActions kind="revasure" filters={filters} total={searchPending || isLoading ? undefined : pg?.total} filterSummary={described} role={role} />
       </div>
 
+      {/* Revasure has no status API — admins upload their MIS sheet to update statuses. */}
+      {(role === 'super_admin' || role === 'admin') && <RevasureMisUpload onApplied={() => mutate()} />}
+
       <Card className="mt-16">
         {isLoading && !p ? <div className="skeleton" style={{ height: 58 }} aria-busy="true" /> : (
           <div className="adm-stats" role="group" aria-label="Filter by status">
@@ -229,7 +259,7 @@ export default function RevasurePage() {
           {error ? (
             <ListError what="Revasure leads" error={error} onRetry={() => mutate()} />
           ) : isLoading ? (
-            <div aria-busy="true"><TableSkeleton rows={8} cols={6} /></div>
+            <div aria-busy="true"><TableSkeleton rows={8} cols={7} /></div>
           ) : rows.length === 0 ? (
             <ListEmpty
               filtered={filtered}
@@ -240,7 +270,7 @@ export default function RevasurePage() {
             />
           ) : (
             <div className="table-wrap"><table className="data adm-table">
-              <thead><tr><th>Customer</th><th>Status</th><th>What happened</th><th>Revasure lead ID</th><th>Updated</th><th><span className="adm-sr">Details</span></th></tr></thead>
+              <thead><tr><th>Customer</th><th>Status</th><th>Loan status (MIS)</th><th>What happened</th><th>Revasure lead ID</th><th>Updated</th><th><span className="adm-sr">Details</span></th></tr></thead>
               <tbody>{rows.map((r) => {
                 const isOpen = open === r.id;
                 const panelId = `rev-detail-${r.id}`;
@@ -262,6 +292,14 @@ export default function RevasurePage() {
                         )}
                       </td>
                       <td data-label="Status"><RevasureStatus status={r.status} /></td>
+                      <td data-label="Loan status (MIS)">
+                        {r.misStatus ? (
+                          <div>
+                            <MisStatusBadge label={r.misStatus} />
+                            {r.misDisbursedAmount != null && <div className="adm-sub mono">₹{num(r.misDisbursedAmount)}{r.misDisbursementDate ? ` · ${dateTimeStr(r.misDisbursementDate).split(',')[0]}` : ''}</div>}
+                          </div>
+                        ) : <span className="muted">—</span>}
+                      </td>
                       <td data-label="What happened">
                         {text ? <span className="adm-clamp2" title={text}>{text}</span> : <span className="muted">—</span>}
                       </td>
@@ -279,7 +317,7 @@ export default function RevasurePage() {
                         </button>
                       </td>
                     </tr>
-                    {isOpen && <LeadDetailPanel id={r.id} panelId={panelId} colSpan={6} />}
+                    {isOpen && <LeadDetailPanel id={r.id} panelId={panelId} colSpan={7} />}
                   </Fragment>
                 );
               })}</tbody>

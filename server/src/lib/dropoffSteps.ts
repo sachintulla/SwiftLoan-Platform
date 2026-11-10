@@ -17,8 +17,10 @@
  *   applied             applied to a lender (the "you applied with <lender>" sequence owns this, see lenderNudge.ts)
  *   failed              a technical failure, NOT a decision: retried by the user, never messaged as "no offers"
  */
+import { LINK_SMS } from './smsRoute.js';
 
 export type DropoffStatus =
+  | 'otp_verified'
   | 'pan_verified'
   | 'application_filled'
   | 'rejected'
@@ -41,6 +43,8 @@ export interface DropoffState {
 }
 
 export interface DropoffSnapshot {
+  /** When they verified their number (latest `otp_verified` journey event; website or app). Null = never signed in. */
+  otpVerifiedAt?: Date | null;
   panOnFile: boolean;
   /** When the PAN was saved (User.updatedAt is the closest we have; it can only be later than the real moment). */
   panSince: Date | null;
@@ -57,7 +61,7 @@ export interface DropoffSnapshot {
 }
 
 /** Statuses that start a message sequence. `applied`/`finished` belong to the lender sequence; `failed` is retried, not messaged. */
-export const MESSAGEABLE: readonly DropoffStatus[] = ['pan_verified', 'application_filled', 'rejected', 'offers_not_applied'];
+export const MESSAGEABLE: readonly DropoffStatus[] = ['otp_verified', 'pan_verified', 'application_filled', 'rejected', 'offers_not_applied'];
 
 const LATER_THAN_OFFERS = new Set(['handoff', 'under_review', 'approved', 'disbursed', 'closed']);
 const BEFORE_OFFERS = new Set(['draft', 'pan_pending', 'prequalifying']);
@@ -71,7 +75,9 @@ export function deriveDropoff(s: DropoffSnapshot): DropoffState {
   const a = s.application;
 
   if (!a) {
-    return s.panOnFile && s.panSince ? { status: 'pan_verified', since: s.panSince, reason: null } : none;
+    if (s.panOnFile && s.panSince) return { status: 'pan_verified', since: s.panSince, reason: null };
+    // Verified the number and stopped before the PAN (owner's ask, 2026-11-03): part of the one WhatsApp journey too.
+    return s.otpVerifiedAt ? { status: 'otp_verified', since: s.otpVerifiedAt, reason: null } : none;
   }
   if (a.appliedToLender) return { status: 'applied', since: a.updatedAt, reason: null };
   if (LATER_THAN_OFFERS.has(a.status)) return { status: 'finished', since: a.updatedAt, reason: null };
@@ -97,6 +103,7 @@ export function isMessageable(status: DropoffStatus | null): status is DropoffSt
 /** Which of our messages goes with a status. */
 export function messageKindFor(status: DropoffStatus): DropoffMessageKind | null {
   switch (status) {
+    case 'otp_verified':
     case 'pan_verified':
     case 'application_filled':
       return 'continue';
@@ -111,6 +118,7 @@ export function messageKindFor(status: DropoffStatus): DropoffMessageKind | null
 
 /** What the message calls the step they stopped at (the sentence reads "you left at <step>"). Admin can override. */
 export const DROPOFF_STEP_LABELS: Readonly<Record<DropoffStatus, string>> = Object.freeze({
+  otp_verified: 'PAN verification',
   pan_verified: 'Basic details',
   application_filled: 'Finding offers',
   rejected: 'Offers',
@@ -155,25 +163,32 @@ export type DropoffMessages = Partial<Record<DropoffMessageKind, MessageConfig>>
  * The approved WhatsApp templates each message uses out of the box (WhatsApp only). Placeholder COUNT AND ORDER must match the
  * template exactly or WhatsApp rejects the send. Tokens: {name}, {step}, {link}, {ref} (application reference), {offerCount}.
  *
- * Category is not a constraint on us: Meta decides it (see docs/JOURNEY_RESUME_TEMPLATES.md §6); these are the approved ones.
+ * Category is not a constraint on us: Meta decides it (see docs/JOURNEY_RESUME_TEMPLATES.md §6); `category` here is what Meta approved,
+ * so the send is labelled the same. All of these carry an IMAGE header; whatsapp.ts adds each one's banner (templateImages.ts).
+ * Image templates submitted and approved on 6 Nov 2026 (owner): the continue_* pair came back Marketing, the offers pair Utility.
  *
- * `no_offers` is deliberately NOT here: its approved text promises that a team member will call, and nothing places that call
- * yet. Until the Ello follow-up call exists, that step is recorded as "not configured" and nothing is sent. Add it under
- * `dropoffMessages` in Admin → Configs → Voxvalley once the call is in place:
- *   no_offers.whatsapp.noLink = { template: 'dropoff_no_offers_callback', placeholders: ['{name}'] }
+ * `no_offers` uses `no_offers_call` ("our assistant will call you shortly"): the call now goes out the moment the result comes in
+ * (noOffersCall.ts). A blank template saved under `dropoffMessages.no_offers` in Admin still switches it off.
  */
 export const DEFAULT_DROPOFF_MESSAGES: DropoffMessages = Object.freeze({
   continue: {
+    // SMS (owner, 2026-11-04): the one registered link text for every step, app and website (smsRoute.ts LINK_SMS). The app-user-before-PAN
+    // case uses PAN_PENDING_SMS instead (appDropoff.ts deliver).
+    sms: { withLink: { ...LINK_SMS }, noLink: { ...LINK_SMS } },
     whatsapp: {
-      withLink: { template: 'install_app_resume_step', language: 'en', placeholders: ['{name}', '{step}', '{link}'] },
-      noLink: { template: 'dropoff_continue_app', language: 'en', placeholders: ['{name}', '{step}'] },
+      withLink: { template: 'continue_application_link', language: 'en', placeholders: ['{name}', '{step}', '{link}'], category: 'MARKETING' },
+      noLink: { template: 'continue_application_app', language: 'en', placeholders: ['{name}', '{step}'], category: 'MARKETING' },
     },
   },
   apply_offers: {
+    sms: { withLink: { ...LINK_SMS }, noLink: { ...LINK_SMS } },
     whatsapp: {
-      withLink: { template: 'offers_ready', language: 'en', placeholders: ['{name}', '{offerCount}', '{ref}', '{link}'] },
-      noLink: { template: 'dropoff_apply_offers_app', language: 'en', placeholders: ['{name}'] },
+      withLink: { template: 'offers_ready_view_link', language: 'en', placeholders: ['{name}', '{ref}', '{link}'], category: 'UTILITY' },
+      noLink: { template: 'offers_ready_open_app', language: 'en', placeholders: ['{name}', '{ref}'], category: 'UTILITY' },
     },
+  },
+  no_offers: {
+    whatsapp: { noLink: { template: 'no_offers_call', language: 'en', placeholders: ['{name}'], category: 'MARKETING' } },
   },
 }) as DropoffMessages;
 
@@ -291,7 +306,9 @@ export function noOffersCallBrief(prequalifyReason: string | null | undefined, i
   const base =
     'Apologise that we could not find loan offers for them yet, and say you are following up on their application. ' +
     'Do not read out or guess any reason from a lender, and do not promise offers or approval. ' +
-    'Ask whether they would like help checking their details, or a callback from the team.';
+    'Reassure them: say it is disappointing, ask them not to lose hope because lenders update their options and we are still working on it, ' +
+    'and say the team will review their application and get back to them. Ask whether a callback at a better time would help. ' +
+    'This is not an application call: never ask for any personal or application details.';
   return {
     reason: 'asked for loan offers but we could not find any for your application yet',
     lastStep: 'checking for loan offers',

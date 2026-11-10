@@ -30,6 +30,10 @@ const TABS: Tab[] = [
   },
   { id: 'hours', title: 'Calling hours', groups: ['hours'], intro: 'One window, in India time, shared by the reminders, the stuck-stage nudges and every automatic call.' },
   { id: 'calls', title: 'Lead calls', groups: ['calls'], moved: true, intro: 'The switches and limits for automatic calls (the website-lead call and the no-offers call).' },
+  {
+    id: 'limits', title: 'Per-person limits', groups: ['limits'],
+    intro: 'How often one person may be called or messaged by the automatic jobs, and how far back a job may reach. These used to be fixed in the code.',
+  },
   { id: 'auth', title: 'Login & sessions', groups: ['auth'], intro: 'Security settings. New codes and new logins use the new values; people already signed in keep their current session.' },
   { id: 'tracking', title: 'Tracking & limits', groups: ['tracking'], intro: 'How long install links, offers and referrals stay valid, and the per-person limits.' },
 ];

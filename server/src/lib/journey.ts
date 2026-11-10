@@ -358,6 +358,12 @@ export async function resolveCustomer(input: ResolveCustomerInput) {
 
 /* ─────────────────────────── event recording ─────────────────────────── */
 
+/** Channels on which the event means the customer themself did something (as opposed to us messaging, calling or noting them). */
+export const CUSTOMER_ACTION_CHANNELS: ReadonlyArray<RecordEventInput['channel']> = ['website', 'app'];
+export const isCustomerAction = (channel: RecordEventInput['channel']): boolean => CUSTOMER_ACTION_CHANNELS.includes(channel);
+/** Event names our own jobs write (older rows carry them as eventType `funnel`); never the customer acting. */
+export const SYSTEM_EVENT_NAMES: ReadonlyArray<string> = ['nudge_sent', 'stage_stalled', 'call_queued', 'call_started', 'call_completed', 'call_failed'];
+
 export interface RecordEventInput {
   channel: 'website' | 'voice' | 'app' | 'campaign' | 'admin' | 'system';
   name: string;
@@ -403,7 +409,10 @@ export async function recordJourneyEvent(
     prisma.customer.update({
       where: { id: customerId },
       data: {
-        lastActivityAt: occurredAt,
+        // Only the CUSTOMER acting counts as activity. A nudge we sent, a stall we detected or a call we placed is
+        // `system`/`voice`/`campaign`/`admin` and must never look like them coming back (2026-11-02: our own stall
+        // SMS bumped this and re-armed 100+ drop-off runs, which sent "no offers" messages about weeks-old rejections).
+        ...(isCustomerAction(input.channel) ? { lastActivityAt: occurredAt } : {}),
         ...(advance ? { currentStage: stage, stageEnteredAt: occurredAt } : {}),
         // A fresh forward step clears the nudge cooldown: they are moving again.
         ...(advance ? { lastNudgedAt: null } : {}),
@@ -417,7 +426,7 @@ export async function recordJourneyEvent(
       .create({
         data: {
           userId: customer.userId,
-          eventType: 'funnel',
+          eventType: isCustomerAction(input.channel) ? 'funnel' : 'system',
           eventName: input.name,
           screen: input.screen ?? null,
           metadata,

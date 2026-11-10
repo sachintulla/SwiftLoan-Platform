@@ -20,6 +20,8 @@ import { prisma } from './prisma.js';
 import { STAGE_LABELS, journeyProgress } from './journey.js';
 import { nextActionFor } from './nextAction.js';
 import { rupeesDigits, rupeesInWords } from './rupees.js';
+import { loadCallSituation } from './callSituation.js';
+import { tidyName } from './installReminder.js';
 
 /**
  * Every variable the lead-callback agent may reference.
@@ -50,6 +52,8 @@ export const LEAD_CALL_VARIABLES = [
   'lead_amount_words',
   'lead_submitted_ago',
   'lead_source',
+  // The language to open the call in: what they have spoken to the agent before (User.voiceLang), else the app's UI language.
+  'lead_language',
   'lead_campaign',
   'lead_stage',
   // The DEFINED journey + where this customer sits in it, sent on every call so
@@ -88,9 +92,28 @@ export const LEAD_CALL_VARIABLES = [
   'stall_minutes',
   'stall_channel',
   'stall_help',
+  // ── What is TRUE about a signed-in customer now (callSituation.ts), from stored data ──
+  // One sentence the agent opens from, and — when they have offers — the count and the best (highest-amount) offer.
+  'call_situation',
+  'offer_count',
+  'best_offer_lender',
+  'best_offer_amount',
+  'best_offer_amount_words',
+  'best_offer_emi',
+  'best_offer_emi_words',
+  'best_offer_tenure_months',
 ] as const;
 
 export type LeadCallVariable = (typeof LEAD_CALL_VARIABLES)[number];
+
+/** Spoken-language label for the briefing: the language they spoke to the agent before, else the app language; '' = unknown (the prompt then defaults to Hindi). */
+export function spokenLanguageLabel(voiceLang: string | null | undefined, lang: string | null | undefined): string {
+  const code = (voiceLang || lang || '').toLowerCase();
+  if (code === 'en') return 'English';
+  if (code === 'hi' || code === 'hinglish') return 'Hindi';
+  if (code === 'te' || code === 'tenglish') return 'Telugu';
+  return '';
+}
 export type LeadCallContext = Record<LeadCallVariable, string>;
 
 
@@ -172,13 +195,18 @@ export async function buildLeadCallContext(
 
   // Where the customer sits in the defined journey — sent on every call.
   const journey = journeyProgress(customer.currentStage);
+  // For a signed-in customer, what is true now, from stored data (callSituation.ts). It replaces the stage/journey lines below, which
+  // come from Customer.currentStage and can be wrong (the app's status screen used to count as "application submitted").
+  const situation = account ? await loadCallSituation(account.id).catch(() => null) : null;
+  const displayName = tidyName(full || accountName) ?? '';
 
   return {
     // Prefer the registered account name; fall back to the lead's own name so
     // the variable resolves rather than rendering blank.
     user_name: accountName || full,
-    lead_name: full,
-    lead_first_name: full ? full.split(/\s+/)[0] : '',
+    // The enquiry's name, else the account's (app users have no enquiry), in normal capitals ("Dushyant", not "DUSHYANT").
+    lead_name: displayName,
+    lead_first_name: displayName ? displayName.split(/\s+/)[0] : '',
     lead_city: str(customer.city),
     lead_phone: str(customer.phone),
     // Ello's tool-calling placeholder resolver only does an exact key match
@@ -192,18 +220,19 @@ export async function buildLeadCallContext(
     lead_amount_words: rupeesInWords(amount) ?? '',
     lead_submitted_ago: agoWords(lead?.createdAt ?? customer.firstSeenAt, now),
     lead_source: str(customer.firstSource),
+    lead_language: account ? spokenLanguageLabel(account.voiceLang, account.lang) : '',
     lead_campaign: str(customer.campaignId ?? customer.utmCampaign),
-    lead_stage: STAGE_LABELS[customer.currentStage] ?? str(customer.currentStage),
+    lead_stage: situation?.lead_stage ?? STAGE_LABELS[customer.currentStage] ?? str(customer.currentStage),
     // Full journey context (the defined funnel + progress) so the agent can say
     // "you're at step 7 of 12, offers viewed, next is selecting an offer".
-    lead_stage_key: str(customer.currentStage),
-    lead_stage_number: journey.index ? String(journey.index) : '',
-    lead_stage_total: String(journey.total),
-    lead_journey: journey.line,
-    lead_journey_done: journey.done.join(', '),
-    lead_journey_next: journey.next ?? '',
+    lead_stage_key: situation ? '' : str(customer.currentStage),
+    lead_stage_number: situation ? '' : journey.index ? String(journey.index) : '',
+    lead_stage_total: situation ? '' : String(journey.total),
+    lead_journey: situation?.call_situation ?? journey.line,
+    lead_journey_done: situation?.lead_journey_done ?? journey.done.join(', '),
+    lead_journey_next: situation?.lead_journey_next ?? journey.next ?? '',
     lead_summary: str(lead?.note),
-    lead_next_action: nextActionFor(customer.currentStage),
+    lead_next_action: situation?.lead_journey_next ?? nextActionFor(customer.currentStage),
     lead_prior_inquiries: priorCount ? String(priorCount) : '',
     lead_is_returning: priorCount > 0 ? 'yes' : 'no',
     agent_purpose: opts.purpose ?? 'website_lead_followup',
@@ -218,6 +247,14 @@ export async function buildLeadCallContext(
     stall_minutes: opts.stall?.minutes != null ? String(opts.stall.minutes) : '',
     stall_channel: opts.stall?.channel ?? '',
     stall_help: opts.stall?.help ?? '',
+    call_situation: situation?.call_situation ?? '',
+    offer_count: situation?.offer_count ?? '',
+    best_offer_lender: situation?.best_offer_lender ?? '',
+    best_offer_amount: situation?.best_offer_amount ?? '',
+    best_offer_amount_words: situation?.best_offer_amount_words ?? '',
+    best_offer_emi: situation?.best_offer_emi ?? '',
+    best_offer_emi_words: situation?.best_offer_emi_words ?? '',
+    best_offer_tenure_months: situation?.best_offer_tenure_months ?? '',
   };
 }
 
@@ -288,7 +325,7 @@ export const STALL_HELP: Record<string, string> = {
   [`${'lead_captured'}→${'app_installed'}`]:
     'send the app download link again by SMS or WhatsApp, and explain that the details from the website are already saved so nothing needs re-typing',
   [`${'app_installed'}→${'otp_verified'}`]:
-    'walk them through signing in, and check the number they are using is the one they gave us',
+    'remind them to open the app and sign in with the number they gave us (the code only verifies that number); they do it themselves, so do not walk them through it',
   [`${'app_opened'}→${'otp_requested'}`]:
     'ask whether anything on the first screen was unclear, and reassure them the number is only used to verify identity',
   [`${'language_selected'}→${'otp_requested'}`]:
@@ -297,14 +334,14 @@ export const STALL_HELP: Record<string, string> = {
     'check whether the OTP message actually arrived, confirm the number is right, and tell them to request a fresh code — mention that OTP messages are sometimes delayed on some networks. NEVER ask them to read the code out to you',
 
   [`${'otp_verified'}→${'eligibility_started'}`]:
-    'ask what kind of loan they are looking for and roughly how much, and explain that starting the application takes about two minutes',
+    'remind them that the first step is done and that starting the application takes about two minutes in the app; ask if anything is stopping them. Do not ask for any details on the call',
   [`${'otp_verified'}→${'eligibility_completed'}`]:
-    'ask if any part of the form was unclear and offer to explain what is being asked and why',
+    'ask whether anything about the form put them off, and reassure them the app guides them one screen at a time; they fill it in themselves. Do not collect any details on the call',
 
   [`${'eligibility_started'}→${'eligibility_completed'}`]:
-    'ask which part they got stuck on — income and employment are the two people usually pause at — and explain why each is needed',
+    'ask whether anything made them pause, and reassure them the questions are quick and asked only to match them with lenders; they finish it themselves in the app. Do not collect any details on the call',
   [`${'eligibility_started'}→${'offer_viewed'}`]:
-    'offer to talk them through finishing the form so they can see what they qualify for',
+    'remind them they are close and encourage them to finish the form themselves in the app to see what they qualify for; do not walk them through fields',
   [`${'eligibility_completed'}→${'offer_viewed'}`]:
     'let them know the matched offers are ready to look at in the app',
 
@@ -328,6 +365,18 @@ export function stallHelpFor(triggerEvent: string, expectedEvent: string): strin
     STALL_HELP[`${triggerEvent}→${expectedEvent}`] ??
     'ask what happened and offer to help them continue from where they stopped'
   );
+}
+
+/**
+ * What a "stuck on a step" call tells the agent to do: first find out WHY they stopped (the point of the call), then the
+ * stage-specific help. It is a reminder call, so the agent listens and never collects personal or application details.
+ */
+export const STALL_WHY_ASK =
+  'First ask, kindly, why they have not completed it and whether there was any problem (an error, a doubt, no time) and listen to the answer. ' +
+  'Do not ask for, or note down, any personal or application details.';
+
+export function stallCallHelp(triggerEvent: string, expectedEvent: string): string {
+  return `${STALL_WHY_ASK} After that, you can offer to ${stallHelpFor(triggerEvent, expectedEvent)}.`;
 }
 
 /** Fall back to a readable sentence for any rule we have no wording for. */

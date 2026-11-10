@@ -25,7 +25,7 @@ const results: Row[] = [];
 async function t(id: string, area: string, title: string, fn: () => Promise<void>) {
   const t0 = Date.now();
   try { await fn(); results.push({ id, area, title, status: 'PASS', ms: Date.now() - t0 }); console.log(`PASS ${id} ${title}`); }
-  catch (e) { const detail = (e as Error).message.split('\n').slice(0, 4).join(' | '); results.push({ id, area, title, status: 'FAIL', detail, ms: Date.now() - t0 }); console.log(`FAIL ${id} ${title} :: ${detail}`); }
+  catch (e) { const detail = (e as Error).message.split('\n').slice(0, Number(process.env.DETAIL_LINES ?? 4)).join(' | '); results.push({ id, area, title, status: 'FAIL', detail, ms: Date.now() - t0 }); console.log(`FAIL ${id} ${title} :: ${detail}`); }
 }
 
 /* ── fake providers ── */
@@ -252,7 +252,10 @@ await upsertProviderConfig('voxvalley', { enabled: true, settings: {
   baseUrl: MOCK, sendPath: '/api/v1/whatsapp/send', sender: '919999999999',
 }, secrets: { authToken: 'tok' } });
 const isolate = async () => { await prisma.journeyReminder.deleteMany(); hits.length = 0; };
-const sendMode = (on: boolean) => { if (on) process.env.INSTALL_REMINDER_SEND = 'true'; else delete process.env.INSTALL_REMINDER_SEND; };
+// The old verified-visitor reminders are off by default now (only Scenario 1 is live); the checks below still exercise that path.
+const sendMode = (on: boolean) => {
+  if (on) { process.env.INSTALL_REMINDER_SEND = 'true'; process.env.INSTALL_REMINDER_VERIFIED = 'true'; } else { delete process.env.INSTALL_REMINDER_SEND; delete process.env.INSTALL_REMINDER_VERIFIED; }
+};
 await t('S24', 'send', 'send mode: SMS carries the DLT template id and the /dl?ref= link; WhatsApp carries name + link', async () => {
   sendMode(true); hits.length = 0; smsMode = 'ok';
   await isolate();
@@ -1044,7 +1047,7 @@ await t('S106', 'timings:effect', 'the admin on/off switch and the test-number l
   await isolate(); hits.length = 0; smsMode = 'ok'; delete process.env.INSTALL_REMINDER_SEND;
   const a = await webLogin(); const b = await webLogin();
   for (const w of [a, b]) await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN } });
-  await TS.saveTimings({ 'install.sendEnabled': true, 'install.allowedNumbers': [a.phone], 'install.schedule': [{ channel: 'sms', afterMinutes: 0 }, { channel: 'whatsapp', afterMinutes: 30 }] }, 't');
+  await TS.saveTimings({ 'install.sendEnabled': true, 'install.verifiedEnabled': true, 'install.allowedNumbers': [a.phone], 'install.schedule': [{ channel: 'sms', afterMinutes: 0 }, { channel: 'whatsapp', afterMinutes: 30 }] }, 't');
   try {
     await tickAll(OPEN); await tickAll(new Date(OPEN.getTime() + 31 * MIN_MS));
     const ha = (await reminderById(a.reminder!.id)).history as any[]; const hb = (await reminderById(b.reminder!.id)).history as any[];
@@ -1071,14 +1074,14 @@ await t('S107', 'timings:effect', 'calling hours: a normal window, a changed win
 });
 
 await t('S108', 'timings:effect', 'lead-call timings and the other limits are read live from the settings', async () => {
-  await clearTimings(); const ic = await import(`${ROOT}/lib/immediateCallback.js`); const { isIdleExpired } = await import(`${ROOT}/lib/adminSecurity.js`);
+  await clearTimings(); const { timing } = await import(`${ROOT}/lib/timings.js`); const { isIdleExpired } = await import(`${ROOT}/lib/adminSecurity.js`);
   const { reuseWindowMs } = await import(`${ROOT}/lib/offersReuse.js`); const { referralEligibleDays } = await import(`${ROOT}/lib/referral.js`); const at = await import(`${ROOT}/lib/attribution.js`);
-  assert.deepEqual([ic.firstAttemptDelaySeconds(), ic.retryIntervalMinutes(), ic.maxAttempts()], [20, 60, 3]);
+  assert.equal(timing.num('calls.leadFollowupMinutes'), 60);
   assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), false, 'admin idle default 30 min'); assert.equal(reuseWindowMs(), 24 * 3_600_000);
   assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [7, 48, 30]);
-  await TS.saveTimings({ 'calls.firstDelaySeconds': 45, 'calls.retryMinutes': 90, 'calls.maxAttempts': 5, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'referral.eligibleDays': 14, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
+  await TS.saveTimings({ 'calls.leadFollowupMinutes': 90, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'referral.eligibleDays': 14, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
   try {
-    assert.deepEqual([ic.firstAttemptDelaySeconds(), ic.retryIntervalMinutes(), ic.maxAttempts()], [45, 90, 5]);
+    assert.equal(timing.num('calls.leadFollowupMinutes'), 90);
     assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), true, 'admin idle now 5 min'); assert.equal(reuseWindowMs(), 48 * 3_600_000);
     assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [14, 72, 60]);
   } finally { await clearTimings(); }
@@ -1371,7 +1374,7 @@ async function otpRequestOnly(phone = newPhone()) {
 }
 const rowsOf = (userId: string) => prisma.journeyReminder.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } });
 const verifyOtp = async (phone: string, code: string) => { const vf = await post('/api/website/auth/otp/verify', { phone, code }); await sleep(400); return vf; };
-const sendOn = (extra: Record<string, unknown> = {}) => TS.saveTimings({ 'install.sendEnabled': true, ...extra }, 't');
+const sendOn = (extra: Record<string, unknown> = {}) => TS.saveTimings({ 'install.sendEnabled': true, 'install.verifiedEnabled': true, ...extra }, 't');
 
 await t('S142', 'unverified', 'asking for an OTP arms one short "OTP verification" reminder; asking again, or for a number that already has one, adds nothing', async () => {
   await isolateN(); const o = await otpRequestOnly(); const [r] = await rowsOf(o.user.id);
@@ -1448,6 +1451,153 @@ await t('S149', 'unverified', 'switch off (the default): only logs; with a test 
   await clearTimings();
 });
 
+await t('S156', 'unverified', 'the app (Android/iOS) OTP request arms the same reminder, and verifying in the app stops it (app_login)', async () => {
+  await isolateN(); await sendOn(); hits.length = 0;
+  try {
+    const phone = newPhone();
+    const rq = await post('/api/auth/otp/request', { phone }); assert.equal(rq.status, 200, 'app otp request'); await sleep(400);
+    const user = await prisma.user.findUniqueOrThrow({ where: { phone } }); const [r] = await rowsOf(user.id);
+    assert.ok(r, 'armed from the app'); assert.equal(r.unverified, true); assert.equal(r.lastStep, 'otp_requested');
+    const vf = await post('/api/auth/otp/verify', { phone, code: rq.body.devOtp }); assert.equal(vf.status, 200, 'app verify'); await sleep(400);
+    await tickAll(MINUTES(10));
+    const [after] = await rowsOf(user.id); assert.equal(after.status, 'stopped'); assert.equal(after.stopReason, 'app_login'); assert.equal(hits.length, 0, 'nothing sent');
+  } finally { await clearTimings(); }
+});
+
+await t('S157', 'welcome', 'a website sign-in gets ONE welcome WhatsApp with its own app link; never again for that number; nothing when the switch is off', async () => {
+  const { downloads } = await import(`${ROOT}/config/downloads.js`);
+  await isolateN(); hits.length = 0;
+  try {
+    await TS.saveTimings({ 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
+    const off = await webLogin(); assert.equal(hitsFor('/api/v1/whatsapp').length, 0, 'switched off: nothing sent');
+    assert.equal(await prisma.outboundRequest.count({ where: { idempotencyKey: `welcome:${off.phone}` } }), 0, 'and nothing recorded');
+    await TS.saveTimings({ 'welcome.sendEnabled': true }, 't');
+    const w = await webLogin(); await sleep(300);
+    const wa = hitsFor('/api/v1/whatsapp'); assert.equal(wa.length, 1, 'one welcome');
+    const b = wa[0].body; assert.equal(b.template.name, 'welcome_continue_app');
+    const header = b.template.components.find((c: any) => c.type === 'header');
+    assert.equal(header?.parameters?.[0]?.image?.link, 'https://swiftloan.ai/whatsapp-welcome.png', 'the welcome banner goes as the image header');
+    const params = b.template.components.find((c: any) => c.type === 'body').parameters.map((x: any) => x.text);
+    assert.deepEqual(params, ['there', `${downloads.publicBase}/dl?ref=${w.reminder!.token}`], 'name (unknown before PAN) and the personal link');
+    hits.length = 0; await webLogin(w.phone); await sleep(300);
+    assert.equal(hitsFor('/api/v1/whatsapp').length, 0, 'a second sign-in is not welcomed again');
+  } finally { await clearTimings(); }
+});
+
+await t('S158', 'contact-limit', '2 touches a day, and no new message on a day we already called (counts real sends and calls)', async () => {
+  const cp = await import(`${ROOT}/lib/contactPolicy.js`);
+  await isolateN(); await clearTimings();
+  const phone = newPhone();
+  const msg = (kind: string) => prisma.messageDelivery.create({ data: { channel: 'whatsapp', phone, kind, status: 'queued', providerRef: `t-${kind}-${Math.random()}` } as any });
+  assert.equal((await cp.touchAllowed(phone, 'message')).ok, true, 'nothing sent yet');
+  await msg('app_dropoff'); await msg('conversation_summary'); await msg('missed_call_note');
+  assert.equal((await cp.countTouches(phone)).today, 1, 'recaps and missed-call notes are not touches');
+  assert.equal((await cp.touchAllowed(phone, 'call')).ok, false, 'no call on a day a message went');
+  await msg('install_reminder');
+  assert.equal((await cp.touchAllowed(phone, 'message')).ok, false, 'a third touch today is refused');
+  const p2 = newPhone();
+  await prisma.callAttempt.create({ data: { phone: p2, channel: 'phone_outbound', status: 'no_answer' } as any });
+  assert.equal((await cp.touchAllowed(p2, 'message')).ok, false, 'no message on a day we called');
+  await TS.saveTimings({ 'limits.noCallAndMessageSameDay': false }, 't');
+  assert.equal((await cp.touchAllowed(p2, 'message')).ok, true, 'the same-day rule can be switched off');
+  await clearTimings();
+});
+
+await t('S159', 'missed-call', 'an unanswered timeline call gets ONE "sorry we missed you" WhatsApp (welcome template + link) after 5 min; an answered one gets none', async () => {
+  const mc = await import(`${ROOT}/lib/missedCallNote.js`);
+  const { downloads } = await import(`${ROOT}/config/downloads.js`);
+  await isolateN(); hits.length = 0;
+  try {
+    await TS.saveTimings({ 'dropoff.sendEnabled': true, 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
+    const mk = async (answered: boolean, status: string) => {
+      const phone = newPhone(); const u = await prisma.user.create({ data: { phone } });
+      const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: 'otp_verified', token: `TK${Math.floor(Math.random() * 1e6)}`, firstName: 'Asha', startAt: new Date(), nextCheckAt: new Date() } as any });
+      const att = await prisma.callAttempt.create({ data: { phone, channel: 'phone_outbound', status, answered, endedAt: new Date(Date.now() - 6 * 60_000) } as any });
+      await prisma.outboundRequest.create({ data: { channel: 'voice', kind: 'dropoff_call', idempotencyKey: `dropoffcall:${run.id}:2`, status: 'sent', payload: { runId: run.id, step: 2, callAttemptId: att.id } } as any });
+      return { phone, run };
+    };
+    const missed = await mk(false, 'no_answer'); const answered = await mk(true, 'completed');
+    await mc.sendMissedCallNotes(new Date()); await mc.sendMissedCallNotes(new Date());
+    const wa = hitsFor('/api/v1/whatsapp'); assert.equal(wa.length, 1, 'one note, only for the missed call, not repeated');
+    const b = wa[0].body; assert.equal(b.template.name, 'welcome_continue_app');
+    const params = b.template.components.find((c: any) => c.type === 'body').parameters.map((x: any) => x.text);
+    assert.deepEqual(params, ['Asha', `${downloads.publicBase}/dl?ref=${missed.run.token}`]);
+    void answered;
+  } finally { await clearTimings(); }
+});
+
+await t('S159b', 'missed-call', 'an unanswered "no offers" call gets ONE note with its own template (no_offers_missed_call, name only), not the welcome text', async () => {
+  const mc = await import(`${ROOT}/lib/missedCallNote.js`);
+  await isolateN(); hits.length = 0;
+  try {
+    await TS.saveTimings({ 'dropoff.sendEnabled': true, 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
+    const phone = newPhone(); const u = await prisma.user.create({ data: { phone } });
+    const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: 'rejected', reason: 'not_eligible', firstName: 'Ravi', startAt: new Date(), nextCheckAt: new Date() } as any });
+    const att = await prisma.callAttempt.create({ data: { phone, channel: 'phone_outbound', status: 'no_answer', answered: false, endedAt: new Date(Date.now() - 6 * 60_000) } as any });
+    await prisma.outboundRequest.create({ data: { channel: 'voice', kind: 'no_offers_call', idempotencyKey: `noffers:${run.id}`, status: 'sent', payload: { dropoffId: run.id, reason: 'not_eligible', callAttemptId: att.id } } as any });
+    await mc.sendMissedCallNotes(new Date()); await mc.sendMissedCallNotes(new Date());
+    const wa = hitsFor('/api/v1/whatsapp'); assert.equal(wa.length, 1, 'one note, not repeated');
+    const b = wa[0].body; assert.equal(b.template.name, 'no_offers_missed_call');
+    const params = b.template.components.find((c: any) => c.type === 'body').parameters.map((x: any) => x.text);
+    assert.deepEqual(params, ['Ravi']);
+  } finally { await clearTimings(); }
+});
+
+await t('S160', 'welcome-sms', 'welcome SMS on OTP verify: app → "verify your PAN" (no link), website → link SMS; once per number; nothing when off', async () => {
+  const { downloads } = await import(`${ROOT}/config/downloads.js`);
+  await isolateN(); hits.length = 0;
+  try {
+    await TS.saveTimings({ 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
+    const appLogin = async (phone = newPhone()) => {
+      const rq = await post('/api/auth/otp/request', { phone }); await post('/api/auth/otp/verify', { phone, code: rq.body.devOtp }); await sleep(400); return phone;
+    };
+    await appLogin(); await webLogin(); assert.equal(hitsFor('/sms').length, 0, 'switched off: no SMS');
+    await TS.saveTimings({ 'welcome.smsEnabled': true }, 't'); hits.length = 0;
+    const a = await appLogin();
+    let sms = hitsFor('/sms'); assert.equal(sms.length, 1, 'one SMS for the app sign-in');
+    assert.equal(sms[0].body.template_id, '1277179266527595706'); assert.match(String(sms[0].body.body ?? sms[0].body.text ?? JSON.stringify(sms[0].body)), /please verify your PAN in the SwiftLoan app/);
+    hits.length = 0; const w = await webLogin(); await sleep(300);
+    sms = hitsFor('/sms'); assert.equal(sms.length, 1, 'one SMS for the website sign-in');
+    assert.equal(sms[0].body.template_id, '1277179300146510723');
+    assert.ok(JSON.stringify(sms[0].body).includes(`${downloads.publicBase}/dl?ref=${w.reminder!.token}`), 'carries the personal link');
+    assert.ok(JSON.stringify(sms[0].body).includes('incomplete at PAN verification'));
+    hits.length = 0; await appLogin(a); await webLogin(w.phone); await sleep(300);
+    assert.equal(hitsFor('/sms').length, 0, 'never a second welcome SMS for the same number');
+  } finally { await clearTimings(); }
+});
+
+await t('S161', 'sms-fallback', 'every drop-off WhatsApp STEP is followed once by its SMS after the gap, even when the WhatsApp failed (website: link text naming the step; app before PAN: "verify your PAN"); "only if undelivered" skips delivered ones', async () => {
+  const fb = await import(`${ROOT}/lib/smsFallback.js`);
+  const { downloads } = await import(`${ROOT}/config/downloads.js`);
+  await isolateN(); hits.length = 0;
+  try {
+    await TS.saveTimings({ 'dropoff.sendEnabled': true, 'calling.windowStart': 0, 'calling.windowEnd': 1439 }, 't');
+    const mk = async (status: string, opts: { inApp?: boolean; waStatus?: string; waFailed?: boolean }) => {
+      const phone = newPhone(); const u = await prisma.user.create({ data: { phone } });
+      if (opts.inApp) {
+        const c = await prisma.customer.create({ data: { phone, userId: u.id } as any });
+        await prisma.journeyEvent.create({ data: { customerId: c.id, channel: 'app', name: 'otp_verified', occurredAt: new Date(Date.now() - 3_600_000) } });
+      }
+      const at = new Date(Date.now() - 15 * 60_000).toISOString();
+      const history = [{ step: 0, channel: 'whatsapp', label: '+30m whatsapp', at, outcome: opts.waFailed ? 'failed' : 'sent', ...(opts.waFailed ? { reason: 'Meta refused it' } : {}), message: 'continue', withLink: !opts.inApp }];
+      const run = await prisma.appDropoff.create({ data: { userId: u.id, phone, dropStatus: status, token: opts.inApp ? null : `FB${Math.floor(Math.random() * 1e6)}`, firstName: 'Asha', startAt: new Date(), nextCheckAt: new Date(Date.now() + 86_400_000), history } as any });
+      if (!opts.waFailed) await prisma.messageDelivery.create({ data: { channel: 'whatsapp', phone, kind: 'app_dropoff', status: opts.waStatus ?? 'queued', referenceId: `${run.id}:0`, providerRef: `fb-${run.id}`, createdAt: new Date(at) } as any });
+      return { phone, run };
+    };
+    const web = await mk('pan_verified', {}); const app = await mk('otp_verified', { inApp: true }); const done = await mk('pan_verified', { waStatus: 'delivered' });
+    const failed = await mk('pan_verified', { waFailed: true }); // the WhatsApp never went out: the SMS still does (owner, 2026-11-06)
+    await fb.sendSmsFallbacks(new Date()); await fb.sendSmsFallbacks(new Date());
+    const sms = hitsFor('/sms'); assert.equal(sms.length, 4, 'one SMS after each WhatsApp step, delivered, undelivered or failed, never repeated');
+    assert.ok(sms.some((h) => JSON.stringify(h.body).includes(failed.phone.slice(-10))), 'a failed WhatsApp is still followed by its SMS');
+    hits.length = 0; await TS.saveTimings({ 'dropoff.smsOnlyIfUndelivered': true }, 't');
+    await prisma.outboundRequest.deleteMany({ where: { kind: 'sms_fallback' } }); await fb.sendSmsFallbacks(new Date());
+    assert.equal(hitsFor('/sms').length, 3, 'narrowed: only the delivered WhatsApp gets no SMS'); void done;
+    const byPhone = (p: string) => JSON.stringify(sms.find((h) => JSON.stringify(h.body).includes(p.slice(-10)))?.body ?? {});
+    assert.ok(byPhone(web.phone).includes('1277179300146510723') && byPhone(web.phone).includes('incomplete at Basic details') && byPhone(web.phone).includes(`${downloads.publicBase}/dl?ref=${web.run.token}`), 'website: link text naming the step');
+    assert.ok(byPhone(app.phone).includes('1277179266527595706') && byPhone(app.phone).includes('please verify your PAN'), 'app user before PAN: verify your PAN');
+  } finally { await clearTimings(); }
+});
+
 await t('S150', 'unverified', 'the short schedule is editable in Admin → Timings (and validated)', async () => {
   await isolateN(); const sup = await adminTok('super_admin'); const g = await getTimings(sup);
   assert.deepEqual(itemOf(g, 'install.unverifiedSchedule').effective, [{ channel: 'whatsapp', afterMinutes: 10 }, { channel: 'sms', afterMinutes: 1440 }]); assert.equal(itemOf(g, 'install.unverifiedEnabled').effective, true);
@@ -1464,7 +1614,7 @@ await t('S151', 'schedule:default', 'the lean default for a verified drop-off: 5
     const w = await webLogin(); const id = w.reminder!.id; await prisma.journeyReminder.update({ where: { id }, data: { startAt: OPEN } });
     for (const m of [0, 9, 10, 239, 240, 1439, 1440, 4319, 4320, 10079, 10080, 10090]) await tickAll(MINUTES(m));
     const r = await reminderById(id); const h = r.history as any[];
-    assert.deepEqual(h.map((x) => x.channel), ['whatsapp', 'sms', 'whatsapp', 'sms', 'whatsapp']); assert.deepEqual(h.map((x) => x.outcome), ['sent', 'sent', 'sent', 'sent', 'sent']);
+    assert.deepEqual(h.map((x) => x.channel), ['whatsapp', 'sms', 'whatsapp', 'sms', 'whatsapp']); assert.deepEqual(h.map((x) => x.outcome), ['sent', 'sent', 'sent', 'sent', 'sent'], JSON.stringify(h.map((x) => x.reason ?? '')));
     assert.deepEqual(h.map((x) => Math.round((new Date(x.at).getTime() - OPEN.getTime()) / MIN_MS)), [10, 240, 1440, 4320, 10080]); assert.equal(r.status, 'completed');
     assert.equal(hitsFor('/api/v1/whatsapp').length, 3); assert.equal(hitsFor('/sms').length, 2);
   } finally { await upsertProviderConfig('voxvalley', { settings: { installWhatsapp: { template: 'install_link', language: 'en', placeholders: ['{name}', '{link}'] } } }); await clearTimings(); }

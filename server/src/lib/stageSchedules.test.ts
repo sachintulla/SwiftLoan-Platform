@@ -7,7 +7,7 @@ describe('per-stage schedule map', () => {
   it('names a key per sequence and stage', () => {
     expect(stageScheduleKey('install.schedule', 'otp_verified')).toBe('install.schedule.otp_verified');
     expect(allStageScheduleKeys().sort()).toEqual([
-      'dropoff.schedule.eligibility_started', 'dropoff.schedule.offer_viewed', 'install.schedule.eligibility_started', 'install.schedule.otp_verified',
+      'dropoff.schedule.eligibility_completed', 'dropoff.schedule.eligibility_started', 'dropoff.schedule.offer_viewed', 'dropoff.schedule.otp_verified', 'install.schedule.eligibility_started', 'install.schedule.otp_verified',
     ]);
   });
 
@@ -24,10 +24,13 @@ describe('per-stage schedule map', () => {
     expect(dropoffStageOf('offers_not_applied')).toBe('offer_viewed');
   });
 
+  it('"no offers" (rejected) has its own stage, "Fetching offers" (eligibility_completed)', () => {
+    expect(dropoffStageOf('rejected')).toBe('eligibility_completed');
+  });
+
   it('a status or step that belongs to no stage has none (it keeps the shared schedule)', () => {
     expect(installStageOf('otp_requested')).toBeNull();
     expect(installStageOf(null)).toBeNull();
-    expect(dropoffStageOf('rejected')).toBeNull();
     expect(dropoffStageOf('applied')).toBeNull();
     expect(dropoffStageOf(undefined)).toBeNull();
   });
