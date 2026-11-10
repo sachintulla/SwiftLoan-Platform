@@ -36,7 +36,7 @@ import { isOutreachStage } from './stageOutreach.js';
 import { buildPlaceholders, directWhatsAppConfig, templateFor, type DirectWhatsApp, type StallTemplate } from './stallWhatsapp.js';
 import { directSmsConfig, smsFor, type SmsTemplate } from './stallSms.js';
 import { sendWhatsAppTemplate } from './whatsapp.js';
-import { sendVoxSms } from './voxSms.js';
+import { otpGatewayConfigured, sendSmsViaOtpGateway, sendVoxSms } from './voxSms.js';
 import { withinCallingHours } from './leadCaller.js';
 import { nudgesDisabled } from '../jobs/tracking.jobs.js';
 import { withinTestAllowlist } from './callGate.js';
@@ -709,10 +709,16 @@ export async function sendManualSms(
   });
   if (!claimed) return sentTwiceTooSoon('sms');
 
-  const result = await sendVoxSms({
-    phone: customer.phone, body: tpl.body, templateId: tpl.templateId,
-    track: { kind: 'admin', customerId: customer.id },
-  });
+  // Force the OTP project's gateway for manual SMS. The marketing/DLT sender (PTSLA)
+  // lives on the OTP project; sending as the Voxvalley (WhatsApp) project has no SMS
+  // route and is rejected with "Error mapping routing strategy". Use the OTP gateway
+  // whenever its env is configured (same route the live stuck-stage SMS delivers on),
+  // and fall back to the integration's own project only when it isn't.
+  const track = { kind: 'admin' as const, customerId: customer.id };
+  const otpSender = String(smsCfg?.settings?.installSmsSender || smsCfg?.settings?.smsSender || '').trim();
+  const result = otpGatewayConfigured() && otpSender
+    ? await sendSmsViaOtpGateway({ phone: customer.phone, body: tpl.body, templateId: tpl.templateId, from: otpSender, track })
+    : await sendVoxSms({ phone: customer.phone, body: tpl.body, templateId: tpl.templateId, track });
 
   await settle(claimed.id, result, now, 'SMS send failed');
 
