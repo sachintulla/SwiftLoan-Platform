@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   existingClaim: null as null | { id: string; status: string },
   retakeCount: 1,
   nudgesOff: false,
+  otpGateway: false,
 }));
 
 // The dispatch worker is off when NUDGES_DISABLED is set. The real module pulls in every background job.
@@ -52,8 +53,14 @@ vi.mock('./whatsapp.js', () => ({ sendWhatsAppTemplate: wa.send, whatsappConfigu
 
 const sms = vi.hoisted(() => ({
   send: vi.fn(async (_o: any): Promise<any> => ({ ok: true, status: 200, messageId: 'sms-1' })),
+  otpSend: vi.fn(async (_o: any): Promise<any> => ({ ok: true, status: 200, messageId: 'sms-otp-1' })),
 }));
-vi.mock('./voxSms.js', () => ({ sendVoxSms: sms.send, smsConfigured: vi.fn(async () => true) }));
+vi.mock('./voxSms.js', () => ({
+  sendVoxSms: sms.send,
+  sendSmsViaOtpGateway: sms.otpSend,
+  otpGatewayConfigured: vi.fn(() => h.otpGateway),
+  smsConfigured: vi.fn(async () => true),
+}));
 
 vi.mock('./stallWhatsapp.js', async (orig) => ({
   ...(await orig<typeof import('./stallWhatsapp.js')>()),
@@ -563,6 +570,16 @@ describe('sendManualSms', () => {
     expect(sms.send.mock.calls[0][0]).toMatchObject({ phone: '9876543210', body: 'Finish your KYC today', templateId: 'T-KYC', track: { kind: 'admin', customerId: 'cust-1' } });
     expect((prismaMock.outboundRequest.create.mock.calls as any)[0][0].data.payload).toMatchObject({ source: 'admin', sentBy: { id: 'adm-1' }, templateId: 'T-KYC', channel: 'sms' });
     expect(journeyMock.recordJourneyEvent).toHaveBeenCalledWith('cust-1', expect.objectContaining({ metadata: expect.objectContaining({ via: 'sms', source: 'admin' }) }));
+  });
+
+  it('forces the OTP gateway (not the integration project) when the OTP env is configured', async () => {
+    h.otpGateway = true;
+    h.smsConfig = { settings: { ...smsSettings, smsSender: 'PTSLA' } };
+    const out = await M.sendManualSms(customer, admin, {}, NOW);
+    expect(out).toMatchObject({ ok: true, data: { channel: 'sms', status: 'sent', messageId: 'sms-otp-1' } });
+    expect(sms.otpSend).toHaveBeenCalledTimes(1);
+    expect(sms.otpSend.mock.calls[0][0]).toMatchObject({ phone: '9876543210', body: 'Finish your KYC today', templateId: 'T-KYC', from: 'PTSLA' });
+    expect(sms.send).not.toHaveBeenCalled(); // never the integration project (that's the "routing strategy" failure)
   });
 
   it('records a gateway failure, does not retry and does not set lastNudgedAt', async () => {

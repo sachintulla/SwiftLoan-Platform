@@ -218,6 +218,16 @@ function Customers() {
               }))}
             />
           </div>
+          {filters.active === 'today' && (
+            <span
+              className="row"
+              style={{ gap: 6, fontSize: 12.5, padding: '5px 10px', borderRadius: 999, background: 'var(--surface-2, #eef5f4)', border: '1px solid var(--line, #dbe6e4)' }}
+              title="Showing customers active since 12:00 AM IST today"
+            >
+              <span className="dot-live" /> Active today
+              <button className="icon-btn" onClick={() => change({ active: '' })} aria-label="Clear active-today filter" style={{ border: 0, background: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            </span>
+          )}
           {filtered && <button className="btn" onClick={reset}>Clear</button>}
         </div>
 

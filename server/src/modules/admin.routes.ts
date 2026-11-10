@@ -4,6 +4,7 @@ import { ah, HttpError } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
+import { istDayStart } from '../lib/stallCallLimits.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
 import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
 import { refreshApplicationStatus } from '../lib/statusRefresh.js';
@@ -100,9 +101,11 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
   // AppDownload by installedAt.
   const range = dateRange(req.query as Record<string, unknown>);
   const cr = range ? { createdAt: range } : {};
-  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
+  const [users, apps, appsAgg, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
     prisma.user.count({ where: cr }),
     prisma.loanApplication.count({ where: cr }),
+    // Total loan amount requested across applications in the range (whole rupees).
+    prisma.loanApplication.aggregate({ _sum: { amount: true }, where: cr }),
     prisma.loan.count({ where: range ? { disbursedAt: range } : {} }),
     prisma.lead.count({ where: cr }),
     prisma.appDownload.count({ where: range ? { installedAt: range } : {} }),
@@ -129,6 +132,7 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
     stats: {
       totalUsers: users,
       totalApplications: apps,
+      requestedAmount: appsAgg._sum.amount ?? 0,
       activeLoans: loans,
       totalLeads: leads,
       totalDownloads: downloads,
@@ -148,14 +152,18 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
 adminRouter.get('/dashboard/realtime', ah(async (_req, res) => {
   const hourAgo = new Date(Date.now() - 3600_000);
   const dayAgo = new Date(Date.now() - 864e5);
-  const [activeSessions, eventsLastHour, appsToday, disbursedToday, unreadNotifs] = await Promise.all([
+  // "Active today" = customers with genuine activity since the start of the current
+  // India day (00:00 IST). lastActivityAt is bumped only by customer-caused activity.
+  const istMidnight = istDayStart(new Date());
+  const [activeSessions, activeToday, eventsLastHour, appsToday, disbursedToday, unreadNotifs] = await Promise.all([
     prisma.session.count({ where: { endedAt: null, startedAt: { gte: dayAgo } } }),
+    prisma.customer.count({ where: { lastActivityAt: { gte: istMidnight } } }),
     prisma.activityEvent.count({ where: { ts: { gte: hourAgo } } }),
     prisma.loanApplication.count({ where: { createdAt: { gte: dayAgo } } }),
     prisma.loan.count({ where: { disbursedAt: { gte: dayAgo } } }),
     prisma.notification.count({ where: { read: false } }),
   ]);
-  return ok(res, { activeSessions, eventsLastHour, appsToday, disbursedToday, unreadNotifs, ts: new Date().toISOString() }, 'Realtime');
+  return ok(res, { activeSessions, activeToday, eventsLastHour, appsToday, disbursedToday, unreadNotifs, ts: new Date().toISOString() }, 'Realtime');
 }));
 
 // GET /api/admin/dashboard/charts?days=14
@@ -284,7 +292,7 @@ adminRouter.get('/loans', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
   const where = buildLoanWhere(req.query as Record<string, unknown>);
 
-  const [rows, total] = await Promise.all([
+  const [rows, total, requestedAgg] = await Promise.all([
     prisma.loanApplication.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -303,9 +311,11 @@ adminRouter.get('/loans', ah(async (req, res) => {
       },
     }),
     prisma.loanApplication.count({ where }),
+    // Total requested across the WHOLE filtered pipeline (not just this page).
+    prisma.loanApplication.aggregate({ _sum: { amount: true }, where }),
   ]);
 
-  return ok(res, rows, 'Loans', paginate(page, pageSize, total));
+  return ok(res, rows, 'Loans', { ...paginate(page, pageSize, total), requestedTotal: requestedAgg._sum.amount ?? 0 });
 }));
 
 // GET /api/admin/loans/:id  — single application + loan journey

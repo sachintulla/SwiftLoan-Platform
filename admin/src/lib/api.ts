@@ -61,7 +61,7 @@ export interface ApiResult<T> {
   success: boolean;
   data: T;
   message: string;
-  pagination?: { page: number; pageSize: number; total: number; totalPages: number };
+  pagination?: { page: number; pageSize: number; total: number; totalPages: number; requestedTotal?: number };
   error?: string;
 }
 
