@@ -8,6 +8,8 @@ export interface Pagination {
   pageSize: number;
   total: number;
   totalPages: number;
+  /** Optional: a sum relevant to the whole filtered set, e.g. total requested loan amount (whole rupees). */
+  requestedTotal?: number;
 }
 
 export function ok<T>(res: Response, data: T, message = 'OK', pagination?: Pagination) {

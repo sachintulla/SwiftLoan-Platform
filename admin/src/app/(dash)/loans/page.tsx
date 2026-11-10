@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, LoanStatusBadge, FilterChips, Select, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
-import { inr, dateTimeStr, loanStatusLabel } from '@/lib/format';
+import { inr, inrCompact, dateTimeStr, loanStatusLabel } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import { buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel, type FilterLabels } from '@/lib/lists';
 import '@/components/listActions.css';
@@ -153,6 +153,7 @@ export default function LoansPage() {
           <ExportNote />
           <p className="adm-resultline" aria-live="polite">
             {pg && !error ? resultLine(pg.total, 'application', 'applications', described) : ''}
+            {pg && !error && pg.requestedTotal != null ? ` · ${inrCompact(pg.requestedTotal)} total requested` : ''}
           </p>
 
           {error ? (

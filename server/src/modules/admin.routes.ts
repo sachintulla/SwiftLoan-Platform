@@ -101,9 +101,11 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
   // AppDownload by installedAt.
   const range = dateRange(req.query as Record<string, unknown>);
   const cr = range ? { createdAt: range } : {};
-  const [users, apps, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
+  const [users, apps, appsAgg, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups] = await Promise.all([
     prisma.user.count({ where: cr }),
     prisma.loanApplication.count({ where: cr }),
+    // Total loan amount requested across applications in the range (whole rupees).
+    prisma.loanApplication.aggregate({ _sum: { amount: true }, where: cr }),
     prisma.loan.count({ where: range ? { disbursedAt: range } : {} }),
     prisma.lead.count({ where: cr }),
     prisma.appDownload.count({ where: range ? { installedAt: range } : {} }),
@@ -130,6 +132,7 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
     stats: {
       totalUsers: users,
       totalApplications: apps,
+      requestedAmount: appsAgg._sum.amount ?? 0,
       activeLoans: loans,
       totalLeads: leads,
       totalDownloads: downloads,
@@ -289,7 +292,7 @@ adminRouter.get('/loans', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
   const where = buildLoanWhere(req.query as Record<string, unknown>);
 
-  const [rows, total] = await Promise.all([
+  const [rows, total, requestedAgg] = await Promise.all([
     prisma.loanApplication.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -308,9 +311,11 @@ adminRouter.get('/loans', ah(async (req, res) => {
       },
     }),
     prisma.loanApplication.count({ where }),
+    // Total requested across the WHOLE filtered pipeline (not just this page).
+    prisma.loanApplication.aggregate({ _sum: { amount: true }, where }),
   ]);
 
-  return ok(res, rows, 'Loans', paginate(page, pageSize, total));
+  return ok(res, rows, 'Loans', { ...paginate(page, pageSize, total), requestedTotal: requestedAgg._sum.amount ?? 0 });
 }));
 
 // GET /api/admin/loans/:id  — single application + loan journey
