@@ -805,7 +805,8 @@ that day was removed. App and website are one journey because the state is read 
   anyone with an activity row or ping in the last `dropoff.maxAgeHours`.
 - **Coming back** (`lib/dropoffDaily.ts returnVerdict`, pure): a newer action before any message = the clock restarts from that action once they are idle again
   (history entry "clock restarted"); a newer action after a message = the run stops (`returned`) and a fresh run may start when they stop again (the 14-day
-  one-run-per-step rule ignores runs that ended with `returned`). Checked at arming and again on every due run.
+  one-run-per-step rule ignores runs that ended with `returned`). Checked at arming and again on every due run. Asking for a login code is NOT an action (`NOT_A_RETURN_EVENT_NAMES` in `journey.ts`): only entering it (`otp_verified`)
+  counts, since an unentered request (a code SMS lost in a Vox outage, 7–9 Nov 2026) used to end the run for good. Test: `dropoff-return-check.mts` (in `run-dropoff.sh`).
 - **Then 7 AM daily for 7 days**: `dropoffConfigFor(status, base, startAt)` appends `dailyRows()` — one WhatsApp at `dropoff.dailyAt` (420 = 7:00 IST) each day for
   `dropoff.dailyDays` (7), as minutes-after-startAt rows, so the ordinary schedule engine (gap / too late / calling hours) runs them unchanged. A run that is already
   waiting keeps its next check time. The template per step is unchanged (`DEFAULT_DROPOFF_MESSAGES`; SMS rows are not part of the journey).
