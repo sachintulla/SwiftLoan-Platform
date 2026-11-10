@@ -14,6 +14,7 @@ import { validate } from '../middleware/validate.js';
 import { ok, created, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { STAGE_ORDER, STAGE_LABELS, TERMINAL_STAGES, CHANNEL_ENTRY_STAGES } from '../lib/journey.js';
+import { istDayStart } from '../lib/stallCallLimits.js';
 import { nudgeCustomer } from '../lib/dispatch.js';
 import { NEXT_ACTION_BY_STAGE, nextActionFor } from '../lib/nextAction.js';
 import { eraseCustomer } from '../lib/customerErasure.js';
@@ -64,6 +65,12 @@ customersRouter.get('/', ah(async (req, res) => {
       { phone: { contains: s } },
       { email: { contains: s, mode: 'insensitive' } },
     ];
+  }
+  // "Active today" = any genuine activity since the start of the current India day
+  // (00:00 IST). lastActivityAt tracks customer-caused activity only (system events
+  // don't bump it), so it's the right signal. Drives the dashboard "N active" count.
+  if (String(q.active ?? '').toLowerCase() === 'today') {
+    where.lastActivityAt = { gte: istDayStart(new Date()) };
   }
   const stalled = parseInt(String(q.stalledMinutes ?? ''), 10);
   if (Number.isFinite(stalled) && stalled > 0) {

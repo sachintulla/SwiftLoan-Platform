@@ -19,10 +19,12 @@ export interface CustomerFilters {
   /** YYYY-MM-DD, used when period is custom. */
   from: string;
   to: string;
+  /** 'today' = active since 00:00 IST (lastActivityAt); '' = any. Set by the "N active" badge. */
+  active: string;
 }
 
 export const DEFAULT_CUSTOMER_FILTERS: CustomerFilters = {
-  stage: '', source: '', campaignId: '', search: '', stalledMinutes: '', period: 'all', from: '', to: '',
+  stage: '', source: '', campaignId: '', search: '', stalledMinutes: '', period: 'all', from: '', to: '', active: '',
 };
 
 const PERIODS: CustomerPeriod[] = ['all', 'today', 'yesterday', '7d', '30d', 'custom'];
@@ -77,6 +79,8 @@ export function parseCustomerFilters(input: string | URLSearchParams | null | un
   const stalled = clean(sp.get('stalledMinutes'));
   if (/^\d{1,6}$/.test(stalled) && parseInt(stalled, 10) > 0) out.stalledMinutes = String(parseInt(stalled, 10));
 
+  if (clean(sp.get('active')).toLowerCase() === 'today') out.active = 'today';
+
   const period = clean(sp.get('period')) as CustomerPeriod;
   if (PERIODS.includes(period)) out.period = period;
   const from = clean(sp.get('from'));
@@ -97,6 +101,7 @@ export function serialiseCustomerFilters(f: CustomerFilters): string {
   if (f.campaignId) sp.set('campaignId', f.campaignId);
   if (f.search.trim()) sp.set('search', f.search.trim());
   if (f.stalledMinutes) sp.set('stalledMinutes', f.stalledMinutes);
+  if (f.active) sp.set('active', f.active);
   if (f.period !== 'all') sp.set('period', f.period);
   if (f.period === 'custom') {
     if (f.from) sp.set('from', f.from);
@@ -123,6 +128,7 @@ export function customerFilterParams(f: CustomerFilters, range: { from?: string;
   if (f.campaignId) sp.set('campaignId', f.campaignId);
   if (f.search.trim()) sp.set('search', f.search.trim());
   if (f.stalledMinutes) sp.set('stalledMinutes', f.stalledMinutes);
+  if (f.active) sp.set('active', f.active);
   if (range.from) sp.set('from', range.from);
   if (range.to) sp.set('to', range.to);
   return sp;

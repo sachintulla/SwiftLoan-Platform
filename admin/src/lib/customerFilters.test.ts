@@ -17,7 +17,13 @@ describe('parseCustomerFilters', () => {
 
   it('reads every filter', () => {
     const f = parseCustomerFilters('stage=kyc_started&source=app&campaignId=c1&search=asha&stalledMinutes=1440&period=7d');
-    expect(f).toEqual({ stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '1440', period: '7d', from: '', to: '' });
+    expect(f).toEqual({ stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '1440', period: '7d', from: '', to: '', active: '' });
+  });
+
+  it('reads the active-today flag', () => {
+    expect(parseCustomerFilters('active=today').active).toBe('today');
+    expect(parseCustomerFilters('active=bogus').active).toBe('');
+    expect(serialiseCustomerFilters({ ...DEFAULT_CUSTOMER_FILTERS, active: 'today' })).toBe('active=today');
   });
 
   it('reads a custom range', () => {
@@ -60,10 +66,11 @@ describe('serialiseCustomerFilters', () => {
 
   it('round trips every filter', () => {
     const cases: CustomerFilters[] = [
-      { stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha verma', stalledMinutes: '4320', period: '30d', from: '', to: '' },
+      { stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha verma', stalledMinutes: '4320', period: '30d', from: '', to: '', active: '' },
       { ...DEFAULT_CUSTOMER_FILTERS, period: 'custom', from: '2026-10-01', to: '2026-10-15' },
       { ...DEFAULT_CUSTOMER_FILTERS, search: 'a&b=c' },
       { ...DEFAULT_CUSTOMER_FILTERS, period: 'yesterday' },
+      { ...DEFAULT_CUSTOMER_FILTERS, active: 'today' },
     ];
     for (const f of cases) expect(parseCustomerFilters(serialiseCustomerFilters(f))).toEqual(f);
   });
@@ -97,7 +104,7 @@ describe('Inactive for options', () => {
 });
 
 describe('list and export queries', () => {
-  const f: CustomerFilters = { stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '60', period: '7d', from: '', to: '' };
+  const f: CustomerFilters = { stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '60', period: '7d', from: '', to: '', active: '' };
   const range = { from: '2026-10-20T00:00:00.000Z', to: '2026-10-27T00:00:00.000Z' };
 
   it('puts every filter, including search, from and to, in the export', () => {

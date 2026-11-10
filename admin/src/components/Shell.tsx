@@ -83,7 +83,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const locked = mustChangePassword();
 
   const { data: realtime } = useSWR('/api/admin/dashboard/realtime', swrFetcher, { refreshInterval: 8000 });
-  const rt = (realtime?.data ?? {}) as { unreadNotifs?: number; activeSessions?: number };
+  const rt = (realtime?.data ?? {}) as { unreadNotifs?: number; activeSessions?: number; activeToday?: number };
   // Open + in-progress support tickets — what still needs a human.
   const { data: supSummary } = useSWR('/api/admin/support/summary', swrFetcher, { refreshInterval: 15000 });
   const supportOpen = ((supSummary?.data ?? {}) as { needsAction?: number }).needsAction;
@@ -137,7 +137,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="topbar">
           <div className="topbar-title">{title}</div>
           <div className="row" style={{ gap: 14 }}>
-            <span className="row" style={{ gap: 7, fontSize: 12.5 }}><span className="dot-live" /> {rt.activeSessions ?? 0} active</span>
+            <Link
+              href="/customers?active=today"
+              className="row"
+              style={{ gap: 7, fontSize: 12.5, color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+              title="Customers active since 12:00 AM IST today — click to list them"
+            ><span className="dot-live" /> {rt.activeToday ?? 0} active today</Link>
             <div className="avatar" title={admin?.email}>{(admin?.name || 'A').slice(0, 1).toUpperCase()}</div>
           </div>
         </div>
