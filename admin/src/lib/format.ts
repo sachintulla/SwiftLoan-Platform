@@ -94,21 +94,22 @@ export function statusTone(status: string | null | undefined): StatusTone {
 }
 
 /**
- * Loan / lender application status → the EXACT label the customer sees in the
- * mobile app's My Loans (src/screens/loans.tsx STATUS_META). Kept in sync so a
- * status an ops user reads in the admin matches what the customer was shown —
- * e.g. `disbursed` reads "Active", and every pre-offer state reads "In Progress".
- * Used for both a parent application's status and a per-lender offer status.
+ * Loan / lender application status → the DETAILED operational label, used
+ * consistently across the whole admin (rows, badges, filters, detail pages) so
+ * every surface reads the same stage of the funnel. Unlike the mobile app's My
+ * Loans (which collapses everything pre-offer into "In Progress"), the admin
+ * shows exactly where an application is. Used for both a parent application's
+ * status and a per-lender offer status.
  */
 export const LOAN_STATUS_LABEL: Record<string, string> = {
-  draft: 'In Progress',
-  pan_pending: 'In Progress',
-  prequalifying: 'In Progress',
-  offers_ready: 'In Progress',
-  handoff: 'In Progress',
-  under_review: 'Under Review',
+  draft: 'Draft',
+  pan_pending: 'PAN Pending',
+  prequalifying: 'Prequalifying',
+  offers_ready: 'Offers',
+  handoff: 'Handoff',
+  under_review: 'In Review',
   approved: 'Approved',
-  disbursed: 'Active',
+  disbursed: 'Disbursed',
   rejected: 'Rejected',
   failed: 'Failed',
   closed: 'Closed',

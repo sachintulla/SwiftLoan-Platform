@@ -2,7 +2,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
-import { Card, StatCard, StatusBadge, TableSkeleton, Empty } from '@/components/ui';
+import { Card, StatCard, StatusBadge, LoanStatusBadge, TableSkeleton, Empty } from '@/components/ui';
 import { inr, dateStr, dateTimeStr, humanStatus, timeAgo } from '@/lib/format';
 import { stageLabel } from '@/components/journey';
 import { CallList } from '@/components/callDetail';
@@ -95,7 +95,7 @@ export default function UserProfile() {
                 <td>{LENDER_GROUP_LABEL[a.lenderGroup] || humanStatus(a.lenderGroup)}</td>
                 <td>{a.lender || '—'}{a.lenderNote && <div style={{ fontSize: 11.5, color: 'var(--amber, #b54708)' }} title={a.lenderNoteAt ? dateStr(a.lenderNoteAt) : undefined}>Lender note: {a.lenderNote}</div>}</td>
                 <td className="mono">{a.amount != null ? inr(a.amount) : '—'}</td>
-                <td><StatusBadge status={a.status} /></td>
+                <td><LoanStatusBadge status={a.status} /></td>
                 <td className="muted" title={dateStr(a.appliedAt)}>{timeAgo(a.appliedAt)}</td>
               </tr>
             ))}</tbody>
@@ -120,7 +120,7 @@ export default function UserProfile() {
             <div className="table-wrap"><table className="data">
               <thead><tr><th>Ref</th><th>Amount</th><th>Status</th></tr></thead>
               <tbody>{u.applications.map((a: any) => (
-                <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}><td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td><td><StatusBadge status={a.status} /></td></tr>
+                <tr key={a.id} onClick={() => router.push(`/loans/${a.id}`)}><td className="mono">{a.ref}</td><td className="mono">{inr(a.amount)}</td><td><LoanStatusBadge status={a.status} /></td></tr>
               ))}</tbody>
             </table></div>
           )}
