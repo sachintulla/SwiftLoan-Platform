@@ -105,12 +105,12 @@ export default function LoanDetail() {
       )}
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(460px,1fr))' }}>
-        <Card title="Offers">
+        <Card title={`Offers (${app.offers?.length ?? 0})`}>
           {(app.offers ?? []).length === 0 ? <div className="empty">No offers generated</div> : (
             <div className="table-wrap"><table className="data">
-              <thead><tr><th>Lender</th><th>APR</th><th>EMI</th><th>Fee</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Lender</th><th>Amount</th><th>APR</th><th>Tenure</th><th>EMI</th><th>Fee</th><th>Status</th><th></th></tr></thead>
               <tbody>{app.offers.map((o: any) => (
-                <tr key={o.id}><td>{o.lenderName ?? o.partner?.name}</td><td className="mono">{o.apr}%</td><td className="mono">{inr(o.emi)}</td><td className="mono">{inr(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
+                <tr key={o.id}><td>{o.lenderName ?? o.partner?.name}</td><td className="mono">{o.amount ? inr(o.amount) : '—'}</td><td className="mono">{o.apr ? `${o.apr}%` : '—'}</td><td className="mono">{o.tenureMonths ? `${o.tenureMonths} mo` : '—'}</td><td className="mono">{inr(o.emi)}</td><td className="mono">{inr(o.processingFee)}</td><td>{o.applied ? <LoanStatusBadge status={o.lenderStatus ?? 'handoff'} /> : <span className="muted" style={{ fontSize: 12 }}>not applied</span>}</td><td>{o.selected ? <StatusBadge status="approved" label="Selected" /> : o.recommended ? <StatusBadge status="qualified" label="Recommended" /> : ''}</td></tr>
               ))}</tbody>
             </table></div>
           )}

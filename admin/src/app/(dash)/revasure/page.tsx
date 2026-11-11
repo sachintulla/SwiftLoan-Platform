@@ -6,7 +6,7 @@ import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, Stat, StatusBadge, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
 import RevasureMisUpload from '@/components/RevasureMisUpload';
-import { num, dateTimeStr, timeAgo } from '@/lib/format';
+import { num, inrCompact, dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import {
   buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel,
@@ -254,6 +254,7 @@ export default function RevasurePage() {
           <ExportNote />
           <p className="adm-resultline" aria-live="polite">
             {pg && !error ? resultLine(pg.total, 'lead', 'leads', described) : ''}
+            {pg && !error && pg.requestedTotal != null ? ` · ${inrCompact(pg.requestedTotal)} total application worth` : ''}
           </p>
 
           {error ? (

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, Stat, Select, FilterChips, Pagination, TableSkeleton, Callout } from '@/components/ui';
-import { num } from '@/lib/format';
+import { num, loanStatusLabel } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import { STAGES, stageLabel } from '@/components/journey';
 import AppBuilds from '@/components/AppBuilds';
@@ -78,6 +78,7 @@ export default function DownloadsPage() {
   const clearFilters = () => { setSearchText(''); setFilters(EMPTY_INSTALL_FILTERS); setPage(1); };
 
   const stats = p?.stats;
+  const funnel = p?.funnel;
   const periodLabel = INSTALL_PERIODS.find((x) => x.key === period)?.label.toLowerCase() ?? 'this period';
   const pctFoot = (n: number) => (stats ? `${percentOf(n, stats.total)}% of installs` : undefined);
 
@@ -95,6 +96,29 @@ export default function DownloadsPage() {
             <Stat label="Reached the next step since install" value={stats ? num(stats.reachedNextStep) : '-'} foot={pctFoot(stats?.reachedNextStep ?? 0)} />
             <Stat label="Not signed in yet" value={stats ? num(stats.notSignedIn) : '-'} foot={pctFoot(stats?.notSignedIn ?? 0)} />
           </div>
+        </Card>
+
+        <Card title="Download journey" sub={`What happened after people installed, in ${periodLabel}.`}>
+          {funnel ? (
+            <>
+              <div className="stat-strip adm-inst-stat-wrap">
+                <Stat label="Installs" value={num(funnel.installs)} foot={`In ${periodLabel}`} />
+                <Stat label="Identified" value={num(funnel.identified)} foot="Tied to a customer" />
+                <Stat label="Started an application" value={num(funnel.withApplication)} foot={pctFoot(funnel.withApplication)} />
+                <Stat label="Got offers" value={num(funnel.gotOffers)} foot={pctFoot(funnel.gotOffers)} tone="teal" />
+                <Stat label="No offer (rejected / failed)" value={num(funnel.noOffers)} foot={pctFoot(funnel.noOffers)} tone={funnel.noOffers > 0 ? 'red' : undefined} />
+                <Stat label="Stopped before offers" value={num(funnel.stoppedBeforeOffers)} foot="Started, stuck pre-offers" tone={funnel.stoppedBeforeOffers > 0 ? 'amber' : undefined} />
+                <Stat label="Applied to a lender" value={num(funnel.applied)} foot={pctFoot(funnel.applied)} tone="blue" />
+                <Stat label="Disbursed" value={num(funnel.disbursed)} foot={pctFoot(funnel.disbursed)} tone="green" />
+                <Stat label="Contacted since install" value={num(funnel.contacted)} foot={`${num(funnel.notContacted)} not yet reached`} />
+              </div>
+              {funnel.byStatus.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <BarList title="Current application status" rows={funnel.byStatus.map((s) => ({ label: loanStatusLabel(s.status), count: s.count }))} />
+                </div>
+              )}
+            </>
+          ) : error ? <p className="muted" style={{ margin: 0 }}>Not available while installs cannot be loaded.</p> : <TableSkeleton rows={3} cols={2} />}
         </Card>
 
         <Card>

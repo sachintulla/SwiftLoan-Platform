@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, Stat, StatusBadge, FilterChips, Callout, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
-import { num, dateTimeStr, timeAgo } from '@/lib/format';
+import { num, inrCompact, dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import {
   buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel,
@@ -176,6 +176,7 @@ export default function YubiPage() {
           <ExportNote />
           <p className="adm-resultline" aria-live="polite">
             {pg && !error ? resultLine(pg.total, 'referral', 'referrals', described) : ''}
+            {pg && !error && pg.requestedTotal != null ? ` · ${inrCompact(pg.requestedTotal)} total application worth` : ''}
           </p>
 
           {error ? (

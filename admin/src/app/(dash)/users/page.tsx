@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { Card, SearchBox, StatusBadge, FilterChips, Pagination, TableSkeleton, Empty } from '@/components/ui';
-import { inr, dateTimeStr, humanStatus } from '@/lib/format';
+import { inr, inrCompact, dateTimeStr, humanStatus } from '@/lib/format';
 import { STAGES, stageLabel } from '@/components/journey';
 
 interface U {
@@ -74,7 +74,7 @@ export default function UsersPage() {
       <p className="page-sub">Registered borrowers — search, and filter by current journey stage and joined date.</p>
       <Card>
         <div className="row between wrap" style={{ marginBottom: 12, gap: 12 }}>
-          <span className="muted" style={{ fontSize: 13 }}>{pg ? `${pg.total} users` : ''}</span>
+          <span className="muted" style={{ fontSize: 13 }}>{pg ? `${pg.total} users${pg.requestedTotal != null ? ` · ${inrCompact(pg.requestedTotal)} total application worth` : ''}` : ''}</span>
           <SearchBox value={search} onChange={(v) => reset(() => setSearch(v))} placeholder="Search name, phone, email…" />
         </div>
 
