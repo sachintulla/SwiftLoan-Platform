@@ -33,7 +33,7 @@ export default function NotifyPage() {
 
   // Search customers only when there's a query and nobody is picked yet.
   const { data, isLoading } = useSWR(
-    !picked && dSearch.trim().length >= 2 ? `/api/admin/customers?pageSize=8&search=${encodeURIComponent(dSearch.trim())}` : null,
+    !picked && dSearch.trim().length >= 2 ? `/api/admin/customers?otp=all&pageSize=8&search=${encodeURIComponent(dSearch.trim())}` : null,
     swrFetcher,
   );
   const results = asArray<CustomerRow>((data as { data?: unknown } | undefined)?.data);

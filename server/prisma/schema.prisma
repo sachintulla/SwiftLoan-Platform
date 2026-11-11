@@ -104,7 +104,6 @@ model User {
   // preference during a call; `preferred_language` in page_context falls
   // back to `lang` until then.
   voiceLang      Lang?
-  creditScore    Int             @default(750)
   phoneVerified  Boolean         @default(false)
   emailVerified  Boolean         @default(false)
   memberVerified Boolean         @default(false)

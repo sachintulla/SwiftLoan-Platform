@@ -14,7 +14,7 @@ import { reconcileStaleCalls, CALL_STALE_MINUTES } from '../lib/callReconcile.js
 import { scoped } from '../lib/log.js';
 import { toCsv } from '../lib/csv.js';
 import { auditExport, sendCsv, csvFilename } from '../lib/exportAudit.js';
-import { EXPORT_LIMIT, buildCustomerExportWhere, qStr } from '../lib/listFilters.js';
+import { EXPORT_LIMIT, buildCustomerExportWhere, customerOtpWhere, qStr } from '../lib/listFilters.js';
 
 const log = scoped('admin-ops');
 
@@ -56,11 +56,11 @@ adminOpsRouter.get('/audit', requireRole(...CAN_ADMINISTER), ah(async (req, res)
 // Both exports need CAN_WRITE (the analyst role cannot take customer data out) and are
 // audited: auditAdmin skips GET, so each export records itself with auditExport.
 
-// GET /api/admin/ops/export/customers.csv?stage=&source=&campaignId=&search=&from=&to=&stalledMinutes=
+// GET /api/admin/ops/export/customers.csv?stage=&source=&campaignId=&search=&from=&to=&stalledMinutes=&otp=
 // Follows every filter the Customers page has, through the same builder rules as the list.
 adminOpsRouter.get('/export/customers.csv', requireRole(...CAN_WRITE), ah(async (req, res) => {
   const q = req.query as Record<string, unknown>;
-  const where = buildCustomerExportWhere(q);
+  const where = { AND: [buildCustomerExportWhere(q), customerOtpWhere(q.otp)] };
 
   const found = await prisma.customer.findMany({
     where, orderBy: { lastActivityAt: 'desc' }, take: EXPORT_LIMIT + 1,
@@ -78,7 +78,7 @@ adminOpsRouter.get('/export/customers.csv', requireRole(...CAN_WRITE), ah(async 
   );
   await auditExport(req, {
     name: 'customers',
-    filters: pickDefined(q, ['stage', 'source', 'campaignId', 'search', 'from', 'to', 'stalledMinutes']),
+    filters: pickDefined(q, ['stage', 'source', 'campaignId', 'search', 'from', 'to', 'stalledMinutes', 'otp']),
     rows: rows.length,
     truncated,
   });

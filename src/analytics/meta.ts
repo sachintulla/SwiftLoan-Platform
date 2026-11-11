@@ -25,8 +25,9 @@ import { UPSHOT_DEMO } from '../config/build';
 
 /** Public client identifiers (ship inside the app, like the Upshot ids) — Meta app "Swiftloan". */
 export const META_APP_ID = '1669156655221818';
-/** App settings -> Advanced -> Client token. Empty = Meta stays off. Override: globalThis.SWIFTLOAN_META_CLIENT_TOKEN. */
-const META_CLIENT_TOKEN: string = ((globalThis as any).SWIFTLOAN_META_CLIENT_TOKEN ?? '').trim();
+/** App settings -> Advanced -> Client token (a public identifier that ships inside the app, like the Upshot ids).
+ *  Override: globalThis.SWIFTLOAN_META_CLIENT_TOKEN; setting it to '' switches Meta off. */
+const META_CLIENT_TOKEN: string = ((globalThis as any).SWIFTLOAN_META_CLIENT_TOKEN ?? 'f6facf372cddc81fa525ed90893dc3ff').trim();
 
 /** Debug/demo builds talk to the dev backend; keep their traffic out of the real ad data unless asked. */
 const ALLOW_DEMO: boolean = (globalThis as any).SWIFTLOAN_META_ALLOW_DEMO === true;

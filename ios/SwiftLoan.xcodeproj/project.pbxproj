@@ -26,6 +26,7 @@
 		F00DFACE00000000000B0006 /* AttributionModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0006 /* AttributionModule.m */; };
 		F00DFACE00000000000B0007 /* PanOcrModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0007 /* PanOcrModule.swift */; };
 		F00DFACE00000000000B0008 /* PanOcrModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A0008 /* PanOcrModule.m */; };
+		F00DFACE00000000000B00F1 /* FirebaseEventsModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F00DFACE00000000000A00F1 /* FirebaseEventsModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 		F00DFACE00000000000A0006 /* AttributionModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AttributionModule.m; path = SwiftLoan/Attribution/AttributionModule.m; sourceTree = "<group>"; };
 		F00DFACE00000000000A0007 /* PanOcrModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PanOcrModule.swift; path = SwiftLoan/PanOcrModule.swift; sourceTree = "<group>"; };
 		F00DFACE00000000000A0008 /* PanOcrModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PanOcrModule.m; path = SwiftLoan/PanOcrModule.m; sourceTree = "<group>"; };
+		F00DFACE00000000000A00F1 /* FirebaseEventsModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FirebaseEventsModule.m; path = SwiftLoan/Firebase/FirebaseEventsModule.m; sourceTree = "<group>"; };
 		F9FBE9B3B7694B5F9FFB7125 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Inter-SemiBold.ttf"; path = "../assets/fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -81,6 +83,7 @@
 				F00DFACE00000000000A0004 /* UiSoundModule.m */,
 				F00DFACE00000000000A0005 /* AttributionModule.swift */,
 				F00DFACE00000000000A0006 /* AttributionModule.m */,
+				F00DFACE00000000000A00F1 /* FirebaseEventsModule.m */,
 				F00DFACE00000000000A0007 /* PanOcrModule.swift */,
 				F00DFACE00000000000A0008 /* PanOcrModule.m */,
 			);
@@ -310,6 +313,7 @@
 				F00DFACE00000000000B0004 /* UiSoundModule.m in Sources */,
 				F00DFACE00000000000B0005 /* AttributionModule.swift in Sources */,
 				F00DFACE00000000000B0006 /* AttributionModule.m in Sources */,
+				F00DFACE00000000000B00F1 /* FirebaseEventsModule.m in Sources */,
 				F00DFACE00000000000B0007 /* PanOcrModule.swift in Sources */,
 				F00DFACE00000000000B0008 /* PanOcrModule.m in Sources */,
 			);

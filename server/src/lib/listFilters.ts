@@ -281,6 +281,32 @@ export function buildCustomerExportWhere(q: Query): Prisma.CustomerWhereInput {
   return where;
 }
 
+/**
+ * The Customers list's "Unverified numbers" toggle. Someone who typed a number and asked for an OTP (app or website)
+ * already has a Customer row, but nothing else about them is known, so they are kept out of the normal list:
+ * - `unverified`: only people with an OTP request and no OTP verify;
+ * - `all`: no filter (lookups by phone, e.g. the admin voice tool and the Notify picker);
+ * - anything else (the default): everyone EXCEPT those people. Website enquiries and callers, who never asked for an
+ *   OTP, stay in the default list.
+ * On the prod data (2026-11-09) this matches `User.phoneVerified = false` exactly (117 people).
+ */
+export type CustomerOtpView = 'verified' | 'unverified' | 'all';
+export function customerOtpView(v: unknown): CustomerOtpView {
+  const s = qStr(v);
+  return s === 'unverified' || s === 'all' ? s : 'verified';
+}
+export function customerOtpWhere(v: unknown): Prisma.CustomerWhereInput {
+  const view = customerOtpView(v);
+  if (view === 'all') return {};
+  const requestedNotVerified: Prisma.CustomerWhereInput = {
+    AND: [
+      { events: { some: { name: 'otp_requested' } } },
+      { events: { none: { name: 'otp_verified' } } },
+    ],
+  };
+  return view === 'unverified' ? requestedNotVerified : { NOT: requestedNotVerified };
+}
+
 /* ─────────────────────────── redaction ─────────────────────────── */
 
 /** Keys that can carry identity documents or secrets. Matched anywhere in the key name, any case. */

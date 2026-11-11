@@ -34,6 +34,7 @@ import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { scoped } from '../lib/log.js';
+import { webhookEnvTag } from '../lib/webhookEnv.js';
 import { advanceReferral } from '../lib/referral.js';
 import { lenderNoteChange, recordLenderNote } from '../lib/lenderNote.js';
 
@@ -47,10 +48,28 @@ function timingSafeStringEqual(computed: string, provided: string): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-/** Verify KFT's X-KF-Signature, or the legacy shared-secret header. */
-function signatureOk(req: any): boolean {
+type WebhookAuth = { ok: true } | { ok: false; code: 401 | 503; message: string };
+
+/**
+ * Verify KFT's X-KF-Signature, or the legacy shared-secret header.
+ *
+ * Fail-closed in production (mirrors the Yubi webhook): when no webhook secret
+ * is configured, a production instance REJECTS the post (503) rather than
+ * accepting a spoofable status push against live loans. Development stays
+ * lenient — a local box with no secret still accepts (with a warning) so the
+ * flow can be exercised. Each environment must therefore set its OWN distinct
+ * KFT_WEBHOOK_SECRET; see docs/WEBHOOKS_ENVIRONMENTS.md.
+ */
+function verifyWebhook(req: any): WebhookAuth {
   const secret = process.env.KFT_WEBHOOK_SECRET || process.env.AURIX_WEBHOOK_SECRET || '';
-  if (!secret) return true; // not configured (dev) — accept, but the call is logged
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      log.error('KFT_WEBHOOK_SECRET / AURIX_WEBHOOK_SECRET is not set — rejecting post');
+      return { ok: false, code: 503, message: 'Webhook is not configured' };
+    }
+    log.warn('KFT/AURIX webhook secret is not set — accepting unverified post (dev only)');
+    return { ok: true };
+  }
   const sig = req.get('x-kf-signature') || '';
   if (sig) {
     const raw: Buffer = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
@@ -61,11 +80,12 @@ function signatureOk(req: any): boolean {
       .update(Buffer.concat([Buffer.from(secret, 'utf8'), raw]))
       .digest('base64');
     const hmac = crypto.createHmac('sha256', secret).update(raw).digest('base64');
-    return timingSafeStringEqual(concatenatedHash, sig) || timingSafeStringEqual(hmac, sig);
+    const good = timingSafeStringEqual(concatenatedHash, sig) || timingSafeStringEqual(hmac, sig);
+    return good ? { ok: true } : { ok: false, code: 401, message: 'Invalid webhook signature' };
   }
   // Legacy header fallback (pre-v1.2 shared-secret header).
   const got = req.get('x-aurix-webhook-secret') || req.get('x-api-key') || '';
-  return got === secret;
+  return got === secret ? { ok: true } : { ok: false, code: 401, message: 'Invalid webhook signature' };
 }
 
 // Best-effort idempotency on X-KF-Request-ID (bounded in-memory set).
@@ -181,7 +201,8 @@ function journeyName(status: ApplicationStatus): string {
 }
 
 aurixWebhookRouter.post('/', ah(async (req, res) => {
-  if (!signatureOk(req)) return fail(res, 401, 'Invalid webhook signature');
+  const auth = verifyWebhook(req);
+  if (!auth.ok) return fail(res, auth.code, auth.message);
   const requestId = req.get('x-kf-request-id') || undefined;
   if (alreadyProcessed(requestId)) return ok(res, { duplicate: true }, 'Already processed');
 
@@ -204,10 +225,8 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const offerCode = body.OfferCode ?? body.offerCode ?? body.offer_code ?? null;
   // v1.3: post-redirection journey carries the terminal outcome here.
   const postLenderStatus = data.post_lender_status != null ? String(data.post_lender_status) : '';
-  // v1.3: bureau soft-pull now includes the real bureau score.
-  const bureauScore = Number(data.bureau_score);
 
-  log.info('received', { requestId, state, status: jStatus, leadId, partnerCustomerId, offerCode });
+  log.info('received', { ...webhookEnvTag(req.get('host')), requestId, state, status: jStatus, leadId, partnerCustomerId, offerCode });
 
   // Locate the application: leadId (most precise) → offerCode → user's latest.
   let application: { id: string; userId: string; status: ApplicationStatus; leadId: string | null } | null = null;
@@ -244,16 +263,6 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const offerCodeMatch = offerCode
     ? await prisma.offer.findFirst({ where: { offerCode: String(offerCode), applicationId: application.id } })
     : null;
-
-  // v1.3: the bureau soft-pull event now carries the customer's real bureau
-  // score — persist it so the app shows the actual CIBIL/CRIF value instead of
-  // the default. (Independent of the status mapping below.)
-  if (Number.isFinite(bureauScore) && bureauScore >= 300 && bureauScore <= 900) {
-    await prisma.user.update({
-      where: { id: application.userId },
-      data: { creditScore: Math.round(bureauScore) },
-    }).catch(() => {});
-  }
 
   const mapped = state
     // Fold data.post_lender_status into `reason` so a "Disbursed"/"Approved"/

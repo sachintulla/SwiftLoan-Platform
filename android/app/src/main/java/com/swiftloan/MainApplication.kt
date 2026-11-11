@@ -10,6 +10,7 @@ import com.swiftloan.panocr.PanOcrPackage
 import com.swiftloan.uisound.UiSoundPackage
 import com.swiftloan.attribution.InstallReferrerPackage
 import com.swiftloan.meta.MetaSdkInitPackage
+import com.swiftloan.firebase.FirebaseEventsPackage
 import com.upshotreactlibrary.UpshotApplication
 
 /**
@@ -36,6 +37,7 @@ class MainApplication : UpshotApplication(), ReactApplication {
           add(UiSoundPackage())
           add(InstallReferrerPackage())
           add(MetaSdkInitPackage())
+          add(FirebaseEventsPackage())
         },
     )
   }

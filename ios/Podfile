@@ -23,6 +23,18 @@ target 'SwiftLoan' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # Firebase Analytics for the named funnel events (ios/SwiftLoan/Firebase/FirebaseEventsModule.m looks it
+  # up at runtime; it stays off until GoogleService-Info.plist is in the app target). The pods are linked
+  # statically like the rest of the app, so the Swift Firebase pods need modular headers from their deps.
+  # WithoutAdIdSupport: no IDFA / ads-conversion SDK, matching Android (AD_ID stripped) and the no-ATT policy.
+  pod 'FirebaseAnalytics/WithoutAdIdSupport', '~> 11.15'
+  pod 'FirebaseCore', :modular_headers => true
+  pod 'FirebaseCoreInternal', :modular_headers => true
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'FirebaseInstallations', :modular_headers => true
+  pod 'GoogleDataTransport', :modular_headers => true
+  pod 'nanopb', :modular_headers => true
+
   post_install do |installer|
     react_native_post_install(
       installer,

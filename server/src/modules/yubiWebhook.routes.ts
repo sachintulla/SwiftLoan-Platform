@@ -20,6 +20,7 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, fail } from '../lib/http.js';
 import { scoped } from '../lib/log.js';
+import { webhookEnvTag } from '../lib/webhookEnv.js';
 import { yubiAuthOk, parseYubiEvent } from '../lib/yubiWebhook.js';
 
 const log = scoped('yubi-webhook');
@@ -43,7 +44,7 @@ yubiWebhookRouter.post('/', ah(async (req, res) => {
   }
 
   const ev = parseYubiEvent(req.body);
-  log.info('received', { ...ev });
+  log.info('received', { ...webhookEnvTag(req.get('host')), ...ev });
 
   if (!ev.clientReferralId && !ev.ymplReferralId) {
     return ok(res, { matched: false }, 'No referral id in payload');
