@@ -162,6 +162,7 @@
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
+				5A1F0E2B7C3D4E5F60718293 /* Copy Firebase config */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
@@ -259,6 +260,20 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-SwiftLoan/Pods-SwiftLoan-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
+		};
+		5A1F0E2B7C3D4E5F60718293 /* Copy Firebase config */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Firebase config";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n# GoogleService-Info.plist is gitignored (like android/app/google-services.json): copy it into the app when present.\nSRC=\"${SRCROOT}/GoogleService-Info.plist\"\nif [ -f \"$SRC\" ]; then\n  cp \"$SRC\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist\"\nelif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  echo \"warning: ios/GoogleService-Info.plist is missing (Firebase project swiftloan-ai): this build sends no Firebase events\"\nfi\n";
 		};
 		C38B50BA6285516D6DCD4F65 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
