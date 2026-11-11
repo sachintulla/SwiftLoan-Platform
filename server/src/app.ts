@@ -62,6 +62,7 @@ import { metaRouter } from './modules/meta.routes.js';
 import { adminOutreachRouter } from './modules/adminOutreach.routes.js';
 import { adminInstallsRouter } from './modules/adminInstalls.routes.js';
 import { adminNotificationCenterRouter } from './modules/adminNotificationCenter.routes.js';
+import { adminApiErrorsRouter } from './modules/adminApiErrors.routes.js';
 
 export function createApp() {
   const app = express();
@@ -175,6 +176,7 @@ export function createApp() {
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
+  app.use('/api/admin/api-errors', adminApiErrorsRouter); // failed API/webhook calls (ApiLog), with payloads
   app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
   app.use('/api/admin/test-numbers', adminTestNumbersRouter); // numbers that may sign in with the shared test code
   app.use('/api/admin/campaigns', campaignsRouter);

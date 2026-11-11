@@ -37,6 +37,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       // still resolves via a redirect for old links.
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
       { href: '/messages', label: 'Messages', icon: '✆' },
+      { href: '/api-errors', label: 'API & Webhook Errors', icon: '⚠' },
       { href: '/notify', label: 'Send Notification', icon: '➤' },
       { href: '/calls', label: 'Calls', icon: '☎' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
@@ -59,7 +60,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages', '/notify': 'Send Notification',
+  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages', '/api-errors': 'API & Webhook Errors', '/notify': 'Send Notification',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
