@@ -125,6 +125,8 @@ adapters.
   git copy must have it copied in. `assembleRelease`/`bundleRelease` now fail without it (or with
   the old `swiftloan-de051` file); `-PallowNoFirebase` overrides. Play codes 24–35 shipped with no
   push token because of this.
+- **iOS Firebase:** `ios/GoogleService-Info.plist` (project `swiftloan-ai`, bundle `ai.swiftloan.app`) is gitignored too; the
+  "Copy Firebase config" build phase puts it in the app when present. Without it iOS sends no Firebase events (a Release build warns).
 
 ---
 
