@@ -67,7 +67,7 @@ function Customers() {
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<CustomerFilters>(() => parseCustomerFilters(searchParams));
   const [page, setPage] = useState(1);
-  const { stage, source, campaignId, search, stalledMinutes, period, from: cFrom, to: cTo } = filters;
+  const { stage, source, campaignId, search, stalledMinutes, period, from: cFrom, to: cTo, unverified } = filters;
   const change = (patch: Partial<CustomerFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
 
   useEffect(() => {
@@ -123,11 +123,20 @@ function Customers() {
         <div>
           <h1 className="page-title">Customers</h1>
           <p className="page-sub">
-            Every person across website enquiries, campaigns, voice and the app — one row each, with where they are,
-            how long they have been stuck and everything we have ever said to them.
+            {unverified
+              ? 'People who typed their mobile number in the app or on the website and never entered the OTP. Nothing else is known about them yet.'
+              : 'Every person across website enquiries, campaigns, voice and the app — one row each, with where they are, how long they have been stuck and everything we have ever said to them.'}
           </p>
         </div>
-        <div className="row wrap" style={{ gap: 10 }}>
+        <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
+          {/* Off: everyone who verified their number (plus website enquiries and callers). On: only the unverified numbers. */}
+          <label className="row" style={{ gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button
+              type="button" role="switch" aria-checked={unverified} aria-label="Unverified numbers" className="tm-switch"
+              onClick={() => change({ unverified: !unverified })}
+            />
+            Unverified numbers
+          </label>
           {exportErr && <span role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
           {!mayExport && role !== null && (
             <span id="customers-export-note" className="muted" style={{ fontSize: 12 }}>Exports need an admin or super admin</span>
@@ -147,7 +156,7 @@ function Customers() {
       <Card className="mt-16">
         {isLoading ? <div className="skeleton" style={{ height: 58 }} /> : (
           <div className="stat-strip">
-            <Stat label="Customers" value={num(pg?.total ?? rows.length)}
+            <Stat label={unverified ? 'Unverified numbers' : 'Customers'} value={num(pg?.total ?? rows.length)}
               foot={filtered ? 'matching these filters' : 'known in total'} />
             <Stat label="Requested" value={requestedTotal ? inr(requestedTotal) : '—'}
               tone={requestedTotal ? undefined : 'text-faint'}
@@ -237,7 +246,7 @@ function Customers() {
           </div>
         ) : isLoading ? <TableSkeleton rows={8} cols={7} /> : rows.length === 0 ? (
           <div className="empty-state">
-            <h3>{filtered ? 'No customers match these filters' : 'No customers yet'}</h3>
+            <h3>{unverified ? 'No unverified numbers match' : filtered ? 'No customers match these filters' : 'No customers yet'}</h3>
             <p>
               {filtered
                 ? 'Nothing in this slice. Widen the stage, source or inactivity filter to see more people.'

@@ -9,7 +9,7 @@ import { STAGES, stageLabel } from '@/components/journey';
 
 interface U {
   id: string; fullName?: string; phone?: string; email?: string; pincode?: string;
-  creditScore: number; employment?: string; monthlyIncome?: number; createdAt: string;
+  employment?: string; monthlyIncome?: number; createdAt: string;
   stage?: string | null; _count?: { applications: number; loans: number };
 }
 
@@ -100,13 +100,12 @@ export default function UsersPage() {
 
         {isLoading ? <TableSkeleton /> : rows.length === 0 ? <Empty label="No users match these filters" /> : (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>Name</th><th>Current stage</th><th>Phone</th><th>Credit</th><th>Employment</th><th>Income</th><th>Apps</th><th>Loans</th><th>Joined</th></tr></thead>
+            <thead><tr><th>Name</th><th>Current stage</th><th>Phone</th><th>Employment</th><th>Income</th><th>Apps</th><th>Loans</th><th>Joined</th></tr></thead>
             <tbody>{rows.map((u) => (
               <tr key={u.id} onClick={() => router.push(`/users/${u.id}`)}>
                 <td>{u.fullName || '—'}<div className="muted" style={{ fontSize: 11 }}>{u.email}</div></td>
                 <td>{u.stage ? <StatusBadge status={u.stage} label={stageLabel(u.stage)} /> : <span className="muted">—</span>}</td>
                 <td className="mono">{u.phone}</td>
-                <td className="mono">{u.creditScore}</td>
                 <td>{u.employment ? humanStatus(u.employment) : '—'}</td>
                 <td className="mono">{u.monthlyIncome ? inr(u.monthlyIncome) : '—'}</td>
                 <td className="mono">{u._count?.applications ?? 0}</td>

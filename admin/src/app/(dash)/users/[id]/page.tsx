@@ -53,7 +53,6 @@ export default function UserProfile() {
       )}
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', marginTop: 16 }}>
-        <StatCard label="Credit Score" value={u.creditScore} tone={u.creditScore >= 750 ? 'green' : u.creditScore >= 650 ? 'amber' : 'red'} />
         <StatCard label="Monthly Income" value={u.monthlyIncome ? inr(u.monthlyIncome) : '—'} tone="teal" />
         <StatCard label="Applications" value={u.applications?.length ?? 0} tone="blue" />
         <StatCard label="Loans" value={u.loans?.length ?? 0} tone="grey" />

@@ -111,7 +111,6 @@ async function main() {
         pincode: String(110000 + rand(90000)),
         employment: pick(EMP as unknown as string[]) as never,
         monthlyIncome: (25000 + rand(175000)),
-        creditScore: 620 + rand(230),
         phoneVerified: true,
         createdAt: created, updatedAt: created,
       },

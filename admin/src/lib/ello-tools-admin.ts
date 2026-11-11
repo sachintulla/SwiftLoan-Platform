@@ -171,7 +171,7 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
     handler: async ({ query }) => {
       try {
         const res = await apiFetch<{ id: string; name?: string; currentStage?: string }[]>(
-          `/api/admin/customers?pageSize=1&search=${encodeURIComponent(query)}`,
+          `/api/admin/customers?otp=all&pageSize=1&search=${encodeURIComponent(query)}`,
         );
         const row = res.data?.[0];
         if (!row) return { success: false, reason: `No customer matching "${query}"` };
@@ -231,7 +231,7 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
       if (!term) return { success: false, reason: 'No name or number given' };
 
       try {
-        const list = await apiFetch<any>(`/api/admin/customers?pageSize=1&search=${encodeURIComponent(term)}`);
+        const list = await apiFetch<any>(`/api/admin/customers?otp=all&pageSize=1&search=${encodeURIComponent(term)}`);
         const rows = Array.isArray(list.data) ? list.data : (list.data?.items ?? []);
         const hit = rows[0];
         if (!hit) return { success: false, reason: `Nobody found matching "${query}"` };

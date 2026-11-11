@@ -17,6 +17,7 @@
 import { NativeModules, Platform } from 'react-native';
 import { UPSHOT_DEMO } from '../config/build';
 import { metaTrackFromAppEvent } from './meta';
+import { firebaseTrackFromAppEvent } from './firebase';
 import { extractLinkTarget, parseInboxResponse, type InboxItem, type LinkTarget } from './upshotLinks';
 
 export type { InboxItem, LinkTarget } from './upshotLinks';
@@ -322,6 +323,8 @@ export function upshotScreen(screen: string): void {
 export function upshotEvent(name: string, attrs: Record<string, unknown> = {}): void {
   // Meta ads: the two funnel moments only, no attributes (see src/analytics/meta.ts).
   metaTrackFromAppEvent(name);
+  // Firebase Analytics: the same funnel events, by name only (src/analytics/firebase.ts).
+  firebaseTrackFromAppEvent(name);
   if (!started) return;
   const payload = { platform: PLATFORM, ...(currentStage ? { stage: currentStage } : {}), ...attrs };
   devLog('event ->', name, payload);

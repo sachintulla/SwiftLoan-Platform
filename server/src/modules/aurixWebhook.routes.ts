@@ -225,8 +225,6 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const offerCode = body.OfferCode ?? body.offerCode ?? body.offer_code ?? null;
   // v1.3: post-redirection journey carries the terminal outcome here.
   const postLenderStatus = data.post_lender_status != null ? String(data.post_lender_status) : '';
-  // v1.3: bureau soft-pull now includes the real bureau score.
-  const bureauScore = Number(data.bureau_score);
 
   log.info('received', { ...webhookEnvTag(req.get('host')), requestId, state, status: jStatus, leadId, partnerCustomerId, offerCode });
 
@@ -265,16 +263,6 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   const offerCodeMatch = offerCode
     ? await prisma.offer.findFirst({ where: { offerCode: String(offerCode), applicationId: application.id } })
     : null;
-
-  // v1.3: the bureau soft-pull event now carries the customer's real bureau
-  // score — persist it so the app shows the actual CIBIL/CRIF value instead of
-  // the default. (Independent of the status mapping below.)
-  if (Number.isFinite(bureauScore) && bureauScore >= 300 && bureauScore <= 900) {
-    await prisma.user.update({
-      where: { id: application.userId },
-      data: { creditScore: Math.round(bureauScore) },
-    }).catch(() => {});
-  }
 
   const mapped = state
     // Fold data.post_lender_status into `reason` so a "Disbursed"/"Approved"/

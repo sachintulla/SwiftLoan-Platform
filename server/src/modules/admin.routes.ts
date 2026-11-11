@@ -732,7 +732,7 @@ adminRouter.get('/users', ah(async (req, res) => {
       where, orderBy: { createdAt: 'desc' }, skip, take,
       select: {
         id: true, fullName: true, firstName: true, phone: true, email: true, pincode: true,
-        creditScore: true, employment: true, monthlyIncome: true, createdAt: true,
+        employment: true, monthlyIncome: true, createdAt: true,
         _count: { select: { applications: true, loans: true } },
       },
     }),

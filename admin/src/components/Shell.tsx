@@ -32,7 +32,8 @@ const NAV: { section?: string; items: NavDef[] }[] = [
   {
     section: 'People & Insight',
     items: [
-      { href: '/users', label: 'All Users', icon: '☺' },
+      // All Users folded into Customers (one list; its "Unverified numbers" toggle shows the people who never
+      // entered their OTP). /users and /users/:id still open from links on a customer.
       // Analytics merged into Master Overview's "Trends" section; /analytics
       // still resolves via a redirect for old links.
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
