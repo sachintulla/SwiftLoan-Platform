@@ -584,6 +584,16 @@ adminRouter.get('/downloads', ah(async (req, res) => {
 
 // ─────────────────────────── revasure leads ───────────────────────────
 
+// Total requested worth of the LoanApplications a set of partner rows point to
+// (Revasure leads / Yubi referrals carry a plain applicationId FK, no amount of
+// their own). Deduped so two rows on the same application count it once. Whole rupees.
+async function linkedAppWorth(appIdRows: { applicationId: string | null }[]): Promise<number> {
+  const ids = [...new Set(appIdRows.map((r) => r.applicationId).filter((x): x is string => !!x))];
+  if (!ids.length) return 0;
+  const agg = await prisma.loanApplication.aggregate({ _sum: { amount: true }, where: { id: { in: ids } } });
+  return agg._sum.amount ?? 0;
+}
+
 // GET /api/admin/revasure?status=&search=&from=&to=&page=&pageSize=
 // Leads pushed to Revasure (third lender group, fired in parallel at prequalify).
 // status: success|duplicate|ineligible|failed|pending. search matches the source or
@@ -598,7 +608,7 @@ adminRouter.get('/revasure', ah(async (req, res) => {
   const matchedUserIds = await findUserIdsBySearch(searchTerm(q));
   const where = buildRevasureWhere(q, matchedUserIds);
 
-  const [rows, total, byStatus] = await Promise.all([
+  const [rows, total, byStatus, allAppIds] = await Promise.all([
     prisma.revasureLead.findMany({
       where, orderBy: { updatedAt: 'desc' }, skip, take,
       select: {
@@ -614,12 +624,17 @@ adminRouter.get('/revasure', ah(async (req, res) => {
       where: buildRevasureWhere({ ...q, status: undefined }, matchedUserIds),
       _count: { _all: true },
     }),
+    // Application worth across the WHOLE filtered set (not just this page).
+    prisma.revasureLead.findMany({ where, select: { applicationId: true } }),
   ]);
-  const people = await personsByUserId(rows.map((r) => r.userId));
+  const [people, requestedTotal] = await Promise.all([
+    personsByUserId(rows.map((r) => r.userId)),
+    linkedAppWorth(allAppIds),
+  ]);
   return ok(res, {
     rows: rows.map((r) => ({ ...r, customer: people.get(r.userId) ?? null })),
     byStatus: byStatus.map((g) => ({ status: g.status, count: g._count._all })),
-  }, 'Revasure leads', paginate(page, pageSize, total));
+  }, 'Revasure leads', { ...paginate(page, pageSize, total), requestedTotal });
 }));
 
 // GET /api/admin/revasure/:id — one lead's request/response, for support.
@@ -652,7 +667,7 @@ adminRouter.get('/yubi', ah(async (req, res) => {
   const matchedUserIds = await findUserIdsBySearch(searchTerm(q));
   const where = buildYubiWhere(q, matchedUserIds);
 
-  const [rows, total, byStatus] = await Promise.all([
+  const [rows, total, byStatus, allAppIds] = await Promise.all([
     prisma.partnerReferral.findMany({
       where, orderBy: { updatedAt: 'desc' }, skip, take,
       omit: { rawCreate: true, rawAuth: true, redirectUrl: true },
@@ -663,9 +678,14 @@ adminRouter.get('/yubi', ah(async (req, res) => {
       where: buildYubiWhere({ ...q, status: undefined, applied: '1' }, matchedUserIds),
       _count: { _all: true },
     }),
+    // Application worth across the WHOLE filtered set (not just this page).
+    prisma.partnerReferral.findMany({ where, select: { applicationId: true } }),
   ]);
   // Attach the customer (plain-FK model, no relation).
-  const people = await personsByUserId(rows.map((r) => r.userId));
+  const [people, requestedTotal] = await Promise.all([
+    personsByUserId(rows.map((r) => r.userId)),
+    linkedAppWorth(allAppIds),
+  ]);
   const withUser = rows.map((r) => {
     const p = people.get(r.userId);
     return {
@@ -677,7 +697,7 @@ adminRouter.get('/yubi', ah(async (req, res) => {
   return ok(res, {
     rows: withUser,
     byStatus: byStatus.map((g) => ({ status: g.lastStatus || 'applied', count: g._count._all })),
-  }, 'Yubi referrals', paginate(page, pageSize, total));
+  }, 'Yubi referrals', { ...paginate(page, pageSize, total), requestedTotal });
 }));
 
 // ─────────────────────────── users ───────────────────────────
@@ -707,7 +727,7 @@ adminRouter.get('/users', ah(async (req, res) => {
   if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
   if (to && !Number.isNaN(to.getTime())) createdAt.lte = to;
   if (Object.keys(createdAt).length) where.createdAt = createdAt;
-  const [rows, total] = await Promise.all([
+  const [rows, total, worthAgg] = await Promise.all([
     prisma.user.findMany({
       where, orderBy: { createdAt: 'desc' }, skip, take,
       select: {
@@ -717,6 +737,8 @@ adminRouter.get('/users', ah(async (req, res) => {
       },
     }),
     prisma.user.count({ where }),
+    // Total requested worth of every application by the filtered users (whole rupees).
+    prisma.loanApplication.aggregate({ _sum: { amount: true }, where: { user: where } }),
   ]);
   // Attach each user's current stage for the stage column.
   const custs = rows.length
@@ -724,7 +746,7 @@ adminRouter.get('/users', ah(async (req, res) => {
     : [];
   const stageByUser = new Map(custs.map((c) => [c.userId!, c.currentStage]));
   const enriched = rows.map((r) => ({ ...r, stage: stageByUser.get(r.id) ?? null }));
-  return ok(res, enriched, 'Users', paginate(page, pageSize, total));
+  return ok(res, enriched, 'Users', { ...paginate(page, pageSize, total), requestedTotal: worthAgg._sum.amount ?? 0 });
 }));
 
 // GET /api/admin/users/:id — full profile + EVERY application the customer made
