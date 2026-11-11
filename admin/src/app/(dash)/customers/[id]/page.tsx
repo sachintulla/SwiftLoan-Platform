@@ -50,7 +50,7 @@ interface LinkedUser {
   employment?: string | null; company?: string | null; monthlyIncome?: number | null; salaryMode?: string | null;
   residenceType?: string | null; addressLine1?: string | null; addressLine2?: string | null; landmark?: string | null;
   city?: string | null; state?: string | null; pincode?: string | null; loanPurpose?: string | null; panOnFile?: boolean | null;
-  aadhaarLast4?: string | null; creditScore?: number | null; phoneVerified?: boolean | null; emailVerified?: boolean | null;
+  aadhaarLast4?: string | null; phoneVerified?: boolean | null; emailVerified?: boolean | null;
   aurixTokenExpiresAt?: string | null;
   applications?: { id: string; ref: string; amount: number; tenureMonths?: number | null; status: string; createdAt?: string; updatedAt?: string; offers?: LenderOffer[] }[];
   loans?: { id: string; principal: number; outstanding: number; status: string }[];
@@ -94,14 +94,6 @@ function initials(name?: string | null, phone?: string | null): string {
  * shoulder-surfing the dashboard. There is deliberately no "show" affordance:
  * a value that can be revealed is a value that gets screenshotted.
  */
-
-/** CIBIL band, so 750 reads as a verdict and not just a number. */
-function scoreBand(score: number): { label: string; tone: string } {
-  if (score >= 750) return { label: 'Excellent', tone: 'green' };
-  if (score >= 700) return { label: 'Good', tone: 'teal' };
-  if (score >= 650) return { label: 'Fair', tone: 'amber' };
-  return { label: 'Poor', tone: 'red' };
-}
 
 /**
  * Monochrome 14px line icons. Emoji were doing this job and read as clip-art
@@ -404,14 +396,6 @@ export default function CustomerDetail() {
           </FactGroup>
 
           <FactGroup title="Verification & risk">
-            <Fact label="Credit score">
-              {user?.creditScore ? (
-                <span className="score" style={{ color: `var(--${scoreBand(user.creditScore).tone})` }}>
-                  {user.creditScore}
-                  <span className="score-band">{scoreBand(user.creditScore).label}</span>
-                </span>
-              ) : null}
-            </Fact>
             <Fact label="KYC records">{user?.kyc?.length ? humanStatus(user.kyc[0].status || 'pending') : null}</Fact>
             <Fact label="PAN">{panOnFile ? 'On file (encrypted)' : null}</Fact>
             <Fact label="Aadhaar last 4" mono>{user?.aadhaarLast4}</Fact>

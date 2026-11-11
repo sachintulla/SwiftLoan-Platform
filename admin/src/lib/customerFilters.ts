@@ -21,10 +21,12 @@ export interface CustomerFilters {
   to: string;
   /** 'today' = active since 00:00 IST (lastActivityAt); '' = any. Set by the "N active" badge. */
   active: string;
+  /** "Unverified numbers" toggle: only people who asked for an OTP and never entered it (API `otp=unverified`). Off = everyone else. */
+  unverified: boolean;
 }
 
 export const DEFAULT_CUSTOMER_FILTERS: CustomerFilters = {
-  stage: '', source: '', campaignId: '', search: '', stalledMinutes: '', period: 'all', from: '', to: '', active: '',
+  stage: '', source: '', campaignId: '', search: '', stalledMinutes: '', period: 'all', from: '', to: '', active: '', unverified: false,
 };
 
 const PERIODS: CustomerPeriod[] = ['all', 'today', 'yesterday', '7d', '30d', 'custom'];
@@ -90,6 +92,7 @@ export function parseCustomerFilters(input: string | URLSearchParams | null | un
   // Dates only mean something for a custom range; a bare from/to gives one.
   if ((out.from || out.to) && out.period === 'all') out.period = 'custom';
   if (out.period !== 'custom') { out.from = ''; out.to = ''; }
+  out.unverified = clean(sp.get('otp')) === 'unverified';
   return out;
 }
 
@@ -107,6 +110,7 @@ export function serialiseCustomerFilters(f: CustomerFilters): string {
     if (f.from) sp.set('from', f.from);
     if (f.to) sp.set('to', f.to);
   }
+  if (f.unverified) sp.set('otp', 'unverified');
   return sp.toString();
 }
 
@@ -131,6 +135,7 @@ export function customerFilterParams(f: CustomerFilters, range: { from?: string;
   if (f.active) sp.set('active', f.active);
   if (range.from) sp.set('from', range.from);
   if (range.to) sp.set('to', range.to);
+  if (f.unverified) sp.set('otp', 'unverified');
   return sp;
 }
 

@@ -32,7 +32,7 @@ Backend (run from `server/`, needs local Postgres on :5432):
 cd server
 npm start            # tsx src/index.ts  → http://localhost:4000
 npm run seed         # seed lender-partner catalog
-npm run smoke        # 21-check end-to-end API test (server must be running)
+npm run smoke        # 20-check end-to-end API test (server must be running)
 npm run prisma:push  # apply prisma/schema.prisma to the DB + regenerate client
 npm run typecheck
 ```
@@ -99,7 +99,7 @@ adapters.
   `localhost` on iOS, `10.0.2.2` on Android). **Wired flows:** auth (mobile/OTP →
   `verifyOtp`, "Skip" → `ensureSession` anonymous login), profile (load/save/
   language/notifications), and the loan funnel (basic → createApplication →
-  basicpan → finding/prequalify → offers → handoff → loan; loans/repay/creditscore
+  basicpan → finding/prequalify → offers → handoff → loan; loans/repay
   read live). Screens hold a session token in the api-client module + mirror
   `authUser`/`applicationId`/`loanId` in the store. Endpoints that need auth
   degrade gracefully to the design's demo data when offline/guest.
@@ -188,7 +188,7 @@ There is one unit: **whole rupees** (database, API, website, app, admin, voice a
 The admin has one formatter, `inr` (and `inrCompact` for stat tiles) in `admin/src/lib/format.ts`; the server's `lib/rupees.ts` formats rupees for spoken and written text. A test fails if any admin source mentions paise or converts money by 100.
 The four tables that used to hold paise were converted by migration `20261029120000_amounts_in_rupees` (which also converts the amounts copied into `lead_captured` journey/activity events and queued Upshot nudge payloads): apply it in the same
 deploy as the code, never one without the other.
-**`User.creditScore` is a database default of 750 for everyone** (no bureau is integrated), so the Credit Score shown in the admin and returned by `/users/me/credit-score` is not a real score.
+**Credit scores are not stored or captured** (removed 2026-11-09, migration `20261109120000_drop_user_credit_score`): no `User.creditScore`, no `/users/me/credit-score`, the Aurix `bureau_score` webhook field is ignored and the eligibility request's bureau payload carries no score. Do not re-add one.
 
 ### Global decisions for new work
 - All new API responses: { success, data, message, pagination?, error? }
@@ -238,7 +238,9 @@ deploy as the code, never one without the other.
 - [x] Page: Single Lead Journey (/leads/[id]: stage tracker, attribution,
       status+note editor, converted-user link)
 - [x] Page: App Downloads
-- [x] Page: All Users
+- [x] Page: All Users (no longer in the sidebar since 2026-11-09: folded into Customers, whose **Unverified numbers** toggle
+      (`?otp=unverified`, `lib/listFilters.ts customerOtpWhere`) lists only people who asked for an OTP and never entered it;
+      the default list hides them; `otp=all` = no filter, used by phone lookups. `/users/:id` still opens from links.)
 - [x] Page: User Profile
 - [x] Page: Analytics
 - [x] Page: Notifications

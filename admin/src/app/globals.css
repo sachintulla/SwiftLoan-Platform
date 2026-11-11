@@ -221,8 +221,6 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .fact-value { margin: 0; color: var(--text); font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .fact-value.is-empty { color: var(--text-faint); }
 .fact-value.is-stale, .is-stale { color: var(--red); }
-.score { font-weight: 600; }
-.score-band { color: var(--text-dim); font-weight: 400; margin-left: 7px; }
 .id-val { font-size: 12px; overflow-wrap: anywhere; }
 
 /* ── funnel strip: four numbers, one card ── */

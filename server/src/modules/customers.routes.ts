@@ -20,6 +20,7 @@ import { NEXT_ACTION_BY_STAGE, nextActionFor } from '../lib/nextAction.js';
 import { eraseCustomer } from '../lib/customerErasure.js';
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
+import { customerOtpWhere } from '../lib/listFilters.js';
 
 const log = scoped('customers');
 
@@ -42,7 +43,7 @@ function minutesSince(d: Date | null | undefined): number | null {
 
 // ─────────────────────────── list ───────────────────────────
 
-// GET /api/admin/customers?stage=&source=&campaignId=&search=&stalledMinutes=
+// GET /api/admin/customers?stage=&source=&campaignId=&search=&stalledMinutes=&otp=  (otp: default verified | unverified | all)
 customersRouter.get('/', ah(async (req, res) => {
   const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
   const q = req.query as Record<string, string | undefined>;
@@ -81,6 +82,8 @@ customersRouter.get('/', ah(async (req, res) => {
     where.events = { none: { channel: { in: ['website', 'app'] }, occurredAt: { gte: cutoff } } };
     where.AND = [{ currentStage: { notIn: TERMINAL_STAGES } }];
   }
+  // "Unverified numbers" toggle (lib/listFilters.ts customerOtpWhere).
+  where.AND = [...((where.AND as Prisma.CustomerWhereInput[] | undefined) ?? []), customerOtpWhere(q.otp)];
 
   const [rows, total] = await Promise.all([
     prisma.customer.findMany({

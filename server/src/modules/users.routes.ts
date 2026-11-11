@@ -194,23 +194,6 @@ usersRouter.post('/me/consents',
     res.status(201).json({ consent });
   }));
 
-/** Real score band thresholds — no bureau vendor is integrated yet, so this is
- * the only per-user thing we can report: the stored score and a classification
- * of it. Factors/delta/bureau are NOT reported because we have no real data to
- * back those claims. */
-function scoreBand(score: number): 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' {
-  if (score >= 800) return 'EXCELLENT';
-  if (score >= 700) return 'GOOD';
-  if (score >= 600) return 'FAIR';
-  return 'POOR';
-}
-
-usersRouter.get('/me/credit-score', ah(async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
-  const score = user?.creditScore ?? 750;
-  res.json({ score, band: scoreBand(score) });
-}));
-
 /**
  * Delete account (right to erasure).
  *

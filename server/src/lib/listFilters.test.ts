@@ -347,3 +347,17 @@ describe('personsByUserId', () => {
     expect(m.get('u2')).toEqual({ id: null, name: null, phone: '9000000000' });
   });
 });
+
+describe('customerOtpWhere (Customers "Unverified numbers" toggle)', () => {
+  const requested = { AND: [{ events: { some: { name: 'otp_requested' } } }, { events: { none: { name: 'otp_verified' } } }] };
+  it('hides people who asked for an OTP and never verified it by default', () => {
+    expect(f.customerOtpWhere(undefined)).toEqual({ NOT: requested });
+    expect(f.customerOtpWhere('nonsense')).toEqual({ NOT: requested });
+  });
+  it('shows only them when the toggle is on', () => {
+    expect(f.customerOtpWhere('unverified')).toEqual(requested);
+  });
+  it('does not filter for lookups', () => {
+    expect(f.customerOtpWhere('all')).toEqual({});
+  });
+});

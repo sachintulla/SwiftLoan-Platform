@@ -78,9 +78,6 @@ async function run() {
   const pay = await j('POST', `/api/loans/${loanId}/repayments/${firstRepayment.id}/pay`, {}, token);
   check('pay first EMI', pay.status === 200 && pay.data.repayment.status === 'paid');
 
-  const score = await j('GET', '/api/users/me/credit-score', undefined, token);
-  check('credit score', score.status === 200 && score.data.score === 750);
-
   const ticket = await j('POST', '/api/support/tickets', { type: 'grievance', subject: 'Test grievance' }, token);
   check('support ticket', ticket.status === 201);
 
