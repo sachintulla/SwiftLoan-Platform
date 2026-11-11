@@ -22,7 +22,7 @@ Checked live in Meta (app `swiftloan` 1669156655221818, dataset `SwiftLoan App` 
    - A. Put it as the fallback in `META_CLIENT_TOKEN` in `src/analytics/meta.ts` (public identifier, like the Upshot ids; goes into git history; compliance sign-off pending), or
    - B. Have the release pipeline write `voiceCredentials.local.js` (sets `SWIFTLOAN_META_CLIENT_TOKEN`) before bundling.
    Token: Meta App Dashboard > swiftloan > Settings > Advanced > Client token.
-2. **Android key hash:** add the Google Play App Signing SHA-1 (Play Console > Setup > App signing, converted to base64) to Meta > Settings > Basic > Android > Key hashes. Two hashes are there now; confirm one is the Play signing key.
+2. **Android key hash:** add the Google Play App Signing SHA-1 (Play Console > Setup > App signing, converted to base64) to Meta > Settings > Basic > Android > Key hashes. Two hashes are there now; confirm one is the Play signing key. The upload key (signs sideloaded test APKs, SHA-1 `DA:6C:34:…:E6:7C`) is `2mw0mBuMJu7QQXr+5KKqAapA5nw=`; convert the Play one the same way: `echo <sha1 hex, no colons> | xxd -r -p | base64`.
 3. **iOS platform:** add it in Meta > Settings > Basic > Add platform > iOS: bundle ID `ai.swiftloan.app`, iPhone store ID `6796624689`. (Meta may refuse until the app has been live on the App Store 24 h+.)
 4. **Ship new Android + iOS builds.** Installed apps only report after updating.
 5. **Verify on a device:** Events Manager > Test events, then the Overview chart.
@@ -30,4 +30,10 @@ Checked live in Meta (app `swiftloan` 1669156655221818, dataset `SwiftLoan App` 
 
 ## Not covered here
 - WhatsApp (Vox messages stuck at `SUBMITTED`): separate, to be looked at later.
-- Firebase events: branch `feat/firebase-app-events`, PR not opened yet.
+- Firebase events: branch `feat/firebase-app-events`, see below.
+
+## Firebase events: status (2026-11-11, checked on a Mac)
+- Android release build compiles; on the emulator (debug mode, `adb shell setprop debug.firebase.analytics.app ai.swiftloan.app`) Firebase logged `app_opened` with origin `app`. The emulator's network refused the upload to Google, so the event was not seen in DebugView; the other 10 events use the same bridge and were not driven (the next one, `otp_requested`, sends a real SMS on prod).
+- iOS: `pod 'FirebaseAnalytics/WithoutAdIdSupport'` added to the Podfile (no IDFA / ads-conversion pod, matching Android's stripped AD_ID and the no-ATT policy) plus modular headers for its Swift deps; `pod install` and an unsigned device build (`-sdk iphoneos`) pass, with the Firebase classes linked. (An arm64 simulator build cannot link: Upshot ships no arm64 simulator slice, unrelated to Firebase.) `pod install` also added the UserDefaults reasons the Firebase pods declare to `PrivacyInfo.xcprivacy`.
+- **Still needed for iOS:** `GoogleService-Info.plist` (Firebase project `swiftloan-ai`, iOS app `ai.swiftloan.app`) added to the SwiftLoan target. Until it is in the bundle the iOS bridge does nothing (it checks for the plist before configuring Firebase).
+- Compliance: Firebase must be named as a recipient in the privacy policy, Play Data Safety and the App Store labels (it also auto-collects `first_open`, `session_start`, `screen_view`).
