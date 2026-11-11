@@ -33,11 +33,30 @@ export interface InstallRow {
   customer: { id: string; userId: string | null; name: string | null; phone: string | null; stage: string; stageLabel: string } | null;
   context: InstallContext | null;
   signedIn: boolean;
+  /** The person's latest loan application, resolved live. Null when they never started one. */
+  application: { status: string; offerCount: number } | null;
+  /** The most recent time we reached this person on any channel. Null when never contacted. */
+  lastContact: { at: string; channel: string } | null;
+}
+
+export interface InstallFunnel {
+  installs: number;
+  identified: number;
+  withApplication: number;
+  gotOffers: number;
+  noOffers: number;
+  applied: number;
+  disbursed: number;
+  stoppedBeforeOffers: number;
+  contacted: number;
+  notContacted: number;
+  byStatus: { status: string; count: number }[];
 }
 
 export interface InstallsPayload {
   rows: InstallRow[];
   stats: { total: number; withContext: number; withoutContext: number; reachedNextStep: number; notSignedIn: number };
+  funnel: InstallFunnel;
   bySource: { source: string; count: number }[];
   byPlatform: { platform: string; count: number }[];
   truncated: boolean;

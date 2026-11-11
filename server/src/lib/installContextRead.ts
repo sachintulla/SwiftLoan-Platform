@@ -302,6 +302,10 @@ export interface InstallRow {
   customer: InstallRowCustomer | null;
   context: InstallContext | null;
   signedIn: boolean;
+  /** The person's latest loan application, resolved live (by matched user OR by the phone the link carried). Null when they never started one. */
+  application: { status: string; offerCount: number } | null;
+  /** The most recent time we reached this person on ANY channel (call / SMS / WhatsApp), by phone. Null when never contacted. */
+  lastContact: { at: string; channel: string } | null;
 }
 
 export interface InstallFilters {
@@ -378,6 +382,73 @@ export function computeInstallStats(rows: InstallRow[]): InstallStats {
     if (!r.signedIn) notSignedIn++;
   }
   return { total: rows.length, withContext, withoutContext: rows.length - withContext, reachedNextStep: reached, notSignedIn };
+}
+
+/* ───────────────────────── downloads funnel ───────────────────────── */
+
+/** Statuses at or past the point where offers exist. */
+const OFFER_OR_LATER = new Set(['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed', 'closed']);
+/** Statuses that mean the person applied to a lender (past handoff). */
+const APPLIED_OR_LATER = new Set(['handoff', 'under_review', 'approved', 'disbursed']);
+
+/** Did this person reach actual offers (any offer row, or a status that implies them)? */
+export function gotOffers(app: InstallRow['application']): boolean {
+  if (!app) return false;
+  return app.offerCount > 0 || OFFER_OR_LATER.has(app.status);
+}
+
+/** Looked for a loan but got nothing back (rejected) or hit a technical failure. */
+export function noOfferOutcome(app: InstallRow['application']): boolean {
+  return !!app && (app.status === 'rejected' || app.status === 'failed');
+}
+
+export interface InstallFunnel {
+  installs: number;
+  identified: number;       // tied to a real customer (matched or phone-resolved)
+  withApplication: number;  // started a loan application
+  gotOffers: number;        // reached real offers
+  noOffers: number;         // rejected / failed
+  applied: number;          // applied to a lender (handoff+)
+  disbursed: number;        // money out
+  stoppedBeforeOffers: number; // started but stuck before offers (draft/pan/prequalify)
+  contacted: number;        // reached on some channel afterwards
+  notContacted: number;
+  byStatus: { status: string; count: number }[];
+}
+
+/** One roll-up of the whole download window: who installed, how far they got, who we reached. */
+export function computeInstallFunnel(rows: InstallRow[]): InstallFunnel {
+  let identified = 0, withApplication = 0, offers = 0, none = 0, applied = 0, disbursed = 0, stopped = 0, contacted = 0;
+  const statusCount = new Map<string, number>();
+  for (const r of rows) {
+    if (r.customer || r.signedIn || r.application) identified++;
+    if (r.lastContact) contacted++;
+    const app = r.application;
+    if (!app) continue;
+    withApplication++;
+    statusCount.set(app.status, (statusCount.get(app.status) ?? 0) + 1);
+    if (gotOffers(app)) offers++;
+    if (noOfferOutcome(app)) none++;
+    if (APPLIED_OR_LATER.has(app.status)) applied++;
+    if (app.status === 'disbursed') disbursed++;
+    if (['draft', 'pan_pending', 'prequalifying'].includes(app.status)) stopped++;
+  }
+  const byStatus = [...statusCount.entries()]
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count || a.status.localeCompare(b.status));
+  return {
+    installs: rows.length,
+    identified,
+    withApplication,
+    gotOffers: offers,
+    noOffers: none,
+    applied,
+    disbursed,
+    stoppedBeforeOffers: stopped,
+    contacted,
+    notContacted: rows.length - contacted,
+    byStatus,
+  };
 }
 
 /** Counts per key, biggest first, ties broken alphabetically so the order is stable. */

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normaliseRef, refLookupVariants, classifyConfidence, parseInstallLinkPayload, historyToSend, pickContext, productLabel,
   applyInstallFilters, computeInstallStats, reachedNextStep, needsFollowUp, hasCustomerDetails, effectiveSentBy, countBy,
+  computeInstallFunnel, gotOffers, noOfferOutcome,
   type ContextSources, type InstallRow,
 } from './installContextRead.js';
 
@@ -188,7 +189,7 @@ describe('pickContext', () => {
 function row(over: Partial<InstallRow> & { id: string }): InstallRow {
   return {
     installedAt: '2026-10-27T00:00:00.000Z', platform: 'android', source: 'organic', campaignId: null, matchMethod: 'play_referrer',
-    confidence: 'confirmed', customer: null, context: null, signedIn: false, ...over,
+    confidence: 'confirmed', customer: null, context: null, signedIn: false, application: null, lastContact: null, ...over,
   };
 }
 const cust = (stage: string, name: string, phone: string) => ({ id: `c-${name}`, userId: `u-${name}`, name, phone, stage, stageLabel: stage });
@@ -269,5 +270,50 @@ describe('stats and counts', () => {
       { key: 'admin', count: 1 }, { key: 'campaign', count: 1 }, { key: 'organic', count: 1 }, { key: 'reminder', count: 1 },
     ]);
     expect(countBy([1, 1, 2], String)[0]).toEqual({ key: '1', count: 2 });
+  });
+});
+
+describe('download funnel', () => {
+  const app = (status: string, offerCount = 0): InstallRow['application'] => ({ status, offerCount });
+
+  it('counts offers from an offer row or a status past offers', () => {
+    expect(gotOffers(app('prequalifying', 2))).toBe(true);   // has offer rows
+    expect(gotOffers(app('offers_ready', 0))).toBe(true);     // status implies them
+    expect(gotOffers(app('handoff', 0))).toBe(true);
+    expect(gotOffers(app('prequalifying', 0))).toBe(false);
+    expect(gotOffers(null)).toBe(false);
+  });
+
+  it('treats rejected and failed as a no-offer outcome', () => {
+    expect(noOfferOutcome(app('rejected'))).toBe(true);
+    expect(noOfferOutcome(app('failed'))).toBe(true);
+    expect(noOfferOutcome(app('offers_ready'))).toBe(false);
+    expect(noOfferOutcome(null)).toBe(false);
+  });
+
+  it('rolls up installs, offers, no-offers, applied, contacted', () => {
+    const r = (over: Partial<InstallRow>): InstallRow => ({
+      id: Math.random().toString(36), installedAt: '2026-11-01T00:00:00.000Z', platform: 'android', source: 'organic',
+      campaignId: null, matchMethod: null, confidence: 'none', customer: null, context: null, signedIn: false,
+      application: null, lastContact: null, ...over,
+    });
+    const f = computeInstallFunnel([
+      r({ signedIn: true, application: app('offers_ready', 3), lastContact: { at: '2026-11-02T00:00:00.000Z', channel: 'Call' } }),
+      r({ signedIn: true, application: app('disbursed', 1) }),
+      r({ signedIn: true, application: app('rejected') }),
+      r({ signedIn: true, application: app('draft') }),           // stopped before offers
+      r({}),                                                       // never identified
+    ]);
+    expect(f.installs).toBe(5);
+    expect(f.identified).toBe(4);
+    expect(f.withApplication).toBe(4);
+    expect(f.gotOffers).toBe(2);           // offers_ready + disbursed
+    expect(f.noOffers).toBe(1);            // rejected
+    expect(f.applied).toBe(1);             // disbursed
+    expect(f.disbursed).toBe(1);
+    expect(f.stoppedBeforeOffers).toBe(1); // draft
+    expect(f.contacted).toBe(1);
+    expect(f.notContacted).toBe(4);
+    expect(f.byStatus).toContainEqual({ status: 'disbursed', count: 1 });
   });
 });

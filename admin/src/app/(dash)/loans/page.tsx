@@ -181,7 +181,10 @@ export default function LoansPage() {
                       <td data-label="Applicant"><div>{r.user?.fullName || '—'}<div className="adm-sub">{r.user?.phone}</div></div></td>
                       <td data-label="Type" style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.loanType}</td>
                       <td data-label="Amount" className="mono">{inr(r.amount)}</td>
-                      <td data-label="Status"><LoanStatusBadge status={r.status} /></td>
+                      <td data-label="Status">
+                        <LoanStatusBadge status={r.status} />
+                        {r._count?.offers ? <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>· {r._count.offers} offer{r._count.offers === 1 ? '' : 's'}</span> : null}
+                      </td>
                       <td data-label="Lender applications" className="muted" style={{ fontSize: 12.5 }}>{lenderSummary(r.offers)}</td>
                       <td data-label="Applied" className="muted">{dateTimeStr(r.createdAt)}</td>
                     </tr>
