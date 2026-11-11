@@ -19,10 +19,18 @@ import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin } from '../middleware/adminAuth.js';
 import { STAGE_LABELS } from '../lib/journey.js';
 import {
-  classifyConfidence, computeInstallStats, countBy, effectiveSentBy, normaliseRef, parseInstallLinkPayload, pickContext,
+  classifyConfidence, computeInstallStats, computeInstallFunnel, countBy, effectiveSentBy, normaliseRef, parseInstallLinkPayload, pickContext,
   refLookupVariants, applyInstallFilters, SENT_BY_TYPES, CHANNEL_FILTER_VALUES,
   type ContextSources, type InstallRow,
 } from '../lib/installContextRead.js';
+
+/** Bare 10-digit Indian mobile, the shared join key across User / Customer / CallAttempt / MessageDelivery. */
+function norm10(p: string | null | undefined): string | null {
+  const d = (p ?? '').replace(/\D/g, '');
+  if (!d) return null;
+  const ten = d.length > 10 && d.startsWith('91') ? d.slice(2) : d;
+  return ten.length === 10 ? ten : null;
+}
 
 export const adminInstallsRouter = Router();
 adminInstallsRouter.use(requireAdmin);
@@ -68,8 +76,8 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
   const refs = [...refSet];
   const linkKeys = refs.map((r) => `install_link:${r}`);
 
-  // One query per table, never one per row. Each is skipped when it has nothing to look up.
-  const [links, reminders, nudges, leads, referralCodes, customers, loans] = await Promise.all([
+  // Wave 1 — everything keyed by the link's ref token. One query per table, never one per row.
+  const [links, reminders, nudges, leads, referralCodes] = await Promise.all([
     linkKeys.length
       ? prisma.outboundRequest.findMany({
           where: { kind: 'install_link', status: 'sent', idempotencyKey: { in: linkKeys } },
@@ -88,18 +96,80 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
     refs.length
       ? prisma.referralCode.findMany({ where: { code: { in: refs } }, select: { code: true, userId: true } })
       : Promise.resolve([]),
-    userIds.length
-      ? prisma.customer.findMany({ where: { userId: { in: userIds } }, select: { id: true, userId: true, name: true, phone: true, currentStage: true } })
+  ]);
+
+  // The phone that travelled with each link (reminder/nudge/lead), indexed by ref token.
+  // This is what makes Customer / Loan / Stage live even for installs that were never
+  // tied to a user id: most installs carry no play-referrer, so matchedUserId stays null,
+  // but the link always carried a phone we can resolve to the person's current record.
+  const phoneByToken = new Map<string, string>();
+  const addPhone = (token: string | null, phone: string | null) => {
+    const k = normaliseRef(token); const p = norm10(phone);
+    if (k && p && !phoneByToken.has(k)) phoneByToken.set(k, p);
+  };
+  for (const r of reminders) addPhone(r.token, r.phone);
+  for (const n of nudges) addPhone(n.token, n.phone);
+  for (const l of leads) addPhone(l.token, l.phone);
+
+  // Wave 2 — resolve the people. Phones from links become users; matched users stay matched.
+  const refPhones = [...new Set(phoneByToken.values())];
+  const phoneUsers = refPhones.length
+    ? await prisma.user.findMany({ where: { phone: { in: refPhones } }, select: { id: true, fullName: true, firstName: true, phone: true } })
+    : [];
+  const userByPhone = new Map(phoneUsers.map((u) => [norm10(u.phone)!, u]));
+
+  // Effective user per download: the matched user, else the user the link's phone resolves to.
+  const effUserId = new Map<string, string>(); // downloadId -> userId
+  for (const d of downloads) {
+    const key = normaliseRef(d.referrer);
+    const viaPhone = key ? userByPhone.get(phoneByToken.get(key) ?? '') : undefined;
+    const uid = d.matchedUserId ?? viaPhone?.id ?? null;
+    if (uid) effUserId.set(d.id, uid);
+  }
+  const resolvedUserIds = [...new Set(effUserId.values())];
+  // Every phone we might have reached this person on (matched user's own phone + link phones).
+  const allPhones = [...new Set([...refPhones])];
+
+  // Wave 3 — live state for the resolved people + the last time we reached them on any channel.
+  const [customers, loans, messages, calls] = await Promise.all([
+    resolvedUserIds.length
+      ? prisma.customer.findMany({ where: { userId: { in: resolvedUserIds } }, select: { id: true, userId: true, name: true, phone: true, currentStage: true } })
       : Promise.resolve([]),
-    userIds.length
+    resolvedUserIds.length
       ? prisma.loanApplication.findMany({
-          where: { userId: { in: userIds } },
+          where: { userId: { in: resolvedUserIds } },
           orderBy: { createdAt: 'desc' },
           distinct: ['userId'],
-          select: { userId: true, amount: true, loanType: true },
+          select: { userId: true, amount: true, loanType: true, status: true, _count: { select: { offers: true } } },
+        })
+      : Promise.resolve([]),
+    allPhones.length
+      ? prisma.messageDelivery.findMany({
+          where: { phone: { in: allPhones } },
+          orderBy: { createdAt: 'desc' },
+          select: { phone: true, channel: true, createdAt: true },
+        })
+      : Promise.resolve([]),
+    allPhones.length
+      ? prisma.callAttempt.findMany({
+          where: { phone: { in: allPhones } },
+          orderBy: { startedAt: 'desc' },
+          select: { phone: true, channel: true, startedAt: true, createdAt: true },
         })
       : Promise.resolve([]),
   ]);
+  // Matched users may have a phone the link never carried — fold those in for the name lookups.
+  const userIdsForNames = [...new Set([...userIds, ...resolvedUserIds])];
+
+  // Latest contact per bare phone, across SMS/WhatsApp (MessageDelivery) and calls (CallAttempt).
+  const lastContactByPhone = new Map<string, { at: string; channel: string }>();
+  const noteContact = (phone: string | null, when: Date | null | undefined, channel: string) => {
+    const p = norm10(phone); if (!p || !when) return;
+    const prev = lastContactByPhone.get(p);
+    if (!prev || when.getTime() > new Date(prev.at).getTime()) lastContactByPhone.set(p, { at: when.toISOString(), channel });
+  };
+  for (const m of messages) noteContact(m.phone, m.createdAt, m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS');
+  for (const c of calls) noteContact(c.phone, c.startedAt ?? c.createdAt, 'Call');
 
   // Second wave: names for the matched users, the admins who pushed links, and referral owners.
   const adminIds = new Set<string>();
@@ -112,7 +182,7 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
     parsedLinks.set(key, { info, recordedAt: iso(l.sentAt ?? l.createdAt) });
   }
   const ownerIds = [...new Set(referralCodes.map((r) => r.userId))];
-  const nameUserIds = [...new Set([...userIds, ...ownerIds])];
+  const nameUserIds = [...new Set([...userIdsForNames, ...ownerIds])];
   const [users, admins] = await Promise.all([
     nameUserIds.length
       ? prisma.user.findMany({ where: { id: { in: nameUserIds } }, select: { id: true, fullName: true, firstName: true, phone: true } })
@@ -139,9 +209,13 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
 
   const all: InstallRow[] = downloads.map((d) => {
     const key = normaliseRef(d.referrer);
-    const user = d.matchedUserId ? userById.get(d.matchedUserId) : undefined;
-    const cust = d.matchedUserId ? custByUser.get(d.matchedUserId) : undefined;
-    const loan = d.matchedUserId ? loanByUser.get(d.matchedUserId) : undefined;
+    // The person, resolved live: the matched user, else whoever the link's phone belongs to.
+    const uid = effUserId.get(d.id);
+    const user = uid ? userById.get(uid) : undefined;
+    const cust = uid ? custByUser.get(uid) : undefined;
+    const loan = uid ? loanByUser.get(uid) : undefined;
+    const phoneKey = (key ? phoneByToken.get(key) : null) ?? norm10(cust?.phone) ?? norm10(user?.phone);
+    const lastContact = phoneKey ? lastContactByPhone.get(phoneKey) ?? null : null;
 
     const link = key ? parsedLinks.get(key) : undefined;
     const reminder = key ? reminderBy.get(key) : undefined;
@@ -182,12 +256,15 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
           }
         : null,
       context: pickContext(sources),
-      signedIn: !!d.matchedUserId,
+      signedIn: !!uid,
+      application: loan ? { status: loan.status, offerCount: loan._count.offers } : null,
+      lastContact,
     };
   });
 
-  // Stats and the source charts describe the whole date window; the filters narrow only the table.
+  // Stats, the funnel and the source charts describe the whole date window; the filters narrow only the table.
   const stats = computeInstallStats(all);
+  const funnel = computeInstallFunnel(all);
   const bySource = countBy(all, (r) => effectiveSentBy(r.context)).map((g) => ({ source: g.key, count: g.count }));
   const byPlatform = countBy(all, (r) => r.platform).map((g) => ({ platform: g.key, count: g.count }));
 
@@ -202,7 +279,7 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
 
   return ok(
     res,
-    { rows: filtered.slice(skip, skip + take), stats, bySource, byPlatform, truncated },
+    { rows: filtered.slice(skip, skip + take), stats, funnel, bySource, byPlatform, truncated },
     'Installs',
     paginate(page, pageSize, filtered.length),
   );

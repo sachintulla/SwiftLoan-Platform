@@ -1,7 +1,7 @@
 'use client';
 import React, { Fragment, useState } from 'react';
 import Link from 'next/link';
-import { StatusBadge } from '@/components/ui';
+import { StatusBadge, LoanStatusBadge } from '@/components/ui';
 import SendActions from '@/components/SendActions';
 import { dateTimeStr, timeAgo } from '@/lib/format';
 import {
@@ -40,7 +40,7 @@ export default function InstallsTable({ rows, stageName, onChanged }: Props) {
             <th scope="col">Customer</th>
             <th scope="col">Loan details</th>
             <th scope="col">Stage</th>
-            <th scope="col">Link sent</th>
+            <th scope="col">Last contact</th>
             <th scope="col">Installed</th>
             <th scope="col">Next step</th>
           </tr>
@@ -84,6 +84,16 @@ export default function InstallsTable({ rows, stageName, onChanged }: Props) {
 
                   <td data-label="Loan details">
                     <span className={hasLoanDetails(c) ? undefined : 'muted'}>{loanDetailsText(c)}</span>
+                    {r.application && (
+                      <div className="adm-inst-note" style={{ marginTop: 4 }}>
+                        <LoanStatusBadge status={r.application.status} />
+                        {r.application.offerCount > 0 && (
+                          <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>
+                            · {r.application.offerCount} offer{r.application.offerCount === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
 
                   <td data-label="Stage">
@@ -97,10 +107,14 @@ export default function InstallsTable({ rows, stageName, onChanged }: Props) {
                     )}
                   </td>
 
-                  <td data-label="Link sent">
-                    <div className={link.recorded ? undefined : 'muted'}>{link.text}</div>
-                    {link.recorded && c?.sentAt && (
-                      <div className="adm-inst-sub" title={dateTimeStr(c.sentAt)}>{timeAgo(c.sentAt)}</div>
+                  <td data-label="Last contact">
+                    {r.lastContact ? (
+                      <>
+                        <div>{r.lastContact.channel}</div>
+                        <div className="adm-inst-sub" title={dateTimeStr(r.lastContact.at)}>{timeAgo(r.lastContact.at)}</div>
+                      </>
+                    ) : (
+                      <span className="muted">Not contacted yet</span>
                     )}
                   </td>
 
@@ -141,6 +155,7 @@ export default function InstallsTable({ rows, stageName, onChanged }: Props) {
                           <h4>What was sent with the link</h4>
                           <dl className="fact-list">
                             <Fact label="Loan details" value={hasLoanDetails(c) ? loanDetailsText(c) : null} empty="No details were sent" />
+                            <Fact label="Link sent" value={link.recorded ? link.text : null} empty="Link source not recorded" />
                             <Fact label="Stage when sent" value={c?.stageWhenSent ? stageName(c.stageWhenSent) : null} />
                             <Fact label="Sent by" value={c ? c.sentBy.label : null} empty="Link source not recorded" />
                             <Fact label="Channel" value={channelLabel(c?.sentVia) || null} />
