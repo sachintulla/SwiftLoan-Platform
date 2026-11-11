@@ -43,7 +43,7 @@ export default function PrivacyPolicyPage() {
           <span className="eyebrow">Legal</span>
           <h1>Privacy Policy</h1>
           <p>How Purpletalk India Private Limited (&ldquo;SwiftLoan&rdquo;) collects, uses, stores, shares and protects your personal information across the SwiftLoan Platform &mdash; and how you stay in control of it.</p>
-          <div className="updated">Effective date: 5 September 2026 · Last updated: 5 September 2026 · Version 1.0</div>
+          <div className="updated">Effective date: 5 September 2026 · Last updated: 11 November 2026 · Version 1.1</div>
         </div>
       </div>
 
