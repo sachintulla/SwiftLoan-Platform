@@ -11,6 +11,7 @@ import { Card, Stat, Select, StatusBadge, SearchBox, FilterChips, Pagination, Ta
 import { dateTimeStr, timeAgo, num, inr } from '@/lib/format';
 import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
 import { PERIODS, computeRange } from '@/lib/period';
+import ConversionsPanel from '@/components/ConversionsPanel';
 import {
   parseCustomerFilters, serialiseCustomerFilters, hasCustomerFilters, customerListQuery, customerExportQuery,
   stalledOptionsFor, canExport, type CustomerFilters,
@@ -150,6 +151,10 @@ function Customers() {
             {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
+      </div>
+
+      <div className="mt-16">
+        <ConversionsPanel from={range.from} to={range.to} sub="Conversions are a % of total customers in the date range selected below. Commercials = total loan amount requested across website leads." />
       </div>
 
       {/* the numbers an operator acts on, in one card */}
