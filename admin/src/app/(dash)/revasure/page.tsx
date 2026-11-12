@@ -208,7 +208,7 @@ export default function RevasurePage() {
       </div>
 
       <div className="mt-16">
-        <ConversionsPanel from={filters.from} to={filters.to} sub="Overall conversions & commercials for the date range below (platform-wide, not Revasure-only). The % is of total applications." />
+        <ConversionsPanel from={filters.from} to={filters.to} sub="Overall conversions & commercials for the date range below (platform-wide, not Revasure-only)." />
       </div>
 
       {/* Revasure has no status API — admins upload their MIS sheet to update statuses. */}

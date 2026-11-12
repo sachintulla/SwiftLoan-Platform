@@ -81,7 +81,7 @@ export default function OverviewPage() {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <ConversionsPanel from={range.from} to={range.to} sub="Each application sits in one stage, so the stages add up to Applications; the % is of total applications. Commercials = loan amount requested across website leads. Scoped to the range above." />
+        <ConversionsPanel from={range.from} to={range.to} sub="Conversions are a % of total customers in the range selected above. Commercials = total loan amount requested across website leads." />
       </div>
 
       <div style={{ marginTop: 16 }}>

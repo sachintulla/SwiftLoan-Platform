@@ -22,21 +22,18 @@ export interface ConversionsData {
   totalApplications: number;
   totalApplicationsAmount: number;
   leadCommercials: { amount: number; count: number };
-  conversions: Record<'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected' | 'failed', { count: number; pct: number; amount: number }>;
+  conversions: Record<'submitted' | 'inReview' | 'approved' | 'rejected', { count: number; pct: number; amount: number }>;
 }
 
-type ConvKey = 'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected' | 'failed';
-type Bucket = 'customers' | 'leads' | 'all' | ConvKey;
+type Bucket = 'customers' | 'leads' | 'all' | 'submitted' | 'inReview' | 'approved' | 'rejected';
 
 interface Props { from?: string; to?: string; title?: string; sub?: string }
 
-const CONV: { key: ConvKey; label: string; tone: string }[] = [
-  { key: 'inProgress', label: 'In progress', tone: 'grey' },
+const CONV: { key: 'submitted' | 'inReview' | 'approved' | 'rejected'; label: string; tone: string }[] = [
   { key: 'submitted', label: 'Application submitted', tone: 'blue' },
   { key: 'inReview', label: 'In review', tone: 'amber' },
   { key: 'approved', label: 'Approved', tone: 'green' },
   { key: 'rejected', label: 'Rejected', tone: 'red' },
-  { key: 'failed', label: 'Failed (technical)', tone: 'grey' },
 ];
 
 export default function ConversionsPanel({ from, to, title = 'Conversions & Commercials', sub }: Props) {
@@ -50,20 +47,15 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
   const toggle = (b: Bucket) => setSelected((cur) => (cur === b ? null : b));
 
   return (
-    <Card title={title} sub={sub ?? 'Audience & commercials describe a different population from applications; the application funnel splits every application into one stage (the % is of Applications). Select any tile to see the records behind it.'}>
+    <Card title={title} sub={sub ?? 'Conversions are measured against total customers in the selected range. Select any tile to see the records behind it.'}>
       {error ? (
         <p className="muted" style={{ margin: 0 }}>Analytics are unavailable right now.</p>
       ) : (
         <>
-          <SectionLabel>Audience &amp; commercials <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— a different population from applications, so these are context, not a funnel total</span></SectionLabel>
-          <div className="stat-strip" style={{ marginBottom: 16 }}>
-            <TileBtn label="Total customers" value={d ? num(d.totalCustomers) : '—'} foot="all channels (website, app, calls)" selected={selected === 'customers'} onClick={() => toggle('customers')} />
-            <TileBtn label="Lead commercials" value={d ? inrCompact(d.leadCommercials.amount) : '—'} foot={d ? `requested across ${num(d.leadCommercials.count)} website lead${d.leadCommercials.count === 1 ? '' : 's'}` : undefined} tone="teal" selected={selected === 'leads'} onClick={() => toggle('leads')} />
-          </div>
-
-          <SectionLabel>Application funnel <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— every application in exactly one stage; the stages add up to Applications, and the % is of Applications</span></SectionLabel>
           <div className="stat-strip" style={{ marginBottom: 12 }}>
-            <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot={d ? `${inrCompact(d.totalApplicationsAmount)} worth · the base for the %s below` : 'started in range'} selected={selected === 'all'} onClick={() => toggle('all')} />
+            <TileBtn label="Total customers" value={d ? num(d.totalCustomers) : '—'} foot="the people we got" selected={selected === 'customers'} onClick={() => toggle('customers')} />
+            <TileBtn label="Lead commercials" value={d ? inrCompact(d.leadCommercials.amount) : '—'} foot={d ? `across ${num(d.leadCommercials.count)} lead${d.leadCommercials.count === 1 ? '' : 's'}` : undefined} tone="teal" selected={selected === 'leads'} onClick={() => toggle('leads')} />
+            <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot={d ? `${inrCompact(d.totalApplicationsAmount)} worth` : 'started in range'} selected={selected === 'all'} onClick={() => toggle('all')} />
           </div>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
             {CONV.map((c) => {
@@ -86,7 +78,7 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
                     <span className="muted" style={{ fontSize: 13, fontWeight: 600 }}>{v ? `${v.pct}%` : ''}</span>
                   </div>
                   <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 3 }}>{v ? `${inrCompact(v.amount)} worth` : ''}</div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>of applications{on ? ' · showing below' : ''}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>of total customers{on ? ' · showing below' : ''}</div>
                 </button>
               );
             })}
@@ -96,12 +88,6 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
         </>
       )}
     </Card>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', margin: '2px 0 8px' }}>{children}</div>
   );
 }
 
@@ -118,7 +104,7 @@ function TileBtn({ label, value, foot, tone, selected, onClick }: { label: strin
 
 const BUCKET_TITLE: Record<Bucket, string> = {
   customers: 'Customers', leads: 'Website leads', all: 'All applications',
-  inProgress: 'In-progress applications', submitted: 'Applications submitted', inReview: 'Applications in review', approved: 'Approved applications', rejected: 'Rejected applications', failed: 'Failed (technical) applications',
+  submitted: 'Applications submitted', inReview: 'Applications in review', approved: 'Approved applications', rejected: 'Rejected applications',
 };
 
 function DetailList({ bucket, from, to, onClose }: { bucket: Bucket; from?: string; to?: string; onClose: () => void }) {
