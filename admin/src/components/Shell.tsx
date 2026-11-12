@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
+import BrandMark from '@/components/BrandMark';
 import { NUDGES_DISABLED } from '@/lib/flags';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
@@ -96,7 +97,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-logo">S</div>
+          <BrandMark size={30} />
           <div className="brand-name">SwiftLoan</div>
         </div>
         {NAV.map((group, gi) => (

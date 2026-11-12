@@ -41,6 +41,11 @@ export function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
 
+/** The ApplicationStatus set behind a conversion bucket, or null for a non-application bucket (all/customers/leads/unknown). */
+export function statusesForBucket(bucket: string): readonly string[] | null {
+  return bucket in CONVERSION_STATUSES ? CONVERSION_STATUSES[bucket as ConversionKey] : null;
+}
+
 /** Each bucket paired with its percentage of the base (total customers). */
 export function conversionsWithPct(byStatus: Record<string, number>, base: number) {
   const b = bucketConversions(byStatus);
