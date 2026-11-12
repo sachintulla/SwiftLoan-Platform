@@ -14,6 +14,7 @@ import {
 } from '../lib/listFilters.js';
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
+import { conversionsWithPct } from '../lib/conversions.js';
 
 const log = scoped('admin');
 
@@ -193,6 +194,34 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
     leadsBySource: leadsBySource.map((g) => ({ source: g.source, count: g._count._all })),
     applicationsByType: appsByType.map((g) => ({ type: g.loanType, count: g._count._all })),
   }, 'Charts');
+}));
+
+// GET /api/admin/analytics/conversions?from=&to=
+// Conversions & commercials, scoped to a date range. Powers the Analytics page
+// and the summary strips on Loan Pipeline / Yubi / Revasure. Conversion
+// percentages are measured against TOTAL CUSTOMERS in the range ("out of the
+// customers we got"); commercials = the loan value people asked for in their
+// website enquiry (sum of Lead.amount), in whole rupees.
+adminRouter.get('/analytics/conversions', ah(async (req, res) => {
+  const range = dateRange(req.query as Record<string, unknown>);
+  const cr = range ? { createdAt: range } : {};
+  const [totalCustomers, leadAgg, statusGroups] = await Promise.all([
+    prisma.customer.count({ where: cr }),
+    prisma.lead.aggregate({ _sum: { amount: true }, _count: { _all: true }, where: cr }),
+    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true } }),
+  ]);
+
+  const byStatus: Record<string, number> = {};
+  let totalApplications = 0;
+  statusGroups.forEach((g) => { byStatus[g.status] = g._count._all; totalApplications += g._count._all; });
+
+  return ok(res, {
+    base: totalCustomers,
+    totalCustomers,
+    totalApplications,
+    leadCommercials: { amount: leadAgg._sum.amount ?? 0, count: leadAgg._count._all },
+    conversions: conversionsWithPct(byStatus, totalCustomers),
+  }, 'Conversions');
 }));
 
 // GET /api/admin/live-feed?limit=30

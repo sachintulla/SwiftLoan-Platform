@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, Stat, StatusBadge, FilterChips, Callout, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
+import ConversionsPanel from '@/components/ConversionsPanel';
 import { num, inrCompact, dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import {
@@ -130,6 +131,10 @@ export default function YubiPage() {
       </div>
 
       <Callout tone="blue">This list shows customers who applied to a Yubi partner. Customers who only saw an offer are not included.</Callout>
+
+      <div className="mt-16">
+        <ConversionsPanel from={filters.from} to={filters.to} sub="Overall conversions & commercials for the date range below (platform-wide, not Yubi-only)." />
+      </div>
 
       <Card className="mt-16">
         {isLoading && !p ? <div className="skeleton" style={{ height: 58 }} aria-busy="true" /> : (
