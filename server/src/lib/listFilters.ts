@@ -228,12 +228,16 @@ export function buildRevasureWhere(q: Query, matchedUserIds?: string[]): Prisma.
  * date range.
  */
 export function buildYubiWhere(q: Query, matchedUserIds?: string[]): Prisma.PartnerReferralWhereInput {
-  const where: Prisma.PartnerReferralWhereInput = {};
-  const applied = qStr(q.applied);
-  const appliedOnly = applied !== '0' && applied !== 'false';
+  // Yubi only, and genuine Yubi applicants only. A PartnerReferral is pre-warmed
+  // on EVERY prequalify (one dormant row per Aurix application, status 'created',
+  // appliedAt null), so without these two guards the Yubi list would surface
+  // every Aurix application as a "Yubi lead". provider is always 'ympl' here and
+  // appliedAt is set only when the customer actually tapped Proceed on YMPL, so a
+  // row counts as a Yubi lead only once appliedAt is stamped. The old `applied=0`
+  // escape hatch is gone on purpose — a partner page must show only its own leads.
+  const where: Prisma.PartnerReferralWhereInput = { provider: 'ympl' };
   const range = dateRange(q);
-
-  if (appliedOnly || range) where.appliedAt = { ...(appliedOnly ? { not: null } : {}), ...(range ?? {}) };
+  where.appliedAt = { not: null, ...(range ?? {}) };
 
   const status = qStr(q.status);
   if (status) where.lastStatus = status;

@@ -129,14 +129,16 @@ describe('buildRevasureWhere', () => {
 });
 
 describe('buildYubiWhere', () => {
-  it('lists applied referrals only by default', () => {
-    expect(f.buildYubiWhere({})).toEqual({ appliedAt: { not: null } });
-    expect(f.buildYubiWhere({ applied: '1' })).toEqual({ appliedAt: { not: null } });
+  it('is always Yubi-only and genuine applicants only', () => {
+    expect(f.buildYubiWhere({})).toEqual({ provider: 'ympl', appliedAt: { not: null } });
+    expect(f.buildYubiWhere({ applied: '1' })).toEqual({ provider: 'ympl', appliedAt: { not: null } });
   });
 
-  it('lists everything when applied is 0 or false', () => {
-    expect(f.buildYubiWhere({ applied: '0' })).toEqual({});
-    expect(f.buildYubiWhere({ applied: 'false' })).toEqual({});
+  it('cannot be relaxed to show pre-warm (Aurix-application) rows via applied=0', () => {
+    // The pre-warm rows are dormant Aurix applications, not Yubi leads, so the
+    // escape hatch is gone: the guard holds whatever `applied` is passed.
+    expect(f.buildYubiWhere({ applied: '0' })).toEqual({ provider: 'ympl', appliedAt: { not: null } });
+    expect(f.buildYubiWhere({ applied: 'false' })).toEqual({ provider: 'ympl', appliedAt: { not: null } });
   });
 
   it('filters status on lastStatus', () => {
