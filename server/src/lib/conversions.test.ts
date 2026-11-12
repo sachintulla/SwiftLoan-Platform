@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketConversions, conversionsWithPct, pct } from './conversions.js';
+import { bucketConversions, conversionsWithPct, conversionsDetailed, pct } from './conversions.js';
 
 const byStatus = {
   draft: 5, pan_pending: 2, prequalifying: 1, offers_ready: 3,
@@ -35,5 +35,18 @@ describe('conversionsWithPct', () => {
     expect(r.rejected).toEqual({ count: 4, pct: 4 });
     expect(r.submitted).toEqual({ count: 4, pct: 4 });
     expect(r.inReview).toEqual({ count: 6, pct: 6 });
+  });
+});
+
+describe('conversionsDetailed', () => {
+  const byAmount = {
+    handoff: 400000, under_review: 600000, approved: 700000, disbursed: 200000, closed: 100000, rejected: 300000, failed: 100000,
+  };
+  it('adds the application worth (Σ amount) to each bucket', () => {
+    const r = conversionsDetailed(byStatus, byAmount, 100);
+    expect(r.submitted).toEqual({ count: 4, pct: 4, amount: 400000 });
+    expect(r.inReview).toEqual({ count: 6, pct: 6, amount: 600000 });
+    expect(r.approved).toEqual({ count: 10, pct: 10, amount: 700000 + 200000 + 100000 });
+    expect(r.rejected).toEqual({ count: 4, pct: 4, amount: 300000 + 100000 });
   });
 });

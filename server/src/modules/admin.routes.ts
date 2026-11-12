@@ -14,7 +14,7 @@ import {
 } from '../lib/listFilters.js';
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
-import { conversionsWithPct, statusesForBucket } from '../lib/conversions.js';
+import { conversionsDetailed, statusesForBucket } from '../lib/conversions.js';
 import type { ApplicationStatus } from '@prisma/client';
 
 const log = scoped('admin');
@@ -209,19 +209,27 @@ adminRouter.get('/analytics/conversions', ah(async (req, res) => {
   const [totalCustomers, leadAgg, statusGroups] = await Promise.all([
     prisma.customer.count({ where: cr }),
     prisma.lead.aggregate({ _sum: { amount: true }, _count: { _all: true }, where: cr }),
-    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true } }),
+    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true }, _sum: { amount: true } }),
   ]);
 
-  const byStatus: Record<string, number> = {};
+  const byCount: Record<string, number> = {};
+  const byAmount: Record<string, number> = {};
   let totalApplications = 0;
-  statusGroups.forEach((g) => { byStatus[g.status] = g._count._all; totalApplications += g._count._all; });
+  let totalApplicationsAmount = 0;
+  statusGroups.forEach((g) => {
+    byCount[g.status] = g._count._all;
+    byAmount[g.status] = g._sum.amount ?? 0;
+    totalApplications += g._count._all;
+    totalApplicationsAmount += g._sum.amount ?? 0;
+  });
 
   return ok(res, {
     base: totalCustomers,
     totalCustomers,
     totalApplications,
+    totalApplicationsAmount,
     leadCommercials: { amount: leadAgg._sum.amount ?? 0, count: leadAgg._count._all },
-    conversions: conversionsWithPct(byStatus, totalCustomers),
+    conversions: conversionsDetailed(byCount, byAmount, totalCustomers),
   }, 'Conversions');
 }));
 

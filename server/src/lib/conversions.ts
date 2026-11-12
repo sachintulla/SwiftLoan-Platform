@@ -57,3 +57,20 @@ export function conversionsWithPct(byStatus: Record<string, number>, base: numbe
     rejected: withPct(b.rejected),
   };
 }
+
+/**
+ * Each bucket with its count, its % of the base, AND the total application worth
+ * in that bucket (Σ LoanApplication.amount). `byCount` and `byAmount` are both
+ * status→number maps (counts and rupee sums respectively), bucketed the same way.
+ */
+export function conversionsDetailed(byCount: Record<string, number>, byAmount: Record<string, number>, base: number) {
+  const c = bucketConversions(byCount);
+  const a = bucketConversions(byAmount);
+  const make = (k: ConversionKey) => ({ count: c[k], pct: pct(c[k], base), amount: a[k] });
+  return {
+    submitted: make('submitted'),
+    inReview: make('inReview'),
+    approved: make('approved'),
+    rejected: make('rejected'),
+  };
+}

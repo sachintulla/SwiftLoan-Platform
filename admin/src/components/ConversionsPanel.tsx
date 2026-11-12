@@ -20,8 +20,9 @@ export interface ConversionsData {
   base: number;
   totalCustomers: number;
   totalApplications: number;
+  totalApplicationsAmount: number;
   leadCommercials: { amount: number; count: number };
-  conversions: Record<'submitted' | 'inReview' | 'approved' | 'rejected', { count: number; pct: number }>;
+  conversions: Record<'submitted' | 'inReview' | 'approved' | 'rejected', { count: number; pct: number; amount: number }>;
 }
 
 type Bucket = 'customers' | 'leads' | 'all' | 'submitted' | 'inReview' | 'approved' | 'rejected';
@@ -54,7 +55,7 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
           <div className="stat-strip" style={{ marginBottom: 12 }}>
             <TileBtn label="Total customers" value={d ? num(d.totalCustomers) : '—'} foot="the people we got" selected={selected === 'customers'} onClick={() => toggle('customers')} />
             <TileBtn label="Lead commercials" value={d ? inrCompact(d.leadCommercials.amount) : '—'} foot={d ? `across ${num(d.leadCommercials.count)} lead${d.leadCommercials.count === 1 ? '' : 's'}` : undefined} tone="teal" selected={selected === 'leads'} onClick={() => toggle('leads')} />
-            <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot="started in range" selected={selected === 'all'} onClick={() => toggle('all')} />
+            <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot={d ? `${inrCompact(d.totalApplicationsAmount)} worth` : 'started in range'} selected={selected === 'all'} onClick={() => toggle('all')} />
           </div>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
             {CONV.map((c) => {
@@ -76,7 +77,8 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
                     <span style={{ fontSize: 24, fontWeight: 700, color: `var(--${c.tone})` }}>{v ? num(v.count) : '—'}</span>
                     <span className="muted" style={{ fontSize: 13, fontWeight: 600 }}>{v ? `${v.pct}%` : ''}</span>
                   </div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>of total customers{on ? ' · showing below' : ''}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 3 }}>{v ? `${inrCompact(v.amount)} worth` : ''}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>of total customers{on ? ' · showing below' : ''}</div>
                 </button>
               );
             })}
