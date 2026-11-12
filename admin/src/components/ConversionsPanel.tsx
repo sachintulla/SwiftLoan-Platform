@@ -22,14 +22,16 @@ export interface ConversionsData {
   totalApplications: number;
   totalApplicationsAmount: number;
   leadCommercials: { amount: number; count: number };
-  conversions: Record<'submitted' | 'inReview' | 'approved' | 'rejected', { count: number; pct: number; amount: number }>;
+  conversions: Record<'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected', { count: number; pct: number; amount: number }>;
 }
 
-type Bucket = 'customers' | 'leads' | 'all' | 'submitted' | 'inReview' | 'approved' | 'rejected';
+type ConvKey = 'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected';
+type Bucket = 'customers' | 'leads' | 'all' | ConvKey;
 
 interface Props { from?: string; to?: string; title?: string; sub?: string }
 
-const CONV: { key: 'submitted' | 'inReview' | 'approved' | 'rejected'; label: string; tone: string }[] = [
+const CONV: { key: ConvKey; label: string; tone: string }[] = [
+  { key: 'inProgress', label: 'In progress', tone: 'grey' },
   { key: 'submitted', label: 'Application submitted', tone: 'blue' },
   { key: 'inReview', label: 'In review', tone: 'amber' },
   { key: 'approved', label: 'Approved', tone: 'green' },
@@ -47,7 +49,7 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
   const toggle = (b: Bucket) => setSelected((cur) => (cur === b ? null : b));
 
   return (
-    <Card title={title} sub={sub ?? 'Conversions are measured against total customers in the selected range. Select any tile to see the records behind it.'}>
+    <Card title={title} sub={sub ?? 'Each application sits in exactly one stage below, so the stages add up to Applications; the % is of total applications. Select any tile to see the records behind it.'}>
       {error ? (
         <p className="muted" style={{ margin: 0 }}>Analytics are unavailable right now.</p>
       ) : (
@@ -78,7 +80,7 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
                     <span className="muted" style={{ fontSize: 13, fontWeight: 600 }}>{v ? `${v.pct}%` : ''}</span>
                   </div>
                   <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 3 }}>{v ? `${inrCompact(v.amount)} worth` : ''}</div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>of total customers{on ? ' · showing below' : ''}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>of applications{on ? ' · showing below' : ''}</div>
                 </button>
               );
             })}
@@ -104,7 +106,7 @@ function TileBtn({ label, value, foot, tone, selected, onClick }: { label: strin
 
 const BUCKET_TITLE: Record<Bucket, string> = {
   customers: 'Customers', leads: 'Website leads', all: 'All applications',
-  submitted: 'Applications submitted', inReview: 'Applications in review', approved: 'Approved applications', rejected: 'Rejected applications',
+  inProgress: 'In-progress applications', submitted: 'Applications submitted', inReview: 'Applications in review', approved: 'Approved applications', rejected: 'Rejected applications',
 };
 
 function DetailList({ bucket, from, to, onClose }: { bucket: Bucket; from?: string; to?: string; onClose: () => void }) {

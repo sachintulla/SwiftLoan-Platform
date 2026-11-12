@@ -133,7 +133,7 @@ export default function YubiPage() {
       <Callout tone="blue">This list shows customers who applied to a Yubi partner. Customers who only saw an offer are not included.</Callout>
 
       <div className="mt-16">
-        <ConversionsPanel from={filters.from} to={filters.to} sub="Overall conversions & commercials for the date range below (platform-wide, not Yubi-only)." />
+        <ConversionsPanel from={filters.from} to={filters.to} sub="Overall conversions & commercials for the date range below (platform-wide, not Yubi-only). The % is of total applications." />
       </div>
 
       <Card className="mt-16">

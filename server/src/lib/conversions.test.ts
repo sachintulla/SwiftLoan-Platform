@@ -7,16 +7,20 @@ const byStatus = {
 };
 
 describe('bucketConversions', () => {
-  it('maps statuses into four mutually-exclusive buckets', () => {
+  it('maps statuses into mutually-exclusive buckets that reconcile to the total', () => {
     expect(bucketConversions(byStatus)).toEqual({
+      inProgress: 5 + 2 + 1 + 3,    // draft + pan_pending + prequalifying + offers_ready
       submitted: 4,                 // handoff
       inReview: 6,                  // under_review
       approved: 7 + 2 + 1,          // approved + disbursed + closed
       rejected: 3 + 1,              // rejected + failed
     });
+    const b = bucketConversions(byStatus);
+    const total = Object.values(byStatus).reduce((n, v) => n + v, 0);
+    expect(b.inProgress + b.submitted + b.inReview + b.approved + b.rejected).toBe(total);
   });
   it('is zero for an empty map', () => {
-    expect(bucketConversions({})).toEqual({ submitted: 0, inReview: 0, approved: 0, rejected: 0 });
+    expect(bucketConversions({})).toEqual({ inProgress: 0, submitted: 0, inReview: 0, approved: 0, rejected: 0 });
   });
 });
 
@@ -35,6 +39,7 @@ describe('conversionsWithPct', () => {
     expect(r.rejected).toEqual({ count: 4, pct: 4 });
     expect(r.submitted).toEqual({ count: 4, pct: 4 });
     expect(r.inReview).toEqual({ count: 6, pct: 6 });
+    expect(r.inProgress).toEqual({ count: 11, pct: 11 });
   });
 });
 
@@ -48,5 +53,6 @@ describe('conversionsDetailed', () => {
     expect(r.inReview).toEqual({ count: 6, pct: 6, amount: 600000 });
     expect(r.approved).toEqual({ count: 10, pct: 10, amount: 700000 + 200000 + 100000 });
     expect(r.rejected).toEqual({ count: 4, pct: 4, amount: 300000 + 100000 });
+    expect(r.inProgress).toEqual({ count: 11, pct: 11, amount: 0 });
   });
 });

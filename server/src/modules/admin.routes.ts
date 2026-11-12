@@ -224,12 +224,14 @@ adminRouter.get('/analytics/conversions', ah(async (req, res) => {
   });
 
   return ok(res, {
-    base: totalCustomers,
+    // Conversion %s are out of TOTAL APPLICATIONS so count ÷ base = the shown %
+    // and the buckets reconcile to the total. totalCustomers is context only.
+    base: totalApplications,
     totalCustomers,
     totalApplications,
     totalApplicationsAmount,
     leadCommercials: { amount: leadAgg._sum.amount ?? 0, count: leadAgg._count._all },
-    conversions: conversionsDetailed(byCount, byAmount, totalCustomers),
+    conversions: conversionsDetailed(byCount, byAmount, totalApplications),
   }, 'Conversions');
 }));
 

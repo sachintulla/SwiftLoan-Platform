@@ -118,7 +118,7 @@ export default function LoansPage() {
       </div>
 
       <div className="mt-16">
-        <ConversionsPanel from={filters.from} to={filters.to} sub="Scoped to the date range selected below. Conversions are a % of total customers in that range." />
+        <ConversionsPanel from={filters.from} to={filters.to} sub="Each application sits in one stage, so the stages add up to Applications; the % is of total applications. Scoped to the date range selected below." />
       </div>
 
       <div className="mt-16">

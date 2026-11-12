@@ -63,7 +63,7 @@ export default function AnalyticsPage() {
         )}
       </div>
 
-      <ConversionsPanel from={range.from} to={range.to} sub="Conversion percentages are out of total customers in the selected range. Commercials = total loan amount requested across website leads." />
+      <ConversionsPanel from={range.from} to={range.to} sub="Each application sits in one stage, so the stages add up to Applications; the % is of total applications. Commercials = loan amount requested across website leads." />
     </div>
   );
 }
