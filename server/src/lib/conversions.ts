@@ -19,13 +19,16 @@ export const CONVERSION_STATUSES = {
   submitted: ['handoff'],
   inReview: ['under_review'],
   approved: ['approved', 'disbursed', 'closed'],
-  rejected: ['rejected', 'failed'],
+  // A genuine decline (no offers / lender rejected), separate from a technical failure.
+  rejected: ['rejected'],
+  // A technical dead-end (the Aurix/lender flow errored) — not a genuine outcome.
+  failed: ['failed'],
 } as const;
 
 export type ConversionKey = keyof typeof CONVERSION_STATUSES;
 export const CONVERSION_KEYS = Object.keys(CONVERSION_STATUSES) as ConversionKey[];
 
-export interface ConversionBuckets { inProgress: number; submitted: number; inReview: number; approved: number; rejected: number }
+export interface ConversionBuckets { inProgress: number; submitted: number; inReview: number; approved: number; rejected: number; failed: number }
 
 /** Sum the status→count map into the mutually-exclusive conversion buckets. Together they cover every application status, so the buckets always reconcile to the total. */
 export function bucketConversions(byStatus: Record<string, number>): ConversionBuckets {
@@ -36,6 +39,7 @@ export function bucketConversions(byStatus: Record<string, number>): ConversionB
     inReview: sum(CONVERSION_STATUSES.inReview),
     approved: sum(CONVERSION_STATUSES.approved),
     rejected: sum(CONVERSION_STATUSES.rejected),
+    failed: sum(CONVERSION_STATUSES.failed),
   };
 }
 
@@ -59,6 +63,7 @@ export function conversionsWithPct(byStatus: Record<string, number>, base: numbe
     inReview: withPct(b.inReview),
     approved: withPct(b.approved),
     rejected: withPct(b.rejected),
+    failed: withPct(b.failed),
   };
 }
 
@@ -81,5 +86,6 @@ export function conversionsDetailed(byCount: Record<string, number>, byAmount: R
     inReview: make('inReview'),
     approved: make('approved'),
     rejected: make('rejected'),
+    failed: make('failed'),
   };
 }

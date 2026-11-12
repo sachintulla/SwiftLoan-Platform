@@ -22,10 +22,10 @@ export interface ConversionsData {
   totalApplications: number;
   totalApplicationsAmount: number;
   leadCommercials: { amount: number; count: number };
-  conversions: Record<'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected', { count: number; pct: number; amount: number }>;
+  conversions: Record<'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected' | 'failed', { count: number; pct: number; amount: number }>;
 }
 
-type ConvKey = 'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected';
+type ConvKey = 'inProgress' | 'submitted' | 'inReview' | 'approved' | 'rejected' | 'failed';
 type Bucket = 'customers' | 'leads' | 'all' | ConvKey;
 
 interface Props { from?: string; to?: string; title?: string; sub?: string }
@@ -36,6 +36,7 @@ const CONV: { key: ConvKey; label: string; tone: string }[] = [
   { key: 'inReview', label: 'In review', tone: 'amber' },
   { key: 'approved', label: 'Approved', tone: 'green' },
   { key: 'rejected', label: 'Rejected', tone: 'red' },
+  { key: 'failed', label: 'Failed (technical)', tone: 'grey' },
 ];
 
 export default function ConversionsPanel({ from, to, title = 'Conversions & Commercials', sub }: Props) {
@@ -117,7 +118,7 @@ function TileBtn({ label, value, foot, tone, selected, onClick }: { label: strin
 
 const BUCKET_TITLE: Record<Bucket, string> = {
   customers: 'Customers', leads: 'Website leads', all: 'All applications',
-  inProgress: 'In-progress applications', submitted: 'Applications submitted', inReview: 'Applications in review', approved: 'Approved applications', rejected: 'Rejected applications',
+  inProgress: 'In-progress applications', submitted: 'Applications submitted', inReview: 'Applications in review', approved: 'Approved applications', rejected: 'Rejected applications', failed: 'Failed (technical) applications',
 };
 
 function DetailList({ bucket, from, to, onClose }: { bucket: Bucket; from?: string; to?: string; onClose: () => void }) {
