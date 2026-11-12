@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
+import BrandMark from '@/components/BrandMark';
 import { NUDGES_DISABLED } from '@/lib/flags';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
@@ -34,8 +35,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     items: [
       // All Users folded into Customers (one list; its "Unverified numbers" toggle shows the people who never
       // entered their OTP). /users and /users/:id still open from links on a customer.
-      // Analytics merged into Master Overview's "Trends" section; /analytics
-      // still resolves via a redirect for old links.
+      { href: '/analytics', label: 'Conversions & Commercials', icon: '％' },
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
       { href: '/messages', label: 'Messages', icon: '✆' },
       { href: '/api-errors', label: 'API & Webhook Errors', icon: '⚠' },
@@ -61,7 +61,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
-  '/analytics': 'Analytics', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages', '/api-errors': 'API & Webhook Errors', '/notify': 'Send Notification',
+  '/analytics': 'Conversions & Commercials', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages', '/api-errors': 'API & Webhook Errors', '/notify': 'Send Notification',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
@@ -97,7 +97,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-logo">S</div>
+          <BrandMark size={30} />
           <div className="brand-name">SwiftLoan</div>
         </div>
         {NAV.map((group, gi) => (

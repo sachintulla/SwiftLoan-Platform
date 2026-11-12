@@ -2,6 +2,7 @@
 import React, { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { login, apiFetch } from '@/lib/api';
+import BrandMark from '@/components/BrandMark';
 import { AuthScreen } from '@/components/AuthBackdrop';
 
 export default function LoginPage() {
@@ -66,7 +67,7 @@ function LoginInner() {
     <AuthScreen>
       <form onSubmit={submit} className="card" style={{ width: 380, padding: 32 }}>
         <div className="row" style={{ gap: 10, marginBottom: 20 }}>
-          <div className="brand-logo" style={{ width: 38, height: 38, fontSize: 18 }}>S</div>
+          <BrandMark size={38} />
           <div><div style={{ fontWeight: 750, fontSize: 18 }}>SwiftLoan Admin</div><div className="muted" style={{ fontSize: 12 }}>Operations dashboard</div></div>
         </div>
 

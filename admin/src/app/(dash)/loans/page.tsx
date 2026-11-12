@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, LoanStatusBadge, FilterChips, Select, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
+import ConversionsPanel from '@/components/ConversionsPanel';
 import { inr, inrCompact, dateTimeStr, loanStatusLabel } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
 import { buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel, type FilterLabels } from '@/lib/lists';
@@ -114,6 +115,10 @@ export default function LoansPage() {
           <p className="page-sub">Every loan application with its current stage. Select a row to open the full journey.</p>
         </div>
         <ListActions kind="loans" filters={filters} total={searchPending || isLoading ? undefined : pg?.total} filterSummary={described} role={role} />
+      </div>
+
+      <div className="mt-16">
+        <ConversionsPanel from={filters.from} to={filters.to} sub="Scoped to the date range selected below. Conversions are a % of total customers in that range." />
       </div>
 
       <div className="mt-16">

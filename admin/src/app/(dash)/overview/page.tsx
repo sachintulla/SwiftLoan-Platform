@@ -7,6 +7,7 @@ import { FunnelChart, PipelineBar, ActiveUsers, FunnelStage, ActiveUser } from '
 import { TrendArea, CategoryBar, DonutChart } from '@/components/charts';
 import { inrCompact, num, pct } from '@/lib/format';
 import { PERIODS, computeRange, type Period } from '@/lib/period';
+import ConversionsPanel from '@/components/ConversionsPanel';
 
 interface Overview {
   // NB: totalDisbursed / outstanding (and timeseries disbursed) are sums of Loan.principal / Loan.outstanding, which are stored in RUPEES despite the name.
@@ -77,6 +78,10 @@ export default function OverviewPage() {
             <StatCard label="App → Disbursal" value={pct(o.stats.applicationToDisbursalPct)} icon="↗" tone="grey" foot="conversion" />
           </>
         )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <ConversionsPanel from={range.from} to={range.to} sub="Conversions are a % of total customers in the range selected above. Commercials = total loan amount requested across website leads." />
       </div>
 
       <div style={{ marginTop: 16 }}>

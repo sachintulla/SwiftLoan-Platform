@@ -14,6 +14,8 @@ import {
 } from '../lib/listFilters.js';
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
+import { conversionsDetailed, statusesForBucket } from '../lib/conversions.js';
+import type { ApplicationStatus } from '@prisma/client';
 
 const log = scoped('admin');
 
@@ -193,6 +195,85 @@ adminRouter.get('/dashboard/charts', ah(async (req, res) => {
     leadsBySource: leadsBySource.map((g) => ({ source: g.source, count: g._count._all })),
     applicationsByType: appsByType.map((g) => ({ type: g.loanType, count: g._count._all })),
   }, 'Charts');
+}));
+
+// GET /api/admin/analytics/conversions?from=&to=
+// Conversions & commercials, scoped to a date range. Powers the Analytics page
+// and the summary strips on Loan Pipeline / Yubi / Revasure. Conversion
+// percentages are measured against TOTAL CUSTOMERS in the range ("out of the
+// customers we got"); commercials = the loan value people asked for in their
+// website enquiry (sum of Lead.amount), in whole rupees.
+adminRouter.get('/analytics/conversions', ah(async (req, res) => {
+  const range = dateRange(req.query as Record<string, unknown>);
+  const cr = range ? { createdAt: range } : {};
+  const [totalCustomers, leadAgg, statusGroups] = await Promise.all([
+    prisma.customer.count({ where: cr }),
+    prisma.lead.aggregate({ _sum: { amount: true }, _count: { _all: true }, where: cr }),
+    prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true }, _sum: { amount: true } }),
+  ]);
+
+  const byCount: Record<string, number> = {};
+  const byAmount: Record<string, number> = {};
+  let totalApplications = 0;
+  let totalApplicationsAmount = 0;
+  statusGroups.forEach((g) => {
+    byCount[g.status] = g._count._all;
+    byAmount[g.status] = g._sum.amount ?? 0;
+    totalApplications += g._count._all;
+    totalApplicationsAmount += g._sum.amount ?? 0;
+  });
+
+  return ok(res, {
+    base: totalCustomers,
+    totalCustomers,
+    totalApplications,
+    totalApplicationsAmount,
+    leadCommercials: { amount: leadAgg._sum.amount ?? 0, count: leadAgg._count._all },
+    conversions: conversionsDetailed(byCount, byAmount, totalCustomers),
+  }, 'Conversions');
+}));
+
+// GET /api/admin/analytics/conversions/list?bucket=&from=&to=&page=&pageSize=
+// Drill-down behind a conversion tile: the actual records for a bucket, scoped to
+// the same date range. bucket = customers | leads | all | submitted | inReview |
+// approved | rejected. Returns `kind` so the UI knows which columns to render.
+adminRouter.get('/analytics/conversions/list', ah(async (req, res) => {
+  const q = req.query as Record<string, unknown>;
+  const { page, pageSize, skip, take } = pageParams(q);
+  const range = dateRange(q);
+  const cr = range ? { createdAt: range } : {};
+  const bucket = typeof q.bucket === 'string' ? q.bucket : 'all';
+
+  if (bucket === 'customers') {
+    const [rows, total] = await Promise.all([
+      prisma.customer.findMany({ where: cr, orderBy: { createdAt: 'desc' }, skip, take, select: { id: true, name: true, phone: true, currentStage: true, createdAt: true } }),
+      prisma.customer.count({ where: cr }),
+    ]);
+    return ok(res, { kind: 'customers', rows: rows.map((c) => ({ id: c.id, name: c.name, phone: c.phone, stage: c.currentStage, createdAt: c.createdAt })) }, 'Conversion customers', paginate(page, pageSize, total));
+  }
+
+  if (bucket === 'leads') {
+    const [rows, total] = await Promise.all([
+      prisma.lead.findMany({ where: cr, orderBy: { createdAt: 'desc' }, skip, take, select: { id: true, name: true, phone: true, amount: true, productInterest: true, status: true, createdAt: true, convertedUserId: true } }),
+      prisma.lead.count({ where: cr }),
+    ]);
+    return ok(res, { kind: 'leads', rows }, 'Conversion leads', paginate(page, pageSize, total));
+  }
+
+  // Applications: all, or the status set behind a conversion bucket.
+  const statuses = statusesForBucket(bucket);
+  const where = { ...cr, ...(statuses ? { status: { in: statuses as ApplicationStatus[] } } : {}) };
+  const [rows, total] = await Promise.all([
+    prisma.loanApplication.findMany({
+      where, orderBy: { createdAt: 'desc' }, skip, take,
+      select: { id: true, ref: true, status: true, amount: true, loanType: true, createdAt: true, user: { select: { fullName: true, phone: true } } },
+    }),
+    prisma.loanApplication.count({ where }),
+  ]);
+  return ok(res, {
+    kind: 'applications',
+    rows: rows.map((a) => ({ id: a.id, ref: a.ref, status: a.status, amount: a.amount, loanType: a.loanType, createdAt: a.createdAt, name: a.user?.fullName ?? null, phone: a.user?.phone ?? null })),
+  }, 'Conversion applications', paginate(page, pageSize, total));
 }));
 
 // GET /api/admin/live-feed?limit=30
