@@ -1,4 +1,5 @@
 import { timing } from './timings.js';
+import { classifyClaim, type ClaimKind } from './installDedup.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
@@ -80,6 +81,13 @@ export interface ClaimInput {
   clickToken?: string | null; // Play referrer click_id, or clipboard token
   via?: 'play_referrer' | 'clipboard';
   osVersion?: string | null;
+  /** Random id the app made for this install (dedups a retried report). */
+  installId?: string | null;
+  /** Hashed device id (lib/installDedup.ts deviceKeyFor): the same phone after a reinstall. */
+  deviceKey?: string | null;
+  installSource?: string | null;
+  appVersion?: string | null;
+  deviceModel?: string | null;
 }
 
 export interface ClaimResult {
@@ -91,6 +99,8 @@ export interface ClaimResult {
   clickRef: string | null;
   source: string;
   referral: { code: string; referrerName: string } | null;
+  /** new = counted as an install; reinstall = same phone again; retry = the same report twice (counted once). */
+  kind: ClaimKind;
 }
 
 /** Flip a pending click to matched exactly once; false if someone else got there first. */
@@ -103,6 +113,75 @@ async function consumeClick(id: string): Promise<boolean> {
 }
 
 export async function claimInstall(input: ClaimInput): Promise<ClaimResult> {
+  const installId = input.installId ?? null;
+  const deviceKey = input.deviceKey ?? null;
+  const [byInstallId, byDevice] = await Promise.all([
+    installId ? prisma.appDownload.findFirst({ where: { OR: [{ installId }, { lastInstallId: installId }] } }) : null,
+    deviceKey ? prisma.appDownload.findUnique({ where: { platform_deviceKey: { platform: input.platform, deviceKey } } }) : null,
+  ]);
+  const kind = classifyClaim({ installId, byInstallId, byDevice });
+
+  // The same report again (the app never got our reply): answer from the row already saved. No link is consumed
+  // twice and nothing is counted again.
+  if (kind === 'retry') {
+    const row = (byInstallId ?? byDevice)!;
+    return replyFromRow(row, input.platform, 'retry');
+  }
+
+  const { click, method } = await matchClick(input);
+  const source = click ? (click.kind === 'direct' ? 'organic' : click.kind) : 'organic';
+  const details = {
+    installSource: input.installSource ?? null,
+    appVersion: input.appVersion ?? null,
+    deviceModel: input.deviceModel ?? null,
+    osVersion: input.osVersion ?? null,
+  };
+
+  let download: { id: string };
+  if (kind === 'reinstall' && byDevice) {
+    // Same phone, installed again: one install, one more reinstall. A link that brought them back still fills
+    // the attribution when the first install had none (and still drives the website "continue" offer below).
+    const attribution = click && !byDevice.clickId
+      ? { source, campaignId: click.campaignId ?? null, referrer: click.ref ?? null, clickId: click.id, matchMethod: method }
+      : {};
+    download = await prisma.appDownload.update({
+      where: { id: byDevice.id },
+      data: { ...details, ...attribution, lastInstallId: installId, reinstallCount: { increment: 1 }, lastReinstalledAt: new Date() },
+    });
+  } else {
+    try {
+      download = await prisma.appDownload.create({
+        data: {
+          platform: input.platform,
+          source,
+          campaignId: click?.campaignId ?? null,
+          referrer: click?.ref ?? null,
+          clickId: click?.id ?? null,
+          matchMethod: method,
+          installId,
+          lastInstallId: installId,
+          deviceKey,
+          ...details,
+        },
+      });
+    } catch (e) {
+      // Two reports from the same phone at once: the other one saved the row first. Count it once.
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') throw e;
+      const raced = await prisma.appDownload.findFirst({
+        where: { OR: [...(installId ? [{ installId }] : []), ...(deviceKey ? [{ platform: input.platform, deviceKey }] : [])] },
+      });
+      if (!raced) throw e;
+      return replyFromRow(raced, input.platform, 'retry');
+    }
+  }
+
+  const referral = click?.kind === 'referral' && click.ref ? await referralFor(click.ref) : null;
+  log.info('install claimed', { platform: input.platform, kind, matched: !!click, method, source, installSource: details.installSource });
+  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, clickRef: click?.ref ?? null, source, referral, kind };
+}
+
+/** Which /dl link (if any) sent this install: the token it handed over, else exactly one click from the same network. */
+async function matchClick(input: ClaimInput) {
   let click: Awaited<ReturnType<typeof prisma.appClick.findUnique>> = null;
   let method: MatchMethod | null = null;
 
@@ -135,30 +214,46 @@ export async function claimInstall(input: ClaimInput): Promise<ClaimResult> {
       method = 'ip_window';
     }
   }
+  return { click, method };
+}
 
-  const source = click ? (click.kind === 'direct' ? 'organic' : click.kind) : 'organic';
-  const download = await prisma.appDownload.create({
-    data: {
-      platform: input.platform,
-      source,
-      campaignId: click?.campaignId ?? null,
-      referrer: click?.ref ?? null,
-      clickId: click?.id ?? null,
-      matchMethod: method,
-    },
-  });
+async function referralFor(code: string): Promise<ClaimResult['referral']> {
+  const owner = await prisma.referralCode.findUnique({ where: { code } });
+  const user = owner ? await prisma.user.findUnique({ where: { id: owner.userId }, select: { fullName: true, firstName: true, phone: true } }) : null;
+  return owner && user ? { code: owner.code, referrerName: maskName(user.fullName ?? user.firstName, user.phone) } : null;
+}
 
-  let referral: ClaimResult['referral'] = null;
-  if (click?.kind === 'referral' && click.ref) {
-    const owner = await prisma.referralCode.findUnique({ where: { code: click.ref } });
-    const user = owner ? await prisma.user.findUnique({ where: { id: owner.userId }, select: { fullName: true, firstName: true, phone: true } }) : null;
-    if (owner && user) {
-      referral = { code: owner.code, referrerName: maskName(user.fullName ?? user.firstName, user.phone) };
-    }
-  }
+/** Answer a repeated report with what the first one got (same link, same referral), without counting anything. */
+async function replyFromRow(
+  row: { id: string; clickId: string | null; matchMethod: string | null; source: string },
+  platform: Platform,
+  kind: ClaimKind,
+): Promise<ClaimResult> {
+  const click = row.clickId ? await prisma.appClick.findUnique({ where: { id: row.clickId }, select: { ref: true, kind: true } }) : null;
+  const referral = click?.kind === 'referral' && click.ref ? await referralFor(click.ref) : null;
+  log.info('install claim repeated', { platform, kind, downloadId: row.id });
+  return {
+    matched: !!row.clickId,
+    method: (row.matchMethod as MatchMethod | null) ?? null,
+    downloadId: row.id,
+    clickId: row.clickId,
+    clickRef: click?.ref ?? null,
+    source: row.source,
+    referral,
+    kind,
+  };
+}
 
-  log.info('install claimed', { platform: input.platform, matched: !!click, method, source });
-  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, clickRef: click?.ref ?? null, source, referral };
+/**
+ * Tie this install to the person who just signed in on it (the app sends its own install id after OTP login).
+ * Only an install that belongs to nobody yet is linked; a shared phone keeps its first owner. Returns the row
+ * when it was linked now, else null.
+ */
+export async function linkInstallToUser(installId: string, userId: string) {
+  const row = await prisma.appDownload.findFirst({ where: { OR: [{ installId }, { lastInstallId: installId }] } });
+  if (!row || row.matchedUserId) return null;
+  const { count } = await prisma.appDownload.updateMany({ where: { id: row.id, matchedUserId: null }, data: { matchedUserId: userId, matchedAt: new Date() } });
+  return count === 1 ? row : null;
 }
 
 // ── Redeem (after the friend has an account) ────────────────────────────────

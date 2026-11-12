@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { TEST_SOURCES } from '../lib/installDedup.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
@@ -110,7 +111,9 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
     prisma.loanApplication.aggregate({ _sum: { amount: true }, where: cr }),
     prisma.loan.count({ where: range ? { disbursedAt: range } : {} }),
     prisma.lead.count({ where: cr }),
-    prisma.appDownload.count({ where: range ? { installedAt: range } : {} }),
+    // Unique phones (one row per device, lib/installDedup.ts), leaving out our own test builds (TestFlight,
+    // sideloaded APKs, dev builds). Installs recorded before the app reported its source still count.
+    prisma.appDownload.count({ where: { ...(range ? { installedAt: range } : {}), OR: [{ installSource: null }, { installSource: { notIn: [...TEST_SOURCES] } }] } }),
     prisma.loan.aggregate({ _sum: { principal: true, outstanding: true }, where: range ? { disbursedAt: range } : {} }),
     buildFunnel(range),
     prisma.loanApplication.groupBy({ by: ['status'], where: cr, _count: { _all: true } }),

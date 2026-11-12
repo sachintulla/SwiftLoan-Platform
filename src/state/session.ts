@@ -8,6 +8,8 @@ const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
 const PREFILL_DRAFT_KEY = 'swiftloan.applicant.prefillDraft';
 const INTRO_PITCH_HEARD_KEY = 'swiftloan.voice.introPitchHeard';
 const INSTALL_CLAIMED_KEY = 'swiftloan.install.claimed';
+const INSTALL_ID_KEY = 'swiftloan.install.id';
+const INSTALL_LINKED_KEY = 'swiftloan.install.linked';
 const PENDING_REFERRAL_KEY = 'swiftloan.referral.pending';
 
 export interface StoredTokens {
@@ -231,6 +233,33 @@ export async function loadInstallClaimed(): Promise<boolean> {
 
 export async function saveInstallClaimed(): Promise<void> {
   await AsyncStorage.setItem(INSTALL_CLAIMED_KEY, '1').catch(() => {});
+}
+
+/**
+ * A random id for THIS install, made on first launch and sent with every install report, so the server counts a
+ * retried report once (server/src/lib/installDedup.ts). Wiped with the app, so a reinstall gets a new one (the
+ * server still recognises the phone by its device id and counts it as a reinstall).
+ */
+export async function loadOrCreateInstallId(): Promise<string> {
+  const existing = await AsyncStorage.getItem(INSTALL_ID_KEY).catch(() => null);
+  if (existing) return existing;
+  const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  const id = `${Date.now().toString(16)}-${hex(8)}-${hex(8)}-${hex(8)}`;
+  await AsyncStorage.setItem(INSTALL_ID_KEY, id).catch(() => {});
+  return id;
+}
+
+export async function loadInstallId(): Promise<string | null> {
+  return AsyncStorage.getItem(INSTALL_ID_KEY).catch(() => null);
+}
+
+/** Set once this install has been tied to the signed-in account (POST /attribution/link). */
+export async function loadInstallLinked(): Promise<boolean> {
+  return (await AsyncStorage.getItem(INSTALL_LINKED_KEY).catch(() => null)) === '1';
+}
+
+export async function saveInstallLinked(): Promise<void> {
+  await AsyncStorage.setItem(INSTALL_LINKED_KEY, '1').catch(() => {});
 }
 
 /** A friend's referral code waiting for the user to sign in, so it can be redeemed. */

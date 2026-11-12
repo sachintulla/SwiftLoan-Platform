@@ -189,6 +189,7 @@ describe('pickContext', () => {
 function row(over: Partial<InstallRow> & { id: string }): InstallRow {
   return {
     installedAt: '2026-10-27T00:00:00.000Z', platform: 'android', source: 'organic', campaignId: null, matchMethod: 'play_referrer',
+    installSource: null, reinstallCount: 0, appVersion: null, deviceModel: null,
     confidence: 'confirmed', customer: null, context: null, signedIn: false, application: null, lastContact: null, ...over,
   };
 }
@@ -246,7 +247,9 @@ describe('stats and counts', () => {
     row({ id: '4' }),
   ];
   it('counts installs with details, moves and sign-ins', () => {
-    expect(computeInstallStats(rows)).toEqual({ total: 4, withContext: 2, withoutContext: 2, reachedNextStep: 2, notSignedIn: 1 });
+    expect(computeInstallStats(rows)).toEqual({
+      total: 4, withContext: 2, withoutContext: 2, reachedNextStep: 2, notSignedIn: 1, storeInstalls: 0, testInstalls: 0, unknownSource: 4, reinstalls: 0,
+    });
   });
   it('knows which stages are past install', () => {
     expect(reachedNextStep('app_installed')).toBe(false);
@@ -294,7 +297,7 @@ describe('download funnel', () => {
   it('rolls up installs, offers, no-offers, applied, contacted', () => {
     const r = (over: Partial<InstallRow>): InstallRow => ({
       id: Math.random().toString(36), installedAt: '2026-11-01T00:00:00.000Z', platform: 'android', source: 'organic',
-      campaignId: null, matchMethod: null, confidence: 'none', customer: null, context: null, signedIn: false,
+      campaignId: null, matchMethod: null, installSource: null, reinstallCount: 0, appVersion: null, deviceModel: null, confidence: 'none', customer: null, context: null, signedIn: false,
       application: null, lastContact: null, ...over,
     });
     const f = computeInstallFunnel([
@@ -315,5 +318,23 @@ describe('download funnel', () => {
     expect(f.contacted).toBe(1);
     expect(f.notContacted).toBe(4);
     expect(f.byStatus).toContainEqual({ status: 'disbursed', count: 1 });
+  });
+});
+
+describe('computeInstallStats: store, test and reinstall counts', () => {
+  it('counts store installs and test builds apart, and reinstalls on top of unique phones', () => {
+    const s = computeInstallStats([
+      row({ id: '1', installSource: 'play_store', reinstallCount: 2 }),
+      row({ id: '2', installSource: 'app_store' }),
+      row({ id: '3', installSource: 'sideload' }),
+      row({ id: '4', installSource: 'testflight' }),
+      row({ id: '5', installSource: 'development', reinstallCount: 1 }),
+      row({ id: '6', installSource: null }),
+    ]);
+    expect(s.total).toBe(6);
+    expect(s.storeInstalls).toBe(2);
+    expect(s.testInstalls).toBe(3);
+    expect(s.unknownSource).toBe(1);
+    expect(s.reinstalls).toBe(3);
   });
 });

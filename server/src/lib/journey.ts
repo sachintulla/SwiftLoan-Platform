@@ -484,13 +484,9 @@ export async function claimAnonymousSession(
     orderBy: { ts: 'asc' },
   });
 
-  // An install is recorded in AppDownload, not ActivityEvent, so it needs its
-  // own claim. Take the most recent unclaimed row — on a real device the
-  // install that produced this session is the only candidate.
-  const download = await prisma.appDownload.findFirst({
-    where: { matchedUserId: null },
-    orderBy: { installedAt: 'desc' },
-  });
+  // The install itself is NOT claimed here: it used to take the newest unclaimed AppDownload of ANY device and give it
+  // to whoever logged in. The app now links its own install after login (POST /api/attribution/link, which also records
+  // the app_installed journey step).
 
   const existing = await prisma.journeyEvent.findMany({
     where: { customerId, channel: 'app' },
@@ -499,21 +495,6 @@ export async function claimAnonymousSession(
   const already = new Set(existing.map((e) => e.name));
 
   let claimed = 0;
-
-  if (download && !already.has(JOURNEY_EVENTS.APP_INSTALLED)) {
-    await prisma.appDownload
-      .update({ where: { id: download.id }, data: { matchedUserId: userId } })
-      .catch(() => undefined);
-    await recordJourneyEvent(customerId, {
-      channel: 'app',
-      name: JOURNEY_EVENTS.APP_INSTALLED,
-      metadata: { platform: download.platform, source: download.source, downloadId: download.id },
-      occurredAt: download.installedAt,
-      mirrorTelemetry: false, // the AppDownload row already is the telemetry
-    });
-    claimed++;
-    already.add(JOURNEY_EVENTS.APP_INSTALLED);
-  }
 
   for (const e of events) {
     const name = CLAIMABLE_APP_EVENTS[e.eventName];
