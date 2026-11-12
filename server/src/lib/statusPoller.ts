@@ -47,12 +47,22 @@ export async function statusPoller(): Promise<void> {
   await pollYubi(cutoff);
 }
 
-/** Knight Fintech (Aurix) applications in progress. */
+/**
+ * Knight Fintech (Aurix) applications in progress.
+ *
+ * We do NOT require a leadId here. `refreshApplicationStatus` fetches by the
+ * user's PartnerCustomerId (= User.id), so a missing leadId is not a reason to
+ * skip — and in fact it must not be: leadId is only ever written by the lender
+ * webhook (aurixWebhook.routes.ts), so an application the webhook advanced to
+ * handoff/under_review WITHOUT a lead_id in that payload would otherwise be
+ * stranded — the webhook stopped coming and the poller ignored it, so it could
+ * never reach approved/disbursed. Polling by status alone lets the poller carry
+ * those in-flight applications forward on its own.
+ */
 async function pollAurix(cutoff: Date): Promise<void> {
   const due = await prisma.loanApplication.findMany({
     where: {
       status: { in: POLL_STATUSES },
-      leadId: { not: null },
       OR: [{ lastStatusCheckedAt: null }, { lastStatusCheckedAt: { lt: cutoff } }],
     },
     orderBy: { lastStatusCheckedAt: { sort: 'asc', nulls: 'first' } },
