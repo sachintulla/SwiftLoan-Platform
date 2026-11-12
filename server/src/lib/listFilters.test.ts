@@ -19,15 +19,17 @@ beforeEach(() => {
 });
 
 describe('buildLoanWhere', () => {
-  it('is empty with no filters', () => {
-    expect(f.buildLoanWhere({})).toEqual({});
+  it('defaults to genuine leads — hides technical failures', () => {
+    expect(f.buildLoanWhere({})).toEqual({ status: { not: 'failed' } });
+    // allStatuses=1 is the escape that shows every status (incl. failed).
+    expect(f.buildLoanWhere({ allStatuses: '1' })).toEqual({});
   });
 
-  it('keeps a valid status and ignores an unknown one', () => {
+  it('keeps a valid status, shows failed only when its chip is picked', () => {
     expect(f.buildLoanWhere({ status: 'rejected' })).toEqual({ status: 'rejected' });
     expect(f.buildLoanWhere({ status: 'nonsense' })).toEqual({});
-    // the dashboard list never offered `failed`, so it is still not a list filter
-    expect(f.buildLoanWhere({ status: 'failed' })).toEqual({});
+    // failed is now a real, explicit list filter (the Failed chip).
+    expect(f.buildLoanWhere({ status: 'failed' })).toEqual({ status: 'failed' });
   });
 
   it('searches reference, name and mobile', () => {
@@ -39,8 +41,8 @@ describe('buildLoanWhere', () => {
     ]);
   });
 
-  it('ignores a blank search', () => {
-    expect(f.buildLoanWhere({ search: '   ' })).toEqual({});
+  it('ignores a blank search (still hides failures by default)', () => {
+    expect(f.buildLoanWhere({ search: '   ' })).toEqual({ status: { not: 'failed' } });
   });
 
   it('takes the first value when a param is repeated', () => {
@@ -74,13 +76,13 @@ describe('buildLoanWhere', () => {
   });
 
   it('ignores an unknown lenderResult', () => {
-    expect(f.buildLoanWhere({ lenderResult: 'weird' })).toEqual({});
+    expect(f.buildLoanWhere({ lenderResult: 'weird' })).toEqual({ status: { not: 'failed' } });
   });
 
   it('applies a created-on date range and ignores invalid dates', () => {
     const w = f.buildLoanWhere({ from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T23:59:59.999Z' });
     expect(w.createdAt).toEqual({ gte: new Date('2026-10-01T00:00:00.000Z'), lte: new Date('2026-10-31T23:59:59.999Z') });
-    expect(f.buildLoanWhere({ from: 'not a date', to: 'also not' })).toEqual({});
+    expect(f.buildLoanWhere({ from: 'not a date', to: 'also not' })).toEqual({ status: { not: 'failed' } });
     expect(f.buildLoanWhere({ from: 'not a date', to: '2026-10-31T00:00:00.000Z' }).createdAt)
       .toEqual({ lte: new Date('2026-10-31T00:00:00.000Z') });
   });
@@ -101,11 +103,15 @@ describe('loanLenderSummary', () => {
 });
 
 describe('buildRevasureWhere', () => {
-  it('is empty by default', () => {
-    expect(f.buildRevasureWhere({})).toEqual({});
+  it('defaults to genuine leads only (Revasure actually responded)', () => {
+    expect(f.buildRevasureWhere({})).toEqual({ status: { in: ['success', 'duplicate', 'ineligible'] } });
   });
 
-  it('passes a status through', () => {
+  it('counts every status when allStatuses is set (for the stat tiles)', () => {
+    expect(f.buildRevasureWhere({ allStatuses: '1' })).toEqual({});
+  });
+
+  it('passes a specific status through (chip overrides the genuine default)', () => {
     expect(f.buildRevasureWhere({ status: 'failed' })).toEqual({ status: 'failed' });
   });
 

@@ -104,7 +104,18 @@ export function lenderResultWhere(result: string | undefined): Prisma.LoanApplic
 export function buildLoanWhere(q: Query): Prisma.LoanApplicationWhereInput {
   const where: Prisma.LoanApplicationWhereInput = {};
   const status = qStr(q.status);
-  if (status && (APP_STATUSES as readonly string[]).includes(status)) where.status = status as ApplicationStatus;
+  if (status === 'failed') {
+    // A 'failed' application is a technical dead-end (the Aurix/lender flow errored),
+    // not a genuine lead — shown only when the Failed chip is picked, like Revasure's
+    // Failed filter. (It isn't in APP_STATUSES, so it needs its own branch.)
+    where.status = 'failed';
+  } else if (status && (APP_STATUSES as readonly string[]).includes(status)) {
+    where.status = status as ApplicationStatus;
+  } else if (!status && qStr(q.allStatuses) !== '1') {
+    // Default view = genuine KnightFT/Aurix leads: hide technical failures, so they
+    // don't inflate the count or the requested-amount total. Same rule as Revasure/Yubi.
+    where.status = { not: 'failed' };
+  }
 
   const search = searchTerm(q);
   if (search) {
@@ -202,10 +213,22 @@ export async function personsByUserId(userIds: (string | null | undefined)[]): P
  * source lead id or Revasure lead id may match the term directly, or the lead may
  * belong to a customer whose name or mobile does.
  */
+// A RevasureLead counts as a genuine lead once Revasure has actually responded
+// about it — accepted (success), already had it (duplicate), or decided it
+// doesn't qualify (ineligible). failed / pending / disabled / skipped never
+// reached Revasure, so they are attempts, not leads. Mirrors REVASURE_SENT in
+// lib/revasureLead.ts (kept in sync).
+export const REVASURE_GENUINE = ['success', 'duplicate', 'ineligible'] as const;
+
 export function buildRevasureWhere(q: Query, matchedUserIds?: string[]): Prisma.RevasureLeadWhereInput {
   const where: Prisma.RevasureLeadWhereInput = {};
   const status = qStr(q.status);
   if (status) where.status = status;
+  // Default view (no specific status chosen) = genuine leads only, so failed /
+  // pending attempts don't inflate the count or the worth. `allStatuses=1` is the
+  // escape the stat tiles use to count every status (so Failed/Pending stay
+  // clickable). Picking a specific status chip still shows exactly that status.
+  else if (qStr(q.allStatuses) !== '1') where.status = { in: [...REVASURE_GENUINE] };
 
   const search = searchTerm(q);
   if (search) {
