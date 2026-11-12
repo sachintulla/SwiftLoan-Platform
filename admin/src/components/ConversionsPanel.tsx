@@ -49,15 +49,20 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
   const toggle = (b: Bucket) => setSelected((cur) => (cur === b ? null : b));
 
   return (
-    <Card title={title} sub={sub ?? 'Each application sits in exactly one stage below, so the stages add up to Applications; the % is of total applications. Select any tile to see the records behind it.'}>
+    <Card title={title} sub={sub ?? 'Audience & commercials describe a different population from applications; the application funnel splits every application into one stage (the % is of Applications). Select any tile to see the records behind it.'}>
       {error ? (
         <p className="muted" style={{ margin: 0 }}>Analytics are unavailable right now.</p>
       ) : (
         <>
+          <SectionLabel>Audience &amp; commercials <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— a different population from applications, so these are context, not a funnel total</span></SectionLabel>
+          <div className="stat-strip" style={{ marginBottom: 16 }}>
+            <TileBtn label="Total customers" value={d ? num(d.totalCustomers) : '—'} foot="all channels (website, app, calls)" selected={selected === 'customers'} onClick={() => toggle('customers')} />
+            <TileBtn label="Lead commercials" value={d ? inrCompact(d.leadCommercials.amount) : '—'} foot={d ? `requested across ${num(d.leadCommercials.count)} website lead${d.leadCommercials.count === 1 ? '' : 's'}` : undefined} tone="teal" selected={selected === 'leads'} onClick={() => toggle('leads')} />
+          </div>
+
+          <SectionLabel>Application funnel <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— every application in exactly one stage; the stages add up to Applications, and the % is of Applications</span></SectionLabel>
           <div className="stat-strip" style={{ marginBottom: 12 }}>
-            <TileBtn label="Total customers" value={d ? num(d.totalCustomers) : '—'} foot="the people we got" selected={selected === 'customers'} onClick={() => toggle('customers')} />
-            <TileBtn label="Lead commercials" value={d ? inrCompact(d.leadCommercials.amount) : '—'} foot={d ? `across ${num(d.leadCommercials.count)} lead${d.leadCommercials.count === 1 ? '' : 's'}` : undefined} tone="teal" selected={selected === 'leads'} onClick={() => toggle('leads')} />
-            <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot={d ? `${inrCompact(d.totalApplicationsAmount)} worth` : 'started in range'} selected={selected === 'all'} onClick={() => toggle('all')} />
+            <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot={d ? `${inrCompact(d.totalApplicationsAmount)} worth · the base for the %s below` : 'started in range'} selected={selected === 'all'} onClick={() => toggle('all')} />
           </div>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
             {CONV.map((c) => {
@@ -90,6 +95,12 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
         </>
       )}
     </Card>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', margin: '2px 0 8px' }}>{children}</div>
   );
 }
 
