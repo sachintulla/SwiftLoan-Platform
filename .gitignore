@@ -94,3 +94,7 @@ coverage/
 # APK build outputs (hosted on GitHub Releases, not git — 100MB limit)
 dist/
 android/app/src/main/assets/index.android.bundle
+
+# Root-level build output (Xcode archives/exports — large, hosted outside git, 100MB limit)
+/build/
+*.xcarchive

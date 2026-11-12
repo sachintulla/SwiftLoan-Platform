@@ -28,6 +28,8 @@ const STATUS_FILTERS = [
   { key: 'disbursed', label: 'Disbursed' },
   { key: 'rejected', label: 'Rejected' },
   { key: 'closed', label: 'Closed' },
+  // Technical failures are hidden from the default (genuine-leads) view; this chip surfaces them.
+  { key: 'failed', label: 'Failed' },
 ] as const;
 
 // What a lender did with the applications a customer sent out. Rejected includes

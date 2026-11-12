@@ -704,7 +704,9 @@ adminRouter.get('/revasure', ah(async (req, res) => {
     prisma.revasureLead.count({ where }),
     prisma.revasureLead.groupBy({
       by: ['status'],
-      where: buildRevasureWhere({ ...q, status: undefined }, matchedUserIds),
+      // Count EVERY status (allStatuses) so the stat tiles still show Failed /
+      // Pending counts — the default list just hides them from the genuine-leads view.
+      where: buildRevasureWhere({ ...q, status: undefined, allStatuses: '1' }, matchedUserIds),
       _count: { _all: true },
     }),
     // Application worth across the WHOLE filtered set (not just this page).
