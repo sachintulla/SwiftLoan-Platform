@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { swrFetcher, getAdmin } from '@/lib/api';
 import { Card, Stat, StatusBadge, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
+import ConversionsPanel from '@/components/ConversionsPanel';
 import RevasureMisUpload from '@/components/RevasureMisUpload';
 import { num, inrCompact, dateTimeStr, timeAgo } from '@/lib/format';
 import { useDebounced } from '@/lib/hooks';
@@ -204,6 +205,10 @@ export default function RevasurePage() {
           <p className="page-sub">Customers whose details were sent to Revasure when they were prequalified, and what Revasure replied.</p>
         </div>
         <ListActions kind="revasure" filters={filters} total={searchPending || isLoading ? undefined : pg?.total} filterSummary={described} role={role} />
+      </div>
+
+      <div className="mt-16">
+        <ConversionsPanel from={filters.from} to={filters.to} sub="Overall conversions & commercials for the date range below (platform-wide, not Revasure-only)." />
       </div>
 
       {/* Revasure has no status API — admins upload their MIS sheet to update statuses. */}
