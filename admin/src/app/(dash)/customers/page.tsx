@@ -154,7 +154,7 @@ function Customers() {
       </div>
 
       <div className="mt-16">
-        <ConversionsPanel from={range.from} to={range.to} sub="Conversions are a % of total customers in the date range selected below. Commercials = total loan amount requested across website leads." />
+        <ConversionsPanel from={range.from} to={range.to} sub="Each application sits in one stage, so the stages add up to Applications; the % is of total applications. Commercials = loan amount requested across website leads. Scoped to the date range below." />
       </div>
 
       {/* the numbers an operator acts on, in one card */}
