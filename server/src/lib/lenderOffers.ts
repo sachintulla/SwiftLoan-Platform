@@ -201,6 +201,21 @@ export function takeAurixDebug(applicationId: string): unknown {
 }
 
 /**
+ * Pull Aurix's Lead ID out of an eligible_offers response. The response is
+ * `{ Result: { Data, Meta }, Id, … }` when wrapped, or bare `{ Data, Meta, Id }`,
+ * and the Lead ID is the root `Id` (a couple of nested fallbacks too). Returns a
+ * trimmed string, or null when nothing usable is present. Pure, so it's tested.
+ */
+export function extractAurixLeadId(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, any>;
+  const root = (b.Result && typeof b.Result === 'object' ? b.Result : b) as Record<string, any>;
+  const cand = b.Id ?? root.Id ?? root.LeadId ?? root.Data?.LeadId ?? root.Data?.Lead?.Id ?? root.Meta?.LeadId;
+  const s = cand == null ? '' : String(cand).trim();
+  return s ? s : null;
+}
+
+/**
  * Config resolves from env FIRST (AURIX_*), then the partner's apiConfig. The
  * AudienceSecretCode is a real credential and is intended to live only in env
  * (never the DB/APK). PartnerCustomerId is NOT config — it is the SwiftLoan
@@ -673,6 +688,18 @@ class AurixOfferProvider implements LenderOfferProvider {
     // Stash the raw Aurix response so the app can surface it (debug alert).
     aurixDebugByApp.set(application.id, { httpStatus: result.status, response: result.body });
     if (!result.ok) throw new Error(`Aurix eligible_offers failed: ${result.error} (HTTP ${result.status})`);
+
+    // Capture Aurix's Lead ID from the eligible_offers response (the root `Id`)
+    // so the status poller / Fetch Lead can match this application precisely —
+    // and so the backup never has to wait for the lender webhook to learn it.
+    // Best-effort and forward-only: only set when we don't already have one; a
+    // later webhook still corrects it if Aurix reports a different id.
+    const aurixLeadId = extractAurixLeadId(result.body);
+    if (aurixLeadId) {
+      await prisma.loanApplication
+        .updateMany({ where: { id: application.id, leadId: null }, data: { leadId: aurixLeadId } })
+        .catch(() => {});
+    }
 
     // Aurix's response is inconsistent: sometimes wrapped as { Result: { Data,
     // Meta }, Id, ... } and sometimes returned bare as { Data, Meta }. Handle
