@@ -55,4 +55,12 @@ export const env = {
   // with DEBUG_HTTP_LOGS=true only while actively debugging — these bodies
   // include real PII (name, DOB, income, loan details, phone numbers).
   debugHttpLogs: process.env.DEBUG_HTTP_LOGS === 'true',
+  // Browser origins allowed to use the website session cookie (the /api/website/auth
+  // refresh + logout routes). CSRF defense-in-depth beyond the SameSite=Lax, path-scoped
+  // cookie: a state-changing request that carries the cookie must present an Origin (or
+  // Referer) on this list. Comma-separated; defaults cover the live site + local dev so
+  // nothing breaks if the env var is unset.
+  websiteOrigins: (process.env.WEBSITE_ORIGINS
+    ?? 'https://swiftloan.ai,https://www.swiftloan.ai,https://dev.swiftloan.ai,http://localhost:4002,http://localhost:3000')
+    .split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean),
 };
