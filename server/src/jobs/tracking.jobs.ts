@@ -13,6 +13,7 @@ import { runDailyStatusCalls } from '../lib/statusCall.js';
 import { lenderNudgeTickThrottled } from '../lib/lenderNudge.js';
 import { appDropoffTickThrottled } from '../lib/appDropoff.js';
 import { inactiveCallTickThrottled } from '../lib/inactiveCall.js';
+import { slackSnapshotTick } from '../lib/slackSnapshot.js';
 
 // Background maintenance jobs for WS4. These detect stalls in the funnel and raise
 // admin Notifications. They run on a plain in-process interval by default; if a
@@ -184,6 +185,11 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   // is off unless Admin → Timings calls.statusDailyEnabled + calls.nudgeEnabled,
   // and (while testing) calls.allowedNumbers restricts who rings.
   { name: 'status-call', fn: async () => { await runDailyStatusCalls(); }, everyMs: 60_000 },
+
+  // Daily Slack snapshot: once per IST day at 07:00 (SLACK_SNAPSHOT_AT_IST), post
+  // the headline business numbers to a channel. The minute tick only checks if the
+  // day is due; log-only until SLACK_SNAPSHOT_WEBHOOK is set (see lib/slackSnapshot.ts).
+  { name: 'slack-snapshot', fn: async () => { await slackSnapshotTick(); }, everyMs: 60_000 },
 ];
 
 // Kill switch for every outbound-nudge path: the stall detectors that create
