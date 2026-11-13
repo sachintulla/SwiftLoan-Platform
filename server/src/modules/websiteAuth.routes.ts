@@ -7,6 +7,7 @@ import { signAccess, accessTtlSeconds } from '../lib/jwt.js';
 import { env } from '../config/env.js';
 import { validate } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requireKnownOrigin } from '../middleware/csrf.js';
 import { HttpError, ah } from '../middleware/error.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { assertOtpDelivered, createOtp, issueTokens, verifyOtpAndLogin, publicUser } from '../lib/authSession.js';
@@ -123,6 +124,7 @@ websiteAuthRouter.post(
  */
 websiteAuthRouter.post(
   '/refresh',
+  requireKnownOrigin, // CSRF defense-in-depth beyond the SameSite=Lax cookie
   ah(async (req, res) => {
     const raw = req.cookies?.[COOKIE_NAME];
     if (!raw) throw new HttpError(401, 'No session');
@@ -146,6 +148,7 @@ websiteAuthRouter.post(
 /** Revoke the session and clear the cookie. */
 websiteAuthRouter.post(
   '/logout',
+  requireKnownOrigin, // CSRF defense-in-depth beyond the SameSite=Lax cookie
   ah(async (req, res) => {
     const raw = req.cookies?.[COOKIE_NAME];
     if (raw) await prisma.refreshToken.updateMany({ where: { tokenHash: sha256(raw) }, data: { revoked: true } });
