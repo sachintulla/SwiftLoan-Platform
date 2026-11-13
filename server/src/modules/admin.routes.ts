@@ -15,6 +15,7 @@ import {
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
 import { conversionsDetailed, statusesForBucket } from '../lib/conversions.js';
+import { gatherSnapshot, sendSnapshotNow } from '../lib/slackSnapshot.js';
 import type { ApplicationStatus } from '@prisma/client';
 
 const log = scoped('admin');
@@ -148,6 +149,20 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
     // Per-lender application pipeline (applied offers by their own status).
     lenderApplicationsByStatus: byLenderStatus,
   }, 'Overview');
+}));
+
+// GET /api/admin/slack-snapshot/preview — the numbers that would be posted today.
+adminRouter.get('/slack-snapshot/preview', ah(async (_req, res) => {
+  const metrics = await gatherSnapshot();
+  const configured = Boolean((process.env.SLACK_SNAPSHOT_WEBHOOK ?? '').trim());
+  return ok(res, { metrics, webhookConfigured: configured }, 'Snapshot preview');
+}));
+
+// POST /api/admin/slack-snapshot/test — post the snapshot to Slack now (super admin).
+// Log-only if no webhook is configured. Does not touch the once-a-day schedule.
+adminRouter.post('/slack-snapshot/test', requireRole(...CAN_ADMINISTER), ah(async (_req, res) => {
+  const result = await sendSnapshotNow();
+  return ok(res, result, result.logOnly ? 'Computed (log-only — no webhook configured)' : result.sent ? 'Posted to Slack' : 'Webhook post failed');
 }));
 
 // GET /api/admin/dashboard/realtime  — light, polled every few seconds by the UI
