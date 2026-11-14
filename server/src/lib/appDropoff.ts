@@ -32,7 +32,7 @@ import { PAN_PENDING_SMS, sendRegisteredSms } from './smsRoute.js';
 import { touchAllowed } from './contactPolicy.js';
 import { sendMissedCallNotes } from './missedCallNote.js';
 import { sendSmsFallbacks } from './smsFallback.js';
-import { CUSTOMER_ACTION_CHANNELS, SYSTEM_EVENT_NAMES } from './journey.js';
+import { CUSTOMER_ACTION_CHANNELS, NOT_A_RETURN_EVENT_NAMES } from './journey.js';
 import { dailyRows, returnVerdict } from './dropoffDaily.js';
 import { buildInstallLink, nextAction, nextCheckTime, renderSmsBody, stepsFromRows, type ScheduleConfig, type ScheduleStep } from './reminderSchedule.js';
 import {
@@ -129,16 +129,17 @@ async function otherSequenceActive(phone: string): Promise<boolean> {
  * The person's last action anywhere: an app screen/event (`ActivityEvent`), a website "still here" ping (`JourneyReminder.lastSeenAt`)
  * or a journey event THEY caused (channel website/app). The drop-off clock runs from this, never from when a step was saved.
  * Never from anything we did: a nudge, a stall detection or a call is not the customer coming back (`Customer.lastActivityAt` used
- * to be bumped by those, so it is not read here).
+ * to be bumped by those, so it is not read here). Nor is asking for a login code without entering it (`NOT_A_RETURN_EVENT_NAMES`):
+ * that used to end a run as "returned" for good when the code SMS never arrived.
  */
 export async function lastActivityFor(userId: string, phone: string, fallback: Date): Promise<Date> {
   const [ev, jr, je] = await Promise.all([
     prisma.activityEvent.findFirst({
-      where: { userId, eventType: { not: 'system' }, eventName: { notIn: [...SYSTEM_EVENT_NAMES] } }, orderBy: { ts: 'desc' }, select: { ts: true },
+      where: { userId, eventType: { not: 'system' }, eventName: { notIn: [...NOT_A_RETURN_EVENT_NAMES] } }, orderBy: { ts: 'desc' }, select: { ts: true },
     }),
     prisma.journeyReminder.findFirst({ where: { userId }, orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
     prisma.journeyEvent.findFirst({
-      where: { customer: { phone }, channel: { in: [...CUSTOMER_ACTION_CHANNELS] }, name: { notIn: [...SYSTEM_EVENT_NAMES] } },
+      where: { customer: { phone }, channel: { in: [...CUSTOMER_ACTION_CHANNELS] }, name: { notIn: [...NOT_A_RETURN_EVENT_NAMES] } },
       orderBy: { occurredAt: 'desc' }, select: { occurredAt: true },
     }),
   ]);

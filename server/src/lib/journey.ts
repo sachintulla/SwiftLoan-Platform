@@ -363,6 +363,9 @@ export const CUSTOMER_ACTION_CHANNELS: ReadonlyArray<RecordEventInput['channel']
 export const isCustomerAction = (channel: RecordEventInput['channel']): boolean => CUSTOMER_ACTION_CHANNELS.includes(channel);
 /** Event names our own jobs write (older rows carry them as eventType `funnel`); never the customer acting. */
 export const SYSTEM_EVENT_NAMES: ReadonlyArray<string> = ['nudge_sent', 'stage_stalled', 'call_queued', 'call_started', 'call_completed', 'call_failed'];
+/** Events that never mean the customer came back: ours, plus asking for a login code they did not enter (a wallet outage or a typo is
+ *  not progress). Entering it writes `otp_verified`, which does count. Read by the drop-off "last action" clock (appDropoff.ts). */
+export const NOT_A_RETURN_EVENT_NAMES: ReadonlyArray<string> = [...SYSTEM_EVENT_NAMES, JOURNEY_EVENTS.OTP_REQUESTED];
 
 export interface RecordEventInput {
   channel: 'website' | 'voice' | 'app' | 'campaign' | 'admin' | 'system';
