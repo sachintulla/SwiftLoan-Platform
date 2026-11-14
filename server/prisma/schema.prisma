@@ -840,10 +840,25 @@ model AppDownload {
   clickId       String? // AppClick this install was attributed to
   matchMethod   String? // play_referrer | clipboard | ip_window
   installedAt   DateTime @default(now())
+  // One row per DEVICE (lib/installDedup.ts): a retry of the same report, or a reinstall on the
+  // same phone, updates this row instead of adding one, so the install count is unique devices.
+  installId         String?   @unique // random id the app made for this install (dedups retries)
+  lastInstallId     String? // id of the latest (re)install on this device
+  deviceKey         String? // keyed hash of ANDROID_ID / the iOS Keychain id; never the raw value
+  installSource     String? // play_store | app_store | testflight | sideload | development | unknown
+  appVersion        String?
+  deviceModel       String?
+  osVersion         String?
+  reinstallCount    Int       @default(0)
+  lastReinstalledAt DateTime?
+  matchedAt         DateTime? // when matchedUserId was set (OTP login on this install)
 
+  @@unique([platform, deviceKey])
   @@index([source])
   @@index([platform])
   @@index([installedAt])
+  @@index([installSource])
+  @@index([lastInstallId])
 }
 
 // ─────────────────────── Admin users & notifications ───────────────────────

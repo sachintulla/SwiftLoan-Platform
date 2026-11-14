@@ -18,8 +18,9 @@ import {
   loadPrefillDraft, savePrefillDraft,
   loadIntroPitchHeard,
   loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
+  loadOrCreateInstallId, loadInstallId, loadInstallLinked, saveInstallLinked,
 } from './session';
-import { readInstallSignals } from '../utils/installSignals';
+import { readInstallSignals, readInstallInfo } from '../utils/installSignals';
 import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
 import { BUILD } from '../config/build';
 import { PRIVACY_POLICY_VERSION } from '../content/privacyPolicy';
@@ -1092,11 +1093,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ── WS4: start a tracking session on app boot; end it when backgrounded ──
   useEffect(() => {
-    trackSessionStart({
-      platform: Platform.OS,
-      osVersion: String(Platform.Version),
-      appVersion: '1.0',
-    });
+    // The real app version (it used to be a fixed '1.0'); readInstallInfo resolves at once, or with nulls in Jest.
+    readInstallInfo().then((info) =>
+      trackSessionStart({
+        platform: Platform.OS,
+        osVersion: String(Platform.Version),
+        appVersion: info.appVersion ? (info.buildNumber ? `${info.appVersion} (${info.buildNumber})` : info.appVersion) : '1.0',
+        ...(info.model ? { model: info.model } : {}),
+      }),
+    );
     // Install attribution: once per install (the flag lives in AsyncStorage, which a
     // reinstall wipes), find out which /dl link brought this install and report it.
     // Fire-and-forget; the flag is only set after the server answers, so a failed
@@ -1107,8 +1112,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (await loadInstallClaimed()) return;
         // An app update on a device that is already signed in is not a new install.
         if (await loadTokens()) { await saveInstallClaimed(); return; }
-        const signals = await readInstallSignals();
-        const claim = await claimInstall(Platform.OS, signals);
+        const [signals, info, installId] = await Promise.all([readInstallSignals(), readInstallInfo(), loadOrCreateInstallId()]);
+        // install id + device id: the server counts this phone once, a retry or a reinstall included.
+        const claim = await claimInstall(Platform.OS, signals, { ...info, installId });
         if (!claim) return;
         await saveInstallClaimed();
         if (claim.referral) {
@@ -1233,6 +1239,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       })
       .catch(() => undefined);
+  }, [state.authUser]);
+
+  // Tie this install to the account once someone signs in on it, so "installs that became users" is real
+  // (server: POST /attribution/link). Once per install; a network error retries on the next launch.
+  const installLinked = useRef(false);
+  useEffect(() => {
+    if (!state.authUser || installLinked.current) return;
+    installLinked.current = true;
+    (async () => {
+      if (await loadInstallLinked()) return;
+      const installId = await loadInstallId();
+      if (!installId) return; // installed before this existed, or the install report has not gone out yet
+      const r: any = await api.linkInstall(installId).catch(() => null);
+      // Done when linked now, or when the install is already recorded and simply belongs to someone already.
+      if (r?.data?.linked || (r && (await loadInstallClaimed()))) await saveInstallLinked();
+    })().catch(() => undefined);
   }, [state.authUser]);
 
   // A friend's invite is redeemed once they have an account (OTP verified). Expected

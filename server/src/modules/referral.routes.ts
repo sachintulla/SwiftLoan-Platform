@@ -4,11 +4,13 @@ import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAuth } from '../middleware/auth.js';
+import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
+import { classifyInstallSource, cleanInstallId, deviceKeyFor, installDetails } from '../lib/installDedup.js';
 import { validate } from '../middleware/validate.js';
 import { requireAdmin, requireActiveAdmin } from '../middleware/adminAuth.js';
 import { downloads, stores } from '../config/downloads.js';
 import { detectPlatform, formatClipboard, parseClipboard, parsePlayReferrer, storeUrl, maskName } from '../lib/attribution.js';
-import { claimInstall, recordClick, redeemReferral, referralSummary, shareLinkFor } from '../lib/referral.js';
+import { claimInstall, linkInstallToUser, recordClick, redeemReferral, referralSummary, shareLinkFor } from '../lib/referral.js';
 import { resumeForToken, resumeToWire } from '../lib/journeyResume.js';
 import { dlContentSecurityPolicy, newNonce, renderDlPage } from '../lib/dlPage.js';
 
@@ -57,10 +59,22 @@ attributionRouter.post(
       install_referrer: z.string().max(512).nullable().optional(), // Play Install Referrer string
       clipboard: z.string().max(256).nullable().optional(), // raw clipboard text (iOS)
       os_version: z.string().max(32).nullable().optional(),
+      // Install counting (lib/installDedup.ts). All optional: an older app sends none and is counted as before.
+      install_id: z.string().max(64).nullable().optional(),
+      device_id: z.string().max(128).nullable().optional(), // hashed here, never stored raw
+      installer: z.string().max(128).nullable().optional(), // Android installer package / iOS 'app_store' | 'testflight'
+      debug_build: z.boolean().nullable().optional(),
+      app_version: z.string().max(32).nullable().optional(),
+      build_number: z.string().max(16).nullable().optional(),
+      device_model: z.string().max(128).nullable().optional(),
     }),
   ),
   ah(async (req, res) => {
-    const b = req.body as { platform: 'android' | 'ios'; install_referrer?: string | null; clipboard?: string | null; os_version?: string | null };
+    const b = req.body as {
+      platform: 'android' | 'ios'; install_referrer?: string | null; clipboard?: string | null; os_version?: string | null;
+      install_id?: string | null; device_id?: string | null; installer?: string | null; debug_build?: boolean | null;
+      app_version?: string | null; build_number?: string | null; device_model?: string | null;
+    };
     const play = parsePlayReferrer(b.install_referrer);
     const clip = parseClipboard(b.clipboard);
     const clickToken = play.clickId ?? clip;
@@ -69,7 +83,11 @@ attributionRouter.post(
       ip: req.ip ?? '',
       clickToken,
       via: play.clickId ? 'play_referrer' : 'clipboard',
-      osVersion: b.os_version ?? null,
+      installId: cleanInstallId(b.install_id),
+      deviceKey: deviceKeyFor(b.platform, b.device_id),
+      // Only an app that reports its installer can say where it came from; older apps stay null (not "sideload").
+      installSource: b.installer !== undefined || b.debug_build ? classifyInstallSource(b.platform, b.installer, b.debug_build) : null,
+      ...installDetails({ appVersion: b.app_version, buildNumber: b.build_number, deviceModel: b.device_model, osVersion: b.os_version }),
     });
     // A website visitor who followed their own link: hand the app what it needs to offer "continue where you
     // left off". Only for a DETERMINISTIC match (Play referrer / clipboard token): a same-IP guess could be a
@@ -85,12 +103,34 @@ attributionRouter.post(
       matched: result.matched,
       method: result.method,
       download_id: result.downloadId,
+      kind: result.kind,
       source: result.source,
       referral: result.referral && { code: result.referral.code, referrer_name: result.referral.referrerName },
       resume: resumeToWire(resume),
       resume_hint: resumeHint,
       hint_last_step: networkJourney ? networkJourney.lastStep : null,
     }, result.matched ? 'Install attributed' : 'Install recorded');
+  }),
+);
+
+// ── POST /api/attribution/link — the app, once, after OTP login on this install ──
+// Ties the install to the account, so "installs that became users" is real. Signed in; the app sends the install id
+// it made on first launch. Idempotent: an install that already belongs to someone is left as it is.
+attributionRouter.post(
+  '/link',
+  requireAuth,
+  validate(z.object({ install_id: z.string().max(64) })),
+  ah(async (req, res) => {
+    const installId = cleanInstallId(req.body.install_id);
+    const userId = req.user!.sub;
+    const row = installId ? await linkInstallToUser(installId, userId) : null;
+    if (row) {
+      void trackJourney(
+        { userId },
+        { channel: 'app', name: JOURNEY_EVENTS.APP_INSTALLED, metadata: { platform: row.platform, source: row.source, downloadId: row.id }, occurredAt: row.installedAt, mirrorTelemetry: false },
+      ).catch(() => undefined);
+    }
+    return ok(res, { linked: !!row }, row ? 'Install linked' : 'Nothing to link');
   }),
 );
 

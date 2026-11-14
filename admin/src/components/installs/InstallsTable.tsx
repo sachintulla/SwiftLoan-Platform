@@ -6,7 +6,7 @@ import SendActions from '@/components/SendActions';
 import { dateTimeStr, timeAgo } from '@/lib/format';
 import {
   type InstallRow, loanDetailsText, hasLoanDetails, linkSentText, stageWhenSentNote, matchedByText, followUpDisabledReason,
-  platformLabel, sentByLabel, channelLabel,
+  platformLabel, installSourceLabel, sentByLabel, channelLabel,
 } from '@/lib/installs';
 import './installs.css';
 
@@ -167,6 +167,10 @@ export default function InstallsTable({ rows, stageName, onChanged }: Props) {
                           <dl className="fact-list">
                             <Fact label="Installed" value={dateTimeStr(r.installedAt)} />
                             <Fact label="Platform" value={platformLabel(r.platform)} />
+                            <Fact label="Installed from" value={installSourceLabel(r.installSource)} />
+                            <Fact label="Phone" value={r.deviceModel} empty="Not reported" />
+                            <Fact label="App version" value={r.appVersion} empty="Not reported" />
+                            <Fact label="Installed again" value={r.reinstallCount ? `${r.reinstallCount} time${r.reinstallCount === 1 ? '' : 's'} on this phone` : null} empty="No" />
                             <Fact label="Source" value={c ? sentByLabel(c.sentBy.type) : sentByLabel('organic')} />
                             <Fact label="Campaign" value={r.campaignId} />
                             <Fact label="How it was matched" value={matchedByText(r.matchMethod, r.signedIn)} />

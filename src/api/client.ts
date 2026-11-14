@@ -678,6 +678,8 @@ export const api = {
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
   // Friend referrals — the signed-in user's own code + the people they invited.
   referralMe: () => request('GET', '/referrals/me'),
+  /** Tie this install to the signed-in account (once, after OTP login). */
+  linkInstall: (installId: string) => request<{ linked: boolean }>('POST', '/attribution/link', { install_id: installId }),
   redeemReferral: (code: string, downloadId?: string | null, matchMethod?: string | null) =>
     request('POST', '/referrals/redeem', { code, download_id: downloadId ?? null, match_method: matchMethod ?? null }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string, category?: 'privacy' | 'other') =>
@@ -788,12 +790,24 @@ export interface InstallClaim {
 export async function claimInstall(
   platform: string,
   signals: { installReferrer?: string | null; clipboard?: string | null; osVersion?: string | null } = {},
+  device: {
+    installId?: string | null; deviceId?: string | null; installer?: string | null; debug?: boolean;
+    appVersion?: string | null; buildNumber?: string | null; model?: string | null;
+  } = {},
 ): Promise<InstallClaim | null> {
   const r = await trackPost('/attribution/claim', {
     platform,
     install_referrer: signals.installReferrer ?? null,
     clipboard: signals.clipboard ?? null,
     os_version: signals.osVersion ?? null,
+    // Counted once per phone (server/src/lib/installDedup.ts).
+    install_id: device.installId ?? null,
+    device_id: device.deviceId ?? null,
+    installer: device.installer ?? null,
+    debug_build: device.debug ?? false,
+    app_version: device.appVersion ?? null,
+    build_number: device.buildNumber ?? null,
+    device_model: device.model ?? null,
   });
   return r?.success && r.data ? (r.data as InstallClaim) : null;
 }
