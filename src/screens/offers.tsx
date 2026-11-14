@@ -79,6 +79,9 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
   const { state, set, mergeApiContext, go, showToast, markUrgentContext } = useStore();
   const t = useT();
   return useCallback(async (offer: Offer, emiOptionId?: string) => {
+    // The link to open. The apply response carries the hand-off copy (for an Aurix offer it includes the
+    // customer's token, so the lender page skips its own OTP); the offer's stored link is the fallback.
+    let lenderUrl = offer.redirectionUrl;
     // A user can apply to the same lender more than once — but ONLY with a
     // different loan amount. Same lender + same amount is a duplicate: the
     // server returns the existing application and we send the user to its
@@ -89,7 +92,8 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
       // from asking "shall we apply?"; same reasoning as finding.tsx's
       // offers-found case, this is consequential enough to interrupt
       // whatever she's saying rather than queue behind it.
-      if (res) { mergeApiContext({ offerApplyResult: res }); markUrgentContext(); }
+      // The hand-off link can carry the customer's lender token: it never goes into the voice agent's context.
+      if (res) { const forAgent = { ...res }; delete forAgent.redirectionUrl; mergeApiContext({ offerApplyResult: forAgent }); markUrgentContext(); }
       if (res?.duplicate) {
         set({
           applicationId: res.applicationId ?? state.applicationId,
@@ -101,13 +105,14 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
         return;
       }
       set({ selectedOfferId: offer.id, selectedLenderApplicationId: res?.lenderApplicationId ?? null });
+      if (res?.redirectionUrl) lenderUrl = res.redirectionUrl;
       onApplied?.(offer.id);
     }
     // New application recorded — open the lender web page if there's a deep
     // link, else the handoff screen. If the user abandons/fails on the lender
     // page, lenderweb marks THIS application failed (via selectedLenderApplicationId).
-    if (offer.redirectionUrl) {
-      set({ webUrl: offer.redirectionUrl, webTitle: offer.lenderName || t.completeApplicationTitle });
+    if (lenderUrl) {
+      set({ webUrl: lenderUrl, webTitle: offer.lenderName || t.completeApplicationTitle });
       go('lenderweb');
       return;
     }

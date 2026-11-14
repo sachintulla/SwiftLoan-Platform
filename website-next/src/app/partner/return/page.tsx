@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { PrimaryButton, SecondaryButton } from '@/components/apply/primitives';
@@ -8,6 +8,7 @@ import { useAccountUser } from '@/hooks/useAccountUser';
 import { useApply } from '@/lib/applyContext';
 import { markAltOfferApplied } from '@/lib/altOffers';
 import { PENDING_KEY, parsePending } from '@/lib/altOfferLogic';
+import { AUTO_CONTINUE_KEY } from '@/lib/offersFallback';
 import { useCopy } from '@/lib/i18n';
 import { altOffersCopy } from '@/i18n/apply-altoffers';
 
@@ -23,6 +24,18 @@ export default function PartnerReturnPage() {
   const accountUser = useAccountUser();
   const { applicationId } = useApply();
   const [state, setState] = useState<'ask' | 'saving' | 'added'>('ask');
+  // Came back from the automatic no-offers hand-off (apply/finding): no "Did you proceed?" question,
+  // straight to My Applications. The manual "Get more offers" button still gets the question.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(AUTO_CONTINUE_KEY)) {
+        sessionStorage.removeItem(AUTO_CONTINUE_KEY);
+        router.replace('/account');
+      }
+    } catch {
+      /* private mode — ask as before */
+    }
+  }, [router]);
   const answer = async (proceeded: boolean) => {
     let pending = null;
     try {

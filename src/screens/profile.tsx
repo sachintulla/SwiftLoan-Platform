@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, Image, ActivityIndicator, Linking } from 'react-native';
 import { launchCamera, launchImageLibrary, Asset } from 'react-native-image-picker';
+import { ensureCameraPermission } from '../utils/cameraPermission';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { Field, Toggle } from '../components/Controls';
@@ -305,9 +306,22 @@ export default function Profile() {
     Alert.alert(t.profilePhotoTitle, undefined, [
       {
         text: hasPhoto ? t.takeNewPhoto : t.takePhoto,
-        onPress: () => launchCamera({ mediaType: 'photo', quality: 0.8 }, res => {
-          if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
-        }),
+        // Ask for the camera first: on Android the picker opens nothing without the runtime permission.
+        onPress: async () => {
+          const perm = await ensureCameraPermission();
+          if (perm === 'blocked') {
+            Alert.alert(t.cameraPermTitle, t.cameraPermBlocked, [
+              { text: t.panCancel, style: 'cancel' },
+              { text: t.cameraPermOpenSettings, onPress: () => { Linking.openSettings().catch(() => {}); } },
+            ]);
+            return;
+          }
+          if (perm !== 'granted') { showToast(t.cameraPermNeeded); return; }
+          launchCamera({ mediaType: 'photo', quality: 0.8 }, res => {
+            if (res.errorCode === 'camera_unavailable') { showToast(t.cameraUnavailable); return; }
+            if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
+          });
+        },
       },
       {
         text: t.chooseFromLibrary,

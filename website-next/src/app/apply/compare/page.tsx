@@ -19,9 +19,12 @@ import {
   TENURES,
   type CompareRow,
   type RankBy,
+  type RankChoice,
+  choiceFor,
+  distinctRankChoices,
 } from '@/lib/compareOffers';
 
-const RANKS: RankBy[] = ['cost', 'emi', 'rate', 'interest'];
+const RANKS: RankBy[] = ['rate', 'fee', 'emi'];
 
 type CompareCopy = (typeof applyCompareCopy)['en'];
 
@@ -51,7 +54,7 @@ export default function CompareOffersPage() {
   const { apply, applyingId, error: applyError } = useApplyToOffer();
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Filters>({ tenure: 24, rankBy: 'cost', maxEmi: null, minAmount: null, includeOnApproval: true });
+  const [filters, setFilters] = useState<Filters>({ tenure: 24, rankBy: 'rate', maxEmi: null, minAmount: null, includeOnApproval: true });
   const [picked, setPicked] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -86,6 +89,9 @@ export default function CompareOffersPage() {
   );
 
   const result = useMemo(() => compareOffers(inputs, filters), [inputs, filters]);
+  // Rankings that pick the same lender are shown as ONE option (two offers can't have four different "bests").
+  const rankChoices = useMemo(() => distinctRankChoices(RANKS, result.winners), [result.winners]);
+  const activeRank = choiceFor(rankChoices, filters.rankBy);
 
   // Bounds for the EMI budget slider at the current tenure (unfiltered).
   const emiRange = useMemo(() => {
@@ -131,6 +137,8 @@ export default function CompareOffersPage() {
       amountOptions={amountOptions}
       activeFilterCount={activeFilterCount}
       onReset={resetFilters}
+      rankChoices={rankChoices}
+      activeRank={activeRank}
     />
   );
 
@@ -151,6 +159,8 @@ export default function CompareOffersPage() {
             amountOptions={amountOptions}
             activeFilterCount={activeFilterCount}
             onReset={resetFilters}
+            rankChoices={rankChoices}
+            activeRank={activeRank}
             showHeader
           />
         </aside>
@@ -166,8 +176,8 @@ export default function CompareOffersPage() {
           </ChipRow>
           <div className="flex items-center gap-2">
             <ChipRow className="flex-1">
-              {RANKS.map((k) => (
-                <Chip key={k} on={filters.rankBy === k} onClick={() => set({ rankBy: k })} dark>
+              {rankChoices.map(({ key: k }) => (
+                <Chip key={k} on={activeRank === k} onClick={() => set({ rankBy: k })} dark>
                   {t.rankLabels[k]}
                 </Chip>
               ))}
@@ -313,6 +323,8 @@ function FilterPanel({
   activeFilterCount,
   onReset,
   showHeader,
+  rankChoices,
+  activeRank,
 }: {
   filters: Filters;
   set: (p: Partial<Filters>) => void;
@@ -322,6 +334,9 @@ function FilterPanel({
   onReset: () => void;
   /** Desktop sidebar only — the phone sheet already has its own "Filters" title. */
   showHeader?: boolean;
+  /** "Best offer by" options, one per distinct best lender (see distinctRankChoices). */
+  rankChoices: RankChoice[];
+  activeRank: RankBy;
 }) {
   const t = useCopy(applyCompareCopy);
   return (
@@ -372,8 +387,9 @@ function FilterPanel({
 
         <Section title={t.filterPanel.bestBy}>
           <div role="radiogroup" aria-label={t.filterPanel.bestBy} className="flex flex-col gap-1">
-            {RANKS.map((k) => {
-              const on = filters.rankBy === k;
+            {rankChoices.map(({ key: k, also }) => {
+              const on = activeRank === k;
+              const alsoText = also.length ? t.rankAlso(also.map((a) => t.rankLabels[a].toLowerCase()).join(', ')) : null;
               const Icon = RANK_ICONS[k] ?? Award;
               return (
                 <button
@@ -395,6 +411,7 @@ function FilterPanel({
                   <span className="min-w-0 flex-1">
                     <span className={`block text-[13px] leading-tight font-bold ${on ? 'text-foreground' : 'text-foreground/80'}`}>{t.rankLabels[k]}</span>
                     {on && <span className="text-muted-foreground mt-0.5 block text-[11px] leading-snug">{t.rankHints[k]}</span>}
+                    {alsoText && <span className="text-primary mt-0.5 block text-[11px] leading-snug font-semibold">{alsoText}</span>}
                   </span>
                   {on && <Check className="text-primary h-4 w-4 shrink-0" />}
                 </button>

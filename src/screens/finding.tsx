@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Easing, StyleSheet, Image, Alert } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Animated, Easing, StyleSheet, Image, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
@@ -8,8 +8,10 @@ import Icon from '../components/Icon';
 import { LogoMark, Wordmark } from '../components/Logo';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
-import { api } from '../api/client';
+import { api, trackEvent } from '../api/client';
 import { saveOffersCache } from '../state/session';
+import { PrimaryButton } from '../components/Controls';
+import { FALLBACK_POPUP_MS, noOffersReason, shouldContinueToAltOffers, type NoOffersReason } from '../utils/offersFallback';
 
 const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
@@ -45,6 +47,9 @@ export default function Finding() {
   const tw1 = useRef(new Animated.Value(0)).current;
   const tw2 = useRef(new Animated.Value(0)).current;
   const streaks = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+  // No offers came back: the "we are trying with different lenders" pop-up, then on to Yubi.
+  const [fallback, setFallback] = useState(false);
+  const proceedRef = useRef<() => void>(() => {});
 
   // Run the real prequalification (generates partner offers) while the loader
   // animates, then advance to the offers screen. Keeps a ~2.6s minimum on screen.
@@ -58,7 +63,7 @@ export default function Finding() {
     // On success (offers returned) go straight to My Offers, which now shows the
     // results — the old "Review your offers" screen is only used for the
     // error/empty case. Keeps a ~2.6s minimum on the loader.
-    const finish = (hasOffers: boolean) => {
+    const finish = (hasOffers: boolean, reason: NoOffersReason = 'none') => {
       if (done) return;
       done = true;
       const wait = Math.max(0, 2600 - (Date.now() - started));
@@ -71,6 +76,24 @@ export default function Finding() {
         // My Offers is the single destination — it shows the failure/empty
         // state itself now, instead of a separate screen.
         if (hasOffers) markUrgentContext();
+        // No offers, for whatever reason: never stop on "not eligible". Show the pop-up, then
+        // continue into the Yubi journey (My Offers opens on its tab). Yubi off → today's empty state.
+        if (!hasOffers && shouldContinueToAltOffers({ offerCount: 0, altOffersEnabled: state.altOffersEnabled, applicationId: state.applicationId })) {
+          trackEvent('flow', 'alt_offer_auto_continue', 'finding', { reason, application_id: state.applicationId });
+          mergeApiContext({ offersFallback: { continuing_to: 'more_lenders', reason } });
+          let proceeded = false;
+          const proceed = () => {
+            if (cancelled || proceeded) return;
+            proceeded = true;
+            if (timer) clearTimeout(timer);
+            set({ offersFallback: true });
+            go('fare');
+          };
+          proceedRef.current = proceed;
+          setFallback(true);
+          timer = setTimeout(proceed, FALLBACK_POPUP_MS);
+          return;
+        }
         go('fare');
       }, wait);
     };
@@ -106,11 +129,11 @@ export default function Finding() {
             // Cache so My Offers renders instantly (before its own re-fetch).
             saveOffersCache({ applicationId: state.applicationId!, savedAt: Date.now(), offers: list });
           }
-          finish(list.length > 0);
+          finish(list.length > 0, noOffersReason(reason));
         })
         .catch(() => {
           set({ offersError: t.findingErrNetwork });
-          finish(false);
+          finish(false, 'network');
         });
     } else {
       timer = setTimeout(() => finish(false), 100); // demo path (no live application)
@@ -265,11 +288,43 @@ export default function Finding() {
           </View>
         </View>
       </View>
+
+      {fallback ? (
+        // Shown when no offers came back: we keep going with other lenders (Yubi) instead of stopping.
+        <View style={styles.fbScrim} accessibilityViewIsModal>
+          <View style={[styles.fbCard, { marginBottom: insets.bottom + 24 }]}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[font(800), styles.fbTitle]}>{t.altFallbackTitle}</Text>
+            <Text style={[font(400), styles.fbSub]}>{t.altFallbackSub}</Text>
+            <PrimaryButton label={t.continueBtn} icon="arrow_forward" onPress={() => proceedRef.current()} style={styles.fbBtn} />
+          </View>
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  fbScrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(10, 63, 65, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+  },
+  fbCard: {
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+  },
+  fbTitle: { fontSize: 19, lineHeight: 26, color: colors.text, textAlign: 'center', marginTop: 18 },
+  fbBtn: { marginTop: 20, alignSelf: 'stretch' },
+  fbSub: { fontSize: 14, lineHeight: 20, color: colors.textSoft, textAlign: 'center', marginTop: 8 },
   wrap: { flex: 1, alignItems: 'center', paddingHorizontal: 24 },
   brand: { alignItems: 'center', marginTop: 8 },
   lockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },

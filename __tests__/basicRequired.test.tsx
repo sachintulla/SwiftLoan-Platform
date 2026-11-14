@@ -23,6 +23,23 @@ const FULL = {
   city: 'Kakinada', state: 'Andhra Pradesh', pin: '533001', income: '25000',
 };
 
+describe('loan amount is mandatory (no default: 0 = not chosen)', () => {
+  it('is asked for first when the amount is still 0', () => {
+    expect(missingBasicRequired({ ...FULL, amount: 0 }, OPTS)).toEqual(['loan amount']);
+    expect(missingBasicRequired({ ...EMPTY, amount: 0 }, OPTS)[0]).toBe('loan amount');
+  });
+  it('is satisfied once an amount is picked', () => {
+    expect(missingBasicRequired({ ...FULL, amount: 25000 }, OPTS)).toEqual([]);
+  });
+  it('starts at 0 in a fresh app state', () => {
+    let amount = -1;
+    const Probe = () => { amount = useStore().state.appAmount; return null; };
+    renderWithProviders(<Probe />);
+    expect(amount).toBe(0);
+    cleanup();
+  });
+});
+
 describe('company / employer name is mandatory (the lender needs an EmployerName)', () => {
   it('is asked for, last, when a salaried applicant leaves it empty', () => {
     expect(missingBasicRequired({ ...FULL, company: '' }, OPTS)).toEqual(['company name']);

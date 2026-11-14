@@ -265,6 +265,11 @@ export async function generateAurixToken(cfg: AurixApiConfig, partnerCustomerId:
   return String(token);
 }
 
+/** The customer's X-Aurix-Token for an offer's partner (cached; refreshed when missing/expired). Used for the lender-page hand-off. */
+export async function aurixTokenForPartner(partner: LenderPartner, user: Pick<User, 'id' | 'phone' | 'aurixToken' | 'aurixTokenExpiresAt'>): Promise<string> {
+  return ensureAurixToken(resolveAurixConfig(partner), user);
+}
+
 /** Env-resolved token helper for callers that only have a User.id (e.g. OTP verify). */
 export async function generateAurixTokenFromEnv(partnerCustomerId: string, mobileNumber?: string): Promise<string> {
   return generateAurixToken(resolveAurixConfig({ apiConfig: null } as LenderPartner), partnerCustomerId, mobileNumber);

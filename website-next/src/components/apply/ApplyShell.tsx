@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { createContext, useContext, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ShieldCheck, FileCheck, Clock3, ChevronLeft, Lock, Check } from 'lucide-react';
 import { AccountRail, MobileTopBar, type AccountRailUser } from './AccountRail';
 import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
@@ -8,6 +10,23 @@ import { useCopy } from '@/lib/i18n';
 import { applyShellCopy } from '@/i18n/apply-shell';
 
 const BRAND_ICONS = [ShieldCheck, FileCheck, Clock3];
+
+/**
+ * Where a step's actions (BottomBar: Continue / Verify PAN / Skip …) are drawn: a slot in the PINNED top bar, not
+ * the bottom of the page — the floating Ruby button lives in the bottom-right corner and used to cover them.
+ * `undefined` = not inside an ApplyShell (BottomBar falls back to its old bottom bar); `null` = slot not mounted yet.
+ */
+const ActionsSlot = createContext<HTMLElement | null | undefined>(undefined);
+
+/** The step pages scroll inside this element (the frame itself never scrolls). */
+export const APPLY_SCROLL_ATTR = 'data-apply-scroll';
+
+/** Scroll the step's content back to the top (window.scrollTo no longer applies: only the content panel scrolls). */
+export function scrollApplyContentTop() {
+  if (typeof document === 'undefined') return;
+  document.querySelector<HTMLElement>(`[${APPLY_SCROLL_ATTR}]`)?.scrollTo({ top: 0 });
+  window.scrollTo({ top: 0 });
+}
 
 /**
  * The persistent split-screen frame for the whole /apply funnel — a left
@@ -27,6 +46,7 @@ export function ApplyShell({
   progressPct,
   center = false,
   wide = false,
+  roomy = false,
   accountUser,
 }: {
   children: React.ReactNode;
@@ -37,11 +57,17 @@ export function ApplyShell({
   center?: boolean;
   /** Use the whole content panel width (e.g. the embedded lender form) instead of the reading-width column. */
   wide?: boolean;
+  /** A roomier column than the reading width (steps 1 and 3), so the form isn't squeezed on a desktop. */
+  roomy?: boolean;
   accountUser?: AccountRailUser | null;
 }) {
   const t = useCopy(applyShellCopy);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  // The frame is exactly one screen tall and never scrolls: the side rail and the top bar (with the step's actions)
+  // stay pinned, and only the content panel below the top bar scrolls.
   return (
-    <div className="bg-background flex min-h-screen w-full">
+    <ActionsSlot.Provider value={slot}>
+    <div className="bg-background flex h-[100dvh] w-full overflow-hidden">
       {accountUser ? (
         <AccountRail user={accountUser} />
       ) : (
@@ -76,7 +102,8 @@ export function ApplyShell({
         </aside>
       )}
 
-      <div className="relative flex min-h-screen min-w-0 flex-1 flex-col">
+      <div className="relative flex h-full min-w-0 flex-1 flex-col">
+        <header className="bg-background/95 relative z-30 shrink-0 pb-3 backdrop-blur">
         <MobileTopBar user={accountUser} />
         {typeof progressPct === 'number' && (
           <div className="bg-border absolute top-14 left-0 z-10 h-[3px] w-full lg:top-0">
@@ -84,7 +111,7 @@ export function ApplyShell({
           </div>
         )}
         {/* Always rendered on desktop so the language switch has a home on every step; phones have it in the top bar. */}
-        <div className={`${backHref || stepLabel ? 'flex' : 'hidden lg:flex'} items-center justify-between gap-3 pt-5 sm:px-10 ${wide ? 'px-4' : 'px-6'}`}>
+        <div className={`${backHref || stepLabel ? 'flex' : 'hidden lg:flex'} flex-wrap items-center gap-x-3 gap-y-2.5 pt-4 sm:px-10 ${wide ? 'px-4' : 'px-6'}`}>
             {backHref ? (
               <Link
                 href={backHref}
@@ -96,7 +123,7 @@ export function ApplyShell({
             ) : (
               <span />
             )}
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2">
               {stepLabel && (
                 // Phones: with a back link beside it there's no room for both,
                 // and the stepper / page title already say where you are.
@@ -108,14 +135,23 @@ export function ApplyShell({
                 <LanguageSwitcher />
               </div>
             </div>
+            {/* The step's actions (BottomBar portals here): at the right of the pinned bar on a tablet / desktop,
+                wrapping onto their own full-width row on a phone. */}
+            <div ref={setSlot} className="flex basis-full empty:hidden sm:basis-auto" data-apply-actions="" />
           </div>
-        <div className={`flex-1 sm:px-10 ${wide ? 'px-4 pt-4 pb-6' : 'px-6 pt-6 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}>
-          <div className={center ? 'w-full max-w-md' : wide ? 'w-full' : 'mx-auto w-full max-w-2xl'}>{children}</div>
-        </div>
+        </header>
+        <main
+          {...{ [APPLY_SCROLL_ATTR]: '' }}
+          className={`min-h-0 flex-1 overflow-y-auto sm:px-10 ${wide ? 'px-4 pt-2 pb-6' : 'px-6 pt-3 pb-10'} ${center ? 'flex flex-col items-center justify-center text-center' : ''}`}
+        >
+          <div className={center ? 'w-full max-w-md' : wide ? 'w-full' : roomy ? 'mx-auto w-full max-w-5xl' : 'mx-auto w-full max-w-2xl'}>{children}</div>
+        </main>
       </div>
     </div>
+    </ActionsSlot.Provider>
   );
 }
+
 
 export function Stepper({ step }: { step: 1 | 2 | 3 }) {
   const t = useCopy(applyShellCopy);
@@ -154,6 +190,15 @@ export function Stepper({ step }: { step: 1 | 2 | 3 }) {
 }
 
 export function BottomBar({ children, meta }: { children: React.ReactNode; meta?: string }) {
+  const slot = useContext(ActionsSlot);
+  // Inside an ApplyShell: the actions live in the pinned top bar, never under the floating Ruby button.
+  if (slot !== undefined) {
+    if (!slot) return null; // slot not mounted yet (first paint) — draw nothing rather than flash a bottom bar
+    return createPortal(
+      <div className="flex w-full gap-2.5 [&>*]:flex-1 [&>*]:whitespace-nowrap sm:w-auto sm:[&>*]:flex-none">{children}</div>,
+      slot,
+    );
+  }
   return (
     <div className="border-border bg-background/95 sticky bottom-0 z-30 -mx-6 mt-8 flex items-center justify-between gap-4 border-t px-4 py-3 backdrop-blur sm:mx-0 sm:px-10 sm:py-4">
       {/* Phones: no room for the meta line — actions take the full row. */}
