@@ -28,13 +28,14 @@ const UNDER_JEST =
 const GIF_URI = welcomeGifUrl();
 const AUDIO_URI = welcomeAudioUrl();
 
-// Hard ceiling so a blocked autoplay / load failure can never trap the user
-// behind the overlay. The clip is ~10s.
-const MAX_MS = 12500;
-// If the GIF hasn't reported loaded within this budget (cold cache / slow / offline),
-// skip the intro rather than show a blank overlay. The prefetch means a cached
-// launch reports loaded almost immediately.
-const REVEAL_MS = 3500;
+// The clip (GIF and voice-over) is exactly 10.0 s. The safety ceiling counts from the moment
+// both START together (the 'loaded' message), never from mount: the 8 MB GIF takes a few
+// seconds to decode, and a mount-based clock cut the clip short.
+const CLIP_MS = 10000;
+const MAX_AFTER_START_MS = CLIP_MS + 2500;
+// If the GIF + audio aren't both ready within this budget (cold cache / slow phone / offline),
+// skip the intro rather than show a blank overlay or start late.
+const REVEAL_MS = 8000;
 const RISE_MS = 440;   // gentle settle-in of the layover
 const SINK_MS = 760;   // …then it recedes and dissolves into the background
 
@@ -42,8 +43,10 @@ const { height: SCREEN_H } = Dimensions.get('window');
 
 function buildHtml(gifUri: string, audioUri: string): string {
   // Transparent page: the GIF's transparent background lets the real dashboard
-  // (behind the WebView) show through. The audio drives the timing — when it ends
-  // we dismiss, so the GIF effectively plays once in sync with the voice-over.
+  // (behind the WebView) show through. Nothing plays until BOTH are ready: the GIF is
+  // loaded + decoded off-screen and the audio can play through; then the GIF is put on
+  // screen (starting at its first frame) and the audio starts in the same tick, so lips
+  // and voice line up. The audio's end dismisses (the GIF is the same 10 s).
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}
 /* Fade out the GIF's bottom so its baked-in nav bar / FAB pill disappear and the
@@ -52,21 +55,34 @@ img{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;object-posi
     -webkit-mask-image:linear-gradient(to bottom,#000 82%,transparent 88%);
     mask-image:linear-gradient(to bottom,#000 82%,transparent 88%)}</style>
 </head><body>
-<img id="g" src="${gifUri}" />
-<audio id="a" src="${audioUri}" autoplay preload="auto"></audio>
+<img id="g" alt="" />
+<audio id="a" src="${audioUri}" preload="auto"></audio>
 <script>
 (function(){
   var a=document.getElementById('a');
   var g=document.getElementById('g');
+  var pre=new Image();
+  var imgReady=false, audReady=false, started=false;
   function post(m){try{window.ReactNativeWebView.postMessage(m);}catch(e){}}
-  // Tell native the GIF is actually painted, so the overlay only rises once there
-  // is something to show (never a blank frame).
-  if(g.complete){post('loaded');}else{g.onload=function(){post('loaded');};}
+  function start(){
+    if(started||!imgReady||!audReady) return;
+    started=true;
+    g.src=pre.src;           // on screen now, from its first frame
+    post('loaded');          // native: rise + start the clip clock
+    var p=a.play();          // same tick as the GIF
+    if(p&&p.catch){p.catch(function(){post('noaudio');});}
+  }
+  pre.onload=function(){
+    var d=pre.decode?pre.decode():null;
+    var go=function(){imgReady=true;start();};
+    if(d&&d.then){d.then(go,go);}else{go();}
+  };
+  pre.onerror=function(){post('error');};
+  a.addEventListener('canplaythrough',function(){audReady=true;start();});
+  a.addEventListener('error',function(){audReady=true;post('noaudio');start();}); // still show Ruby
   a.addEventListener('ended',function(){post('ended');});
-  a.addEventListener('error',function(){post('error');});
-  // Autoplay-with-sound can be refused on first load; retry on any tap.
-  var p=a.play();
-  if(p&&p.catch){p.catch(function(){document.body.addEventListener('click',function(){a.play();});});}
+  pre.src='${gifUri}';
+  a.load();
 })();
 </script>
 </body></html>`;
@@ -111,9 +127,12 @@ export default function RubyWelcome({ onDone }: Props) {
   // The overlay stays invisible (anim at 0) until the GIF reports it has painted,
   // so a cold-cache / offline launch never flashes a blank frame — it just skips.
   const revealed = useRef(false);
+  const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rise = useRef(() => {
     if (revealed.current || finished.current) return;
     revealed.current = true;
+    // The clip clock starts now (GIF and voice-over start together in the page).
+    maxTimer.current = setTimeout(finish, MAX_AFTER_START_MS);
     Animated.timing(anim, {
       toValue: 1,
       duration: RISE_MS,
@@ -122,13 +141,17 @@ export default function RubyWelcome({ onDone }: Props) {
     }).start();
   }).current;
 
-  // 'loaded' → rise; 'ended' (audio finished) → dismiss. A load 'error' is ignored
-  // (the reveal/safety timeouts guarantee an exit) so a slow asset can't drop the
-  // overlay — and its touch-block — prematurely.
+  // 'loaded' → rise (both just started); 'ended' (audio finished) → dismiss; 'noaudio'
+  // (sound refused / failed) → Ruby still plays, and we dismiss when her 10 s clip ends.
+  // A load 'error' is ignored (the reveal timeout guarantees an exit).
   const onWebMessage = useRef((e: { nativeEvent: { data: string } }) => {
     const d = e.nativeEvent.data;
     if (d === 'loaded') rise();
     else if (d === 'ended') finish();
+    else if (d === 'noaudio' && revealed.current) {
+      if (maxTimer.current) clearTimeout(maxTimer.current);
+      maxTimer.current = setTimeout(finish, CLIP_MS);
+    }
   }).current;
 
   useEffect(() => {
@@ -136,8 +159,7 @@ export default function RubyWelcome({ onDone }: Props) {
     // Defensive: the upstream gate only mounts this when the CDN is configured.
     if (!welcomeConfigured()) { finish(); return undefined; }
     const reveal = setTimeout(() => { if (!revealed.current) finish(); }, REVEAL_MS);
-    const t = setTimeout(finish, MAX_MS);
-    return () => { clearTimeout(reveal); clearTimeout(t); };
+    return () => { clearTimeout(reveal); if (maxTimer.current) clearTimeout(maxTimer.current); };
   }, [finish, rise]);
 
   if (gone) return null;

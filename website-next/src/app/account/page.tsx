@@ -14,7 +14,6 @@ import { timeAgo } from '@/lib/timeAgo';
 import { accountCopy } from '@/i18n/account';
 import { altOffersCopy } from '@/i18n/apply-altoffers';
 import { AltOfferConfirm } from '@/components/apply/AltOfferConfirm';
-import { AccountWelcome } from '@/components/account/RubyWelcome';
 import { useAltOffer } from '@/hooks/useAltOffer';
 import { altStatusTone, appliedReferrals, type AppliedReferral } from '@/lib/altOfferLogic';
 
@@ -37,8 +36,6 @@ export default function ApplicationsPage() {
 
   return (
     <AccountShell>
-      {/* Ruby's welcome layover — once per browser session (see AccountWelcome). */}
-      <AccountWelcome />
       {/* Phones: stacked, so the greeting isn't squeezed beside the button. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">

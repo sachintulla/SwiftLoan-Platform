@@ -258,6 +258,9 @@ export interface AppState {
   // A friendly, actionable note when prequalify returns no offers (e.g. lender
   // validation rejected the details) — shown on the offers screen empty state.
   offersError: string;
+  // Set by the loading screen when no offers came back and it is continuing to the Yubi journey
+  // (utils/offersFallback.ts). My Offers reads it once on arrival to open the Yubi tab, then clears it.
+  offersFallback: boolean;
   // One-line summary of the offers the user just received (or the issue), pushed
   // to the voice agent so it can proactively talk about them / any problem.
   offersSummary: string;
@@ -315,7 +318,8 @@ export const initialState: AppState = {
   optAddr1: '', optAddr2: '', optLandmark: '', optCity: '', optDistrict: '', optState: '',
   optSalaryMode: '', optObligations: '', optProfType: '', optCompanyEmail: '', optBusinessEmail: '',
   panConsent: false, panNumber: '', panPrefill: null, clearedForNewPan: false,
-  appAmount: 150000, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
+  // 0 = not chosen yet: the applicant must pick an amount on step 2 (basic.tsx requires it).
+  appAmount: 0, appTenure: 12, appEmp: 'salaried', appResidence: 'rented',
   appConsent: false, autoDebit: true,
   fareAmount: 150000, fareTenure: 24, fareRate: 16,
   payInput: '', payChecked: false,
@@ -333,6 +337,7 @@ export const initialState: AppState = {
   introPitchHeard: false,
   webUrl: '', webTitle: '', altOffersEnabled: true, altPrefill: {}, altResumeToOffers: false,
   offersError: '',
+  offersFallback: false,
   offersSummary: '',
   apiContext: {},
   offersReturn: 'home',

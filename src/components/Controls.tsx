@@ -639,7 +639,8 @@ export function Slider({
     setW(width);
     wRef.current = width;
   };
-  const pct = max > min ? (value - min) / (max - min) : 0;
+  // Clamped: a value below `min` (e.g. the loan amount's 0 = "not chosen yet") sits at the start.
+  const pct = max > min ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
 
   // Latest props for the (created-once) PanResponder — otherwise it keeps the
   // first render's value/onChange forever.

@@ -60,6 +60,8 @@ export const applyCompareCopy = defineCopy({
       fee: "Smallest processing fee + GST",
       approval: "Fastest typical approval decision",
     } as Labels<RankId>,
+    /** Under a "best offer by" option that other rankings were merged into (they pick the same lender). */
+    rankAlso: (labels: string) => `Also the ${labels}`,
     best: {
       bestForYou: "Best for you",
       bestForRank: (rank: string) => `Best for you · ${rank}`,
@@ -166,6 +168,7 @@ export const applyCompareCopy = defineCopy({
       fee: "सबसे कम प्रोसेसिंग फीस + GST",
       approval: "आमतौर पर सबसे तेज़ अप्रूवल निर्णय",
     },
+    rankAlso: (labels: string) => `यही ${labels} भी`,
     best: {
       bestForYou: "आपके लिए सर्वश्रेष्ठ",
       bestForRank: (rank: string) => `आपके लिए सर्वश्रेष्ठ · ${rank}`,
@@ -272,6 +275,7 @@ export const applyCompareCopy = defineCopy({
       fee: "అత్యల్ప ప్రాసెసింగ్ ఫీజు + GST",
       approval: "సాధారణంగా అత్యంత వేగవంతమైన ఆమోద నిర్ణయం",
     },
+    rankAlso: (labels: string) => `ఇదే ${labels} కూడా`,
     best: {
       bestForYou: "మీకు ఉత్తమమైనది",
       bestForRank: (rank: string) => `మీకు ఉత్తమమైనది · ${rank}`,

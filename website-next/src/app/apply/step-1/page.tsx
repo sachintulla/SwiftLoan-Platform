@@ -1,15 +1,16 @@
 'use client';
 
-import { useCallback, useState, type ChangeEvent } from 'react';
+import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ShieldCheck, UploadCloud, CreditCard, Lock } from 'lucide-react';
-import { ApplyShell, Stepper, BottomBar } from '@/components/apply/ApplyShell';
+import { ShieldCheck, UploadCloud, CreditCard, Lock, Camera } from 'lucide-react';
+import { ApplyShell, Stepper, BottomBar, scrollApplyContentTop } from '@/components/apply/ApplyShell';
 import { Card, SectionLabel } from '@/components/apply/primitives';
 import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
 import { PanReplaceArt } from '@/components/apply/PanReplaceArt';
+import { CameraCapture } from '@/components/apply/CameraCapture';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
-import { fetchMe, verifyPan, patchProfile } from '@/lib/applyApi';
+import { verifyPan, patchProfile } from '@/lib/applyApi';
 import { savePanHandoff, maskPan } from '@/lib/panPrefill';
 import { scanPanFromImage } from '@/lib/panScan';
 import { useAccountUser } from '@/hooks/useAccountUser';
@@ -53,9 +54,7 @@ export default function Step1PanPage() {
 
   // PAN photo → number, read on this device (the photo is never uploaded). The PAN is only filled into
   // the field for the visitor to check; nothing is verified until they consent and press Verify.
-  const onPickFile = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // picking the same photo again must re-run
+  const scanFile = async (file: File | undefined) => {
     if (!file || scanning) return;
     setScanning(true);
     setScanNote('');
@@ -72,6 +71,23 @@ export default function Step1PanPage() {
     } finally {
       setScanning(false);
     }
+  };
+
+  const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // picking the same photo again must re-run
+    void scanFile(file);
+  };
+
+  // "Take a photo": a phone opens its own camera app (the capture input below — best quality, and the phone
+  // handles the permission); a computer opens the webcam window. Either way the photo goes through scanFile.
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const takePhoto = () => {
+    if (scanning) return;
+    const phone = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+    if (phone) cameraInputRef.current?.click();
+    else setCameraOpen(true);
   };
 
   const panValid = isValidPan(pan);
@@ -92,7 +108,7 @@ export default function Step1PanPage() {
     if (!valid || loading) return;
     setLoading(true);
     setVerified(false);
-    window.scrollTo({ top: 0 });
+    scrollApplyContentTop();
     let succeeded = false;
     // Seamless fallback when PAN auto-fill can't verify: keep the entered PAN on the
     // profile (encrypted server-side — never persisted raw in the client hand-off) so
@@ -152,7 +168,7 @@ export default function Step1PanPage() {
   // brand rail stays, and it reads as its own page within the funnel.
   if (loading) {
     return (
-      <ApplyShell stepLabel={t.stepLabel} progressPct={40} accountUser={accountUser}>
+      <ApplyShell stepLabel={t.stepLabel} progressPct={40} accountUser={accountUser} roomy>
         <Stepper step={1} />
         <PanVerifyingLoader done={verified} onFinished={goToDetails} />
       </ApplyShell>
@@ -166,6 +182,7 @@ export default function Step1PanPage() {
       stepLabel={t.stepLabel}
       progressPct={28}
       accountUser={accountUser}
+      roomy
     >
       <Stepper step={1} />
       <div className="mb-7 flex items-start gap-3.5">
@@ -178,21 +195,38 @@ export default function Step1PanPage() {
         </div>
       </div>
 
-      <Card className="flex flex-col gap-5 sm:p-7">
-        {/* Upload and manual entry side by side, so both fit on one screen. */}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2.5 sm:gap-5">
+      <Card className="flex flex-col gap-6 sm:p-8">
+        {/* Phones: upload, an "or enter manually" divider, then the PAN field — stacked. From md up they sit side by
+            side with a vertical divider between them. */}
+        <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-8">
           <div className="flex min-w-0 flex-col">
             <SectionLabel>{t.uploadLabel}</SectionLabel>
             <label
               htmlFor="pan-upload"
-              className="border-border hover:border-primary hover:bg-accent/40 group flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed p-3 text-center transition-colors sm:p-4"
+              className="border-border hover:border-primary hover:bg-accent/40 group flex min-h-[170px] flex-1 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-5 text-center transition-colors md:min-h-[200px] md:p-7"
             >
-              <span className="bg-accent grid h-9 w-9 place-items-center rounded-xl transition-transform group-hover:scale-105">
-                <UploadCloud className="text-primary h-5 w-5" />
+              <span className="bg-accent grid h-11 w-11 place-items-center rounded-xl transition-transform group-hover:scale-105">
+                <UploadCloud className="text-primary h-6 w-6" />
               </span>
-              <p className="text-xs font-bold sm:text-sm">{scanning ? t.scanning : t.uploadDrop}</p>
-              <p className="text-muted-foreground hidden text-[11px] sm:block">{t.uploadDetect}</p>
-              <span className="border-border bg-card rounded-full border px-3 py-1 text-[11px] font-bold">{t.chooseFile}</span>
+              <p className="text-sm font-bold">{scanning ? t.scanning : t.uploadDrop}</p>
+              <p className="text-muted-foreground text-xs">{t.uploadDetect}</p>
+              <span className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                <span className="border-border bg-card rounded-full border px-4 py-1.5 text-xs font-bold">{t.chooseFile}</span>
+                {/* A real button inside the label: stop the click reaching the label, or the file dialog opens too. */}
+                <button
+                  type="button"
+                  disabled={scanning}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    takePhoto();
+                  }}
+                  className="border-primary text-primary bg-card inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs font-bold"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  {t.takePhoto}
+                </button>
+              </span>
               <input
                 id="pan-upload"
                 type="file"
@@ -203,16 +237,28 @@ export default function Step1PanPage() {
                 className="sr-only"
               />
             </label>
+            {/* Phones: opens the camera app directly (rear camera). Outside the label so it never opens with it. */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              disabled={scanning}
+              onChange={onPickFile}
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
           </div>
 
-          <div className="text-muted-foreground flex flex-col items-center gap-2 pt-6 text-[10px] font-bold">
-            <span className="bg-border w-px flex-1" />
-            <span className="[writing-mode:vertical-rl] rotate-180 tracking-wider">{t.orManual}</span>
-            <span className="bg-border w-px flex-1" />
+          <div className="text-muted-foreground flex items-center gap-3 text-[10px] font-bold md:flex-col md:pt-7">
+            <span className="bg-border h-px flex-1 md:h-auto md:w-px" />
+            <span className="tracking-wider whitespace-nowrap md:rotate-180 md:[writing-mode:vertical-rl]">{t.orManual}</span>
+            <span className="bg-border h-px flex-1 md:h-auto md:w-px" />
           </div>
 
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-            <span className="text-foreground text-xs font-semibold sm:text-sm">
+          <label className="flex min-w-0 flex-col justify-center gap-2 text-sm">
+            <span className="text-foreground text-sm font-semibold">
               {t.panLabel}<span className="text-danger ml-0.5">*</span>
             </span>
             <input
@@ -222,9 +268,9 @@ export default function Step1PanPage() {
               placeholder="ABCDE1234F"
               aria-invalid={panWrong}
               data-voice-sensitive="pan"
-              className={`input-interactive field-input h-11 w-full min-w-0 rounded-xl px-2.5 text-sm font-bold tracking-[0.06em] sm:px-3.5 sm:text-base sm:tracking-[0.15em] ${panWrong ? 'border-danger' : ''}`}
+              className={`input-interactive field-input h-12 w-full min-w-0 rounded-xl px-4 text-base font-bold tracking-[0.15em] ${panWrong ? 'border-danger' : ''}`}
             />
-            <span className={`text-[11px] sm:text-xs ${panWrong ? 'text-danger font-semibold' : 'text-muted-foreground'}`}>
+            <span className={`text-xs ${panWrong ? 'text-danger font-semibold' : 'text-muted-foreground'}`}>
               {panWrong ? t.missingPanValid : t.panHint}
             </span>
           </label>
@@ -268,6 +314,20 @@ export default function Step1PanPage() {
           {loading ? t.verifying : t.verifyCta}
         </button>
       </BottomBar>
+      <CameraCapture
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={(file) => void scanFile(file)}
+        copy={{
+          title: t.cameraTitle,
+          hint: t.cameraHint,
+          capture: t.cameraCapture,
+          cancel: t.cameraCancel,
+          starting: t.cameraStarting,
+          denied: t.cameraDenied,
+          unavailable: t.cameraUnavailable,
+        }}
+      />
       <AlertDialog open={!!alert} content={alert} onClose={() => setAlert(null)} />
       <AlertDialog
         open={!!replaceMasked}

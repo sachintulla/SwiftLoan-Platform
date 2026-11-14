@@ -9,6 +9,8 @@
  * onContinue; keep the two in step.
  */
 export interface BasicRequiredInput {
+  /** Desired loan amount in rupees; 0 = not chosen yet (there is no default — the applicant must pick one). */
+  amount?: number;
   first: string;
   last: string;
   dobSet: boolean;
@@ -44,6 +46,7 @@ export function missingBasicRequired(
   opts: { pincodeRe: RegExp; incomeMin: number },
 ): string[] {
   const out: string[] = [];
+  if (v.amount !== undefined && !(v.amount > 0)) out.push('loan amount');
   if (!v.first.trim()) out.push('first name');
   if (!v.last.trim()) out.push('last name');
   if (!v.dobSet) out.push('date of birth');

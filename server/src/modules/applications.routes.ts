@@ -7,7 +7,8 @@ import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
 import { makeRef } from '../utils/ref.js';
 import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
-import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, aurixTokenForPartner, type RawLenderOffer } from '../lib/lenderOffers.js';
+import { isAurixPartnerUrl, withAurixAuthToken } from '../lib/aurixHandoff.js';
 import { mapFlatStatus, advancesStatus, internalStatusFor } from './aurixWebhook.routes.js';
 import { trackJourney, JOURNEY_EVENTS } from '../lib/journey.js';
 import { surfaceOf } from '../lib/surface.js';
@@ -645,8 +646,21 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
     },
   ).catch(() => {});
 
+  // The link to open: for an Aurix offer, the customer's own X-Aurix-Token is added (`authtoken`), so Aurix's page
+  // skips its mobile + OTP screen (they already verified with us). Only this response carries it — the stored links
+  // stay plain. No token (Aurix unreachable, reviewer sandbox) = the plain link, i.e. Aurix's own OTP screen.
+  let redirectionUrl = existing.redirectionUrl;
+  if (existing.partner && isAurixPartnerUrl(redirectionUrl)) {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: req.user!.sub }, select: { id: true, phone: true, aurixToken: true, aurixTokenExpiresAt: true } });
+      if (user && !isReviewPhone(user.phone ?? '')) redirectionUrl = withAurixAuthToken(redirectionUrl, await aurixTokenForPartner(existing.partner, user));
+    } catch (e) {
+      log.warn('aurix hand-off token unavailable — opening the plain link (Aurix will ask for OTP)', { applicationId: app.id, error: (e as Error).message });
+    }
+  }
+
   // lenderApplication.id is the per-application id the client now tracks.
-  res.json({ lenderApplication: lenderApp, lenderApplicationId: lenderApp.id });
+  res.json({ lenderApplication: lenderApp, lenderApplicationId: lenderApp.id, redirectionUrl });
 }));
 
 /**

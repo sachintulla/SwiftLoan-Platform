@@ -9,6 +9,7 @@ import {
   launchImageLibrary,
   type ImagePickerResponse,
 } from 'react-native-image-picker';
+import { ensureCameraPermission } from './cameraPermission';
 
 const PanOcrModule: { recognize?: (path: string) => Promise<string> } =
   NativeModules?.PanOcrModule ?? {};
@@ -33,7 +34,10 @@ export function extractPan(text: string): string | null {
 
 export type PanScanResult =
   | { pan: string; text: string }
-  | { pan: null; reason: 'cancelled' | 'no_image' | 'unavailable' | 'not_found' | 'error'; text?: string };
+  | { pan: null; reason: 'cancelled' | 'no_image' | 'unavailable' | 'not_found' | 'error'; text?: string }
+  /** The camera could not be opened: permission refused (`blocked` = only Settings can turn it on), or no camera. */
+  | { pan: null; reason: 'camera_permission'; blocked: boolean }
+  | { pan: null; reason: 'camera_unavailable' };
 
 /** Whether the native OCR module is present in this build. */
 export function panOcrAvailable(): boolean {
@@ -42,6 +46,9 @@ export function panOcrAvailable(): boolean {
 
 async function readAsset(res: ImagePickerResponse): Promise<PanScanResult> {
   if (res.didCancel) return { pan: null, reason: 'cancelled' };
+  // The picker's own refusals used to fall through as "no image" and vanish silently.
+  if (res.errorCode === 'permission') return { pan: null, reason: 'camera_permission', blocked: true };
+  if (res.errorCode === 'camera_unavailable') return { pan: null, reason: 'camera_unavailable' };
   const uri = res.assets?.[0]?.uri;
   if (!uri) return { pan: null, reason: 'no_image' };
   if (!panOcrAvailable()) return { pan: null, reason: 'unavailable' };
@@ -58,6 +65,9 @@ async function readAsset(res: ImagePickerResponse): Promise<PanScanResult> {
 
 /** Take a photo of the PAN card and read the number from it. */
 export async function scanPanFromCamera(): Promise<PanScanResult> {
+  // Ask first: without the runtime permission the picker opens nothing at all on Android.
+  const perm = await ensureCameraPermission();
+  if (perm !== 'granted') return { pan: null, reason: 'camera_permission', blocked: perm === 'blocked' };
   const res = await launchCamera({ mediaType: 'photo', quality: 1, saveToPhotos: false });
   return readAsset(res);
 }

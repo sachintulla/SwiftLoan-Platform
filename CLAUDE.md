@@ -961,3 +961,36 @@ Ello's 5,000-token limit (~3,530 words).
   verified-visitor install reminders have their own switch `install.verifiedEnabled` (env `INSTALL_REMINDER_VERIFIED`, default off); the
   reminder row and its link are still created. Code was switched off, not deleted (the same engines run the scenarios). Upshot's own
   SMS journeys are still on in the Upshot dashboard.
+
+---
+
+## No offers → other lenders, Aurix OTP skip, and apply-flow fixes (2026-11-14)
+
+- **No offers never dead-ends (app + website).** When the eligibility check returns no offers for ANY reason (`not_eligible`, `duplicate`,
+  `technical`, a failed request) and Yubi is on (`/config/features` → `altOffers`), the loading screen shows a 3-second pop-up ("We are trying
+  very hard to get the best offer for you" / "We are trying with different lenders…", with Continue) and goes straight to the Yubi journey.
+  Rule: `shouldContinueToAltOffers` in `src/utils/offersFallback.ts` (app) and `website-next/src/lib/offersFallback.ts` (website), both tested.
+  App: `finding.tsx` shows the pop-up, sets `state.offersFallback`, and `fare.tsx` opens on the Explore-lenders tab (the Instant-offers tab keeps
+  the reason, Retry and Update details). Website: `/apply/finding` mints the Yubi link and navigates (history is first replaced with
+  `/apply/offers`, so Back lands there, not on the loader); it sets `sl_alt_auto` so `/partner/return` goes straight to My Applications with
+  NO "Did you proceed?" question (owner's decision; the manual Get more offers button still asks). Yubi off / unreachable = the old empty state.
+  The app tracks `alt_offer_auto_continue`; the agent gets `api_context.offersFallback` (never say "rejected").
+- **Aurix lender page without a second OTP.** Aurix's page (`pt.aurix-partner.com`) reads an `authtoken` query parameter: the customer's
+  X-Aurix-Token (`/api/generate_token`). `POST /applications/:id/offers/:offerId/apply` now returns `redirectionUrl` with it added
+  (`server/src/lib/aurixHandoff.ts`: only `https://*.aurix-partner.com`, never stored; `Offer`/`LenderApplication` links stay plain; the
+  reviewer sandbox gets none; no token = the plain link, i.e. Aurix's own OTP screen). App (`offers.tsx useOfferSelect`) and website
+  (`useApplyToOffer`) open the returned link; the app strips it from the copy of the apply response given to the voice agent. Confirmed on
+  Android against Aurix prod (owner). Aurix published no spec for this: the parameter was read from their web bundle.
+- **Desired loan amount has no default.** `appAmount` starts at 0 and "loan amount" is the first entry of `missingBasicRequired`; a returning
+  applicant's own `draftLoanAmount` still fills it. The home headline falls back to ₹1,50,000 when it is 0. (The website already worked this way.)
+- **Compare offers ranks by three things only:** lowest interest rate (default), lowest processing fee, lowest EMI. Rankings that pick the same
+  lender are merged into one option (`distinctRankChoices`).
+- **Ruby welcome intro (app only).** `WELCOME_CDN_BASE` now points at the public `swiftloan-prod` bucket folder (`ruby-welcome-v1.gif|m4a`; bump
+  `WELCOME_ASSET_VERSION` and upload `-v2` files to change the clip). The GIF and the voice-over (both 10.0 s) start in the SAME tick once both
+  are loaded; before, the audio autoplayed while the 8 MB GIF was still decoding, so the intro closed mid-clip. The website no longer plays it.
+- **Camera permission.** Android: `ensureCameraPermission()` (`src/utils/cameraPermission.ts`) asks right before `launchCamera` (PAN photo and
+  profile photo); the image picker opens nothing without the runtime permission, and the one-time permissions screen is often never shown.
+  Website step 1 has "Take a photo": a phone opens its camera app (`capture="environment"` input), a computer opens `CameraCapture` (webcam).
+- **Website apply steps.** A step's actions (`BottomBar`) are drawn in the PINNED top bar via a portal (`ApplyShell`), never at the bottom under
+  the floating Ruby button; the frame is one screen tall and only the content panel (`data-apply-scroll`) scrolls, so use
+  `scrollApplyContentTop()` instead of `window.scrollTo`. Steps 1 and 3 use the `roomy` column; step 1 stacks upload / divider / PAN on phones.

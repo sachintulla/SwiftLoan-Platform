@@ -77,7 +77,8 @@ export default function Home() {
   const firstName = (state.authUser?.firstName || state.authUser?.fullName || state.pdName || '').trim().split(/\s+/)[0];
   // Headline amount: the enquired amount from the backend, falling back to the
   // amount held in the funnel state, then a sensible default.
-  const amount = enquiredAmount ?? state.appAmount ?? 300000;
+  // (appAmount 0 = not chosen yet, so it falls through to the default.)
+  const amount = enquiredAmount ?? (state.appAmount || 150000);
 
   const hasOffers = offers.length > 0;
   const count = offers.length;
