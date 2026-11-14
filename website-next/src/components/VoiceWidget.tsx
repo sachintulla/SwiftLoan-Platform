@@ -407,7 +407,8 @@ function readCalculator() {
 // Below lg there's no left rail to sit over, and on phones BottomBar's
 // actions span the full width — so on these routes the launcher floats just
 // above the bar instead of covering it (CSS: .sl-voice-above-bar).
-const BOTTOM_BAR_ROUTES = ['/apply/step-1', '/apply/step-2', '/apply/step-3', '/apply/compare'];
+// Steps 1–3 no longer have a bottom bar: their actions sit in the pinned top bar (ApplyShell), so only compare remains.
+const BOTTOM_BAR_ROUTES = ['/apply/compare'];
 // Routes whose bottom bar is two rows (summary + full-width button) on phones.
 const TALL_BOTTOM_BAR_ROUTES = ['/apply/compare'];
 

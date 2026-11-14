@@ -10,7 +10,7 @@ import { useStore } from '../state/store';
 import { api, Offer } from '../api/client';
 import { loadOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
-import { compareOffers, computeRow, defaultTenure, summariseCompareForAgent, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
+import { choiceFor, compareOffers, computeRow, defaultTenure, distinctRankChoices, summariseCompareForAgent, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
 import { registerTarget } from '../voice/actionRegistry';
 import { VoiceHidden } from '../voice/screenGraph';
 
@@ -27,10 +27,9 @@ const C = {
 };
 
 const RANKS: { key: RankBy; label: string; phrase: string }[] = [
-  { key: 'cost', label: 'Lowest total cost', phrase: 'lowest total cost' },
+  { key: 'rate', label: 'Lowest interest rate', phrase: 'lowest interest rate' },
+  { key: 'fee', label: 'Lowest processing fee', phrase: 'lowest processing fee' },
   { key: 'emi', label: 'Lowest EMI', phrase: 'lowest EMI' },
-  { key: 'rate', label: 'Lowest rate', phrase: 'lowest interest rate' },
-  { key: 'interest', label: 'Least interest', phrase: 'least total interest' },
 ];
 
 // Comparison-matrix geometry: a pinned label column + one column per lender,
@@ -80,7 +79,7 @@ export default function Compare() {
   const { state, back, mergeApiContext } = useStore();
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [tenure, setTenure] = useState(24);
-  const [rankBy, setRankBy] = useState<RankBy>('cost');
+  const [rankBy, setRankBy] = useState<RankBy>('rate');
   const [maxEmi, setMaxEmi] = useState<number | null>(null);
   const [minAmount, setMinAmount] = useState<number | null>(null);
   const [includeOnApproval, setIncludeOnApproval] = useState(true);
@@ -142,6 +141,13 @@ export default function Compare() {
     () => compareOffers(inputs, { tenure, rankBy, maxEmi, minAmount, includeOnApproval }),
     [inputs, tenure, rankBy, maxEmi, minAmount, includeOnApproval],
   );
+  // Rankings that pick the same lender are ONE option ("Lowest total cost · Lowest rate"), never two that lead to the same result.
+  const rankOptions = useMemo(() => {
+    const keys = RANKS.map(r => r.key);
+    const label = (k: RankBy) => RANKS.find(r => r.key === k)!.label;
+    return distinctRankChoices(keys, result.winners).map(c => ({ key: c.key, label: [c.key, ...c.also].map(label).join(' · ') }));
+  }, [result.winners]);
+  const activeRank = choiceFor(distinctRankChoices(RANKS.map(r => r.key), result.winners), rankBy);
 
   const emiSteps = useMemo(() => {
     const emis = inputs.map(o => computeRow(o, tenure).emi).filter((v): v is number => v != null).sort((a, b) => a - b);
@@ -200,7 +206,7 @@ export default function Compare() {
         result,
         tenure,
         rankLabel: rankLabel.label,
-        rankOptions: RANKS.map(r => r.label),
+        rankOptions: rankOptions.map(r => r.label),
         selectedId: selected?.id ?? null,
         pickedId: picked,
       }),
@@ -219,9 +225,9 @@ export default function Compare() {
         kind: 'chips', group: 'Tenure', label: `${tn} months`, getValue: () => tenure === tn, onTap: () => changeTenure(tn),
       })),
     );
-    RANKS.forEach(r =>
+    rankOptions.forEach(r =>
       un.push(registerTarget(state.screen, `compare:rank:${r.key}`, {
-        kind: 'chips', group: 'Rank best offer by', label: r.label, getValue: () => rankBy === r.key, onTap: () => changeRank(r.key),
+        kind: 'chips', group: 'Rank best offer by', label: r.label, getValue: () => activeRank === r.key, onTap: () => changeRank(r.key),
       })),
     );
     result.rows.forEach(r =>
@@ -289,8 +295,8 @@ export default function Compare() {
                 </View>
                 <Dropdown
                   ariaLabel="Rank best offer by"
-                  value={rankBy}
-                  options={RANKS.map(r => ({ value: r.key, label: r.label }))}
+                  value={activeRank}
+                  options={rankOptions.map(r => ({ value: r.key, label: r.label }))}
                   onChange={v => changeRank(v)}
                 />
               </View>

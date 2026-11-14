@@ -200,7 +200,7 @@ export async function applyOffer(applicationId: string, offerId: string) {
   const body = await authFetch(`/api/applications/${applicationId}/offers/${offerId}/apply`, { method: 'POST' });
   // A repeat apply for the same lender+amount isn't a new selection.
   if (!body?.duplicate) upshotOfferSelected(offerId);
-  return body as { lenderApplicationId?: string; duplicate?: boolean };
+  return body as { lenderApplicationId?: string; duplicate?: boolean; redirectionUrl?: string | null };
 }
 
 export async function reportLenderOutcome(

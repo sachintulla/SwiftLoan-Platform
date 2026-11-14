@@ -60,7 +60,7 @@ export default function Step3MoreDetailsPage() {
   const skip = () => router.push('/apply/finding');
 
   return (
-    <ApplyShell backHref="/apply/step-2" stepLabel={t.stepLabel} progressPct={74} accountUser={accountUser}>
+    <ApplyShell backHref="/apply/step-2" stepLabel={t.stepLabel} progressPct={74} accountUser={accountUser} roomy>
       <Stepper step={3} />
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-extrabold">{t.title}</h1>

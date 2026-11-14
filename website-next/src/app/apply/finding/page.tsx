@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LockKeyhole, ShieldCheck } from 'lucide-react';
+import { Loader2, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { ApplyShell } from '@/components/apply/ApplyShell';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { useApply } from '@/lib/applyContext';
 import { prequalify } from '@/lib/applyApi';
+import { fetchAltOffersEnabled, requestAltOffer } from '@/lib/altOffers';
+import { AUTO_CONTINUE_KEY, FALLBACK_POPUP_MS, shouldContinueToAltOffers } from '@/lib/offersFallback';
 import { useCopy } from '@/lib/i18n';
 import { applyFlowCopy } from '@/i18n/apply-flow';
 
@@ -28,6 +30,11 @@ export default function FindingPage() {
   const [fillWidth, setFillWidth] = useState('6%');
   // The prequalify() call for this visit, shared across effect re-runs.
   const requestRef = useRef<Promise<void> | null>(null);
+  // How many offers came back (0 also when the request failed) — decides the no-offers fallback.
+  const offerCountRef = useRef(0);
+  // No offers: the "we are trying with different lenders" pop-up, then straight into the Yubi journey.
+  const [fallback, setFallback] = useState(false);
+  const proceedRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     // Wait for ApplyProvider to sync applicationId in from sessionStorage —
@@ -51,7 +58,9 @@ export default function FindingPage() {
     if (!requestRef.current) {
       const start = Date.now();
       requestRef.current = prequalify(applicationId)
-        .then(() => undefined)
+        .then((offers) => {
+          offerCountRef.current = offers?.length ?? 0;
+        })
         .catch((e) => {
           // Mirrors finding.tsx: failure/empty results are rendered by the
           // offers screen itself (Empty state), never a separate error screen.
@@ -66,8 +75,45 @@ export default function FindingPage() {
       // button from Offers landed here, re-fired a real prequalify()
       // call on remount, and auto-forwarded straight back to Offers, a
       // dead loop instead of a real "back".
-      if (!cancelled) router.replace('/apply/offers');
+      if (cancelled) return;
+      void continueOrShowOffers();
     });
+
+    // No offers, for whatever reason: never stop on "not eligible". Show the pop-up while a fresh Yubi
+    // link is minted, then go there (Continue goes sooner). Yubi off / unreachable → the offers page.
+    async function continueOrShowOffers() {
+      const enabled = await fetchAltOffersEnabled();
+      if (cancelled) return;
+      if (!shouldContinueToAltOffers({ offerCount: offerCountRef.current, altOffersEnabled: enabled, applicationId })) {
+        router.replace('/apply/offers');
+        return;
+      }
+      setFallback(true);
+      const shownAt = Date.now();
+      const alt = await requestAltOffer(applicationId!).catch(() => null);
+      if (cancelled) return;
+      const url = alt?.available ? alt.redirectUrl : null;
+      if (!url) {
+        router.replace('/apply/offers');
+        return;
+      }
+      let gone = false;
+      const go = () => {
+        if (gone || cancelled) return;
+        gone = true;
+        // Back from the partner journey should land on the offers page (Retry / Get more offers),
+        // not on this loader, which would run the check again and bounce straight back.
+        window.history.replaceState(window.history.state, '', '/apply/offers');
+        try {
+          sessionStorage.setItem(AUTO_CONTINUE_KEY, '1'); // back at /partner/return: no "Did you proceed?" question
+        } catch {
+          /* private mode — the return page simply asks as before */
+        }
+        window.location.assign(url);
+      };
+      proceedRef.current = go;
+      setTimeout(go, Math.max(0, FALLBACK_POPUP_MS - (Date.now() - shownAt)));
+    }
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
@@ -110,7 +156,7 @@ export default function FindingPage() {
           <span className="text-sm font-bold">{t.checking}</span>
         </div>
 
-        {error && <p className="text-danger text-xs font-semibold">{error}</p>}
+        {error && !fallback && <p className="text-danger text-xs font-semibold">{error}</p>}
 
         <div className="bg-accent mt-4 flex w-full items-center gap-3.5 rounded-2xl p-4 text-left">
           <span className="bg-mint/20 grid h-10 w-10 shrink-0 place-items-center rounded-full">
@@ -122,6 +168,25 @@ export default function FindingPage() {
           </div>
         </div>
       </div>
+
+      {fallback && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(10,63,65,0.45)] px-5" role="dialog" aria-modal="true" aria-labelledby="offers-fallback-title" aria-busy="true">
+          <div className="bg-background flex w-full max-w-sm flex-col items-center rounded-3xl px-6 py-7 text-center shadow-[var(--shadow-float)]">
+            <Loader2 className="text-primary h-9 w-9 animate-spin" aria-hidden />
+            <h2 id="offers-fallback-title" className="mt-4 text-lg leading-snug font-extrabold">
+              {t.fallbackTitle}
+            </h2>
+            <p className="text-muted-foreground mt-2 text-sm">{t.fallbackSub}</p>
+            <button
+              type="button"
+              onClick={() => proceedRef.current()}
+              className="bg-primary mt-5 w-full rounded-full py-3 text-sm font-bold text-white"
+            >
+              {t.fallbackContinue}
+            </button>
+          </div>
+        </div>
+      )}
     </ApplyShell>
   );
 }

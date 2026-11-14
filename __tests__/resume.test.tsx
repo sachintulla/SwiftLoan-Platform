@@ -23,6 +23,10 @@ afterEach(() => {
 const RAW = { token: 'AB12CD34', first_name: 'Priya', phone: '9876543210', last_step: 'pan_done' };
 const RESUME: Resume = { token: 'AB12CD34', firstName: 'Priya', phone: '9876543210', lastStep: 'pan_done', source: 'link' };
 
+// The first render of the whole app tree is slow on the shared CI runner (it has gone past Jest's
+// default 5 s there while passing in ~1 s locally), so these screen tests get a longer limit.
+jest.setTimeout(20000);
+
 describe('parseResume', () => {
   it('accepts the server payload', () => {
     expect(parseResume(RAW, 'link')).toEqual(RESUME);

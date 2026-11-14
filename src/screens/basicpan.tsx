@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Animated, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Animated, ActivityIndicator, Alert, Modal, Linking } from 'react-native';
 import { Screen, AppHeader } from '../components/Frame';
 import Icon from '../components/Icon';
 import { ConsentRow, HeaderCta, StepBadge } from '../components/Controls';
@@ -80,6 +80,18 @@ export default function BasicPan() {
       // user backed out — stay silent
     } else if (res.reason === 'unavailable') {
       showToast(t.panOcrUnavailable);
+    } else if (res.reason === 'camera_permission') {
+      // Refused for good ("Don't ask again"): only the phone's Settings can turn the camera on.
+      if (res.blocked) {
+        Alert.alert(t.cameraPermTitle, t.cameraPermBlocked, [
+          { text: t.panCancel, style: 'cancel' },
+          { text: t.cameraPermOpenSettings, onPress: () => { Linking.openSettings().catch(() => {}); } },
+        ]);
+      } else {
+        showToast(t.cameraPermNeeded);
+      }
+    } else if (res.reason === 'camera_unavailable') {
+      showToast(t.cameraUnavailable);
     } else {
       showToast(t.panReadFail);
     }

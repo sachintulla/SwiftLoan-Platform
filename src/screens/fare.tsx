@@ -105,7 +105,8 @@ export default function MyOffers() {
         setOffers([]);
         setAppId(null);
         setSavedAt(null);
-        if (!state.offersError) set({ applicationId: null });
+        // (Also kept when we arrived from the no-offers pop-up: the Yubi tab needs it to refer.)
+        if (!state.offersError && !state.offersFallback) set({ applicationId: null });
         await clearOffersCache().catch(() => {});
       }
     } catch {
@@ -133,6 +134,15 @@ export default function MyOffers() {
   // duplicate. So first-timers see a single, tab-less Instant-offers screen;
   // the tab bar appears after the first apply, positive or negative.
   const showTabs = state.altOffersEnabled && !!state.applicationId;
+
+  // Arrived from the loading screen's no-offers pop-up (utils/offersFallback.ts): open straight on
+  // the Yubi tab so the applicant carries on with other lenders. Read once, then cleared.
+  useEffect(() => {
+    if (!state.offersFallback) return;
+    set({ offersFallback: false });
+    if (showTabs) openYubi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // If the tabs disappear (e.g. after a logout/reset clears applicationId while
   // parked on the Yubi tab), fall back to the Instant-offers view.

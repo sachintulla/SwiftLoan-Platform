@@ -122,10 +122,9 @@ export default function Basic() {
       if (allowIdentityPrefill && !state.aboutGender && user.gender) set({ aboutGender: user.gender });
       if (!state.basicIncome && user.monthlyIncome) set({ basicIncome: String(user.monthlyIncome) });
       if (!state.basicCompany && user.company) set({ basicCompany: user.company });
-      // The amount slider defaults to a placeholder (150000), not empty, so
-      // "is it still the placeholder" is what stands in for "hasn't been set
-      // yet" here — everything else above checks for an empty string instead.
-      if (state.appAmount === 150000 && user.draftLoanAmount) set({ appAmount: user.draftLoanAmount });
+      // The amount starts at 0 (not chosen). A returning applicant's own saved
+      // choice (draftLoanAmount) fills it back in; otherwise they must pick one.
+      if (!state.appAmount && user.draftLoanAmount) set({ appAmount: user.draftLoanAmount });
       // Returning-user prefill for the Aurix-required fields so they don't
       // re-enter what they already gave us last time.
       if (!state.basicQualification && user.qualification) set({ basicQualification: user.qualification });
@@ -182,7 +181,7 @@ export default function Basic() {
   // error, asked again. An empty list means Continue will go through.
   const missingRequired = missingBasicRequired(
     {
-      first: state.basicFirst, last: state.basicLast, dobSet: !!dob, gender: state.aboutGender,
+      amount: state.appAmount, first: state.basicFirst, last: state.basicLast, dobSet: !!dob, gender: state.aboutGender,
       email: state.basicEmail, loanPurpose: state.basicLoanPurpose, qualification: state.basicQualification,
       residence: state.basicRes, employment: state.basicEmp, salaryMode: state.optSalaryMode, company: state.basicCompany,
       addr1: state.optAddr1, city: state.optCity, state: state.optState, pin: state.basicPin, income: state.basicIncome,
@@ -199,7 +198,7 @@ export default function Basic() {
 
   // Display label for each required-field key (for the toast + nudge text).
   const FIELD_LABEL: Record<string, string> = {
-    'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, 'date of birth': t.dobLabel,
+    'loan amount': t.basicAmountLabel, 'first name': t.basicFirstLabel, 'last name': t.basicLastLabel, 'date of birth': t.dobLabel,
     gender: t.genderLabel, email: t.basicEmailLabel, 'loan purpose': t.basicPurposeLabel,
     qualification: t.basicQualLabel, 'residence type': t.basicResLabel, 'employment type': t.basicEmpLabel,
     'salary mode': t.basicSalaryModeLabel, 'address line 1': t.basicAddr1Label, city: t.basicCity,
@@ -416,7 +415,7 @@ export default function Basic() {
         {state.panPrefill ? <PanConfirmation info={state.panPrefill} prefilled={fromPan} /> : null}
 
         {/* Amount */}
-        <View style={{ marginTop: 22 }}>
+        <RequiredBlock fkey="loan amount" style={{ marginTop: 22 }}>
           <FieldLabel text={t.basicAmountLabel} required />
           <Text style={[font(800), { fontSize: 26, color: colors.primary, marginVertical: 4 }]}>₹ {inr(state.appAmount)}</Text>
           <Slider
@@ -429,7 +428,7 @@ export default function Basic() {
             onChange={v => set({ appAmount: v })}
           />
           <RangeLabels min="₹25,000" max="₹15,00,000" />
-        </View>
+        </RequiredBlock>
 
         {/* Loan purpose (required by lender) */}
         <View style={{ gap: 8, marginTop: 18 }}>

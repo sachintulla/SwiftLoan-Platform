@@ -67,9 +67,12 @@ export function installManualSounds(): () => void {
   };
 
   let lastY = typeof window !== 'undefined' ? window.scrollY : 0;
-  const onScroll = () => {
+  // Captured on the document so it also hears panels that scroll on their own (the /apply steps scroll inside
+  // their content panel, not the window).
+  const onScroll = (e: Event) => {
     if (!manualSoundsEnabled() || isAgentActive()) return;
-    const y = window.scrollY;
+    const t = e.target;
+    const y = t instanceof Element ? t.scrollTop : window.scrollY;
     if (Math.abs(y - lastY) > 24) {
       lastY = y;
       playManualSound('scroll'); // paced to one pulse per 220 ms inside playSound
@@ -79,11 +82,11 @@ export function installManualSounds(): () => void {
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('pointermove', onPointerMove, true);
-  window.addEventListener('scroll', onScroll, { passive: true });
+  document.addEventListener('scroll', onScroll, { passive: true, capture: true });
   return () => {
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
     document.removeEventListener('pointermove', onPointerMove, true);
-    window.removeEventListener('scroll', onScroll);
+    document.removeEventListener('scroll', onScroll, { capture: true });
   };
 }

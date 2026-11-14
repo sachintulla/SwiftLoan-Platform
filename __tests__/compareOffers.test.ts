@@ -1,4 +1,4 @@
-import { emi, computeRow, compareOffers, defaultTenure, formatApproval } from '../src/utils/compareOffers';
+import { emi, computeRow, compareOffers, defaultTenure, formatApproval, distinctRankChoices, choiceFor } from '../src/utils/compareOffers';
 
 const OFFERS = [
   { id: 'idfc', lenderName: 'IDFC FIRST', amount: 300000, apr: 14.5, processingFeeAmount: 1499, gstOnProcessingFee: 270 },
@@ -129,5 +129,41 @@ describe('fee and approval ranking', () => {
     expect(formatApproval(6)).toBe('~6 hrs');
     expect(formatApproval(48)).toBe('~2 days');
     expect(formatApproval(null)).toBe('—');
+  });
+});
+
+describe('distinctRankChoices()', () => {
+  const RANKS = ['cost', 'emi', 'rate', 'interest'] as const;
+  // The real case from the website: IDFC ₹1 Cr @ 20.1% + ₹3.54L fee vs Herofin ₹7L @ 30% + ₹16,520 fee.
+  const TWO = [
+    { id: 'idfc', lenderName: 'IDFC FIRST', amount: 10000000, apr: 20.1, processingFeeAmount: 300000, gstOnProcessingFee: 54000 },
+    { id: 'hero', lenderName: 'Herofin', amount: 700000, apr: 30, processingFeeAmount: 14000, gstOnProcessingFee: 2520 },
+  ];
+
+  it('merges rankings that pick the same lender: two offers → two options, not four', () => {
+    const res = compareOffers(TWO, { tenure: 24, rankBy: 'cost' });
+    const choices = distinctRankChoices(RANKS, res.winners);
+    expect(choices).toEqual([
+      { key: 'cost', also: ['rate'] },
+      { key: 'emi', also: ['interest'] },
+    ]);
+    expect(choiceFor(choices, 'rate')).toBe('cost');
+    expect(choiceFor(choices, 'interest')).toBe('emi');
+    expect(choiceFor(choices, 'emi')).toBe('emi');
+  });
+
+  it('one lender wins everything → a single option', () => {
+    const res = compareOffers(OFFERS, { tenure: 24, rankBy: 'cost' });
+    expect(distinctRankChoices(RANKS, res.winners)).toEqual([{ key: 'cost', also: ['emi', 'rate', 'interest'] }]);
+  });
+
+  it('every ranking picks a different lender → all four options stay', () => {
+    const winners = { cost: 'a', emi: 'b', rate: 'c', interest: 'd', fee: null, approval: null };
+    expect(distinctRankChoices(RANKS, winners).map(c => c.key)).toEqual(['cost', 'emi', 'rate', 'interest']);
+  });
+
+  it('nothing priced (no winners) → options unchanged', () => {
+    const winners = { cost: null, emi: null, rate: null, interest: null, fee: null, approval: null };
+    expect(distinctRankChoices(RANKS, winners).map(c => c.key)).toEqual(['cost', 'emi', 'rate', 'interest']);
   });
 });

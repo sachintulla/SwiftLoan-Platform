@@ -25,17 +25,20 @@ export function useApplyToOffer() {
     setApplyingId(offer.id);
     setError(null);
     try {
-      await applyOffer(applicationId, offer.id);
+      // The apply response carries the link to open: for an Aurix offer it includes the visitor's token, so the
+      // lender page skips its own mobile + OTP screen. The offer's stored link is the fallback.
+      const res = await applyOffer(applicationId, offer.id);
+      const redirectionUrl = res?.redirectionUrl || offer.redirectionUrl;
       setSelectedOffer({
         id: offer.id,
         lenderName: offer.lenderName ?? offer.partner?.name ?? null,
-        redirectionUrl: offer.redirectionUrl,
+        redirectionUrl,
         amount: offer.amount,
         apr: offer.apr,
         emi: offer.emi,
         tenureMonths: offer.tenureMonths,
       });
-      router.push(offer.redirectionUrl ? '/apply/lender' : '/apply/confirm');
+      router.push(redirectionUrl ? '/apply/lender' : '/apply/confirm');
     } catch (e) {
       setError(e instanceof Error ? e.message : t.applyFailed);
       setApplyingId(null);

@@ -165,6 +165,35 @@ export function compareOffers(offers: CompareOfferInput[], filters: CompareFilte
   };
 }
 
+/** One "best offer by" option per distinct best offer. */
+export interface RankChoice {
+  key: RankBy;
+  /** Other rankings that pick the same lender, folded into this option ("Also the lowest interest rate"). */
+  also: RankBy[];
+}
+
+/**
+ * The "best offer by" options worth showing for these offers: rankings that pick the SAME lender are merged into
+ * the first of them, so the visitor never sees two options that lead to the same result (e.g. with two offers,
+ * "Lowest total cost" and "Lowest interest rate" often both pick lender A). A ranking with no winner (nothing priced)
+ * is kept as is.
+ */
+export function distinctRankChoices(ranks: readonly RankBy[], winners: CompareResult['winners']): RankChoice[] {
+  const out: RankChoice[] = [];
+  for (const k of ranks) {
+    const w = winners[k];
+    const same = w ? out.find(c => winners[c.key] === w) : undefined;
+    if (same) same.also.push(k);
+    else out.push({ key: k, also: [] });
+  }
+  return out;
+}
+
+/** The shown option that stands for `rankBy`: itself, or the option it was merged into. */
+export function choiceFor(choices: RankChoice[], rankBy: RankBy): RankBy {
+  return choices.find(c => c.key === rankBy || c.also.includes(rankBy))?.key ?? rankBy;
+}
+
 /** "Instant" / "~6 hrs" / "~2 days" for an approval time; "—" when unknown. */
 export function formatApproval(hrs: number | null | undefined): string {
   if (hrs == null) return '—';
