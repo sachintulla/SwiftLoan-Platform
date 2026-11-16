@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Modal, ActivityIndicator, Animated, Easing, Image } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, Modal, ActivityIndicator, Animated, Easing, Image, Dimensions } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../components/Frame';
@@ -12,6 +12,9 @@ import { loadOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
 import { choiceFor, compareOffers, computeRow, defaultTenure, distinctRankChoices, summariseCompareForAgent, TENURES, type CompareRow, type RankBy } from '../utils/compareOffers';
 import { registerTarget } from '../voice/actionRegistry';
+import { registerFocusHandler } from '../voice/agentFocus';
+import { parseFocusQuery, type MetricKey } from '../voice/focusTargets';
+import { useCallActive } from '../voice/useCallActive';
 import { VoiceHidden } from '../voice/screenGraph';
 
 // Same visual language as the compare-offers design reference.
@@ -31,6 +34,10 @@ const RANKS: { key: RankBy; label: string; phrase: string }[] = [
   { key: 'fee', label: 'Lowest processing fee', phrase: 'lowest processing fee' },
   { key: 'emi', label: 'Lowest EMI', phrase: 'lowest EMI' },
 ];
+// Which metric ROW each ranking is about — the one to light up when that filter
+// is picked: Lowest total cost → "Total you repay", Lowest EMI → "Monthly EMI",
+// Lowest rate → "Interest rate", Least interest → "Total interest".
+const RANK_METRIC: Partial<Record<RankBy, MetricKey>> = { cost: 'repay', emi: 'emi', rate: 'rate', interest: 'interest' };
 
 // Comparison-matrix geometry: a pinned label column + one column per lender,
 // every row a fixed height so the pinned labels line up with the scrolled cells.
@@ -96,6 +103,19 @@ export default function Compare() {
   const matrixRef = useRef<ScrollView>(null);
   const pulse = useRef(new Animated.Value(0)).current;
   const [pulseIndex, setPulseIndex] = useState<number | null>(null);
+  // Row band the agent lights up when it talks about one metric (e.g. "the lowest EMI").
+  const rowPulse = useRef(new Animated.Value(0)).current;
+  const [pulseMetric, setPulseMetric] = useState<MetricKey | null>(null);
+  const callLive = useCallActive();
+  // Pause the ambient filter-cycling demo while the user is interacting, then resume.
+  const [demoPaused, setDemoPaused] = useState(false);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pauseDemo = () => {
+    setDemoPaused(true);
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => setDemoPaused(false), 6000);
+  };
+  useEffect(() => () => { if (resumeTimer.current) clearTimeout(resumeTimer.current); }, []);
   const onMatrixScroll = (x: number) => {
     if (x > 12 && !swiped) setSwiped(true);
     if ((x > 4) !== (scrolledX > 4)) setScrolledX(x);
@@ -166,25 +186,48 @@ export default function Compare() {
 
   // Tenure / rank change: drop the manual pick; the effect below scrolls the
   // recommended column into view and pulses it.
-  const changeTenure = (t: number) => { setTenure(t); setPicked(null); };
-  const changeRank = (k: RankBy) => { setRankBy(k); setPicked(null); };
-  useEffect(() => {
-    if (!best) return;
-    const idx = result.rows.findIndex(r => r.id === best.id);
+  const changeTenure = (t: number) => { pauseDemo(); setTenure(t); setPicked(null); };
+  const changeRank = (k: RankBy) => { pauseDemo(); setRankBy(k); setPicked(null); };
+  // Scroll a lender column into view and pulse it. Shared by the rank/tenure
+  // effect below and the agent's `highlight` tool (see the focus handler).
+  const spotlightColumn = (idx: number) => {
     if (idx < 0) return;
-    const t = setTimeout(() => {
-      matrixRef.current?.scrollTo({ x: Math.max(0, idx * COL_W - 8), animated: true });
-    }, 60);
+    setTimeout(() => matrixRef.current?.scrollTo({ x: Math.max(0, idx * COL_W - 8), animated: true }), 60);
     setPulseIndex(idx);
     pulse.setValue(0);
     Animated.sequence([
       Animated.timing(pulse, { toValue: 1, duration: 160, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
     ]).start();
-    return () => clearTimeout(t);
+  };
+  // Light up one metric row (the number the agent is naming) for a moment.
+  // Play the zoom pop, then LEAVE the cell highlighted (pulseMetric stays set, so
+  // the active cell keeps its teal ring + fill) until the ranking changes again.
+  const spotlightRow = (metric: MetricKey) => {
+    setPulseMetric(metric);
+    rowPulse.setValue(0);
+    Animated.sequence([
+      Animated.timing(rowPulse, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.timing(rowPulse, { toValue: 0, duration: 1200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    ]).start();
+  };
+
+  // Every time the ranking / tenure filter changes: scroll the recommended
+  // column into view, pulse it, and light up the row (+ label) for the metric
+  // that ranking is about ("Lowest EMI" → the Monthly EMI row, etc.).
+  useEffect(() => {
+    if (!best) return;
+    const idx = result.rows.findIndex(r => r.id === best.id);
+    spotlightColumn(idx);
+    const m = RANK_METRIC[rankBy];
+    if (m) spotlightRow(m);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rankBy, tenure, best?.id]);
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, 0.26] });
+  const rowPulseOpacity = rowPulse.interpolate({ inputRange: [0, 1], outputRange: [0, 0.22] });
+  // The one cell the agent/demo is calling out (selected lender × active metric)
+  // zooms its value text out and back to draw the eye straight to the number.
+  const cellScale = rowPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] });
 
   const onApply = async () => {
     if (!selectedOffer || applying) return;
@@ -239,6 +282,50 @@ export default function Compare() {
     return () => un.forEach(u => u());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offers, result, tenure, rankBy, selected?.id, state.screen]);
+
+  // The agent's `highlight` tool points at what it is narrating: scroll to the
+  // named lender's column (or the lender that wins the named metric) and pulse
+  // the column — plus the metric row when a number like "lowest EMI" is named.
+  const winnerIdFor = (metric: MetricKey): string | null => {
+    const w = result.winners;
+    if (metric === 'emi') return w.emi;
+    if (metric === 'rate') return w.rate;
+    if (metric === 'interest') return w.interest;
+    if (metric === 'repay') return w.cost;
+    if (metric === 'fee') return result.rows.reduce<{ id: string | null; v: number }>((acc, r) => (r.fees < acc.v ? { id: r.id, v: r.fees } : acc), { id: null, v: Infinity }).id;
+    if (metric === 'amount') return result.rows.reduce<{ id: string | null; v: number }>((acc, r) => (r.amount > acc.v ? { id: r.id, v: r.amount } : acc), { id: null, v: -1 }).id;
+    return best?.id ?? result.rows[0]?.id ?? null; // tenure: same for all → fall back to the recommended column
+  };
+  useEffect(() => {
+    if (!offers?.length) return undefined;
+    const names = result.rows.map(r => r.lenderName);
+    return registerFocusHandler(state.screen, (query) => {
+      const { lender, metric } = parseFocusQuery(query, names);
+      if (!lender && !metric) return false;
+      let idx = lender ? result.rows.findIndex(r => r.lenderName === lender) : -1;
+      if (idx < 0 && metric) idx = result.rows.findIndex(r => r.id === winnerIdFor(metric));
+      if (idx < 0) idx = result.rows.findIndex(r => r.id === (selected?.id ?? best?.id));
+      if (idx < 0) return false;
+      spotlightColumn(idx);
+      if (metric && metric !== 'tenure') spotlightRow(metric);
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offers, result, selected?.id, best?.id, state.screen]);
+
+  // Ambient demo: when NO call is live, cycle the ranking filter on its own so
+  // the matrix comes alive — each change scrolls to that ranking's winning
+  // column and lights up its metric row (the rank effect above). Pauses the
+  // moment a real call starts, so Ruby's own highlights take over.
+  useEffect(() => {
+    if (!offers?.length || callLive || demoPaused) return undefined;
+    const order: RankBy[] = ['cost', 'emi', 'rate', 'interest'];
+    const id = setInterval(() => {
+      setPicked(null);
+      setRankBy(prev => order[(order.indexOf(prev) + 1) % order.length]);
+    }, 3600);
+    return () => clearInterval(id);
+  }, [offers?.length, callLive, demoPaused]);
 
   return (
     <Screen padded={false} contentStyle={{ paddingBottom: 110 }}>
@@ -331,6 +418,7 @@ export default function Compare() {
                   showsHorizontalScrollIndicator={false}
                   style={{ flex: 1 }}
                   scrollEventThrottle={32}
+                  onTouchStart={pauseDemo}
                   onLayout={e => setViewW(e.nativeEvent.layout.width)}
                   onScroll={e => onMatrixScroll(e.nativeEvent.contentOffset.x)}
                 >
@@ -358,15 +446,26 @@ export default function Compare() {
                           const show = !m.priced || !r.onApproval;
                           const win = show && m.win && pricedCount > 1 && result.winners[m.win] === r.id;
                           const stripe = i % 2 === 1 && !isSel && !win;
+                          // The cell the demo/agent is calling out: the SELECTED lender's value
+                          // for the metric of the chosen ranking. Only its number zooms.
+                          const active = show && isSel && pulseMetric === m.key;
                           return (
                             <View key={m.key} style={[styles.cellWrap, { height: m.height }, stripe && { backgroundColor: C.stripe }]}>
                               {show ? (
-                                <View style={[styles.cell, win && styles.win]}>
-                                  <Text style={[font(m.big ? 800 : 700), m.big ? styles.valBig : styles.val, win && { color: C.best }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                                <Animated.View style={[styles.cell, win && styles.win, active && { transform: [{ scale: cellScale }] }]}>
+                                  {active ? (
+                                    <>
+                                      {/* Stays after the pop: marks the number the customer is comparing. */}
+                                      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.cellRing]} />
+                                      {/* Brief brighter flash on each change. */}
+                                      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.cellGlow, { opacity: rowPulseOpacity }]} />
+                                    </>
+                                  ) : null}
+                                  <Text style={[font(active || m.big ? 800 : 700), m.big ? styles.valBig : styles.val, win && { color: C.best }, active && { color: colors.primary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
                                     {m.value(r)}
                                   </Text>
                                   {win ? <Text style={[font(800), styles.tag]}>{m.tag!.toUpperCase()}</Text> : null}
-                                </View>
+                                </Animated.View>
                               ) : (
                                 <Text style={[font(700), styles.approval]}>On approval</Text>
                               )}
@@ -510,33 +609,52 @@ function Badge({ label, tone }: { label: string; tone: 'amber' | 'sel' }) {
   );
 }
 
-/** Compact dropdown: a pill showing the current option that opens a bottom-sheet list. */
+/** Compact dropdown: a pill showing the current option that opens an anchored
+ *  popover list directly below it (not a bottom sheet). */
 function Dropdown<T extends string | number>({ value, options, onChange, ariaLabel }: {
   value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; ariaLabel: string;
 }) {
   const [open, setOpen] = useState(false);
-  const insets = useSafeAreaInsets();
+  const [anchor, setAnchor] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const triggerRef = useRef<View>(null);
   const cur = options.find(o => o.value === value);
+  const screenW = Dimensions.get('window').width;
+
+  const openMenu = () => {
+    const node = triggerRef.current;
+    if (!node?.measureInWindow) { setOpen(true); return; }
+    node.measureInWindow((x, y, w, h) => {
+      setAnchor({ x, y, w: w || 0, h: h || 0 });
+      setOpen(true);
+    });
+  };
+
+  // Width at least the trigger, wide enough to read the options, clamped on-screen.
+  const menuW = Math.min(screenW - 24, Math.max(anchor?.w ?? 0, 230));
+  const left = anchor ? Math.max(12, Math.min(anchor.x, screenW - menuW - 12)) : 12;
+
   return (
     <>
-      <Pressable style={styles.dd} onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={ariaLabel} accessibilityValue={{ text: cur?.label }}>
+      <Pressable ref={triggerRef} style={styles.dd} onPress={openMenu} accessibilityRole="button" accessibilityLabel={ariaLabel} accessibilityValue={{ text: cur?.label }}>
         <Text style={[font(700), styles.ddText]} numberOfLines={1}>{cur?.label ?? ''}</Text>
         <Icon name="expand_more" size={18} color={colors.muted} />
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.scrim} onPress={() => setOpen(false)} accessibilityLabel="Close" />
-        <View style={[styles.ddSheet, { paddingBottom: 12 + insets.bottom }]}>
-          <Text style={[font(700), styles.label, { marginLeft: 6 }]}>{ariaLabel.toUpperCase()}</Text>
-          {options.map(o => {
-            const on = o.value === value;
-            return (
-              <Pressable key={String(o.value)} style={[styles.ddItem, on && { backgroundColor: C.selBg }]} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                <Text style={[font(on ? 800 : 600), styles.ddItemText, on && { color: colors.primary }]}>{o.label}</Text>
-                {on ? <Icon name="check" size={16} color={colors.primary} /> : null}
-              </Pressable>
-            );
-          })}
-        </View>
+        <Pressable style={styles.ddScrim} onPress={() => setOpen(false)} accessibilityLabel="Close" />
+        {anchor ? (
+          <View style={[styles.ddPopover, { top: anchor.y + anchor.h + 6, left, width: menuW }]}>
+            <Text style={[font(700), styles.label, { marginLeft: 6, marginBottom: 4 }]}>{ariaLabel.toUpperCase()}</Text>
+            {options.map(o => {
+              const on = o.value === value;
+              return (
+                <Pressable key={String(o.value)} style={[styles.ddItem, on && { backgroundColor: C.selBg }]} onPress={() => { onChange(o.value); setOpen(false); }} accessibilityRole="button" accessibilityState={{ selected: on }}>
+                  <Text style={[font(on ? 800 : 600), styles.ddItemText, on && { color: colors.primary }]}>{o.label}</Text>
+                  {on ? <Icon name="check" size={16} color={colors.primary} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
       </Modal>
     </>
   );
@@ -631,10 +749,13 @@ const styles = StyleSheet.create({
   ctrlNarrow: { width: 118 },
   dd: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 11, paddingVertical: 11, backgroundColor: C.segBg },
   ddText: { flex: 1, fontSize: 12.5, color: colors.text },
-  ddSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: 14, paddingHorizontal: 10 },
+  ddScrim: { flex: 1 },
+  ddPopover: { position: 'absolute', backgroundColor: colors.surface, borderRadius: 16, paddingTop: 10, paddingBottom: 8, paddingHorizontal: 6, borderWidth: 1, borderColor: colors.line, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 10 },
   ddItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderRadius: 10 },
   ddItemText: { fontSize: 14.5, color: colors.text },
   pulseCol: { position: 'absolute', top: 0, width: COL_W, backgroundColor: colors.primary, borderRadius: 12 },
+  cellGlow: { backgroundColor: colors.mint, borderRadius: 10 },
+  cellRing: { borderWidth: 2, borderColor: colors.primary, borderRadius: 10, backgroundColor: 'rgba(47,177,131,0.12)' },
 
   rankWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   rankBtn: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.line, backgroundColor: C.segBg },

@@ -155,7 +155,7 @@ function measureWindow(ref: RefObject<View | null>): Promise<{ y: number; h: num
  * scroll to land. Returns true when the page actually moved. Never throws and never blocks the
  * action it precedes for long — if the control can't be measured the action just proceeds.
  */
-export async function revealTarget(screen: string, label: string, group?: string): Promise<boolean> {
+export async function revealTarget(screen: string, label: string, group?: string, opts: { silent?: boolean } = {}): Promise<boolean> {
   try {
     const entry = findEntry(screen, label, group);
     const scroller = scrollers.get(screen);
@@ -185,7 +185,7 @@ export async function revealTarget(screen: string, label: string, group?: string
     const target = Math.max(0, scroller.getOffset() + delta);
     if (Math.abs(target - scroller.getOffset()) < 4) return false;
 
-    playSound('scroll'); // the same pulse roll the user hears when they scroll
+    if (!opts.silent) playSound('scroll'); // the same pulse roll the user hears when they scroll
     scroller.scrollToY(target);
     // animated scrollTo has no completion callback; the time scales with distance
     await sleep(Math.min(700, 240 + Math.abs(delta) * 0.45));
@@ -203,10 +203,10 @@ export interface FxTarget {
 }
 
 /** Bring the control into view and light it up — the "I'm about to do something here" beat. */
-export async function agentApproach(screen: string, t: FxTarget, opts: { reveal?: boolean } = {}): Promise<void> {
+export async function agentApproach(screen: string, t: FxTarget, opts: { reveal?: boolean; silent?: boolean } = {}): Promise<void> {
   const end = beginAgentActivity(); // keeps the page's own scroll ticks quiet while we scroll
   try {
-    if (opts.reveal !== false) await revealTarget(screen, t.label, t.group);
+    if (opts.reveal !== false) await revealTarget(screen, t.label, t.group, { silent: opts.silent });
     emitFx('focus', t.label, t.group); // the ring — no sound of its own: the click that follows marks the action
     await sleep(260);
   } finally {
