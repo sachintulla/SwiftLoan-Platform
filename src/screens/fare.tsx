@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, ScrollView } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
@@ -9,6 +9,11 @@ import { api, isAuthed, Offer } from '../api/client';
 import { loadOffersCache, saveOffersCache, clearOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
+import { useAgentFx, AgentRing } from '../feedback/useAgentFx';
+import { agentApproach, agentSettle, registerScroller } from '../feedback/agentFx';
+import { registerFocusHandler } from '../voice/agentFocus';
+import { parseFocusQuery } from '../voice/focusTargets';
+import { useCallActive } from '../voice/useCallActive';
 import YubiOffersTab from '../components/YubiOffersTab';
 import { LogoLockup } from '../components/Logo';
 
@@ -59,6 +64,74 @@ export default function MyOffers() {
   // list, not just re-labelled — once applied, an offer is tracked in My
   // Loans, not shown here (same reasoning, same behaviour as the website).
   const select = useOfferSelect(id => setOffers(prev => prev.filter(o => o.id !== id)));
+  const callLive = useCallActive();
+  // The offers list scrolls inside its own ScrollView (the <Screen> is scroll={false}),
+  // so register it as the agent's scroller — lets both Ruby's `highlight` and the
+  // ambient demo scroll a card into view before ringing it.
+  const listRef = useRef<ScrollView>(null);
+  const listOffset = useRef(0);
+  // Pause the ambient "look through the offers" demo the moment the user touches
+  // the list (so it never scrolls a card out from under a tap), then resume.
+  const [demoPaused, setDemoPaused] = useState(false);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pauseDemo = () => {
+    setDemoPaused(true);
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => setDemoPaused(false), 5000);
+  };
+  useEffect(() => () => { if (resumeTimer.current) clearTimeout(resumeTimer.current); }, []);
+
+  // The agent's `highlight` tool points at the offer it is talking about: scroll
+  // that lender's card into view and ring it (no change to the offer).
+  useEffect(() => {
+    const names = offers.map(o => displayLenderName(o.lenderName || o.partner?.name));
+    if (!names.length) return undefined;
+    return registerFocusHandler(state.screen, (query) => {
+      const { lender } = parseFocusQuery(query, names);
+      const name = lender ?? (names.length === 1 ? names[0] : undefined);
+      if (!name) return false;
+      const label = `offer ${name}`;
+      agentApproach(state.screen, { label }).then(() => setTimeout(() => agentSettle({ label }), 2600));
+      return true;
+    });
+  }, [offers, state.screen]);
+
+  // Register the offers ScrollView as this screen's scroller so reveal-into-view works.
+  useEffect(() => {
+    if (!offers.length) return undefined;
+    return registerScroller(state.screen, {
+      scrollToY: y => listRef.current?.scrollTo({ y, animated: true }),
+      getOffset: () => listOffset.current,
+      measureViewport: cb => {
+        const node = listRef.current as unknown as import('react-native').View | null;
+        if (!node) return;
+        node.measureInWindow((_x, y, _w, h) => cb(y, h));
+      },
+      topInset: 0,
+      bottomInset: 120,
+    });
+  }, [offers.length, state.screen]);
+
+  // Ambient demo: when NO call is live, Ruby "looks through" the offers on her
+  // own — scrolling each card into view and ringing it in turn. Silent (no agent
+  // sound when nobody is on a call) and pauses the moment a real call starts.
+  useEffect(() => {
+    const names = offers.map(o => displayLenderName(o.lenderName || o.partner?.name));
+    if (names.length < 2 || callLive || demoPaused) return undefined;
+    let i = 0;
+    let stopped = false;
+    const step = () => {
+      if (stopped) return;
+      const label = `offer ${names[i % names.length]}`;
+      agentApproach(state.screen, { label }, { silent: true }).then(() => {
+        if (!stopped) setTimeout(() => agentSettle({ label }), 1500);
+      });
+      i += 1;
+    };
+    const id = setInterval(step, 2800);
+    const first = setTimeout(step, 600);
+    return () => { stopped = true; clearInterval(id); clearTimeout(first); };
+  }, [offers, callLive, demoPaused, state.screen]);
 
   // Local-first: show cached offers immediately, then reconcile with the backend.
   const hydrate = useCallback(async () => {
@@ -224,6 +297,10 @@ export default function MyOffers() {
         // Instant offers: the matched offers list / empty state, scrolling
         // inside the stable frame.
         <ScrollView
+          ref={listRef}
+          onScroll={e => { listOffset.current = e.nativeEvent.contentOffset.y; }}
+          onTouchStart={pauseDemo}
+          scrollEventThrottle={32}
           style={styles.tabBody}
           contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 120 }}
           showsVerticalScrollIndicator={false}
@@ -285,6 +362,9 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
   const highMatch = !!offer.offerLikelihood && offer.offerLikelihood !== '0';
   const disbursal = offer.partner?.disbursalTimeHrs ? `${offer.partner.disbursalTimeHrs} ${t.hrSuffix}` : t.instantWord;
   const applied = offer.applied;
+  // Lets the agent scroll this card into view and ring it while it talks about
+  // the offer (driven by the `highlight` tool via the screen's focus handler).
+  const fx = useAgentFx(`offer ${name}`);
 
   // Same reasoning as offers.tsx's OfferCard (see its own comment): a bare
   // lender name auto-discovered from the card never matches a generic "apply"
@@ -300,7 +380,7 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
   );
 
   return (
-    <View style={styles.card}>
+    <View ref={fx.ref} style={styles.card}>
       {/* Partner-lender pill floats over the divider on the right. */}
       <View style={[styles.partnerPill, applied && { backgroundColor: colors.greenDeep }]}>
         <Text style={[font(700), { fontSize: 11.5, color: '#fff' }]}>{applied ? t.lenderStatusApplied : t.partnerLenderLabel}</Text>
@@ -367,6 +447,7 @@ function MyOfferCard({ offer, onSelect }: { offer: Offer; onSelect: (offer: Offe
           <Icon name="arrow_forward" size={18} color="#fff" />
         </Pressable>
       </View>
+      <AgentRing fx={fx} radius={18} inset={-4} />
     </View>
   );
 }
