@@ -14,6 +14,7 @@ import { buildPageContext, describeTarget, findTarget, getCurrentScreen, getScre
 import type { TargetKind } from './actionRegistry';
 import type { AgentLike, JSONSchema } from './types';
 import { requestConfirmation } from './ui/confirmationBridge';
+import { focusOnScreen } from './agentFocus';
 import { agentApproach, agentPress, agentSettle, emitFx, fxIsInstant, slideTo, typeText } from '../feedback/agentFx';
 import { playSound } from '../feedback/sounds';
 import { tabLabelForScreen } from '../components/navTabs';
@@ -686,6 +687,34 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
     ['label'],
     ({ label, group }) => ({ action: 'show', target: label, group }),
   );
+
+  // Point at what you're talking about on the offers / compare screens WITHOUT
+  // changing anything: scroll the named lender's tile (or the lender/number for a
+  // metric) into view and make it stand out while you speak about it. On the
+  // compare matrix this scrolls to the right column and pulses the row; on the
+  // offers list it rings the lender's card. Falls back to the ordinary
+  // show-and-highlight for any other control.
+  agent.registerTool<{ target: string }>({
+    name: 'highlight',
+    description:
+      'While you are TALKING ABOUT an offer or a number on the offers or compare screen, call this to ' +
+      'draw the user\'s eye to it — it scrolls that offer or figure into view and makes it stand out, ' +
+      'WITHOUT selecting or changing anything. Pass "target" as the lender name ("HDFC") to spotlight ' +
+      'that offer, or the thing you are comparing ("lowest EMI", "interest rate", "processing fee", ' +
+      '"total interest", "cheapest overall") to spotlight that number on the best lender, or both ' +
+      '("HDFC processing fee"). Use it naturally as you narrate offers; never announce that you are doing it.',
+    schema: {
+      type: 'object',
+      properties: { target: { type: 'string', description: 'a lender name, a metric, or both' } },
+      required: ['target'],
+    },
+    handler: async ({ target }) => {
+      const screen = getCurrentScreen();
+      if (focusOnScreen(screen, String(target ?? ''))) return { ok: true, highlighted: target };
+      // Fall back to the generic reveal-and-ring for a named control (e.g. an offer card).
+      return performAction({ action: 'show', target: String(target ?? '') });
+    },
+  });
 
   alias<{ label: string; checked?: boolean }>(
     'set_checkbox',
