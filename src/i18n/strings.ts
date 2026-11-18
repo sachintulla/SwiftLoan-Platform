@@ -304,7 +304,7 @@ export const STR: Record<string, Record<string, string>> = {
         findingErrNetwork: "We couldn't reach our lending partners just now. Please check your connection and try again.",
         findingErrTechnical: "We couldn't reach our lending partners just now. Please try again in a moment.",
         findingErrNotEligible: "You don't currently meet the eligibility criteria of our lending partners.",
-        altFallbackTitle: 'We are trying very hard to get the best offer for you', altFallbackSub: 'We are trying with different lenders…',
+        altFallbackTitle: 'We are trying very hard to get the best offer for you', altFallbackSub: 'We are trying with different lenders…', applyConfirmBody: 'You are about to apply for this loan with {lender}. Tap Proceed to continue your application.', applyConfirmProceed: 'Proceed',
         findingErrDuplicate: 'We already have an application on file for this mobile number. You can explore more offers instead.',        // My Loans
         loansTitle: 'My Loans', loansSub: 'Track your applications and manage active loans.',
         loansYourApps: 'Your applications', loansLoading: 'Loading your loans…', loansErrLoad: 'Could not load your loans.',
@@ -690,7 +690,7 @@ export const STR: Record<string, Record<string, string>> = {
         findingErrNetwork: 'अभी हम अपने लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया अपना कनेक्शन चेक करके फिर से कोशिश करें।',
         findingErrTechnical: 'हम अभी हमारे लेंडिंग पार्टनर्स तक नहीं पहुँच पाए। कृपया थोड़ी देर में फिर से प्रयास करें।',
         findingErrNotEligible: 'आप फ़िलहाल हमारे लेंडिंग पार्टनर्स के पात्रता मानदंड पूरे नहीं करते।',
-        altFallbackTitle: 'हम आपके लिए सबसे अच्छा ऑफ़र पाने की पूरी कोशिश कर रहे हैं', altFallbackSub: 'हम अलग-अलग लेंडर्स के साथ कोशिश कर रहे हैं…',
+        altFallbackTitle: 'हम आपके लिए सबसे अच्छा ऑफ़र पाने की पूरी कोशिश कर रहे हैं', altFallbackSub: 'हम अलग-अलग लेंडर्स के साथ कोशिश कर रहे हैं…', applyConfirmBody: 'आप {lender} के साथ इस लोन के लिए अप्लाई करने वाले हैं। अपनी एप्लिकेशन जारी रखने के लिए "आगे बढ़ें" पर टैप करें।', applyConfirmProceed: 'आगे बढ़ें',
         findingErrDuplicate: 'इस मोबाइल नंबर के लिए हमारे पास पहले से एक आवेदन मौजूद है। आप इसके बजाय और ऑफ़र देख सकते हैं।',        // My Loans
         loansTitle: 'माय लोन्स', loansSub: 'अपनी एप्लिकेशंस ट्रैक करें और एक्टिव लोन्स मैनेज करें।',
         loansYourApps: 'आपकी एप्लिकेशंस', loansLoading: 'आपके लोन्स लोड हो रहे हैं…', loansErrLoad: 'आपके लोन्स लोड नहीं हो सके।',
@@ -1093,7 +1093,7 @@ export const STR: Record<string, Record<string, string>> = {
         findingErrNetwork: 'ప్రస్తుతం మా లెండింగ్ పార్టనర్స్ ని రీచ్ అవ్వలేకపోయాం. దయచేసి మీ కనెక్షన్ చెక్ చేసి మళ్ళీ ప్రయత్నించండి.',
         findingErrTechnical: 'ఇప్పుడు మేము మా లెండింగ్ భాగస్వాములను చేరుకోలేకపోయాము. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
         findingErrNotEligible: 'ప్రస్తుతం మీరు మా లెండింగ్ భాగస్వాముల అర్హత ప్రమాణాలను అందుకోవడం లేదు.',
-        altFallbackTitle: 'మీ కోసం ఉత్తమమైన ఆఫర్ పొందడానికి మేము చాలా ప్రయత్నిస్తున్నాం', altFallbackSub: 'మేము వేర్వేరు లెండర్లతో ప్రయత్నిస్తున్నాం…',
+        altFallbackTitle: 'మీ కోసం ఉత్తమమైన ఆఫర్ పొందడానికి మేము చాలా ప్రయత్నిస్తున్నాం', altFallbackSub: 'మేము వేర్వేరు లెండర్లతో ప్రయత్నిస్తున్నాం…', applyConfirmBody: 'మీరు {lender}తో ఈ లోన్ కోసం అప్లై చేయబోతున్నారు. మీ అప్లికేషన్ కొనసాగించడానికి "ప్రొసీడ్" నొక్కండి.', applyConfirmProceed: 'ప్రొసీడ్',
         findingErrDuplicate: 'ఈ మొబైల్ నంబర్‌కు సంబంధించిన దరఖాస్తు ఇప్పటికే మా వద్ద ఉంది. బదులుగా మరిన్ని ఆఫర్లను చూడవచ్చు.',        // My Loans
         loansTitle: 'మై లోన్స్', loansSub: 'మీ అప్లికేషన్స్ ట్రాక్ చేయండి, యాక్టివ్ లోన్స్ మేనేజ్ చేయండి.',
         loansYourApps: 'మీ అప్లికేషన్స్', loansLoading: 'మీ లోన్స్ లోడ్ అవుతున్నాయి…', loansErrLoad: 'మీ లోన్స్ లోడ్ చేయలేకపోయాం.',
