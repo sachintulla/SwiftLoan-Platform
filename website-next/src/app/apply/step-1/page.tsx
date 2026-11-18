@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ShieldCheck, UploadCloud, CreditCard, Lock, Camera } from 'lucide-react';
@@ -10,8 +10,8 @@ import { AlertDialog, type AlertContent } from '@/components/apply/AlertDialog';
 import { PanReplaceArt } from '@/components/apply/PanReplaceArt';
 import { CameraCapture } from '@/components/apply/CameraCapture';
 import { PanVerifyingLoader } from '@/components/apply/PanVerifyingLoader';
-import { verifyPan, patchProfile } from '@/lib/applyApi';
-import { savePanHandoff, maskPan } from '@/lib/panPrefill';
+import { verifyPan, patchProfile, startWithLoginPrefill } from '@/lib/applyApi';
+import { savePanHandoff, loadPanHandoff, maskPan } from '@/lib/panPrefill';
 import { scanPanFromImage } from '@/lib/panScan';
 import { useAccountUser } from '@/hooks/useAccountUser';
 import { useCopy } from '@/lib/i18n';
@@ -51,6 +51,35 @@ export default function Step1PanPage() {
 
   // The PAN field always starts empty: we do not keep the PAN (the server holds it only encrypted, for the
   // lender check), so there is nothing to pre-fill — and a pre-filled PAN would suggest otherwise.
+
+  // Details fetched from the mobile number at login (server/src/lib/mobilePrefill.ts): when the server has
+  // them, this step is skipped — the visitor lands on Step 2 with a masked PAN and the fields filled in.
+  //  - A hand-off already in this tab means Step 1 was done or skipped here (e.g. the visitor pressed Back on
+  //    Step 2): show this step with an empty field so a different PAN can be entered and checked as usual.
+  //  - Nothing fetched / switched off / not signed in: this step, exactly as before.
+  const panRef = useRef(pan);
+  panRef.current = pan;
+  useEffect(() => {
+    if (loadPanHandoff()) return;
+    let alive = true;
+    // Only a slow answer (the lookup started at login is still running) shows the loader; a quick "nothing" never
+    // flashes it. `shown` = this effect put the loader up, so it only ever takes down its own loader, never the
+    // one of a PAN check the visitor started meanwhile.
+    let shown = false;
+    const slow = setTimeout(() => { if (alive && !panRef.current) { shown = true; setLoading(true); } }, 350);
+    const stop = () => { clearTimeout(slow); if (alive && shown) setLoading(false); };
+    startWithLoginPrefill()
+      .then((r) => {
+        // A PAN typed (or scanned) while we were asking wins: leave the visitor on this step.
+        if (!alive || !r.found || !r.maskedPan || panRef.current) { stop(); return; }
+        clearTimeout(slow);
+        savePanHandoff({ panMasked: r.maskedPan, prefill: r.prefill ?? {}, aadhaarLinked: null });
+        setLoading(true);
+        setVerified(true); // loader completes → goToDetails
+      })
+      .catch(stop);
+    return () => { alive = false; clearTimeout(slow); };
+  }, []);
 
   // PAN photo → number, read on this device (the photo is never uploaded). The PAN is only filled into
   // the field for the visitor to check; nothing is verified until they consent and press Verify.

@@ -513,6 +513,15 @@ export const api = {
     return r?.data ?? { onFile: false };
   },
 
+  // Starting an application: use the details the server fetched from the mobile number at login (Digitap,
+  // server/src/lib/mobilePrefill.ts) INSTEAD of the PAN step. `found` → a masked PAN (never the PAN) + the
+  // step-2 pre-fill; the server keeps the real PAN and attaches it to the application itself.
+  // `{found:false}` (nothing fetched, switched off, offline) → the PAN step as usual.
+  startWithPrefill: async (): Promise<{ found: boolean; maskedPan?: string; prefill?: PanPrefill }> => {
+    const r = await request<{ data?: any }>('POST', '/kyc/prefill/use', {}, false, 12000);
+    return r?.data?.found ? r.data : { found: false };
+  },
+
   // Step 1 of the funnel: verify the PAN (server/src/lib/panVerification.ts)
   // and get the details PAN Comprehensive returned for it, to pre-fill Step 2.
   // The server answers from its own PAN cache when it has seen this PAN

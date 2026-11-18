@@ -564,6 +564,12 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     warn: 'Every check costs money.',
   },
   {
+    key: 'prefill.digitapEnabled', group: 'tracking', kind: 'boolean', unit: 'none', def: false, env: 'DIGITAP_ENABLED',
+    label: 'Fetch details from the mobile number at login (Digitap)',
+    help: 'Right after someone verifies their mobile number, their details (name, date of birth, PAN, address) are fetched once in the background, so the application can skip the PAN step and open with the details filled in. Needs the Digitap address, client ID and secret in the server environment. Off = the application starts at the PAN step, as before.',
+    warn: 'Each successful lookup is a paid call to Digitap, made for every new sign-in.',
+  },
+  {
     key: 'referral.eligibleDays', group: 'tracking', kind: 'number', unit: 'days', def: 7, min: 1, max: 90, env: 'REFERRAL_ELIGIBLE_DAYS',
     label: 'A new account can be referred for',
     help: 'A friend referral only counts if the new account is younger than this.',
