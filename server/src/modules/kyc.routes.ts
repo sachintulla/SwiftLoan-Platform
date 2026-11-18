@@ -12,6 +12,7 @@ import { loadPan } from '../lib/storedPan.js';
 import { normalisePan } from '../lib/pii.js';
 import { markPanVerified } from '../lib/installReminder.js';
 import { surfaceOf } from '../lib/surface.js';
+import { usePrefillForApplication } from '../lib/mobilePrefill.js';
 
 const log = scoped('kyc');
 
@@ -74,6 +75,36 @@ kycRouter.get('/pan/on-file',
         : { onFile: false },
       message: found ? 'PAN on file' : 'No verified PAN on file',
     });
+  }));
+
+/**
+ * Details fetched from the mobile number at login (Digitap, lib/mobilePrefill.ts). Read-only: tells a client
+ * whether an application can start at step 2. Never returns the PAN, only a masked form.
+ */
+kycRouter.get('/prefill',
+  ah(async (req, res) => {
+    const found = await usePrefillForApplication(req.user!.sub, { attach: false });
+    res.json({ success: true, data: found, message: found.found ? 'Details available' : 'No details available' });
+  }));
+
+/**
+ * The user is starting an application: use the details fetched at login INSTEAD of the PAN step. The fetched PAN
+ * becomes the PAN on file (encrypted; the application attaches it with `usePanOnFile`), no PAN check is called,
+ * and the client gets a masked PAN + the step-2 pre-fill. `{found:false}` = show the PAN step as usual.
+ */
+kycRouter.post('/prefill/use',
+  ah(async (req, res) => {
+    const userId = req.user!.sub;
+    const found = await usePrefillForApplication(userId, { attach: true });
+    if (found.found) {
+      // Same side-effects as a verified PAN at step 1: the website reminder knows step 1 is done, and the
+      // website's "application started" journey event fires (the app fires its own when step 2 opens).
+      markPanVerified(userId, found.prefill.firstName).catch(() => {});
+      if (surfaceOf(req) === 'website') {
+        trackJourney({ userId }, { channel: 'website', name: JOURNEY_EVENTS.ELIGIBILITY_STARTED, metadata: { step: 'mobile_prefill' } }).catch(() => {});
+      }
+    }
+    res.json({ success: true, data: found, message: found.found ? 'Details available' : 'No details available' });
   }));
 
 /**

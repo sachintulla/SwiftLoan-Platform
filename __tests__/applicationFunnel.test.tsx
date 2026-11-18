@@ -48,6 +48,14 @@ function AfterSeed({ children }: { children: React.ReactNode }) {
   return state.panPrefill ? <>{children}</> : null;
 }
 
+/** Mounts children once the seeded PAN is in the store, and keeps them mounted after that. */
+function OncePanSeeded({ children }: { children: React.ReactNode }) {
+  const { state } = useStore();
+  const [ready, setReady] = React.useState(false);
+  React.useEffect(() => { if (state.panNumber) setReady(true); }, [state.panNumber]);
+  return ready ? <>{children}</> : null;
+}
+
 function currentScreen(getByTestId: (id: string) => any): string {
   return getByTestId('probe-screen').props.children;
 }
@@ -124,6 +132,37 @@ describe('UC-N11 forward navigation follows the new order', () => {
     expect(verifySpy).toHaveBeenCalledWith('AAAPL1234C');
     jest.advanceTimersByTime(5000);
     await waitFor(() => expect(currentScreen(getByTestId)).toBe('basic'));
+    unmount();
+  });
+
+  it('BasicPan: details fetched from the mobile number skip the PAN step (masked PAN only, no PAN check)', async () => {
+    setTokens('fake-access-token');
+    jest.spyOn(api, 'me').mockResolvedValue({ user: {} } as any);
+    const verifySpy = jest.spyOn(api, 'verifyPan').mockResolvedValue(VERIFIED as any);
+    const prefillSpy = jest.spyOn(api, 'startWithPrefill').mockResolvedValue({ found: true, maskedPan: 'XXXXXX234C', prefill: { firstName: 'ASHA', lastName: 'RAO' } });
+    const { getByTestId, unmount } = renderWithProviders(<Harness><BasicPan /></Harness>);
+    await waitFor(() => expect(prefillSpy).toHaveBeenCalledTimes(1));
+    // The loader runs its ticks, then hands off to the details step (waitFor advances the faked clock).
+    await waitFor(() => expect(currentScreen(getByTestId)).toBe('basic'), { timeout: 4000 });
+    expect(verifySpy).not.toHaveBeenCalled();
+    prefillSpy.mockRestore();
+    unmount();
+  });
+
+  it('BasicPan: back from the details step after a skipped PAN step shows an empty PAN field and does not skip again', async () => {
+    setTokens('fake-access-token');
+    jest.spyOn(api, 'me').mockResolvedValue({ user: {} } as any);
+    const prefillSpy = jest.spyOn(api, 'startWithPrefill').mockResolvedValue({ found: true, maskedPan: 'XXXXXX234C', prefill: {} });
+    const { getByText, queryByDisplayValue, getByTestId, unmount } = renderWithProviders(
+      <Harness seed={{ panNumber: 'XXXXXX234C', panPrefill: { pan: 'XXXXXX234C', prefill: {}, aadhaarLinked: null } }}>
+        <OncePanSeeded><BasicPan /></OncePanSeeded>
+      </Harness>,
+    );
+    await waitFor(() => expect(getByText('Verify PAN & continue')).toBeTruthy());
+    expect(queryByDisplayValue('XXXXXX234C')).toBeNull();
+    expect(prefillSpy).not.toHaveBeenCalled();
+    expect(currentScreen(getByTestId)).not.toBe('basic');
+    prefillSpy.mockRestore();
     unmount();
   });
 

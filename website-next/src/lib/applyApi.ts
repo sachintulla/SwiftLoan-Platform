@@ -287,6 +287,17 @@ export async function verifyPan(pan: string) {
   return body.data as PanVerifyResult;
 }
 
+/**
+ * Starting an application: use the details the server fetched from the mobile number at login (Digitap,
+ * server/src/lib/mobilePrefill.ts) INSTEAD of the PAN step. `found` → a masked PAN (never the PAN) and the
+ * Step 2 pre-fill; the server keeps the real PAN and attaches it to the application itself.
+ * `{found:false}` (nothing fetched, switched off, not signed in) → Step 1 as usual.
+ */
+export async function startWithLoginPrefill(): Promise<{ found: boolean; maskedPan?: string; prefill?: PanPrefill }> {
+  const body = await authFetch('/api/kyc/prefill/use', { method: 'POST', body: '{}' });
+  return body?.data?.found ? body.data : { found: false };
+}
+
 // ── Support tickets ──────────────────────────────────────────────────────────
 
 export type TicketCategory = 'repayments' | 'documents' | 'privacy' | 'disbursement' | 'fees' | 'application' | 'other';

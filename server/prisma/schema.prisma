@@ -68,6 +68,9 @@ model User {
   panOnFile      Boolean         @default(false)
   aadhaarLast4   String?
   avatarUrl      String?
+  /// Bureau score as returned by Digitap Mobile to Prefill at login (lib/mobilePrefill.ts). Re-added 2026-11-18 on the
+  /// owner's decision. Omitted from every query by default (lib/prisma.ts): no customer payload carries it.
+  creditScore    Int?
 
   // Aurix (Knight Fintech) integration: cached X-Aurix-Token (generated at OTP
   // verify) + the extra applicant fields the eligible_offers request requires
@@ -141,6 +144,38 @@ model User {
   @@index([createdAt])
   lenderNudges LenderNudge[]
   appDropoffs AppDropoff[]
+  mobilePrefill MobilePrefill?
+}
+
+/// What Digitap "Mobile to Prefill" returned for this user's verified mobile number (lib/mobilePrefill.ts).
+/// One row per user. The details (PAN, name, date of birth, address, income range, score, the stored answer)
+/// are AES-256-GCM encrypted in `dataEnc`; nothing personal is held in the clear here.
+model MobilePrefill {
+  id         String    @id @default(uuid())
+  userId     String    @unique
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider   String    @default("digitap")
+  /// found | not_found | error
+  status     String
+  /// not_found: no_record | name_not_found | no_usable_data. error: the provider's message.
+  reason     String?
+  /// Digitap's request_id, for support.
+  requestId  String?
+  /// profile | test_list | name_lookup: where the name sent with the lookup came from.
+  nameSource String?
+  /// AES-256-GCM JSON: { details, raw } — see lib/pii.ts.
+  dataEnc    String?
+  keyVersion Int       @default(1)
+  /// True when the answer carried a PAN (so step 1 can be skipped).
+  hasPan     Boolean   @default(false)
+  /// When the user first started an application with these details (step 1 skipped).
+  usedAt     DateTime?
+  attempts   Int       @default(0)
+  fetchedAt  DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status])
 }
 
 model OtpToken {

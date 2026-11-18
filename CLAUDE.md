@@ -190,7 +190,7 @@ There is one unit: **whole rupees** (database, API, website, app, admin, voice a
 The admin has one formatter, `inr` (and `inrCompact` for stat tiles) in `admin/src/lib/format.ts`; the server's `lib/rupees.ts` formats rupees for spoken and written text. A test fails if any admin source mentions paise or converts money by 100.
 The four tables that used to hold paise were converted by migration `20261029120000_amounts_in_rupees` (which also converts the amounts copied into `lead_captured` journey/activity events and queued Upshot nudge payloads): apply it in the same
 deploy as the code, never one without the other.
-**Credit scores are not stored or captured** (removed 2026-11-09, migration `20261109120000_drop_user_credit_score`): no `User.creditScore`, no `/users/me/credit-score`, the Aurix `bureau_score` webhook field is ignored and the eligibility request's bureau payload carries no score. Do not re-add one.
+**Credit score: one source only** (owner, 2026-11-18). It was removed on 2026-11-09 (migration `20261109120000_drop_user_credit_score`) and re-added as `User.creditScore` ONLY for the score Digitap returns at login (see "Details from the mobile number at login"). It is omitted from every query by default (`lib/prisma.ts`), so no customer payload carries it; there is still no `/users/me/credit-score`, the Aurix `bureau_score` webhook field is ignored and the eligibility request carries no score. Do not add another source or show it to the customer.
 
 ### Global decisions for new work
 - All new API responses: { success, data, message, pagination?, error? }
@@ -994,3 +994,40 @@ Ello's 5,000-token limit (~3,530 words).
 - **Website apply steps.** A step's actions (`BottomBar`) are drawn in the PINNED top bar via a portal (`ApplyShell`), never at the bottom under
   the floating Ruby button; the frame is one screen tall and only the content panel (`data-apply-scroll`) scrolls, so use
   `scrollApplyContentTop()` instead of `window.scrollTo`. Steps 1 and 3 use the `roomy` column; step 1 stacks upload / divider / PAN on phones.
+
+---
+
+## Details from the mobile number at login (Digitap "Mobile to Prefill", built 2026-11-18; UAT only so far)
+
+Right after an OTP login (app or website, every account) the server asks Digitap for the person's details by mobile number, once per number, in
+the background (`startMobilePrefill` in `verifyOtpAndLogin`; never slows or fails the login). Provider side: `server/src/lib/digitap.ts` (config,
+request, mapping; pure and tested). DB side: `server/src/lib/mobilePrefill.ts`. API doc: v1.4 (`POST <base>/mobile_prefill/request`, Basic auth).
+- **Off unless** `DIGITAP_BASE_URL` + `DIGITAP_CLIENT_ID` + `DIGITAP_CLIENT_SECRET` are set AND the switch `prefill.digitapEnabled` is on
+  (Admin → Timings → Tracking & limits; env `DIGITAP_ENABLED` is its starting value). Off = the flow is exactly as before.
+- **Name sent with the lookup** (`chooseName`): the person's own first + last name when we have them (`name_lookup: 0`); otherwise Digitap's own
+  name lookup (`name_lookup: 1`). `DIGITAP_TEST_NAMES` ("First Last,First Last,…", a random one per call) is honoured ONLY when the address is the
+  UAT host `svcdemo.digitap.work` — sandbox testing, never production. `DIGITAP_NAME_FALLBACK` = the request's `name_fallback`.
+- **Asked for:** `options: [alternate_mobile_numbers, additional_details]`. A 403 "not enabled for this client" is retried once without options.
+  `official_documents` and `alternate_emails` are never requested and are stripped from the stored answer.
+- **Saved:** table `MobilePrefill` (migration `20261118120000_mobile_prefill`, additive + idempotent; apply with `prisma migrate deploy`), one row
+  per user: status `found | not_found | error`, Digitap's request ID, and the details + answer AES-encrypted in `dataEnc` (omitted from queries by
+  default). Also copied into the EMPTY columns of `User` (never overwriting): name, `dob`, `gender`, `email` (skipped if another account has it),
+  latest address, `alternateMobile` (latest one), `employment` ("SALARIED" → `salaried`), `monthlyIncome` = the HIGHEST number of `income_range`
+  (**the doc does not say whether that range is monthly or yearly: confirm with Digitap before production**; the range text itself stays in
+  `MobilePrefill`), `creditScore`, and the PAN as `panEnc`. Re-lookup: never after `found`; `not_found` after 7 days; an error after 10 minutes.
+- **`User.panOnFile` is NOT set at login** (it means "step 1 done" to the drop-off messages, website reminders and app resume). It is set when the
+  user starts an application: `POST /api/kyc/prefill/use` (`usePrefillForApplication(…, {attach:true})`). `GET /api/kyc/prefill` is the read-only peek.
+  Both return only `{found, maskedPan, prefill}`: never the PAN, the score or the income.
+- **Starting an application with details on file skips step 1 and the Aurix PAN check** (owner's decision): the app's `basicpan.tsx` and the
+  website's `apply/step-1` ask `/kyc/prefill/use` on opening; `found` → the loader, then step 2 with a masked PAN and the fields filled (step 2's
+  existing "PAN on file" path: `usePanOnFile`). Because no `PanRecord` exists, the offers request carries the ASSUMED `PanVerificationDTO`, and
+  step 2 shows no Aadhaar chips. Back from step 2 → step 1 with an EMPTY field (app: a masked PAN in state is cleared; website: a hand-off already
+  in the tab); a PAN typed there goes through the normal Aurix check. A user with a DIFFERENT PAN already on file is never switched: normal step 1.
+  Nothing found / error / off / offline → normal step 1.
+- **Logs:** on the UAT host every call prints the complete request and answer to the server log (`[digitap-req]` / `[digitap-res]`), always, with no
+  switch (owner, 2026-11-18); the client secret is never printed. On any other host only the outcome is logged and the `/logs` page gets the envelope.
+- **Open before production:** monthly-vs-yearly income; consent wording for fetching details by number (step 1's consent tick is skipped for these
+  users); the master OTP and reviewer login sign in without proving the number, so with this on they would fetch that number's real details;
+  step 2's card still says "PAN verified" although nobody verified it; admin has no view of the fetched details or score yet.
+- **Tests:** `server/src/lib/{digitap,mobilePrefill}.test.ts`, `cd server && bash scripts/journey/run-mobile-prefill.sh` (36 checks: throwaway DB
+  built by `migrate deploy`, fake Digitap on localhost), app `__tests__/applicationFunnel.test.tsx` (skip + back).

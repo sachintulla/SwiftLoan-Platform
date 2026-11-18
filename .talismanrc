@@ -131,4 +131,20 @@ fileignoreconfig:
   checksum: c588fad87196720455fdbb53b6fff343dbdfc0187c9f39659ce44ac31b9d3712
 - filename: src/voice/transports/webrtc/WebRTCAgent.ts
   checksum: deee7d6c7fb19d25319c2876b14445aa649520efb1737cdf389d131be12a373c
+- filename: server/.env.example
+  checksum: 0a0750013494d8693ac24152e7d62a4baa01b2eaee4bc3f6bacd67e6f0b9f5c2
+- filename: server/prisma/migrations/20261118120000_mobile_prefill/migration.sql
+  checksum: ec4393672e106058572c002208002d49df0682eacb995ae09e377b496cb9f225
+- filename: server/scripts/journey/run-mobile-prefill.sh
+  checksum: 1c839138c451364694799d2bb02f3885da93d95631354e7d4dd661f0fc80100d
+- filename: server/src/lib/timings.ts
+  checksum: 6616bf9ddb5f720bc785b20236e64fa6ebb3094cf992f1cf21b8001682191168
+- filename: server/src/lib/digitap.test.ts
+  checksum: 53d22cdd56180aabff48048c08c00035ae4c222747199b343d908155f59fc030
+- filename: server/scripts/journey/mobile-prefill-check.mts
+  checksum: fa4f8db9003e2bda35ef80a4f05ba0e32b4c4e5c4aba42784ab97ec5d7b8e4fe
+- filename: server/src/lib/mobilePrefill.ts
+  checksum: 1c6a0e54b150e531df7fa8b4fdad324f7491819b512bba60d5536c2055610fb6
+- filename: server/src/lib/digitap.ts
+  checksum: 26e894cb5c430a5b57ea0123973ef6f7e59238e38557192fcd374c414da449c4
 version: "1.0"
