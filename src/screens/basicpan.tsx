@@ -11,6 +11,7 @@ import { api, ApiError, isAuthed } from '../api/client';
 import { PanVerifyingLoader } from '../components/PanVerifyingLoader';
 import { PanReplaceModal } from '../components/PanReplaceModal';
 import { scanPanFromCamera, scanPanFromLibrary, panOcrAvailable, type PanScanResult } from '../utils/panOcr';
+import { isMaskedPan } from '../utils/resume';
 
 // Real PAN structure, not just "5 letters + 4 digits + 1 letter" — that bare
 // shape alone lets through obvious placeholders like "AAAAA0000A". The 4th
@@ -47,6 +48,46 @@ export default function BasicPan() {
 
   // The PAN field always starts empty: SwiftLoan does not keep the PAN (the server holds it only encrypted, for the
   // lender check), so there is nothing to pre-fill.
+
+  // Details fetched from the mobile number at login (server/src/lib/mobilePrefill.ts): when the server has them,
+  // this step is skipped — the user lands on the details step with a masked PAN and the fields filled in.
+  //  - Back from the details step after such a skip (the PAN in state is the MASKED one): show this step with an
+  //    empty field, so a different PAN can be entered. It then goes through the normal PAN check.
+  //  - A PAN already typed in this session is never replaced.
+  //  - Nothing fetched / switched off / offline: this step, exactly as before.
+  const panRef = React.useRef(state.panNumber);
+  panRef.current = state.panNumber;
+  React.useEffect(() => {
+    if (isMaskedPan(state.panNumber)) {
+      set({ panNumber: '', panPrefill: null });
+      return;
+    }
+    if (state.panNumber || !isAuthed()) return;
+    let alive = true;
+    // Only a slow answer (the lookup started at login is still running) shows the loader; a quick "nothing" never
+    // flashes it. `shown` = this effect put the loader up, so it only ever takes down its own loader, never the
+    // one of a PAN check the user started meanwhile.
+    let shown = false;
+    const slow = setTimeout(() => { if (alive && !panRef.current) { shown = true; setBusy(true); } }, 350);
+    const stop = () => { clearTimeout(slow); if (alive && shown) setBusy(false); };
+    api.startWithPrefill()
+      .then(r => {
+        // A PAN typed (or scanned) while we were asking wins: leave the user on this step.
+        if (!alive || !r.found || !r.maskedPan || panRef.current) { stop(); return; }
+        clearTimeout(slow);
+        set({
+          panNumber: r.maskedPan,
+          panPrefill: { pan: r.maskedPan, prefill: r.prefill ?? {}, aadhaarLinked: null },
+          clearedForNewPan: false,
+        });
+        mergeApiContext({ panStepSkipped: { reason: 'details_on_file' } });
+        setBusy(true);
+        setVerified(true); // loader completes → go('basic')
+      })
+      .catch(stop);
+    return () => { alive = false; clearTimeout(slow); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Type the recognized PAN in character-by-character, then pulse the field so
   // the auto-fill is visible and feels deliberate.

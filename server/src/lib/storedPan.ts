@@ -60,5 +60,5 @@ export const applicationPanData = (pan: string) => ({ panEnc: encryptPan(pan) })
 
 import type { LoanApplication, User } from '@prisma/client';
 /** What a normal query returns: the same rows, minus the PAN columns (lib/prisma.ts omits them). */
-export type SafeUser = Omit<User, 'panNumber' | 'panEnc'>;
+export type SafeUser = Omit<User, 'panNumber' | 'panEnc' | 'creditScore'>;
 export type SafeApplication = Omit<LoanApplication, 'panNumber' | 'panEnc'>;

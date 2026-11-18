@@ -8,7 +8,9 @@ import { PrismaClient } from '@prisma/client';
 export const prisma = new PrismaClient({
   log: process.env.NODE_ENV === 'production' ? ['warn', 'error'] : ['warn', 'error'],
   omit: {
-    user: { panNumber: true, panEnc: true },
+    // creditScore (Digitap, lib/mobilePrefill.ts) is never part of a customer payload: read it only through an explicit select.
+    user: { panNumber: true, panEnc: true, creditScore: true },
+    mobilePrefill: { dataEnc: true },
     loanApplication: { panNumber: true, panEnc: true },
     // The lender's own words (journey.reason) are for the admin only: the customer app must never receive them.
     lenderApplication: { lenderNote: true, lenderNoteAt: true },
