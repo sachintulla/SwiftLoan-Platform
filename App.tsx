@@ -15,6 +15,7 @@ import OfflineNotice from './src/components/OfflineNotice';
 import VoiceWidget from './src/voice/ui/VoiceWidget';
 import ConfirmationSheet from './src/voice/ui/ConfirmationSheet';
 import ResumePrompt from './src/components/ResumePrompt';
+import ApplyConfirm from './src/components/ApplyConfirm';
 import { nudgeFor, DEFAULT_TIMERS, NudgeTimers, nudgeStartMs, setLiveNudgeTimers, nudgeSnoozeRemaining, onNudgeWake } from './src/voice/nudges';
 import { trackEvent, api, isAuthed, NudgeConfigDTO } from './src/api/client';
 import { loadNudgeTimers, saveNudgeTimers } from './src/state/session';
@@ -163,6 +164,7 @@ function AppShell() {
       <VoiceFabGate />
       <ConfirmationSheet />
       <ResumePrompt />
+      <ApplyConfirm />
       <OfflineNotice />
       <BackHandlerBridge />
       {/* Ruby welcome intro — rendered LAST so it's the top-most view in the single

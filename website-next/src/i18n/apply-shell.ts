@@ -41,6 +41,8 @@ export const applyShellCopy = defineCopy({
 
     // useApplyToOffer
     applyFailed: "Could not apply to this offer. Please try again.",
+    applyConfirmBody: (lender: string) => `You are about to apply for this loan with ${lender}. Tap Proceed to continue your application.`,
+    applyConfirmProceed: "Proceed",
 
     // PanVerifyingLoader
     panSteps: [
@@ -88,6 +90,8 @@ export const applyShellCopy = defineCopy({
     pleaseWait: "कृपया प्रतीक्षा करें…",
 
     applyFailed: "इस ऑफ़र के लिए आवेदन नहीं हो सका। कृपया फिर से प्रयास करें।",
+    applyConfirmBody: (lender: string) => `आप ${lender} के साथ इस लोन के लिए आवेदन करने वाले हैं। अपना आवेदन जारी रखने के लिए "आगे बढ़ें" पर टैप करें।`,
+    applyConfirmProceed: "आगे बढ़ें",
 
     panSteps: [
       { label: "आपका PAN पढ़ा जा रहा है", hint: "नंबर का फ़ॉर्मेट जांचा जा रहा है" },
@@ -134,6 +138,8 @@ export const applyShellCopy = defineCopy({
     pleaseWait: "దయచేసి వేచి ఉండండి…",
 
     applyFailed: "ఈ ఆఫర్‌కు దరఖాస్తు చేయడం సాధ్యం కాలేదు. దయచేసి మళ్లీ ప్రయత్నించండి.",
+    applyConfirmBody: (lender: string) => `మీరు ${lender}తో ఈ లోన్ కోసం దరఖాస్తు చేయబోతున్నారు. మీ దరఖాస్తును కొనసాగించడానికి "కొనసాగించండి" నొక్కండి.`,
+    applyConfirmProceed: "కొనసాగించండి",
 
     panSteps: [
       { label: "మీ PAN చదువుతున్నాము", hint: "నంబర్ ఫార్మాట్‌ను తనిఖీ చేస్తున్నాము" },
