@@ -49,24 +49,25 @@ export default function OverviewPage() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Master Overview</h1>
-      <p className="page-sub">Snapshot of the loan funnel — leads, applications, and disbursals. Use the range to scope the figures below.</p>
-
-      <div style={{ marginTop: 14 }}>
+      <div className="ov-head">
+        <div>
+          <h1 className="page-title">Master Overview</h1>
+          <p className="page-sub">Snapshot of the loan funnel — leads, applications, and disbursals. Use the range to scope the figures below.</p>
+        </div>
         <FilterChips options={PERIODS} value={period} onChange={setPeriod} />
-        {period === 'custom' && (
-          <div className="row wrap" style={{ gap: 12, marginTop: 10, alignItems: 'center' }}>
-            <label className="muted" style={{ fontSize: 13 }}>From&nbsp;
-              <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => setCFrom(e.target.value)} className="input" />
-            </label>
-            <label className="muted" style={{ fontSize: 13 }}>To&nbsp;
-              <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => setCTo(e.target.value)} className="input" />
-            </label>
-          </div>
-        )}
       </div>
+      {period === 'custom' && (
+        <div className="row wrap" style={{ gap: 12, marginTop: 12, alignItems: 'center', justifyContent: 'flex-end' }}>
+          <label className="muted" style={{ fontSize: 13 }}>From&nbsp;
+            <input type="date" value={cFrom} max={cTo || undefined} onChange={(e) => setCFrom(e.target.value)} className="input" style={{ width: 'auto' }} />
+          </label>
+          <label className="muted" style={{ fontSize: 13 }}>To&nbsp;
+            <input type="date" value={cTo} min={cFrom || undefined} onChange={(e) => setCTo(e.target.value)} className="input" style={{ width: 'auto' }} />
+          </label>
+        </div>
+      )}
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', marginTop: 18 }}>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', marginTop: 16 }}>
         {isLoading || !o ? (
           Array.from({ length: 5 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
         ) : (
@@ -84,25 +85,20 @@ export default function OverviewPage() {
         <ConversionsPanel from={range.from} to={range.to} sub="Conversions are a % of total customers in the range selected above. Commercials = total loan amount requested across website leads." />
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <Card title="Recently active users" sub="Who's using the app right now — newest first, with phone & OS. Tap to open their profile." right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
-          <div style={{ maxHeight: 340, overflowY: 'auto' }}><ActiveUsers users={activeUsers} /></div>
-        </Card>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
+      {/* Funnel beside the live list, then the two pipelines side by side: at full width one card per row left most of each row empty. */}
+      <div className="ov-two">
         <Card title="Conversion funnel" sub="8-stage journey from first session to disbursal">
           {!o ? <TableSkeleton rows={8} cols={3} /> : <FunnelChart stages={o.funnel} />}
         </Card>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <Card title="Application pipeline" sub="Parent applications by stage (one per customer application)">
-          {o ? <PipelineBar byStatus={o.applicationsByStatus} /> : <TableSkeleton rows={1} cols={6} />}
+        <Card title="Recently active users" sub="Who's using the app right now — newest first, with phone & OS. Tap to open their profile." right={<span className="row" style={{ gap: 6, fontSize: 12 }}><span className="dot-live" /> live</span>}>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}><ActiveUsers users={activeUsers} /></div>
         </Card>
       </div>
 
-      <div style={{ marginTop: 16 }}>
+      <div className="ov-two">
+        <Card title="Application pipeline" sub="Parent applications by stage (one per customer application)">
+          {o ? <PipelineBar byStatus={o.applicationsByStatus} /> : <TableSkeleton rows={1} cols={6} />}
+        </Card>
         <Card title="Lender application pipeline" sub="Per-lender applications after submission — one customer can appear under several lenders">
           {o ? <PipelineBar byStatus={o.lenderApplicationsByStatus ?? {}} /> : <TableSkeleton rows={1} cols={6} />}
         </Card>
