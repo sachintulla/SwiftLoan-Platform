@@ -15,6 +15,8 @@ import { scoped } from '../lib/log.js';
 import { toCsv } from '../lib/csv.js';
 import { auditExport, sendCsv, csvFilename } from '../lib/exportAudit.js';
 import { EXPORT_LIMIT, buildCustomerExportWhere, customerOtpWhere, qStr } from '../lib/listFilters.js';
+import { isCustomerStatusKey } from '../lib/customerStatus.js';
+import { customerIdsByStatus, loadCustomerStatuses } from '../lib/customerStatusDb.js';
 
 const log = scoped('admin-ops');
 
@@ -56,29 +58,44 @@ adminOpsRouter.get('/audit', requireRole(...CAN_ADMINISTER), ah(async (req, res)
 // Both exports need CAN_WRITE (the analyst role cannot take customer data out) and are
 // audited: auditAdmin skips GET, so each export records itself with auditExport.
 
-// GET /api/admin/ops/export/customers.csv?stage=&source=&campaignId=&search=&from=&to=&stalledMinutes=&otp=
-// Follows every filter the Customers page has, through the same builder rules as the list.
+// GET /api/admin/ops/export/customers.csv?status=&stage=&source=&campaignId=&search=&from=&to=&stalledMinutes=&otp=
+// Follows every filter the Customers page has, through the same builder rules as the list. `status` (and the two
+// status columns) is the customer's real status, read from stored data (lib/customerStatus.ts).
 adminOpsRouter.get('/export/customers.csv', requireRole(...CAN_WRITE), ah(async (req, res) => {
   const q = req.query as Record<string, unknown>;
   const where = { AND: [buildCustomerExportWhere(q), customerOtpWhere(q.otp)] };
 
-  const found = await prisma.customer.findMany({
-    where, orderBy: { lastActivityAt: 'desc' }, take: EXPORT_LIMIT + 1,
-  });
+  let found;
+  if (isCustomerStatusKey(q.status)) {
+    // The real status is not a column: pick the matching ids first (already newest activity first), then read them in
+    // chunks so the id list never outgrows what one query may carry.
+    const { ids } = await customerIdsByStatus(where, q.status);
+    const wanted = ids.slice(0, EXPORT_LIMIT + 1);
+    const byId = new Map<string, Awaited<ReturnType<typeof prisma.customer.findMany>>[number]>();
+    for (let i = 0; i < wanted.length; i += 5000) {
+      const chunk = await prisma.customer.findMany({ where: { id: { in: wanted.slice(i, i + 5000) } } });
+      for (const c of chunk) byId.set(c.id, c);
+    }
+    found = wanted.map((id) => byId.get(id)).filter((c): c is NonNullable<typeof c> => !!c);
+  } else {
+    found = await prisma.customer.findMany({ where, orderBy: { lastActivityAt: 'desc' }, take: EXPORT_LIMIT + 1 });
+  }
   const truncated = found.length > EXPORT_LIMIT;
   const rows = found.slice(0, EXPORT_LIMIT);
+  const statusById = await loadCustomerStatuses(rows);
 
   const csv = toCsv(
-    ['id', 'name', 'phone', 'email', 'city', 'source', 'campaign', 'stage',
+    ['id', 'name', 'phone', 'email', 'city', 'source', 'campaign', 'status', 'statusDetail', 'stage',
      'stageEnteredAt', 'lastActivityAt', 'firstSeenAt', 'utmSource', 'utmCampaign'],
     rows.map((c) => [
       c.id, c.name, c.phone, c.email, c.city, c.firstSource, c.campaignId,
+      statusById.get(c.id)?.label ?? '', statusById.get(c.id)?.detail ?? '',
       c.currentStage, c.stageEnteredAt, c.lastActivityAt, c.firstSeenAt, c.utmSource, c.utmCampaign,
     ]),
   );
   await auditExport(req, {
     name: 'customers',
-    filters: pickDefined(q, ['stage', 'source', 'campaignId', 'search', 'from', 'to', 'stalledMinutes', 'otp']),
+    filters: pickDefined(q, ['status', 'stage', 'source', 'campaignId', 'search', 'from', 'to', 'stalledMinutes', 'otp']),
     rows: rows.length,
     truncated,
   });

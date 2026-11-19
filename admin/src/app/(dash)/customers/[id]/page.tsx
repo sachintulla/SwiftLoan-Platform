@@ -13,14 +13,15 @@ import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, Stat, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout } from '@/components/ui';
 import { JourneyTracker, stageLabel, stalledLabel, StageProgress, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
-import SendActions from '@/components/SendActions';
+import CustomerAlerts, { useCustomerAlertCounts } from '@/components/alerts/CustomerAlerts';
+import { countsLine, totalCounts } from '@/lib/alerts';
 import { withoutInstallLinks, type OutreachOptions } from '@/lib/outreach';
 import { ApplicationOffers } from '@/components/ApplicationOffers';
 import { CallList, CallAttemptDetail } from '@/components/callDetail';
 import { ChannelChips, ConversationCard, asConversations, inferredCount, relTime, hasRealSummary } from '@/components/conversation';
 import { ActivityFeed, buildActivityHighlights } from '@/components/activityFeed';
 import { inr, dateStr, dateTimeStr, timeAgo, humanStatus, num } from '@/lib/format';
-import { NUDGES_DISABLED, withoutNudgeEvents } from '@/lib/flags';
+import { withoutNudgeEvents } from '@/lib/flags';
 
 interface Customer {
   id: string; name?: string | null; phone?: string | null; email?: string | null; city?: string | null;
@@ -63,6 +64,8 @@ interface NotificationRow { id: string; title: string; body?: string | null; rea
 interface AppSession { id: string; startedAt: string; endedAt?: string | null; pagesVisited?: number | null; durationSec?: number | null }
 interface Detail {
   customer?: Customer;
+  /** Where they really are, read from stored data by the server (lib/customerStatus.ts). */
+  status?: { key: string; label: string; tone: string; detail?: string | null } | null;
   timeline?: TimelineEntry[];
   stageProgress?: StageProgress[];
   dropOff?: { stage: string; label?: string; stalledMinutes?: number; isTerminal?: boolean } | null;
@@ -174,7 +177,6 @@ function FactGroup({ title, action, children }: { title: string; action?: React.
   );
 }
 
-const CHANNELS = ['push', 'whatsapp', 'sms', 'email', 'voice'] as const;
 const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'converted', 'lost'];
 
 /** Defensive: bare array today, possibly { items: [...] } later. */
@@ -227,38 +229,21 @@ export default function CustomerDetail() {
   const convMissing = !!convError && /404|No conversations/i.test((convError as Error).message);
   const inferred = inferredCount(conversations);
 
-  const [nudgeChannel, setNudgeChannel] = useState<string>('push');
-  const [nudgeEvent, setNudgeEvent] = useState('');
-  const [nudging, setNudging] = useState(false);
-  const [nudgeResult, setNudgeResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // Everything sent to this customer (WhatsApp, SMS, push, calls): the "Alerts sent" tile and the Alerts tab's count.
+  const { counts: alertCounts } = useCustomerAlertCounts(id);
 
   const [leadBusy, setLeadBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState('journey');
   const [showSystem, setShowSystem] = useState(false);
 
-  // Placing a call, and sending a WhatsApp, SMS or push, now live in components/SendActions.tsx
-  // (the Reach out bar under the Milestones stepper), with a confirmation that shows what will go out.
+  // Placing a call, and sending a WhatsApp, SMS or push, live in components/SendActions.tsx. The four buttons sit on
+  // the Alerts tab, above the list of what was already sent.
 
   async function updateLead(leadId: string, patch: { status?: string; note?: string }) {
     setLeadBusy(leadId);
     try { await apiFetch(`/api/admin/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify(patch) }); await mutate(); }
     finally { setLeadBusy(null); }
-  }
-
-  async function sendNudge() {
-    setNudging(true); setNudgeResult(null);
-    try {
-      const res = await apiFetch<{ status?: string; id?: string; message?: string }>(
-        `/api/admin/customers/${id}/nudge`,
-        { method: 'POST', body: JSON.stringify({ channel: nudgeChannel, ...(nudgeEvent ? { eventName: nudgeEvent } : {}) }) },
-      );
-      const st = res.data?.status ?? 'queued';
-      setNudgeResult({ ok: true, text: `Outbound request ${humanStatus(st)}${res.data?.id ? ` · ${res.data.id}` : ''}` });
-      mutate();
-    } catch (e) {
-      setNudgeResult({ ok: false, text: (e as Error).message });
-    } finally { setNudging(false); }
   }
 
   if (error) {
@@ -277,6 +262,7 @@ export default function CustomerDetail() {
   const notifications = d.notifications ?? [];
   // App-link rows are bookkeeping for the installs page, not messages sent to the customer, so they are not counted here.
   const nudgeSummary = withoutInstallLinks(d.nudgeSummary, outreach?.installLinks);
+  const alertTotals = totalCounts(alertCounts);
   const stalled = c.stalledMinutes ?? d.dropOff?.stalledMinutes ?? null;
   // The most recent enquiry is what they actually asked us for.
   const lead = leads[0];
@@ -300,10 +286,11 @@ export default function CustomerDetail() {
     { key: 'journey', label: 'Journey' },
     ...(applications.length ? [{ key: 'applications', label: 'Applications', count: applications.length }] : []),
     ...(totalOffers ? [{ key: 'offers', label: 'Offers', count: totalOffers }] : []),
+    { key: 'alerts', label: 'Alerts', count: alertTotals.total },
     { key: 'conversations', label: 'Conversations', count: convMissing ? 0 : convCount },
     { key: 'calls', label: 'Calls', count: calls.length },
     { key: 'enquiries', label: 'Website enquiries', count: leads.length },
-    { key: 'attribution', label: 'Attribution & nudge' },
+    { key: 'attribution', label: 'Attribution' },
     ...(loans.length ? [{ key: 'loans', label: 'Loans', count: loans.length }] : []),
   ];
 
@@ -339,7 +326,10 @@ export default function CustomerDetail() {
             <div style={{ minWidth: 0 }}>
               <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
                 <h1 className="page-title" style={{ fontSize: 20 }}>{c.name || c.phone || 'Unknown customer'}</h1>
-                <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
+                {/* The real status from stored data; the journey stage is only the fallback for an older server. */}
+                {d.status
+                  ? <span className={`badge tone-${d.status.tone}`} title={d.status.detail ?? undefined}>{d.status.label}{d.status.detail ? ` · ${d.status.detail}` : ''}</span>
+                  : <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />}
                 {outreach?.doNotContact.blocked && (
                   <span className="badge tone-red" title="They asked us to stop. Messages and calls are switched off.">Do not contact</span>
                 )}
@@ -457,12 +447,9 @@ export default function CustomerDetail() {
             foot={applications.length ? `${submittedAppId ? 1 : 0} submitted, ${applications.length - (submittedAppId ? 1 : 0)} abandoned` : 'none yet'} />
           <Stat label="Lender offers" value={appliedLenderCount} tone={appliedLenderCount ? undefined : 'text-faint'}
             foot={appliedLenderCount ? 'applied to' : 'no lender applied to'} />
-          {!NUDGES_DISABLED && (
-          <Stat label="Nudges delivered"
-            value={nudgeSummary ? `${nudgeSummary.delivered}/${nudgeSummary.total}` : '—'}
-            tone={!nudgeSummary || nudgeSummary.total === 0 ? 'text-faint' : nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : undefined}
-            foot={!nudgeSummary || nudgeSummary.total === 0 ? 'none sent' : nudgeSummary.failed === nudgeSummary.total ? 'all dispatches failed' : nudgeSummary.failed > 0 ? `${nudgeSummary.failed} failed` : 'all delivered'} />
-          )}
+          <Stat label="Alerts sent" value={alertCounts ? alertTotals.total : '—'}
+            tone={!alertTotals.total ? 'text-faint' : alertTotals.failed === alertTotals.total ? 'red' : alertTotals.failed > 0 ? 'amber' : undefined}
+            foot={!alertCounts ? '' : alertTotals.total ? countsLine('whatsapp', alertTotals) : 'none sent'} />
         </div>
       </Card>
 
@@ -486,15 +473,6 @@ export default function CustomerDetail() {
           <div style={{ marginTop: 18, display: 'grid', gap: 16 }}>
             <Card title="Milestones" sub="Where they got to. Colour + shape tell confirmed from inferred.">
               <JourneyTracker steps={d.stageProgress ?? []} currentStage={c.currentStage} stalledMinutes={stalled} />
-              {/* Push, SMS, WhatsApp and Call about the stage they are at. Each asks for confirmation first,
-                  and the server enforces every rule, so this is a convenience and not the protection. */}
-              <SendActions
-                variant="panel"
-                customerId={c.id}
-                customerName={c.name}
-                stage={c.currentStage}
-                onDone={() => { void mutate(); }}
-              />
             </Card>
 
             <Card
@@ -720,7 +698,14 @@ export default function CustomerDetail() {
       </div>
       )}
 
-      {/* ── attribution + nudge ────────────────────────────────────────── */}
+      {/* ── alerts: everything sent to this customer, and the send buttons ─ */}
+      {activeTab === 'alerts' && (
+        <div style={{ marginTop: 18 }}>
+          <CustomerAlerts customerId={c.id} customerName={c.name} stage={c.currentStage} onSent={() => { void mutate(); }} />
+        </div>
+      )}
+
+      {/* ── attribution ─────────────────────────────────────────────────── */}
       {activeTab === 'attribution' && (
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', marginTop: 18, alignItems: 'start' }}>
         <Card title="Origin & attribution">
@@ -746,33 +731,6 @@ export default function CustomerDetail() {
           ))}
         </Card>
 
-        {!NUDGES_DISABLED && (
-        <Card title="Send nudge" sub="Re-engage this customer through Upshot">
-          {nudgeSummary && nudgeSummary.total > 0 && (
-            <Callout tone={nudgeSummary.failed === nudgeSummary.total ? 'red' : nudgeSummary.failed > 0 ? 'amber' : 'blue'}>
-              {nudgeSummary.delivered} of {nudgeSummary.total} past nudge{nudgeSummary.total === 1 ? '' : 's'} delivered.
-              {nudgeSummary.failed > 0 && ` ${nudgeSummary.failed} failed${nudgeSummary.lastError ? ` — ${nudgeSummary.lastError}` : ''}.`}
-            </Callout>
-          )}
-          <label style={{ fontSize: 12.5, fontWeight: 600, display: 'block', marginTop: nudgeSummary && nudgeSummary.total > 0 ? 14 : 0 }}>Channel</label>
-          <div className="row wrap" style={{ gap: 8, margin: '8px 0 14px' }}>
-            {CHANNELS.map((ch) => (
-              <button key={ch} className={`chip-filter ${nudgeChannel === ch ? 'active' : ''}`} onClick={() => { setNudgeChannel(ch); setNudgeResult(null); }}>
-                {humanStatus(ch)}
-              </button>
-            ))}
-          </div>
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Event name <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
-          <input className="input mono" style={{ margin: '6px 0 14px' }} value={nudgeEvent} onChange={(e) => setNudgeEvent(e.target.value)} placeholder="e.g. resume_application" />
-          <div className="row" style={{ gap: 10 }}>
-            <button className="btn btn-primary" disabled={nudging} onClick={sendNudge}>{nudging ? 'Sending…' : 'Send nudge'}</button>
-            {nudgeResult && <span style={{ fontSize: 12.5, color: nudgeResult.ok ? 'var(--green)' : 'var(--red)' }}>{nudgeResult.text}</span>}
-          </div>
-          <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: '12px 0 0' }}>
-            This queues a push through Upshot. To send a WhatsApp or SMS, use Reach out on the Journey tab.
-          </p>
-        </Card>
-        )}
       </div>
       )}
 
