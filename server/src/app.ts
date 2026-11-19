@@ -47,6 +47,7 @@ import { adminListActionsRouter } from './modules/adminListActions.routes.js';
 import { adminSupportRouter } from './modules/adminSupport.routes.js';
 import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
+import { slackBotRouter } from './modules/slackBot.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
 import { notifyRouter } from './modules/notify.routes.js';
 import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
@@ -209,6 +210,7 @@ export function createApp() {
   app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
   app.use('/api/webhooks/yubi', webhookLimiter, yubiWebhookRouter); // PUBLIC — Yubi/YMPL posts referral status here
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
+  app.use('/api/slack', webhookLimiter, slackBotRouter); // PUBLIC — Slack Events API posts here (signature-verified)
 
   app.use('/api/admin/installs', adminInstallsRouter); // App Downloads: installs with the context that travelled with the link
   app.use('/api/admin/notification-center', adminNotificationCenterRouter); // Notifications page: filters, counts, scoped mark-as-read
