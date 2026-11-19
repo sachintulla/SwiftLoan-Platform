@@ -1,6 +1,6 @@
 import { timing } from './timings.js';
 import { prisma } from './prisma.js';
-import { startMobilePrefill } from './mobilePrefill.js';
+import { finishMobilePrefillAtLogin } from './mobilePrefill.js';
 import { sha256, genOtp, randomToken } from './crypto.js';
 import { sendOtpSms, smsConfigured } from './sms.js';
 import { signAccess, accessTtlSeconds } from './jwt.js';
@@ -131,9 +131,10 @@ export async function verifyOtpAndLogin(params: {
       .catch(() => {});
   }
 
-  // Fetch this number's details (Digitap Mobile to Prefill) in the background, so an application can skip the
-  // PAN step and open pre-filled. A no-op unless the integration is configured and switched on; once per number.
-  startMobilePrefill(user);
+  // The number is proven now: fill the profile from the details fetched when the OTP was requested (Digitap
+  // Mobile to Prefill, lib/mobilePrefill.ts), so the form pre-fill and the voice agent's basic details are ready
+  // before the app loads the account's context. Waits at most ~2 s for a lookup still running; never fails a login.
+  await finishMobilePrefillAtLogin(user);
 
   // Website inquiries made under this phone number before this login (either
   // a marketing-site lead captured earlier, or — now that the website itself

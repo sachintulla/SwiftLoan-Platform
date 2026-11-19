@@ -999,8 +999,12 @@ Ello's 5,000-token limit (~3,530 words).
 
 ## Details from the mobile number at login (Digitap "Mobile to Prefill", built 2026-11-18; UAT only so far)
 
-Right after an OTP login (app or website, every account) the server asks Digitap for the person's details by mobile number, once per number, in
-the background (`startMobilePrefill` in `verifyOtpAndLogin`; never slows or fails the login). Provider side: `server/src/lib/digitap.ts` (config,
+When an OTP is REQUESTED (app `/auth/otp/request`, website `/otp/request`; every account) the server asks Digitap for the person's details by
+mobile number, once per number, in the background (`startMobilePrefill`; never slows or fails the request). Since 2026-11-19 (owner) the lookup is
+made at the request, not after the OTP, so the details are ready the moment the code is entered. At that point the answer is ONLY saved in
+`MobilePrefill`: the number is not proven yet, so the profile is not filled and nothing is told to any client or to the agent. When the OTP is
+ACCEPTED, `finishMobilePrefillAtLogin` (awaited in `verifyOtpAndLogin`, at most ~2 s for a lookup still running) copies the details into the empty
+`User` columns; with no earlier lookup it starts one then. Provider side: `server/src/lib/digitap.ts` (config,
 request, mapping; pure and tested). DB side: `server/src/lib/mobilePrefill.ts`. API doc: v1.4 (`POST <base>/mobile_prefill/request`, Basic auth).
 - **Off unless** `DIGITAP_BASE_URL` + `DIGITAP_CLIENT_ID` + `DIGITAP_CLIENT_SECRET` are set AND the switch `prefill.digitapEnabled` is on
   (Admin → Timings → Tracking & limits; env `DIGITAP_ENABLED` is its starting value). Off = the flow is exactly as before.
@@ -1024,6 +1028,14 @@ request, mapping; pure and tested). DB side: `server/src/lib/mobilePrefill.ts`. 
   step 2 shows no Aadhaar chips. Back from step 2 → step 1 with an EMPTY field (app: a masked PAN in state is cleared; website: a hand-off already
   in the tab); a PAN typed there goes through the normal Aurix check. A user with a DIFFERENT PAN already on file is never switched: normal step 1.
   Nothing found / error / off / offline → normal step 1.
+- **What the voice agent is told (owner, 2026-11-19: basic details only, and only after the OTP).** `GET /context/me` carries
+  `prefill: {available, panAvailable}` (flags only, `lib/userContext.ts`); when `available`, the app adds `page_context.details_on_record`
+  (`basicDetailsForAgent` in `src/state/store.ts`): name, date of birth, gender, city, state, PIN code, employment type and `pan_on_record`.
+  NEVER the PAN, the score, the street address, the income, an alternate number/email or the raw answer. Before the OTP the agent gets nothing.
+  Prompt: "Details already on record" in `prompts/ello-inapp-copilot-prompt.md` (edited locally; paste into Ello by hand). App only so far: the
+  website voice assistant is not given these.
+- **Cost of the early lookup:** every number that requests an OTP is a lookup (a paid one when a record is found), including numbers that never
+  enter the code; still once per number, and OTP requests are rate-limited.
 - **Logs:** on the UAT host every call prints the complete request and answer to the server log (`[digitap-req]` / `[digitap-res]`), always, with no
   switch (owner, 2026-11-18); the client secret is never printed. On any other host only the outcome is logged and the `/logs` page gets the envelope.
 - **Open before production:** monthly-vs-yearly income; consent wording for fetching details by number (step 1's consent tick is skipped for these
