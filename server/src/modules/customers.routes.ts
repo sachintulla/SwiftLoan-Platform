@@ -21,6 +21,8 @@ import { eraseCustomer } from '../lib/customerErasure.js';
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
 import { customerOtpWhere } from '../lib/listFilters.js';
+import { CUSTOMER_STATUSES, isCustomerStatusKey } from '../lib/customerStatus.js';
+import { customerIdsByStatus, loadCustomerStatuses } from '../lib/customerStatusDb.js';
 
 const log = scoped('customers');
 
@@ -43,11 +45,8 @@ function minutesSince(d: Date | null | undefined): number | null {
 
 // ─────────────────────────── list ───────────────────────────
 
-// GET /api/admin/customers?stage=&source=&campaignId=&search=&stalledMinutes=&otp=  (otp: default verified | unverified | all)
-customersRouter.get('/', ah(async (req, res) => {
-  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
-  const q = req.query as Record<string, string | undefined>;
-
+/** The Customers list's filters as a query (everything except the real-status filter, which is not a column). */
+function customerListWhere(q: Record<string, string | undefined>): Prisma.CustomerWhereInput {
   const where: Prisma.CustomerWhereInput = {};
   if (q.stage && ALL_STAGES.includes(q.stage)) where.currentStage = q.stage as JourneyStage;
   if (q.source) where.firstSource = q.source;
@@ -84,20 +83,46 @@ customersRouter.get('/', ah(async (req, res) => {
   }
   // "Unverified numbers" toggle (lib/listFilters.ts customerOtpWhere).
   where.AND = [...((where.AND as Prisma.CustomerWhereInput[] | undefined) ?? []), customerOtpWhere(q.otp)];
+  return where;
+}
 
-  const [rows, total] = await Promise.all([
-    prisma.customer.findMany({
-      where,
-      orderBy: { lastActivityAt: 'desc' },
-      skip,
-      take,
-      select: {
-        id: true, name: true, phone: true, email: true, city: true, firstSource: true, campaignId: true,
-        currentStage: true, stageEnteredAt: true, lastActivityAt: true, createdAt: true,
-      },
-    }),
-    prisma.customer.count({ where }),
-  ]);
+// GET /api/admin/customers/statuses?<the list's filters>
+// Every real status (lib/customerStatus.ts) with how many customers of the current slice are in it. The slice is the
+// list's own filters without the status itself, so the numbers say what picking each status would show.
+customersRouter.get('/statuses', ah(async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  const { counts } = await customerIdsByStatus(customerListWhere(q), null);
+  return ok(res, CUSTOMER_STATUSES.map((s) => ({ ...s, count: counts[s.key] ?? 0 })), 'Customer statuses');
+}));
+
+// GET /api/admin/customers?status=&stage=&source=&campaignId=&search=&stalledMinutes=&otp=  (otp: default verified | unverified | all)
+// `status` is the customer's REAL status, read from stored data (lib/customerStatus.ts); `stage` is the older journey stage.
+customersRouter.get('/', ah(async (req, res) => {
+  const { page, pageSize, skip, take } = pageParams(req.query as Record<string, unknown>);
+  const q = req.query as Record<string, string | undefined>;
+  const where = customerListWhere(q);
+
+  const select = {
+    id: true, name: true, phone: true, email: true, city: true, firstSource: true, campaignId: true, userId: true,
+    currentStage: true, stageEnteredAt: true, lastActivityAt: true, createdAt: true,
+  } as const;
+  let rows: Prisma.CustomerGetPayload<{ select: typeof select }>[];
+  let total: number;
+  if (isCustomerStatusKey(q.status)) {
+    // The real status is decided by several tables, not a column: find the matching ids first, then read this page.
+    const { ids: matching } = await customerIdsByStatus(where, q.status);
+    total = matching.length;
+    const pageIds = matching.slice(skip, skip + take);
+    const found = pageIds.length ? await prisma.customer.findMany({ where: { id: { in: pageIds } }, select }) : [];
+    const byId = new Map(found.map((r) => [r.id, r]));
+    rows = pageIds.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+  } else {
+    [rows, total] = await Promise.all([
+      prisma.customer.findMany({ where, orderBy: { lastActivityAt: 'desc' }, skip, take, select }),
+      prisma.customer.count({ where }),
+    ]);
+  }
+  const statusById = await loadCustomerStatuses(rows);
 
   // A Customer row is usually thinner than the User behind it: it gets created
   // from a lead or an app session before the person types anything, so name,
@@ -153,8 +178,11 @@ customersRouter.get('/', ah(async (req, res) => {
     res,
     rows.map((r) => {
       const u = r.phone ? userByPhone.get(r.phone) : null;
+      const { userId: _userId, ...row } = r;
       return {
-        ...r,
+        ...row,
+        /** Where they really are, from stored data: { key, label, tone, detail }. What the list shows. */
+        status: statusById.get(r.id) ?? null,
         name: r.name && r.name.trim() ? r.name : nameOf(r.phone),
         // The Customer row is often thinner than the User behind it.
         email: r.email || u?.email || null,
@@ -389,8 +417,12 @@ customersRouter.get('/:id', ah(async (req, res) => {
     inProgress: appliedOffers.length - approved - rejected - disbursed,
   };
 
+  // Where they really are, from stored data (lib/customerStatus.ts): the same status the list shows.
+  const status = (await loadCustomerStatuses([customer])).get(customer.id) ?? null;
+
   return ok(res, {
     customer,
+    status,
     timeline,
     stageProgress,
     dropOff,

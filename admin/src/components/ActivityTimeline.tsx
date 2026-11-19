@@ -43,6 +43,19 @@ interface Meta { icon: keyof typeof ICONS; tone: Tone; title: string; detail?: (
 
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 
+/** The lender's own offers-check steps, in plain words (journey event `lender_update`, metadata.state). */
+const LENDER_STEP: Record<string, string> = {
+  lead_created: 'Lead created',
+  loan_ask: 'Loan request',
+  pan_comprehensive: 'PAN check',
+  personal_details: 'Personal details',
+  address_details: 'Address details',
+  bureau_soft_pull: 'Credit bureau check',
+  eligibility_check: 'Eligibility check',
+  lender_selection: 'Lender selection',
+  lender_api_journey: 'Lender hand-off',
+};
+
 const META: Record<string, Meta> = {
   app_installed: { icon: 'download', tone: 'blue', title: 'App installed', detail: (m) => str(m.platform) && `Installed on ${str(m.platform) === 'ios' ? 'iOS' : str(m.platform) === 'android' ? 'Android' : str(m.platform)}` },
   app_opened: { icon: 'phone', tone: 'grey', title: 'App opened' },
@@ -63,6 +76,9 @@ const META: Record<string, Meta> = {
   kyc_submitted: { icon: 'scan', tone: 'blue', title: 'KYC step submitted' },
   kyc_completed: { icon: 'scan', tone: 'green', title: 'KYC completed' },
   application_submitted: { icon: 'send', tone: 'green', title: 'Application submitted', detail: (m) => str(m.reason) },
+  // The lender's own step of the offers check. Not the customer applying, so it is grey and never a milestone.
+  lender_update: { icon: 'search', tone: 'grey', title: 'Lender check update', detail: (m) => [LENDER_STEP[str(m.state) ?? ''] ?? str(m.state), str(m.reason)].filter(Boolean).join(': ') || undefined },
+  status_viewed: { icon: 'clock', tone: 'grey', title: 'Status screen opened' },
   loan_approved: { icon: 'check', tone: 'green', title: 'Loan approved' },
   loan_rejected: { icon: 'x', tone: 'red', title: 'Loan rejected', detail: (m) => str(m.reason) },
   loan_disbursed: { icon: 'cash', tone: 'green', title: 'Loan disbursed' },

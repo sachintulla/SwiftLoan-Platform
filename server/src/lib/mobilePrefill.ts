@@ -2,8 +2,12 @@
  * Details fetched from the mobile number at login (Digitap "Mobile to Prefill", lib/digitap.ts).
  *
  * Flow:
- *   1. OTP accepted (app or website) → `startMobilePrefill(user)` runs in the background: one lookup per
- *      number, saved in `MobilePrefill` (details encrypted) and copied into the EMPTY columns of `User`.
+ *   1. OTP REQUESTED (app or website) → `startMobilePrefill(user)` runs in the background: one lookup per
+ *      number, saved in `MobilePrefill` (details encrypted). Nothing else happens yet: the number is not
+ *      proven, so the account's profile is NOT filled and no client or agent is told anything.
+ *      OTP ACCEPTED → `finishMobilePrefillAtLogin(user)`: the saved details are copied into the EMPTY columns
+ *      of `User` (so the form pre-fill and the voice agent's basic details are ready at once). If no lookup
+ *      was made at the request (switched on since, or it failed), one is started now.
  *   2. The user starts an application → `usePrefillForApplication(userId)`: when a PAN came back, step 1
  *      (PAN) is skipped — no Aurix PAN call — and step 2 opens with the details filled in.
  *   3. Nothing found / an error / switched off → the application starts at step 1, exactly as before.
@@ -131,13 +135,16 @@ export function shouldFetch(row: { status: string; fetchedAt: Date } | null, now
 const inflight = new Map<string, Promise<void>>();
 
 /**
- * Called right after an OTP login. Returns at once; the lookup runs in the background and can never slow
- * down or fail the login. Safe to call on every login: a number already looked up is not looked up again.
+ * Starts the lookup for this number. Returns at once; it runs in the background and can never slow down or
+ * fail the request. Safe to call every time: a number already looked up is not looked up again.
+ *
+ * Called when an OTP is REQUESTED with `fillProfile` off (the default): the answer is only saved in
+ * `MobilePrefill`. The profile is filled when the OTP is accepted (`finishMobilePrefillAtLogin`).
  */
-export function startMobilePrefill(user: { id: string; phone: string }): void {
+export function startMobilePrefill(user: { id: string; phone: string }, opts: { fillProfile?: boolean } = {}): void {
   try {
     if (!mobilePrefillEnabled() || inflight.has(user.id)) return;
-    const run = fetchAndSave(user.id, user.phone)
+    const run = fetchAndSave(user.id, user.phone, opts.fillProfile === true)
       .catch((e) => log.error('mobile prefill failed', { userId: user.id, error: String(e?.message ?? e) }))
       .finally(() => inflight.delete(user.id));
     inflight.set(user.id, run);
@@ -149,7 +156,7 @@ export function startMobilePrefill(user: { id: string; phone: string }): void {
 /** Resolves when the lookup started for this user (if any) has finished. For jobs and tests; a login never waits on it. */
 export const mobilePrefillSettled = (userId: string): Promise<void> => inflight.get(userId) ?? Promise.resolve();
 
-async function fetchAndSave(userId: string, phone: string): Promise<void> {
+async function fetchAndSave(userId: string, phone: string, fillProfile: boolean): Promise<void> {
   const cfg = digitapConfig();
   if (!cfg) return;
   const existing = await prisma.mobilePrefill.findUnique({ where: { userId }, select: { status: true, fetchedAt: true } });
@@ -157,11 +164,7 @@ async function fetchAndSave(userId: string, phone: string): Promise<void> {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: {
-      id: true, firstName: true, lastName: true, fullName: true, dob: true, gender: true, email: true,
-      addressLine1: true, addressLine2: true, city: true, state: true, pincode: true,
-      alternateMobile: true, employment: true, monthlyIncome: true, panEnc: true, panNumber: true,
-    },
+    select: { id: true, firstName: true, lastName: true, fullName: true },
   });
   if (!user) return;
 
@@ -189,17 +192,67 @@ async function fetchAndSave(userId: string, phone: string): Promise<void> {
     update: { ...base, status: 'found', reason: null, dataEnc: encryptJson(data), hasPan: !!d.pan, attempts: { increment: 1 } },
   });
 
+  log.info('mobile prefill saved', { userId, hasPan: !!d.pan, fillProfile });
+  if (fillProfile) await applyPrefillToUser(userId, d);
+}
+
+const USER_FILL_SELECT = {
+  id: true, firstName: true, lastName: true, fullName: true, dob: true, gender: true, email: true,
+  addressLine1: true, addressLine2: true, city: true, state: true, pincode: true,
+  alternateMobile: true, employment: true, monthlyIncome: true, panEnc: true, panNumber: true,
+} as const;
+
+/**
+ * Copy the fetched details into the EMPTY columns of the User row. Idempotent (a filled column is never
+ * touched again), so it is safe to run on every login. Only ever called for a number proven by OTP.
+ */
+async function applyPrefillToUser(userId: string, known?: DigitapDetails): Promise<string[]> {
+  const d = known ?? (await readDetails(userId));
+  if (!d) return [];
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: USER_FILL_SELECT });
+  if (!user) return [];
   const emailFree = d.email ? !(await prisma.user.findFirst({ where: { email: d.email, NOT: { id: userId } }, select: { id: true } })) : false;
   const patch = userPatchFromDetails(d, { ...user, hasPan: !!panFromHolder(user) }, emailFree);
-  if (Object.keys(patch).length) {
-    await prisma.user.update({ where: { id: userId }, data: patch }).catch(async (e) => {
-      // A unique-email race is the one realistic conflict: write the rest without it.
-      log.warn('user fill from mobile prefill failed; retrying without email', { userId, error: String(e?.message ?? e) });
-      const { email: _email, ...rest } = patch;
-      if (Object.keys(rest).length) await prisma.user.update({ where: { id: userId }, data: rest });
-    });
+  if (!Object.keys(patch).length) return [];
+  await prisma.user.update({ where: { id: userId }, data: patch }).catch(async (e) => {
+    // A unique-email race is the one realistic conflict: write the rest without it.
+    log.warn('user fill from mobile prefill failed; retrying without email', { userId, error: String(e?.message ?? e) });
+    const { email: _email, ...rest } = patch;
+    if (Object.keys(rest).length) await prisma.user.update({ where: { id: userId }, data: rest });
+  });
+  const filled = Object.keys(patch).filter((k) => k !== 'panEnc' && k !== 'creditScore');
+  if (filled.length) log.info('profile filled from mobile prefill', { userId, filled });
+  return filled;
+}
+
+/** How long a login waits for a lookup that is still running (it was started when the OTP was requested). */
+const LOGIN_WAIT_MS = 2_000;
+
+/**
+ * Called when an OTP is ACCEPTED (the number is now proven). Fills the profile from the details fetched at
+ * the OTP request, so they are there before the app loads the account's context. Waits at most
+ * `LOGIN_WAIT_MS` for a lookup still in flight; never throws, never fails the login.
+ */
+export async function finishMobilePrefillAtLogin(user: { id: string; phone: string }): Promise<void> {
+  try {
+    if (!mobilePrefillEnabled()) return;
+    const running = inflight.get(user.id);
+    if (running) await Promise.race([running, new Promise((r) => setTimeout(r, LOGIN_WAIT_MS))]);
+    const row = await prisma.mobilePrefill.findUnique({ where: { userId: user.id }, select: { status: true, fetchedAt: true } });
+    if (row?.status === 'found') {
+      await applyPrefillToUser(user.id);
+      return;
+    }
+    // Nothing usable yet: a lookup still running will fill the profile when it lands; otherwise start one
+    // now if this number is due one (never looked up, or the last attempt can be retried).
+    if (inflight.has(user.id)) {
+      void inflight.get(user.id)!.then(() => applyPrefillToUser(user.id)).catch(() => {});
+    } else if (shouldFetch(row)) {
+      startMobilePrefill(user, { fillProfile: true });
+    }
+  } catch (e: any) {
+    log.error('mobile prefill not finished at login', { userId: user.id, error: String(e?.message ?? e) });
   }
-  log.info('mobile prefill saved', { userId, hasPan: !!d.pan, filled: Object.keys(patch).filter((k) => k !== 'panEnc' && k !== 'creditScore') });
 }
 
 // ── Starting an application ──────────────────────────────────────────────────
@@ -208,12 +261,12 @@ export type PrefillForApplication =
   | { found: false }
   | { found: true; maskedPan: string; prefill: PanPrefill };
 
-async function readFound(userId: string): Promise<DigitapDetails | null> {
-  const row = await prisma.mobilePrefill.findUnique({ where: { userId }, select: { status: true, hasPan: true, dataEnc: true } });
-  if (!row || row.status !== 'found' || !row.hasPan || !row.dataEnc) return null;
+/** The stored details for a number we have an answer for, or null. */
+async function readDetails(userId: string): Promise<DigitapDetails | null> {
+  const row = await prisma.mobilePrefill.findUnique({ where: { userId }, select: { status: true, dataEnc: true } });
+  if (!row || row.status !== 'found' || !row.dataEnc) return null;
   try {
-    const d = decryptJson<StoredData>(row.dataEnc).details;
-    return d?.pan ? d : null;
+    return decryptJson<StoredData>(row.dataEnc).details ?? null;
   } catch (e: any) {
     log.error('could not decrypt mobile prefill (wrong or rotated key?)', { userId, error: String(e?.message ?? e) });
     return null;
@@ -232,7 +285,7 @@ export async function usePrefillForApplication(userId: string, opts: { attach: b
   const running = inflight.get(userId);
   if (running) await Promise.race([running, new Promise((r) => setTimeout(r, INFLIGHT_WAIT_MS))]);
 
-  const d = await readFound(userId);
+  const d = await readDetails(userId);
   if (!d?.pan) return { found: false };
 
   const onFile = await loadPan(userId);

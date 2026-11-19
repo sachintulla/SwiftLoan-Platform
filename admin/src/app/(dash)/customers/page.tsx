@@ -9,11 +9,11 @@ import useSWR from 'swr';
 import { swrFetcher, downloadFile, getAdmin } from '@/lib/api';
 import { Card, Stat, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo, num, inr } from '@/lib/format';
-import { STAGES, stageLabel, stalledLabel } from '@/components/journey';
+import { stageLabel, stalledLabel } from '@/components/journey';
 import { PERIODS, computeRange } from '@/lib/period';
 import ConversionsPanel from '@/components/ConversionsPanel';
 import {
-  parseCustomerFilters, serialiseCustomerFilters, hasCustomerFilters, customerListQuery, customerExportQuery,
+  parseCustomerFilters, serialiseCustomerFilters, hasCustomerFilters, customerListQuery, customerExportQuery, customerFilterParams,
   stalledOptionsFor, canExport, type CustomerFilters,
 } from '@/lib/customerFilters';
 
@@ -30,7 +30,12 @@ interface CustomerRow {
   callCount?: number | null;
   /** Their most recent application amount, in rupees. */
   loanAmount?: number | null;
+  /** Where they really are, read from stored data by the server (lib/customerStatus.ts). */
+  status?: CustomerStatus | null;
 }
+
+interface CustomerStatus { key: string; label: string; tone: string; detail?: string | null }
+interface StatusOption { key: string; label: string; count: number }
 
 function asArray<T>(x: unknown): T[] {
   if (Array.isArray(x)) return x as T[];
@@ -68,7 +73,7 @@ function Customers() {
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<CustomerFilters>(() => parseCustomerFilters(searchParams));
   const [page, setPage] = useState(1);
-  const { stage, source, campaignId, search, stalledMinutes, period, from: cFrom, to: cTo, unverified } = filters;
+  const { status, source, campaignId, search, stalledMinutes, period, from: cFrom, to: cTo, unverified } = filters;
   const change = (patch: Partial<CustomerFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
 
   useEffect(() => {
@@ -84,6 +89,12 @@ function Customers() {
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/customers?${customerListQuery(filters, range, page)}`, swrFetcher);
   const rows = asArray<CustomerRow>(data?.data);
   const pg = data?.pagination;
+
+  // The status filter's choices, each with how many customers of the current slice (every other filter applied) are
+  // in it. The list comes from the server, so the page can never offer a status the server does not know.
+  const statusQuery = useMemo(() => customerFilterParams({ ...filters, status: '' }, range).toString(), [filters, range]);
+  const { data: statusRes } = useSWR(`/api/admin/customers/statuses${statusQuery ? `?${statusQuery}` : ''}`, swrFetcher);
+  const statusOptions = asArray<StatusOption>(statusRes?.data);
 
   // campaign picker options — reuse the campaigns list endpoint
   const { data: campRes } = useSWR('/api/admin/campaigns?page=1&pageSize=100', swrFetcher);
@@ -200,11 +211,15 @@ function Customers() {
           <div className="toolbar-search">
             <SearchBox value={search} onChange={(v) => change({ search: v })} placeholder="Search name, phone or email…" />
           </div>
-          <div style={{ width: 176 }}>
+          <div style={{ width: 230 }}>
             <Select
-              value={stage}
-              onChange={(v) => change({ stage: v })}
-              options={[{ value: '', label: 'All stages' }, ...STAGES.map((x) => ({ value: x.key, label: x.label }))]}
+              value={status}
+              onChange={(v) => change({ status: v })}
+              options={[
+                { value: '', label: 'All statuses' },
+                // A status nobody is in is left out, unless it is the one picked (so the box never shows blank).
+                ...statusOptions.filter((x) => x.count > 0 || x.key === status).map((x) => ({ value: x.key, label: `${x.label} (${num(x.count)})` })),
+              ]}
             />
           </div>
           <div style={{ width: 150 }}>
@@ -254,7 +269,7 @@ function Customers() {
             <h3>{unverified ? 'No unverified numbers match' : filtered ? 'No customers match these filters' : 'No customers yet'}</h3>
             <p>
               {filtered
-                ? 'Nothing in this slice. Widen the stage, source or inactivity filter to see more people.'
+                ? 'Nothing in this slice. Widen the status, source or inactivity filter to see more people.'
                 : 'People appear here the moment they enquire on the website, get dialled by a campaign, or open the app.'}
             </p>
             {filtered && <button className="btn" onClick={reset}>Clear filters</button>}
@@ -262,7 +277,7 @@ function Customers() {
         ) : (
           <div className="table-wrap"><table className="data">
             <thead><tr>
-              <th>Customer</th><th>Email</th><th>Location</th><th>Stage</th>
+              <th>Customer</th><th>Email</th><th>Location</th><th>Status</th>
               <th style={{ textAlign: 'right' }}>Loan amount</th>
               <th style={{ textAlign: 'right' }}>Calls</th>
               <th style={{ textAlign: 'right' }}>Last activity</th>
@@ -304,10 +319,14 @@ function Customers() {
                     {/* justifyItems:start — a grid child stretches, which is why
                         this badge used to run the full width of the column */}
                     <div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
-                      <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />
+                      {/* The real status from stored data; the journey stage is only the fallback for an older server. */}
+                      {c.status
+                        ? <span className={`badge tone-${c.status.tone}`}>{c.status.label}</span>
+                        : <StatusBadge status={c.currentStage} label={stageLabel(c.currentStage)} />}
+                      {c.status?.detail && <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>{c.status.detail}</span>}
                       <span
                         style={{ fontSize: 11.5, color: (st ?? 0) > 1440 ? 'var(--red)' : (st ?? 0) > 60 ? 'var(--amber)' : 'var(--text-faint)' }}
-                        title={c.stageEnteredAt ? `in this stage since ${dateTimeStr(c.stageEnteredAt)}` : undefined}
+                        title={st == null ? undefined : `no website or app activity for ${stalledLabel(st)}`}
                       >
                         {st == null ? 'just arrived' : `here ${stalledLabel(st)}`}
                       </span>

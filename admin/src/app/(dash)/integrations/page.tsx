@@ -183,7 +183,7 @@ function VoxTab({ integration, defaults, onSaved }: { integration?: Integration;
           <Card title="Where things are" sub="What is sent, when, and what already went out.">
             <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 8, fontSize: 13, lineHeight: 1.5 }}>
               <li>What is sent and when, per step, is set on the <b>Stage outreach</b> tab.</li>
-              <li>Every text message we sent, and whether the gateway accepted it, is on the <Link href="/messages" style={{ textDecoration: 'underline' }}>Messages</Link> page. A text has no delivery report, so &quot;Sent&quot; means the gateway accepted it.</li>
+              <li>Every text message we sent, and whether the gateway accepted it, is on the <Link href="/alerts?type=sms" style={{ textDecoration: 'underline' }}>Alerts</Link> page. A text has no delivery report, so &quot;Sent&quot; means the gateway accepted it.</li>
               <li>Login OTPs are not set up here: they use the server&apos;s own Vox settings.</li>
             </ul>
           </Card>

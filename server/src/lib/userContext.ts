@@ -85,6 +85,13 @@ export interface UserContext {
   } | null;
 
   /**
+   * Details fetched from the mobile number (Digitap, lib/mobilePrefill.ts) are on this account — they are what
+   * filled the empty `profile` fields at login. Flags only: the fetched answer itself (PAN, score, address,
+   * income) never leaves the server. Null when there is no signed-in user or nothing was found.
+   */
+  prefill: { available: boolean; panAvailable: boolean } | null;
+
+  /**
    * The rest of what save_applicant_details collects conversationally, before
    * an application exists — everything NOT already in `profile` above. Now
    * synced server-side (User columns) instead of living only in the app's
@@ -184,7 +191,7 @@ export function outboundView(ctx: UserContext) {
 const NO_APPLICATION_LABEL = 'No application started';
 
 const EMPTY: UserContext = {
-  hasHistory: false, profile: null, applicantDraft: null,
+  hasHistory: false, profile: null, prefill: null, applicantDraft: null,
   applicationStatus: null, applicationStatusLabel: NO_APPLICATION_LABEL,
   inquiries: [], application: null, loan: null,
 };
@@ -271,6 +278,10 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
 
   const applicationStatus = app?.status ?? null;
 
+  const prefillRow = userId
+    ? await prisma.mobilePrefill.findUnique({ where: { userId }, select: { status: true, hasPan: true } }).catch(() => null)
+    : null;
+
   const ctx: UserContext = {
     hasHistory: true,
     profile: user
@@ -287,6 +298,7 @@ export async function buildUserContext(phone: string, userId?: string): Promise<
           panOnFile: !!user.panOnFile,
         }
       : null,
+    prefill: prefillRow?.status === 'found' ? { available: true, panAvailable: !!prefillRow.hasPan } : null,
     applicantDraft: user
       ? {
           residenceType: user.residenceType,

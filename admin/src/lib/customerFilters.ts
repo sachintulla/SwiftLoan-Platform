@@ -9,6 +9,9 @@
 export type CustomerPeriod = 'all' | 'today' | 'yesterday' | '7d' | '30d' | 'custom';
 
 export interface CustomerFilters {
+  /** The customer's real status, read from stored data (server lib/customerStatus.ts). What the page's filter sets. */
+  status: string;
+  /** The older journey stage. No control sets it any more; kept so old links and bookmarks still filter. */
   stage: string;
   source: string;
   campaignId: string;
@@ -26,7 +29,7 @@ export interface CustomerFilters {
 }
 
 export const DEFAULT_CUSTOMER_FILTERS: CustomerFilters = {
-  stage: '', source: '', campaignId: '', search: '', stalledMinutes: '', period: 'all', from: '', to: '', active: '', unverified: false,
+  status: '', stage: '', source: '', campaignId: '', search: '', stalledMinutes: '', period: 'all', from: '', to: '', active: '', unverified: false,
 };
 
 const PERIODS: CustomerPeriod[] = ['all', 'today', 'yesterday', '7d', '30d', 'custom'];
@@ -69,6 +72,8 @@ export function parseCustomerFilters(input: string | URLSearchParams | null | un
     : input ?? new URLSearchParams();
   const out: CustomerFilters = { ...DEFAULT_CUSTOMER_FILTERS };
 
+  const status = clean(sp.get('status'));
+  if (KEY_RE.test(status)) out.status = status;
   const stage = clean(sp.get('stage'));
   if (KEY_RE.test(stage)) out.stage = stage;
   const source = clean(sp.get('source'));
@@ -99,6 +104,7 @@ export function parseCustomerFilters(input: string | URLSearchParams | null | un
 /** The query string for the address bar (no leading "?"): only what differs from the defaults. */
 export function serialiseCustomerFilters(f: CustomerFilters): string {
   const sp = new URLSearchParams();
+  if (f.status) sp.set('status', f.status);
   if (f.stage) sp.set('stage', f.stage);
   if (f.source) sp.set('source', f.source);
   if (f.campaignId) sp.set('campaignId', f.campaignId);
@@ -127,6 +133,7 @@ export function hasCustomerFilters(f: CustomerFilters): boolean {
  */
 export function customerFilterParams(f: CustomerFilters, range: { from?: string; to?: string }): URLSearchParams {
   const sp = new URLSearchParams();
+  if (f.status) sp.set('status', f.status);
   if (f.stage) sp.set('stage', f.stage);
   if (f.source) sp.set('source', f.source);
   if (f.campaignId) sp.set('campaignId', f.campaignId);

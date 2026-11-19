@@ -949,6 +949,8 @@ export interface UserContext {
     monthlyIncome: number | null;
     panOnFile: boolean;
   } | null;
+  /** Details fetched from the mobile number are on this account (flags only). See server userContext.ts. */
+  prefill?: { available: boolean; panAvailable: boolean } | null;
   /** The rest of what save_applicant_details collects, synced server-side. See userContext.ts. */
   applicantDraft: {
     residenceType: string | null; maritalStatus: string | null; qualification: string | null;

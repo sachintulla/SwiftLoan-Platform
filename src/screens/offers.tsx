@@ -8,6 +8,7 @@ import { Loading } from '../components/common/Loading';
 import { ErrorState } from '../components/common/ErrorState';
 import { Empty } from '../components/common/Empty';
 import AltOfferTile from '../components/AltOfferTile';
+import { confirmApply } from '../components/ApplyConfirm';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, Offer } from '../api/client';
@@ -82,6 +83,12 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
     // The link to open. The apply response carries the hand-off copy (for an Aurix offer it includes the
     // customer's token, so the lender page skips its own OTP); the offer's stored link is the fallback.
     let lenderUrl = offer.redirectionUrl;
+    // Ask first: "You are about to apply for this loan with <lender>". Nothing is recorded or sent until Proceed.
+    const lenderName = displayLenderName(offer.lenderName || offer.partner?.name);
+    mergeApiContext({ applyConfirm: { open: true, lender: lenderName } });
+    const ok = await confirmApply({ lenderName, logoUrl: offer.lenderLogoUrl || offer.partner?.logoUrl });
+    mergeApiContext({ applyConfirm: { open: false, lender: lenderName, proceeded: ok } });
+    if (!ok) return;
     // A user can apply to the same lender more than once — but ONLY with a
     // different loan amount. Same lender + same amount is a duplicate: the
     // server returns the existing application and we send the user to its

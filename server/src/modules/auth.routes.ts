@@ -2,6 +2,7 @@ import { timing } from '../lib/timings.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { startMobilePrefill } from '../lib/mobilePrefill.js';
 import { hash, compare, sha256 } from '../lib/crypto.js';
 import { signAccess, accessTtlSeconds } from '../lib/jwt.js';
 import { validate } from '../middleware/validate.js';
@@ -60,6 +61,9 @@ authRouter.post(
     // Same "asked for a code but never entered it" SMS as the website (Android and iOS both come through here). Verifying in the
     // app ends it (installReminder.ts stops a run on an app login).
     armUnverifiedReminder(user).catch((e) => log.warn('unverified reminder not armed', { error: (e as Error).message })); // fire-and-forget
+    // Look this number's details up now (Digitap), so they are ready by the time the code is entered. Saved only;
+    // nothing is returned here and the profile is not filled until the OTP is accepted (lib/mobilePrefill.ts).
+    startMobilePrefill(user);
 
     // WS5: OTP_REQUESTED had no event at all before — without it there is no
     // way to see the "asked for an OTP but never entered it" drop-off.
