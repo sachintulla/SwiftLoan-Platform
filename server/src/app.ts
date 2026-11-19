@@ -34,6 +34,7 @@ import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { adminMessagesRouter } from './modules/adminMessages.routes.js';
+import { adminAlertsRouter } from './modules/adminAlerts.routes.js';
 import { adminTimingsRouter } from './modules/adminTimings.routes.js';
 import { adminTestNumbersRouter } from './modules/adminTestNumbers.routes.js';
 import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
@@ -177,6 +178,7 @@ export function createApp() {
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
+  app.use('/api/admin/alerts', adminAlertsRouter); // everything sent to customers (WhatsApp, SMS, push, calls) as one list
   app.use('/api/admin/api-errors', adminApiErrorsRouter); // failed API/webhook calls (ApiLog), with payloads
   app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
   app.use('/api/admin/test-numbers', adminTestNumbersRouter); // numbers that may sign in with the shared test code

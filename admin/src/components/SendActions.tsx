@@ -47,7 +47,8 @@ export interface SendActionsProps {
   customerName?: string | null;
   /** The customer's current journey stage key (for example kyc_started). */
   stage?: string | null;
-  variant?: 'panel' | 'compact';
+  /** `bar` = the four buttons only (the customer page's Alerts tab, which lists what was sent right below them). */
+  variant?: 'panel' | 'compact' | 'bar';
   /** A reason to disable every button, shown as visible text. */
   disabledReason?: string | null;
   /** App Downloads: the install this follow-up is about. The server refuses a guessed match. */
@@ -340,11 +341,13 @@ function Panel(props: SendActionsProps) {
 
   const recent = options?.recent ?? [];
   const shown = showAll ? recent : recent.slice(0, 5);
+  // The Alerts tab shows the buttons only: no help text and no "Recent messages" (the tab's own table is that list).
+  const bare = props.variant === 'bar';
 
   return (
-    <div className="so adm-send">
-      <div className="so-section">{sectionLabel(label)}</div>
-      <p className="adm-send-help">Sends now, outside the automatic schedule. Each send is recorded on this customer&apos;s activity log.</p>
+    <div className={`so adm-send${bare ? ' adm-send-bar' : ''}`}>
+      {!bare && <div className="so-section">{sectionLabel(label)}</div>}
+      {!bare && <p className="adm-send-help">Sends now, outside the automatic schedule. Each send is recorded on this customer&apos;s activity log.</p>}
 
       {error && !options && !isLoading && (
         <div className="adm-send-banner red" role="alert">
@@ -365,7 +368,7 @@ function Panel(props: SendActionsProps) {
         </div>
       )}
 
-      <div className="adm-send-row" role="group" aria-label="Reach out channels">
+      <div className="adm-send-row" role="group" aria-label={bare ? `Send now${label ? `, about ${label}` : ''}` : 'Reach out channels'}>
         {PANEL_ORDER.map((ch) => {
           const st = stateOf(ch);
           const isBusy = flow.busy?.channel === ch;
@@ -381,7 +384,8 @@ function Panel(props: SendActionsProps) {
                 <ChannelIcon channel={ch} />
                 <span>{isBusy ? (flow.busy?.kind === 'sending' ? 'Sending...' : 'Checking...') : CHANNEL_LABEL[ch]}</span>
               </button>
-              {!finished && <span className={`adm-send-note${st.tone === 'warn' ? ' warn' : ''}`}>{st.note}</span>}
+              {/* Bare: say only why a button cannot be used. */}
+              {!finished && (!bare || st.disabled) && <span className={`adm-send-note${st.tone === 'warn' ? ' warn' : ''}`}>{st.note}</span>}
             </div>
           );
         })}
@@ -399,11 +403,13 @@ function Panel(props: SendActionsProps) {
         )}
       </div>
 
+      {!bare && (
       <p className="adm-send-help tight">
         To put a tracked app link in a WhatsApp message, add <code>{'{appLink}'}</code> to that stage&apos;s template in Stage outreach.
       </p>
+      )}
 
-      {options && (recent.length > 0 || options.manualSends.length > 0) && (
+      {!bare && options && (recent.length > 0 || options.manualSends.length > 0) && (
         <section className="adm-send-recent" aria-label="Recent messages">
           <h4>Recent messages</h4>
           {recent.length === 0 ? (

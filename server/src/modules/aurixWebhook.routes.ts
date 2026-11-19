@@ -37,6 +37,7 @@ import { scoped } from '../lib/log.js';
 import { webhookEnvTag } from '../lib/webhookEnv.js';
 import { advanceReferral } from '../lib/referral.js';
 import { lenderNoteChange, recordLenderNote } from '../lib/lenderNote.js';
+import { lenderJourneyEvent, normaliseLenderState, SUBMITTED_STATES } from '../lib/lenderJourneyEvent.js';
 
 const log = scoped('aurix-webhook');
 
@@ -193,13 +194,6 @@ export function mapFlatStatus(raw: string): ApplicationStatus | null {
   return null;
 }
 
-function journeyName(status: ApplicationStatus): string {
-  if (status === 'approved') return JOURNEY_EVENTS.LOAN_APPROVED;
-  if (status === 'rejected') return JOURNEY_EVENTS.LOAN_REJECTED;
-  if (status === 'disbursed') return JOURNEY_EVENTS.LOAN_DISBURSED;
-  return JOURNEY_EVENTS.APPLICATION_SUBMITTED;
-}
-
 aurixWebhookRouter.post('/', ah(async (req, res) => {
   const auth = verifyWebhook(req);
   if (!auth.ok) return fail(res, auth.code, auth.message);
@@ -295,8 +289,7 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
   // later kyc/redirection/terminal events). Earlier lender-scoped events
   // (lender_selection, lender_api_journey) are pre-OTP, so they only update an
   // offer that is ALREADY applied — they never create one.
-  const CREATE_STATES = new Set(['application_submitted', 'kyc_completed', 'post_lender_redirection_journey']);
-  const createsApplication = CREATE_STATES.has(state.toLowerCase().replace(/[^a-z_]/g, '')) || TERMINAL.has(mapped);
+  const createsApplication = SUBMITTED_STATES.has(normaliseLenderState(state)) || TERMINAL.has(mapped);
   const lenderName = data.lender_name ?? data.lenderName ?? null;
   let offerUpdated: string | null = null;
   if (lenderName || offerCodeMatch) {
@@ -384,10 +377,19 @@ aurixWebhookRouter.post('/', ah(async (req, res) => {
     }
   }
 
-  // Audit trail on the customer timeline (fire-and-forget).
+  // Audit trail on the customer timeline (fire-and-forget). Only a push that means the customer really applied with a
+  // lender is "application submitted"; the lender's own PAN / bureau / eligibility steps are a neutral `lender_update`,
+  // which never moves the customer's stage (lib/lenderJourneyEvent.ts).
+  const appliedWithLender =
+    !!(await prisma.lenderApplication.findFirst({ where: { applicationId: application.id }, select: { id: true } }).catch(() => null)) ||
+    !!(await prisma.offer.findFirst({ where: { applicationId: application.id, applied: true }, select: { id: true } }).catch(() => null));
   trackJourney(
     { userId: application.userId },
-    { channel: 'system', name: journeyName(mapped), metadata: { applicationId: application.id, state, kftStatus: jStatus, reason, leadId } },
+    {
+      channel: 'system',
+      name: lenderJourneyEvent({ mapped, state, appliedWithLender }),
+      metadata: { applicationId: application.id, state, kftStatus: jStatus, reason, leadId },
+    },
   ).catch(() => {});
 
   log.info('status updated', { applicationId: application.id, status: mapped, offerUpdated });

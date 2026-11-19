@@ -78,3 +78,16 @@
 @media (pointer: coarse) {
   .adm-send-small { min-height: 36px; }
 }
+
+/* Buttons only (the customer page's Alerts tab): one tight row beside the type counts, no top rule. */
+.adm-send.adm-send-bar { margin-top: 0; padding-top: 0; border-top: 0; max-width: 100%; }
+.adm-send-bar .adm-send-row { gap: 8px; justify-content: flex-end; }
+.adm-send-bar .adm-send-cell { flex: 0 1 auto; width: 132px; max-width: 132px; gap: 4px; }
+.adm-send-bar .adm-send-btn { min-height: 36px; padding: 6px 10px; }
+.adm-send-bar .adm-send-note { min-height: 0; }
+.adm-send-bar .adm-send-result:empty { display: none; }
+@media (max-width: 640px) {
+  .adm-send-bar .adm-send-row { justify-content: flex-start; }
+  .adm-send-bar .adm-send-cell { flex: 1 1 132px; width: auto; max-width: none; }
+}
+

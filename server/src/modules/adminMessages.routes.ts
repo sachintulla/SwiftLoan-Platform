@@ -31,7 +31,7 @@ const withFlags = <T extends { status: string; channel: string; createdAt: Date 
 const RANGES: Record<string, number> = { '24h': 24 * 3_600_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000 };
 
 /** Add what the sent-messages table needs: the person's name, the message text (when the template text is recorded), and what triggered it. */
-async function enrich<T extends { customerId: string | null; template: string | null; meta: unknown }>(rows: T[]) {
+export async function enrich<T extends { customerId: string | null; template: string | null; meta: unknown }>(rows: T[]) {
   const [cfg, customers] = await Promise.all([
     getProviderConfig('voxvalley').catch(() => null),
     prisma.customer.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.customerId).filter((x): x is string => !!x))] } }, select: { id: true, name: true } }),

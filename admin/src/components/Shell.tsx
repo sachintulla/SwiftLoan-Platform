@@ -37,10 +37,11 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       // entered their OTP). /users and /users/:id still open from links on a customer.
       { href: '/analytics', label: 'Conversions & Commercials', icon: '％' },
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
-      { href: '/messages', label: 'Messages', icon: '✆' },
+      // Alerts = everything sent to customers (WhatsApp, SMS, push, calls). It replaced the separate Messages and
+      // Calls pages; /messages and /calls redirect to it.
+      { href: '/alerts', label: 'Alerts', icon: '✆' },
       { href: '/api-errors', label: 'API & Webhook Errors', icon: '⚠' },
       { href: '/notify', label: 'Send Notification', icon: '➤' },
-      { href: '/calls', label: 'Calls', icon: '☎' },
       { href: '/notifications', label: 'Notifications', icon: '◈', badgeKey: 'unreadNotifs' },
     ],
   },
@@ -61,7 +62,7 @@ const NAV: { section?: string; items: NavDef[] }[] = [
 const TITLES: Record<string, string> = {
   '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
   '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
-  '/analytics': 'Conversions & Commercials', '/notifications': 'Notifications', '/support': 'Support Tickets', '/messages': 'Messages', '/api-errors': 'API & Webhook Errors', '/notify': 'Send Notification',
+  '/analytics': 'Conversions & Commercials', '/notifications': 'Notifications', '/support': 'Support Tickets', '/alerts': 'Alerts', '/messages': 'Alerts', '/api-errors': 'API & Webhook Errors', '/notify': 'Send Notification',
   // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
   // is now the single people surface and /leads maps to the same title.
   '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
