@@ -58,7 +58,7 @@ export default function Handoff() {
       markUrgentContext();
       go('disbursed');
     } catch (e: any) {
-      showToast(e?.message || 'Could not complete the handoff. Please try again.');
+      showToast(e?.message || 'Could not complete the handoff. Please try again.', { kind: 'error' });
     } finally {
       setConfirming(false);
     }

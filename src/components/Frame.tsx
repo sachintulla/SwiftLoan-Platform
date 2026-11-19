@@ -24,7 +24,7 @@ import Svg, { Defs, RadialGradient, Stop, Rect, Path, G, Filter, FeGaussianBlur 
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
-import { useStore, Screen as ScreenName, TAB_SCREENS } from '../state/store';
+import { useStore, Screen as ScreenName, TAB_SCREENS, toastDurationMs, type ToastKind } from '../state/store';
 import { publishScreenGraph, registerTarget, clearScreenGraph } from '../voice/actionRegistry';
 
 // Approx height of the pinned footer bar (padding + a 48–56pt CTA). Reserved on
@@ -179,6 +179,9 @@ export function Screen({
   // (no double top padding).
   const hasPinnedHeader = header != null || collapsingTitle != null;
   const contentTopPad = hasPinnedHeader ? 8 : insets.top + 8;
+  // Measured height of the pinned top bar (status-bar inset included), so the toast can sit
+  // just under it and never cover the bar's own buttons (Back, Continue).
+  const [headerH, setHeaderH] = useState(0);
   // Collapsing-title fade: 0 while at the top (large title visible), 1 once
   // scrolled past it, so the pinned header shows the title instead of empty space.
   const titleAnim = useRef(new Animated.Value(0)).current;
@@ -369,7 +372,12 @@ export function Screen({
         {/* Pinned top bar (e.g. the back button) — stays fixed while content
             scrolls beneath it. Consumes the top safe-area inset itself. */}
         {headerEl ? (
-          <View style={{ paddingTop: insets.top, paddingHorizontal: 20 }}>{headerEl}</View>
+          <View
+            onLayout={e => setHeaderH(e.nativeEvent.layout.height)}
+            style={{ paddingTop: insets.top, paddingHorizontal: 20 }}
+          >
+            {headerEl}
+          </View>
         ) : null}
         {inner}
         {/* Footer lives INSIDE the background wrapper (which is absoluteFill for
@@ -414,7 +422,7 @@ export function Screen({
       {/* The tab bar is rendered once at the app root (App.tsx) as a persistent,
           sliding element — no longer per-screen — so it can animate down/up
           across navigations while the FAB rolls between corner and notch. */}
-      <Toast />
+      <Toast top={headerEl ? (headerH || insets.top + 58) + 4 : insets.top + 8} />
     </View>
   );
 }
@@ -842,18 +850,120 @@ function SupportTab() {
 }
 
 /* ─────────────────────────────────────────────────────────────
- * Toast — bottom pill notification, driven by store.toast.
+ * Toast — notification card, driven by store.toast / toastKind.
+ *
+ * Slides in from the right at the TOP of the screen, just under the pinned top bar (or the
+ * status bar on screens without one). It used to sit at the bottom, where the Ruby button and
+ * her tip bubble covered it, so a warning such as "Please fill … to continue" could not be read.
+ *
+ * The card is always white; everything INSIDE it (icon, text, time bar) takes the colour of the
+ * kind: error red, warning amber, success green, info deep teal. A thin bar along the bottom
+ * runs down the time left, and the × closes it early. Only the card itself takes touches, so
+ * nothing around it is blocked, and a long message wraps instead of being cut off.
  * ───────────────────────────────────────────────────────────── */
-export function Toast() {
-  const { state } = useStore();
+const TOAST_UNDER_JEST =
+  typeof process !== 'undefined' && !!(process as { env?: Record<string, string | undefined> }).env?.JEST_WORKER_ID;
+
+const TOAST_LOOK: Record<ToastKind, { icon: string; color: string }> = {
+  error: { icon: 'error', color: colors.redDeep },
+  warning: { icon: 'warning', color: colors.amberDeep },
+  success: { icon: 'check_circle', color: colors.greenDeep },
+  info: { icon: 'info', color: colors.ink },
+};
+
+/** How long the card takes to slide back out; it is removed from the screen right after. */
+const TOAST_EXIT_MS = 200;
+
+export function Toast({ top }: { top?: number }) {
+  const { state, set } = useStore();
   const insets = useSafeAreaInsets();
-  if (!state.toast) return null;
+  const { width } = useWindowDimensions();
+  // What is on screen. Held HERE, not read straight from the store, so the card stays mounted
+  // from the moment it appears until it has slid back out; store.toast only says when to come
+  // and go. (The first version rendered from store.toast and a separate "leaving" copy: closing
+  // it early unmounted and remounted the card in the middle of its animations, and it froze on
+  // screen with the time bar stopped. Found by tapping the × on the simulator.)
+  const [card, setCard] = useState<{ text: string; kind: ToastKind; id: number } | null>(
+    state.toast ? { text: state.toast, kind: state.toastKind, id: state.toastAt } : null,
+  );
+  const slide = useRef(new Animated.Value(0)).current;
+  const timeLeft = useRef(new Animated.Value(1)).current;
+  const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardId = card?.id;
+
+  // A toast was shown (or replaced by another): put it on screen.
+  useEffect(() => {
+    if (!state.toast) return;
+    if (removeTimer.current) { clearTimeout(removeTimer.current); removeTimer.current = null; }
+    setCard({ text: state.toast, kind: state.toastKind, id: state.toastAt });
+  }, [state.toast, state.toastKind, state.toastAt]);
+
+  // Once that card is mounted: slide it in and start its time bar. (`toastAt` is new on every
+  // showToast, so the same message shown again restarts the bar.)
+  useEffect(() => {
+    if (cardId == null) return;
+    // No animation under Jest: Animated's 0 ms rAF shim spins on a faked clock.
+    if (TOAST_UNDER_JEST) { slide.setValue(1); return; }
+    // JS-driven (useNativeDriver: false) so React's own record of where the card is stays true.
+    Animated.timing(slide, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    // The bar empties over exactly the time the store keeps the toast up.
+    timeLeft.setValue(1);
+    Animated.timing(timeLeft, {
+      toValue: 0, duration: toastDurationMs(state.toastKind), easing: Easing.linear, useNativeDriver: true,
+    }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardId, slide, timeLeft]);
+
+  // The toast ended (its time ran out, or the × was tapped): slide out, then remove the card.
+  // Removal is on a timer, never on the animation's own callback, so it cannot be left behind.
+  useEffect(() => {
+    if (state.toast || cardId == null) return;
+    if (!TOAST_UNDER_JEST) {
+      timeLeft.stopAnimation();
+      Animated.timing(slide, { toValue: 0, duration: TOAST_EXIT_MS, easing: Easing.in(Easing.cubic), useNativeDriver: false }).start();
+    }
+    if (removeTimer.current) clearTimeout(removeTimer.current);
+    removeTimer.current = setTimeout(() => { removeTimer.current = null; setCard(null); }, TOAST_EXIT_MS + 20);
+  }, [state.toast, cardId, slide, timeLeft]);
+
+  useEffect(() => () => { if (removeTimer.current) clearTimeout(removeTimer.current); }, []);
+
+  const shown = card;
+  if (!shown) return null;
+  const look = TOAST_LOOK[shown.kind];
+  const dismiss = () => set({ toast: '' });
   return (
-    <View pointerEvents="none" style={[styles.toastWrap, { bottom: 104 + insets.bottom }]}>
-      <View style={styles.toast}>
-        <Icon name="bolt" size={16} color={colors.mint} />
-        <Text style={[font(600), { color: '#fff', fontSize: 13, flexShrink: 1 }]}>{state.toast}</Text>
-      </View>
+    <View pointerEvents="box-none" style={[styles.toastWrap, { top: top ?? insets.top + 8 }]}>
+      <Animated.View
+        accessibilityRole="alert"
+        accessibilityLiveRegion="polite"
+        style={[
+          styles.toast,
+          { maxWidth: Math.min(300, width - 28) },
+          { opacity: slide, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [90, 0] }) }] },
+        ]}
+      >
+        <View style={styles.toastRow}>
+          <Icon name={look.icon} size={17} color={look.color} />
+          <Text style={[font(600), styles.toastText, { color: look.color }]}>{shown.text}</Text>
+          {/* A bare touch responder, not Pressable: the app's Pressable registers every labelled
+              button with the voice agent, and a passing × is not something for her to press. */}
+          <View
+            onStartShouldSetResponder={() => true}
+            onResponderRelease={dismiss}
+            hitSlop={12}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            style={styles.toastClose}
+          >
+            <Icon name="close" size={16} color={colors.muted} />
+          </View>
+        </View>
+        <View style={styles.toastTrack}>
+          <Animated.View style={[styles.toastBar, { backgroundColor: look.color, transform: [{ scaleX: timeLeft }] }]} />
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -929,15 +1039,26 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
     borderColor: '#fff',
   },
-  toastWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
+  // Top of the screen, against the right edge. zIndex keeps it over a screen's own floating bits.
+  toastWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'flex-end', paddingHorizontal: 14, zIndex: 50 },
+  // Always white, with a hairline edge so it also reads on the white cards it may land on; the
+  // colour of the kind goes on what is inside (TOAST_LOOK).
   toast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(15,42,43,0.96)',
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    maxWidth: 360,
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(10,63,65,0.10)',
+    overflow: 'hidden',
+    shadowColor: colors.ink,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
   },
+  toastRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingLeft: 11, paddingRight: 5 },
+  toastText: { fontSize: 12.5, lineHeight: 17, flexShrink: 1 },
+  toastClose: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  // Time-left bar, in the kind's colour, emptying towards the left.
+  toastTrack: { height: 3, backgroundColor: 'rgba(10,63,65,0.07)' },
+  toastBar: { height: 3, transformOrigin: 'left' },
 });

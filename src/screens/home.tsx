@@ -14,10 +14,7 @@ import { isWelcomeReady } from '../config/welcome';
 import { api, isAuthed, Offer, PrequalifyingOffer } from '../api/client';
 import { displayLenderName } from './offers';
 import { useUnreadCount } from './notifications';
-
-// Applications whose offers are still worth surfacing on the dashboard.
-const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
-
+import { pickOffersApplication, unappliedOffers } from '../utils/pastApplication';
 
 // Fallback highlights when a lender didn't return its own feature list.
 const DEFAULT_FEATURES = ['Low interest rates', 'Flexible tenure', 'Minimal documents', 'Quick approval'];
@@ -54,17 +51,18 @@ export default function Home() {
         // Deliberately NOT pushed into apiContext (mergeApiContext) — this
         // fetch exists purely to render Home's own hero headline/offers
         // card/CTA state below, not to feed the voice agent.
-        const withOffers =
-          apps.find(a => (a.offers?.length ?? 0) > 0 && OFFER_STATUSES.includes(a.status)) ||
-          apps.find(a => (a.offers?.length ?? 0) > 0) ||
-          apps[0];
+        // Same rule as My Offers (utils/pastApplication.ts): an offer already applied to is
+        // tracked in My Loans and is not an offer to "view" any more. Counting those made the
+        // hero say "N offers matched" while My Offers had nothing to show.
+        const withOffers = pickOffersApplication(apps) || apps[0];
         if (withOffers) {
-          setOffers((withOffers.offers || []) as Offer[]);
+          const open = unappliedOffers(withOffers) as Offer[];
+          setOffers(open);
           setEnquiredAmount(withOffers.amount ?? null);
           set({
             applicationId: withOffers.id,
             loanId: withOffers.loan?.id ?? null,
-            hasSavedOffers: (withOffers.offers?.length ?? 0) > 0,
+            hasSavedOffers: open.length > 0,
           });
         } else {
           set({ hasSavedOffers: false });

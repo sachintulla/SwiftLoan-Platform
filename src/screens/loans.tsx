@@ -118,10 +118,10 @@ export default function Loans() {
         set({ webUrl: alt.redirectUrl, webTitle: t.altOffersTitle, altPrefill: alt.prefill || (alt.pan ? { pan: alt.pan } : {}), altResumeToOffers: !!alt.resumeToOffers });
         go('altweb');
       } else {
-        showToast(t.altOffersOpenFailed);
+        showToast(t.altOffersOpenFailed, { kind: 'error' });
       }
     } catch {
-      showToast(t.altOffersOpenFailed);
+      showToast(t.altOffersOpenFailed, { kind: 'error' });
     }
   };
 

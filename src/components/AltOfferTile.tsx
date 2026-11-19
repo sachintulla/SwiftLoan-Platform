@@ -32,7 +32,7 @@ export default function AltOfferTile({ variant = 'default' }: { variant?: 'defau
   const open = async () => {
     if (loading) return;
     const appId = state.applicationId;
-    if (!appId) { showToast(t.altOffersOpenFailed); return; }
+    if (!appId) { showToast(t.altOffersOpenFailed, { kind: 'error' }); return; }
     setLoading(true);
     showToast(t.altOffersOpening);
     try {
@@ -42,10 +42,10 @@ export default function AltOfferTile({ variant = 'default' }: { variant?: 'defau
         set({ webUrl: alt.redirectUrl, webTitle: t.altOffersTitle, altPrefill: alt.prefill || (alt.pan ? { pan: alt.pan } : {}), altResumeToOffers: !!alt.resumeToOffers });
         go('altweb');
       } else {
-        showToast(t.altOffersOpenFailed);
+        showToast(t.altOffersOpenFailed, { kind: 'error' });
       }
     } catch {
-      showToast(t.altOffersOpenFailed);
+      showToast(t.altOffersOpenFailed, { kind: 'error' });
     } finally {
       setLoading(false);
     }

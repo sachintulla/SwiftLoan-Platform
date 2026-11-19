@@ -107,7 +107,7 @@ export function useOfferSelect(onApplied?: (offerId: string) => void) {
           selectedOfferId: offer.id,
           selectedLenderApplicationId: res.lenderApplicationId ?? null,
         });
-        showToast(res.message || t.alreadyAppliedSameAmount);
+        showToast(res.message || t.alreadyAppliedSameAmount, { kind: 'warning' });
         go('status');
         return;
       }

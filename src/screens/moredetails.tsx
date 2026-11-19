@@ -28,15 +28,15 @@ export default function MoreDetails() {
     // save. Catch it here with a clear message instead.
     const emailOk = (v: string) => /^\S+@\S+\.\S+$/.test(v.trim());
     if (state.optAltEmail.trim() && !emailOk(state.optAltEmail)) {
-      showToast(t.mdErrAltEmail);
+      showToast(t.mdErrAltEmail, { kind: 'warning' });
       return false;
     }
     if (state.optCompanyEmail.trim() && !emailOk(state.optCompanyEmail)) {
-      showToast(t.mdErrCompanyEmail);
+      showToast(t.mdErrCompanyEmail, { kind: 'warning' });
       return false;
     }
     if (state.optBusinessEmail.trim() && !emailOk(state.optBusinessEmail)) {
-      showToast(t.mdErrBusinessEmail);
+      showToast(t.mdErrBusinessEmail, { kind: 'warning' });
       return false;
     }
     const patch: Record<string, unknown> = {};
@@ -61,7 +61,7 @@ export default function MoreDetails() {
       await api.updateProfile(patch);
       return true;
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.mdErrSave);
+      showToast(e instanceof ApiError ? e.message : t.mdErrSave, { kind: 'error' });
       return false;
     }
   };

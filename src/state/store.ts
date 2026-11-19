@@ -29,6 +29,7 @@ import { resolveLinkTarget, type LinkTarget } from '../analytics/upshotLinks';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
+import { pickOffersApplication } from '../utils/pastApplication';
 
 // The full list of screens, mirroring the design's state machine. Kept as a
 // const array (rather than a hand-written union) so the voice agent's
@@ -187,6 +188,24 @@ const PREV: Partial<Record<Screen, Screen>> = {
   notifications: 'home',
 };
 
+/**
+ * What a toast is about. It picks the icon AND the colour of everything inside the card (the card
+ * itself is always white): error = red, warning = amber, success = green, info = deep teal.
+ */
+export type ToastKind = 'error' | 'warning' | 'success' | 'info';
+export interface ToastOptions {
+  /** Not copied to the voice agent (a toast that is not the user's own action result). */
+  silentToAgent?: boolean;
+  /** 'error' = it failed; 'warning' = something to fix first; 'success' = it worked; default 'info'. */
+  kind?: ToastKind;
+}
+/** The longest any toast stays up (owner's rule: 3 seconds at most). */
+export const TOAST_MAX_MS = 3000;
+/** How long a toast stays up. A problem gets the full 3 seconds; a confirmation or note a little less. */
+export function toastDurationMs(kind: ToastKind): number {
+  return kind === 'error' || kind === 'warning' ? TOAST_MAX_MS : 2400;
+}
+
 export interface AppState {
   screen: Screen;
   lang: string | null; // null until chosen; effective default 'en'
@@ -198,6 +217,10 @@ export interface AppState {
   privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
   supportOpen: boolean; // the tab-bar Support (Ruby) bottom-sheet is showing
   toast: string;
+  // What the current toast is, which picks its icon and inside colour (see ToastKind).
+  // `toastAt` restarts its timer bar.
+  toastKind: ToastKind;
+  toastAt: number;
   notif: { loan: boolean; security: boolean; promo: boolean };
   // mobile / otp
   mobileVal: string;
@@ -337,7 +360,7 @@ export const initialState: AppState = {
   selectedLang: null,
   privacyAccepted: false,
   supportOpen: false,
-  toast: '',
+  toast: '', toastKind: 'info', toastAt: 0,
   notif: { loan: true, security: true, promo: false },
   mobileVal: '',
   terms: false,
@@ -683,7 +706,7 @@ interface Ctx {
   // Every toast is also copied into apiContext.lastToast so the voice agent can see
   // what the user was just shown (errors especially). Pass { silentToAgent: true }
   // for toasts that are not the user's own action result.
-  showToast: (msg: string, opts?: { silentToAgent?: boolean }) => void;
+  showToast: (msg: string, opts?: ToastOptions) => void;
   reset: () => void;
   parentOf: (s: Screen) => Screen;
 }
@@ -755,8 +778,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'back' });
   }, []);
 
-  const showToast = useCallback((msg: string, opts?: { silentToAgent?: boolean }) => {
-    dispatch({ type: 'set', patch: { toast: msg } });
+  const showToast = useCallback((msg: string, opts?: ToastOptions) => {
+    const kind: ToastKind = opts?.kind ?? 'info';
+    dispatch({ type: 'set', patch: { toast: msg, toastKind: kind, toastAt: Date.now() } });
     // A toast is invisible to the voice agent otherwise: tool results say "tapped
     // Continue, still on <screen>" with no reason, so Ruby retried blindly or went
     // silent while the user read an error (e.g. "This email is already in use").
@@ -768,7 +792,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(
       () => dispatch({ type: 'set', patch: { toast: '' } }),
-      2400,
+      toastDurationMs(kind),
     );
   }, []);
 
@@ -1253,15 +1277,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // the user re-entering any details or re-pulling.
   const offersRestored = useRef(false);
   useEffect(() => {
-    if (!state.authUser || offersRestored.current) return;
+    // Logged out: the next login is a new restore. (The ref used to stay true for the life of
+    // the app, so a logout → login in the same run never restored anything.)
+    if (!state.authUser) { offersRestored.current = false; return; }
+    if (offersRestored.current) return;
     offersRestored.current = true;
     api.listApplications()
       .then((r: any) => {
         const apps: any[] = r?.applications || [];
-        const withOffers = apps.find(
-          (a) => (a.offers?.length ?? 0) > 0 &&
-            ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'].includes(a.status),
-        );
+        // Offers not applied to yet, same rule as Home and My Offers (utils/pastApplication.ts).
+        const withOffers = pickOffersApplication(apps);
         if (withOffers) {
           dispatch({ type: 'set', patch: { applicationId: withOffers.id, loanId: withOffers.loan?.id ?? null, hasSavedOffers: true } });
         }
@@ -1283,7 +1308,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!r) return; // network error: keep it pending, retry next launch
       await clearPendingReferral();
       if (r?.data?.redeemed && r.data.referrer_name) {
-        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`);
+        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`, { kind: 'success' });
       }
     })().catch(() => undefined);
   }, [state.authUser, showToast]);
