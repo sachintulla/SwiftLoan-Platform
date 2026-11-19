@@ -24,9 +24,11 @@ export function canonHeader(h: string): string {
 // Header alias → our field name. Keyed by canonHeader() output.
 const COLUMN_ALIASES: Record<string, string> = {
   date: 'date',
+  submittedon: 'date',
   name: 'name',
   customername: 'name',
   applicantname: 'name',
+  fullname: 'name',
   mobilenumber: 'mobile',
   mobile: 'mobile',
   mobileno: 'mobile',
@@ -37,6 +39,8 @@ const COLUMN_ALIASES: Record<string, string> = {
   loanamt: 'loanAmount',
   loanamount: 'loanAmount',
   amount: 'loanAmount',
+  requiredloanamount: 'loanAmount',
+  requiredamount: 'loanAmount',
   salarymode: 'salaryMode',
   status: 'status',
   remark: 'remark',
@@ -80,6 +84,22 @@ const STATUS_CANON: Record<string, string> = {
   noteligible: 'Ineligible',
   hold: 'On Hold',
   onhold: 'On Hold',
+  // Revasure telecaller dispositions (contact outcomes, not loan decisions) —
+  // recognised so they normalise to clean, consistent labels wherever they appear.
+  notconnected: 'Not Connected',
+  notreachable: 'Not Connected',
+  ringing: 'Not Connected',
+  switchedoff: 'Not Connected',
+  hangup: 'Hung Up',
+  callback: 'Callback',
+  callbackrequested: 'Callback',
+  callbacklater: 'Callback',
+  notinterested: 'Not Interested',
+  voicemail: 'Voicemail',
+  voicemessage: 'Voicemail',
+  languagebarrier: 'Language Barrier',
+  // A failed Excel lookup (#N/A / N/A / NA) means Revasure has no decision yet.
+  na: 'Pending',
 };
 
 export interface MisStatus {
