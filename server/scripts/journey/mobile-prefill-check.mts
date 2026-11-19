@@ -51,23 +51,37 @@ import http from 'node:http';
 
   const { prisma } = await import(`${S}/prisma.js`);
   const { refreshTimings } = await import(`${S}/timingsStore.js`);
-  const { startMobilePrefill, mobilePrefillSettled, usePrefillForApplication, mobilePrefillEnabled } = await import(`${S}/mobilePrefill.js`);
+  const { startMobilePrefill, finishMobilePrefillAtLogin, mobilePrefillSettled, usePrefillForApplication, mobilePrefillEnabled } = await import(`${S}/mobilePrefill.js`);
+  const { buildUserContext } = await import(`${S}/userContext.js`);
   const { loadPan, userPanData } = await import(`${S}/storedPan.js`);
   const { decryptJson } = await import(`${S}/pii.js`);
   await refreshTimings();
 
   const make = (phone: string, data: Record<string, unknown> = {}) => prisma.user.create({ data: { phone, phoneVerified: true, ...data } });
-  const login = async (u: { id: string; phone: string }) => { startMobilePrefill(u); await mobilePrefillSettled(u.id); };
+  // The two moments of a sign-in: the OTP is requested (lookup starts, saved only), then accepted (profile filled).
+  const requestOtp = async (u: { id: string; phone: string }) => { startMobilePrefill(u); await mobilePrefillSettled(u.id); };
+  const acceptOtp = async (u: { id: string; phone: string }) => { await finishMobilePrefillAtLogin(u); await mobilePrefillSettled(u.id); await new Promise((r) => setTimeout(r, 50)); };
+  const login = async (u: { id: string; phone: string }) => { await requestOtp(u); await acceptOtp(u); };
   const callsFor = (phone: string) => calls.filter((c) => c.body.mobile_no === phone);
   const full = (id: string) => prisma.user.findUnique({ where: { id }, omit: { creditScore: false, panEnc: false } }) as Promise<any>;
 
   check('switched on by DIGITAP_ENABLED + address + client ID + secret', mobilePrefillEnabled() === true);
 
   // ── 1. a brand-new user: no name on record → name lookup; everything saved
-  const fresh = await make(P.fresh);
-  await login(fresh);
+  const fresh = await make(P.fresh, { phoneVerified: false });
+  await requestOtp(fresh);
   const c1 = callsFor(P.fresh);
-  check('one call after login', c1.length === 1, `${c1.length} calls`);
+  check('the lookup is made when the OTP is REQUESTED', c1.length === 1, `${c1.length} calls`);
+  const early = await full(fresh.id);
+  const earlyRow = await prisma.mobilePrefill.findUnique({ where: { userId: fresh.id } });
+  check('before the OTP is accepted: saved in MobilePrefill only', earlyRow?.status === 'found' && earlyRow.hasPan === true);
+  check('before the OTP is accepted: the profile is NOT filled (number not proven)', early.firstName === null && early.dob === null && early.email === null && early.pincode === null && early.panEnc == null && early.creditScore == null && early.panOnFile === false);
+  check('before the OTP is accepted: the agent context says nothing is on record', (await buildUserContext(P.fresh, fresh.id)).profile?.name == null);
+  await acceptOtp(fresh);
+  check('accepting the OTP makes no second call', callsFor(P.fresh).length === 1);
+  const ctx1 = await buildUserContext(P.fresh, fresh.id);
+  check('after the OTP: the agent context carries the basic details + flags only', ctx1.prefill?.available === true && ctx1.prefill.panAvailable === true && ctx1.profile?.name === 'JOHN DOE' && ctx1.profile.dob === '2001-09-19' && ctx1.profile.pincode === '400708' && ctx1.profile.employment === 'salaried');
+  check('the agent context never carries the PAN or the score', !/CXXPD1234H|"creditScore"|800/.test(JSON.stringify(ctx1)), 'checked the whole context');
   check('Basic auth with client id:secret', c1[0]?.auth === `Basic ${Buffer.from('test-id:test-secret').toString('base64')}`);
   check('no name on record (outside UAT) → name_lookup 1, no name sent', c1[0]?.body.name_lookup === 1 && !('first_name' in c1[0].body), JSON.stringify(c1[0]?.body));
   check('asks only for alternate numbers + additional details', JSON.stringify(c1[0]?.body.options) === JSON.stringify(['alternate_mobile_numbers', 'additional_details']));
@@ -145,6 +159,14 @@ import http from 'node:http';
   await login(filled);
   const u9 = await full(filled.id);
   check('existing profile untouched', u9.firstName === 'Meena' && u9.gender === 'female' && u9.city === 'Pune' && u9.addressLine1 === null && u9.monthlyIncome === 42000 && u9.employment === 'self_employed' && u9.alternateMobile === '9000000001' && u9.email === 'meena@example.com');
+
+  // ── 9b. no lookup at the request (e.g. switched on since) → one is made when the OTP is accepted, and fills the profile
+  const late = await make('9000000069');
+  await acceptOtp(late);
+  await mobilePrefillSettled(late.id);
+  const uLate = await full(late.id);
+  check('no earlier lookup → made at OTP accept, profile filled', callsFor('9000000069').length === 1 && uLate.firstName === 'JOHN' && uLate.pincode === '400708');
+  check('a number with no record gives the agent no "on record" flag', (await buildUserContext(P.none, none.id)).prefill === null);
 
   // ── 10. switched off → nothing is called
   process.env.DIGITAP_ENABLED = 'false';

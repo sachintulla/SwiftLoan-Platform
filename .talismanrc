@@ -144,7 +144,9 @@ fileignoreconfig:
 - filename: server/scripts/journey/mobile-prefill-check.mts
   checksum: fa4f8db9003e2bda35ef80a4f05ba0e32b4c4e5c4aba42784ab97ec5d7b8e4fe
 - filename: server/src/lib/mobilePrefill.ts
-  checksum: 1c6a0e54b150e531df7fa8b4fdad324f7491819b512bba60d5536c2055610fb6
+  checksum: 443a283dd3be2e6948ce1c3a44ed6f5ac438133a6f1f1f885706ae28606b409d
 - filename: server/src/lib/digitap.ts
   checksum: 26e894cb5c430a5b57ea0123973ef6f7e59238e38557192fcd374c414da449c4
+- filename: src/state/store.ts
+  checksum: b7293b1fa96fb9c76e2b4e9efb601e137fce1142202da35f616f292b73c75f51
 version: "1.0"
