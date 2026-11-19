@@ -417,7 +417,7 @@ export default function VoiceWidget() {
       // read as the button just not working.
       const message: string = e?.message || '';
       if (message.startsWith('offline:')) return;
-      showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed);
+      showToast(e?.code === 'session_busy' ? t.voiceStartFailedCall : t.voiceStartFailed, { kind: 'error' });
     });
   };
 
