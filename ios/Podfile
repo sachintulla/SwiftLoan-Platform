@@ -52,6 +52,12 @@ target 'SwiftLoan' do
     # already degrades gracefully when this SDK isn't present).
     upshot_pods = ['Upshot', 'UpshotPush', 'react-native-upshotsdk']
     installer.pods_project.targets.each do |target|
+      # Xcode 27 rejects (as an error) any target whose deployment target is below iOS 15. Some pods'
+      # resource bundles still declare 9.0-13.0: raise those to the app's own minimum.
+      target.build_configurations.each do |bc|
+        v = bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1' if v && v.to_f < 15.1
+      end
       is_bundle = target.respond_to?(:product_type) && target.product_type == 'com.apple.product-type.bundle'
       if is_bundle
         # Resource-bundle targets never link anything, but inherit the whole

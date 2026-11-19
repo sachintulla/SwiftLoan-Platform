@@ -11,6 +11,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
 
+  /// What the app was launched with, kept for React Native (`Linking.getInitialURL` reads the link from here).
+  private var launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+
   func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -21,13 +24,38 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     reactNativeDelegate = delegate
     reactNativeFactory = factory
+    self.launchOptions = launchOptions
 
-    window = UIWindow(frame: UIScreen.main.bounds)
+    // The window is created by SceneDelegate (UIScene life cycle), which then calls startReactNative(in:).
+    // Apps built with the iOS 27 SDK do not launch without the scene life cycle (Apple TN3187).
+    return true
+  }
+
+  // MARK: - UIScene life cycle
+
+  func application(
+    _ application: UIApplication,
+    configurationForConnecting connectingSceneSession: UISceneSession,
+    options: UIScene.ConnectionOptions
+  ) -> UISceneConfiguration {
+    let config = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+    config.delegateClass = SceneDelegate.self
+    return config
+  }
+
+  /// Called once by SceneDelegate with the scene's window: mounts React Native in it.
+  /// `launchURL` is the link that cold-started the app, if any (with scenes it arrives on the scene, not in launchOptions).
+  func startReactNative(in window: UIWindow, launchURL: URL?) {
+    guard let factory = reactNativeFactory, self.window == nil else { return }
+    self.window = window
+
+    var options = launchOptions ?? [:]
+    if let launchURL = launchURL, options[.url] == nil { options[.url] = launchURL }
 
     factory.startReactNative(
       withModuleName: "SwiftLoan",
       in: window,
-      launchOptions: launchOptions
+      launchOptions: options
     )
 
     // Match the launch screen + JS splash gradient's deep-teal top so there's no
@@ -36,8 +64,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Green to match the logo tile / SPLASH_BG top (#10B6A3), so the launch → JS
     // splash reads as one continuous green with only the ₹ mark showing.
     let brandTeal = UIColor(red: 0.063, green: 0.714, blue: 0.639, alpha: 1.0)
-    window?.backgroundColor = brandTeal
-    window?.rootViewController?.view.backgroundColor = brandTeal
+    window.backgroundColor = brandTeal
+    window.rootViewController?.view.backgroundColor = brandTeal
 
     // Continuity cover: while RN loads its bundle (and renders the first JS
     // frame) the root view would otherwise show a bare background — in debug
@@ -46,8 +74,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // exactly like the launch/splash, then fade it out the moment JS content
     // appears — making splash → JS splash one continuous animation.
     installLaunchCover(background: brandTeal)
+  }
 
-    return true
+  /// Hand an opened link to React Native's Linking module (see "Deep links" below).
+  func forwardOpenedURL(_ url: URL) {
+    NotificationCenter.default.post(
+      name: Notification.Name("RCTOpenURLNotification"),
+      object: self,
+      userInfo: ["url": url.absoluteString]
+    )
   }
 
   // MARK: - Deep links (swiftloan://<screen>)
@@ -62,11 +97,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    NotificationCenter.default.post(
-      name: Notification.Name("RCTOpenURLNotification"),
-      object: self,
-      userInfo: ["url": url.absoluteString]
-    )
+    forwardOpenedURL(url)
     return true
   }
 
@@ -157,6 +188,29 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         cover.removeFromSuperview()
       }
     }
+  }
+}
+
+/// The app's one window scene. iOS creates it at launch; the window lives here and React Native is mounted in it.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard let windowScene = scene as? UIWindowScene,
+          let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    let window = UIWindow(windowScene: windowScene)
+    self.window = window
+    app.startReactNative(in: window, launchURL: connectionOptions.urlContexts.first?.url)
+  }
+
+  /// A link opened while the app is already running (with scenes, application(_:open:options:) is not called).
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    guard let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    for context in URLContexts { app.forwardOpenedURL(context.url) }
   }
 }
 

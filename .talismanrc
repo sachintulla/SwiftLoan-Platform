@@ -16,7 +16,7 @@ fileignoreconfig:
 - filename: src/voice/registry.ts
   checksum: 612ff6e342d40bb09c7a8b041aec57e99862deba44deb17de1814cbdc061601b
 - filename: ios/SwiftLoan/Info.plist
-  checksum: dd75f06d4fbda116fc1eab501c4b4a32a5f656a495809374fc16be2f7276ff20
+  checksum: b8f405e5f88a6f933fc711ed086eee92f43de2694a7e28af1c72993e28e669fa
 - filename: src/voice/sensitive.ts
   checksum: 8b890474b8b013cf67ebab83731810b7ede788aefd15f09e631f4f6bc2f1900f
 - filename: src/voice/config.ts
