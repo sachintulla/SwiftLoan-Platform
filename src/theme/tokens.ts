@@ -26,6 +26,7 @@ export const colors = {
 
   // Semantic
   amber: '#F5A624',
+  amberDeep: '#A16500', // amber dark enough to read as text on white (warning toasts)
   green: '#2FB183',
   greenDeep: '#0E8C7E',
   red: '#EF6A5E',

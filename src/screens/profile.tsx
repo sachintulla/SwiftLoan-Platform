@@ -76,7 +76,7 @@ export default function Profile() {
     if (tapCount.current >= 5) {
       tapCount.current = 0;
       set({ voiceFabUnlocked: true });
-      showToast(t.voiceUnlocked);
+      showToast(t.voiceUnlocked, { kind: 'success' });
       return;
     }
     tapTimer.current = setTimeout(() => { tapCount.current = 0; }, 1500);
@@ -143,7 +143,7 @@ export default function Profile() {
         // which name fields the server returns.
         authUser: { ...user, fullName: full, firstName: nameParts[0] || full },
       });
-      showToast(t.tSaved);
+      showToast(t.tSaved, { kind: 'success' });
       // Tapping "Save Changes" (voice or touch) only confirms the tap itself —
       // the actual outcome is this async call, which the voice agent has no
       // other way to see (a toast is UI-only). Surfaced via apiContext, same
@@ -158,7 +158,7 @@ export default function Profile() {
       markUrgentContext();
     } catch (e) {
       const message = e instanceof ApiError ? e.message : t.couldNotSaveRetry;
-      showToast(message);
+      showToast(message, { kind: 'error' });
       mergeApiContext({ profileSaveResult: { ok: false, error: message } });
       markUrgentContext();
     }
@@ -197,12 +197,12 @@ export default function Profile() {
       await api.setLanguage(code);
     } catch {
       set({ lang: prevLang });
-      showToast(t.couldNotSaveLanguage);
+      showToast(t.couldNotSaveLanguage, { kind: 'error' });
     }
   };
   const [exporting, setExporting] = useState(false);
   const requestDataExport = async () => {
-    if (!isAuthed()) { showToast(t.tExportLogin); return; }
+    if (!isAuthed()) { showToast(t.tExportLogin, { kind: 'warning' }); return; }
     if (exporting) return;
     setExporting(true);
     try {
@@ -212,9 +212,9 @@ export default function Profile() {
         'Please send me a copy of the personal data SwiftLoan holds about me (requested from the app: Profile → Consent & Privacy).',
         'privacy',
       );
-      showToast(t.tExportSent);
+      showToast(t.tExportSent, { kind: 'success' });
     } catch {
-      showToast(t.tExportFailed);
+      showToast(t.tExportFailed, { kind: 'error' });
     } finally {
       setExporting(false);
     }
@@ -227,17 +227,17 @@ export default function Profile() {
       : 'security' in patch ? (on ? t.tSecurityOn : t.tSecurityOff)
       : 'promo' in patch ? (on ? t.tPromoOn : t.tPromoOff)
       : (on ? t.tOn : t.tOff);
-    if (!isAuthed()) { showToast(msg); return; }
+    if (!isAuthed()) { showToast(msg, { kind: 'success' }); return; }
     const map: any = {};
     if ('loan' in patch) map.loanUpdates = patch.loan;
     if ('security' in patch) map.securityAlerts = patch.security;
     if ('promo' in patch) map.promoOffers = patch.promo;
     try {
       await api.setNotifications(map);
-      showToast(msg);
+      showToast(msg, { kind: 'success' });
     } catch {
       set({ notif: prevNotif });
-      showToast('Could not save. Please try again.');
+      showToast('Could not save. Please try again.', { kind: 'error' });
     }
   };
   // Manual tap must ask before acting — the voice agent's `logout` tool
@@ -258,7 +258,7 @@ export default function Profile() {
   };
 
   const deleteAccount = async () => {
-    if (!isAuthed()) { showToast(t.pleaseVerifyMobile); return; }
+    if (!isAuthed()) { showToast(t.pleaseVerifyMobile, { kind: 'warning' }); return; }
     const allowed = await requestConfirmation(
       t.deleteConfirmMsg,
       { confirmLabel: t.deleteLabel, cancelLabel: t.cancel, art: 'delete' },
@@ -268,7 +268,7 @@ export default function Profile() {
       await api.deleteAccount();
       reset();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.couldNotDeleteAccount);
+      showToast(e instanceof ApiError ? e.message : t.couldNotDeleteAccount, { kind: 'error' });
     }
   };
 
@@ -281,7 +281,7 @@ export default function Profile() {
       const user = await uploadAvatar(asset.uri, mime);
       set({ authUser: user });
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.couldNotUploadPhoto);
+      showToast(e instanceof ApiError ? e.message : t.couldNotUploadPhoto, { kind: 'error' });
     } finally {
       setAvatarBusy(false);
     }
@@ -292,16 +292,16 @@ export default function Profile() {
     try {
       const { user }: any = await api.deleteAvatar();
       set({ authUser: user });
-      showToast(t.photoRemoved);
+      showToast(t.photoRemoved, { kind: 'success' });
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.couldNotRemovePhoto);
+      showToast(e instanceof ApiError ? e.message : t.couldNotRemovePhoto, { kind: 'error' });
     } finally {
       setAvatarBusy(false);
     }
   };
 
   const pickAvatar = () => {
-    if (!isAuthed()) { showToast(t.pleaseVerifyMobile); return; }
+    if (!isAuthed()) { showToast(t.pleaseVerifyMobile, { kind: 'warning' }); return; }
     const hasPhoto = !!state.authUser?.avatarUrl;
     Alert.alert(t.profilePhotoTitle, undefined, [
       {
@@ -316,9 +316,9 @@ export default function Profile() {
             ]);
             return;
           }
-          if (perm !== 'granted') { showToast(t.cameraPermNeeded); return; }
+          if (perm !== 'granted') { showToast(t.cameraPermNeeded, { kind: 'warning' }); return; }
           launchCamera({ mediaType: 'photo', quality: 0.8 }, res => {
-            if (res.errorCode === 'camera_unavailable') { showToast(t.cameraUnavailable); return; }
+            if (res.errorCode === 'camera_unavailable') { showToast(t.cameraUnavailable, { kind: 'error' }); return; }
             if (res.assets?.[0]) uploadPickedAsset(res.assets[0]);
           });
         },

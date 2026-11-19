@@ -71,7 +71,7 @@ export default function ResumePrompt() {
       }).catch((e) => {
         // The agent could not start (offline, no microphone, busy): fall back to "Okay, continue".
         if (resume.source !== 'network') set({ mobileVal: resume.phone, resumeStage: null });
-        if (!String(e?.message ?? '').startsWith('offline:')) showToast(t.voiceStartFailed);
+        if (!String(e?.message ?? '').startsWith('offline:')) showToast(t.voiceStartFailed, { kind: 'error' });
       });
     }, 400);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,7 +108,7 @@ export default function ResumePrompt() {
           markIntroPitchHeard();
         }
       }).catch((e) => {
-        if (!String(e?.message ?? '').startsWith('offline:')) showToast(t.voiceStartFailed);
+        if (!String(e?.message ?? '').startsWith('offline:')) showToast(t.voiceStartFailed, { kind: 'error' });
       });
     }, 400);
   };

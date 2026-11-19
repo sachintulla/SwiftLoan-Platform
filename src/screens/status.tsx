@@ -141,7 +141,7 @@ export default function Status() {
       setApp(application);
       mergeApiContext({ applicationDetail: application });
     } catch (e: any) {
-      showToast(e?.message || 'Could not refresh status right now.');
+      showToast(e?.message || 'Could not refresh status right now.', { kind: 'error' });
     } finally {
       setRefreshing(false);
     }
