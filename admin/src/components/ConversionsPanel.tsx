@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
@@ -52,33 +52,30 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
         <p className="muted" style={{ margin: 0 }}>Analytics are unavailable right now.</p>
       ) : (
         <>
-          <div className="stat-strip" style={{ marginBottom: 12 }}>
+          <div className="cv-kpis">
             <TileBtn label="Total customers" value={d ? num(d.totalCustomers) : '—'} foot="the people we got" selected={selected === 'customers'} onClick={() => toggle('customers')} />
             <TileBtn label="Lead commercials" value={d ? inrCompact(d.leadCommercials.amount) : '—'} foot={d ? `across ${num(d.leadCommercials.count)} lead${d.leadCommercials.count === 1 ? '' : 's'}` : undefined} tone="teal" selected={selected === 'leads'} onClick={() => toggle('leads')} />
             <TileBtn label="Applications" value={d ? num(d.totalApplications) : '—'} foot={d ? `${inrCompact(d.totalApplicationsAmount)} worth` : 'started in range'} selected={selected === 'all'} onClick={() => toggle('all')} />
           </div>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+          <div className="cv-tiles">
             {CONV.map((c) => {
               const v = d?.conversions[c.key];
               const on = selected === c.key;
               return (
                 <button
                   key={c.key} type="button" onClick={() => toggle(c.key)} aria-pressed={on}
-                  className="card card-pad"
-                  style={{
-                    padding: '12px 14px', textAlign: 'left', cursor: 'pointer',
-                    borderTop: `3px solid var(--${c.tone})`,
-                    outline: on ? `2px solid var(--${c.tone})` : 'none', outlineOffset: 2,
-                    boxShadow: on ? '0 2px 10px rgba(0,0,0,.08)' : undefined,
-                  }}
+                  className={`cv-tile ${on ? 'on' : ''}`}
+                  style={{ ['--cv' as string]: `var(--${c.tone})`, ['--cv-bg' as string]: `var(--${c.tone}-bg)` } as React.CSSProperties}
                 >
-                  <div className="muted" style={{ fontSize: 12 }}>{c.label}</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 2 }}>
-                    <span style={{ fontSize: 24, fontWeight: 700, color: `var(--${c.tone})` }}>{v ? num(v.count) : '—'}</span>
-                    <span className="muted" style={{ fontSize: 13, fontWeight: 600 }}>{v ? `${v.pct}%` : ''}</span>
+                  <div className="cv-label">{c.label}</div>
+                  <div className="cv-head">
+                    <span className="cv-value" style={{ marginTop: 0, color: `var(--${c.tone})` }}>{v ? num(v.count) : '—'}</span>
+                    {v && <span className="cv-pct">{v.pct}%</span>}
                   </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 3 }}>{v ? `${inrCompact(v.amount)} worth` : ''}</div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>of total customers{on ? ' · showing below' : ''}</div>
+                  {/* The bar is the same % as the chip, drawn (and capped at the full width). */}
+                  <div className="cv-meter"><span style={{ width: `${Math.max(0, Math.min(100, v?.pct ?? 0))}%` }} /></div>
+                  <div className="cv-worth">{v ? `${inrCompact(v.amount)} worth` : ''}</div>
+                  <div className="cv-foot" style={{ marginTop: 1 }}>of total customers{on ? ' · showing below' : ''}</div>
                 </button>
               );
             })}
@@ -93,11 +90,10 @@ export default function ConversionsPanel({ from, to, title = 'Conversions & Comm
 
 function TileBtn({ label, value, foot, tone, selected, onClick }: { label: string; value: string; foot?: string; tone?: string; selected: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={selected} className="stat"
-      style={{ textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 8px', borderRadius: 10, outline: selected ? '2px solid var(--brand)' : 'none', outlineOffset: 1 }}>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value" style={tone ? { color: `var(--${tone})` } : undefined}>{value}</div>
-      {foot && <div className="stat-foot">{foot}{selected ? ' · showing below' : ''}</div>}
+    <button type="button" onClick={onClick} aria-pressed={selected} className={`cv-kpi ${selected ? 'on' : ''}`}>
+      <div className="cv-label">{label}</div>
+      <div className="cv-value" style={tone ? { color: `var(--${tone})` } : undefined}>{value}</div>
+      {foot && <div className="cv-foot">{foot}{selected ? ' · showing below' : ''}</div>}
     </button>
   );
 }
@@ -120,7 +116,7 @@ function DetailList({ bucket, from, to, onClose }: { bucket: Bucket; from?: stri
     <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
       <div className="row between" style={{ marginBottom: 8 }}>
         <h4 style={{ margin: 0, fontSize: 14 }}>{BUCKET_TITLE[bucket]}{pg ? ` · ${num(pg.total)}` : ''}</h4>
-        <button type="button" className="adm-link-btn" onClick={onClose}>Close</button>
+        <button type="button" className="btn" style={{ padding: '5px 12px', fontSize: 12.5 }} onClick={onClose}>Close</button>
       </div>
       {isLoading && !payload ? (
         <TableSkeleton rows={5} cols={4} />

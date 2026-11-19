@@ -65,11 +65,17 @@ function LoginInner() {
 
   return (
     <AuthScreen>
-      <form onSubmit={submit} className="card" style={{ width: 380, padding: 32 }}>
-        <div className="row" style={{ gap: 10, marginBottom: 20 }}>
+      <form onSubmit={submit} className="auth-form">
+        <div className="row" style={{ gap: 10, marginBottom: 28 }}>
           <BrandMark size={38} />
           <div><div style={{ fontWeight: 750, fontSize: 18 }}>SwiftLoan Admin</div><div className="muted" style={{ fontSize: 12 }}>Operations dashboard</div></div>
         </div>
+        {step === 'credentials' && (
+          <div style={{ marginBottom: 22 }}>
+            <h2 style={{ margin: 0, fontSize: 26, fontWeight: 750, letterSpacing: '-0.02em' }}>Welcome back</h2>
+            <p className="muted" style={{ margin: '6px 0 0', fontSize: 13.5 }}>Sign in with your work email to continue.</p>
+          </div>
+        )}
 
         {idle && step === 'credentials' && (
           <div className="badge tone-amber" style={{ marginBottom: 14 }}>
@@ -184,7 +190,7 @@ function ForgotPanel({ email: initial, onBack }: { email: string; onBack: () => 
   }
 
   return (
-    <form onSubmit={send} className="card" style={{ width: 380, padding: 32 }}>
+    <form onSubmit={send} className="auth-form">
       <div style={{ fontWeight: 750, fontSize: 17 }}>Reset your password</div>
       <p className="muted" style={{ fontSize: 12, margin: '6px 0 16px' }}>
         We&apos;ll email a reset link if an account exists for this address.

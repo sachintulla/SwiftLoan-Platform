@@ -51,7 +51,7 @@ function ResetInner() {
   if (!token) {
     return (
       <div style={WRAP}>
-        <div className="card" style={{ width: 380, padding: 32 }}>
+        <div className="auth-form">
           <div style={{ fontWeight: 750, fontSize: 17 }}>Reset link is incomplete</div>
           <p className="muted" style={{ fontSize: 12.5, margin: '8px 0 16px' }}>
             This page needs the <span className="mono">token</span> from the reset email. Open the link from the
@@ -65,7 +65,7 @@ function ResetInner() {
 
   return (
     <div style={WRAP}>
-      <form onSubmit={submit} className="card" style={{ width: 400, padding: 32 }}>
+      <form onSubmit={submit} className="auth-form">
         <div style={{ fontWeight: 750, fontSize: 17 }}>Choose a new password</div>
 
         {done ? (
