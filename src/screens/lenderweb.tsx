@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Pressable, Linking } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { Screen, AppHeader } from '../components/Frame';
+import { Screen, AppHeader, RUBY_CLEARANCE } from '../components/Frame';
 import { Icon } from '../components/Icon';
 import { colors, font } from '../theme/tokens';
 import { useStore } from '../state/store';
@@ -256,7 +256,9 @@ export default function LenderWeb() {
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1 },
+  // The lender's page stops above the floating Ruby: a web page can't be layered against her,
+  // so a button the lender pins bottom-right would otherwise be covered with no way to reach it.
+  body: { flex: 1, marginBottom: RUBY_CLEARANCE - 24 },
   web: { flex: 1, backgroundColor: '#fff' },
   loader: {
     position: 'absolute',

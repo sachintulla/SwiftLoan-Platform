@@ -9,7 +9,8 @@ import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../compone
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
-import { api, ApiError, isAuthed } from '../api/client';
+import { api, isAuthed } from '../api/client';
+import { serverErrorText } from '../utils/serverErrors';
 import { isMaskedPan } from '../utils/resume';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
 import { missingBasicRequired, companyNeeded } from '../utils/basicRequired';
@@ -223,7 +224,7 @@ export default function Basic() {
     const firstName = FIELD_LABEL[first] ?? first;
     const extra = missingRequired.length - 1;
     const shown = extra > 0 ? `${firstName} +${extra}` : firstName;
-    showToast(t.basicMissingToast.replace('{field}', firstName));
+    showToast(t.basicMissingToast.replace('{field}', firstName), { kind: 'warning' });
     set({ voiceFabUnlocked: true, voiceNudge: { id: Date.now(), labels: [t.basicMissingNudge.replace('{fields}', shown)], reason: 'missing_fields' } });
 
     const textLabel = TEXT_FIELD[first];
@@ -255,14 +256,14 @@ export default function Basic() {
     // Already saving: a second tap (or a voice retry) must not create a second application.
     if (busy) return;
     // PAN comes first now — without a verified one, start from Step 1.
-    if (!state.panNumber) { showToast(t.panValidate); go('basicpan'); return; }
+    if (!state.panNumber) { showToast(t.panValidate, { kind: 'warning' }); go('basicpan'); return; }
     // Every required-empty / malformed field in one place: scroll to the first
     // one, pulse a ring around it, and name what's left in a Ruby nudge — instead
     // of a one-at-a-time toast. (missingRequired already drives the voice hint.)
     if (missingRequired.length) { flagMissing(); return; }
     // dob is guaranteed set here (it's in missingRequired when empty); still
     // reject an under-18 date that slipped past the calendar/voice guards.
-    if (dob && !isAtLeastAge(dob)) { showToast(t.basicValAge); return; }
+    if (dob && !isAtLeastAge(dob)) { showToast(t.basicValAge, { kind: 'warning' }); return; }
     const incomeCheck = parseInt(state.basicIncome, 10);
     // The last successful pincode lookup is the one source of truth for what
     // city/state that pincode actually belongs to — if the user has since
@@ -270,15 +271,15 @@ export default function Basic() {
     // address. Skipped entirely when the lookup never resolved (network down
     // / not yet run) so this never blocks on something outside our control.
     if (pinLookupRef.current?.state && cleanName(state.optState).toLowerCase() !== pinLookupRef.current.state.toLowerCase()) {
-      showToast(t.pinStateMismatch);
+      showToast(t.pinStateMismatch, { kind: 'warning' });
       return;
     }
     if (pinLookupRef.current?.city && cleanName(state.optCity).toLowerCase() !== pinLookupRef.current.city.toLowerCase()) {
-      showToast(t.pinCityMismatch);
+      showToast(t.pinCityMismatch, { kind: 'warning' });
       return;
     }
     if (!isAuthed()) {
-      showToast(t.basicValMobile);
+      showToast(t.basicValMobile, { kind: 'warning' });
       go('mobile');
       return;
     }
@@ -368,7 +369,7 @@ export default function Basic() {
       set({ applicationId: application.id });
       go('moredetails');
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.basicErrStart);
+      showToast(serverErrorText(e, t.basicErrStart, t, state.lang ?? 'en'), { kind: 'error' });
     } finally {
       setBusy(false);
     }

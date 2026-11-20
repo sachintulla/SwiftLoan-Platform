@@ -7,7 +7,8 @@ import Icon from '../components/Icon';
 import { PrimaryButton } from '../components/Controls';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
-import { api, ApiError } from '../api/client';
+import { api } from '../api/client';
+import { loginErrorText } from '../utils/loginErrors';
 import { upshotIdentify, upshotEvent, registerUpshotPush } from '../analytics/upshot';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { VoiceHidden } from '../voice/screenGraph';
@@ -101,7 +102,7 @@ export default function Mobile() {
       await api.requestOtp(state.mobileVal);
       set({ otpSent: true });
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : t.mobileErrSend);
+      setErr(loginErrorText(e, 'send', t, state.lang ?? 'en'));
     } finally {
       setBusy(false);
     }
@@ -229,7 +230,7 @@ export default function Mobile() {
       registerUpshotPush();
       go('home');
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : t.mobileErrVerify);
+      setErr(loginErrorText(e, 'verify', t, state.lang ?? 'en'));
       markUrgentContext();
     } finally {
       setBusy(false);
@@ -334,7 +335,7 @@ export default function Mobile() {
       // pitch merged under the form would otherwise push "Send OTP" below the fold.
       footer={
         !otpSent ? (
-          <PrimaryButton label={busy ? t.mobileSending : 'Send OTP & Check Offers'} disabled={!sendEnabled} onPress={sendOtp} />
+          <PrimaryButton label={busy ? t.mobileSending : t.loginSendOtpCta} disabled={!sendEnabled} onPress={sendOtp} />
         ) : (
           <PrimaryButton label={busy ? t.otpVerifying : t.otpVerify} disabled={busy || otpCode.length < 6} onPress={verify} />
         )
@@ -347,7 +348,7 @@ export default function Mobile() {
       {otpSent ? (
         <WelcomeHero
           onBack={() => { setErr(null); set({ otpSent: false }); }}
-          badge={{ icon: 'lock', label: 'Secure mobile verification' }}
+          badge={{ icon: 'lock', label: t.loginHeroOtpBadge }}
           showChips={false}
         />
       ) : (
@@ -361,10 +362,11 @@ export default function Mobile() {
           {/* On-screen instructions are for the user's eyes: hidden from the agent so
               it asks for the number naturally instead of reading them aloud. */}
           <VoiceHidden>
-            <Text style={styles.h1}>Welcome to SwiftLoan</Text>
+            <Text style={styles.h1}>{t.loginWelcomeTitle}</Text>
+            {/* prefix + bold + suffix, so each language can put the bold phrase where its grammar needs it */}
             <Text style={styles.sub}>
-              Enter your mobile number to check pre-approved loan offers from our{' '}
-              <Text style={[font(700), { color: colors.text }]}>RBI-regulated lending partners</Text>.
+              {t.loginWelcomeSubPrefix}{' '}
+              <Text style={[font(700), { color: colors.text }]}>{t.loginWelcomeSubBold}</Text>{t.loginWelcomeSubSuffix}
             </Text>
           </VoiceHidden>
 
@@ -397,7 +399,7 @@ export default function Mobile() {
           <VoiceHidden>
             <View style={styles.otpNote}>
               <Icon name="lock" size={14} color={colors.mint} />
-              <Text style={styles.otpNoteText}>We'll send a 6-digit OTP to verify securely</Text>
+              <Text style={styles.otpNoteText}>{t.loginOtpNote}</Text>
             </View>
           </VoiceHidden>
           {mobileInvalid ? (
@@ -410,8 +412,8 @@ export default function Mobile() {
             <View style={styles.softCard}>
               <View style={styles.softIcon}><Icon name="shield" size={18} color={colors.mint} /></View>
               <Text style={styles.softText}>
-                <Text style={[font(700), { color: colors.text }]}>Soft Credit Check Only: </Text>
-                Checking your pre-approved limit does not affect your credit score. RBI regulated lending partners.
+                <Text style={[font(700), { color: colors.text }]}>{t.loginSoftCheckTitle} </Text>
+                {t.loginSoftCheckBody}
               </Text>
             </View>
           </VoiceHidden>
@@ -425,12 +427,12 @@ export default function Mobile() {
               {state.terms ? <Icon name="check" size={14} color="#fff" /> : null}
             </View>
             <Text style={[font(500), styles.consentText]}>
-              By proceeding, you agree to our{' '}
+              {t.loginConsentPrefix}{' '}
               {/* onPress on these inner Text spans opens the link and does not bubble to
                   the row Pressable, so tapping a link never toggles consent. */}
-              <Text style={styles.link} onPress={() => openLegal('terms')}>Terms of Service</Text>,{' '}
-              <Text style={styles.link} onPress={() => openLegal('privacy')}>Privacy Policy</Text>
-              {' '}&amp; allow WhatsApp updates.
+              <Text style={styles.link} onPress={() => openLegal('terms')}>{t.loginTermsOfService}</Text>,{' '}
+              <Text style={styles.link} onPress={() => openLegal('privacy')}>{t.privacyPolicy}</Text>
+              {' '}{t.loginConsentSuffix}
             </Text>
           </Pressable>
           </VoiceHidden>

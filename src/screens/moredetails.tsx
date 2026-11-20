@@ -6,7 +6,8 @@ import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
-import { api, ApiError, isAuthed } from '../api/client';
+import { api, isAuthed } from '../api/client';
+import { serverErrorText } from '../utils/serverErrors';
 import { MID_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
 
 /**
@@ -28,15 +29,15 @@ export default function MoreDetails() {
     // save. Catch it here with a clear message instead.
     const emailOk = (v: string) => /^\S+@\S+\.\S+$/.test(v.trim());
     if (state.optAltEmail.trim() && !emailOk(state.optAltEmail)) {
-      showToast(t.mdErrAltEmail);
+      showToast(t.mdErrAltEmail, { kind: 'warning' });
       return false;
     }
     if (state.optCompanyEmail.trim() && !emailOk(state.optCompanyEmail)) {
-      showToast(t.mdErrCompanyEmail);
+      showToast(t.mdErrCompanyEmail, { kind: 'warning' });
       return false;
     }
     if (state.optBusinessEmail.trim() && !emailOk(state.optBusinessEmail)) {
-      showToast(t.mdErrBusinessEmail);
+      showToast(t.mdErrBusinessEmail, { kind: 'warning' });
       return false;
     }
     const patch: Record<string, unknown> = {};
@@ -61,7 +62,7 @@ export default function MoreDetails() {
       await api.updateProfile(patch);
       return true;
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.mdErrSave);
+      showToast(serverErrorText(e, t.mdErrSave, t, state.lang ?? 'en'), { kind: 'error' });
       return false;
     }
   };

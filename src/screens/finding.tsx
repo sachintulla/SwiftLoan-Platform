@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Animated, Easing, StyleSheet, Image, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Animated, Easing, StyleSheet, Image, Alert, ActivityIndicator, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import LinearGradient from 'react-native-linear-gradient';
@@ -9,6 +9,7 @@ import { LogoMark, Wordmark } from '../components/Logo';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, trackEvent } from '../api/client';
+import { offersErrorKeyFor, offersErrorText } from '../utils/offersError';
 import { saveOffersCache } from '../state/session';
 import { PrimaryButton } from '../components/Controls';
 import { FALLBACK_POPUP_MS, noOffersReason, shouldContinueToAltOffers, type NoOffersReason } from '../utils/offersFallback';
@@ -103,11 +104,11 @@ export default function Finding() {
           const { offers, reason, revasure } = res as any;
           const list = offers || [];
           // Our own copy for the reason code — never the lender's wording.
-          const friendlyError = reason === 'not_eligible' ? t.findingErrNotEligible
-            : reason === 'duplicate' ? t.findingErrDuplicate
-            : reason === 'technical' ? t.findingErrTechnical
-            : '';
-          set({ offersError: friendlyError });
+          // Stored as a strings-table KEY (utils/offersError.ts) so it follows the app language;
+          // the agent gets the sentence itself.
+          const errorKey = offersErrorKeyFor(reason);
+          const friendlyError = offersErrorText(errorKey, t);
+          set({ offersError: errorKey });
           mergeApiContext({ prequalifyResult: { offers, friendlyError } });
           // Debug alert for the Revasure lead result (parallel lender group) —
           // surfaces whatever the backend got back. DEV builds only: __DEV__ is
@@ -132,7 +133,7 @@ export default function Finding() {
           finish(list.length > 0, noOffersReason(reason));
         })
         .catch(() => {
-          set({ offersError: t.findingErrNetwork });
+          set({ offersError: offersErrorKeyFor('network') });
           finish(false, 'network');
         });
     } else {
@@ -291,6 +292,9 @@ export default function Finding() {
 
       {fallback ? (
         // Shown when no offers came back: we keep going with other lenders (Yubi) instead of stopping.
+        // A Modal (its own window), not a view inside the screen: Ruby is the last layer of the app
+        // window, so an in-screen scrim left her undimmed and tappable on top of this pop-up.
+        <Modal transparent statusBarTranslucent navigationBarTranslucent animationType="fade" visible onRequestClose={() => proceedRef.current()}>
         <View style={styles.fbScrim} accessibilityViewIsModal>
           <View style={[styles.fbCard, { marginBottom: insets.bottom + 24 }]}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -299,6 +303,7 @@ export default function Finding() {
             <PrimaryButton label={t.continueBtn} icon="arrow_forward" onPress={() => proceedRef.current()} style={styles.fbBtn} />
           </View>
         </View>
+        </Modal>
       ) : null}
     </Screen>
   );

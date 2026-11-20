@@ -16,9 +16,8 @@ import { parseFocusQuery } from '../voice/focusTargets';
 import { useCallActive } from '../voice/useCallActive';
 import YubiOffersTab from '../components/YubiOffersTab';
 import { LogoLockup } from '../components/Logo';
-
-// Statuses whose applications still carry showable offers.
-const OFFER_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'];
+import { offersViewFor, unappliedOffers } from '../utils/pastApplication';
+import { offersErrorKeyFor, offersErrorText } from '../utils/offersError';
 
 /** "just now / 5m ago / 2h ago / on 24 Aug" for the saved-offers timestamp,
  *  in the current language ('t' from useT()). */
@@ -44,6 +43,9 @@ export default function MyOffers() {
   const [appId, setAppId] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  // No open offers, but the server says this person already applied (to every offer we had, or
+  // with a partner lender): show "track it in My Loans" instead of the first-time screen.
+  const [pastApplied, setPastApplied] = useState(false);
   // Two sources of offers: 'knight' = our matched (Aurix/Knight Fintech) offers;
   // 'yubi' = the Yubi Markets web journey hosted inline in its own tab.
   const [tab, setTab] = useState<'knight' | 'yubi'>('knight');
@@ -149,38 +151,49 @@ export default function MyOffers() {
       const r: any = await api.listApplications();
       const apps: any[] = r?.applications || [];
       mergeApiContext({ applications: apps });
-      // "Has offers" means has offers still worth showing — an application
-      // whose only offers are ones already applied to shouldn't outrank one
-      // with real, pending offers, and shouldn't count as "has offers" at all
-      // if every offer on it is already applied.
-      const unappliedCount = (a: any) => (a.offers ?? []).filter((o: Offer) => !o.applied).length;
-      const withOffers =
-        apps.find(a => unappliedCount(a) > 0 && OFFER_STATUSES.includes(a.status)) ||
-        apps.find(a => unappliedCount(a) > 0);
-      if (withOffers) {
-        const list = ((withOffers.offers || []) as Offer[]).filter(o => !o.applied);
+      // What to show is read from the server's applications alone (utils/pastApplication.ts), so
+      // it is the same right after a logout → login as it was before. "Has offers" means offers
+      // still worth showing: ones already applied to are tracked in My Loans, not here.
+      const view = offersViewFor(apps);
+      if (view.kind === 'offers') {
+        const withOffers = view.application;
+        const list = unappliedOffers(withOffers) as Offer[];
         const now = Date.now();
         setOffers(list);
         setAppId(withOffers.id);
         setSavedAt(now);
+        setPastApplied(false);
         set({ applicationId: withOffers.id, offersReturn: 'fare' });
         saveOffersCache({ applicationId: withOffers.id, savedAt: now, offers: list });
       } else {
-        // The backend authoritatively has NO eligible offers for this account
-        // (fresh login, deleted data, or a superseded run). The fetch succeeded,
-        // so the cache is stale — clear it and the display instead of leaving
-        // the previous offers on screen. (On a fetch FAILURE we fall to the
-        // catch below and keep the cache, for offline resilience.)
-        //
-        // Exception: a fresh offersError means we just landed here straight
-        // from a failed/empty finding.tsx attempt — keep applicationId in
-        // that case, or the Retry button below has nothing left to retry.
+        // The backend authoritatively has NO open offers for this account. The fetch succeeded,
+        // so the cache is stale — clear it and the display instead of leaving the previous
+        // offers on screen. (On a fetch FAILURE we fall to the catch below and keep the cache,
+        // for offline resilience.)
         setOffers([]);
         setAppId(null);
         setSavedAt(null);
-        // (Also kept when we arrived from the no-offers pop-up: the Yubi tab needs it to refer.)
-        if (!state.offersError && !state.offersFallback) set({ applicationId: null });
         await clearOffersCache().catch(() => {});
+        // A fresh offersError (or the no-offers pop-up) means we just landed here straight from
+        // the loader: this screen already holds that attempt's reason and application — leave
+        // both alone, or Retry / the Explore-lenders tab have nothing left to work on.
+        if (state.offersError || state.offersFallback) return;
+        if (view.kind === 'no_offers') {
+          // An earlier check found nothing. That result lived only in memory and was lost on
+          // logout; restore it from the server so the screen is the one they left (the reason,
+          // Retry, Update details, Explore lenders) and not the first-time "Apply for a loan".
+          // A strings-table KEY, not the sentence: it is turned into text when shown, so it
+          // follows the app language even if that changes later (utils/offersError.ts).
+          const friendly = offersErrorKeyFor(view.reason) || 'findingErrNotEligible';
+          setPastApplied(false);
+          set({ applicationId: view.application.id, offersReturn: 'fare', offersError: friendly });
+        } else if (view.kind === 'applied') {
+          setPastApplied(true);
+          set({ applicationId: view.application.id, offersReturn: 'fare' });
+        } else {
+          setPastApplied(false);
+          set({ applicationId: null });
+        }
       }
     } catch {
       /* offline / not signed in — keep whatever the cache gave us */
@@ -345,6 +358,8 @@ export default function MyOffers() {
               onRetry={retryEligibility}
               offersError={state.offersError}
               onSeeYubi={openYubi}
+              applied={pastApplied}
+              onViewLoans={() => go('loans')}
             />
           )}
         </ScrollView>
@@ -464,28 +479,43 @@ function EmptyOffers({
   onRetry,
   offersError,
   onSeeYubi,
+  applied,
+  onViewLoans,
 }: {
   onApply: () => void;
   onRetry: () => void;
   offersError: string;
   onSeeYubi: () => void;
+  /** Nothing left to pick here because they already applied: point to My Loans. */
+  applied: boolean;
+  onViewLoans: () => void;
 }) {
   const t = useT();
   const { state } = useStore();
   const failed = !!offersError;
+  // A failure the screen is holding right now outranks "you already applied".
+  const showApplied = applied && !failed;
   return (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
-        <Icon name={failed ? 'error' : 'local_offer'} size={40} color={colors.primary} />
+        <Icon name={failed ? 'error' : showApplied ? 'task_alt' : 'local_offer'} size={40} color={colors.primary} />
       </View>
       <Text style={[font(800), { fontSize: 20, color: colors.text, marginTop: 18, textAlign: 'center' }]}>
-        {failed ? t.couldntFetchOffers : t.noOffersYet}
+        {failed ? t.couldntFetchOffers : showApplied ? t.appliedAllTitle : t.noOffersYet}
       </Text>
       <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
-        {offersError || t.fareEmptyMsgGeneric}
+        {offersErrorText(offersError, t) || (showApplied ? t.appliedAllMsg : t.fareEmptyMsgGeneric)}
       </Text>
 
-      {failed ? (
+      {showApplied ? (
+        <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
+          <PrimaryButton label={t.viewMyLoans} icon="arrow_forward" onPress={onViewLoans} />
+          <Pressable style={styles.updateBtn} onPress={onApply}>
+            <Icon name="add" size={18} color={colors.text} />
+            <Text style={[font(600), { color: colors.text, fontSize: 14 }]}>{t.applyNewLoan}</Text>
+          </Pressable>
+        </View>
+      ) : failed ? (
         <View style={{ width: '100%', marginTop: 22, gap: 10 }}>
           <PrimaryButton label={t.retryLabel} icon="refresh" onPress={onRetry} />
           <Pressable style={styles.updateBtn} onPress={onApply}>

@@ -183,6 +183,26 @@ export const STR: Record<string, Record<string, string>> = {
         mobileSkip: 'Skip for now — explore the app',
         mobileErrSend: 'Could not send OTP. Please try again.', mobileErrVerify: 'Verification failed.',
         mobileErrInvalid: 'Please enter a valid 10-digit mobile number.',
+        // Login screen: everything that used to be typed into the screen in English only
+        loginWelcomeTitle: 'Welcome to SwiftLoan',
+        loginWelcomeSubPrefix: 'Enter your mobile number to check pre-approved loan offers from our',
+        loginWelcomeSubBold: 'RBI-regulated lending partners', loginWelcomeSubSuffix: '.',
+        loginSendOtpCta: 'Send OTP & Check Offers', loginOtpNote: "We'll send a 6-digit OTP to verify securely",
+        loginSoftCheckTitle: 'Soft Credit Check Only:',
+        loginSoftCheckBody: 'Checking your pre-approved limit does not affect your credit score. RBI regulated lending partners.',
+        loginConsentPrefix: 'By proceeding, you agree to our', loginTermsOfService: 'Terms of Service',
+        loginConsentSuffix: '& allow WhatsApp updates.',
+        loginHeroTagline: 'Digital Lending Marketplace', loginHeroRbi: 'RBI Regulated',
+        loginHeroBadge: 'Compare offers from top lenders', loginHeroOtpBadge: 'Secure mobile verification',
+        loginChipInstant: 'Instant Approval in 3 Mins', loginChipPaperless: '100% Paperless', loginChipRates: 'Lowest Rates',
+        // Login errors the server reports in English only (matched by status in utils/loginErrors.ts)
+        loginErrOtpInvalid: 'Invalid or expired OTP', loginErrTooMany: 'Too many attempts, try again shortly',
+        loginErrSendFailed: 'Could not send the verification code. Please try again in a moment.',
+        // Save errors the server reports in English only (matched by status in utils/serverErrors.ts)
+        // Bottom menu: the centre tab and its call states (the other tabs reuse navHome, myOffersTitle, loansTitle, navProfile)
+        navSupport: 'Support', navConnecting: 'Connecting…', navSpeaking: 'Speaking…', navWorking: 'Working…', navListening: 'Listening…',
+        errCheckDetails: 'Please check the details you entered and try again.',
+        errEmailInUse: 'This email is already in use by another account.', errDetailInUse: 'This detail is already in use by another account.',
         // permissions
         permTitle: 'Permissions', permSub: 'To assess your eligibility and complete KYC securely, SwiftLoan needs a few permissions.',
         permNotifDesc: 'Stay updated on your EMIs, offers and application status.',
@@ -329,6 +349,10 @@ export const STR: Record<string, Record<string, string>> = {
         fetchingOffers: 'Fetching your offers…', noApplicationTitle: 'No application yet',
         noApplicationMsg: "Apply for a loan first — we'll match you with partner offers once your details are in.",
         couldntFetchOffers: 'Couldn’t fetch offers', noOffersYet: 'No offers yet',
+        // My Offers when every offer we had is already applied to (or they applied with a partner lender).
+        appliedAllTitle: 'You’ve already applied',
+        appliedAllMsg: 'There are no new offers to choose right now. Track your application in My Loans.',
+        viewMyLoans: 'View My Loans', applyNewLoan: 'Apply for a new loan',
         noOffersMsgGeneric: "We couldn't match a partner to this profile. Try adjusting your amount.",
         retryLabel: 'Retry', updateDetailsRetry: 'Update details & try again',
         offerValidityTitle: 'Offer Validity',
@@ -569,6 +593,26 @@ export const STR: Record<string, Record<string, string>> = {
         mobileSkip: 'अभी स्किप करें — ऐप एक्सप्लोर करें',
         mobileErrSend: 'OTP नहीं भेज सके। कृपया फिर से कोशिश करें।', mobileErrVerify: 'वेरिफिकेशन फेल हो गया।',
         mobileErrInvalid: 'कृपया एक सही 10-digit मोबाइल नंबर डालें।',
+        // Login screen: everything that used to be typed into the screen in English only
+        loginWelcomeTitle: 'SwiftLoan में आपका स्वागत है',
+        loginWelcomeSubPrefix: 'हमारे',
+        loginWelcomeSubBold: 'RBI-रेगुलेटेड लेंडिंग पार्टनर्स', loginWelcomeSubSuffix: ' से प्री-अप्रूव्ड लोन ऑफर्स देखने के लिए अपना मोबाइल नंबर डालें।',
+        loginSendOtpCta: 'OTP भेजें और ऑफर्स देखें', loginOtpNote: 'सिक्योर वेरिफिकेशन के लिए हम 6-digit OTP भेजेंगे',
+        loginSoftCheckTitle: 'सिर्फ सॉफ्ट क्रेडिट चेक:',
+        loginSoftCheckBody: 'अपनी प्री-अप्रूव्ड लिमिट चेक करने से आपके क्रेडिट स्कोर पर कोई असर नहीं पड़ता। RBI-रेगुलेटेड लेंडिंग पार्टनर्स।',
+        loginConsentPrefix: 'आगे बढ़कर, आप हमारी', loginTermsOfService: 'Terms of Service',
+        loginConsentSuffix: 'से सहमत हैं और WhatsApp अपडेट्स की अनुमति देते हैं।',
+        loginHeroTagline: 'डिजिटल लेंडिंग मार्केटप्लेस', loginHeroRbi: 'RBI रेगुलेटेड',
+        loginHeroBadge: 'टॉप लेंडर्स के ऑफर्स कम्पेयर करें', loginHeroOtpBadge: 'सिक्योर मोबाइल वेरिफिकेशन',
+        loginChipInstant: '3 मिनट में इंस्टेंट अप्रूवल', loginChipPaperless: '100% पेपरलेस', loginChipRates: 'सबसे कम ब्याज दरें',
+        // Login errors the server reports in English only (matched by status in utils/loginErrors.ts)
+        loginErrOtpInvalid: 'OTP गलत है या एक्सपायर हो गया है', loginErrTooMany: 'बहुत ज़्यादा कोशिशें हो गईं, थोड़ी देर बाद फिर से कोशिश करें',
+        loginErrSendFailed: 'वेरिफिकेशन कोड नहीं भेज सके। कृपया थोड़ी देर में फिर से कोशिश करें।',
+        // Save errors the server reports in English only (matched by status in utils/serverErrors.ts)
+        // Bottom menu: the centre tab and its call states (the other tabs reuse navHome, myOffersTitle, loansTitle, navProfile)
+        navSupport: 'सपोर्ट', navConnecting: 'कनेक्ट हो रहा है…', navSpeaking: 'बोल रही हूँ…', navWorking: 'काम जारी है…', navListening: 'सुन रही हूँ…',
+        errCheckDetails: 'कृपया भरी हुई डिटेल्स चेक करें और फिर से कोशिश करें।',
+        errEmailInUse: 'यह ईमेल पहले से किसी और अकाउंट में इस्तेमाल हो रहा है।', errDetailInUse: 'यह डिटेल पहले से किसी और अकाउंट में इस्तेमाल हो रही है।',
         // permissions
         permTitle: 'परमिशन्स', permSub: 'आपकी एलिजिबिलिटी चेक करने और KYC सिक्योरली पूरा करने के लिए SwiftLoan को कुछ परमिशन्स चाहिए।',
         permNotifDesc: 'अपनी EMI, ऑफर्स और एप्लिकेशन स्टेटस पर अपडेटेड रहें।',
@@ -715,6 +759,9 @@ export const STR: Record<string, Record<string, string>> = {
         fetchingOffers: 'आपके ऑफर्स लाए जा रहे हैं…', noApplicationTitle: 'अभी कोई एप्लिकेशन नहीं',
         noApplicationMsg: 'पहले लोन के लिए अप्लाई करें — आपकी डिटेल्स मिलते ही हम आपको पार्टनर ऑफर्स से मैच करेंगे।',
         couldntFetchOffers: 'ऑफर्स नहीं मिल सके', noOffersYet: 'अभी तक कोई ऑफर नहीं',
+        appliedAllTitle: 'आप पहले ही अप्लाई कर चुके हैं',
+        appliedAllMsg: 'अभी चुनने के लिए कोई नया ऑफर नहीं है। अपनी एप्लिकेशन माय लोन्स में ट्रैक करें।',
+        viewMyLoans: 'माय लोन्स देखें', applyNewLoan: 'नए लोन के लिए अप्लाई करें',
         noOffersMsgGeneric: 'हम इस प्रोफाइल के लिए कोई पार्टनर मैच नहीं कर सके। अपना अमाउंट बदलकर देखें।',
         retryLabel: 'रीट्राई करें', updateDetailsRetry: 'डिटेल्स अपडेट करें और फिर से कोशिश करें',
         offerValidityTitle: 'ऑफर वैलिडिटी',
@@ -972,6 +1019,26 @@ export const STR: Record<string, Record<string, string>> = {
         mobileSkip: 'ప్రస్తుతానికి స్కిప్ చేయండి — యాప్ ఎక్స్‌ప్లోర్ చేయండి',
         mobileErrSend: 'OTP పంపలేకపోయాం. దయచేసి మళ్ళీ ప్రయత్నించండి.', mobileErrVerify: 'వెరిఫికేషన్ ఫెయిల్ అయింది.',
         mobileErrInvalid: 'దయచేసి సరైన 10-అంకెల మొబైల్ నంబర్ ఎంటర్ చేయండి.',
+        // Login screen: everything that used to be typed into the screen in English only
+        loginWelcomeTitle: 'SwiftLoan కి స్వాగతం',
+        loginWelcomeSubPrefix: 'మా',
+        loginWelcomeSubBold: 'RBI-రెగ్యులేటెడ్ లెండింగ్ పార్టనర్స్', loginWelcomeSubSuffix: ' నుండి ప్రీ-అప్రూవ్డ్ లోన్ ఆఫర్స్ చూడటానికి మీ మొబైల్ నంబర్ ఎంటర్ చేయండి.',
+        loginSendOtpCta: 'OTP పంపి ఆఫర్స్ చూడండి', loginOtpNote: 'సెక్యూర్ గా వెరిఫై చేయడానికి 6-digit OTP పంపుతాం',
+        loginSoftCheckTitle: 'సాఫ్ట్ క్రెడిట్ చెక్ మాత్రమే:',
+        loginSoftCheckBody: 'మీ ప్రీ-అప్రూవ్డ్ లిమిట్ చెక్ చేయడం వల్ల మీ క్రెడిట్ స్కోర్ కి ఎలాంటి ప్రాబ్లం ఉండదు. RBI-రెగ్యులేటెడ్ లెండింగ్ పార్టనర్స్.',
+        loginConsentPrefix: 'కంటిన్యూ చేయడం ద్వారా, మీరు మా', loginTermsOfService: 'Terms of Service',
+        loginConsentSuffix: 'కి అగ్రీ అవుతున్నారు, WhatsApp అప్‌డేట్స్ కి అనుమతి ఇస్తున్నారు.',
+        loginHeroTagline: 'డిజిటల్ లెండింగ్ మార్కెట్‌ప్లేస్', loginHeroRbi: 'RBI రెగ్యులేటెడ్',
+        loginHeroBadge: 'టాప్ లెండర్స్ ఆఫర్స్ కంపేర్ చేయండి', loginHeroOtpBadge: 'సెక్యూర్ మొబైల్ వెరిఫికేషన్',
+        loginChipInstant: '3 నిమిషాల్లో ఇన్‌స్టంట్ అప్రూవల్', loginChipPaperless: '100% పేపర్‌లెస్', loginChipRates: 'అతి తక్కువ వడ్డీ రేట్లు',
+        // Login errors the server reports in English only (matched by status in utils/loginErrors.ts)
+        loginErrOtpInvalid: 'OTP తప్పుగా ఉంది లేదా ఎక్స్‌పైర్ అయింది', loginErrTooMany: 'చాలా ఎక్కువ సార్లు ప్రయత్నించారు, కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి',
+        loginErrSendFailed: 'వెరిఫికేషన్ కోడ్ పంపలేకపోయాం. దయచేసి కాసేపట్లో మళ్ళీ ప్రయత్నించండి.',
+        // Save errors the server reports in English only (matched by status in utils/serverErrors.ts)
+        // Bottom menu: the centre tab and its call states (the other tabs reuse navHome, myOffersTitle, loansTitle, navProfile)
+        navSupport: 'సపోర్ట్', navConnecting: 'కనెక్ట్ అవుతోంది…', navSpeaking: 'మాట్లాడుతున్నాను…', navWorking: 'పని జరుగుతోంది…', navListening: 'వింటున్నాను…',
+        errCheckDetails: 'దయచేసి మీరు ఎంటర్ చేసిన వివరాలు చెక్ చేసి మళ్ళీ ప్రయత్నించండి.',
+        errEmailInUse: 'ఈ ఈమెయిల్ ఇప్పటికే వేరే అకౌంట్ లో యూజ్ అవుతోంది.', errDetailInUse: 'ఈ వివరం ఇప్పటికే వేరే అకౌంట్ లో యూజ్ అవుతోంది.',
         // permissions
         permTitle: 'పర్మిషన్స్', permSub: 'మీ ఎలిజిబిలిటీ చెక్ చేయడానికి, KYC ని సెక్యూర్‌లీ పూర్తి చేయడానికి SwiftLoan కి కొన్ని పర్మిషన్స్ అవసరం.',
         permNotifDesc: 'మీ EMIలు, ఆఫర్స్, అప్లికేషన్ స్టేటస్ పై అప్‌డేటెడ్ గా ఉండండి.',
@@ -1118,6 +1185,9 @@ export const STR: Record<string, Record<string, string>> = {
         fetchingOffers: 'మీ ఆఫర్స్ తెస్తున్నాం…', noApplicationTitle: 'ఇంకా అప్లికేషన్ లేదు',
         noApplicationMsg: 'ముందు లోన్ కోసం అప్లై చేయండి — మీ వివరాలు వచ్చిన వెంటనే మేము మిమ్మల్ని పార్టనర్ ఆఫర్స్‌తో మ్యాచ్ చేస్తాం.',
         couldntFetchOffers: 'ఆఫర్స్ తీసుకురాలేకపోయాం', noOffersYet: 'ఇంకా ఆఫర్స్ లేవు',
+        appliedAllTitle: 'మీరు ఇప్పటికే అప్లై చేశారు',
+        appliedAllMsg: 'ఇప్పుడు ఎంచుకోవడానికి కొత్త ఆఫర్స్ లేవు. మీ అప్లికేషన్‌ను మై లోన్స్ లో ట్రాక్ చేయండి.',
+        viewMyLoans: 'మై లోన్స్ చూడండి', applyNewLoan: 'కొత్త లోన్ కోసం అప్లై చేయండి',
         noOffersMsgGeneric: 'ఈ ప్రొఫైల్‌కి పార్టనర్‌ని మ్యాచ్ చేయలేకపోయాం. మీ అమౌంట్ మార్చి చూడండి.',
         retryLabel: 'రీట్రై చేయండి', updateDetailsRetry: 'వివరాలు అప్‌డేట్ చేసి మళ్ళీ ప్రయత్నించండి',
         offerValidityTitle: 'ఆఫర్ వాలిడిటీ',

@@ -116,11 +116,11 @@ export default function BasicPan() {
     if (res.pan !== null) {
       animatePanFill(res.pan);
       set({ panConsent: true });
-      showToast(t.panReadOk);
+      showToast(t.panReadOk, { kind: 'success' });
     } else if (res.reason === 'cancelled' || res.reason === 'no_image') {
       // user backed out — stay silent
     } else if (res.reason === 'unavailable') {
-      showToast(t.panOcrUnavailable);
+      showToast(t.panOcrUnavailable, { kind: 'warning' });
     } else if (res.reason === 'camera_permission') {
       // Refused for good ("Don't ask again"): only the phone's Settings can turn the camera on.
       if (res.blocked) {
@@ -129,12 +129,12 @@ export default function BasicPan() {
           { text: t.cameraPermOpenSettings, onPress: () => { Linking.openSettings().catch(() => {}); } },
         ]);
       } else {
-        showToast(t.cameraPermNeeded);
+        showToast(t.cameraPermNeeded, { kind: 'warning' });
       }
     } else if (res.reason === 'camera_unavailable') {
-      showToast(t.cameraUnavailable);
+      showToast(t.cameraUnavailable, { kind: 'error' });
     } else {
-      showToast(t.panReadFail);
+      showToast(t.panReadFail, { kind: 'error' });
     }
   };
 
@@ -151,7 +151,7 @@ export default function BasicPan() {
   const onUpload = () => {
     if (scanning) return;
     if (!panOcrAvailable()) {
-      showToast(t.panOcrUnavailable);
+      showToast(t.panOcrUnavailable, { kind: 'warning' });
       return;
     }
     Alert.alert(t.panPickSource, t.panPickSourceHint, [
@@ -164,7 +164,7 @@ export default function BasicPan() {
   const onContinue = async () => {
     const pan = state.panNumber.trim().toUpperCase();
     if (!isValidPan(pan)) {
-      showToast(t.panValidate);
+      showToast(t.panValidate, { kind: 'warning' });
       // A toast is UI-only — same reasoning as profile.tsx's
       // profileSaveResult. Without this, a voice-driven continue just does
       // nothing with no way for the agent to know why, and it either
@@ -173,12 +173,12 @@ export default function BasicPan() {
       return;
     }
     if (!state.panConsent) {
-      showToast(t.panConsentValidate);
+      showToast(t.panConsentValidate, { kind: 'warning' });
       mergeApiContext({ panValidationResult: { ok: false, error: t.panConsentValidate } });
       return;
     }
     if (!isAuthed()) {
-      showToast(t.basicValMobile);
+      showToast(t.basicValMobile, { kind: 'warning' });
       go('mobile');
       return;
     }
@@ -193,7 +193,7 @@ export default function BasicPan() {
       if (state.applicationId) {
         api.updateApplication(state.applicationId, { panNumber: pan }).catch(() => {});
       }
-      showToast(t.panManualEntry);
+      showToast(t.panManualEntry, { kind: 'warning' });
       go('basic');
     };
 
@@ -262,7 +262,7 @@ export default function BasicPan() {
       panNumber: pan,
     });
     if (state.applicationId) api.updateApplication(state.applicationId, { panNumber: pan }).catch(() => {});
-    showToast(t.panManualEntry);
+    showToast(t.panManualEntry, { kind: 'warning' });
     go('basic');
   };
 

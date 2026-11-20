@@ -29,15 +29,23 @@ const C = {
   stripe: '#F5F9F9',   // alternating row shade
 };
 
-const RANKS: { key: RankBy; label: string; phrase: string }[] = [
+export const RANKS: { key: RankBy; label: string; phrase: string }[] = [
   { key: 'rate', label: 'Lowest interest rate', phrase: 'lowest interest rate' },
   { key: 'fee', label: 'Lowest processing fee', phrase: 'lowest processing fee' },
   { key: 'emi', label: 'Lowest EMI', phrase: 'lowest EMI' },
 ];
+/** Any ranking → its label/phrase. Never undefined: an unknown one falls back to the default (first) ranking. */
+const rankInfo = (k: RankBy) => RANKS.find(r => r.key === k) ?? RANKS[0];
+/**
+ * The rankings the self-running demo steps through. Built FROM `RANKS`, so the two can never
+ * disagree again: the list was once cut to three while the demo kept its own list of the old
+ * four, landed on a ranking that no longer existed and crashed the screen 3.6 s after it opened.
+ */
+export const DEMO_RANK_ORDER: RankBy[] = RANKS.map(r => r.key);
 // Which metric ROW each ranking is about — the one to light up when that filter
 // is picked: Lowest total cost → "Total you repay", Lowest EMI → "Monthly EMI",
-// Lowest rate → "Interest rate", Least interest → "Total interest".
-const RANK_METRIC: Partial<Record<RankBy, MetricKey>> = { cost: 'repay', emi: 'emi', rate: 'rate', interest: 'interest' };
+// Lowest rate → "Interest rate", Lowest processing fee → "Processing fee".
+const RANK_METRIC: Partial<Record<RankBy, MetricKey>> = { cost: 'repay', emi: 'emi', rate: 'rate', interest: 'interest', fee: 'fee' };
 
 // Comparison-matrix geometry: a pinned label column + one column per lender,
 // every row a fixed height so the pinned labels line up with the scrolled cells.
@@ -164,7 +172,7 @@ export default function Compare() {
   // Rankings that pick the same lender are ONE option ("Lowest total cost · Lowest rate"), never two that lead to the same result.
   const rankOptions = useMemo(() => {
     const keys = RANKS.map(r => r.key);
-    const label = (k: RankBy) => RANKS.find(r => r.key === k)!.label;
+    const label = (k: RankBy) => rankInfo(k).label;
     return distinctRankChoices(keys, result.winners).map(c => ({ key: c.key, label: [c.key, ...c.also].map(label).join(' · ') }));
   }, [result.winners]);
   const activeRank = choiceFor(distinctRankChoices(RANKS.map(r => r.key), result.winners), rankBy);
@@ -235,7 +243,7 @@ export default function Compare() {
     try { await select(selectedOffer); } finally { setApplying(false); }
   };
 
-  const rankLabel = RANKS.find(r => r.key === rankBy)!;
+  const rankLabel = rankInfo(rankBy);
 
   // ── What the voice agent can see and do on this screen ─────────────────────
   // The matrix is a horizontally scrolling grid of Pressables and prop-only cells,
@@ -319,7 +327,7 @@ export default function Compare() {
   // moment a real call starts, so Ruby's own highlights take over.
   useEffect(() => {
     if (!offers?.length || callLive || demoPaused) return undefined;
-    const order: RankBy[] = ['cost', 'emi', 'rate', 'interest'];
+    const order = DEMO_RANK_ORDER;
     const id = setInterval(() => {
       setPicked(null);
       setRankBy(prev => order[(order.indexOf(prev) + 1) % order.length]);
@@ -506,7 +514,7 @@ export default function Compare() {
                 <View style={styles.bestIc}><Icon name="check" size={14} color="#fff" /></View>
                 <Text style={[font(400), styles.bestM]}>
                   <Text style={[font(800), { color: C.best }]}>{best.lenderName}</Text> wins on{' '}
-                  <Text style={[font(800), { color: C.best }]}>{RANKS.find(r => r.key === rankBy)!.phrase}</Text> over {tenure} months — EMI{' '}
+                  <Text style={[font(800), { color: C.best }]}>{rankLabel.phrase}</Text> over {tenure} months — EMI{' '}
                   <Text style={font(800)}>{rupee(best.emi!)}</Text> at <Text style={font(800)}>{best.rate}%</Text>, total repayment{' '}
                   <Text style={font(800)}>{rupee(best.totalRepay!)}</Text>.
                 </Text>

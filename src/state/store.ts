@@ -28,7 +28,10 @@ import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPu
 import { resolveLinkTarget, type LinkTarget } from '../analytics/upshotLinks';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
+import { callNameFor, resetCallName } from '../voice/callName';
+import { offersErrorText } from '../utils/offersError';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
+import { pickOffersApplication } from '../utils/pastApplication';
 
 // The full list of screens, mirroring the design's state machine. Kept as a
 // const array (rather than a hand-written union) so the voice agent's
@@ -122,7 +125,10 @@ export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
 // Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
 // floating FAB lifts above this bar on these screens so the two never overlap.
 export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
-  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy',
+  // `mobile` (login + OTP) was missing: Ruby sat on the right end of "Send OTP" / "Verify" and a
+  // tap there started a call. basicpan / basic / moredetails moved their Continue into the header
+  // and no longer pin a footer, so they are not listed (Ruby was floating 78 pt high for nothing).
+  'mobile', 'otp', 'aboutyou', 'privacy',
 ]);
 
 // Spelled out in full for the voice agent's page context — more reliable for
@@ -155,6 +161,24 @@ const PREV: Partial<Record<Screen, Screen>> = {
   notifications: 'home',
 };
 
+/**
+ * What a toast is about. It picks the icon AND the colour of everything inside the card (the card
+ * itself is always white): error = red, warning = amber, success = green, info = deep teal.
+ */
+export type ToastKind = 'error' | 'warning' | 'success' | 'info';
+export interface ToastOptions {
+  /** Not copied to the voice agent (a toast that is not the user's own action result). */
+  silentToAgent?: boolean;
+  /** 'error' = it failed; 'warning' = something to fix first; 'success' = it worked; default 'info'. */
+  kind?: ToastKind;
+}
+/** The longest any toast stays up (owner's rule: 3 seconds at most). */
+export const TOAST_MAX_MS = 3000;
+/** How long a toast stays up. A problem gets the full 3 seconds; a confirmation or note a little less. */
+export function toastDurationMs(kind: ToastKind): number {
+  return kind === 'error' || kind === 'warning' ? TOAST_MAX_MS : 2400;
+}
+
 export interface AppState {
   screen: Screen;
   lang: string | null; // null until chosen; effective default 'en'
@@ -166,6 +190,10 @@ export interface AppState {
   privacyAccepted: boolean; // Privacy Policy consent (first-launch gate)
   supportOpen: boolean; // the tab-bar Support (Ruby) bottom-sheet is showing
   toast: string;
+  // What the current toast is, which picks its icon and inside colour (see ToastKind).
+  // `toastAt` restarts its timer bar.
+  toastKind: ToastKind;
+  toastAt: number;
   notif: { loan: boolean; security: boolean; promo: boolean };
   // mobile / otp
   mobileVal: string;
@@ -305,7 +333,7 @@ export const initialState: AppState = {
   selectedLang: null,
   privacyAccepted: false,
   supportOpen: false,
-  toast: '',
+  toast: '', toastKind: 'info', toastAt: 0,
   notif: { loan: true, security: true, promo: false },
   mobileVal: '',
   terms: false,
@@ -449,8 +477,6 @@ export function parentScreen(s: Screen): Screen {
   return PREV[s] || 'home';
 }
 
-// First name Ruby has used on the CURRENT call (see user_name in page_context).
-let stickyCallName = '';
 // Last agent_language sent in page_context — only to log when it CHANGES (see vlogAlways).
 let lastSentAgentLanguage = '';
 
@@ -651,7 +677,7 @@ interface Ctx {
   // Every toast is also copied into apiContext.lastToast so the voice agent can see
   // what the user was just shown (errors especially). Pass { silentToAgent: true }
   // for toasts that are not the user's own action result.
-  showToast: (msg: string, opts?: { silentToAgent?: boolean }) => void;
+  showToast: (msg: string, opts?: ToastOptions) => void;
   reset: () => void;
   parentOf: (s: Screen) => Screen;
 }
@@ -723,8 +749,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'back' });
   }, []);
 
-  const showToast = useCallback((msg: string, opts?: { silentToAgent?: boolean }) => {
-    dispatch({ type: 'set', patch: { toast: msg } });
+  const showToast = useCallback((msg: string, opts?: ToastOptions) => {
+    const kind: ToastKind = opts?.kind ?? 'info';
+    dispatch({ type: 'set', patch: { toast: msg, toastKind: kind, toastAt: Date.now() } });
     // A toast is invisible to the voice agent otherwise: tool results say "tapped
     // Continue, still on <screen>" with no reason, so Ruby retried blindly or went
     // silent while the user read an error (e.g. "This email is already in use").
@@ -736,7 +763,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(
       () => dispatch({ type: 'set', patch: { toast: '' } }),
-      2400,
+      toastDurationMs(kind),
     );
   }, []);
 
@@ -971,11 +998,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         (s.authUser?.firstName || s.authUser?.fullName || s.pdName || '').trim().split(/\s+/)[0] || '';
       // Fixed for the duration of a call once known: typing a different first
       // name into the application form rewrites authUser.firstName mid-call, and
-      // the prompt says the name Ruby uses does not change within a call.
+      // the prompt says the name Ruby uses does not change within a call. Tied to
+      // the signed-in account and cleared per call (see voice/callName.ts).
       const callLive = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
-      if (!callLive) stickyCallName = '';
-      else if (!stickyCallName && liveName) stickyCallName = liveName;
-      const userName = callLive ? stickyCallName || liveName : liveName;
+      const userName = callNameFor(liveName, s.authUser?.id || s.authUser?.phone || '', callLive);
       // Only relevant on the Profile screen itself — these are exactly the
       // fields skipped at aboutyou/never filled via the application flow that
       // Profile lets the user edit directly. Computed fresh every time the
@@ -1035,7 +1061,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Only meaningful while on the offers surfaces; they were never cleared, so
       // the agent kept being told about "no offers" long after the user moved on.
       offers_summary: (s.screen === 'offers' || s.screen === 'fare') && s.offersSummary ? s.offersSummary : undefined,
-      offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? s.offersError : undefined,
+      offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? offersErrorText(s.offersError, strings(s.lang ?? 'en')) : undefined,
       // Not on Home: that screen sends the buttons only (see BUTTONS_ONLY_SCREENS).
       priorInquiries: s.screen === 'home' ? undefined : stateRef.current.priorInquiries,
       // Where this account stands (applications under review, offers ready, loan) — see summarizeUserContext.
@@ -1080,6 +1106,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The name Ruby uses is locked for ONE call: forget it when a call starts and
+  // when it ends, so the next call (or the next account on this phone) starts clean.
+  useEffect(
+    () =>
+      agent.on('statusChange', (st) => {
+        if (st === 'connecting' || st === 'idle' || st === 'ended') resetCallName();
+      }),
+    [],
+  );
 
   // apiContext changes don't reach the agent on their own — reading a ref
   // doesn't trigger a re-pull; this must explicitly ask it to refresh, same
@@ -1219,15 +1255,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // the user re-entering any details or re-pulling.
   const offersRestored = useRef(false);
   useEffect(() => {
-    if (!state.authUser || offersRestored.current) return;
+    // Logged out: the next login is a new restore. (The ref used to stay true for the life of
+    // the app, so a logout → login in the same run never restored anything.)
+    if (!state.authUser) { offersRestored.current = false; return; }
+    if (offersRestored.current) return;
     offersRestored.current = true;
     api.listApplications()
       .then((r: any) => {
         const apps: any[] = r?.applications || [];
-        const withOffers = apps.find(
-          (a) => (a.offers?.length ?? 0) > 0 &&
-            ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed'].includes(a.status),
-        );
+        // Offers not applied to yet, same rule as Home and My Offers (utils/pastApplication.ts).
+        const withOffers = pickOffersApplication(apps);
         if (withOffers) {
           dispatch({ type: 'set', patch: { applicationId: withOffers.id, loanId: withOffers.loan?.id ?? null, hasSavedOffers: true } });
         }
@@ -1249,7 +1286,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!r) return; // network error: keep it pending, retry next launch
       await clearPendingReferral();
       if (r?.data?.redeemed && r.data.referrer_name) {
-        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`);
+        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`, { kind: 'success' });
       }
     })().catch(() => undefined);
   }, [state.authUser, showToast]);
