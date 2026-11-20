@@ -24,7 +24,7 @@ import Svg, { Defs, RadialGradient, Stop, Rect, Path, G, Filter, FeGaussianBlur 
 import Icon from './Icon';
 import { LogoLockup } from './Logo';
 import { colors, font, heroGradient } from '../theme/tokens';
-import { useStore, Screen as ScreenName, TAB_SCREENS, toastDurationMs, type ToastKind } from '../state/store';
+import { useStore, useT, Screen as ScreenName, TAB_SCREENS, toastDurationMs, type ToastKind } from '../state/store';
 import { publishScreenGraph, registerTarget, clearScreenGraph } from '../voice/actionRegistry';
 
 // Approx height of the pinned footer bar (padding + a 48–56pt CTA). Reserved on
@@ -221,7 +221,12 @@ export function Screen({
       }
     />
   ) : header;
-  const bottomPad = { paddingBottom: (bottomNav ? 92 : 24) + insets.bottom };
+  // Ruby floats over the bottom-right of every non-tab screen (she is the last layer of the
+  // app window, so nothing a screen draws can sit above her). A scrolling screen with no
+  // pinned footer therefore ends RUBY_CLEARANCE lower, so its last row (a button, a slider)
+  // can always be scrolled out from under her. Screens with a footer or the tab bar, and
+  // non-scrolling screens (which lay out to the screen height), keep their spacing.
+  const bottomPad = { paddingBottom: (bottomNav ? 92 : scroll && !footer ? RUBY_CLEARANCE : 24) + insets.bottom };
 
   // Auto-discover every interactive element this screen rendered, so the voice
   // agent can address controls the shared primitives never wrap (most screens
@@ -624,6 +629,7 @@ export function AppHeader({
 // "Support" opens the Ruby help sheet (store.supportOpen).
 function NavTab({ tab, active, onPress }: { tab: (typeof NAV_TABS)[number]; active: boolean; onPress: () => void }) {
   const tint = active ? colors.primary : colors.muted;
+  const t = useT();
   return (
     <Pressable
       accessibilityLabel={tab.label}
@@ -636,10 +642,18 @@ function NavTab({ tab, active, onPress }: { tab: (typeof NAV_TABS)[number]; acti
       style={styles.navTab}
     >
       <Icon name={tab.icon} size={22} color={tint} />
-      <Text style={[font(active ? 700 : 500), { fontSize: 10.5, color: tint, marginTop: 3 }]}>{tab.label}</Text>
+      <Text style={[font(active ? 700 : 500), { fontSize: 10.5, color: tint, marginTop: 3 }]} numberOfLines={1}>{t[tab.textKey] || tab.label}</Text>
     </Pressable>
   );
 }
+
+/**
+ * Height of the strip at the bottom of a non-tab screen that the floating Ruby occupies
+ * (her bottom offset 24 + her touch zone, plus a little air). Content that must never be
+ * covered — a web page, the last button of a scrolling screen — ends this far above the
+ * bottom safe-area edge.
+ */
+export const RUBY_CLEARANCE = 112;
 
 export function BottomNav() {
   const { state, go } = useStore();
@@ -750,6 +764,7 @@ export function BottomNav() {
  */
 function SupportTab() {
   const { state } = useStore();
+  const t = useT();
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [starting, setStarting] = useState(false);
   const spin = useRef(new Animated.Value(0)).current;
@@ -836,14 +851,14 @@ function SupportTab() {
       )}
       <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>
         {connecting
-          ? 'Connecting…'
+          ? t.navConnecting
           : status === 'speaking'
-            ? 'Speaking…'
+            ? t.navSpeaking
             : status === 'executingTool'
-              ? 'Working…'
+              ? t.navWorking
               : live
-                ? 'Listening…' /* connected, mic open — ready to talk */
-                : 'Support'}
+                ? t.navListening /* connected, mic open — ready to talk */
+                : t.navSupport}
       </Text>
     </Pressable>
   );

@@ -28,6 +28,8 @@ import { initUpshot, upshotScreen, upshotEvent, upshotIdentify, registerUpshotPu
 import { resolveLinkTarget, type LinkTarget } from '../analytics/upshotLinks';
 import { agent, ensureToolsRegistered } from '../voice';
 import { vlogAlways } from '../voice/log';
+import { callNameFor, resetCallName } from '../voice/callName';
+import { offersErrorText } from '../utils/offersError';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 import { pickOffersApplication } from '../utils/pastApplication';
 
@@ -155,7 +157,10 @@ export const TAB_SCREENS: ReadonlySet<Screen> = new Set<Screen>([
 // Full screens that pin a bottom "Continue"/CTA bar (the Screen `footer`). The
 // floating FAB lifts above this bar on these screens so the two never overlap.
 export const SCREENS_WITH_FOOTER_CTA: ReadonlySet<Screen> = new Set<Screen>([
-  'basicpan', 'basic', 'moredetails', 'aboutyou', 'privacy',
+  // `mobile` (login + OTP) was missing: Ruby sat on the right end of "Send OTP" / "Verify" and a
+  // tap there started a call. basicpan / basic / moredetails moved their Continue into the header
+  // and no longer pin a footer, so they are not listed (Ruby was floating 78 pt high for nothing).
+  'mobile', 'otp', 'aboutyou', 'privacy',
 ]);
 
 // Spelled out in full for the voice agent's page context — more reliable for
@@ -504,8 +509,6 @@ export function parentScreen(s: Screen): Screen {
   return PREV[s] || 'home';
 }
 
-// First name Ruby has used on the CURRENT call (see user_name in page_context).
-let stickyCallName = '';
 // Last agent_language sent in page_context — only to log when it CHANGES (see vlogAlways).
 let lastSentAgentLanguage = '';
 
@@ -1027,11 +1030,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         (s.authUser?.firstName || s.authUser?.fullName || s.pdName || '').trim().split(/\s+/)[0] || '';
       // Fixed for the duration of a call once known: typing a different first
       // name into the application form rewrites authUser.firstName mid-call, and
-      // the prompt says the name Ruby uses does not change within a call.
+      // the prompt says the name Ruby uses does not change within a call. Tied to
+      // the signed-in account and cleared per call (see voice/callName.ts).
       const callLive = agent.getStatus() !== 'idle' && agent.getStatus() !== 'ended';
-      if (!callLive) stickyCallName = '';
-      else if (!stickyCallName && liveName) stickyCallName = liveName;
-      const userName = callLive ? stickyCallName || liveName : liveName;
+      const userName = callNameFor(liveName, s.authUser?.id || s.authUser?.phone || '', callLive);
       // Only relevant on the Profile screen itself — these are exactly the
       // fields skipped at aboutyou/never filled via the application flow that
       // Profile lets the user edit directly. Computed fresh every time the
@@ -1091,7 +1093,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Only meaningful while on the offers surfaces; they were never cleared, so
       // the agent kept being told about "no offers" long after the user moved on.
       offers_summary: (s.screen === 'offers' || s.screen === 'fare') && s.offersSummary ? s.offersSummary : undefined,
-      offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? s.offersError : undefined,
+      offers_error: (s.screen === 'offers' || s.screen === 'fare') && s.offersError ? offersErrorText(s.offersError, strings(s.lang ?? 'en')) : undefined,
       // Not on Home: that screen sends the buttons only (see BUTTONS_ONLY_SCREENS).
       priorInquiries: s.screen === 'home' ? undefined : stateRef.current.priorInquiries,
       // Where this account stands (applications under review, offers ready, loan) — see summarizeUserContext.
@@ -1138,6 +1140,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The name Ruby uses is locked for ONE call: forget it when a call starts and
+  // when it ends, so the next call (or the next account on this phone) starts clean.
+  useEffect(
+    () =>
+      agent.on('statusChange', (st) => {
+        if (st === 'connecting' || st === 'idle' || st === 'ended') resetCallName();
+      }),
+    [],
+  );
 
   // apiContext changes don't reach the agent on their own — reading a ref
   // doesn't trigger a re-pull; this must explicitly ask it to refresh, same

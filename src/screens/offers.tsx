@@ -12,6 +12,7 @@ import { confirmApply } from '../components/ApplyConfirm';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, Offer } from '../api/client';
+import { offersErrorText } from '../utils/offersError';
 import { agent } from '../voice';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 
@@ -154,7 +155,7 @@ export default function Offers() {
           `${top.lenderName || top.partner?.name || 'a lending partner'}` +
           `${top.apr ? ` at ${top.apr}% p.a.` : ''}` +
           `${topEmi ? `, monthly EMI ${rupee(topEmi)}` : ''}.`
-        : (state.offersError || t.noOffersReturned);
+        : (offersErrorText(state.offersError, t) || t.noOffersReturned);
       set({ offersSummary: summary });
     } catch (e: any) {
       setErr(e?.message || t.couldNotLoadOffers);
@@ -223,7 +224,7 @@ export default function Offers() {
                 icon={state.offersError ? 'error' : 'search_off'}
                 title={state.offersError ? t.couldntFetchOffers : t.noOffersYet}
                 // Show the offer API's own message verbatim (no hardcoded rephrasing).
-                message={state.offersError || t.noOffersMsgGeneric}
+                message={offersErrorText(state.offersError, t) || t.noOffersMsgGeneric}
               />
               <View style={{ gap: 10, marginTop: 8 }}>
                 <PrimaryButton label={t.retryLabel} icon="refresh" onPress={retry} />

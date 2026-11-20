@@ -6,7 +6,8 @@ import { StepDots } from '../components/StepDots';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
-import { api, ApiError, isAuthed } from '../api/client';
+import { api, isAuthed } from '../api/client';
+import { serverErrorText } from '../utils/serverErrors';
 import { MID_MAX, EMAIL_MAX, MONEY_DIGITS } from '../utils/inputLimits';
 
 /**
@@ -61,7 +62,7 @@ export default function MoreDetails() {
       await api.updateProfile(patch);
       return true;
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.mdErrSave, { kind: 'error' });
+      showToast(serverErrorText(e, t.mdErrSave, t, state.lang ?? 'en'), { kind: 'error' });
       return false;
     }
   };

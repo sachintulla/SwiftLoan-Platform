@@ -1,7 +1,8 @@
 'use client';
 import Link from "next/link";
 import { ArrowRight, AtSign, Hash, Users } from "lucide-react";
-import { useCopy } from "@/lib/i18n";
+import { languageOptions, useCopy, useLang, useLanguageLinks, useLocalizedHref } from "@/lib/i18n";
+import { LOCALE_TAGS } from "@/lib/locale";
 import { siteFooterCopy } from "@/i18n/site-footer";
 
 /** Routes per column item, matched by index (null = non-navigating label). */
@@ -17,8 +18,12 @@ const legalRoutes: readonly FooterRoute[] = [null, null, null, null, "/privacy-p
 
 export function SiteFooter() {
   const t = useCopy(siteFooterCopy);
+  const { lang, setLang } = useLang();
+  // The page's other language versions, as plain links that are always in the HTML (the header's
+  // language menu only exists once it is opened, so a crawler never sees its links).
+  const langLinks = useLanguageLinks();
   return (
-    <footer className="bg-card relative mt-16 sm:mt-24 overflow-hidden border-t border-border text-foreground">
+    <footer lang={lang} className="bg-card relative mt-16 sm:mt-24 overflow-hidden border-t border-border text-foreground">
       <div
         aria-hidden
         className="orb animate-drift -top-32 left-1/4 h-[28rem] w-[28rem] opacity-10"
@@ -73,7 +78,25 @@ export function SiteFooter() {
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t.disclaimer}</p>
         </div>
 
-        <p className="mt-8 text-center text-xs text-muted-foreground">{t.copyright}</p>
+        {langLinks && (
+          <nav aria-label="Language" className="mt-8 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs">
+            {languageOptions.map((l) => (
+              <Link
+                key={l.code}
+                href={langLinks[l.code]}
+                hrefLang={LOCALE_TAGS[l.code].hreflang}
+                lang={l.code}
+                aria-current={lang === l.code ? "true" : undefined}
+                onClick={() => setLang(l.code)}
+                className={lang === l.code ? "font-bold text-foreground" : "text-muted-foreground transition-colors hover:text-foreground hover:underline"}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        )}
+
+        <p className={`${langLinks ? "mt-4" : "mt-8"} text-center text-xs text-muted-foreground`}>{t.copyright}</p>
       </div>
     </footer>
   );
@@ -88,12 +111,13 @@ function FooterCol({
   items: readonly string[];
   routes?: readonly FooterRoute[];
 }) {
+  const href = useLocalizedHref();
   return (
     <div className="min-w-0">
       <h4 className="text-sm font-bold tracking-wide uppercase">{title}</h4>
       <ul className="mt-4 space-y-2.5 text-sm text-muted-foreground">
         {items.map((item, i) => {
-          const to = routes?.[i] ?? null;
+          const to = routes?.[i] ? href(routes[i]!) : null;
           return (
             <li key={item}>
               {to ? (

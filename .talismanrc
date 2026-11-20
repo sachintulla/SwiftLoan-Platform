@@ -1,6 +1,6 @@
 fileignoreconfig:
 - filename: __tests__/voice.test.tsx
-  checksum: 5409e8c16e90631f3bb914ab52fa0cdcc3053bd56734bfd00152a53fee37933d
+  checksum: 7b0541b9a2ea73541b83d14f7b5b5ffac612a230aeb1c7a9aaba2d5596164b75
 - filename: prompts/ello-inapp-copilot-prompt.md
   checksum: a8c26573ee7110e103124584ce6e735bd1a034bdaa42dea224d2d0f6eeb4e366
 - filename: voiceCredentials.local.example.js
@@ -23,8 +23,6 @@ fileignoreconfig:
   checksum: 9802c32cf4e3c3baaf000df0b59027abbc7790a48a46b238d0733dc3b51dbb3b
 - filename: ios/SwiftLoan/Voice/VoiceAudioModule.swift
   checksum: f2411ea5f11b001c21f52031d670a011b35b463e501de0f0857b99f9f1b8e7c8
-- filename: __tests__/voice.test.tsx
-  checksum: 7b0541b9a2ea73541b83d14f7b5b5ffac612a230aeb1c7a9aaba2d5596164b75
 - filename: src/components/Controls.tsx
   checksum: c92223d97d1cd6c8ee029355852e8f79cf744a1f5b165d862b2e54101d8f4bd5
 - filename: src/voice/tools.ts
@@ -132,7 +130,7 @@ fileignoreconfig:
 - filename: src/voice/transports/webrtc/WebRTCAgent.ts
   checksum: deee7d6c7fb19d25319c2876b14445aa649520efb1737cdf389d131be12a373c
 - filename: server/.env.example
-  checksum: 0a0750013494d8693ac24152e7d62a4baa01b2eaee4bc3f6bacd67e6f0b9f5c2
+  checksum: 0ff2197c7f7b916e86de891f01764f93744571e2265c02c4dfbc05b624fbefbf
 - filename: server/prisma/migrations/20261118120000_mobile_prefill/migration.sql
   checksum: ec4393672e106058572c002208002d49df0682eacb995ae09e377b496cb9f225
 - filename: server/scripts/journey/run-mobile-prefill.sh
@@ -148,7 +146,7 @@ fileignoreconfig:
 - filename: server/src/lib/digitap.ts
   checksum: 26e894cb5c430a5b57ea0123973ef6f7e59238e38557192fcd374c414da449c4
 - filename: src/state/store.ts
-  checksum: b7293b1fa96fb9c76e2b4e9efb601e137fce1142202da35f616f292b73c75f51
+  checksum: 51eae5faff3c2a626d3ee4f5810dff937d510d47e08e936e928dff0b9e5f70b3
 - filename: server/scripts/fix-customer-stages.sql
   checksum: 7cf3434e21380f7f7995955344fc2e2429d1e68c197e76bda3b22c24f9208c17
 - filename: admin/src/app/(dash)/customers/page.tsx
@@ -181,4 +179,84 @@ fileignoreconfig:
   checksum: cb1ca6f0fd427f23991aa80401e524933975b9c551d179c2af1f2b1c6793f1fc
 - filename: server/src/lib/customerStatus.ts
   checksum: ff3595010164abbfdd8ca4f8aeaace5ce31799522e168cabb06b62208bc2c51d
+- filename: website-next/src/components/pages/PurposePageContent.tsx
+  checksum: e69247a3db96a99c8f33cc047636e1b0208342eb19c62fb689a2d713607374f3
+- filename: website-next/src/components/MetaPixel.test.tsx
+  checksum: 22300a6933784d569bbb00510df1ab286adacfc408a6e61574f75aa0a1492363
+- filename: website-next/src/components/pages/DocsPageContent.tsx
+  checksum: 36d3edc03faccd3901b7cb2764f50d72c333b893486b9678f8126f0dd31aea7c
+- filename: website-next/vitest.setup.ts
+  checksum: 9a4eca4dafda9e497f0b6dbd5c2ab7f157fd75060541d0efd5fd4dc88b39ce58
+- filename: website-next/src/components/site/DocsGuide.tsx
+  checksum: a57a9eba51504c32a80bd9798173667f2c2cab1961e06ff6c4877928413e1ce6
+- filename: website-next/src/components/site/PurposeGuide.test.tsx
+  checksum: 44c34bc87fe995cfdbda0c7b1252eda25fb8d8d1a125d8a4ff5791f27acf33e7
+- filename: website-next/src/components/site/SiteFooter.tsx
+  checksum: e7037f0ae33e7f0678aee03464dd3432a1b569f2a35e56c6e13b6fc9f6e48106
+- filename: website-next/src/components/site/EmiGuide.tsx
+  checksum: 7d949beb664eed45e9e09602f66c2981e1b55102a6418a3dda5fe0732b41499d
+- filename: website-next/src/lib/embed.ts
+  checksum: a20b109dca518021e9b48407c5f4e9ecb216f89c9d71f74fe5d5271195373650
+- filename: website-next/src/lib/embed.test.ts
+  checksum: 26972c36249aa856cfccdc2e66c56aee579ad8943fb985a73a8ff8f82f127df2
+- filename: website-next/src/components/site/SiteHeader.tsx
+  checksum: c2f87efc07f86fb16c29519315c959e2c73854938b77f6763505304a10ab6fcf
+- filename: website-next/src/components/site/LoanGuide.tsx
+  checksum: 64a750e61d83566d29d32fd9dd0be628cf77500c90676f7c6aa42ec6448daadb
+- filename: website-next/src/i18n/docs-pages.test.ts
+  checksum: 17c21b83f612a156e91e12b65a4ea5864da59064ccca3ddc4886410b4f9b7738
+- filename: website-next/src/i18n/loan-pages.test.ts
+  checksum: e0a6cbd5be31ab89593a82c19e09beb9cdc95055335dec2de0f193e067e88f32
+- filename: website-next/src/components/site/PurposeGuide.tsx
+  checksum: b8f28d20096b9e513ddf9fe2e28d916f23de425dafd1ba1f8650a602c02eede3
+- filename: website-next/src/lib/purposeSeo.ts
+  checksum: 50aa0171848da63458c060aeae75107742e86aae868edb284b58a5e4d703bb29
+- filename: website-next/src/lib/layers.ts
+  checksum: 759c738f1cc4cd1193e629aafa763655da74d128295f300b6af87a8bffe73fba
+- filename: website-next/src/i18n/purpose-pages.test.ts
+  checksum: 1dbf35c2ca75459ec2fcff0e0a3e62b7cb60b80602454dd1702bf615b075dae6
+- filename: website-next/src/i18n/loan-pages.ts
+  checksum: e38a6b5fa54fb72cda6c12511880eed725ba5770c8142d588a8446e2d680f62c
+- filename: website-next/src/lib/localeRoutes.test.ts
+  checksum: fc69b7f79ade882c6ef3cbbdd2a61b4af3fc5dde54d601f418df0c2229d9c64a
+- filename: website-next/src/lib/i18n.tsx
+  checksum: 9292c7e65beee76178dac41470aa72bd7ea01592d6a34f44471111ca19b516aa
+- filename: website-next/src/lib/seo.ts
+  checksum: 3ca56fe9ddd1a24750be0c747d341aeb7e3b9c001a5979aec3771b3a65fd0e23
+- filename: website-next/src/i18n/docs-pages.ts
+  checksum: a1511b2cfc4c134ca28cb7f3313fea1623431a678c3e42b452ed4b9fd1ed4ccc
+- filename: website-next/src/i18n/purpose-pages.ts
+  checksum: 9dd8eac6c18690cb83bab7afee783211f5f8203b23d81666cb224a09acf43568
+- filename: src/components/LoginHero.tsx
+  checksum: 612520f1b9a21a200528d5e69f3baa2b80b527c9ef6ce7e6b767063a0cbe2172
+- filename: src/voice/callName.ts
+  checksum: 99d86f6ccade4a0e68282f676c8be5f1775fd71bfdfbf22b56b3beadcc5c1b75
+- filename: src/components/navTabs.ts
+  checksum: f26b254140e8d62767c66659a02f2695e97a706745e0ee89af61a058a395dd28
+- filename: src/utils/offersError.ts
+  checksum: f1d6b4cac879bd28d72d4bec8eb76b3a76f0dab50ed7605d07dac3692c2c372b
+- filename: __tests__/offersErrorLanguage.test.tsx
+  checksum: 1f90e11d421a020e7a24609c4cef4f059f5d949adea7604d969e111c11af74a7
+- filename: src/screens/finding.tsx
+  checksum: 3033e2c41f9d3bbcb35e437b48486a77083db93b2bcd9347ea468f49f71f56dd
+- filename: src/screens/fare.tsx
+  checksum: 71ba1d4dbcc1564c61291f05868a4b36f892964c36e08abcfc6904278b5cb13a
+- filename: src/screens/compare.tsx
+  checksum: 7175a0e03ada454e095b0d73787b3ebc2bb8f8fd1a1eb037e13a3b19fa3e65de
+- filename: server/scripts/erase-user.mjs
+  checksum: c59bd37ff0dda65b9313eedd58253458fe73e8125aba41ea5dd553f8d183cd9e
+- filename: server/package-lock.json
+  checksum: 76237b11bfd0905224531d226bd64f359aee2a9f2970149c2b0098400499ece3
+- filename: server/src/lib/slackVerify.ts
+  checksum: b910f4550a7ded76808bcd9902146f7acca6fdb81cb60176881894ff0046c413
+- filename: website-next/src/components/apply/ApplyConfirm.test.tsx
+  checksum: f9e7a2556574b5592a2b31a816a13f68998b369ce3189e29fefe6178773f51fe
+- filename: server/src/lib/slackVerify.test.ts
+  checksum: 08e9ab26f4caf58dc3e28b589440123b6e0da56a0a2a720609c3adce225384cc
+- filename: server/src/modules/slackBot.routes.ts
+  checksum: 74385b7c72fc97487ec49c3bb1b72fefea1756be17854bf12c8e46748f5c14f8
+- filename: website-next/src/components/apply/ApplyConfirm.tsx
+  checksum: b1f9632144af67248b66e95db7335c45b694a73afc2ff0180d0ebb659ddd77b1
+- filename: docs/SLACK_ASSISTANT_SETUP.md
+  checksum: dae4de72aca884efce00ed6ab4bc4f17cb3df9e66fe2282af9002032ece36dcb
 version: "1.0"

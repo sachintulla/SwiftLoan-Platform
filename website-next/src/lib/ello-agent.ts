@@ -8,6 +8,8 @@
  * subscription"), which cost real debugging time. Anything that reaches a user
  * must be unwrapped, never stringified blindly.
  */
+import { LAYERS } from '@/lib/layers';
+
 export function readProviderError(json: unknown, status: number): string {
   const seen = new Set<unknown>();
   const dig = (v: unknown, depth = 0): string | null => {
@@ -590,7 +592,8 @@ export class ElloAgent {
       const wrap = document.createElement('div');
       wrap.setAttribute('role', 'alertdialog');
       wrap.style.cssText =
-        'position:fixed;bottom:96px;right:24px;z-index:60;max-width:320px;background:#111010;color:#f7f3ec;border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:14px/1.4 system-ui,sans-serif';
+        `position:fixed;bottom:96px;right:24px;z-index:${LAYERS.alert};max-width:320px;` +
+        'background:#111010;color:#f7f3ec;border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.45);font:14px/1.4 system-ui,sans-serif';
       const msg = document.createElement('p');
       msg.textContent = message;
       msg.style.cssText = 'margin:0 0 12px';

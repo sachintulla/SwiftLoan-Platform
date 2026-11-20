@@ -284,7 +284,7 @@ export default function CompareOffersPage() {
       )}
 
       {sheetOpen && (
-        <div className="fixed inset-0 z-[10002] lg:hidden" role="dialog" aria-modal="true" aria-label={t.filters}>
+        <div className="fixed inset-0 z-[var(--z-modal)] lg:hidden" role="dialog" aria-modal="true" aria-label={t.filters}>
           <div className="animate-in fade-in absolute inset-0 bg-black/40" onClick={() => setSheetOpen(false)} />
           <div className="animate-in slide-in-from-bottom bg-card absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl p-5 pb-8 shadow-[var(--shadow-float)] duration-200">
             <div className="mb-3 flex items-center justify-between">

@@ -391,7 +391,7 @@ export default function SupportPage() {
       {/* Ticket popup */}
       {modalOpen && (
         <div
-          className="fixed inset-0 z-[10002] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-6"
+          className="fixed inset-0 z-[var(--z-modal)] flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-6"
           onMouseDown={(e) => { if (e.target === e.currentTarget) closeModal(); }}
         >
           <div

@@ -10,7 +10,7 @@ import Link from "next/link";
 import { ArrowRight, CalendarClock, Percent, TrendingDown, Wallet } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Reveal } from "@/components/site/Reveal";
-import { useCopy } from "@/lib/i18n";
+import { useCopy, useLocalizedHref } from "@/lib/i18n";
 import { emiCalculatorCopy } from "@/i18n/emi-calculator";
 
 type EmiCopy = (typeof emiCalculatorCopy)["en"];
@@ -30,6 +30,7 @@ const TENURE_PRESETS = [12, 24, 36, 60];
 
 export function EmiCalculator() {
   const t = useCopy(emiCalculatorCopy);
+  const href = useLocalizedHref(); // keeps a Hindi / Telugu reader on that language's pages
   const [amount, setAmount] = useState(500000);
   const [rate, setRate] = useState(11.5);
   const [tenure, setTenure] = useState(36);
@@ -225,7 +226,7 @@ export function EmiCalculator() {
             </div>
 
             <Link
-              href="/#lead-form"
+              href={href('/#lead-form')}
               className="bg-brand-gradient text-primary-foreground mt-7 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-full px-6 py-3.5 text-center text-sm font-semibold transition-transform hover:-translate-y-0.5"
             >
               {t.result.cta} <ArrowRight className="h-4 w-4 shrink-0" />

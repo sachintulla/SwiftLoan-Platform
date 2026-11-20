@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { Check, ChevronDown, Globe } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { defineCopy, languageOptions, useCopy, useLang } from '@/lib/i18n';
+import { defineCopy, languageOptions, useCopy, useLang, useLanguageLinks } from '@/lib/i18n';
+import { LOCALE_TAGS } from '@/lib/locale';
 
 const copy = defineCopy({
   en: { change: 'Change language' },
@@ -16,10 +18,14 @@ const copy = defineCopy({
  * of an application with no way to change language. Exactly the three languages the site supports:
  * English, Hindi and Telugu. Reads and writes the same LanguageProvider as the header's menu (and
  * the voice assistant's set_language), so all three always agree.
+ *
+ * On a page that has language versions (/hi/…, /te/…) each option is a link to that version's URL;
+ * everywhere else (the application, the account) it switches in place.
  */
 export function LanguageSwitcher({ className = '' }: { className?: string }) {
   const { lang, setLang } = useLang();
   const t = useCopy(copy);
+  const langLinks = useLanguageLinks();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -37,11 +43,21 @@ export function LanguageSwitcher({ className = '' }: { className?: string }) {
         {languageOptions.map((l) => (
           <DropdownMenuItem
             key={l.code}
+            asChild={!!langLinks}
             onSelect={() => setLang(l.code)}
             className="focus:bg-accent cursor-pointer rounded-xl px-3.5 py-2.5 text-sm font-medium"
           >
-            <span className="flex-1">{l.label}</span>
-            {lang === l.code && <Check className="text-primary h-4 w-4" />}
+            {langLinks ? (
+              <Link href={langLinks[l.code]} hrefLang={LOCALE_TAGS[l.code].hreflang} lang={l.code}>
+                <span className="flex-1">{l.label}</span>
+                {lang === l.code && <Check className="text-primary h-4 w-4" />}
+              </Link>
+            ) : (
+              <>
+                <span className="flex-1">{l.label}</span>
+                {lang === l.code && <Check className="text-primary h-4 w-4" />}
+              </>
+            )}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

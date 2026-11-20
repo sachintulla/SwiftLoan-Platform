@@ -9,7 +9,8 @@ import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../compone
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
-import { api, ApiError, isAuthed } from '../api/client';
+import { api, isAuthed } from '../api/client';
+import { serverErrorText } from '../utils/serverErrors';
 import { isMaskedPan } from '../utils/resume';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
 import { missingBasicRequired, companyNeeded } from '../utils/basicRequired';
@@ -368,7 +369,7 @@ export default function Basic() {
       set({ applicationId: application.id });
       go('moredetails');
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.basicErrStart, { kind: 'error' });
+      showToast(serverErrorText(e, t.basicErrStart, t, state.lang ?? 'en'), { kind: 'error' });
     } finally {
       setBusy(false);
     }

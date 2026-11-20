@@ -10,7 +10,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { upshotEvent } from "./upshot";
+import { languageLinks, localizedHref, urlLangOf } from "./localeRoutes";
 
 export const LANGS = ["en", "hi", "te"] as const;
 export type Lang = (typeof LANGS)[number];
@@ -41,18 +43,45 @@ const LanguageContext = createContext<LanguageContextValue>({
 const STORAGE_KEY = "sl_lang";
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
+/**
+ * Where the language comes from, in order:
+ *
+ *  1. A language URL (/hi/…, /te/… of a page that has language versions, lib/localeRoutes.ts):
+ *     the URL decides, on the server and on the first client render alike, so the HTML Google and
+ *     the visitor get is already in that language (no flash of English, nothing to re-render).
+ *     Opening such a URL also saves it as the visitor's language, so the pages that have no
+ *     language URL (/apply, /account) carry on in it.
+ *  2. Any other URL (English pages, the application, the account): as before, the first render is
+ *     English (it must match the server's HTML) and the saved choice (`sl_lang`) is put on screen
+ *     right after hydration. Nobody is redirected: a visitor with Hindi saved who opens /faqs
+ *     stays on /faqs and reads it in Hindi; Google, which has nothing saved, gets English there.
+ *  3. A choice made on this page without changing URL (the voice assistant's set_language, or a
+ *     menu on a page without language URLs) applies at once, on any URL, until the page changes.
+ *     The menus on pages WITH language versions are links to the other version's URL instead.
+ */
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("en");
-  const currentLang = useRef<Lang>("en");
+  const pathname = usePathname();
+  const urlLang = urlLangOf(pathname);
+  /** The remembered language (mirrors localStorage once hydrated). */
+  const [saved, setSaved] = useState<Lang>("en");
+  /** A choice made in place; it only holds for the page it was made on. */
+  const [picked, setPicked] = useState<{ lang: Lang; path: string | null } | null>(null);
+  const lang: Lang = (picked && picked.path === pathname ? picked.lang : null) ?? urlLang ?? saved;
+
+  const currentLang = useRef<Lang>(lang);
+  currentLang.current = lang;
+  const currentPath = useRef(pathname);
+  currentPath.current = pathname;
 
   /** Every way of changing language (both menus, the voice assistant) goes through here, so it is remembered. */
   const setLang = useCallback((next: Lang) => {
-    // Upshot: an actual choice (not the post-hydration restore, which uses setLangState).
+    // Upshot: an actual choice (not the post-hydration restore, nor arriving on a language URL).
     if (next !== currentLang.current) {
       upshotEvent("language_selected", { language: next, label: UPSHOT_LANG_LABELS[next] });
     }
     currentLang.current = next;
-    setLangState(next);
+    setSaved(next);
+    setPicked({ lang: next, path: currentPath.current });
     try {
       localStorage.setItem(STORAGE_KEY, next);
     } catch {
@@ -64,19 +93,26 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   // Layout effect so the saved language is on screen before the first paint, not a flash of English after it.
   const restore = useCallback(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      const match = LANGS.find((l) => l === saved);
-      if (match && match !== currentLang.current) {
-        currentLang.current = match;
-        setLangState(match);
-      }
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const match = LANGS.find((l) => l === stored);
+      if (match) setSaved(match);
     } catch {
       /* storage blocked */
     }
   }, []);
   useIsoLayoutEffect(() => {
-    restore();
-  }, [restore]);
+    if (!urlLang) {
+      restore();
+      return;
+    }
+    // On a language URL the URL is the choice: remember it for the pages that have no language URL.
+    setSaved(urlLang);
+    try {
+      localStorage.setItem(STORAGE_KEY, urlLang);
+    } catch {
+      /* storage blocked */
+    }
+  }, [urlLang, restore]);
 
   // Coming back to the page without a fresh mount — the browser's Back from a partner lender's site (bfcache),
   // or another tab changing the language — must keep the saved language, not fall back to English.
@@ -131,13 +167,29 @@ export function useLang() {
   return useContext(LanguageContext);
 }
 
-/** A copy bundle: the same shape translated into every supported language. */
-export type Copy<T> = Record<Lang, T>;
-
-/** Declare a copy bundle; the English entry drives the type of the others. */
-export function defineCopy<T>(bundle: { en: T; hi: T; te: T }): Copy<T> {
-  return bundle;
+/**
+ * Keeps internal links in the visitor's language: `const href = useLocalizedHref()` then
+ * `<Link href={href('/faqs')}>` gives /hi/faqs to a Hindi reader. Links to pages that have no
+ * language version come back unchanged (rules: lib/localeRoutes.ts `localizedHref`).
+ */
+export function useLocalizedHref(): (href: string) => string {
+  const { lang } = useLang();
+  return useCallback((href: string) => localizedHref(href, lang), [lang]);
 }
+
+/**
+ * For a language menu: each language's URL for the page being viewed, or null when that page has
+ * no language versions (then the menu switches in place with `setLang`).
+ */
+export function useLanguageLinks(): Record<Lang, string> | null {
+  const pathname = usePathname();
+  return useMemo(() => languageLinks(pathname), [pathname]);
+}
+
+// Copy bundles live in lib/copy.ts (no React) so the server can read them too.
+import type { Copy } from './copy';
+export { defineCopy } from './copy';
+export type { Copy } from './copy';
 
 /** Read the active language's slice of a copy bundle. */
 export function useCopy<T>(bundle: Copy<T>): T {

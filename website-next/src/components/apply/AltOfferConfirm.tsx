@@ -28,7 +28,7 @@ export function AltOfferConfirm({
   if (!open || typeof document === 'undefined') return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4"
+      className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/40 p-4"
       onClick={() => onAnswer(false)}
     >
       <div

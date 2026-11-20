@@ -17,6 +17,7 @@ import { useCallActive } from '../voice/useCallActive';
 import YubiOffersTab from '../components/YubiOffersTab';
 import { LogoLockup } from '../components/Logo';
 import { offersViewFor, unappliedOffers } from '../utils/pastApplication';
+import { offersErrorKeyFor, offersErrorText } from '../utils/offersError';
 
 /** "just now / 5m ago / 2h ago / on 24 Aug" for the saved-offers timestamp,
  *  in the current language ('t' from useT()). */
@@ -181,9 +182,9 @@ export default function MyOffers() {
           // An earlier check found nothing. That result lived only in memory and was lost on
           // logout; restore it from the server so the screen is the one they left (the reason,
           // Retry, Update details, Explore lenders) and not the first-time "Apply for a loan".
-          const friendly = view.reason === 'duplicate' ? t.findingErrDuplicate
-            : view.reason === 'technical' ? t.findingErrTechnical
-            : t.findingErrNotEligible;
+          // A strings-table KEY, not the sentence: it is turned into text when shown, so it
+          // follows the app language even if that changes later (utils/offersError.ts).
+          const friendly = offersErrorKeyFor(view.reason) || 'findingErrNotEligible';
           setPastApplied(false);
           set({ applicationId: view.application.id, offersReturn: 'fare', offersError: friendly });
         } else if (view.kind === 'applied') {
@@ -503,7 +504,7 @@ function EmptyOffers({
         {failed ? t.couldntFetchOffers : showApplied ? t.appliedAllTitle : t.noOffersYet}
       </Text>
       <Text style={[font(400), { fontSize: 14, color: colors.textSoft, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
-        {offersError || (showApplied ? t.appliedAllMsg : t.fareEmptyMsgGeneric)}
+        {offersErrorText(offersError, t) || (showApplied ? t.appliedAllMsg : t.fareEmptyMsgGeneric)}
       </Text>
 
       {showApplied ? (

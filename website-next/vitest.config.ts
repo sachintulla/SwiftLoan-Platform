@@ -6,5 +6,5 @@ import path from 'node:path';
 export default defineConfig({
   esbuild: { jsx: 'automatic' },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
-  test: { include: ['src/**/*.test.{ts,tsx}'], restoreMocks: true },
+  test: { include: ['src/**/*.test.{ts,tsx}'], restoreMocks: true, setupFiles: ['./vitest.setup.ts'] },
 });

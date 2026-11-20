@@ -8,7 +8,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { Reveal } from '@/components/site/Reveal';
-import { useCopy } from '@/lib/i18n';
+import { useCopy, useLocalizedHref } from '@/lib/i18n';
 import { faqsCopy } from '@/i18n/faqs';
 
 const highlightIcons = [Clock, ShieldCheck, IndianRupee, Landmark];
@@ -21,6 +21,7 @@ const highlightTones = [
 
 export function FaqsView({ ctaHref = '/#lead-form', inDashboard = false }: { ctaHref?: string; inDashboard?: boolean }) {
   const t = useCopy(faqsCopy);
+  const href = useLocalizedHref(); // '/#lead-form' → '/hi#lead-form' for a Hindi reader; '/apply' stays as it is
   return (
     <main className="shell py-14 sm:py-20">
       <Reveal className="mx-auto max-w-2xl text-center">
@@ -83,7 +84,7 @@ export function FaqsView({ ctaHref = '/#lead-form', inDashboard = false }: { cta
       <Reveal delay={200}>
         <div className="mt-12 text-center">
           <Link
-            href={ctaHref}
+            href={href(ctaHref)}
             className="bg-brand-gradient inline-flex min-h-10 flex-wrap items-center justify-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-float)] transition-transform hover:-translate-y-0.5"
           >
             {t.cta} <ArrowRight className="h-4 w-4 shrink-0" />

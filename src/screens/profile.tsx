@@ -11,6 +11,7 @@ import { ErrorState } from '../components/common/ErrorState';
 import { colors, font } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
 import { api, ApiError, isAuthed, uploadAvatar } from '../api/client';
+import { serverErrorText, serverErrorReason } from '../utils/serverErrors';
 import { NAME_MAX, EMAIL_MAX, sanitizeNameInput, cleanName } from '../utils/inputLimits';
 import { requestConfirmation } from '../voice/ui/confirmationBridge';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
@@ -157,8 +158,9 @@ export default function Profile() {
       mergeApiContext({ profileSaveResult: { ok: true } });
       markUrgentContext();
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : t.couldNotSaveRetry;
-      showToast(message, { kind: 'error' });
+      // The toast is for the user (app language); the agent gets the server's real reason.
+      const message = serverErrorReason(e, t.couldNotSaveRetry);
+      showToast(serverErrorText(e, t.couldNotSaveRetry, t, state.lang ?? 'en'), { kind: 'error' });
       mergeApiContext({ profileSaveResult: { ok: false, error: message } });
       markUrgentContext();
     }
@@ -268,7 +270,7 @@ export default function Profile() {
       await api.deleteAccount();
       reset();
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.couldNotDeleteAccount, { kind: 'error' });
+      showToast(serverErrorText(e, t.couldNotDeleteAccount, t, state.lang ?? 'en'), { kind: 'error' });
     }
   };
 
@@ -281,7 +283,7 @@ export default function Profile() {
       const user = await uploadAvatar(asset.uri, mime);
       set({ authUser: user });
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.couldNotUploadPhoto, { kind: 'error' });
+      showToast(serverErrorText(e, t.couldNotUploadPhoto, t, state.lang ?? 'en'), { kind: 'error' });
     } finally {
       setAvatarBusy(false);
     }
@@ -294,7 +296,7 @@ export default function Profile() {
       set({ authUser: user });
       showToast(t.photoRemoved, { kind: 'success' });
     } catch (e) {
-      showToast(e instanceof ApiError ? e.message : t.couldNotRemovePhoto, { kind: 'error' });
+      showToast(serverErrorText(e, t.couldNotRemovePhoto, t, state.lang ?? 'en'), { kind: 'error' });
     } finally {
       setAvatarBusy(false);
     }

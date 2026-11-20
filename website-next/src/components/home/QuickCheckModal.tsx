@@ -63,7 +63,7 @@ export function QuickCheckModal() {
 
   return (
     <>
-      <div className="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[var(--z-modal)] overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
         <div className="flex min-h-full items-center justify-center">
         {/* w-full, not a raw vw calc — see LeadCaptureUI's OtpModal for why. */}
         <div className="bg-card relative my-auto w-full min-w-0 max-w-md overflow-hidden rounded-3xl shadow-[var(--shadow-float)]">
