@@ -112,6 +112,38 @@ export function summarizeUserContext(ctx: UserContext | null): Record<string, un
   };
 }
 
+/**
+ * The BASIC details the voice agent is given when this account's details were fetched from the mobile number
+ * at login (server/src/lib/mobilePrefill.ts), sent in page_context as `details_on_record`. It reaches the app
+ * only through the authenticated GET /context/me, i.e. after the OTP was accepted — never before.
+ *
+ * Basic on purpose (owner, 2026-11-19): name, date of birth, gender, city / state / PIN code, employment type,
+ * and whether a PAN is already on record. NEVER the PAN, the credit score, the street address, the income, an
+ * alternate number or email, or anything else of the fetched answer — those stay on the server.
+ */
+export function basicDetailsForAgent(ctx: UserContext | null): Record<string, unknown> | undefined {
+  const p = ctx?.profile;
+  if (!ctx?.prefill?.available || !p) return undefined;
+  const tidy = (v: string | null | undefined) => {
+    const t = String(v ?? '').trim().replace(/\s+/g, ' ');
+    if (!t) return undefined;
+    // Records come in capitals ("RAVI KUMAR"): say them as a person would write them.
+    return t === t.toUpperCase() ? t.toLowerCase().replace(/(^|[\s.'-])([a-z])/g, (_m, a: string, b: string) => a + b.toUpperCase()) : t;
+  };
+  const out: Record<string, unknown> = {
+    name: tidy(p.name),
+    date_of_birth: p.dob || undefined,
+    gender: p.gender || undefined,
+    city: tidy(p.city),
+    state: tidy(ctx.applicantDraft?.state),
+    pincode: p.pincode || undefined,
+    employment: p.employment || undefined,
+    pan_on_record: !!ctx.prefill.panAvailable,
+  };
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return out;
+}
+
 export type Screen = (typeof SCREEN_NAMES)[number];
 
 // Screens that show the bottom tab bar. The tab bar and the assistant FAB both
@@ -1066,6 +1098,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       priorInquiries: s.screen === 'home' ? undefined : stateRef.current.priorInquiries,
       // Where this account stands (applications under review, offers ready, loan) — see summarizeUserContext.
       account_summary: summarizeUserContext(stateRef.current.userContext),
+      // Basic details already on record for this (signed-in) account, fetched from the mobile number — see basicDetailsForAgent.
+      details_on_record: basicDetailsForAgent(stateRef.current.userContext),
       // Details Ruby gathered conversationally on a previous call (or earlier
       // this one), before the user had reached the application form — see
       // save_applicant_details / the prompt's "Proactive Details Collection"

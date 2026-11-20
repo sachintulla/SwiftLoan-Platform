@@ -999,8 +999,12 @@ Ello's 5,000-token limit (~3,530 words).
 
 ## Details from the mobile number at login (Digitap "Mobile to Prefill", built 2026-11-18; UAT only so far)
 
-Right after an OTP login (app or website, every account) the server asks Digitap for the person's details by mobile number, once per number, in
-the background (`startMobilePrefill` in `verifyOtpAndLogin`; never slows or fails the login). Provider side: `server/src/lib/digitap.ts` (config,
+When an OTP is REQUESTED (app `/auth/otp/request`, website `/otp/request`; every account) the server asks Digitap for the person's details by
+mobile number, once per number, in the background (`startMobilePrefill`; never slows or fails the request). Since 2026-11-19 (owner) the lookup is
+made at the request, not after the OTP, so the details are ready the moment the code is entered. At that point the answer is ONLY saved in
+`MobilePrefill`: the number is not proven yet, so the profile is not filled and nothing is told to any client or to the agent. When the OTP is
+ACCEPTED, `finishMobilePrefillAtLogin` (awaited in `verifyOtpAndLogin`, at most ~2 s for a lookup still running) copies the details into the empty
+`User` columns; with no earlier lookup it starts one then. Provider side: `server/src/lib/digitap.ts` (config,
 request, mapping; pure and tested). DB side: `server/src/lib/mobilePrefill.ts`. API doc: v1.4 (`POST <base>/mobile_prefill/request`, Basic auth).
 - **Off unless** `DIGITAP_BASE_URL` + `DIGITAP_CLIENT_ID` + `DIGITAP_CLIENT_SECRET` are set AND the switch `prefill.digitapEnabled` is on
   (Admin → Timings → Tracking & limits; env `DIGITAP_ENABLED` is its starting value). Off = the flow is exactly as before.
@@ -1024,6 +1028,14 @@ request, mapping; pure and tested). DB side: `server/src/lib/mobilePrefill.ts`. 
   step 2 shows no Aadhaar chips. Back from step 2 → step 1 with an EMPTY field (app: a masked PAN in state is cleared; website: a hand-off already
   in the tab); a PAN typed there goes through the normal Aurix check. A user with a DIFFERENT PAN already on file is never switched: normal step 1.
   Nothing found / error / off / offline → normal step 1.
+- **What the voice agent is told (owner, 2026-11-19: basic details only, and only after the OTP).** `GET /context/me` carries
+  `prefill: {available, panAvailable}` (flags only, `lib/userContext.ts`); when `available`, the app adds `page_context.details_on_record`
+  (`basicDetailsForAgent` in `src/state/store.ts`): name, date of birth, gender, city, state, PIN code, employment type and `pan_on_record`.
+  NEVER the PAN, the score, the street address, the income, an alternate number/email or the raw answer. Before the OTP the agent gets nothing.
+  Prompt: "Details already on record" in `prompts/ello-inapp-copilot-prompt.md` (edited locally; paste into Ello by hand). App only so far: the
+  website voice assistant is not given these.
+- **Cost of the early lookup:** every number that requests an OTP is a lookup (a paid one when a record is found), including numbers that never
+  enter the code; still once per number, and OTP requests are rate-limited.
 - **Logs:** on the UAT host every call prints the complete request and answer to the server log (`[digitap-req]` / `[digitap-res]`), always, with no
   switch (owner, 2026-11-18); the client secret is never printed. On any other host only the outcome is logged and the `/logs` page gets the envelope.
 - **Open before production:** monthly-vs-yearly income; consent wording for fetching details by number (step 1's consent tick is skipped for these
@@ -1031,3 +1043,59 @@ request, mapping; pure and tested). DB side: `server/src/lib/mobilePrefill.ts`. 
   step 2's card still says "PAN verified" although nobody verified it; admin has no view of the fetched details or score yet.
 - **Tests:** `server/src/lib/{digitap,mobilePrefill}.test.ts`, `cd server && bash scripts/journey/run-mobile-prefill.sh` (36 checks: throwaway DB
   built by `migrate deploy`, fake Digitap on localhost), app `__tests__/applicationFunnel.test.tsx` (skip + back).
+
+---
+
+## Customer status in admin = stored data, not the journey stage (2026-11-19)
+
+Customers showed "Application submitted" for almost everyone: 696 of 949 on prod, while about 105 had applied with a lender and 539 had
+been told "no offers". Cause: the lender (Aurix/KFT) webhook recorded EVERY status push (PAN check, bureau pull, eligibility) as the journey
+event `application_submitted`, which moved `Customer.currentStage` forward for good.
+- **Webhook (`lib/lenderJourneyEvent.ts`, pure, tested):** `application_submitted` is recorded only when the customer really applied (the
+  lender's state is `application_submitted` / `kyc_completed` / `post_lender_redirection_journey`, or the application already has a
+  `LenderApplication` / applied offer). Every other push is the neutral `lender_update` (no stage; in `SYSTEM_EVENT_NAMES`). A technical
+  failure is never a submission.
+- **Real status (`lib/customerStatus.ts` pure + tested, `lib/customerStatusDb.ts`):** decided from stored data, the same way as
+  `dropoffSteps.ts` / `callSituation.ts`. Order: do-not-contact (`lost`) → the furthest lender application → the MOST RECENT application
+  (offers ready / no offers + reason / failed / checking / filling details) → the account (PAN on file, number verified, OTP not entered) →
+  no account (lead stages, or "Account deleted" when the linked account is gone). Statuses and labels: `CUSTOMER_STATUSES`
+  ("No offers found" is new; the stage list never had it). The account is matched by PHONE first, then `userId` (same as the customer page).
+- **Where it shows:** `GET /api/admin/customers` returns `status: { key, label, tone, detail }` per row and takes `?status=<key>`;
+  `GET /api/admin/customers/statuses` (same filters) gives the list with counts for the filter; `GET /api/admin/customers/:id` returns
+  `status`; the CSV export takes `status` and has `status` + `statusDetail` columns. The status is not a column, so the filter reads the slim
+  list and decides in memory (three grouped reads, arrays as one parameter each: 949 customers in ~170 ms). `?stage=` still works for old links.
+- **Still stage-based:** `Customer.currentStage` and everything that reads it (milestone tracker, stuck-step rules, Notify segments, the
+  active-users and app-downloads lists). It is correct again after the one-time script, but has no "no offers" value ("Eligibility checked").
+- **One-time correction: `server/scripts/fix-customer-stages.sql`** (psql; dry run by default, `-v apply=1` to apply; safe to repeat). Renames
+  the wrong timeline events (`lender_update`, `status_viewed`; nothing deleted) and moves the wrongly advanced customers back to the furthest
+  stage their own timeline supports, never below "OTP verified". It does not touch `lastNudgedAt` / `lastActivityAt`, so it triggers no
+  message or call. **Run it on prod AFTER this code is deployed.** On the 2026-11-19 copy: 2,263 + 6 events renamed, 601 customers moved
+  (588 → Eligibility checked, 13 → Offer selected), 95 left at "Application submitted".
+- Not changed: the app still names its status-screen event `application_submitted` (the server ignores it unless a lender application exists).
+- Tests: `lib/customerStatus.test.ts`, `lib/lenderJourneyEvent.test.ts`, `admin/src/lib/customerFilters.test.ts`.
+
+---
+
+## Admin Alerts: everything sent to customers in one list (2026-11-19)
+
+Sidebar **Alerts** (`admin/src/app/(dash)/alerts`) replaces the separate **Messages** and **Calls** pages (`/messages` and `/calls` now
+redirect to it). One row = one thing we sent: exact time, type (WhatsApp / SMS / Push / Call), a plain name, how it ended, and the
+error when it failed. Clicking a row opens the rest (message text and delivery times, or the call's summary, recording and transcript).
+- **Rules: `server/src/lib/alerts.ts`** (pure, tested). `alertName` turns a template / DLT id / call reason into words ("Continue
+  application", "No offers call"); `alertError` makes a provider's answer one short line; five outcomes for every type: `success`
+  (delivered / read / call answered), `sent` (provider accepted it, delivery NOT confirmed: SMS has no delivery report and WhatsApp none so
+  far, so most messages stay here), `not_answered`, `failed`, `pending`.
+- **Query: `server/src/lib/alertsDb.ts`.** ONE `UNION ALL` over `MessageDelivery` (not `unparsed`), `CallAttempt` (`phone_outbound` only)
+  and `OutboundRequest` push events, so paging, filters and counts agree. A call the provider never reported on (our clean-up job closes it
+  as failed with "no terminal webhook…") is **Not answered**, not Failed. Push rows still waiting in the queue, or refused because the push
+  integration is switched off, are NOT listed (nothing left the server); the summary returns `pushEnabled` and the Push tile says "Switched off".
+- **API (`modules/adminAlerts.routes.ts`, `/api/admin/alerts`):** `GET /` (`type`, `status`, `from`, `to`, `search` = mobile number or name,
+  `customerId`), `GET /summary` (counts per type and outcome for the same slice), `GET /:type/:id` (one alert in full; a call's JSON
+  summary is reduced to its text by `callSummaryText`). `/api/admin/messages` and `/api/admin/calls` are unchanged and still used by Configs.
+- **Customer page:** new **Alerts** tab (`components/alerts/CustomerAlerts.tsx`): type chips with counts, the four send buttons
+  (`SendActions variant="bar"`: buttons only) and the same table. Removed from that page: the "Recent messages" list and the reach-out
+  block under Milestones, the "Nudges delivered" tile (now "Alerts sent") and the "Send nudge" card (the tab is now "Attribution").
+  The Calls and Conversations tabs stay.
+- **Gone with the old pages:** the call-system health section (overdue-job notice and schedule guide) and the three 24-hour message tiles.
+  Their components (`components/calls/*`, `components/whatsapp/SentMessages.tsx`, `lib/calls.ts`) are still in the repo, unused by any page.
+- Tests: `server/src/lib/alerts.test.ts`, `admin/src/lib/alerts.test.ts`.

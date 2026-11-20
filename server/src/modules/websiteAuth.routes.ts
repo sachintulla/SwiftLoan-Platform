@@ -2,6 +2,7 @@ import { timing } from '../lib/timings.js';
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { startMobilePrefill } from '../lib/mobilePrefill.js';
 import { sha256 } from '../lib/crypto.js';
 import { signAccess, accessTtlSeconds } from '../lib/jwt.js';
 import { env } from '../config/env.js';
@@ -65,6 +66,9 @@ websiteAuthRouter.post(
     if (!user) user = await prisma.user.create({ data: { phone } });
     const { devOtp, delivered } = await createOtp(phone, user.id);
     armUnverifiedReminder(user).catch((e) => log.warn('unverified reminder not armed', { error: (e as Error).message })); // fire-and-forget
+    // Look this number's details up now (Digitap), so they are ready by the time the code is entered. Saved only;
+    // nothing is returned here and the profile is not filled until the OTP is accepted (lib/mobilePrefill.ts).
+    startMobilePrefill(user);
 
     trackJourney(
       { phone, userId: user.id, source: 'website' },

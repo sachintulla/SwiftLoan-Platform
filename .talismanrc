@@ -16,15 +16,13 @@ fileignoreconfig:
 - filename: src/voice/registry.ts
   checksum: 612ff6e342d40bb09c7a8b041aec57e99862deba44deb17de1814cbdc061601b
 - filename: ios/SwiftLoan/Info.plist
-  checksum: dd75f06d4fbda116fc1eab501c4b4a32a5f656a495809374fc16be2f7276ff20
+  checksum: b8f405e5f88a6f933fc711ed086eee92f43de2694a7e28af1c72993e28e669fa
 - filename: src/voice/sensitive.ts
   checksum: 8b890474b8b013cf67ebab83731810b7ede788aefd15f09e631f4f6bc2f1900f
 - filename: src/voice/config.ts
   checksum: 9802c32cf4e3c3baaf000df0b59027abbc7790a48a46b238d0733dc3b51dbb3b
 - filename: ios/SwiftLoan/Voice/VoiceAudioModule.swift
   checksum: f2411ea5f11b001c21f52031d670a011b35b463e501de0f0857b99f9f1b8e7c8
-- filename: __tests__/voice.test.tsx
-  checksum: 7b0541b9a2ea73541b83d14f7b5b5ffac612a230aeb1c7a9aaba2d5596164b75
 - filename: src/components/Controls.tsx
   checksum: c92223d97d1cd6c8ee029355852e8f79cf744a1f5b165d862b2e54101d8f4bd5
 - filename: src/voice/tools.ts
@@ -132,7 +130,7 @@ fileignoreconfig:
 - filename: src/voice/transports/webrtc/WebRTCAgent.ts
   checksum: deee7d6c7fb19d25319c2876b14445aa649520efb1737cdf389d131be12a373c
 - filename: server/.env.example
-  checksum: 0a0750013494d8693ac24152e7d62a4baa01b2eaee4bc3f6bacd67e6f0b9f5c2
+  checksum: 0ff2197c7f7b916e86de891f01764f93744571e2265c02c4dfbc05b624fbefbf
 - filename: server/prisma/migrations/20261118120000_mobile_prefill/migration.sql
   checksum: ec4393672e106058572c002208002d49df0682eacb995ae09e377b496cb9f225
 - filename: server/scripts/journey/run-mobile-prefill.sh
@@ -144,9 +142,43 @@ fileignoreconfig:
 - filename: server/scripts/journey/mobile-prefill-check.mts
   checksum: fa4f8db9003e2bda35ef80a4f05ba0e32b4c4e5c4aba42784ab97ec5d7b8e4fe
 - filename: server/src/lib/mobilePrefill.ts
-  checksum: 1c6a0e54b150e531df7fa8b4fdad324f7491819b512bba60d5536c2055610fb6
+  checksum: 443a283dd3be2e6948ce1c3a44ed6f5ac438133a6f1f1f885706ae28606b409d
 - filename: server/src/lib/digitap.ts
   checksum: 26e894cb5c430a5b57ea0123973ef6f7e59238e38557192fcd374c414da449c4
+- filename: src/state/store.ts
+  checksum: 51eae5faff3c2a626d3ee4f5810dff937d510d47e08e936e928dff0b9e5f70b3
+- filename: server/scripts/fix-customer-stages.sql
+  checksum: 7cf3434e21380f7f7995955344fc2e2429d1e68c197e76bda3b22c24f9208c17
+- filename: admin/src/app/(dash)/customers/page.tsx
+  checksum: d641fe6dae6ce676bb8731e8615afea0d6d2c3f22d41e58a931548b858e17889
+- filename: admin/src/lib/alerts.test.ts
+  checksum: 1952856c20424a8e6b90ad6127929b55292f4c8ad2e8137e099725673cf712c1
+- filename: admin/src/app/(dash)/alerts/page.tsx
+  checksum: 1095bfdce65bd120502d3f47785176f7008d1c385802cdcf08f3fb033dc5d90d
+- filename: admin/src/lib/alerts.ts
+  checksum: 7038d3953587670c817526fd42887a7ec7e9ada29ff0e0e78016d10b07bc3a09
+- filename: admin/src/lib/customerFilters.test.ts
+  checksum: d8c9a952f74e84f653f3e8a770d7d2b241573593d53b80031819093f469086dd
+- filename: server/src/lib/customerStatus.test.ts
+  checksum: 065ab4df9ab37628fd0cda6431e8808056fdd8ebd47d19ef5ee97ef0e2f0d5d7
+- filename: admin/src/app/(dash)/customers/\[id\]/page.tsx
+  checksum: f26c63953498626ce21a5b5c2647c4f277c2d9cab93e5b946a897d12e3ef12a9
+- filename: admin/src/components/alerts/CustomerAlerts.tsx
+  checksum: 9803915151c55a7cf70788fc501de841010e97fa0312079be65dc250d0e8e07c
+- filename: server/src/modules/customers.routes.ts
+  checksum: 6abe7e60579f5c566976dcf321bb11eb43601e564192f9fc65a5db374b76efec
+- filename: server/src/lib/customerStatusDb.ts
+  checksum: 9901af5ec5b019a5ef2a06e48f4a8fa97a8113e80f3b32a214213237d5c578a5
+- filename: server/src/lib/alerts.ts
+  checksum: 026dddc2d8118d15c75d48c27dfdb805f73d4ae9a424afe910d4e49889c3fabb
+- filename: admin/src/components/alerts/AlertsTable.tsx
+  checksum: af0ec95eb02e4c7ed57d37227dbd9b04807bf4ec7fbce8823348dc9d9809e066
+- filename: CLAUDE.md
+  checksum: afae2097b4db31eeaee48e3f3162467f94276bbf2f1944c19a6048c741db58d9
+- filename: server/src/modules/adminAlerts.routes.ts
+  checksum: cb1ca6f0fd427f23991aa80401e524933975b9c551d179c2af1f2b1c6793f1fc
+- filename: server/src/lib/customerStatus.ts
+  checksum: ff3595010164abbfdd8ca4f8aeaace5ce31799522e168cabb06b62208bc2c51d
 - filename: website-next/src/components/pages/PurposePageContent.tsx
   checksum: e69247a3db96a99c8f33cc047636e1b0208342eb19c62fb689a2d713607374f3
 - filename: website-next/src/components/MetaPixel.test.tsx
@@ -213,4 +245,18 @@ fileignoreconfig:
   checksum: 7175a0e03ada454e095b0d73787b3ebc2bb8f8fd1a1eb037e13a3b19fa3e65de
 - filename: server/scripts/erase-user.mjs
   checksum: c59bd37ff0dda65b9313eedd58253458fe73e8125aba41ea5dd553f8d183cd9e
+- filename: server/package-lock.json
+  checksum: 76237b11bfd0905224531d226bd64f359aee2a9f2970149c2b0098400499ece3
+- filename: server/src/lib/slackVerify.ts
+  checksum: b910f4550a7ded76808bcd9902146f7acca6fdb81cb60176881894ff0046c413
+- filename: website-next/src/components/apply/ApplyConfirm.test.tsx
+  checksum: f9e7a2556574b5592a2b31a816a13f68998b369ce3189e29fefe6178773f51fe
+- filename: server/src/lib/slackVerify.test.ts
+  checksum: 08e9ab26f4caf58dc3e28b589440123b6e0da56a0a2a720609c3adce225384cc
+- filename: server/src/modules/slackBot.routes.ts
+  checksum: 74385b7c72fc97487ec49c3bb1b72fefea1756be17854bf12c8e46748f5c14f8
+- filename: website-next/src/components/apply/ApplyConfirm.tsx
+  checksum: b1f9632144af67248b66e95db7335c45b694a73afc2ff0180d0ebb659ddd77b1
+- filename: docs/SLACK_ASSISTANT_SETUP.md
+  checksum: dae4de72aca884efce00ed6ab4bc4f17cb3df9e66fe2282af9002032ece36dcb
 version: "1.0"

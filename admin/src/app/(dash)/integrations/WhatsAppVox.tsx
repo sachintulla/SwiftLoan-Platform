@@ -94,7 +94,7 @@ function TestTab({ cat, canEdit }: { cat: Catalog; canEdit: boolean }) {
         <div className="row wrap" style={{ gap: 12 }}>
           <button className="btn btn-primary" disabled={!ready || !canEdit || busy} onClick={() => setConfirm(true)}>Send test</button>
           {result && <span style={{ fontSize: 12.5, color: result.ok ? 'var(--green)' : 'var(--red)' }}>{result.text}</span>}
-          {result?.ok && <Link href="/messages" style={{ fontSize: 12.5, textDecoration: 'underline' }}>See its delivery status</Link>}
+          {result?.ok && <Link href="/alerts?type=whatsapp" style={{ fontSize: 12.5, textDecoration: 'underline' }}>See its delivery status</Link>}
         </div>
       </div>
       {confirm && (

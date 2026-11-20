@@ -137,6 +137,9 @@ export const JOURNEY_EVENTS = {
   LOAN_REJECTED: 'loan_rejected',
   LOAN_DISBURSED: 'loan_disbursed',
   // system
+  // A lender status push that is NOT the customer applying (PAN check, bureau pull, eligibility, a technical failure):
+  // kept on the timeline, never moves the stage. See lib/lenderJourneyEvent.ts.
+  LENDER_UPDATE: 'lender_update',
   STAGE_STALLED: 'stage_stalled',
   NUDGE_SENT: 'nudge_sent',
 } as const;
@@ -362,7 +365,7 @@ export async function resolveCustomer(input: ResolveCustomerInput) {
 export const CUSTOMER_ACTION_CHANNELS: ReadonlyArray<RecordEventInput['channel']> = ['website', 'app'];
 export const isCustomerAction = (channel: RecordEventInput['channel']): boolean => CUSTOMER_ACTION_CHANNELS.includes(channel);
 /** Event names our own jobs write (older rows carry them as eventType `funnel`); never the customer acting. */
-export const SYSTEM_EVENT_NAMES: ReadonlyArray<string> = ['nudge_sent', 'stage_stalled', 'call_queued', 'call_started', 'call_completed', 'call_failed'];
+export const SYSTEM_EVENT_NAMES: ReadonlyArray<string> = ['nudge_sent', 'stage_stalled', 'call_queued', 'call_started', 'call_completed', 'call_failed', 'lender_update'];
 
 export interface RecordEventInput {
   channel: 'website' | 'voice' | 'app' | 'campaign' | 'admin' | 'system';

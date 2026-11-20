@@ -17,7 +17,7 @@ describe('parseCustomerFilters', () => {
 
   it('reads every filter', () => {
     const f = parseCustomerFilters('stage=kyc_started&source=app&campaignId=c1&search=asha&stalledMinutes=1440&period=7d');
-    expect(f).toEqual({ stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '1440', period: '7d', from: '', to: '', active: '', unverified: false });
+    expect(f).toEqual({ status: '', stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '1440', period: '7d', from: '', to: '', active: '', unverified: false });
   });
 
   it('reads the active-today flag', () => {
@@ -66,7 +66,7 @@ describe('serialiseCustomerFilters', () => {
 
   it('round trips every filter', () => {
     const cases: CustomerFilters[] = [
-      { stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha verma', stalledMinutes: '4320', period: '30d', from: '', to: '', active: '', unverified: false },
+      { status: '', stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha verma', stalledMinutes: '4320', period: '30d', from: '', to: '', active: '', unverified: false },
       { ...DEFAULT_CUSTOMER_FILTERS, period: 'custom', from: '2026-10-01', to: '2026-10-15' },
       { ...DEFAULT_CUSTOMER_FILTERS, search: 'a&b=c' },
       { ...DEFAULT_CUSTOMER_FILTERS, period: 'yesterday' },
@@ -104,7 +104,7 @@ describe('Inactive for options', () => {
 });
 
 describe('list and export queries', () => {
-  const f: CustomerFilters = { stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '60', period: '7d', from: '', to: '', active: '', unverified: false };
+  const f: CustomerFilters = { status: '', stage: 'kyc_started', source: 'app', campaignId: 'c1', search: 'asha', stalledMinutes: '60', period: '7d', from: '', to: '', active: '', unverified: false };
   const range = { from: '2026-10-20T00:00:00.000Z', to: '2026-10-27T00:00:00.000Z' };
 
   it('puts every filter, including search, from and to, in the export', () => {
@@ -155,5 +155,20 @@ describe('Unverified numbers toggle', () => {
     expect(customerListQuery(f, {}, 1)).toContain('otp=unverified');
     expect(customerExportQuery(f, {})).toBe('otp=unverified');
     expect(customerExportQuery(DEFAULT_CUSTOMER_FILTERS, {})).toBe('');
+  });
+});
+
+describe('real-status filter', () => {
+  it('reads, writes and sends the status, next to an old stage link', () => {
+    const f = parseCustomerFilters('status=no_offers&stage=registered');
+    expect(f.status).toBe('no_offers');
+    expect(f.stage).toBe('registered');
+    expect(serialiseCustomerFilters(f)).toBe('status=no_offers&stage=registered');
+    expect(customerExportQuery(f, {})).toBe('status=no_offers&stage=registered');
+    expect(customerListQuery(f, {}, 2)).toContain('status=no_offers');
+    expect(hasCustomerFilters(f)).toBe(true);
+  });
+  it('drops a status that is not a plain key', () => {
+    expect(parseCustomerFilters('status=<b>').status).toBe('');
   });
 });

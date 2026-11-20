@@ -34,6 +34,7 @@ import { apiKeysRouter } from './modules/apiKeys.routes.js';
 import { callsRouter } from './modules/calls.routes.js';
 import { whatsappRouter } from './modules/whatsapp.routes.js';
 import { adminMessagesRouter } from './modules/adminMessages.routes.js';
+import { adminAlertsRouter } from './modules/adminAlerts.routes.js';
 import { adminTimingsRouter } from './modules/adminTimings.routes.js';
 import { adminTestNumbersRouter } from './modules/adminTestNumbers.routes.js';
 import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
@@ -47,6 +48,7 @@ import { adminListActionsRouter } from './modules/adminListActions.routes.js';
 import { adminSupportRouter } from './modules/adminSupport.routes.js';
 import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
+import { slackBotRouter } from './modules/slackBot.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
 import { notifyRouter } from './modules/notify.routes.js';
 import { upshotTriggerRouter } from './modules/upshotTrigger.routes.js';
@@ -176,6 +178,7 @@ export function createApp() {
   app.use('/api/admin/calls', callsRouter);
   app.use('/api/admin/whatsapp', whatsappRouter);
   app.use('/api/admin/messages', adminMessagesRouter); // delivery status of outbound WhatsApp/SMS
+  app.use('/api/admin/alerts', adminAlertsRouter); // everything sent to customers (WhatsApp, SMS, push, calls) as one list
   app.use('/api/admin/api-errors', adminApiErrorsRouter); // failed API/webhook calls (ApiLog), with payloads
   app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
   app.use('/api/admin/test-numbers', adminTestNumbersRouter); // numbers that may sign in with the shared test code
@@ -209,6 +212,7 @@ export function createApp() {
   app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
   app.use('/api/webhooks/yubi', webhookLimiter, yubiWebhookRouter); // PUBLIC — Yubi/YMPL posts referral status here
   app.use('/api/webhooks', webhookLimiter, webhooksRouter); // PUBLIC — Ello posts here
+  app.use('/api/slack', webhookLimiter, slackBotRouter); // PUBLIC — Slack Events API posts here (signature-verified)
 
   app.use('/api/admin/installs', adminInstallsRouter); // App Downloads: installs with the context that travelled with the link
   app.use('/api/admin/notification-center', adminNotificationCenterRouter); // Notifications page: filters, counts, scoped mark-as-read

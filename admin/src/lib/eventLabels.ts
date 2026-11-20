@@ -28,6 +28,9 @@ export const EVENT_LABEL: Record<string, string> = {
   kyc_started: 'KYC started',
   kyc_completed: 'KYC completed',
   application_submitted: 'Application submitted',
+  // The lender's own step of the offers check (PAN, credit bureau, eligibility): not the customer applying.
+  lender_update: 'Lender check update',
+  status_viewed: 'Status screen opened',
   loan_approved: 'Approved',
   loan_rejected: 'Rejected by lender',
   loan_disbursed: 'Loan received',

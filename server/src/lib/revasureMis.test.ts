@@ -18,6 +18,21 @@ describe('normalizeMisStatus', () => {
     expect(normalizeMisStatus('SANCTIONED')).toEqual({ label: 'Approved', known: true });
     expect(normalizeMisStatus('under review')).toEqual({ label: 'In Process', known: true });
   });
+  it('recognises Revasure telecaller dispositions as clean labels', () => {
+    expect(normalizeMisStatus('Not Connected')).toEqual({ label: 'Not Connected', known: true });
+    expect(normalizeMisStatus('Hang Up')).toEqual({ label: 'Hung Up', known: true });
+    expect(normalizeMisStatus('Call Back')).toEqual({ label: 'Callback', known: true });
+    expect(normalizeMisStatus('Not Interested')).toEqual({ label: 'Not Interested', known: true });
+    expect(normalizeMisStatus('Voice Mail')).toEqual({ label: 'Voicemail', known: true });
+    expect(normalizeMisStatus('Language Barrier')).toEqual({ label: 'Language Barrier', known: true });
+    expect(normalizeMisStatus('Not Eligible')).toEqual({ label: 'Ineligible', known: true });
+    expect(normalizeMisStatus('Rejected')).toEqual({ label: 'Rejected', known: true });
+  });
+  it('treats a failed lookup (#N/A) as Pending, not a bogus status', () => {
+    expect(normalizeMisStatus('#N/A')).toEqual({ label: 'Pending', known: true });
+    expect(normalizeMisStatus('N/A')).toEqual({ label: 'Pending', known: true });
+    expect(normalizeMisStatus('NA')).toEqual({ label: 'Pending', known: true });
+  });
   it('keeps unknown statuses but flags them', () => {
     expect(normalizeMisStatus('Partially Paid')).toEqual({ label: 'Partially Paid', known: false });
   });

@@ -24,6 +24,8 @@ export const PAGES: { id: string; path: string; label: string; aliases: string[]
   // ── WS5: unified customer journey ──
   // Leads merged in here — a lead and a customer were always the same person.
   { id: 'customers', path: '/customers', label: 'Customers', aliases: ['customers', 'customer 360', '360', 'leads', 'contacts', 'enquiries', 'contact us', 'lead list', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
+  // Everything sent to customers. The old Messages and Calls pages were folded into it.
+  { id: 'alerts', path: '/alerts', label: 'Alerts', aliases: ['alerts sent', 'sent alerts', 'messages', 'sent messages', 'whatsapp', 'sms', 'push', 'calls', 'call log'] },
   { id: 'campaigns', path: '/campaigns', label: 'Campaigns', aliases: ['campaigns', 'campaign', 'outbound', 'calling', 'call campaign', 'dialer', 'bulk calls'] },
   { id: 'integrations', path: '/integrations', label: 'Integrations', aliases: ['integrations', 'integration', 'settings', 'config', 'configuration', 'api keys', 'ello', 'upshot', 'providers'] },
 ];
@@ -332,7 +334,7 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
       try {
         const res = await apiFetch<any>(`/api/admin/calls?${qs.toString()}`);
         const rows = Array.isArray(res.data) ? res.data : (res.data?.items ?? []);
-        deps.navigate(`/customers`); // call detail lives on the customer record
+        deps.navigate('/alerts?type=call&period=all'); // the call list is the Alerts page, filtered to calls
         return {
           success: true,
           total: res.pagination?.total ?? rows.length,

@@ -6,6 +6,8 @@ import { useApply } from '@/lib/applyContext';
 import { applyOffer, type Offer } from '@/lib/applyApi';
 import { useCopy } from '@/lib/i18n';
 import { applyShellCopy } from '@/i18n/apply-shell';
+import { confirmApply } from '@/components/apply/ApplyConfirm';
+import { prettyLenderName } from '@/components/apply/LenderLogo';
 
 /**
  * Apply to one of the application's offers — the single path both the
@@ -22,6 +24,9 @@ export function useApplyToOffer() {
 
   const apply = async (offer: Offer) => {
     if (!applicationId || applyingId) return;
+    // Ask first: "You are about to apply for this loan with <lender>". Nothing is sent until Proceed.
+    const lenderName = prettyLenderName(offer.lenderName ?? offer.partner?.name ?? 'Lender');
+    if (!(await confirmApply({ lenderName, logoUrl: offer.lenderLogoUrl }))) return;
     setApplyingId(offer.id);
     setError(null);
     try {
