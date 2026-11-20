@@ -30,6 +30,55 @@
       "port": 4000
     },
     {
+      "name": "server-prod-copy",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=postgresql://charan.rallabandi@localhost:5432/swiftloan_prod_copy?schema=public",
+        "NUDGES_DISABLED=true",
+        "SMS_PROVIDER=none",
+        "DEV_MASTER_OTP=123456",
+        "AURIX_AUTH_BASE_URL=http://localhost:4010",
+        "AURIX_OFFERS_BASE_URL=http://localhost:4010",
+        "AURIX_PAN_BASE_URL=http://localhost:4010",
+        "npm",
+        "run",
+        "dev",
+        "--prefix",
+        "server"
+      ],
+      "port": 4000
+    },
+    {
+      "name": "status-fix-server-prod-copy",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=postgresql://charan.rallabandi@localhost:5432/swiftloan_prod_copy?schema=public",
+        "NUDGES_DISABLED=true",
+        "SMS_PROVIDER=none",
+        "DEV_MASTER_OTP=123456",
+        "AURIX_AUTH_BASE_URL=http://localhost:4010",
+        "AURIX_OFFERS_BASE_URL=http://localhost:4010",
+        "AURIX_PAN_BASE_URL=http://localhost:4010",
+        "npm",
+        "run",
+        "dev",
+        "--prefix",
+        "/Users/charan.rallabandi/SwiftLoan-builds/customer-status/server"
+      ],
+      "port": 4000
+    },
+    {
+      "name": "status-fix-admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "/Users/charan.rallabandi/SwiftLoan-builds/customer-status/admin"
+      ],
+      "port": 4001
+    },
+    {
       "name": "server",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
@@ -57,6 +106,19 @@
       "name": "admin-dashboard",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "admin"
+      ],
+      "port": 4001
+    },
+    {
+      "name": "admin-dashboard-prod-api",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "NEXT_PUBLIC_API_BASE=https://api.swiftloan.ai",
+        "npm",
         "run",
         "dev",
         "--prefix",
