@@ -242,7 +242,7 @@ fileignoreconfig:
 - filename: src/screens/fare.tsx
   checksum: 71ba1d4dbcc1564c61291f05868a4b36f892964c36e08abcfc6904278b5cb13a
 - filename: src/screens/compare.tsx
-  checksum: 7175a0e03ada454e095b0d73787b3ebc2bb8f8fd1a1eb037e13a3b19fa3e65de
+  checksum: 187bf2f0d9a85fc96c88f3c3084e6ef6683929ceacc7d64fa257ae1cb12d5464
 - filename: server/scripts/erase-user.mjs
   checksum: c59bd37ff0dda65b9313eedd58253458fe73e8125aba41ea5dd553f8d183cd9e
 - filename: server/package-lock.json
@@ -259,4 +259,6 @@ fileignoreconfig:
   checksum: b1f9632144af67248b66e95db7335c45b694a73afc2ff0180d0ebb659ddd77b1
 - filename: docs/SLACK_ASSISTANT_SETUP.md
   checksum: dae4de72aca884efce00ed6ab4bc4f17cb3df9e66fe2282af9002032ece36dcb
+- filename: __tests__/compareLanguage.test.tsx
+  checksum: a41801d4fa4702090cd17f974a9485605a3249593e4290245160c959887ac2d7
 version: "1.0"

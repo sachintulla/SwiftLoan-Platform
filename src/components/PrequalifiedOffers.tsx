@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../state/store';
+import { fill } from '../utils/fill';
 import { View, Text, Image, Pressable, StyleSheet, Animated, Easing } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from './Icon';
@@ -35,6 +37,7 @@ function lenderLogoFor(o: PrequalifyingOffer): ReturnType<typeof require> | { ur
 }
 
 function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffer; index: number; onCheckEligibility: (o: PrequalifyingOffer) => void }) {
+  const t = useT();
   const enter = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(enter, { toValue: 1, duration: 300, delay: index * 55, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -57,10 +60,10 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
         </View>
 
         <View style={styles.body}>
-          <Text style={[font(600), { fontSize: 8.5, letterSpacing: 0.5, color: colors.muted }]}>SPONSORED</Text>
-          <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 5 }]}>Loans up to</Text>
+          <Text style={[font(600), { fontSize: 8.5, letterSpacing: 0.5, color: colors.muted }]}>{t.featSponsoredCaps}</Text>
+          <Text style={[font(500), { fontSize: 10.5, color: colors.textSoft, marginTop: 5 }]}>{t.featLoansUpTo}</Text>
           <Text style={[font(800), { fontSize: 19, color: colors.text, letterSpacing: -0.5 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(amountR)}</Text>
-          <Text style={[font(600), { fontSize: 11, color: colors.greenDeep, marginTop: 2 }]} numberOfLines={1}>from {offer.rate}% · {offer.tenureMonths} mo</Text>
+          <Text style={[font(600), { fontSize: 11, color: colors.greenDeep, marginTop: 2 }]} numberOfLines={1}>{fill(t.featFromRate, { rate: offer.rate, n: offer.tenureMonths })}</Text>
           {/* Fixed-height tag slot — reserved whether or not there's a tag, so
               every tile is the same height regardless of badges. */}
           <View style={styles.tagSlot}>
@@ -72,7 +75,7 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
           </View>
 
           <Pressable onPress={() => onCheckEligibility(offer)} style={styles.cta}>
-            <Text style={[font(700), { fontSize: 11.5, color: colors.primary }]}>Check eligibility</Text>
+            <Text style={[font(700), { fontSize: 11.5, color: colors.primary }]}>{t.featCheck}</Text>
             <Icon name="arrow_forward" size={13} color={colors.primary} />
           </Pressable>
         </View>
@@ -88,6 +91,7 @@ function AdTile({ offer, index, onCheckEligibility }: { offer: PrequalifyingOffe
  * Renders nothing when there are no ads.
  */
 export function PrequalifiedOffers({ onCheckEligibility }: { onCheckEligibility: (o: PrequalifyingOffer) => void }) {
+  const t = useT();
   const [offers, setOffers] = useState<PrequalifyingOffer[] | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -130,11 +134,11 @@ export function PrequalifiedOffers({ onCheckEligibility }: { onCheckEligibility:
   return (
     <View style={{ marginTop: 22 }}>
       <View style={styles.header}>
-        <Text style={[font(800), { fontSize: 16, color: colors.text }]}>Featured offers</Text>
-        <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>Sponsored</Text>
+        <Text style={[font(800), { fontSize: 16, color: colors.text }]}>{t.featTitle}</Text>
+        <Text style={[font(500), { fontSize: 11, color: colors.muted }]}>{t.featSponsored}</Text>
       </View>
       <Text style={[font(400), { fontSize: 12, color: colors.textSoft, marginTop: 2, marginBottom: 12 }]}>
-        From our lending partners — check your eligibility in minutes.
+        {t.featSub}
       </Text>
       <View style={styles.grid}>
         {offers.map((o, i) => <AdTile key={o.id} offer={o} index={i} onCheckEligibility={onCheckEligibility} />)}
