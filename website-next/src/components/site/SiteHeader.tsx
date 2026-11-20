@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, ChevronDown, Globe, Menu, ShieldCheck, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { languageOptions, useCopy, useLang } from "@/lib/i18n";
+import { languageOptions, useCopy, useLang, useLanguageLinks, useLocalizedHref } from "@/lib/i18n";
+import { LOCALE_TAGS } from "@/lib/locale";
 import { siteHeaderCopy } from "@/i18n/site-header";
 import {
   DropdownMenu,
@@ -16,7 +17,8 @@ const navItems = [
   { href: "/", key: "home" },
   { href: "/#offers", key: "loans" },
   { href: "/#journey", key: "process" },
-  { href: "/#emi-calculator", key: "emiCalc" },
+  // Its own page (SEO): the home page still shows the calculator too.
+  { href: "/emi-calculator", key: "emiCalc" },
   { href: "/faqs", key: "faqs" },
 ] as const;
 
@@ -25,7 +27,12 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const { lang, setLang } = useLang();
   const t = useCopy(siteHeaderCopy);
-  const links = navItems.map((item) => ({ ...item, label: t.nav[item.key] }));
+  // On a Hindi or Telugu page the menu stays in that language's pages (/hi/faqs …) where they exist.
+  const href = useLocalizedHref();
+  const links = navItems.map((item) => ({ ...item, href: href(item.href), label: t.nav[item.key] }));
+  // A page with language versions: the language menu is real links to the other versions' URLs
+  // (Google follows them). Elsewhere (null) it switches in place, as it always did.
+  const langLinks = useLanguageLinks();
   // "Track Application" always points at /account rather than only showing
   // for a known session — AccountProvider already bounces a logged-out
   // visitor to /apply to identify themselves first, so this doubles as the
@@ -41,7 +48,7 @@ export function SiteHeader() {
   }, []);
 
   return (
-    <header className="sticky top-0 z-50">
+    <header lang={lang} className={cn("sticky top-0", open ? "z-[var(--z-menu)]" : "z-50")}>
       <div
         className={cn(
           "border-b border-border text-muted-foreground transition-all duration-500",
@@ -65,7 +72,7 @@ export function SiteHeader() {
               : "bg-card border-border",
           )}
         >
-          <Link href="/" className="flex min-w-0 items-center gap-2.5">
+          <Link href={href("/")} className="flex min-w-0 items-center gap-2.5">
             <span className="bg-brand-gradient grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-bold text-primary-foreground shadow-[var(--shadow-soft)]">
               S
             </span>
@@ -114,11 +121,21 @@ export function SiteHeader() {
                 {languageOptions.map((l) => (
                   <DropdownMenuItem
                     key={l.code}
+                    asChild={!!langLinks}
                     onSelect={() => setLang(l.code)}
                     className="focus:bg-accent cursor-pointer rounded-2xl px-4 py-3 text-sm font-medium data-[state=on]:bg-accent"
                   >
-                    <span className="flex-1">{l.label}</span>
-                    {lang === l.code && <Check className="text-primary h-4 w-4" />}
+                    {langLinks ? (
+                      <Link href={langLinks[l.code]} hrefLang={LOCALE_TAGS[l.code].hreflang} lang={l.code}>
+                        <span className="flex-1">{l.label}</span>
+                        {lang === l.code && <Check className="text-primary h-4 w-4" />}
+                      </Link>
+                    ) : (
+                      <>
+                        <span className="flex-1">{l.label}</span>
+                        {lang === l.code && <Check className="text-primary h-4 w-4" />}
+                      </>
+                    )}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -170,17 +187,31 @@ export function SiteHeader() {
                 <p className="flex items-center gap-2 px-4 pb-1 text-xs font-semibold text-muted-foreground">
                   <Globe className="h-3.5 w-3.5" /> {t.languageLabel}
                 </p>
-                {languageOptions.map((l) => (
-                  <button
-                    key={l.code}
-                    type="button"
-                    onClick={() => setLang(l.code)}
-                    className="flex w-full cursor-pointer items-center rounded-2xl px-4 py-2.5 text-left text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <span className="flex-1">{l.label}</span>
-                    {lang === l.code && <Check className="h-4 w-4 text-primary" />}
-                  </button>
-                ))}
+                {languageOptions.map((l) =>
+                  langLinks ? (
+                    <Link
+                      key={l.code}
+                      href={langLinks[l.code]}
+                      hrefLang={LOCALE_TAGS[l.code].hreflang}
+                      lang={l.code}
+                      onClick={() => { setLang(l.code); setOpen(false); }}
+                      className="flex w-full cursor-pointer items-center rounded-2xl px-4 py-2.5 text-left text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <span className="flex-1">{l.label}</span>
+                      {lang === l.code && <Check className="h-4 w-4 text-primary" />}
+                    </Link>
+                  ) : (
+                    <button
+                      key={l.code}
+                      type="button"
+                      onClick={() => setLang(l.code)}
+                      className="flex w-full cursor-pointer items-center rounded-2xl px-4 py-2.5 text-left text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <span className="flex-1">{l.label}</span>
+                      {lang === l.code && <Check className="h-4 w-4 text-primary" />}
+                    </button>
+                  ),
+                )}
               </div>
 
               <div className="mt-2 flex gap-2">

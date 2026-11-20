@@ -1,16 +1,20 @@
 'use client';
 import Link from "next/link";
+
+/** Card order in offers.ts: personal, then business. */
+const LOAN_PAGE_HREFS = ["/personal-loan", "/business-loan"];
 import { ArrowRight, Check } from "lucide-react";
 import personalImg from "@/assets/personal-loan.jpg";
 import businessImg from "@/assets/business-loan.jpg";
 import { Reveal } from "@/components/site/Reveal";
-import { useCopy } from "@/lib/i18n";
+import { useCopy, useLocalizedHref } from "@/lib/i18n";
 import { offersCopy } from "@/i18n/offers";
 
 const images = [personalImg, businessImg];
 
 export function Offers() {
   const t = useCopy(offersCopy);
+  const href = useLocalizedHref(); // keeps a Hindi / Telugu reader on that language's pages
   const offers = t.offers.map((o, i) => ({ ...o, image: images[i] }));
 
   return (
@@ -78,10 +82,17 @@ export function Offers() {
                 </div>
 
                 <Link
-                  href="/#lead-form"
+                  href={href('/#lead-form')}
                   className="bg-brand-gradient mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-6 py-3 text-center text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5"
                 >
                   <span>{o.cta}</span> <ArrowRight className="h-4 w-4 shrink-0" />
+                </Link>
+                {/* Each loan's own page (SEO): eligibility, documents, FAQs. */}
+                <Link
+                  href={href(LOAN_PAGE_HREFS[i]!)}
+                  className="text-primary mt-3 self-center text-sm font-semibold hover:underline"
+                >
+                  {o.learnMore}
                 </Link>
               </div>
             </article>

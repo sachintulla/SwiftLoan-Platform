@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutList, Tag, User, MessageCircle, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -196,8 +197,10 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
         </div>
       </div>
 
-      {user && open && (
-        <div className="fixed inset-x-0 top-14 bottom-0 z-40" onClick={() => setOpen(false)}>
+      {/* Portalled to <body>: inside ApplyShell this bar sits in the pinned header (z-30 + backdrop blur), a stacking
+          context that would keep the drawer under the floating Ruby button whatever its own z-index. See lib/layers.ts. */}
+      {user && open && createPortal(
+        <div className="fixed inset-x-0 top-14 bottom-0 z-[var(--z-menu)] lg:hidden" onClick={() => setOpen(false)}>
           <div className="absolute inset-0 bg-black/30" aria-hidden />
           <nav
             className="animate-in fade-in slide-in-from-top-2 bg-deep-gradient relative flex flex-col gap-1 p-4 text-white shadow-[var(--shadow-float)] duration-200"
@@ -232,7 +235,8 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
               {t.logOut}
             </button>
           </nav>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {confirmingLogout && (
@@ -251,8 +255,10 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
 function LogoutModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => Promise<void> }) {
   const t = useCopy(applyShellCopy);
   const [loading, setLoading] = useState(false);
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-6" onClick={onClose}>
+  // Portalled to <body>: the desktop rail is `sticky` and the phone top bar sits in ApplyShell's pinned header; both are
+  // stacking contexts that would keep this pop-up under the floating Ruby button. See lib/layers.ts.
+  return createPortal(
+    <div className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/45 p-6" onClick={onClose}>
       <div
         className="flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl bg-card p-6 text-center shadow-[var(--shadow-float)]"
         onClick={(e) => e.stopPropagation()}
@@ -281,6 +287,7 @@ function LogoutModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

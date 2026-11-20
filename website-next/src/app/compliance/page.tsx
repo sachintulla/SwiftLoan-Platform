@@ -1,13 +1,10 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import '@/app/theme.css'; // --sl-* tokens the legal-page stylesheet depends on
 import './compliance.css';
 
-export const metadata: Metadata = {
-  title: 'Compliance & Regulatory — SwiftLoan.ai',
-  description:
-    "SwiftLoan.ai compliance with the RBI Digital Lending Directions: our role as a Lending Service Provider, Key Fact Statement, fees, cooling-off period, data protection, Fair Practices Code, grievance redressal and lending partners.",
-};
+export const metadata: Metadata = pageMetadata('/compliance');
 
 export default function CompliancePage() {
   const year = new Date().getFullYear();

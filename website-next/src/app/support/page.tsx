@@ -1,14 +1,10 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import '@/app/theme.css'; // --sl-* tokens the legal-page stylesheet depends on
 import '../privacypolicy/privacypolicy.css';
 
-export const metadata: Metadata = {
-  title: 'Support — SwiftLoan.ai',
-  description:
-    'Get help with SwiftLoan. Email support@swiftloan.ai for any question about your account, application, offers, repayments or privacy. Grievances: grievance@swiftloan.ai.',
-  alternates: { canonical: 'https://swiftloan.ai/support' },
-};
+export const metadata: Metadata = pageMetadata('/support');
 
 export default function SupportPage() {
   const year = new Date().getFullYear();

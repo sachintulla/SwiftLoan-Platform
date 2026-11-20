@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: 'Install SwiftLoan — Internal Beta',
   description:
     'Install the SwiftLoan app (internal beta). Compare real loan offers from multiple RBI-regulated lenders. Built by Purpletalk India Private Limited.',
-  alternates: { canonical: 'https://www.swiftloan.ai/applink' },
+  alternates: { canonical: 'https://swiftloan.ai/applink' },
   robots: { index: false, follow: false }, // internal beta — keep out of search
 };
 

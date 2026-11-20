@@ -72,7 +72,7 @@ export function AlertDialog({
   // Portal to <body>: a transformed/filtered ancestor would otherwise trap
   // `position: fixed` inside the page layout instead of the viewport.
   return createPortal(
-    <div className="fixed inset-0 z-[10001] flex items-end justify-center p-4 sm:items-center">
+    <div className="fixed inset-0 z-[var(--z-alert)] flex items-end justify-center p-4 sm:items-center">
       <div className="animate-in fade-in absolute inset-0 bg-black/45 backdrop-blur-[2px] duration-200" onClick={onClose} aria-hidden />
       <div
         role="alertdialog"

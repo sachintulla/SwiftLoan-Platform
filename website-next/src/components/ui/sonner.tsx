@@ -1,5 +1,6 @@
 'use client';
 import { Toaster as Sonner } from "sonner";
+import { LAYERS } from "@/lib/layers";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
@@ -13,6 +14,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // (looked like the widget "jumping" whenever one fired). Top-center
       // is clear of it on every route/breakpoint.
       position="top-center"
+      // Toasts sit above pop-ups and above Ruby (lib/layers.ts), instead of Sonner's own 999999999.
+      style={{ zIndex: LAYERS.toast }}
       toastOptions={{
         classNames: {
           toast:

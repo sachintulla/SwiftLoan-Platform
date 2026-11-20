@@ -3,12 +3,16 @@
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ElloAgent } from '@/lib/ello-agent';
+import { isEmbeddedInApp } from '@/lib/embed';
+import { BANNER_LIFT_VAR, LAYERS } from '@/lib/layers';
 import { agentApproach, agentPress, agentSettle, slideTo, typeText } from '@/feedback/agentFx';
 import { installManualSounds } from '@/feedback/manual';
 import { initSounds, playSound } from '@/feedback/sounds';
 import { faqsCopy } from '@/i18n/faqs';
 import { voiceWidgetCopy, type VoiceWidgetCopy } from '@/i18n/voice-widget';
 import type { Lang } from '@/lib/i18n';
+import { splitLangPath } from '@/lib/locale';
+import { localizedHref } from '@/lib/localeRoutes';
 import { bootstrapSession, getAccessToken, subscribeSession } from '@/lib/session';
 import { fetchMe, fetchLookupGrant, listApplications, type LoanApplication } from '@/lib/applyApi';
 import { statusMeta } from '@/lib/statusMeta';
@@ -413,7 +417,9 @@ const BOTTOM_BAR_ROUTES = ['/apply/compare'];
 const TALL_BOTTOM_BAR_ROUTES = ['/apply/compare'];
 
 export default function VoiceWidget() {
-  const pathname = usePathname();
+  // The page behind the URL, whatever its language: /hi/faqs and /te/faqs are '/faqs' here, so
+  // every route check below (home sections, page names, "already there") works on a language URL.
+  const pathname = splitLangPath(usePathname()).path;
   const router = useRouter();
   const pathRef = useRef(pathname);
   const agentRef = useRef<ElloAgent | null>(null);
@@ -454,6 +460,8 @@ export default function VoiceWidget() {
   }, [pathname]);
 
   useEffect(() => {
+    // Shown inside the mobile app's WebView: the app draws its own Ruby over the page, so no second one here.
+    if (isEmbeddedInApp()) return;
     // Only our own API base is required now — the key and agent id live server-side.
     if (!CONFIG.sessionUrl) {
       console.warn(
@@ -707,7 +715,8 @@ export default function VoiceWidget() {
         if (!target) return fail(`Unknown page "${a.page}"`, { pages: Object.keys(PAGES) });
         if (pathRef.current === target.path) return { success: true, navigatedTo: target.path, alreadyHere: true };
         const from = pathRef.current;
-        router.push(target.path);
+        // Stay in the visitor's language where that page has a language URL (/hi/faqs); otherwise the plain path.
+        router.push(localizedHref(target.path, (langApi()?.get() ?? 'en') as Lang));
         playSound('nav'); // changing page — the same cue as a menu-bar switch in the app
         // Report where the visitor actually landed, not where we asked to send them:
         // the route commits a moment later (longer on a first, uncompiled visit), and
@@ -1277,7 +1286,7 @@ export default function VoiceWidget() {
     launcherStyle.textContent = `
       @media (max-width: 1023px) {
         .sl-voice-launcher { display: none !important; }
-        #sl-voice-error.sl-voice-above-bar { bottom: 148px !important; }
+        #sl-voice-error.sl-voice-above-bar { bottom: calc(148px + var(${BANNER_LIFT_VAR}, 0px)) !important; }
       }
       /* ── Phones/tablets: the app's agent FAB (src/voice/ui/VoiceWidget.tsx) ──
          A round Ruby avatar with a halo; during a call a frosted panel grows
@@ -1293,15 +1302,15 @@ export default function VoiceWidget() {
          visibly slides as the address bar animates in and out while
          scrolling — reported as "Ruby moving around". 100dvh doesn't have
          that lag, so anchoring bottom-alignment to it (via flex) does. */
-      .sl-fab-anchor { position: fixed; inset: 0; height: 100dvh; z-index: 9999; pointer-events: none;
+      .sl-fab-anchor { position: fixed; inset: 0; height: 100dvh; z-index: ${LAYERS.ruby}; pointer-events: none;
         display: none; flex-direction: column; justify-content: flex-end; align-items: flex-end;
-        padding: 0 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+        padding: 0 16px calc(18px + env(safe-area-inset-bottom, 0px) + var(${BANNER_LIFT_VAR}, 0px)); }
       .sl-fab { display: flex; flex-direction: column; align-items: flex-end; pointer-events: none;
         font-family: system-ui, -apple-system, sans-serif; }
       @media (max-width: 1023px) {
         .sl-fab-anchor { display: flex; }
-        .sl-fab-anchor.sl-voice-above-bar { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
-        .sl-fab-anchor.sl-voice-above-tall-bar { padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+        .sl-fab-anchor.sl-voice-above-bar { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px) + var(${BANNER_LIFT_VAR}, 0px)); }
+        .sl-fab-anchor.sl-voice-above-tall-bar { padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px) + var(${BANNER_LIFT_VAR}, 0px)); }
       }
       /* Status is for screen readers only — sighted users read it off Ruby
          herself (see the state styles below), not a text label. */
@@ -1373,7 +1382,8 @@ export default function VoiceWidget() {
     // Ruby sits flush at the left of the pill, full-bleed, so she reads as a
     // person you are about to talk to rather than an icon in a button.
     btn.style.cssText =
-      'position:fixed;bottom:22px;right:22px;z-index:9999;display:flex;align-items:center;gap:10px;overflow:visible;' +
+      `position:fixed;bottom:calc(22px + var(${BANNER_LIFT_VAR}, 0px));right:22px;z-index:${LAYERS.ruby};` +
+      'display:flex;align-items:center;gap:10px;overflow:visible;' +
       'padding:8px 10px 8px 8px;border:none;border-radius:999px;font:600 14px system-ui,sans-serif;color:#fff;cursor:pointer;' +
       // min-width holds the pill at its widest (idle text) content's size, so
       // switching to the narrower in-call controls can't shrink the pill —
@@ -1425,7 +1435,8 @@ export default function VoiceWidget() {
     const errBox = document.createElement('div');
     errBox.id = 'sl-voice-error';
     errBox.style.cssText =
-      'position:fixed;bottom:78px;right:22px;z-index:9999;max-width:280px;display:none;' +
+      `position:fixed;bottom:calc(78px + var(${BANNER_LIFT_VAR}, 0px));right:22px;z-index:${LAYERS.ruby};` +
+      'max-width:280px;display:none;' +
       'padding:9px 12px;border-radius:10px;background:#fee9e7;color:#b42318;font:500 12.5px system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.12)';
     errBox.classList.toggle('sl-voice-above-bar', BOTTOM_BAR_ROUTES.includes(pathRef.current));
 

@@ -99,7 +99,7 @@ export function CameraCapture({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4"
+      className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/55 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="pan-camera-title"
