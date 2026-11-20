@@ -29,6 +29,12 @@ export interface InstallRow {
   source: string;
   campaignId: string | null;
   matchMethod: string | null;
+  /** Where it was installed from; null for installs recorded before the app reported it. */
+  installSource: string | null;
+  /** Times this same phone installed the app again (each phone is one row). */
+  reinstallCount: number;
+  appVersion: string | null;
+  deviceModel: string | null;
   confidence: Confidence;
   customer: { id: string; userId: string | null; name: string | null; phone: string | null; stage: string; stageLabel: string } | null;
   context: InstallContext | null;
@@ -55,7 +61,17 @@ export interface InstallFunnel {
 
 export interface InstallsPayload {
   rows: InstallRow[];
-  stats: { total: number; withContext: number; withoutContext: number; reachedNextStep: number; notSignedIn: number };
+  stats: {
+    total: number; withContext: number; withoutContext: number; reachedNextStep: number; notSignedIn: number;
+    /** Unique phones from Google Play / the App Store. */
+    storeInstalls: number;
+    /** TestFlight, sideloaded APKs, development builds. */
+    testInstalls: number;
+    /** Recorded before the app reported where it came from. */
+    unknownSource: number;
+    /** Extra installs on phones already counted. */
+    reinstalls: number;
+  };
   funnel: InstallFunnel;
   bySource: { source: string; count: number }[];
   byPlatform: { platform: string; count: number }[];
@@ -180,6 +196,20 @@ export const PLATFORM_OPTIONS: { value: string; label: string }[] = [
 
 export function sentByLabel(type: string): string {
   return SENT_BY_LABELS[type as SentByType] ?? 'Not recorded';
+}
+
+const INSTALL_SOURCE_LABELS: Record<string, string> = {
+  play_store: 'Google Play',
+  app_store: 'App Store',
+  testflight: 'TestFlight (test)',
+  sideload: 'APK file (test)',
+  development: 'Development build',
+  unknown: 'Not reported',
+};
+
+/** Where the app was installed from, in plain words. Older installs did not report it. */
+export function installSourceLabel(s: string | null | undefined): string {
+  return s ? (INSTALL_SOURCE_LABELS[s] ?? s) : 'Not reported';
 }
 
 export function platformLabel(p: string): string {

@@ -18,6 +18,7 @@
  *
  * Units: every amount (Lead.amount, LoanApplication.amount, the install_link payload amount) is in whole rupees.
  */
+import { STORE_SOURCES, TEST_SOURCES } from './installDedup.js';
 
 export type Confidence = 'confirmed' | 'probable' | 'none';
 export type SentVia = 'whatsapp' | 'sms' | 'call' | 'push' | 'website';
@@ -298,6 +299,12 @@ export interface InstallRow {
   source: string;
   campaignId: string | null;
   matchMethod: string | null;
+  /** Where it was installed from (lib/installDedup.ts); null for installs recorded before this was reported. */
+  installSource: string | null;
+  /** Times this same phone installed the app again (one row per device). */
+  reinstallCount: number;
+  appVersion: string | null;
+  deviceModel: string | null;
   confidence: Confidence;
   customer: InstallRowCustomer | null;
   context: InstallContext | null;
@@ -370,18 +377,37 @@ export function applyInstallFilters(rows: InstallRow[], f: InstallFilters): Inst
   });
 }
 
-export interface InstallStats { total: number; withContext: number; withoutContext: number; reachedNextStep: number; notSignedIn: number }
+export interface InstallStats {
+  total: number; withContext: number; withoutContext: number; reachedNextStep: number; notSignedIn: number;
+  /** Unique phones from Google Play / the App Store. */
+  storeInstalls: number;
+  /** TestFlight, sideloaded APKs and development builds: our own testing, not users. */
+  testInstalls: number;
+  /** Installs recorded before the app reported where it came from. */
+  unknownSource: number;
+  /** Extra installs on phones already counted (uninstall + install again). Not part of `total`. */
+  reinstalls: number;
+}
 
 export function computeInstallStats(rows: InstallRow[]): InstallStats {
   let withContext = 0;
   let reached = 0;
   let notSignedIn = 0;
+  let store = 0;
+  let test = 0;
+  let reinstalls = 0;
   for (const r of rows) {
     if (hasCustomerDetails(r.context)) withContext++;
     if (reachedNextStep(r.customer?.stage)) reached++;
     if (!r.signedIn) notSignedIn++;
+    if (r.installSource && (STORE_SOURCES as readonly string[]).includes(r.installSource)) store++;
+    else if (r.installSource && (TEST_SOURCES as readonly string[]).includes(r.installSource)) test++;
+    reinstalls += r.reinstallCount ?? 0;
   }
-  return { total: rows.length, withContext, withoutContext: rows.length - withContext, reachedNextStep: reached, notSignedIn };
+  return {
+    total: rows.length, withContext, withoutContext: rows.length - withContext, reachedNextStep: reached, notSignedIn,
+    storeInstalls: store, testInstalls: test, unknownSource: rows.length - store - test, reinstalls,
+  };
 }
 
 /* ───────────────────────── downloads funnel ───────────────────────── */

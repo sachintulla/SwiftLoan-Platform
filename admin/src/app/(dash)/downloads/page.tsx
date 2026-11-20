@@ -96,6 +96,13 @@ export default function DownloadsPage() {
             <Stat label="Reached the next step since install" value={stats ? num(stats.reachedNextStep) : '-'} foot={pctFoot(stats?.reachedNextStep ?? 0)} />
             <Stat label="Not signed in yet" value={stats ? num(stats.notSignedIn) : '-'} foot={pctFoot(stats?.notSignedIn ?? 0)} />
           </div>
+          {/* Each phone is counted once (reinstalls included); test builds are shown apart so they never pass for users. */}
+          <div className="stat-strip adm-inst-stat-wrap">
+            <Stat label="From Google Play / App Store" value={stats ? num(stats.storeInstalls) : '-'} foot="Unique phones" />
+            <Stat label="Test builds" value={stats ? num(stats.testInstalls) : '-'} foot="TestFlight, APK files, dev builds" />
+            <Stat label="Source not reported" value={stats ? num(stats.unknownSource) : '-'} foot="Older app versions" />
+            <Stat label="Reinstalls" value={stats ? num(stats.reinstalls) : '-'} foot="Same phone again, not counted as installs" />
+          </div>
         </Card>
 
         <Card title="Download journey" sub={`What happened after people installed, in ${periodLabel}.`}>

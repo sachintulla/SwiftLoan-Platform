@@ -32,3 +32,42 @@ export async function readInstallSignals(): Promise<InstallSignals> {
   }
   return out;
 }
+
+/**
+ * What the server needs to count this install once per phone (server/src/lib/installDedup.ts): a device id that
+ * survives a reinstall (Android ANDROID_ID / an iOS Keychain id; the server keeps only a hash), where the app was
+ * installed from, and the app/phone details. Every field is null when the native module is absent (Jest, a stale
+ * build); the server then counts the install the old way.
+ */
+export interface InstallInfo {
+  deviceId: string | null;
+  installer: string | null;
+  debug: boolean;
+  appVersion: string | null;
+  buildNumber: string | null;
+  model: string | null;
+}
+
+let installInfo: Promise<InstallInfo> | null = null;
+
+/** Read once per process (it never changes while the app runs). */
+export function readInstallInfo(): Promise<InstallInfo> {
+  if (!installInfo) {
+    installInfo = (async () => {
+      const empty: InstallInfo = { deviceId: null, installer: null, debug: false, appVersion: null, buildNumber: null, model: null };
+      try {
+        const mod = Platform.OS === 'android' ? NativeModules.InstallReferrer : NativeModules.Attribution;
+        const raw = await mod?.getInstallInfo?.();
+        if (!raw) return empty;
+        const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+        return {
+          deviceId: str(raw.deviceId), installer: str(raw.installer), debug: raw.debug === true,
+          appVersion: str(raw.appVersion), buildNumber: str(raw.buildNumber), model: str(raw.model),
+        };
+      } catch {
+        return empty;
+      }
+    })();
+  }
+  return installInfo;
+}

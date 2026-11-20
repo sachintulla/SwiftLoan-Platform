@@ -65,7 +65,10 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
     where: Object.keys(installedAt).length ? { installedAt } : {},
     orderBy: { installedAt: 'desc' },
     take: MAX_ROWS,
-    select: { id: true, platform: true, source: true, campaignId: true, referrer: true, matchedUserId: true, matchMethod: true, installedAt: true },
+    select: {
+      id: true, platform: true, source: true, campaignId: true, referrer: true, matchedUserId: true, matchMethod: true, installedAt: true,
+      installSource: true, reinstallCount: true, appVersion: true, deviceModel: true,
+    },
   });
   const truncated = downloads.length >= MAX_ROWS;
 
@@ -244,6 +247,10 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
       source: d.source,
       campaignId: d.campaignId ?? null,
       matchMethod: d.matchMethod ?? null,
+      installSource: d.installSource ?? null,
+      reinstallCount: d.reinstallCount ?? 0,
+      appVersion: d.appVersion ?? null,
+      deviceModel: d.deviceModel ?? null,
       confidence: classifyConfidence(d.matchMethod),
       customer: cust
         ? {

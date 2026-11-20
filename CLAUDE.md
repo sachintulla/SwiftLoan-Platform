@@ -353,6 +353,14 @@ the Play `referrer=click_id…` param), iOS → an interstitial that copies `swi
   (< `REFERRAL_ELIGIBLE_DAYS`), no self/mutual referral, one referrer per referee. `FriendReferral.status` advances
   signed_up → applied (offer selected/applied) → disbursed via `advanceReferral()`. **Tracking only — `rewardStatus` stays
   `none`; no reward policy is approved (needs compliance review before any money/rate benefit).**
+- **Install counting: one row per phone** (`lib/installDedup.ts`, migration `20261112120000_app_install_dedup`, additive). The app
+  reports once per install (AsyncStorage flag) with a random `install_id` (a retried report = the same row) and a device id
+  (Android `ANDROID_ID`, iOS a Keychain id kept after the app is deleted; stored only as a keyed hash in `deviceKey`, unique per
+  platform): the same phone again = `reinstallCount + 1`, not a new install. `installSource` (play_store | app_store | testflight |
+  sideload | development; null = older app) keeps test builds out of the admin overview count. After OTP login the app calls
+  `POST /api/attribution/link` with its install id, which sets `matchedUserId` (the old login-time guess that linked the newest
+  unclaimed install of ANY device was removed). Native: `InstallReferrer.getInstallInfo` (Android), `Attribution.getInstallInfo` (iOS).
+  Test: `DATABASE_URL=<throwaway> npx tsx scripts/install-dedup-check.mts`. Official store totals (Play / App Store reports) are not imported yet.
 - App: `referral` screen (Profile → "Refer a friend", `GET /api/referrals/me`, native Share sheet). Admin: `/referrals`
   page + Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` (additive).
 - Privacy to declare in store forms: IP address + device identifiers for app functionality/analytics; no ATT prompt

@@ -4,5 +4,6 @@
 @interface RCT_EXTERN_REMAP_MODULE(Attribution, AttributionModule, NSObject)
 
 RCT_EXTERN_METHOD(readClipboardToken:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(getInstallInfo:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 
 @end
