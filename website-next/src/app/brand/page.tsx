@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { NOINDEX } from '@/lib/seo';
 
 /**
  * Brand Theme & Logo reference page — faithful mirror of website/brand.html.
@@ -8,6 +9,7 @@ import type { Metadata } from 'next';
  */
 export const metadata: Metadata = {
   title: 'SwiftLoan.ai — Brand Theme & Logo',
+  robots: NOINDEX, // internal design reference
 };
 
 const PAGE_STYLE = `

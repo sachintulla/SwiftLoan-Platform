@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { View, StyleSheet, Pressable, Linking } from 'react-native';
-import { Screen, AppHeader } from '../components/Frame';
+import { Screen, AppHeader, RUBY_CLEARANCE } from '../components/Frame';
 import { Icon } from '../components/Icon';
 import { colors } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
@@ -59,4 +59,5 @@ export default function AltWeb() {
   );
 }
 
-const styles = StyleSheet.create({ body: { flex: 1 } });
+// The partner's page stops above the floating Ruby (see lenderweb.tsx).
+const styles = StyleSheet.create({ body: { flex: 1, marginBottom: RUBY_CLEARANCE - 24 } });

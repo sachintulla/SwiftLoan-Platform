@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { LAYERS } from '@/lib/layers';
 
 // Web port of the mobile app's RubyWelcome (src/components/RubyWelcome.tsx).
 // A short welcome clip of Ruby plays full-screen over the account page as a
@@ -73,7 +74,7 @@ export function RubyWelcome({ onDone }: { onDone: () => void }) {
       </button>
       <style>{`
         .sl-rw {
-          position: fixed; inset: 0; z-index: 10000;
+          position: fixed; inset: 0; z-index: ${LAYERS.takeover};
           background: transparent;
           animation: sl-rw-rise 440ms cubic-bezier(0.22, 1, 0.36, 1) both;
         }

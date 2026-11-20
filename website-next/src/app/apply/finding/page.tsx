@@ -170,7 +170,7 @@ export default function FindingPage() {
       </div>
 
       {fallback && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(10,63,65,0.45)] px-5" role="dialog" aria-modal="true" aria-labelledby="offers-fallback-title" aria-busy="true">
+        <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-[rgba(10,63,65,0.45)] px-5" role="dialog" aria-modal="true" aria-labelledby="offers-fallback-title" aria-busy="true">
           <div className="bg-background flex w-full max-w-sm flex-col items-center rounded-3xl px-6 py-7 text-center shadow-[var(--shadow-float)]">
             <Loader2 className="text-primary h-9 w-9 animate-spin" aria-hidden />
             <h2 id="offers-fallback-title" className="mt-4 text-lg leading-snug font-extrabold">

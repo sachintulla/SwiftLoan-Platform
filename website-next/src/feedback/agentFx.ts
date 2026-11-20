@@ -1,3 +1,4 @@
+import { LAYERS } from '@/lib/layers';
 import { writeValue } from '@/lib/voice-dom';
 import { beginAgentActivity, playSound, playTypingTick } from './sounds';
 import type { SoundName } from './soundData';
@@ -91,7 +92,7 @@ function injectStyle() {
   st.textContent = `
     @keyframes slAgentGlow { from { opacity: .45; } to { opacity: 1; } }
     @keyframes slAgentRipple { 0% { opacity: .55; transform: scale(1); } 100% { opacity: 0; transform: scale(1.14); } }
-    .sl-agent-ring, .sl-agent-ripple { position: fixed; pointer-events: none; z-index: 10000; box-sizing: border-box; }
+    .sl-agent-ring, .sl-agent-ripple { position: fixed; pointer-events: none; z-index: ${LAYERS.agentFx}; box-sizing: border-box; }
     .sl-agent-ring { border: 2px solid #2FB183; box-shadow: 0 0 8px rgba(47,177,131,.55); animation: slAgentGlow .38s ease-in-out infinite alternate; }
     .sl-agent-ripple { border: 2px solid #079FA0; animation: slAgentRipple .48s ease-out forwards; }
   `;

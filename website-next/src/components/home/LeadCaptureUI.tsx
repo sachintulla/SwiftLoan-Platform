@@ -232,7 +232,7 @@ export function OtpModal({
   if (!showOtpModal) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[var(--z-modal)] overflow-x-hidden overflow-y-auto bg-foreground/50 p-4 backdrop-blur-sm">
       {/* flex + min-h-full rather than grid place-items-center: a centered
           grid item that's taller than the viewport gets clipped at the top
           in some mobile browsers instead of scrolling into view. This still

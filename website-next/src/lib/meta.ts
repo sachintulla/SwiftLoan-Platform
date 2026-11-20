@@ -14,6 +14,7 @@
  */
 import { META_ENABLED, META_PIXEL_ID, META_SDK_URL } from '@/config/meta';
 import { apiBase } from '@/lib/leads';
+import { isEmbeddedInApp } from '@/lib/embed';
 
 type Fbq = {
   (...args: unknown[]): void;
@@ -97,9 +98,9 @@ export function subscribeMetaConsent(l: () => void): () => void {
   return () => listeners.delete(l);
 }
 
-/** True only when the integration is configured AND the visitor said yes. */
+/** True only when the integration is configured AND the visitor said yes (never inside the app's WebView). */
 export function metaAllowed(): boolean {
-  return META_ENABLED && typeof window !== 'undefined' && getMetaConsent() === 'granted';
+  return META_ENABLED && typeof window !== 'undefined' && !isEmbeddedInApp() && getMetaConsent() === 'granted';
 }
 
 /* ───────────────────────── pixel ───────────────────────── */

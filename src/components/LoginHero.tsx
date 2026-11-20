@@ -9,6 +9,7 @@ import { colors, font } from '../theme/tokens';
 import Icon from './Icon';
 import { useVoiceTarget } from '../voice/useVoiceTarget';
 import { LogoMark, Wordmark } from './Logo';
+import { useT } from '../state/store';
 
 /**
  * Phone + secure-shield illustration for the login hero — a clean vector build
@@ -145,10 +146,11 @@ export function LoginHero({ onBack }: { onBack?: () => void }) {
 }
 
 /** The marketing feature chips that scroll under the step indicator. */
-const FEATURES: { icon: string; label: string }[] = [
-  { icon: 'bolt', label: 'Instant Approval in 3 Mins' },
-  { icon: 'description', label: '100% Paperless' },
-  { icon: 'savings', label: 'Lowest Rates' },
+// `key` is the entry in i18n/strings.ts, so the chips follow the app language.
+const FEATURES: { icon: string; key: string }[] = [
+  { icon: 'bolt', key: 'loginChipInstant' },
+  { icon: 'description', key: 'loginChipPaperless' },
+  { icon: 'savings', key: 'loginChipRates' },
 ];
 
 // Animated.loop spins on Jest's faked 0 ms rAF clock, so the marquee is left
@@ -170,6 +172,7 @@ function FeatureChip({ f }: { f: { icon: string; label: string } }) {
  * off, the animation resets to 0 where the second copy sits, so there's no jump).
  */
 function FeatureMarquee() {
+  const t = useT();
   const [setW, setSetW] = useState(0);
   const x = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -185,11 +188,11 @@ function FeatureMarquee() {
     <View style={{ marginTop: 14, marginHorizontal: -20, overflow: 'hidden' }}>
       <Animated.View style={{ flexDirection: 'row', paddingLeft: 20, transform: [{ translateX: x }] }}>
         <View style={{ flexDirection: 'row' }} onLayout={e => setSetW(e.nativeEvent.layout.width)}>
-          {FEATURES.map(f => <FeatureChip key={f.label} f={f} />)}
+          {FEATURES.map(f => <FeatureChip key={f.key} f={{ icon: f.icon, label: t[f.key] }} />)}
         </View>
         {/* second identical copy for the seamless loop */}
         <View style={{ flexDirection: 'row' }}>
-          {FEATURES.map(f => <FeatureChip key={`dup-${f.label}`} f={f} />)}
+          {FEATURES.map(f => <FeatureChip key={`dup-${f.key}`} f={{ icon: f.icon, label: t[f.key] }} />)}
         </View>
       </Animated.View>
     </View>
@@ -215,7 +218,8 @@ export function WelcomeHero({
   useVoiceTarget(onBack ? 'Back' : undefined, { kind: 'button', onTap: onBack }, [onBack]);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const b = badge ?? { icon: 'storefront', label: 'Compare offers from top lenders' };
+  const t = useT();
+  const b = badge ?? { icon: 'storefront', label: t.loginHeroBadge };
   return (
     <View style={{ width, paddingBottom: 30 }}>
       <LinearGradient
@@ -240,13 +244,13 @@ export function WelcomeHero({
                 <Text style={{ color: colors.mint }}>Loan</Text>
               </Text>
               <Text style={[font(500), { fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: 0.3, marginTop: 1 }]}>
-                Digital Lending Marketplace
+                {t.loginHeroTagline}
               </Text>
             </View>
           </View>
           <View style={styles.rbiPill}>
             <Icon name="verified_user" size={14} color={colors.mint} />
-            <Text style={[font(600), { color: '#fff', fontSize: 12.5 }]}>RBI Regulated</Text>
+            <Text style={[font(600), { color: '#fff', fontSize: 12.5 }]}>{t.loginHeroRbi}</Text>
           </View>
         </View>
 

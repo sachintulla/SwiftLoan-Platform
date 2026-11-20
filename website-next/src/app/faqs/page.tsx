@@ -1,9 +1,10 @@
-'use client';
+import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
+import { FaqsPageContent } from '@/components/pages/FaqsPageContent';
 
-import { FaqsView } from '@/components/site/FaqsView';
+export const metadata: Metadata = pageMetadata('/faqs');
 
-function FaqsPage() {
-  return <FaqsView />;
+/** /faqs in English. The same body serves /hi/faqs and /te/faqs (app/[lang]/localizedPages.tsx). */
+export default function FaqsPage() {
+  return <FaqsPageContent lang="en" />;
 }
-
-export default FaqsPage;

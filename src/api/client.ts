@@ -420,6 +420,31 @@ function fireOfferViewed(): void {
   const aprs = [...knownOffers.values()].map((o) => o.apr).filter((n) => typeof n === 'number' && n > 0);
   upshotEvent('offer_viewed', { offerCount: knownOffers.size, ...(aprs.length ? { bestApr: Math.min(...aprs) } : {}) });
 }
+/** The offers belong to whoever was signed in: forget them when the account changes. */
+function forgetKnownOffers(): void {
+  knownOffers.clear();
+  offerViewPending = false;
+}
+
+/**
+ * Everything this phone holds for the signed-in account, cleared in ONE place so
+ * logout and account deletion can never drift apart: the tokens (memory + storage),
+ * the tracking session id and applied-partner set (inside setTokens), the offers
+ * the app last saw, and the persisted per-account caches.
+ *
+ * The eligible-offers cache is persisted (fare.tsx "My Offers" reads it local-first):
+ * left behind, the NEXT phone number to sign in sees the previous user's offers until
+ * a slower backend re-fetch overwrites them. Same for the voice agent's saved
+ * applicant-details draft and its intro-pitch-heard flag.
+ */
+export async function clearAccountData(): Promise<void> {
+  setTokens(null, null);
+  forgetKnownOffers();
+  await clearOffersCache().catch(() => {});
+  await clearPrefillDraft().catch(() => {});
+  await clearIntroPitchHeard().catch(() => {});
+}
+
 /** The user opened an offers screen: report it now, or as soon as offers load. */
 export function upshotOfferViewed(): void {
   if (knownOffers.size > 0) fireOfferViewed(); else offerViewPending = true;
@@ -460,6 +485,7 @@ export const api = {
     await clearOffersCache().catch(() => {});
     await clearPrefillDraft().catch(() => {});
     await clearIntroPitchHeard().catch(() => {});
+    forgetKnownOffers();
     return r;
   },
   login: async (identifier: string, password: string): Promise<AuthResult> => {
@@ -469,21 +495,24 @@ export const api = {
   },
   logout: async () => {
     if (refreshToken) await request('POST', '/auth/logout', { refreshToken }).catch(() => {});
-    setTokens(null, null);
-    // Per-user eligible-offers cache is persisted (fare.tsx "My Offers" reads it
-    // local-first). Clear it on logout, or the NEXT phone number to log in sees
-    // the previous user's offers until a slower backend re-fetch overwrites them.
-    // Same for the voice agent's saved applicant-details draft and its
-    // intro-pitch-heard flag.
-    await clearOffersCache().catch(() => {});
-    await clearPrefillDraft().catch(() => {});
-    await clearIntroPitchHeard().catch(() => {});
+    await clearAccountData();
   },
 
   // Users
   me: () => request('GET', '/users/me'),
-  /** Right to erasure — irreversible, cascades every record tied to this user. */
-  deleteAccount: () => request('DELETE', '/users/me'),
+  /**
+   * Right to erasure — irreversible, cascades every record tied to this user.
+   * The account is gone, so this phone is signed out exactly as on logout. It used
+   * to leave the deleted account's tokens and tracking session id in place: the next
+   * person to sign in on the phone sent their activity under a session the server
+   * had already deleted with the account (prod, 2026-11-20: foreign-key errors on
+   * every event and "Session not found" at the end).
+   */
+  deleteAccount: async () => {
+    const r = await request('DELETE', '/users/me');
+    await clearAccountData();
+    return r;
+  },
   updateProfile: (patch: Record<string, unknown>) =>
     request('PATCH', '/users/me', patch).then((r: any) => {
       // Name/email are only known after About You: push them to Upshot so the

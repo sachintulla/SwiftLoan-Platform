@@ -1,4 +1,4 @@
-import { defineCopy } from "@/lib/i18n";
+import { defineCopy } from "@/lib/copy"; // server-safe: the FAQ structured data reads this on the server
 
 export const faqsCopy = defineCopy({
   en: {

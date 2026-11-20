@@ -1,4 +1,4 @@
-import { defineCopy } from "@/lib/i18n";
+import { defineCopy } from "@/lib/copy"; // server-safe: the loan pages read these facts on the server
 
 export const offersCopy = defineCopy({
   en: {
@@ -19,6 +19,7 @@ export const offersCopy = defineCopy({
         ],
         tags: ["Wedding", "Medical", "Travel", "Education", "Debt consolidation"],
         cta: "Apply now",
+        learnMore: "Learn more",
       },
       {
         tag: "For businesses",
@@ -33,6 +34,7 @@ export const offersCopy = defineCopy({
         ],
         tags: ["Inventory", "Working capital", "Equipment", "Expansion", "Payroll"],
         cta: "Apply now",
+        learnMore: "Learn more",
       },
     ],
   },
@@ -54,6 +56,7 @@ export const offersCopy = defineCopy({
         ],
         tags: ["शादी", "चिकित्सा", "यात्रा", "शिक्षा", "कर्ज़ समेकन"],
         cta: "अभी आवेदन करें",
+        learnMore: "और जानें",
       },
       {
         tag: "व्यवसायों के लिए",
@@ -68,6 +71,7 @@ export const offersCopy = defineCopy({
         ],
         tags: ["इन्वेंट्री", "कार्यशील पूंजी", "उपकरण", "विस्तार", "पेरोल"],
         cta: "अभी आवेदन करें",
+        learnMore: "और जानें",
       },
     ],
   },
@@ -89,6 +93,7 @@ export const offersCopy = defineCopy({
         ],
         tags: ["వివాహం", "వైద్యం", "ప్రయాణం", "విద్య", "అప్పుల ఏకీకరణ"],
         cta: "ఇప్పుడే దరఖాస్తు చేయండి",
+        learnMore: "మరింత తెలుసుకోండి",
       },
       {
         tag: "వ్యాపారాల కోసం",
@@ -103,6 +108,7 @@ export const offersCopy = defineCopy({
         ],
         tags: ["ఇన్వెంటరీ", "వర్కింగ్ క్యాపిటల్", "పరికరాలు", "విస్తరణ", "పేరోల్"],
         cta: "ఇప్పుడే దరఖాస్తు చేయండి",
+        learnMore: "మరింత తెలుసుకోండి",
       },
     ],
   },

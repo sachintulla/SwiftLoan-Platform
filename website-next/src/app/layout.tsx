@@ -10,6 +10,8 @@ import { SiteFooter } from '@/components/site/SiteFooter';
 import { Toaster } from '@/components/ui/sonner';
 import { QuickCheckModal } from '@/components/home/QuickCheckModal';
 import { HideOnAppRoutes } from '@/components/site/HideOnAppRoutes';
+import { layerCssVars } from '@/lib/layers';
+import { SITE_NAME, SITE_URL, SHARE_IMAGE, jsonLdString, organizationJsonLd, websiteJsonLd } from '@/lib/seo';
 import './globals.css';
 import './design.css';
 
@@ -48,7 +50,11 @@ export const metadata: Metadata = {
     ],
     apple: '/icon.png',
   },
-  openGraph: { images: ['/icon.png'] },
+  applicationName: SITE_NAME,
+  // Defaults for every page; public pages override title/description/canonical (lib/seo.ts pageMetadata).
+  openGraph: { type: 'website', siteName: SITE_NAME, locale: 'en_IN', url: SITE_URL, images: [SHARE_IMAGE] },
+  twitter: { card: 'summary_large_image' },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
@@ -57,6 +63,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
+    // lang stays "en" in the server's HTML for every page, the /hi and /te ones included: a root layout
+    // cannot see the page's route params, and the ways around that (reading headers, or splitting the app
+    // into two root layouts) would make pages dynamic or move every route. Those pages declare their
+    // language on their own wrapper, header and footer instead, and LanguageProvider corrects this
+    // attribute in the browser right after load. Google takes the language from hreflang + the text.
     <html lang="en">
       <head>
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
@@ -64,6 +75,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..0&display=swap"
           rel="stylesheet"
         />
+        {/* The one stacking order for floating things (--z-ruby < --z-banner < --z-menu < --z-modal < …): lib/layers.ts. */}
+        <style dangerouslySetInnerHTML={{ __html: layerCssVars() }} />
+        {/* Who we are, for search engines (schema.org). Only confirmed facts: lib/seo.ts. */}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString([organizationJsonLd(), websiteJsonLd()]) }} />
       </head>
       <body className={`${openSans.variable} ${jetbrainsMono.variable}`}>
         {/* Chrome from the new design package. LanguageProvider must wrap the

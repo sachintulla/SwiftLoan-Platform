@@ -76,6 +76,7 @@ const OFFERS = new Set<Screen>(['offers', 'fare', 'compare']);
 // Before login: the sign-in flow. 'splash' (auto-advances) and 'privacy' (the user
 // accepts the terms on their own; Ruby is hidden there) get no tip.
 const PRE_LOGIN = new Set<Screen>(['mobile', 'otp']);
+const WEB_PAGE_SCREENS = new Set<Screen>(['legal', 'lenderweb', 'altweb']);
 
 /** Tip language: the app language the user picked. Hinglish/Tenglish (and no
  *  choice yet) use the English tips, same fallback as the UI strings. */
@@ -177,6 +178,9 @@ export function nudgeFor(
 ): NudgeConfig | null {
   if (!timers.enabled) return null;
   if (screen === 'splash' || screen === 'privacy') return null;
+  // Screens that show a web page (legal, a lender's or partner's journey): the bubble would sit on
+  // content the app cannot move or layer, so it is never shown there.
+  if (WEB_PAGE_SCREENS.has(screen)) return null;
   const l = nudgeLang(lang);
   if (FUNNEL.has(screen)) return { reason: 'dropoff_apply', labels: FUNNEL_TIPS[l] };
   if (OFFERS.has(screen)) {

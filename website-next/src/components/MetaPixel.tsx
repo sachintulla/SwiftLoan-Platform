@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { META_ENABLED } from '@/config/meta';
 import { useCopy } from '@/lib/i18n';
 import { metaConsentCopy } from '@/i18n/meta-consent';
+import { isEmbeddedInApp } from '@/lib/embed';
+import { BANNER_LIFT_VAR, LAYERS, bannerLiftPx } from '@/lib/layers';
 import {
   getMetaConsent,
   loadPixel,
@@ -21,6 +23,12 @@ import {
  * Renders nothing and loads nothing unless NEXT_PUBLIC_META_PIXEL_ID is configured. Once
  * it is, the Pixel script is only fetched AFTER the visitor accepts; until they answer, a
  * small banner asks (and is remembered either way). All event logic lives in `@/lib/meta`.
+ *
+ * Inside the mobile app's WebView (`isEmbeddedInApp()`: `?embed=app`) there is no banner and no
+ * Pixel at all: the app is not the place to ask for website ad consent.
+ *
+ * Layering (lib/layers.ts): the banner is ABOVE Ruby and below menus, pop-ups and toasts. While it
+ * is on screen it also lifts Ruby above itself (`--sl-banner-lift`), so neither covers the other.
  */
 
 const SKIPPED_ROUTES = [/^\/dev(\/|$)/, /^\/brand(\/|$)/, /^\/logo(\/|$)/];
@@ -54,10 +62,45 @@ export default function MetaPixel() {
     metaPageView();
   }, [pathname, consent]);
 
-  if (!META_ENABLED || dismissed) return null;
   // 'none' = not answered yet; hide while hydrating ('unknown') and once answered.
-  if (consent !== 'none') return null;
-  if (SKIPPED_ROUTES.some((re) => re.test(pathname))) return null;
+  const showBanner =
+    META_ENABLED &&
+    !dismissed &&
+    consent === 'none' &&
+    !SKIPPED_ROUTES.some((re) => re.test(pathname)) &&
+    !isEmbeddedInApp();
+
+  // While the banner is up, move Ruby above it (her bottom offsets add this variable): the banner
+  // and Ruby share the bottom of the screen, and neither may cover the other's buttons.
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!showBanner || !el) return;
+    const root = document.documentElement;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const lift = bannerLiftPx({
+        bannerTop: r.top,
+        bannerRight: r.right,
+        bannerHeight: r.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+      if (lift > 0) root.style.setProperty(BANNER_LIFT_VAR, `${lift}px`);
+      else root.style.removeProperty(BANNER_LIFT_VAR);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => {
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+      root.style.removeProperty(BANNER_LIFT_VAR);
+    };
+  }, [showBanner]);
+
+  if (!showBanner) return null;
 
   const answer = (v: 'granted' | 'denied') => {
     setMetaConsent(v);
@@ -66,14 +109,16 @@ export default function MetaPixel() {
 
   return (
     <div
+      ref={bannerRef}
       role="dialog"
+      data-consent-banner=""
       aria-label={t.label}
       style={{
         position: 'fixed',
         left: 12,
         right: 12,
         bottom: 12,
-        zIndex: 2147483000,
+        zIndex: LAYERS.banner,
         margin: '0 auto',
         maxWidth: 560,
         padding: '14px 16px',
