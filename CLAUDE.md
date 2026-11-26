@@ -1132,10 +1132,12 @@ in the same deploy as the code**. Do not re-add any of these without the owner a
   follow-up). `notifyOnce` (`jobs/tracking.jobs.ts`) raises ONE alert per loan / onboarding ever, read or unread: checking only unread rows
   re-created every alert right after it was marked read. Migration `20261123130000_notifications_backlog_read` deletes the old
   `app_nudge` rows and marks the rest read (data only; deploy with the code).
-- **Featured offers switched off (owner, 2026-11-23).** The seven `PrequalifyingOffer` rows were sample data from
-  `prisma/seed.prequalifying.ts` (never run it on prod: it deletes and re-creates them as active). Migration
-  `20261123140000_prequalifying_offers_off` sets the untouched seed rows inactive. The app saves the list once and never refreshes it,
-  so `FEATURED_OFFERS_CACHE_KEY` went to `v2`; app versions already installed keep showing their saved copy until they update.
+- **Featured offers stay ON (decision reversed 2026-11-26).** The 23 Nov plan switched off the `PrequalifyingOffer` rows (sample data
+  from `prisma/seed.prequalifying.ts`; never run that seed on prod: it deletes and re-creates them). Its migration
+  `20261123140000_prequalifying_offers_off` ALREADY RAN on dev and prod on 2026-11-26 (prod 05:12 UTC), so the file stays in the repo
+  (it never runs twice; it does not match freshly seeded rows) and the offers are switched back on as data, in Admin → Pre-Qualifying
+  Offers. `FEATURED_OFFERS_CACHE_KEY` stays `v1`. The app saves the list once and never refreshes it: bump the key only when every
+  phone must reload.
 - **API & Webhook Errors** hides our own inbound 401 / 429 rows unless `includeNoise=1` (`lib/apiErrors.ts`); a lender's 401 / 429 always shows.
 - **Dashboard** (was "Master Overview", still at `/overview`). Its graphs are `admin/src/components/DashboardGraphs.tsx` (plain CSS/SVG)
   fed by `GET /api/admin/dashboard/graphs?from=&to=&days=` (rules in `server/src/lib/dashboardGraphs.ts`, tested): how far people get
