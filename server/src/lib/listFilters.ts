@@ -1,10 +1,9 @@
 /**
- * Filters for the admin list pages (Loan Pipeline, Revasure, Yubi, Customers).
+ * Filters for the admin list pages (Applications, Revasure, Yubi, Customers).
  *
- * One where-builder per list, used by the list endpoint, the CSV export and the
- * "start a campaign from this list" action. Because all three call the same
- * function with the same query, "the file follows the filters on screen" is true
- * by construction rather than by keeping three copies in step.
+ * One where-builder per list, used by the list endpoint and the CSV export. Because both
+ * call the same function with the same query, "the file follows the filters on screen" is true
+ * by construction rather than by keeping two copies in step.
  *
  * Everything except `findUserIdsBySearch` is pure (no database), so it is unit
  * tested directly.
@@ -12,14 +11,13 @@
 import type { ApplicationStatus, JourneyStage, Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { STAGE_ORDER, TERMINAL_STAGES } from './journey.js';
-import { normalisePhone } from './dialer.js';
 
 type Query = Record<string, unknown>;
 
 /** Export cap. A full table dump would time out and hold too much in memory. */
 export const EXPORT_LIMIT = 10_000;
 
-/** Every ApplicationStatus the Loan Pipeline lets an operator filter by (same list as the dashboard funnel). */
+/** Every ApplicationStatus the Applications list lets an operator filter by (same list as the dashboard funnel). */
 export const APP_STATUSES = [
   'draft', 'pan_pending', 'prequalifying', 'offers_ready', 'handoff',
   'under_review', 'approved', 'rejected', 'disbursed', 'closed',
@@ -58,7 +56,7 @@ export function dateRange(q: Query): { gte?: Date; lte?: Date } | undefined {
   return Object.keys(r).length ? r : undefined;
 }
 
-/* ─────────────────────────── Loan Pipeline ─────────────────────────── */
+/* ─────────────────────────── Applications ─────────────────────────── */
 
 /** Offers that count as a lender application. */
 const APPLIED = { applied: true } as const;
@@ -101,10 +99,16 @@ export function lenderResultWhere(result: string | undefined): Prisma.LoanApplic
  * lenderResult and a created-on date range. An unknown status, lender result or
  * date is ignored rather than rejected, as the page has always behaved.
  */
+/** Application statuses that mean the customer is still filling in their details. */
+export const FILLING_STATUSES = ['draft', 'pan_pending', 'prequalifying'] as const satisfies readonly ApplicationStatus[];
+
 export function buildLoanWhere(q: Query): Prisma.LoanApplicationWhereInput {
   const where: Prisma.LoanApplicationWhereInput = {};
   const status = qStr(q.status);
-  if (status === 'failed') {
+  if (status === 'filling') {
+    // "Filling details": still filling in their details, not yet sent for offers (the Applications page groups these three).
+    where.status = { in: [...FILLING_STATUSES] };
+  } else if (status === 'failed') {
     // A 'failed' application is a technical dead-end (the Aurix/lender flow errored),
     // not a genuine lead — shown only when the Failed chip is picked, like Revasure's
     // Failed filter. (It isn't in APP_STATUSES, so it needs its own branch.)
@@ -263,7 +267,9 @@ export function buildYubiWhere(q: Query, matchedUserIds?: string[]): Prisma.Part
   where.appliedAt = { not: null, ...(range ?? {}) };
 
   const status = qStr(q.status);
-  if (status) where.lastStatus = status;
+  // "waiting" = the customer went to Yubi and Yubi has not reported anything yet.
+  if (status === 'waiting') where.lastStatus = null;
+  else if (status) where.lastStatus = status;
 
   const search = searchTerm(q);
   if (search) where.userId = { in: matchedUserIds ?? [] };
@@ -398,16 +404,10 @@ export function yubiCsvRow(r: {
 export type ListKind = 'loans' | 'revasure' | 'yubi';
 export const LIST_KINDS: ListKind[] = ['loans', 'revasure', 'yubi'];
 
-export const LIST_LABELS: Record<ListKind, string> = {
-  loans: 'Loan Pipeline',
-  revasure: 'Revasure Leads',
-  yubi: 'Yubi Referrals',
-};
-
 /** Filter keys each list understands. Anything else a client sends is dropped before it reaches a builder or an audit row. */
 export const LIST_FILTER_KEYS: Record<ListKind, string[]> = {
-  loans: ['status', 'search', 'lenderResult', 'from', 'to'],
-  revasure: ['status', 'search', 'from', 'to'],
+  loans: ['status', 'search', 'lenderResult', 'from', 'to', 'allStatuses'],
+  revasure: ['status', 'search', 'from', 'to', 'allStatuses'],
   yubi: ['applied', 'status', 'search', 'from', 'to'],
 };
 
@@ -418,57 +418,4 @@ export function pickFilters(kind: ListKind, raw: Query): Record<string, string> 
     if (v) out[key] = v;
   }
   return out;
-}
-
-/* ─────────────────────────── campaign contacts ─────────────────────────── */
-
-/** Most contacts one "start a campaign from this list" action will create. */
-export const CAMPAIGN_FROM_LIST_CAP = 5_000;
-
-/** A list row, reduced to what becomes a campaign contact. `phone` is as stored; it is normalised by planContacts. */
-export interface ContactCandidate {
-  name: string | null;
-  phone: unknown;
-  product: string | null;
-  /** Whole rupees, the unit CampaignContact.amount uses. */
-  amount: number | null;
-  /** The row's status in the list it came from. */
-  status: string;
-}
-
-export interface PlannedContact extends Omit<ContactCandidate, 'phone'> { phone: string }
-
-/**
- * Turn list rows into unique, dialable contacts. The first row for a number wins,
- * so a customer with several applications is added once, with their newest.
- * Rows with no usable 10-digit mobile are counted, not added.
- */
-export function planContacts(candidates: ContactCandidate[]): {
-  contacts: PlannedContact[]; withPhone: number; noPhone: number; duplicates: number;
-} {
-  const seen = new Set<string>();
-  const contacts: PlannedContact[] = [];
-  let noPhone = 0;
-  let duplicates = 0;
-  for (const c of candidates) {
-    const phone = normalisePhone(c.phone);
-    if (!phone) { noPhone++; continue; }
-    if (seen.has(phone)) { duplicates++; continue; }
-    seen.add(phone);
-    contacts.push({ ...c, phone });
-  }
-  return { contacts, withPhone: candidates.length - noPhone, noPhone, duplicates };
-}
-
-/** A contact's amount in whole rupees, or null when it is missing, not positive, or would not fit the Int column. */
-export function contactAmount(rupees: number | null | undefined): number | null {
-  if (rupees == null || !Number.isFinite(rupees) || rupees <= 0) return null;
-  const whole = Math.round(rupees);
-  return whole > 2_147_483_647 ? null : whole;
-}
-
-/** Plain-words version of a filter set, stored on the draft campaign's note so its origin is clear later. */
-export function describeFilterSet(filters: Record<string, string>): string {
-  const parts = Object.entries(filters).map(([k, v]) => (k === 'search' ? `search "${v}"` : `${k} ${v}`));
-  return parts.length ? parts.join(', ') : 'no filters';
 }

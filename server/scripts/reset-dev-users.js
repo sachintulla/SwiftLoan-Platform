@@ -2,14 +2,14 @@
  * reset-dev-users.js — wipe all end-user / funnel / tracking / lead data on the
  * DEV database so internal testing can start from scratch.
  *
- * KEEPS: AdminUser (+ admin refresh/reset/audit), LenderPartner, MarketLoanOffer
- *        catalog, Campaign, IntegrationConfig, ApiKey, StallRule, AppConfig,
+ * KEEPS: AdminUser (+ admin refresh/reset/audit), LenderPartner
+ *        catalog, IntegrationConfig, ApiKey, StallRule, AppConfig,
  *        AuditLog (system).
  * DELETES: User (+ cascaded OtpToken, RefreshToken, Consent, LoanApplication,
  *        Offer, OfferEmiOption, KycVerification, Loan, Repayment, SupportTicket)
  *        and the non-cascading tracking/engagement tables (Session, ActivityEvent,
  *        OnboardingFunnel, Notification, AppDownload, Lead, Customer, JourneyEvent,
- *        CallAttempt, ConversationSummary, CampaignContact, OutboundRequest).
+ *        CallAttempt, ConversationSummary, OutboundRequest).
  *
  * NOTE: This does NOT delete these users on the KFT/Aurix side — that propagation
  *       is still a pending feature. Test users remain on KFT.
@@ -32,12 +32,12 @@ function assertNotProd() {
 const DELETE_ORDER = [
   'repayment', 'offerEmiOption', 'offer', 'loan', 'kycVerification', 'consent',
   'supportTicket', 'loanApplication', 'journeyEvent', 'callAttempt',
-  'campaignContact', 'conversationSummary', 'outboundRequest', 'activityEvent',
+  'conversationSummary', 'outboundRequest', 'activityEvent',
   'session', 'onboardingFunnel', 'notification', 'appDownload', 'lead',
   'customer', 'otpToken', 'refreshToken', 'user',
 ];
 
-const KEEP = ['adminUser', 'lenderPartner', 'marketLoanOffer', 'campaign', 'appConfig'];
+const KEEP = ['adminUser', 'lenderPartner', 'appConfig'];
 
 async function counts(models) {
   const out = {};

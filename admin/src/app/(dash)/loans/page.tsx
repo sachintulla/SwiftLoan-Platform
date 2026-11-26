@@ -1,207 +1,119 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+// Applications: everything sent to the three lenders, on one page.
+//   Top  - three summary cards (not clickable): each lender's total, a status bar and the numbers that matter.
+//   Then - a segmented switch to pick the lender (Aurix / Yubi / Revasure), and that lender's list.
+// The lender is kept in the address (?tab=yubi), so /yubi and /revasure can open their tab and a reload keeps it.
+// Data: GET /api/admin/applications/summary (counts) and each lender's own list (components/applications/).
+import React, { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { swrFetcher, getAdmin } from '@/lib/api';
-import { Card, LoanStatusBadge, FilterChips, Select, Pagination, TableSkeleton } from '@/components/ui';
-import ListActions, { ExportNote, ListError, ListEmpty } from '@/components/ListActions';
-import ConversionsPanel from '@/components/ConversionsPanel';
-import { inr, inrCompact, dateTimeStr, loanStatusLabel } from '@/lib/format';
-import { useDebounced } from '@/lib/hooks';
-import { buildListQuery, describeFilters, resultLine, dayBoundIso, dateRangeProblem, dayLabel, type FilterLabels } from '@/lib/lists';
+import { swrFetcher } from '@/lib/api';
+import { num } from '@/lib/format';
+import LenderList from '@/components/applications/LenderList';
+import type { LenderKey, Summary } from '@/components/applications/lenders';
 import '@/components/listActions.css';
+import '@/components/applications/applications.css';
+import { DS, LENDER_COLOR } from '@/lib/palette';
 
-// Every ApplicationStatus, in funnel order. The mid-funnel states
-// (pan_pending / prequalifying / handoff) were previously unfilterable even
-// though they are exactly where applications go quiet — an operator chasing
-// drop-offs could not isolate them.
-const STATUS_FILTERS = [
-  { key: '', label: 'All' },
-  { key: 'draft', label: 'Draft' },
-  { key: 'pan_pending', label: 'PAN Pending' },
-  { key: 'prequalifying', label: 'Prequalifying' },
-  { key: 'offers_ready', label: 'Offers' },
-  { key: 'handoff', label: 'Handoff' },
-  { key: 'under_review', label: 'In Review' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'disbursed', label: 'Disbursed' },
-  { key: 'rejected', label: 'Rejected' },
-  { key: 'closed', label: 'Closed' },
-  // Technical failures are hidden from the default (genuine-leads) view; this chip surfaces them.
-  { key: 'failed', label: 'Failed' },
-] as const;
-
-// What a lender did with the applications a customer sent out. Rejected includes
-// applications that failed, the same grouping the "Lender applications" column uses.
-const LENDER_RESULTS = [
-  { value: '', label: 'Any' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'disbursed', label: 'Disbursed' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'in_progress', label: 'In progress' },
+const LENDERS: { key: LenderKey; name: string; what: string; dot: string }[] = [
+  { key: 'aurix', name: 'Aurix', what: 'Offers check', dot: LENDER_COLOR.aurix },
+  { key: 'yubi', name: 'Yubi', what: 'Went to Yubi', dot: LENDER_COLOR.yubi },
+  { key: 'revasure', name: 'Revasure', what: 'Lead sharing', dot: LENDER_COLOR.revasure },
 ];
 
-const FILTER_LABELS: FilterLabels = {
-  status: { name: 'status', value: (v) => loanStatusLabel(v) },
-  lenderResult: { name: 'lender result', value: (v) => LENDER_RESULTS.find((o) => o.value === v)?.label ?? v },
-  search: { name: 'search' },
-  from: { name: 'from', value: dayLabel },
-  to: { name: 'to', value: dayLabel },
-};
-
-interface AppliedOffer { id: string; lenderName?: string | null; lenderStatus?: string | null; partner?: { name?: string } | null }
-interface Row { id: string; ref: string; amount: number; loanType: string; status: string; createdAt: string; user?: { fullName?: string; phone?: string }; loan?: { id: string } | null; _count?: { offers: number }; offers?: AppliedOffer[] }
-
-/** Compact per-lender summary for a pipeline row, e.g. "3 lenders · 1 Active". */
-function lenderSummary(offers: AppliedOffer[] | undefined): string {
-  const applied = offers ?? [];
-  if (applied.length === 0) return '—';
-  const approved = applied.filter((o) => o.lenderStatus === 'approved').length;
-  const disbursed = applied.filter((o) => o.lenderStatus === 'disbursed').length;
-  const rejected = applied.filter((o) => o.lenderStatus === 'rejected' || o.lenderStatus === 'failed').length;
-  const parts: string[] = [];
-  if (disbursed) parts.push(`${disbursed} Active`);
-  if (approved) parts.push(`${approved} Approved`);
-  if (rejected) parts.push(`${rejected} Rejected`);
-  const pending = applied.length - approved - disbursed - rejected;
-  if (pending) parts.push(`${pending} in progress`);
-  return `${applied.length} lender${applied.length === 1 ? '' : 's'}${parts.length ? ' · ' + parts.join(', ') : ''}`;
+/** The parts of a card's status bar, and the three numbers under it, worked out from the lender's status counts. */
+function cardParts(key: LenderKey, s: Summary) {
+  const c = (k: string) => s.counts[k] ?? 0;
+  const sum = (ks: string[]) => ks.reduce((t, k) => t + c(k), 0);
+  if (key === 'aurix') {
+    const withLender = sum(['handoff', 'under_review', 'approved', 'disbursed', 'closed']);
+    return {
+      bar: [
+        { n: withLender, color: 'var(--teal)' }, { n: c('offers_ready'), color: 'var(--blue)' }, { n: c('filling'), color: 'var(--amber)' },
+        { n: c('rejected'), color: DS.errorSoft }, { n: c('failed'), color: 'var(--grey)' },
+      ],
+      foot: [[c('offers_ready'), 'offers ready'], [withLender, 'with a lender'], [c('rejected'), 'no offers']] as [number, string][],
+    };
+  }
+  if (key === 'yubi') {
+    const codes = Object.keys(s.counts);
+    const pick = (test: (k: string) => boolean) => codes.filter(test).reduce((t, k) => t + c(k), 0);
+    const rejected = pick((k) => /REJECT|NO_OFFER/.test(k));
+    const offer = pick((k) => /OFFER_GENERATED|APPROV|DISBURS/.test(k));
+    const waiting = c('waiting');
+    const started = s.total - rejected - offer - waiting;
+    return {
+      bar: [{ n: started, color: 'var(--teal)' }, { n: offer, color: 'var(--blue)' }, { n: waiting, color: 'var(--amber)' }, { n: rejected, color: DS.errorSoft }],
+      foot: [[started, 'in progress'], [offer, 'got an offer'], [rejected, 'rejected']] as [number, string][],
+    };
+  }
+  const notEligible = sum(['ineligible', 'duplicate']);
+  const notSent = sum(['failed', 'pending']);
+  return {
+    bar: [{ n: c('success'), color: 'var(--teal)' }, { n: notEligible, color: DS.errorSoft }, { n: notSent, color: 'var(--grey)' }],
+    foot: [[c('success'), 'accepted'], [notEligible, 'not eligible'], [notSent, 'could not send']] as [number, string][],
+  };
 }
 
-export default function LoansPage() {
-  const router = useRouter();
-  const [status, setStatus] = useState<string>('');
-  const [search, setSearch] = useState('');
-  const [lenderResult, setLenderResult] = useState('');
-  const [fromDay, setFromDay] = useState('');
-  const [toDay, setToDay] = useState('');
-  const [page, setPage] = useState(1);
-  const [role, setRole] = useState<string | undefined>(undefined);
-  useEffect(() => { setRole(getAdmin()?.role || undefined); }, []);
+function readTab(): LenderKey {
+  if (typeof window === 'undefined') return 'aurix';
+  const t = new URLSearchParams(window.location.search).get('tab');
+  return t === 'yubi' || t === 'revasure' ? t : 'aurix';
+}
 
-  // The list and the export read the same debounced filters, so the file is always what is on screen.
-  const debouncedSearch = useDebounced(search.trim(), 350);
-  const searchPending = search.trim() !== debouncedSearch;
-  const rangeProblem = dateRangeProblem(fromDay, toDay);
+export default function ApplicationsPage() {
+  const [tab, setTab] = useState<LenderKey>('aurix');
+  // Read the address after the first render (the server render has no address bar).
+  useEffect(() => { setTab(readTab()); }, []);
+  const pick = (t: LenderKey) => {
+    setTab(t);
+    const url = new URL(window.location.href);
+    if (t === 'aurix') url.searchParams.delete('tab'); else url.searchParams.set('tab', t);
+    window.history.replaceState(null, '', url.pathname + url.search);
+  };
 
-  const filters = useMemo<Record<string, string>>(() => {
-    const f: Record<string, string> = {};
-    if (status) f.status = status;
-    if (debouncedSearch) f.search = debouncedSearch;
-    if (lenderResult) f.lenderResult = lenderResult;
-    const from = dayBoundIso(fromDay, 'start');
-    const to = dayBoundIso(toDay, 'end');
-    if (from) f.from = from;
-    if (to) f.to = to;
-    return f;
-  }, [status, debouncedSearch, lenderResult, fromDay, toDay]);
-
-  const qs = buildListQuery({ ...filters, page, pageSize: 20 });
-  const { data, error, isLoading, mutate } = useSWR(`/api/admin/loans?${qs}`, swrFetcher);
-  const rows = (data?.data ?? []) as Row[];
-  const pg = data?.pagination;
-
-  // Words for the result line use the on-screen values (dates as picked, not as instants).
-  const described = describeFilters({ status, lenderResult, search: debouncedSearch, from: fromDay, to: toDay }, FILTER_LABELS);
-  const filtered = Boolean(status || lenderResult || search.trim() || fromDay || toDay);
-
-  const reset = () => { setStatus(''); setSearch(''); setLenderResult(''); setFromDay(''); setToDay(''); setPage(1); };
-  const change = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPage(1); };
+  // All-time totals for the cards and the tab counts (no filters).
+  const { data } = useSWR('/api/admin/applications/summary', swrFetcher, { refreshInterval: 60_000 });
+  const all = data?.data as Record<LenderKey, Summary> | undefined;
 
   return (
     <div className="page">
-      <div className="row between wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
-        <div>
-          <h1 className="page-title">Loan Pipeline</h1>
-          <p className="page-sub">Every loan application with its current stage. Select a row to open the full journey.</p>
-        </div>
-        <ListActions kind="loans" filters={filters} total={searchPending || isLoading ? undefined : pg?.total} filterSummary={described} role={role} />
+      <h1 className="page-title">Applications</h1>
+
+      {/* Summary only: these cards are not buttons. The lender is picked with the switch below. */}
+      <div className="ap-cards">
+        {LENDERS.map((l) => {
+          const s = all?.[l.key];
+          const parts = s ? cardParts(l.key, s) : null;
+          return (
+            <div key={l.key} className="ap-sum">
+              <div className="ap-sum-top"><span className="ap-sum-name">{l.name}</span><span className="ap-sum-what">{l.what}</span></div>
+              {!s || !parts ? <div className="skeleton" style={{ height: 56, marginTop: 8 }} /> : (
+                <>
+                  <div className="ap-sum-num">{num(s.total)}</div>
+                  <div className="ap-sum-bar" aria-hidden>
+                    {parts.bar.filter((p) => p.n > 0).map((p, i) => <i key={i} style={{ flexGrow: p.n, background: p.color }} />)}
+                  </div>
+                  <div className="ap-sum-foot">{parts.foot.map(([n, label]) => <span key={label}><b>{num(n)}</b> {label}</span>)}</div>
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      <div className="mt-16">
-        <ConversionsPanel from={filters.from} to={filters.to} sub="Scoped to the date range selected below. Conversions are a % of total customers in that range." />
+      <div className="ap-tabs" role="tablist" aria-label="Lender">
+        {LENDERS.map((l) => (
+          <button key={l.key} type="button" role="tab" aria-selected={tab === l.key} className={`ap-tab${tab === l.key ? ' on' : ''}`} onClick={() => pick(l.key)}>
+            <span className="ap-tab-dot" style={{ background: l.dot }} />
+            {l.name}
+            <span className="ap-tab-count">{all ? num(all[l.key].total) : '…'}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="mt-16">
-        <Card>
-          <div className="adm-filters">
-            <label className="adm-field adm-grow">
-              <span>Search</span>
-              <input
-                type="search"
-                className="input"
-                value={search}
-                aria-label="Search applications"
-                placeholder="Search by reference, name or mobile"
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              />
-            </label>
-            <div className="adm-field adm-field-select" role="group" aria-label="Lender result">
-              <span aria-hidden="true">Lender result</span>
-              <Select value={lenderResult} onChange={change(setLenderResult)} options={LENDER_RESULTS} />
-            </div>
-            <label className="adm-field adm-field-date">
-              <span>From</span>
-              <input type="date" className="input" value={fromDay} max={toDay || undefined} aria-describedby={rangeProblem ? 'loans-range-msg' : undefined} onChange={(e) => change(setFromDay)(e.target.value)} />
-            </label>
-            <label className="adm-field adm-field-date">
-              <span>To</span>
-              <input type="date" className="input" value={toDay} min={fromDay || undefined} aria-describedby={rangeProblem ? 'loans-range-msg' : undefined} onChange={(e) => change(setToDay)(e.target.value)} />
-            </label>
-            {filtered && <button type="button" className="adm-link-btn" onClick={reset}>Clear filters</button>}
-          </div>
-          {rangeProblem && <p className="adm-fieldmsg" id="loans-range-msg" role="alert">{rangeProblem}</p>}
-
-          <div className="adm-chips" role="group" aria-label="Filter by status">
-            <FilterChips options={STATUS_FILTERS as unknown as { key: string; label: string }[]} value={status} onChange={change(setStatus)} />
-          </div>
-
-          <ExportNote />
-          <p className="adm-resultline" aria-live="polite">
-            {pg && !error ? resultLine(pg.total, 'application', 'applications', described) : ''}
-            {pg && !error && pg.requestedTotal != null ? ` · ${inrCompact(pg.requestedTotal)} total requested` : ''}
-          </p>
-
-          {error ? (
-            <ListError what="loan applications" error={error} onRetry={() => mutate()} />
-          ) : isLoading ? (
-            <div aria-busy="true"><TableSkeleton rows={8} cols={7} /></div>
-          ) : rows.length === 0 ? (
-            <ListEmpty
-              filtered={filtered}
-              filteredText="No applications match these filters."
-              noneTitle="No loan applications yet."
-              noneBody="They appear here as customers apply."
-              onClear={reset}
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data adm-table">
-                <thead><tr><th>Ref</th><th>Applicant</th><th>Type</th><th>Amount</th><th>Status</th><th>Lender applications</th><th>Applied</th></tr></thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id} onClick={() => router.push(`/loans/${r.id}`)}>
-                      <td data-label="Ref">
-                        <Link className="mono adm-ref" href={`/loans/${r.id}`} onClick={(e) => e.stopPropagation()}>{r.ref}</Link>
-                      </td>
-                      <td data-label="Applicant"><div>{r.user?.fullName || '—'}<div className="adm-sub">{r.user?.phone}</div></div></td>
-                      <td data-label="Type" style={{ textTransform: 'capitalize' } as React.CSSProperties}>{r.loanType}</td>
-                      <td data-label="Amount" className="mono">{inr(r.amount)}</td>
-                      <td data-label="Status">
-                        <LoanStatusBadge status={r.status} />
-                        {r._count?.offers ? <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>· {r._count.offers} offer{r._count.offers === 1 ? '' : 's'}</span> : null}
-                      </td>
-                      <td data-label="Lender applications" className="muted" style={{ fontSize: 12.5 }}>{lenderSummary(r.offers)}</td>
-                      <td data-label="Applied" className="muted">{dateTimeStr(r.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {pg && <Pagination page={pg.page} totalPages={pg.totalPages} onPage={setPage} />}
-        </Card>
+      {/* key: switching lender starts that lender's filters fresh. */}
+      <div role="tabpanel" aria-label={LENDERS.find((l) => l.key === tab)?.name}>
+        <LenderList key={tab} lender={tab} />
       </div>
     </div>
   );

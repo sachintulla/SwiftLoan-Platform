@@ -2,18 +2,16 @@
  * Pure rules for the admin Notifications page: labels, drill-down targets,
  * query filters and date grouping. No database, so they can be unit tested.
  *
- * Only three notification types are ever created in code (verified in
- * jobs/tracking.jobs.ts and lib/appNudge.ts):
+ * Only two notification types are created in code (jobs/tracking.jobs.ts):
  *   loan_stale        entityId = LoanApplication id
  *   onboarding_stale  entityId = User id
- *   app_nudge         entityId = User id
+ * (A third, app_nudge "User needs help", was removed on 2026-11-23.)
  * Anything else that appears in the table falls back to a title-cased label.
  */
 
 export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   loan_stale: 'Inactive loan',
   onboarding_stale: 'Stuck onboarding',
-  app_nudge: 'User needs help',
 };
 
 export const SEVERITIES = ['critical', 'warning', 'info', 'success'] as const;
@@ -64,7 +62,7 @@ export function targetFor(type: string, entityId: string | null | undefined, res
   if (type === 'loan_stale') {
     return resolved.loan?.id ? { kind: 'loan', id: resolved.loan.id, href: `/loans/${resolved.loan.id}`, label: 'Open loan' } : null;
   }
-  if (type === 'onboarding_stale' || type === 'app_nudge') {
+  if (type === 'onboarding_stale') {
     return resolved.customer?.id ? { kind: 'customer', id: resolved.customer.id, href: `/customers/${resolved.customer.id}`, label: 'Open customer' } : null;
   }
   return null;
@@ -73,7 +71,7 @@ export function targetFor(type: string, entityId: string | null | undefined, res
 /** Which table each type's entityId points at, so the route can batch its lookups. */
 export function entityKind(type: string): 'loan' | 'user' | null {
   if (type === 'loan_stale') return 'loan';
-  if (type === 'onboarding_stale' || type === 'app_nudge') return 'user';
+  if (type === 'onboarding_stale') return 'user';
   return null;
 }
 

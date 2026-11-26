@@ -78,7 +78,7 @@ export function unreadForType(byType: NotifPayload['counts']['byType'] | undefin
 }
 
 export const subtitleText = (unread: number): string =>
-  `${unread} unread. Alerts about inactive loans, stuck onboarding and users who need help.`;
+  `${unread} unread. Alerts about inactive loans and stuck onboarding.`;
 
 /* ───────────────────────────── date groups ───────────────────────────── */
 
@@ -181,7 +181,7 @@ export function notifListState(args: { loading: boolean; error: unknown; total: 
 export const EMPTY_TEXT: Record<'filtered_empty' | 'caught_up' | 'none', string> = {
   filtered_empty: 'No notifications match these filters.',
   caught_up: 'You are all caught up. There are no unread notifications.',
-  none: 'No notifications yet. Alerts appear here when a loan goes quiet or a user needs help.',
+  none: 'No notifications yet. Alerts appear here when a loan goes quiet or an onboarding gets stuck.',
 };
 
 /* ───────────────────────────── body clipping and refresh ───────────────────────────── */

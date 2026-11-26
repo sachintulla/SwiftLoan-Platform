@@ -1,20 +1,37 @@
 /**
- * API traffic log — persists every request/response between the app and this
- * API (inbound) and between this API and Aurix/KFT (outbound) to the `ApiLog`
- * table, powering the internal /logs page (see modules/logs.routes.ts).
+ * API failure log: persists every FAILED request/response between the app/website/webhooks and this API (inbound) and
+ * between this API and the partners (outbound) to the `ApiLog` table, powering Admin → API & Webhook Errors and the
+ * internal /logs page (see modules/logs.routes.ts).
+ *
+ * Only failures are saved (owner, 2026-11-23): a 4xx/5xx answer, a call that got no answer, or one that reported an
+ * error (`isFailedCall`). Successes were ~95% of the rows and nobody read them. Failures are kept for
+ * `tracking.apiLogKeepDays` (Admin → Timings, default 30) so an old failure can still be looked up.
  *
  * Writes are fire-and-forget: logging must never slow down or fail a real
  * request. Bodies are redacted for the usual sensitive keys (PAN, OTP, tokens,
- * password) and truncated, then kept for 24 hours only (startApiLogRetention).
+ * password) and truncated.
  */
 import type { Request, Response, NextFunction } from 'express';
+import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
+import { timing } from './timings.js';
 
 const log = scoped('api-log');
 
-const RETENTION_MS = 24 * 60 * 60 * 1000; // keep the last 24 hours
 const MAX_BODY = 20_000;                   // cap each stored body
+
+/**
+ * A call worth keeping: refused or broken (HTTP 400 and up), no answer at all (status missing or 0: a timeout or network
+ * failure), or one the caller marked with an error. Same rule as the API errors page (apiErrors.ts IS_ERROR).
+ */
+export function isFailedCall(e: { status?: number | null; error?: string | null }): boolean {
+  if (e.error) return true;
+  return e.status == null || e.status === 0 || e.status >= 400;
+}
+
+/** Rows that are NOT failures (saved before only failures were kept); the clean-up removes them. */
+const NOT_FAILED: Prisma.ApiLogWhereInput = { AND: [{ status: { gt: 0, lt: 400 } }, { error: null }] };
 
 // Exact key names (case-insensitive) whose values are replaced with
 // "[redacted]" — same set the debug-http logger uses, so PII never lands in
@@ -74,8 +91,9 @@ export interface ApiLogEntry {
   meta?: Record<string, unknown> | null;
 }
 
-/** Record one API log row. Fire-and-forget — never throws into the caller. */
+/** Record one API log row if the call failed (successes are not kept). Fire-and-forget — never throws into the caller. */
 export function recordApiLog(entry: ApiLogEntry): void {
+  if (!isFailedCall(entry)) return;
   // Wrap the whole call: a missing client/model (tests that mock prisma without
   // apiLog, a stale generated client) throws synchronously on the property access,
   // which .catch() can't swallow. This logger must never affect its callers.
@@ -115,10 +133,13 @@ export async function listApiLogs(opts: {
   return prisma.apiLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit });
 }
 
-/** Delete rows older than 24h. Runs on start and hourly thereafter. */
-export async function pruneApiLogs(): Promise<number> {
-  const cutoff = new Date(Date.now() - RETENTION_MS);
-  const { count } = await prisma.apiLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+/**
+ * Delete failures older than `tracking.apiLogKeepDays` (default 30), and any successful call (rows saved before only
+ * failures were kept). Runs on start and hourly thereafter.
+ */
+export async function pruneApiLogs(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - timing.daysMs('tracking.apiLogKeepDays'));
+  const { count } = await prisma.apiLog.deleteMany({ where: { OR: [{ createdAt: { lt: cutoff } }, NOT_FAILED] } });
   if (count) log.info('pruned', { removed: count });
   return count;
 }

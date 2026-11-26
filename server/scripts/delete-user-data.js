@@ -5,7 +5,7 @@
  * KYC, consents, tokens, support tickets) plus the non-cascading records tied to
  * that person by userId / phone / customerId: Customer (+ JourneyEvent), Sessions,
  * ActivityEvents, OnboardingFunnel, AppDownloads, Leads, CallAttempts,
- * ConversationSummary, OutboundRequests, CampaignContacts, and related Notifications.
+ * ConversationSummary, OutboundRequests, and related Notifications.
  *
  * KEEPS everything else (other users, admins, catalog, config).
  * Does NOT propagate the delete to KFT/Aurix (pending feature).
@@ -66,7 +66,6 @@ async function main() {
   await del('callAttempt', { phone }, 'callAttempt (phone)');
   await del('conversationSummary', { phone }, 'conversationSummary (phone)');
   if (cid) await del('outboundRequest', { customerId: cid }, 'outboundRequest (customer)');
-  if (cid) await del('campaignContact', { customerId: cid }, 'campaignContact (customer)');
   if (uid) await del('activityEvent', { userId: uid }, 'activityEvent (user)');
   if (uid) await del('session', { userId: uid }, 'session (user)');
   if (uid) await del('onboardingFunnel', { userId: uid }, 'onboardingFunnel (user)');

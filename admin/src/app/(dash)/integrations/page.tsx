@@ -471,7 +471,7 @@ interface RoleRow {
 }
 interface AgentRow { id: string; name?: string | null; type?: string | null }
 
-const ROLE_ORDER = ['leadCallback', 'campaign', 'companion', 'websiteCompanion', 'adminNavigator'] as const;
+const ROLE_ORDER = ['leadCallback', 'companion', 'websiteCompanion', 'adminNavigator'] as const;
 
 function VoiceAgents() {
   const { data: rolesRes, error: rolesError, isLoading: rolesLoading, mutate: mutateRoles } = useSWR('/api/admin/agents/roles', swrFetcher);

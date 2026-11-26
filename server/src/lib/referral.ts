@@ -1,5 +1,3 @@
-import { timing } from './timings.js';
-import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
 import {
@@ -7,41 +5,13 @@ import {
   ipWindowMinutes,
   hashClient,
   newClickToken,
-  newReferralCode,
-  normalizeCode,
   parseOsVersion,
   pickIpMatch,
-  maskName,
   type MatchMethod,
   type Platform,
 } from './attribution.js';
 
 const log = scoped('referral');
-
-/** A referee must be a new account — an existing user re-installing is not a referral. */
-export const referralEligibleDays = () => timing.num('referral.eligibleDays');
-
-const STATUS_ORDER = ['signed_up', 'applied', 'disbursed'] as const;
-export type ReferralStatus = (typeof STATUS_ORDER)[number];
-
-// ── Codes ───────────────────────────────────────────────────────────────────
-
-export async function getOrCreateCode(userId: string): Promise<string> {
-  const existing = await prisma.referralCode.findUnique({ where: { userId } });
-  if (existing) return existing.code;
-  for (let i = 0; i < 6; i++) {
-    try {
-      return (await prisma.referralCode.create({ data: { userId, code: newReferralCode() } })).code;
-    } catch (e) {
-      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') throw e;
-      // Either the code collided (retry with a new one) or a concurrent call
-      // created this user's code first (return that one).
-      const raced = await prisma.referralCode.findUnique({ where: { userId } });
-      if (raced) return raced.code;
-    }
-  }
-  throw new Error('could not allocate a referral code');
-}
 
 // ── Clicks ──────────────────────────────────────────────────────────────────
 
@@ -54,13 +24,11 @@ export interface ClickInput {
 }
 
 export async function recordClick(input: ClickInput) {
-  const code = normalizeCode(input.ref);
-  const isReferral = code ? !!(await prisma.referralCode.findUnique({ where: { code } })) : false;
-  const kind = isReferral ? 'referral' : input.ref ? 'campaign' : 'direct';
+  const kind = input.ref ? 'campaign' : 'direct';
   return prisma.appClick.create({
     data: {
       token: newClickToken(),
-      ref: isReferral ? code : (input.ref ?? null)?.slice(0, 64) ?? null,
+      ref: (input.ref ?? null)?.slice(0, 64) ?? null,
       kind,
       campaignId: input.campaignId?.slice(0, 64) ?? null,
       platform: input.platform,
@@ -80,6 +48,8 @@ export interface ClaimInput {
   clickToken?: string | null; // Play referrer click_id, or clipboard token
   via?: 'play_referrer' | 'clipboard';
   osVersion?: string | null;
+  /** The ad the Play referrer names (attribution.ts adCampaignFromReferrer), used when no SwiftLoan link claims the install. */
+  adCampaign?: string | null;
 }
 
 export interface ClaimResult {
@@ -87,10 +57,9 @@ export interface ClaimResult {
   method: MatchMethod | null;
   downloadId: string;
   clickId: string | null;
-  /** The link's `ref` (a referral code, a campaign, or a website visitor's reference ID). */
+  /** The link's `ref` (a campaign, or a website visitor's reference ID). */
   clickRef: string | null;
   source: string;
-  referral: { code: string; referrerName: string } | null;
 }
 
 /** Flip a pending click to matched exactly once; false if someone else got there first. */
@@ -136,118 +105,22 @@ export async function claimInstall(input: ClaimInput): Promise<ClaimResult> {
     }
   }
 
-  const source = click ? (click.kind === 'direct' ? 'organic' : click.kind) : 'organic';
+  // No link of ours brought them, but the Play referrer names an ad (Instagram / Facebook / WhatsApp / Google Ads): a campaign install.
+  const ad = !click && input.adCampaign ? input.adCampaign : null;
+  const source = click ? (click.kind === 'direct' ? 'organic' : click.kind) : ad ? 'campaign' : 'organic';
   const download = await prisma.appDownload.create({
     data: {
       platform: input.platform,
       source,
-      campaignId: click?.campaignId ?? null,
+      campaignId: click?.campaignId ?? ad,
       referrer: click?.ref ?? null,
       clickId: click?.id ?? null,
       matchMethod: method,
     },
   });
 
-  let referral: ClaimResult['referral'] = null;
-  if (click?.kind === 'referral' && click.ref) {
-    const owner = await prisma.referralCode.findUnique({ where: { code: click.ref } });
-    const user = owner ? await prisma.user.findUnique({ where: { id: owner.userId }, select: { fullName: true, firstName: true, phone: true } }) : null;
-    if (owner && user) {
-      referral = { code: owner.code, referrerName: maskName(user.fullName ?? user.firstName, user.phone) };
-    }
-  }
-
   log.info('install claimed', { platform: input.platform, matched: !!click, method, source });
-  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, clickRef: click?.ref ?? null, source, referral };
-}
-
-// ── Redeem (after the friend has an account) ────────────────────────────────
-
-export type RedeemFailure = 'invalid_code' | 'self_referral' | 'already_referred' | 'not_new_user';
-export type RedeemResult = { ok: true; referralId: string; referrerName: string } | { ok: false; reason: RedeemFailure };
-
-export async function redeemReferral(
-  refereeId: string,
-  rawCode: unknown,
-  meta: { downloadId?: string | null; matchMethod?: string | null } = {},
-): Promise<RedeemResult> {
-  const code = normalizeCode(rawCode);
-  if (!code) return { ok: false, reason: 'invalid_code' };
-
-  const owner = await prisma.referralCode.findUnique({ where: { code } });
-  if (!owner) return { ok: false, reason: 'invalid_code' };
-  if (owner.userId === refereeId) return { ok: false, reason: 'self_referral' };
-
-  const referee = await prisma.user.findUnique({ where: { id: refereeId }, select: { createdAt: true } });
-  if (!referee) return { ok: false, reason: 'invalid_code' };
-  if (referee.createdAt.getTime() < Date.now() - referralEligibleDays() * 86_400_000) {
-    return { ok: false, reason: 'not_new_user' };
-  }
-
-  // Mutual referral (A invited B, then B tries to invite A) is not allowed either.
-  const reverse = await prisma.friendReferral.findFirst({ where: { referrerId: refereeId, refereeId: owner.userId } });
-  if (reverse) return { ok: false, reason: 'self_referral' };
-
-  try {
-    const row = await prisma.friendReferral.create({
-      data: { referrerId: owner.userId, refereeId, code, matchMethod: meta.matchMethod ?? 'manual' },
-    });
-    if (meta.downloadId) {
-      await prisma.appDownload.update({ where: { id: meta.downloadId }, data: { matchedUserId: refereeId } }).catch(() => undefined);
-    }
-    const ref = await prisma.user.findUnique({ where: { id: owner.userId }, select: { fullName: true, firstName: true, phone: true } });
-    return { ok: true, referralId: row.id, referrerName: maskName(ref?.fullName ?? ref?.firstName, ref?.phone) };
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return { ok: false, reason: 'already_referred' };
-    throw e;
-  }
-}
-
-/** Move a referral forward (never backward). Fire-and-forget safe: swallows its own errors. */
-export async function advanceReferral(refereeId: string, to: Exclude<ReferralStatus, 'signed_up'>): Promise<void> {
-  try {
-    const row = await prisma.friendReferral.findUnique({ where: { refereeId } });
-    if (!row || STATUS_ORDER.indexOf(to) <= STATUS_ORDER.indexOf(row.status as ReferralStatus)) return;
-    const now = new Date();
-    await prisma.friendReferral.update({
-      where: { id: row.id },
-      data: { status: to, ...(to === 'applied' ? { appliedAt: now } : { disbursedAt: now, appliedAt: row.appliedAt ?? now }) },
-    });
-  } catch (e) {
-    log.warn('advanceReferral failed', { refereeId, to, err: (e as Error).message });
-  }
-}
-
-// ── Read models ─────────────────────────────────────────────────────────────
-
-export function shareLinkFor(code: string, base: string): string {
-  return `${base.replace(/\/$/, '')}/dl?ref=${code}`;
-}
-
-export async function referralSummary(userId: string) {
-  const code = await getOrCreateCode(userId);
-  const rows = await prisma.friendReferral.findMany({
-    where: { referrerId: userId },
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-  });
-  const users = await prisma.user.findMany({
-    where: { id: { in: rows.map((r) => r.refereeId) } },
-    select: { id: true, fullName: true, firstName: true, phone: true },
-  });
-  const byId = new Map(users.map((u) => [u.id, u]));
-  return {
-    code,
-    stats: {
-      invited: rows.length,
-      applied: rows.filter((r) => r.status !== 'signed_up').length,
-      disbursed: rows.filter((r) => r.status === 'disbursed').length,
-    },
-    referrals: rows.map((r) => {
-      const u = byId.get(r.refereeId);
-      return { id: r.id, name: maskName(u?.fullName ?? u?.firstName, u?.phone), status: r.status, createdAt: r.createdAt };
-    }),
-  };
+  return { matched: !!click, method, downloadId: download.id, clickId: click?.id ?? null, clickRef: click?.ref ?? null, source };
 }
 
 /** Housekeeping: clicks are only useful for a day or two — keep the table (and the data we hold) small. */

@@ -9,14 +9,14 @@
  * the app included — and every outbound call to Aurix / Yubi / Revasure, with its
  * error. This page surfaces only the failures (4xx/5xx or a captured error),
  * inside the admin dashboard and behind admin auth. Bodies are already redacted
- * for sensitive keys by lib/apiLog.ts; retention is the same 24h as /logs.
+ * for sensitive keys by lib/apiLog.ts; only failed calls are saved, and kept for `tracking.apiLogKeepDays` (Admin → Timings, default 30).
  */
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin } from '../middleware/adminAuth.js';
-import { buildApiErrorWhere, classifyRow, IS_ERROR, STATUS_CLASSES, type ApiErrorFilters, type StatusClass } from '../lib/apiErrors.js';
+import { baseErrorWhere, buildApiErrorWhere, classifyRow, IS_ERROR, IS_NOISE, STATUS_CLASSES, type ApiErrorFilters, type StatusClass } from '../lib/apiErrors.js';
 
 export const adminApiErrorsRouter = Router();
 adminApiErrorsRouter.use(requireAdmin);
@@ -40,17 +40,24 @@ function filtersFrom(q: Record<string, unknown>): ApiErrorFilters {
     q: str(q.q)?.slice(0, 120) ?? null,
     from: parseDate(q.from),
     to: parseDate(q.to),
+    includeNoise: q.includeNoise === '1',
   };
 }
 
-/** Counts that drive the tiles and filter options — always over ALL errors in the window, ignoring the chosen filters. */
-async function facets() {
-  const [total, byTarget, byDirection, rows] = await Promise.all([
-    prisma.apiLog.count({ where: IS_ERROR }),
-    prisma.apiLog.groupBy({ by: ['target'], where: IS_ERROR, _count: { _all: true } }),
-    prisma.apiLog.groupBy({ by: ['direction'], where: IS_ERROR, _count: { _all: true } }),
+/**
+ * Counts that drive the tiles and filter options: over all errors in the window, ignoring the chosen filters, except
+ * that routine refusals (our own 401 / 429) are left out unless the page asked for them. `noise` is always their count,
+ * so the page can say how many it is hiding.
+ */
+async function facets(includeNoise = false) {
+  const base = baseErrorWhere(includeNoise);
+  const [total, byTarget, byDirection, rows, noise] = await Promise.all([
+    prisma.apiLog.count({ where: base }),
+    prisma.apiLog.groupBy({ by: ['target'], where: base, _count: { _all: true } }),
+    prisma.apiLog.groupBy({ by: ['direction'], where: base, _count: { _all: true } }),
     // Status class needs the raw status/error, so count in memory from a capped scan.
-    prisma.apiLog.findMany({ where: IS_ERROR, select: { status: true, error: true }, take: 2000 }),
+    prisma.apiLog.findMany({ where: base, select: { status: true, error: true }, take: 2000 }),
+    prisma.apiLog.count({ where: { AND: [IS_ERROR, IS_NOISE] } }),
   ]);
   const byClass: Record<StatusClass, number> = { '4xx': 0, '5xx': 0, errored: 0 };
   for (const r of rows) {
@@ -59,6 +66,8 @@ async function facets() {
   }
   return {
     total,
+    noise,
+    includesNoise: includeNoise,
     byTarget: byTarget.map((t) => ({ target: t.target, count: t._count._all })).sort((a, b) => b.count - a.count),
     byDirection: byDirection.map((d) => ({ direction: d.direction, count: d._count._all })),
     byClass: STATUS_CLASSES.map((c) => ({ statusClass: c, count: byClass[c] })),
@@ -84,7 +93,7 @@ adminApiErrorsRouter.get('/', ah(async (req, res) => {
       },
     }),
     prisma.apiLog.count({ where }),
-    facets(),
+    facets(q.includeNoise === '1'),
   ]);
 
   const data = rows.map((r) => ({ ...r, statusClass: classifyRow(r) }));
@@ -93,5 +102,5 @@ adminApiErrorsRouter.get('/', ah(async (req, res) => {
 
 // GET /api/admin/api-errors/facets — counts only (for a sidebar badge / quick glance).
 adminApiErrorsRouter.get('/facets', ah(async (_req, res) => {
-  return ok(res, await facets(), 'API error facets');
+  return ok(res, await facets((_req.query as Record<string, unknown>).includeNoise === '1'), 'API error facets');
 }));

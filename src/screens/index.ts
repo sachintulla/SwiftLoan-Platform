@@ -26,7 +26,6 @@ import Disbursed from './disbursed';
 import Repay from './repay';
 import Profile from './profile';
 import Help from './help';
-import Referral from './referral';
 import Legal from './legal';
 import Notifications from './notifications';
 
@@ -59,7 +58,6 @@ export const SCREENS: Partial<Record<ScreenName, React.ComponentType>> = {
   repay: Repay,
   profile: Profile,
   help: Help,
-  referral: Referral,
   notifications: Notifications,
   legal: Legal,
 };

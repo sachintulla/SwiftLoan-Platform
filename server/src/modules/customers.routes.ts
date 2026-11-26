@@ -214,7 +214,7 @@ customersRouter.get('/:id', ah(async (req, res) => {
   // Bounded: a long-lived customer accumulates hundreds of journey events, and
   // this endpoint renders one page. The paginated /timeline endpoint below is
   // the way to read the full history.
-  const [timelineRows, calls, campaignContacts, outboundRequests] = await Promise.all([
+  const [timelineRows, calls, outboundRequests] = await Promise.all([
     prisma.journeyEvent.findMany({
       where: { customerId: customer.id },
       orderBy: { occurredAt: 'desc' },
@@ -223,16 +223,6 @@ customersRouter.get('/:id', ah(async (req, res) => {
     prisma.callAttempt.findMany({
       where: { customerId: customer.id, channel: { in: ['phone_outbound', 'phone_inbound'] } },
       orderBy: { queuedAt: 'desc' },
-      take: 50,
-    }),
-    // A campaign upload sometimes lands a contact row before it is linked to a
-    // Customer (or the link never happens if the two get created out of order),
-    // so a customerId-only match silently drops real campaign history. Phone is
-    // the same strong join key used everywhere else on this page.
-    prisma.campaignContact.findMany({
-      where: customer.phone ? { OR: [{ customerId: customer.id }, { phone: customer.phone }] } : { customerId: customer.id },
-      include: { campaign: { select: { id: true, name: true, code: true, status: true } } },
-      orderBy: { createdAt: 'desc' },
       take: 50,
     }),
     // Every nudge this customer was ever queued for, delivered or not — the
@@ -427,7 +417,6 @@ customersRouter.get('/:id', ah(async (req, res) => {
     stageProgress,
     dropOff,
     calls,
-    campaigns: campaignContacts,
     user,
     leads,
     applicationSummary,

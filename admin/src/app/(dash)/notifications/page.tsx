@@ -114,7 +114,7 @@ export default function NotificationsPage() {
 
   const typeOpts = useMemo(() => typeOptions(live?.counts.byType), [live?.counts.byType]);
   const loansUnread = unreadForType(live?.counts.byType, 'loan_stale');
-  const helpUnread = unreadForType(live?.counts.byType, 'app_nudge');
+  const onboardingUnread = unreadForType(live?.counts.byType, 'onboarding_stale');
 
   return (
     <div className="page">
@@ -152,9 +152,9 @@ export default function NotificationsPage() {
               onClick={() => setView({ state: 'unread', type: 'loan_stale', severity: '' })}
             />
             <StatCell
-              label="Users needing help" value={helpUnread} foot="Unread"
-              pressed={filters.type === 'app_nudge' && !filters.severity}
-              onClick={() => setView({ state: 'unread', type: 'app_nudge', severity: '' })}
+              label="Stuck onboarding" value={onboardingUnread} foot="Unread"
+              pressed={filters.type === 'onboarding_stale' && !filters.severity}
+              onClick={() => setView({ state: 'unread', type: 'onboarding_stale', severity: '' })}
             />
           </div>
         </Card>

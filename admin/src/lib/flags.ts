@@ -1,4 +1,4 @@
-// Hides the outbound-nudge surfaces (Notification Rules, "Send nudge", nudge
+// Hides the outbound-nudge surfaces ("Send nudge", nudge
 // stats). Mirrors the server's NUDGES_DISABLED switch; off unless set.
 export const NUDGES_DISABLED = /^(1|true|yes)$/i.test(process.env.NEXT_PUBLIC_NUDGES_DISABLED ?? '');
 

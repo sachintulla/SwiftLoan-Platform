@@ -798,7 +798,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
   const navDescription =
     'Navigate to a named app screen: home, loans, fare (My Offers), compare (compare offers), ' +
     'calculator, help, profile, basicpan (start an application), basic, handoff, status, repay, ' +
-    'disbursed, referral, mobile. ' +
+    'disbursed, mobile. ' +
     'Prefer tapping a visible control when one exists.';
 
   /** Waits (bounded) until `screen` is the current one AND has published its controls. */

@@ -1,16 +1,14 @@
-// Pure helpers for the Loan Pipeline, Revasure and Yubi lists: query strings,
-// the "Showing ..." wording, export and campaign limits, and a few labels.
+// Pure helpers for the Applications, Revasure and Yubi lists: query strings,
+// the "Showing ..." wording, the export limit, and a few labels.
 // No React and no network, so they are unit tested directly.
 
 /** Most rows one CSV export contains. Matches the server's cap. */
 export const EXPORT_LIMIT = 10_000;
-/** Most customers a campaign started from a list can take. Matches the server's cap. */
-export const CAMPAIGN_CAP = 5_000;
 
-/** Roles the server lets export and create campaigns (CAN_WRITE). The server decides; this only hides a button that would be refused. */
+/** Roles the server lets export (CAN_WRITE). The server decides; this only hides a button that would be refused. */
 const WRITE_ROLES = ['super_admin', 'admin'];
 
-/** True when the role may export or create a campaign. An unknown role (not loaded yet) is allowed; the server still enforces it. */
+/** True when the role may export. An unknown role (not loaded yet) is allowed; the server still enforces it. */
 export function canWrite(role: string | null | undefined): boolean {
   if (!role) return true;
   return WRITE_ROLES.includes(role);
@@ -80,13 +78,6 @@ export function exportBlockedReason(role: string | null | undefined, total: numb
   return null;
 }
 
-/** Why Start campaign is off, or null when it can be used. */
-export function campaignBlockedReason(role: string | null | undefined, total: number | null | undefined): string | null {
-  if (!canWrite(role)) return 'Campaigns need an admin or super admin';
-  if (total === 0) return 'No rows to start a campaign from';
-  return null;
-}
-
 /** A date input value (YYYY-MM-DD) as the start or end of that local day, as an ISO instant. Empty or invalid gives ''. */
 export function dayBoundIso(ymd: string, edge: 'start' | 'end'): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '';
@@ -122,8 +113,3 @@ export const REVASURE_STATUS_LABEL: Record<string, string> = {
   failed: 'Failed',
   pending: 'Pending',
 };
-
-/** Whether starting a campaign from these Revasure filters deserves the "already reached Revasure" warning. */
-export function revasureReachedWarning(filters: Record<string, string>): boolean {
-  return filters.status === 'success' || filters.status === 'duplicate';
-}

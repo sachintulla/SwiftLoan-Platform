@@ -29,7 +29,8 @@ export interface StatusEvent {
 const MAPPING: Record<string, DeliveryStatus> = {
   queued: 'queued', accepted: 'queued', pending: 'queued', submitted: 'queued', enqueued: 'queued', scheduled: 'queued', processing: 'queued',
   sent: 'sent', dispatched: 'sent', forwarded: 'sent',
-  delivered: 'delivered', delivery: 'delivered',
+  // Vox writes "DELIVER" (seen on its callbacks, 23 Nov 2026).
+  delivered: 'delivered', delivery: 'delivered', deliver: 'delivered',
   read: 'read', seen: 'read',
   failed: 'failed', failure: 'failed', undelivered: 'failed', rejected: 'failed', error: 'failed', expired: 'failed', blocked: 'failed', invalid: 'failed', deleted: 'failed',
 };
@@ -103,7 +104,9 @@ function failureFrom(o: Record<string, any>): { code: string | null; reason: str
 
 function eventFrom(o: Record<string, any>, now: Date): StatusEvent | null {
   const rawStatus = str(pick(o, ['status', 'messageStatus', 'message_status', 'deliveryStatus', 'delivery_status', 'state', 'event']));
-  const providerRef = str(pick(o, ['id', 'messageId', 'message_id', 'wamid', 'providerMessageId', 'gtrid']));
+  // Vox's callback is { from: <our sender>, to: <customer>, status, timestamp, msgId: "wamid.…" }: the id is WhatsApp's own, not the
+  // id Vox gave us when we sent it, so messageDelivery.ts links the two by number and time on the first report.
+  const providerRef = str(pick(o, ['id', 'messageId', 'message_id', 'msgId', 'msg_id', 'wamid', 'providerMessageId', 'gtrid']));
   if (!rawStatus || !providerRef) return null;
   const status = normaliseStatus(rawStatus);
   const f = failureFrom(o);
@@ -138,6 +141,18 @@ export function parseStatusPayload(body: unknown, now: Date = new Date()): Statu
   };
   walk(body, 0);
   return out;
+}
+
+/**
+ * A report whose id matches nothing we stored (Vox reports WhatsApp's id, we stored Vox's) is linked to the newest WhatsApp
+ * message to the same number sent within this long before it. Reports arrive seconds after the event.
+ */
+export const LINK_BY_PHONE_MS = 30 * 60_000;
+
+/** True when `events` already holds this exact report (Vox sends every report twice). */
+export function isRepeatEvent(events: ReadonlyArray<{ at: string; raw: string }>, ev: Pick<StatusEvent, 'at' | 'rawStatus'>): boolean {
+  const at = ev.at.toISOString();
+  return events.some((e) => e.at === at && e.raw === ev.rawStatus);
 }
 
 /** Last ten digits: how we store and compare a recipient. */

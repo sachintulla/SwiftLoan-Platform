@@ -48,7 +48,7 @@ fileignoreconfig:
 - filename: server/src/modules/adminAuth.routes.ts
   checksum: 1102c8a1378aa7d4b97caff6a7dfeb20f47b7c4a06ac388d2b07a93d9cc27a15
 - filename: admin/src/components/charts.tsx
-  checksum: 2e6b117c7fb15bff6670b823b02ca051305ba06e08630ef2543b4a830ca4c6ec
+  checksum: b5dfe92f8fc3689f43471ce273e303d2b2940f8827b562c66afc356e4de1b459
 - filename: admin/src/app/(dash)/downloads/page.tsx
   checksum: 5b8e5906dd8e88ee5129dcd9867157aaf17efaae236029298211f93b59e59876
 - filename: admin/src/app/(dash)/loans/\[id\]/page.tsx
@@ -62,9 +62,9 @@ fileignoreconfig:
 - filename: admin/src/app/login/page.tsx
   checksum: 015390ea6161a0f193991cd09995c6b9b6c0540df27fda22c81f5cd5d7359a1d
 - filename: admin/src/app/globals.css
-  checksum: 7d98feaa3f0bd921d58b5c3dd18a7e74b98e58e8725e058ac51d63713571ddb0
+  checksum: 2c0505c26755627f2f14f815da64347cf5386935c3aa8218f5139830aefad53e
 - filename: admin/src/app/(dash)/loans/page.tsx
-  checksum: 02aa622264cba6335013ce8eeb20dba51916ed03f246067f58febfd192a395a5
+  checksum: 8e5148b452ce19ecb7a6f6facdd2d53b3ad6a2a6bc9f6c9bd2b1290f51a6f9f1
 - filename: server/prisma/seed.ws4.ts
   checksum: 54f37f2b87ebe5ec9c610a533b1f0e05b50401fdfec918d6f41b1aa7b08f5306
 - filename: admin/src/app/(dash)/onboarding/\[userId\]/page.tsx
@@ -72,7 +72,7 @@ fileignoreconfig:
 - filename: server/src/config/downloads.ts
   checksum: 66432f142daef0c86d1718c719d7ba0a6a2e7b592562b8ddf95a9df0e33c646c
 - filename: admin/src/components/ui.tsx
-  checksum: fe9daba88bd73e654139144d54aba10892cd1a2f7aee9f333df51f52d07b5f1a
+  checksum: dd3599cb381514e0bcf02acad9c6d36a2956c7259ca6563a909e7774f97fc131
 - filename: server/src/lib/adminJwt.ts
   checksum: b2d8ab543f0c85915e4b46ed7b988324c023e3d4919119531f048e5f90fdbe3a
 - filename: admin/src/app/(dash)/onboarding/page.tsx
@@ -82,11 +82,11 @@ fileignoreconfig:
 - filename: admin/src/app/(dash)/users/\[id\]/page.tsx
   checksum: 765d97ff27856319ad425fc33e40eae0cf27d8073f57b6ef8e35d6af5d07b704
 - filename: admin/src/components/viz.tsx
-  checksum: 3b62c985a6c3d89c63b57d3ec5a8c821ebf3a983d92767b4a9679cf04131789e
+  checksum: c135afac59c9bf3c95b040067f6a8386e088d10e99e34cb631497f8afa5b3a79
 - filename: admin/src/lib/api.ts
   checksum: 2b9a28c569e87ace2c377f0d5d4fbc7a4eea159d0bc7c70531ffbdb8995323ee
 - filename: admin/src/app/(dash)/overview/page.tsx
-  checksum: a74148374d78990f01e251a2b3b31ea04bb769d904ef57cd45d966a6918a988f
+  checksum: 5ed06c5802ad4a6edc951cbbf8be95edf8959897651e2d90e02a7fdc08cf0753
 - filename: admin/src/components/AppBuilds.tsx
   checksum: 81d18dbb59e20fc65f8c672b43d53caf46b99fb04e88c34c1c6f70ee2f519a49
 - filename: admin/src/app/(dash)/analytics/page.tsx
@@ -96,7 +96,7 @@ fileignoreconfig:
 - filename: website/js/core.js
   checksum: 4a9b3f8d06c4cf808ba44e8118f8b5598dee8b0af699f6f6c589c2f5151add6e
 - filename: server/src/modules/admin.routes.ts
-  checksum: 7d76f24741803f35fcd91ee1ef79b413405f7ebc128ea1a52adc0bf08c0f37d1
+  checksum: 301f7c511aa8fe3808ec0389d8d06f7fabd05c637d56c00e93d0f9880e69e275
 - filename: website/js/main.js
   checksum: 3dd36dcfdd1b4023bd4b84880ffa53de3cccebd399aacad5a951ec7c10f16f5d
 - filename: admin/src/lib/ello-agent.ts
@@ -136,7 +136,7 @@ fileignoreconfig:
 - filename: server/scripts/journey/run-mobile-prefill.sh
   checksum: 1c839138c451364694799d2bb02f3885da93d95631354e7d4dd661f0fc80100d
 - filename: server/src/lib/timings.ts
-  checksum: 6616bf9ddb5f720bc785b20236e64fa6ebb3094cf992f1cf21b8001682191168
+  checksum: 624cab50ce2a22b6773c784d8f7c9466fe67e716e7b75489a7bd344f05992928
 - filename: server/src/lib/digitap.test.ts
   checksum: 53d22cdd56180aabff48048c08c00035ae4c222747199b343d908155f59fc030
 - filename: server/scripts/journey/mobile-prefill-check.mts
@@ -150,7 +150,7 @@ fileignoreconfig:
 - filename: server/scripts/fix-customer-stages.sql
   checksum: 7cf3434e21380f7f7995955344fc2e2429d1e68c197e76bda3b22c24f9208c17
 - filename: admin/src/app/(dash)/customers/page.tsx
-  checksum: d641fe6dae6ce676bb8731e8615afea0d6d2c3f22d41e58a931548b858e17889
+  checksum: 211d86ed8d4fdcb6653f42b8ac304b9876b89c60bca16073e8a6bf763b753dbe
 - filename: admin/src/lib/alerts.test.ts
   checksum: 1952856c20424a8e6b90ad6127929b55292f4c8ad2e8137e099725673cf712c1
 - filename: admin/src/app/(dash)/alerts/page.tsx
@@ -162,7 +162,7 @@ fileignoreconfig:
 - filename: server/src/lib/customerStatus.test.ts
   checksum: 065ab4df9ab37628fd0cda6431e8808056fdd8ebd47d19ef5ee97ef0e2f0d5d7
 - filename: admin/src/app/(dash)/customers/\[id\]/page.tsx
-  checksum: f26c63953498626ce21a5b5c2647c4f277c2d9cab93e5b946a897d12e3ef12a9
+  checksum: af71891518b86830817de136255a9ff510bfe8a61231aaa8267635049de3772c
 - filename: admin/src/components/alerts/CustomerAlerts.tsx
   checksum: 9803915151c55a7cf70788fc501de841010e97fa0312079be65dc250d0e8e07c
 - filename: server/src/modules/customers.routes.ts
@@ -242,7 +242,7 @@ fileignoreconfig:
 - filename: src/screens/fare.tsx
   checksum: 71ba1d4dbcc1564c61291f05868a4b36f892964c36e08abcfc6904278b5cb13a
 - filename: src/screens/compare.tsx
-  checksum: 7175a0e03ada454e095b0d73787b3ebc2bb8f8fd1a1eb037e13a3b19fa3e65de
+  checksum: 187bf2f0d9a85fc96c88f3c3084e6ef6683929ceacc7d64fa257ae1cb12d5464
 - filename: server/scripts/erase-user.mjs
   checksum: c59bd37ff0dda65b9313eedd58253458fe73e8125aba41ea5dd553f8d183cd9e
 - filename: server/package-lock.json
@@ -259,4 +259,66 @@ fileignoreconfig:
   checksum: b1f9632144af67248b66e95db7335c45b694a73afc2ff0180d0ebb659ddd77b1
 - filename: docs/SLACK_ASSISTANT_SETUP.md
   checksum: dae4de72aca884efce00ed6ab4bc4f17cb3df9e66fe2282af9002032ece36dcb
+- filename: __tests__/compareLanguage.test.tsx
+  checksum: a41801d4fa4702090cd17f974a9485605a3249593e4290245160c959887ac2d7
+- filename: server/prisma/migrations/20261123120000_drop_unused_features/migration.sql
+  checksum: 44a0fc13699bac961e7cbe9ebe94704a7daea0bed271dcbe8fbe831e1ca59076
+- filename: server/prisma/migrations/20261123130000_notifications_backlog_read/migration.sql
+  checksum: 56cd09b7f0c9848160ce20984b954ce4a910593af4435c51ce3e90440286adfa
+- filename: server/prisma/migrations/20261123140000_prequalifying_offers_off/migration.sql
+  checksum: fea15b2cd19a3901824842dd3cda278cf61d2ee9b2ae8cdb3ccf015085030266
+- filename: server/prisma/migrations/20261123150000_message_delivery_gtrid_index/migration.sql
+  checksum: 17b8117f5b1b64d3a54e5d33eaa27a69e5fc9a300d6d5af310cc0760a37a59b7
+- filename: server/src/lib/attribution.test.ts
+  checksum: 4db4e67e2678741f2a80292eafd1acf23e34bb8e50c25f44c51f103153b2f176
+- filename: admin/src/lib/customerCards.test.ts
+  checksum: eeef172e8fcd919c5f4d6f0d748014228c2ed1526e1de2d8cbff32fd5cabf1c4
+- filename: admin/src/lib/customerCards.ts
+  checksum: 28026994927c9bc8ec5c9fd3ea0b7b933f7c0cf10bef9ddadd22dacf3298860d
+- filename: server/scripts/reset-dev-users.js
+  checksum: 1f92c456b4aadba0d81472b9588f4db0c03572384dec59da8b896c5ee991e9e2
+- filename: server/src/lib/localTime.ts
+  checksum: eb78faf91d5fd8caab209350fd392fe1ef9335e9e796322cf5962e85ffa4a566
+- filename: server/src/app.ts
+  checksum: 9916c2b4de8e73d71518abe04160aa7f1389b2e9eebc30ba65d99c52d5c28822
+- filename: admin/src/components/whatsapp/MessageSetup.tsx
+  checksum: 53a73b7f7e889954f8a32fca82ab5a1dbb13a15835574aedc6d5d304915e1da1
+- filename: server/src/lib/dashboardGraphs.test.ts
+  checksum: 397144deb2475ca5441bddf7f356770bca633016792371addfd57401541013f6
+- filename: admin/src/components/applications/LenderList.tsx
+  checksum: b21b8b5ec6c9e70593a2652c3686359277c3dc4f5d7630e6517b9e6ce5cf21f5
+- filename: server/src/lib/timings.test.ts
+  checksum: 4fd4b2f2d4e61a97caca44a3e21c71c8dfb9d839c1a43f43b6223098c81c5c2e
+- filename: prompts/ello-support-followup-prompt.md
+  checksum: d44af57c69ee5f7733e7d1f5a83d9a1dfe1fd01dfc0864050c5b0e4fcefee85c
+- filename: server/src/modules/adminApiErrors.routes.ts
+  checksum: b2bbc64026ddf9dfe79d9b3acf36acc3328a085316a8e8e3982d8ff705f78b40
+- filename: src/components/PrequalifiedOffers.tsx
+  checksum: bfb88bab352b5123f456574b7e97648ad002a39a41314d17f706465ed7e41995
+- filename: server/src/lib/dashboardGraphs.ts
+  checksum: f9491098f96a66b238c1201a7b1ba964deaeeba8019f76b0d3978542abca1799
+- filename: admin/src/components/DashboardTables.tsx
+  checksum: f8c04ff48c803137c78827746cc5691eb75fd77abb09d7af31e0bb3ca7bec8c8
+- filename: admin/src/components/LenderBars.tsx
+  checksum: 0a79ba42ab272d78f2f22e2e4f11f8b5370c94757d74ff3cb1633803928df35f
+- filename: admin/src/components/OutcomePie.tsx
+  checksum: 8e089ed0a10382d91b26e96af497a8d1b8a4e104e35af56592a3b35c9e5ea6b0
+- filename: server/src/lib/messageDelivery.ts
+  checksum: 35e42d943558ef70ddb5642b354c9abfa758ca9ec7cb2ebb04cdd6fea4f06caf
+- filename: server/src/lib/messageStatus.test.ts
+  checksum: bdc93f6976692aa8a3cdf03dd68f50061e7c89b6f5658164dfe55e942fd5be94
+- filename: admin/src/components/PeopleDailyChart.tsx
+  checksum: 042111bcd64907dc96ed75d8834ffbf5990795f7252947be0ac7081502c3face
+- filename: server/scripts/journey/run-whatsapp-pacing.sh
+  checksum: 39bd217cc49a1839d8350bffe56a0e466dda4e4741064b2bb9ba3acde1372802
+- filename: admin/src/components/DashboardGraphs.tsx
+  checksum: f2d77c695b918d88027517344fcac395ae974715867e438a3071c50673af3890
+- filename: admin/src/components/lenderBars.css
+  checksum: 9499e34abe932ca400a1db91fc64c45b8224450334c997decabc1a7a7983b60e
+- filename: admin/src/components/peopleDailyChart.css
+  checksum: a62b5e3b2c573d01c5fd68920ac8738457e9b2c7767152ed7ea4ba015bdb3547
+- filename: server/scripts/journey/whatsapp-pacing-check.mts
+  checksum: 6d0fd3de7c20a4adb9e857503d14adb441afe083ca56bcf0ba6c403803285bbf
+- filename: admin/src/components/applications/lenders.tsx
+  checksum: 930796deadbc158e2bdeb39e6d40ba32eb833e785883d14f808f2d27e96de4ad
 version: "1.0"

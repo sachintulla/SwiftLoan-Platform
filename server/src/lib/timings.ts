@@ -424,6 +424,17 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     label: 'Stuck-stage SMS only for stalls newer than',
     help: 'Same rule as for WhatsApp.',
   },
+  /* WhatsApp pacing (lib/sendRate.ts). Vox allows 2,500 sends a minute; we stay well under it. */
+  {
+    key: 'limits.whatsappPerMinute', group: 'limits', kind: 'number', unit: 'count', def: 1000, min: 1, max: 2500,
+    label: 'WhatsApp messages sent per minute, at most',
+    help: 'Vox allows 2,500 a minute. Messages over this wait a few seconds for the next free slot; none are dropped.',
+  },
+  {
+    key: 'limits.whatsappParallel', group: 'limits', kind: 'number', unit: 'count', def: 10, min: 1, max: 50,
+    label: 'WhatsApp messages sent at the same time',
+    help: 'How many drop-off messages are worked at once. 10 at once reaches about 1,000 a minute.',
+  },
 
   /* ───────────── C. Website enquiry → automatic call (lib/leadCaller.ts) ───────────── */
   {
@@ -543,6 +554,11 @@ const BASE_TIMINGS: readonly TimingDef[] = [
 
   /* ───────────── F. Tracking and limits ───────────── */
   {
+    key: 'tracking.apiLogKeepDays', group: 'tracking', kind: 'number', unit: 'days', def: 30, min: 1, max: 90,
+    label: 'Keep failed API calls for',
+    help: 'Admin → API & Webhook Errors. Only failed calls are saved (successful ones are not); older failures are deleted every hour.',
+  },
+  {
     key: 'tracking.clickTtlHours', group: 'tracking', kind: 'number', unit: 'hours', def: 48, min: 1, max: 168, env: 'ATTRIBUTION_CLICK_TTL_HOURS',
     label: 'An install link click can be claimed for',
     help: 'After this long a tapped link can no longer be matched to an install.',
@@ -568,11 +584,6 @@ const BASE_TIMINGS: readonly TimingDef[] = [
     label: 'Fetch details from the mobile number at login (Digitap)',
     help: 'Right after someone verifies their mobile number, their details (name, date of birth, PAN, address) are fetched once in the background, so the application can skip the PAN step and open with the details filled in. Needs the Digitap address, client ID and secret in the server environment. Off = the application starts at the PAN step, as before.',
     warn: 'Each successful lookup is a paid call to Digitap, made for every new sign-in.',
-  },
-  {
-    key: 'referral.eligibleDays', group: 'tracking', kind: 'number', unit: 'days', def: 7, min: 1, max: 90, env: 'REFERRAL_ELIGIBLE_DAYS',
-    label: 'A new account can be referred for',
-    help: 'A friend referral only counts if the new account is younger than this.',
   },
 ];
 

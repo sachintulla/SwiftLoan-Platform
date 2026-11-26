@@ -1,0 +1,18 @@
+/* Dashboard lender chart (components/LenderBars.tsx): one stacked horizontal bar chart for Aurix, Yubi and Revasure. */
+.lb-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.lb-key { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 12.5px; color: var(--text); transition: opacity .15s ease, border-color .15s ease; }
+.lb-key:hover { border-color: var(--text-faint); }
+.lb-key.off { opacity: .45; }
+.lb-key.off b { text-decoration: line-through; }
+.lb-key b { margin-left: 2px; }
+.lb-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
+.lb-chart { margin: 0 -4px; }
+.lb-tip { background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 10px 12px; font-size: 12.5px; min-width: 250px; max-width: 340px; }
+.lb-tip-head { display: grid; gap: 1px; margin-bottom: 8px; }
+.lb-tip-head span { color: var(--text-dim); font-size: 12px; }
+.lb-tip-group { padding: 4px 0; }
+.lb-tip-group + .lb-tip-group { border-top: 1px solid var(--border); }
+.lb-tip-row { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.lb-tip-row b { margin-left: auto; }
+.lb-tip-row em { color: var(--text-dim); font-style: normal; font-size: 12px; min-width: 42px; text-align: right; }
+.lb-tip-detail { color: var(--text-dim); font-size: 11.5px; margin: 2px 0 0 18px; line-height: 1.4; }

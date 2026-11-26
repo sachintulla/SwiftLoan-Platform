@@ -7,7 +7,7 @@
  * dynamic path built from a variable), so a new logo means adding one line
  * below — drop the file into assets/logos/ and add its entry here.
  *
- * Current MarketLoanOffer seed lender names (server/prisma/seed.preapproved.ts),
+ * Current featured-offer lender names,
  * for reference:
  *   IDFC, Prefr, UnitySFB, "FREO — larger line", "FREO — quick line", Zype, MoneyView
  */

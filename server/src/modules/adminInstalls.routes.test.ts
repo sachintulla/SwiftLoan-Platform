@@ -9,7 +9,6 @@ const db = vi.hoisted(() => ({
   reminders: vi.fn(),
   nudges: vi.fn(),
   leads: vi.fn(),
-  codes: vi.fn(),
   customers: vi.fn(),
   loans: vi.fn(),
   users: vi.fn(),
@@ -23,7 +22,6 @@ vi.mock('../lib/prisma.js', () => ({
     journeyReminder: { findMany: db.reminders },
     lenderNudge: { findMany: db.nudges },
     lead: { findMany: db.leads },
-    referralCode: { findMany: db.codes },
     customer: { findMany: db.customers },
     loanApplication: { findMany: db.loans },
     user: { findMany: db.users },
@@ -66,7 +64,7 @@ const download = (i: number) => ({
 
 beforeEach(() => {
   for (const fn of Object.values(db)) (fn as ReturnType<typeof vi.fn>).mockReset();
-  for (const fn of [db.outbound, db.reminders, db.nudges, db.leads, db.codes, db.customers, db.loans, db.users, db.admins]) fn.mockResolvedValue([]);
+  for (const fn of [db.outbound, db.reminders, db.nudges, db.leads, db.customers, db.loans, db.users, db.admins]) fn.mockResolvedValue([]);
   db.downloads.mockResolvedValue([download(1), download(2), download(3), download(4), download(5)]);
 });
 
@@ -79,7 +77,7 @@ describe('GET /api/admin/installs', () => {
     expect(db.customers).toHaveBeenCalledTimes(1);
     expect(db.loans).toHaveBeenCalledTimes(1);
     expect(db.customers.mock.calls[0][0].where.userId.in).toHaveLength(5);
-    for (const fn of [db.reminders, db.nudges, db.leads, db.codes, db.users, db.admins]) {
+    for (const fn of [db.reminders, db.nudges, db.leads, db.users, db.admins]) {
       expect(fn.mock.calls.length).toBeLessThanOrEqual(1);
     }
   });

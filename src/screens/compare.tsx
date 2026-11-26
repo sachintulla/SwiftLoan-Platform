@@ -6,7 +6,8 @@ import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { PrimaryButton, Toggle } from '../components/Controls';
 import { colors, font, rupee, heroGradient } from '../theme/tokens';
-import { useStore } from '../state/store';
+import { useStore, useT } from '../state/store';
+import { fill, fillParts } from '../utils/fill';
 import { api, Offer } from '../api/client';
 import { loadOffersCache } from '../state/session';
 import { useOfferSelect, displayLenderName } from './offers';
@@ -34,6 +35,12 @@ export const RANKS: { key: RankBy; label: string; phrase: string }[] = [
   { key: 'fee', label: 'Lowest processing fee', phrase: 'lowest processing fee' },
   { key: 'emi', label: 'Lowest EMI', phrase: 'lowest EMI' },
 ];
+/** strings.ts entries for each ranking's on-screen label and its phrase inside the "wins on …" sentence. */
+const RANK_TEXT: Partial<Record<RankBy, { label: string; phrase: string }>> = {
+  rate: { label: 'cmpRankRate', phrase: 'cmpPhraseRate' },
+  fee: { label: 'cmpRankFee', phrase: 'cmpPhraseFee' },
+  emi: { label: 'cmpRankEmi', phrase: 'cmpPhraseEmi' },
+};
 /** Any ranking → its label/phrase. Never undefined: an unknown one falls back to the default (first) ranking. */
 const rankInfo = (k: RankBy) => RANKS.find(r => r.key === k) ?? RANKS[0];
 /**
@@ -61,6 +68,9 @@ type Winners = { emi: string | null; rate: string | null; interest: string | nul
 type MetricRow = {
   key: string;
   label: string;
+  /** strings.ts entries for the label / winner tag shown on screen (`label` and `tag` stay English for the voice agent). */
+  labelKey: string;
+  tagKey?: string;
   height: number;
   big?: boolean;
   win?: keyof Winners;
@@ -69,13 +79,13 @@ type MetricRow = {
   value: (r: CompareRow) => string;
 };
 const METRICS: MetricRow[] = [
-  { key: 'emi', label: 'Monthly EMI', height: H_EMI, big: true, win: 'emi', tag: 'Lowest EMI', priced: true, value: r => rupee(r.emi!) },
-  { key: 'rate', label: 'Interest rate', height: H_ROW, win: 'rate', tag: 'Lowest rate', priced: true, value: r => `${r.rate}%` },
-  { key: 'amount', label: 'Eligible amount (up to)', height: H_ROW, priced: false, value: r => rupee(r.amount) },
-  { key: 'tenure', label: 'Tenure', height: H_ROW, priced: false, value: r => `${r.tenure} mo` },
-  { key: 'interest', label: 'Total interest', height: H_ROW, win: 'interest', tag: 'Least interest', priced: true, value: r => rupee(r.totalInterest!) },
-  { key: 'fee', label: 'Processing fee', height: H_ROW, priced: true, value: r => rupee(r.fees) },
-  { key: 'repay', label: 'Total you repay', height: H_ROW, win: 'cost', tag: 'Cheapest overall', priced: true, value: r => rupee(r.totalRepay!) },
+  { key: 'emi', label: 'Monthly EMI', labelKey: 'cmpMEmi', tagKey: 'cmpTagEmi', height: H_EMI, big: true, win: 'emi', tag: 'Lowest EMI', priced: true, value: r => rupee(r.emi!) },
+  { key: 'rate', label: 'Interest rate', labelKey: 'cmpMRate', tagKey: 'cmpTagRate', height: H_ROW, win: 'rate', tag: 'Lowest rate', priced: true, value: r => `${r.rate}%` },
+  { key: 'amount', label: 'Eligible amount (up to)', labelKey: 'cmpMAmount', height: H_ROW, priced: false, value: r => rupee(r.amount) },
+  { key: 'tenure', label: 'Tenure', labelKey: 'cmpMTenure', height: H_ROW, priced: false, value: r => `${r.tenure} mo` },
+  { key: 'interest', label: 'Total interest', labelKey: 'cmpMInterest', tagKey: 'cmpTagInterest', height: H_ROW, win: 'interest', tag: 'Least interest', priced: true, value: r => rupee(r.totalInterest!) },
+  { key: 'fee', label: 'Processing fee', labelKey: 'cmpMFee', height: H_ROW, priced: true, value: r => rupee(r.fees) },
+  { key: 'repay', label: 'Total you repay', labelKey: 'cmpMRepay', tagKey: 'cmpTagCost', height: H_ROW, win: 'cost', tag: 'Cheapest overall', priced: true, value: r => rupee(r.totalRepay!) },
 ];
 
 /**
@@ -92,6 +102,7 @@ const METRICS: MetricRow[] = [
  */
 export default function Compare() {
   const { state, back, mergeApiContext } = useStore();
+  const t = useT();
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [tenure, setTenure] = useState(24);
   const [rankBy, setRankBy] = useState<RankBy>('rate');
@@ -173,8 +184,13 @@ export default function Compare() {
   const rankOptions = useMemo(() => {
     const keys = RANKS.map(r => r.key);
     const label = (k: RankBy) => rankInfo(k).label;
-    return distinctRankChoices(keys, result.winners).map(c => ({ key: c.key, label: [c.key, ...c.also].map(label).join(' · ') }));
-  }, [result.winners]);
+    // `label` is English (what the voice agent is told and matches on); `display` is what the screen shows.
+    return distinctRankChoices(keys, result.winners).map(c => ({
+      key: c.key,
+      label: [c.key, ...c.also].map(label).join(' · '),
+      display: [c.key, ...c.also].map(k => t[RANK_TEXT[k]?.label ?? ''] || label(k)).join(' · '),
+    }));
+  }, [result.winners, t]);
   const activeRank = choiceFor(distinctRankChoices(RANKS.map(r => r.key), result.winners), rankBy);
 
   const emiSteps = useMemo(() => {
@@ -348,15 +364,15 @@ export default function Compare() {
             <Icon name="chevron_left" size={28} color="#fff" />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={[font(800), styles.hdTitle]}>Compare your offers</Text>
+            <Text style={[font(800), styles.hdTitle]}>{t.cmpTitle}</Text>
             <Text style={[font(400), styles.hdSub]}>
-              {offers ? `${offers.length} matched offer${offers.length === 1 ? '' : 's'} · pick what fits you` : 'Loading your offers…'}
+              {offers ? fill(offers.length === 1 ? t.cmpSubOne : t.cmpSubMany, { n: offers.length }) : t.cmpLoading}
             </Text>
           </View>
         </View>
         {headlineAmount > 0 ? (
           <View style={styles.amt}>
-            <Text style={[font(600), styles.amtK]}>LOAN AMOUNT</Text>
+            <Text style={[font(600), styles.amtK]}>{t.cmpLoanAmount}</Text>
             <Text style={[font(800), styles.amtV]}>{rupee(headlineAmount)}</Text>
           </View>
         ) : null}
@@ -366,32 +382,32 @@ export default function Compare() {
         {offers == null ? (
           <View style={{ paddingTop: 50, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View>
         ) : offers.length === 0 ? (
-          <Text style={[font(600), styles.empty]}>No offers to compare yet.</Text>
+          <Text style={[font(600), styles.empty]}>{t.cmpEmpty}</Text>
         ) : (
           <>
             {/* Tenure + Rank as two dropdowns (tenure narrow, rank takes the rest) */}
             <View style={styles.controls2}>
               <View style={styles.ctrlNarrow}>
-                <Text style={[font(700), styles.label]}>TENURE</Text>
+                <Text style={[font(700), styles.label]}>{t.cmpTenure}</Text>
                 <Dropdown
                   ariaLabel="Repayment tenure"
                   value={tenure}
-                  options={TENURES.map(t => ({ value: t as number, label: `${t} months` }))}
+                  options={TENURES.map(tn => ({ value: tn as number, label: fill(t.cmpMonths, { n: tn }) }))}
                   onChange={v => changeTenure(v)}
                 />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={styles.labelRow}>
-                  <Text style={[font(700), styles.label, { marginBottom: 0 }]}>RANK “BEST OFFER” BY</Text>
+                  <Text style={[font(700), styles.label, { marginBottom: 0 }]} numberOfLines={1}>{t.cmpRankBy}</Text>
                   <Pressable onPress={() => setSheet(true)} hitSlop={10} style={styles.filtersLink} accessibilityRole="button" accessibilityLabel="More filters">
                     <Icon name="tune" size={15} color={colors.primary} />
-                    <Text style={[font(700), styles.filtersText]}>Filters{activeFilters ? ` · ${activeFilters}` : ''}</Text>
+                    <Text style={[font(700), styles.filtersText]}>{t.cmpFilters}{activeFilters ? ` · ${activeFilters}` : ''}</Text>
                   </Pressable>
                 </View>
                 <Dropdown
                   ariaLabel="Rank best offer by"
                   value={activeRank}
-                  options={rankOptions.map(r => ({ value: r.key, label: r.label }))}
+                  options={rankOptions.map(r => ({ value: r.key, label: r.display }))}
                   onChange={v => changeRank(v)}
                 />
               </View>
@@ -401,8 +417,8 @@ export default function Compare() {
             <VoiceHidden>
             {result.rows.length === 0 ? (
               <View style={styles.noMatch}>
-                <Text style={[font(700), { fontSize: 14, color: colors.text }]}>No offers match these filters</Text>
-                <Pressable onPress={resetFilters}><Text style={[font(700), styles.link]}>Clear filters</Text></Pressable>
+                <Text style={[font(700), { fontSize: 14, color: colors.text }]}>{t.cmpNoMatch}</Text>
+                <Pressable onPress={resetFilters}><Text style={[font(700), styles.link]}>{t.cmpClearFilters}</Text></Pressable>
               </View>
             ) : (
               <View style={styles.matrix}>
@@ -414,7 +430,7 @@ export default function Compare() {
                   </LinearGradient>
                   {METRICS.map((m, i) => (
                     <View key={m.key} style={[styles.labelCell, { height: m.height }, i % 2 === 1 && { backgroundColor: C.stripe }]}>
-                      <Text style={[font(700), styles.metricLabel]}>{m.label}</Text>
+                      <Text style={[font(700), styles.metricLabel]}>{t[m.labelKey] || m.label}</Text>
                     </View>
                   ))}
                 </View>
@@ -446,9 +462,9 @@ export default function Compare() {
                       >
                         <View style={[styles.head, { height: H_HEAD }]}>
                           <Text style={[font(800), styles.nm, isSel && { color: colors.primary }]} numberOfLines={2}>{r.lenderName}</Text>
-                          {r.onApproval ? <Badge tone="amber" label="Rate on approval" /> : null}
-                          {r.id === best?.id ? <Badge tone="amber" label="Recommended" /> : null}
-                          {isSel ? <Badge tone="sel" label="✓ Selected" /> : null}
+                          {r.onApproval ? <Badge tone="amber" label={t.cmpBadgeOnApproval} /> : null}
+                          {r.id === best?.id ? <Badge tone="amber" label={t.cmpRecommended} /> : null}
+                          {isSel ? <Badge tone="sel" label={t.cmpSelected} /> : null}
                         </View>
                         {METRICS.map((m, i) => {
                           const show = !m.priced || !r.onApproval;
@@ -470,12 +486,12 @@ export default function Compare() {
                                     </>
                                   ) : null}
                                   <Text style={[font(active || m.big ? 800 : 700), m.big ? styles.valBig : styles.val, win && { color: C.best }, active && { color: colors.primary }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-                                    {m.value(r)}
+                                    {m.key === 'tenure' ? fill(t.cmpMoShort, { n: r.tenure }) : m.value(r)}
                                   </Text>
-                                  {win ? <Text style={[font(800), styles.tag]}>{m.tag!.toUpperCase()}</Text> : null}
+                                  {win ? <Text style={[font(800), styles.tag]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{((m.tagKey && t[m.tagKey]) || m.tag!).toUpperCase()}</Text> : null}
                                 </Animated.View>
                               ) : (
-                                <Text style={[font(700), styles.approval]}>On approval</Text>
+                                <Text style={[font(700), styles.approval]}>{t.cmpOnApproval}</Text>
                               )}
                             </View>
                           );
@@ -496,14 +512,14 @@ export default function Compare() {
             {result.hiddenCount > 0 ? (
               <Pressable onPress={resetFilters} style={{ marginTop: 10 }}>
                 <Text style={[font(500), styles.legend]}>
-                  {result.hiddenCount} offer{result.hiddenCount > 1 ? 's' : ''} hidden by your filters · <Text style={[font(700), styles.link]}>show all</Text>
+                  {fill(result.hiddenCount > 1 ? t.cmpHiddenMany : t.cmpHiddenOne, { n: result.hiddenCount })} <Text style={[font(700), styles.link]}>{t.cmpShowAll}</Text>
                 </Text>
               </Pressable>
             ) : null}
 
             <Text style={[font(400), styles.legend]}>
-              Green = best value in that row at the selected tenure. <Text style={font(700)}>Tap any lender</Text> to choose it over the recommendation.{'\n'}
-              EMIs are indicative; some lenders confirm the rate only after approval.
+              {t.cmpLegendA} <Text style={font(700)}>{t.cmpLegendTap}</Text> {t.cmpLegendB}{'\n'}
+              {t.cmpLegendC}
             </Text>
             </VoiceHidden>
 
@@ -513,21 +529,30 @@ export default function Compare() {
               <View style={styles.best}>
                 <View style={styles.bestIc}><Icon name="check" size={14} color="#fff" /></View>
                 <Text style={[font(400), styles.bestM]}>
-                  <Text style={[font(800), { color: C.best }]}>{best.lenderName}</Text> wins on{' '}
-                  <Text style={[font(800), { color: C.best }]}>{rankLabel.phrase}</Text> over {tenure} months — EMI{' '}
-                  <Text style={font(800)}>{rupee(best.emi!)}</Text> at <Text style={font(800)}>{best.rate}%</Text>, total repayment{' '}
-                  <Text style={font(800)}>{rupee(best.totalRepay!)}</Text>.
+                  {/* One translated sentence; each language puts the lender, ranking and numbers where its grammar needs them. */}
+                  {fillParts(t.cmpBest, (slot) => {
+                    const green = slot === 'lender' || slot === 'rank';
+                    const value =
+                      slot === 'lender' ? best.lenderName
+                      : slot === 'rank' ? (t[RANK_TEXT[rankBy]?.phrase ?? ''] || rankLabel.phrase)
+                      : slot === 'n' ? String(tenure)
+                      : slot === 'emi' ? rupee(best.emi!)
+                      : slot === 'rate' ? `${best.rate}%`
+                      : slot === 'total' ? rupee(best.totalRepay!)
+                      : '';
+                    return <Text key={slot} style={slot === 'n' ? undefined : [font(800), green && { color: C.best }]}>{value}</Text>;
+                  })}
                 </Text>
               </View>
             ) : result.rows.length ? (
-              <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>These lenders confirm their rate only after approval, so we can’t rank them yet.</Text></View>
+              <View style={styles.infoBox}><Text style={[font(500), styles.infoText]}>{t.cmpCantRank}</Text></View>
             ) : null}
             </VoiceHidden>
 
             {selected && selectedOffer ? (
               <View style={{ marginTop: 4 }}>
                 <PrimaryButton
-                  label={applying ? 'Applying…' : `Apply with ${selected.lenderName}${selected.onApproval ? ' (rate on approval)' : ''}`}
+                  label={applying ? t.cmpApplying : fill(t.cmpApplyWith, { lender: selected.lenderName }) + (selected.onApproval ? t.cmpApplyOnApprovalSuffix : '')}
                   voiceId="Apply with selected offer"
                   disabled={applying}
                   onPress={onApply}
@@ -684,45 +709,46 @@ function FilterSheet(p: {
   activeFilters: number; onReset: () => void; resultCount: number;
 }) {
   const insets = useSafeAreaInsets();
+  const t = useT();
   return (
     <Modal visible={p.visible} transparent animationType="slide" onRequestClose={p.onClose}>
       <Pressable style={styles.scrim} onPress={p.onClose} accessibilityLabel="Close filters" />
       <View style={[styles.sheet, { paddingBottom: 18 + insets.bottom }]}>
         <View style={styles.sheetHead}>
-          <Text style={[font(800), { fontSize: 17, color: colors.text }]}>Filters</Text>
+          <Text style={[font(800), { fontSize: 17, color: colors.text }]}>{t.cmpFilters}</Text>
           <Pressable onPress={p.onClose} style={styles.sheetClose} accessibilityLabel="Close filters"><Icon name="close" size={18} color={colors.text} /></Pressable>
         </View>
         <View style={{ gap: 20 }}>
           {p.emiSteps.length > 1 ? (
             <View>
-              <Text style={[font(700), styles.label]}>MONTHLY EMI BUDGET</Text>
+              <Text style={[font(700), styles.label]}>{t.cmpEmiBudget}</Text>
               <View style={styles.rankWrap}>
-                <Chip on={p.maxEmi == null} onPress={() => p.setMaxEmi(null)} label="Any" />
-                {p.emiSteps.slice(0, -1).map(v => <Chip key={v} on={p.maxEmi === v} onPress={() => p.setMaxEmi(v)} label={`Up to ${rupee(v)}`} />)}
+                <Chip on={p.maxEmi == null} onPress={() => p.setMaxEmi(null)} label={t.cmpAny} />
+                {p.emiSteps.slice(0, -1).map(v => <Chip key={v} on={p.maxEmi === v} onPress={() => p.setMaxEmi(v)} label={fill(t.cmpUpTo, { v: rupee(v) })} />)}
               </View>
             </View>
           ) : null}
           {p.amountSteps.length ? (
             <View>
-              <Text style={[font(700), styles.label]}>LOAN AMOUNT</Text>
+              <Text style={[font(700), styles.label]}>{t.cmpLoanAmount}</Text>
               <View style={styles.rankWrap}>
-                <Chip on={p.minAmount == null} onPress={() => p.setMinAmount(null)} label="Any" />
+                <Chip on={p.minAmount == null} onPress={() => p.setMinAmount(null)} label={t.cmpAny} />
                 {p.amountSteps.map(a => <Chip key={a} on={p.minAmount === a} onPress={() => p.setMinAmount(a)} label={`${rupee(a)}+`} />)}
               </View>
             </View>
           ) : null}
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={[font(700), { fontSize: 14, color: colors.text }]}>Include “rate on approval”</Text>
-              <Text style={[font(400), { fontSize: 11.5, color: colors.textSoft }]}>Lenders who confirm the rate later</Text>
+              <Text style={[font(700), { fontSize: 14, color: colors.text }]}>{t.cmpIncludeOnApproval}</Text>
+              <Text style={[font(400), { fontSize: 11.5, color: colors.textSoft }]}>{t.cmpIncludeOnApprovalSub}</Text>
             </View>
             <Toggle value={p.includeOnApproval} onChange={p.setIncludeOnApproval} />
           </View>
           {p.activeFilters > 0 ? (
-            <Pressable onPress={p.onReset}><Text style={[font(700), styles.link]}>Reset filters</Text></Pressable>
+            <Pressable onPress={p.onReset}><Text style={[font(700), styles.link]}>{t.cmpResetFilters}</Text></Pressable>
           ) : null}
         </View>
-        <PrimaryButton label={`Show ${p.resultCount} offer${p.resultCount === 1 ? '' : 's'}`} icon={null} onPress={p.onClose} style={{ marginTop: 18 }} />
+        <PrimaryButton label={fill(p.resultCount === 1 ? t.cmpShowOne : t.cmpShowMany, { n: p.resultCount })} icon={null} onPress={p.onClose} style={{ marginTop: 18 }} />
       </View>
     </Modal>
   );

@@ -102,34 +102,33 @@ adminOpsRouter.get('/export/customers.csv', requireRole(...CAN_WRITE), ah(async 
   return sendCsv(res, csvFilename('customers'), csv);
 }));
 
-// GET /api/admin/ops/export/calls.csv?status=&campaignId=
+// GET /api/admin/ops/export/calls.csv?status=
 adminOpsRouter.get('/export/calls.csv', requireRole(...CAN_WRITE), ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const where: Record<string, unknown> = { channel: { in: ['phone_outbound', 'phone_inbound'] } };
   if (q.status) where.status = q.status;
-  if (q.campaignId) where.campaignId = q.campaignId;
 
   const found = await prisma.callAttempt.findMany({
     where,
     orderBy: { queuedAt: 'desc' },
     take: EXPORT_LIMIT + 1,
-    include: { customer: { select: { name: true, firstSource: true } }, campaign: { select: { name: true, code: true } } },
+    include: { customer: { select: { name: true, firstSource: true } } },
   });
   const truncated = found.length > EXPORT_LIMIT;
   const rows = found.slice(0, EXPORT_LIMIT);
 
   const csv = toCsv(
-    ['id', 'phone', 'customer', 'source', 'campaign', 'status', 'outcome',
+    ['id', 'phone', 'customer', 'source', 'status', 'outcome',
      'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error'],
     rows.map((r) => [
-      r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code,
+      r.id, r.phone, r.customer?.name, r.customer?.firstSource,
       r.status, r.outcome, r.answered, r.durationSec, r.attempt,
       r.queuedAt, r.endedAt, r.error,
     ]),
   );
   await auditExport(req, {
     name: 'calls_legacy',
-    filters: pickDefined(q, ['status', 'campaignId']),
+    filters: pickDefined(q, ['status']),
     rows: rows.length,
     truncated,
   });
@@ -160,7 +159,7 @@ adminOpsRouter.post('/reconcile-calls', requireRole(...CAN_ADMINISTER), ah(async
     res,
     r,
     r.checked
-      ? `Closed ${r.updated} stale call(s); released ${r.contactsReleased} contact(s) for retry`
+      ? `Closed ${r.updated} stale call(s)`
       : 'No stale calls to reconcile',
   );
 }));

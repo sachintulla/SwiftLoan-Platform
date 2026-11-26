@@ -185,7 +185,7 @@ It is completely separate from the RN app and server/.
 It runs on port 4001 and talks to server/ at http://localhost:4000.
 
 ### Money units: whole rupees, everywhere
-There is one unit: **whole rupees** (database, API, website, app, admin, voice agent). Every amount field (`Lead.amount`, `CampaignContact.amount`, `PrequalifyingOffer.amount`, `MarketLoanOffer.maxAmount`,
+There is one unit: **whole rupees** (database, API, website, app, admin, voice agent). Every amount field (`Lead.amount`, `PrequalifyingOffer.amount`,
 `LoanApplication.amount`, `Offer.amount/emi/processingFee`, `Loan.principal/emiAmount/outstanding`, `Repayment.amount`, `User.monthlyIncome`) holds the number the person sees. There is no paise, and no ×100 / ÷100 for money anywhere.
 The admin has one formatter, `inr` (and `inrCompact` for stat tiles) in `admin/src/lib/format.ts`; the server's `lib/rupees.ts` formats rupees for spoken and written text. A test fails if any admin source mentions paise or converts money by 100.
 The four tables that used to hold paise were converted by migration `20261029120000_amounts_in_rupees` (which also converts the amounts copied into `lead_captured` journey/activity events and queued Upshot nudge payloads): apply it in the same
@@ -337,7 +337,7 @@ GO-LIVE (remaining): set server/.env DATABASE_URL (hosted Postgres) →
 
 ---
 
-## Install attribution + friend referrals
+## Install attribution (friend referrals were removed on 2026-11-23)
 
 Shareable link `GET /dl?ref=<referral code>` (`server/src/modules/referral.routes.ts`, pure logic in
 `lib/attribution.ts`, DB logic in `lib/referral.ts`). It logs an `AppClick` (IP/UA stored as keyed HMAC hashes only,
@@ -349,12 +349,9 @@ the Play `referrer=click_id…` param), iOS → an interstitial that copies `swi
   Referrer API) / `Attribution` (iOS clipboard)) and calls `POST /api/attribution/claim`. Match order: Play referrer →
   clipboard token → same-IP click inside `ATTRIBUTION_WINDOW_MIN` (only if exactly ONE candidate, OS version breaks ties).
   Sideloaded APKs have no Play referrer, so they use the IP window. Replaces the old per-process `trackInstall`.
-- Friend referral: after OTP login the app redeems the stored code (`POST /api/referrals/redeem`). Rules: new account
-  (< `REFERRAL_ELIGIBLE_DAYS`), no self/mutual referral, one referrer per referee. `FriendReferral.status` advances
-  signed_up → applied (offer selected/applied) → disbursed via `advanceReferral()`. **Tracking only — `rewardStatus` stays
-  `none`; no reward policy is approved (needs compliance review before any money/rate benefit).**
-- App: `referral` screen (Profile → "Refer a friend", `GET /api/referrals/me`, native Share sheet). Admin: `/referrals`
-  page + Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` (additive).
+- Friend referrals (codes, `/api/referrals/*`, the app's Refer-a-friend screen, the admin Referrals page) are gone: see
+  "Removed features" below. `/api/attribution/claim` still returns `referral: null` so installed app versions keep parsing it.
+  Admin: Matched-by/Ref columns on App Downloads. Migration `20261009000000_install_attribution_referrals` created the tables.
 - Privacy to declare in store forms: IP address + device identifiers for app functionality/analytics; no ATT prompt
   (nothing is shared with ad networks).
 
@@ -1099,3 +1096,160 @@ error when it failed. Clicking a row opens the rest (message text and delivery t
 - **Gone with the old pages:** the call-system health section (overdue-job notice and schedule guide) and the three 24-hour message tiles.
   Their components (`components/calls/*`, `components/whatsapp/SentMessages.tsx`, `lib/calls.ts`) are still in the repo, unused by any page.
 - Tests: `server/src/lib/alerts.test.ts`, `admin/src/lib/alerts.test.ts`.
+
+---
+
+## Removed features (2026-11-23, owner's request after the admin audit)
+
+Four things nobody used on production (0 referrals, 0 campaigns, 0 pre-approved plans) were removed from the code AND the
+database. Migration `20261123120000_drop_unused_features` drops the tables: **destructive, apply with `prisma migrate deploy`
+in the same deploy as the code**. Do not re-add any of these without the owner asking.
+- **Friend referrals:** tables `ReferralCode`, `FriendReferral`; `/api/referrals/*`, `/api/admin/referrals`; the app's `referral`
+  screen, Profile link, pending-code storage and `ref*` strings; admin `/referrals`; timing `referral.eligibleDays`.
+  **Kept:** install links (`/dl`, `AppClick`, `AppDownload`, `/api/attribution/*`, `lib/referral.ts` now holds only click + claim).
+  `newReferralCode()` is still the generator for a visitor's link reference ID.
+- **Outbound campaigns:** tables `Campaign`, `CampaignContact`, column `CallAttempt.campaignId`, four enums; `campaigns.routes.ts`,
+  `campaignRunner.ts`, `campaignSchedule.ts` (its `localParts` lives on in `lib/localTime.ts`), segments, Ello's batch-campaign
+  helpers, the `campaign` voice-agent role, "Start campaign" on the Loans/Revasure/Yubi lists (Export CSV stays), admin `/campaigns`.
+  **Kept:** the plain `campaignId` attribution text on `Customer` / `Lead` / `AppClick` / `AppDownload` (a link's campaign slug).
+- **Pre-approved plans:** table `PreApprovedPlan` (model `MarketLoanOffer`), `/api/market-loan-offers` + `/api/preapproved-plans`,
+  the app's hidden "Available offers" component, admin `/preapproved`. **Kept:** Pre-Qualifying Offers (`PrequalifyingOffer`).
+- **Notification Rules page** (`/notifications-rules`) and the list/create/seed/run/queue endpoints only it used. **Kept:** the
+  `StallRule` table and `PATCH|DELETE /api/admin/stall-rules/:id`, because Configs -> Stage outreach edits the same rules.
+- **Old admin pages** that only redirected (`/leads`, `/onboarding`, `/calls`, `/messages`) and their unused components
+  (`components/calls/*`, `whatsapp/SentMessages.tsx`, `lib/calls.ts`). `/leads/[id]` stays (the voice widget opens it).
+- App versions already installed still show "Refer a friend" in Profile; that screen will say it could not load.
+
+## Admin tidy-up after the audit (2026-11-23)
+
+- **Conversions & Commercials** is shown only on Overview and its own tab (removed from Customers, Loan Pipeline, Revasure, Yubi).
+  Each percentage is **customers in that state / total customers**, each customer counted once in the furthest state any of their
+  applications reached (`lib/conversions.ts customersByBucket`), so it cannot pass 100% (it used to divide applications by customers:
+  "Rejected 126%"). `count` = customers, `applications` = applications, worth = sum over applications. The drill-down list still lists applications.
+- Overview no longer has the Active Loans / Total Disbursed / App → Disbursal tiles (lenders report no disbursals; always zero).
+  Loan Pipeline (renamed "Applications" on 2026-11-23; still `/loans`) has no Approved / Disbursed / Closed chips. Yubi shows one summary line instead of five tiles.
+- **Admin notifications:** the automatic `app_nudge` ("user needs help") alert is no longer created (`lib/appNudge.ts` keeps the customer
+  follow-up). `notifyOnce` (`jobs/tracking.jobs.ts`) raises ONE alert per loan / onboarding ever, read or unread: checking only unread rows
+  re-created every alert right after it was marked read. Migration `20261123130000_notifications_backlog_read` deletes the old
+  `app_nudge` rows and marks the rest read (data only; deploy with the code).
+- **Featured offers switched off (owner, 2026-11-23).** The seven `PrequalifyingOffer` rows were sample data from
+  `prisma/seed.prequalifying.ts` (never run it on prod: it deletes and re-creates them as active). Migration
+  `20261123140000_prequalifying_offers_off` sets the untouched seed rows inactive. The app saves the list once and never refreshes it,
+  so `FEATURED_OFFERS_CACHE_KEY` went to `v2`; app versions already installed keep showing their saved copy until they update.
+- **API & Webhook Errors** hides our own inbound 401 / 429 rows unless `includeNoise=1` (`lib/apiErrors.ts`); a lender's 401 / 429 always shows.
+- **Dashboard** (was "Master Overview", still at `/overview`). Its graphs are `admin/src/components/DashboardGraphs.tsx` (plain CSS/SVG)
+  fed by `GET /api/admin/dashboard/graphs?from=&to=&days=` (rules in `server/src/lib/dashboardGraphs.ts`, tested): how far people get
+  (five steps, people counted once), what happened to people who checked eligibility (latest application), loan amount asked for, and
+  three daily graphs by India day. Six header cards sit on top (users, applications, amount requested, amount disbursed, got offers %, rejected): the last two count PEOPLE once (`stats.peopleChecked/peopleWithOffers/peopleRejected` on `/dashboard/overview`). They replaced the 8-stage funnel, the two pipeline bars, "Applications vs disbursals", Leads by source
+  and Applications by product. The rest of the first design (today tiles, needs-attention list,
+  lender table) was dropped and the file deleted: the owner gives the Dashboard items one by one.
+- **Dashboard is being rebuilt item by item (owner, 2026-11-23).** The page now holds ONLY the six header cards. The owner names the
+  next block each time; do not add anything unasked. `components/DashboardGraphs.tsx` (+ `/dashboard/graphs`) and `ConversionsPanel`
+  are no longer on the Dashboard (the panel is still the Conversions & Commercials tab); the graphs component is kept, unused, for reuse.
+- **Admin shell (2026-11-23):** there is no top bar any more (page title, "N active today" and the avatar are gone; each page has its
+  own heading). The signed-in admin is a profile block pinned to the bottom of the sidebar (name, email, link to `/account`, Sign out
+  button). `Shell.tsx` reads the admin from localStorage AFTER mount, which also ended the old dev-mode hydration warning.
+- **Dashboard block 2: "People per day"** (`admin/src/components/PeopleDailyChart.tsx`, recharts): ONE line graph, each line with its colour filled underneath (area chart), strong colours (deep teal, blue, green, slate; the first pale set was rejected). It OPENS with Registered and Got offers only; Applied and Rejected are hidden until their box is clicked (owner's final choice on 2026-11-23 after trying bars, stacked bars and lines+bars; no Show switch any more) (registered,
+  applied, got offers, rejected), range chips Last 7 days / 1 month / 3 months / Custom dates, hover card, click a name to hide its line.
+  Data: `GET /api/admin/dashboard/people-daily?days=` or `?from=&to=` (India days, each person once per day; `dailyWindow` /
+  `peopleTotals` in `lib/dashboardGraphs.ts`). "Applied" here means sent an application for offers, not applied to a lender.
+- **Dashboard block 3: "Lenders"** (`admin/src/components/LenderBars.tsx`, recharts): ONE stacked horizontal bar chart. Y axis = seven
+  statuses that mean the same for all three lenders (`LENDER_STATUSES` / `lenderStatusOf` / `lenderStatusRows` in
+  `lib/dashboardGraphs.ts`): Sent, Applied / in progress, Offers ready, Approved, Disbursed, No offers / rejected, Failed. Each bar is
+  split into the lenders' counts (Aurix, Yubi, Revasure) along the X axis; the legend is the lenders (click to hide one) and the hover
+  card lists each lender's own status words. "Sent" is everything handed over; something still waiting for the lender's first word
+  (Yubi "sent, no update yet", Aurix "checking now") is counted in Sent only. Rows are ordered biggest first, smallest at the bottom (owner). Approved / Disbursed are 0 until lenders report them.
+  Aurix = applications sent for offers (`LoanApplication.status`, drafts and PAN-pending left out); Yubi = referrals by
+  `PartnerReferral.lastStatus`; Revasure = its answer to our leads. Data: `GET /api/admin/dashboard/partners` (`statusRows`, all time).
+  (The owner went pies -> separate bars -> one bar per lender -> this, all on 2026-11-23.)
+- **Dashboard block 4: "Overall outcome" pie** (`admin/src/components/OutcomePie.tsx`), on the RIGHT of the lender chart (`.dash-lenders`
+  grid; under it below 1100 px): got offers / no offers / rejected over the three lenders together, with each lender's part under every
+  slice. Rules: `overallOutcomes` / `overallOutcomeOf` in `lib/dashboardGraphs.ts` (same endpoint, `overall`). Got offers = a lender made
+  an offer (applied since or not); No offers = it looked and offered nothing (Aurix `rejected`, Yubi `NO_OFFERS`); Rejected = it turned the
+  person down (Yubi lead / application rejected, Revasure not eligible / already registered). Waiting, accepted-only leads and technical
+  failures are in none of the three, so the pie's total is smaller than "Sent".
+- **Dashboard block 5: two tables** (sits RIGHT UNDER the People per day graph, above the Lenders row; `admin/src/components/DashboardTables.tsx`, `.dash-tables` grid, left wide / right narrow; stacked
+  below 1100 px). LEFT "Active today": customers who acted since 00:00 India time, newest first (25 shown, link to all): name (from the
+  account when the customer row has none), what they did (their latest app / website journey step today, via `eventLabel`; none = "Opened
+  the app"), when (India time), and their real status. Data: `GET /api/admin/dashboard/active-today?limit=`. RIGHT "Where users are now":
+  each customer status with its share of all customers and a small bar, from the existing `GET /api/admin/customers/statuses`
+  (statuses with 0 are left out; a row links to the Customers list filtered to that status).
+- **Customers page top (2026-11-23):** the page heading, its paragraph, the "Unverified numbers" toggle and the old four-number strip are gone
+  (`?otp=unverified` in the address still works). Six cards instead, in the same strict 6 / 3+3 / 2+2+2 grid as the Dashboard
+  (`.dash-cards`): Total customers, Applied for offers %, Got offers %, Did not get offers %, Applied to a lender %, Rejected customers
+  (no offers + rejected by a lender). Worked out from `GET /api/admin/customers/statuses` by `admin/src/lib/customerCards.ts` (pure, tested);
+  every % is out of all customers in the current slice and follows every filter except the status one. Export CSV moved into the table toolbar.
+- **Applications = Aurix + Yubi + Revasure on one page (2026-11-23).** `/loans` (`app/(dash)/loans/page.tsx`): three summary cards on top
+  (NOT clickable), then a segmented switch Aurix / Yubi / Revasure (kept in the address as `?tab=`), then that lender's list
+  (`components/applications/LenderList.tsx` shared layout + `lenders.tsx` per-lender rows; `applications.css`). Same five columns for all:
+  Customer (name + SL reference + mobile), Amount, Status, Lender (Revasure: loan status from the uploaded sheet), Date. Status chips carry
+  counts from `GET /api/admin/applications/summary` (follows search + dates, never the chip). Aurix "All" = every status (`allStatuses=1`,
+  now also accepted by the CSV export); chip "Filling details" = draft + PAN pending + prequalifying (`FILLING_STATUSES`). Revasure keeps
+  "Upload status sheet" (opens `RevasureMisUpload`) and a click-to-open technical detail per row. `/yubi` and `/revasure` now redirect to
+  their tab; both left the sidebar. Yubi rows carry their application (`appRefsById`).
+  **Yubi counts only customers who went to Yubi** (`appliedAt` set: 18 on the 23 Nov copy). The other ~2,520 `PartnerReferral` rows are
+  background pre-checks created on every eligibility check (see `buildYubiWhere`). The Dashboard "Lenders" chart and "Overall
+  outcome" pie use the same rule since 2026-11-23 (`/dashboard/partners` reads Yubi through `buildYubiWhere({})`); before that they
+  counted all 2,538 rows as "Sent".
+
+---
+
+## WhatsApp pacing and Vox delivery reports (2026-11-23)
+
+**Why WhatsApp fails (Vox portal → Logs → WhatsApp, 23 Nov 2026):** almost every send fails with Meta error **131042 "Business eligibility
+payment issue"** (no valid payment method / balance on the WhatsApp Business account), cost 0. Fix it in Meta's billing, not in code.
+Vox's report to us carries only `status`, not the error code, so the admin shows "Failed" with no reason (ask Vox to add
+`errorCode`/`errorMessage` to the callback: `messageStatus.ts failureFrom` already reads them).
+- **Webhook is configured** in Vox (WhatsApp → Overview → Webhook) for sender `919000209457` → `https://api.swiftloan.ai/api/webhooks/whatsapp?key=…`,
+  and reports do arrive. Their shape: `{ from: <our sender>, to: <customer>, status: SENT|DELIVER|READ|FAILED, timestamp, msgId: "wamid.…" }`,
+  and **Vox sends every report twice**.
+- **Reports never matched before this fix:** we store Vox's send id (`WCA…`), the report carries WhatsApp's `wamid`, and `msgId` was not read,
+  so all of them were stored as `unparsed`. Now `messageStatus.ts` reads `msgId` and `DELIVER`, and `messageDelivery.ts linkByPhone` links the
+  first report to the newest WhatsApp sent to that number in the last 30 min (`LINK_BY_PHONE_MS`) and keeps the wamid in `gtrid` (indexed:
+  migration `20261123150000_message_delivery_gtrid_index`, additive) so later reports match directly. A repeated copy is ignored (`isRepeatEvent`).
+  Reports stored as `unparsed` before this are not reprocessed.
+- **Reports were refused:** the WhatsApp webhook shared the 240/min webhook limit and the 600/min per-IP catch-all, so the 7 AM batch had 802
+  reports refused on 23 Nov. It now has its own limit (12,000/min, key-checked) and is skipped by the catch-all (`app.ts`).
+- **Pacing (`lib/sendRate.ts`, pure, tested):** Vox allows **2,500 WhatsApp sends a minute**. Every WhatsApp send goes through one gate
+  (`whatsapp.ts sendGate`): at most `limits.whatsappPerMinute` (Admin → Timings → Per-person limits, default 1,000) in any minute; over it a
+  send waits, never dropped. The drop-off job works due runs `limits.whatsappParallel` (10) at a time (`runPool`), so a 7 AM batch takes about a
+  minute instead of going one by one, and a tick never starts while the previous one is still running. A send Vox/Meta refuses as too fast (429,
+  130429, 80007) is handed back and retried a minute later (`retryIfThrottled`), never recorded as failed. The gate is per process (one API node).
+- The 7:15 "second wave" seen every morning is runs whose check fell just before 7:00 (outside calling hours) and were re-checked after
+  `install.recheckMinutes` (15); expected.
+- Tests: `lib/sendRate.test.ts`, `lib/messageStatus.test.ts` (Vox shape), and `cd server && bash scripts/journey/run-whatsapp-pacing.sh`
+  (15 checks: throwaway DB, fake Vox, the real webhook route over HTTP with a 1,200-report burst).
+  Known and pre-existing: `run-dropoff.sh` has 2 + 10 + 1 failing checks that pin the old schedule/arming rules (same on the committed code).
+
+## API log: failed calls only, kept 30 days (owner, 2026-11-23)
+
+`ApiLog` (Admin → API & Webhook Errors, internal `/logs`) now saves ONLY failed calls (`lib/apiLog.ts isFailedCall`: HTTP 400+, no answer /
+status 0, or an `error`; same rule as `apiErrors.ts IS_ERROR`), inbound and outbound. Successes were ~95% of the rows and are no longer saved.
+Failures are kept for `tracking.apiLogKeepDays` (Admin → Timings, default 30; was a fixed 24 h). The hourly clean-up also deletes any
+successful row, so the first run after the deploy clears the old successes. Consequence: a successful webhook or partner call leaves no trace
+here any more (e.g. Vox delivery reports that were accepted); look at the table the call writes to instead.
+
+## Installs from ads are now recorded (2026-11-23)
+
+`POST /api/attribution/claim` refused every install from a Meta ad: Play hands those installs a ~1,100-character referrer
+(`utm_source=apps.instagram.com|apps.facebook.com|apps.whatsapp.com&utm_campaign=fb4a&utm_content={…}`) and the route allowed 512, so
+142 of 144 installs on 23 Nov 2026 were never recorded (App Downloads showed only organic). The referrer is now cut at 4,000 characters
+(`attribution.ts MAX_PLAY_REFERRER`), never refused. An install no SwiftLoan link claims but whose referrer names an ad is recorded as
+`source: 'campaign'` with `campaignId` = `meta_instagram | meta_facebook | meta_whatsapp | meta_messenger | google_ads` (or the raw
+utm_source for another network) by `adCampaignFromReferrer`; App Downloads shows it as "Instagram ads" etc. (`installContextRead.ts
+AD_CAMPAIGN_LABELS`). The app retries a refused claim on each launch until sign-in, so people who had not signed in yet are recorded after
+the deploy; the rest are lost.
+
+## Application references never fail on a clash (2026-11-23)
+
+`SL-123456` references are six random digits (`utils/ref.ts makeRef`), so as rows grow a new one can hit a number already used; on 22 Nov
+2026 two application creates answered 500 ("Unique constraint failed on ref"). Every create that draws a reference now goes through
+`withFreshRef`, which draws a new number and tries again (up to 5 times; only a clash on `ref` is retried). Covers `LoanApplication`, `Loan`
+and the repayment schedule (`makeRefs` gives each row a different `PAY-` number). The format is unchanged.
+
+## Conversions & Commercials page removed (owner, 2026-11-23)
+
+The admin page `/analytics` ("Conversions & Commercials"), its panel `components/ConversionsPanel.tsx` (+ `.cv-*` styles), the endpoints
+`GET /api/admin/analytics/conversions[/list]` and `server/src/lib/conversions.ts` are gone: everything it showed is on the Dashboard (header
+cards, "Where users are now") and the Customers cards, and its "Approved" tile was always 0. Earlier notes in this file that mention the
+Conversions panel or tab describe the removed page. The voice widget's "show analytics" still lands on the Dashboard.

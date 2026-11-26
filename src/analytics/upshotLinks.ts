@@ -36,7 +36,7 @@ export interface InboxItem {
 
 /** Screens a notification may open. Anything else (mid-flow screens that need state) is ignored. */
 export const LINKABLE_SCREENS: ReadonlySet<string> = new Set([
-  'home', 'loans', 'fare', 'compare', 'calculator', 'help', 'profile', 'referral',
+  'home', 'loans', 'fare', 'compare', 'calculator', 'help', 'profile',
   'basicpan', 'status', 'disbursed', 'repay', 'mobile', 'notifications',
 ]);
 
