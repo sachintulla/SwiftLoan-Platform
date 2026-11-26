@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parsePlayReferrer, parseClipboard, formatClipboard, pickIpMatch, detectPlatform, parseOsVersion,
-  storeUrl, normalizeCode, maskName, newClickToken, newReferralCode, hashClient,
+  parsePlayReferrer, adCampaignFromReferrer, parseClipboard, formatClipboard, pickIpMatch, detectPlatform, parseOsVersion,
+  storeUrl, newClickToken, newReferralCode, hashClient,
 } from './attribution.js';
 
 describe('Play referrer parsing', () => {
@@ -77,20 +77,21 @@ describe('codes and names', () => {
     expect(newClickToken()).toMatch(/^[A-HJKMNP-Z2-9]{12}$/);
     expect(newReferralCode()).toMatch(/^[A-HJKMNP-Z2-9]{8}$/);
   });
-  it('normalizes referral codes', () => {
-    expect(normalizeCode(' priya7k2 ')).toBe('PRIYA7K2');
-    expect(normalizeCode('a b')).toBeNull();
-    expect(normalizeCode(null)).toBeNull();
-  });
-  it('masks names for the referrer list', () => {
-    expect(maskName('Rahul Kumar Sharma')).toBe('Rahul S.');
-    expect(maskName('Rahul')).toBe('Rahul');
-    expect(maskName(null, '9876543210')).toBe('•••• 3210');
-    expect(maskName(null, null)).toBe('A friend');
-  });
   it('hashes deterministically without leaking the input', () => {
     expect(hashClient('1.2.3.4')).toBe(hashClient(' 1.2.3.4 '));
     expect(hashClient('1.2.3.4')).not.toContain('1.2.3.4');
     expect(hashClient('1.2.3.4')).not.toBe(hashClient('1.2.3.5'));
   });
+});
+
+describe('adCampaignFromReferrer (installs from ads, no SwiftLoan link)', () => {
+  // The shape every Meta-ad install sent on 23 Nov 2026 (~1,100 characters; refused by the old 512 limit).
+  const meta = (src: string) => `utm_source=${src}&utm_campaign=fb4a&utm_content=${encodeURIComponent(JSON.stringify({ app: 1234567890121818, t: 1795414080, source: { data: 'x'.repeat(700), nonce: 'n'.repeat(24) } }))}`;
+  it('is long, like the real ones', () => expect(meta('apps.instagram.com').length).toBeGreaterThan(900));
+  it.each([
+    [meta('apps.instagram.com'), 'meta_instagram'], [meta('apps.facebook.com'), 'meta_facebook'], [meta('apps.whatsapp.com'), 'meta_whatsapp'],
+    ['gclid=Cj0KCQiA&utm_source=google&utm_medium=cpc', 'google_ads'],
+    ['utm_source=google-play&utm_medium=organic', null], ['utm_source=(not%20set)&utm_medium=(not%20set)', null], ['', null], [null, null],
+    ['utm_source=Some Network!&utm_medium=cpi', 'somenetwork'],
+  ])('%#: → %s', (raw, want) => expect(adCampaignFromReferrer(raw as string | null)).toBe(want));
 });

@@ -12,8 +12,6 @@ const log = scoped('prequalifying');
 
 // Admin-curated, firm "pre-approved for you" offers shown at the top of the home
 // screen the moment a user logs in — independent of the application funnel.
-// Distinct from MarketLoanOffer (the soft marketing catalog under "Available
-// offers"): firm economics, and the app's Accept path skips Aurix eligibility.
 export const prequalifyingRouter = Router();
 
 const offerSchema = z.object({

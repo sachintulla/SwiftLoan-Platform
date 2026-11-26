@@ -26,7 +26,6 @@ import { adminAuthRouter } from './modules/adminAuth.routes.js';
 import { contextRouter, contextLookupRouter, contextSaveRouter } from './modules/context.routes.js';
 import { configRouter } from './modules/config.routes.js';
 import { downloadsRouter } from './modules/downloads.routes.js';
-import { preapprovedRouter } from './modules/preapproved.routes.js';
 import { prequalifyingRouter } from './modules/prequalifying.routes.js';
 import { customersRouter } from './modules/customers.routes.js';
 import { integrationsRouter } from './modules/integrations.routes.js';
@@ -38,15 +37,13 @@ import { adminAlertsRouter } from './modules/adminAlerts.routes.js';
 import { adminTimingsRouter } from './modules/adminTimings.routes.js';
 import { adminTestNumbersRouter } from './modules/adminTestNumbers.routes.js';
 import { whatsappStatusRouter } from './modules/whatsappStatus.routes.js';
-import { campaignsRouter } from './modules/campaigns.routes.js';
-import { segmentsRouter } from './modules/segments.routes.js';
 import { agentsRouter } from './modules/agents.routes.js';
 import { stallRulesRouter } from './modules/stallRules.routes.js';
 import { stageOutreachRouter } from './modules/stageOutreach.routes.js';
 import { adminOpsRouter } from './modules/adminOps.routes.js';
 import { adminListActionsRouter } from './modules/adminListActions.routes.js';
 import { adminSupportRouter } from './modules/adminSupport.routes.js';
-import { dlRouter, attributionRouter, referralRouter, adminReferralsRouter } from './modules/referral.routes.js';
+import { dlRouter, attributionRouter } from './modules/referral.routes.js';
 import { voiceRouter } from './modules/voice.routes.js';
 import { slackBotRouter } from './modules/slackBot.routes.js';
 import { conversationsRouter } from './modules/conversations.routes.js';
@@ -111,10 +108,11 @@ export function createApp() {
   // be scripted to create unlimited leads — each of which now triggers an
   // automatic outbound call, i.e. a real telephony bill and calls to real
   // people. These buckets are sized per-route by blast radius.
-  const limiter = (windowMs: number, max: number, message: string) =>
+  const limiter = (windowMs: number, max: number, message: string, skip?: (req: express.Request) => boolean) =>
     rateLimit({
       windowMs,
       max,
+      ...(skip ? { skip } : {}),
       standardHeaders: true,
       legacyHeaders: false,
       message: { success: false, data: null, message, error: message },
@@ -126,8 +124,13 @@ export function createApp() {
   // High volume by design, but bounded.
   const trackLimiter = limiter(60_000, 300, 'Too many tracking events');
   const webhookLimiter = limiter(60_000, 240, 'Too many webhook posts');
-  // Catch-all floor for everything else.
-  const globalLimiter = limiter(60_000, 600, 'Too many requests');
+  // WhatsApp delivery reports come in bursts: up to 1,000 sends a minute (limits.whatsappPerMinute), several reports each, and Vox
+  // sends every report twice. At 240 a minute the 7 AM batch had 802 reports refused (and lost) on 23 Nov 2026. The route checks its
+  // own key, so a high ceiling is safe.
+  const whatsappStatusLimiter = limiter(60_000, 12_000, 'Too many WhatsApp status posts');
+  // Catch-all floor for everything else. It counts per IP and every WhatsApp report comes from the gateway's servers, so it would
+  // cap those at 600 a minute whatever their own limit says: the WhatsApp status webhook has its own limit (above) instead.
+  const globalLimiter = limiter(60_000, 600, 'Too many requests', (req) => req.path.startsWith('/webhooks/whatsapp'));
 
   app.use('/api', globalLimiter);
 
@@ -163,16 +166,15 @@ export function createApp() {
 
   // ── WS4: activity tracking + admin dashboard (additive) ──
   app.use('/api/track', trackLimiter, trackingRouter);
-  // ── Install attribution + friend referrals ──
+  // ── Install attribution ──
   // /claim is public (no account yet) and writes a row per call, so it shares the tracking bucket.
   // Returns a phone number and first name for a link's reference ID, so far stricter than the other tracking routes.
   app.use('/api/attribution/resume', limiter(60_000, 20, 'Too many attempts, try again shortly'));
   app.use('/api/attribution', trackLimiter, attributionRouter);
   // Website Meta Conversions API relay (consent-gated, small event allow-list).
   app.use('/api/meta', limiter(60_000, 60, 'Too many events'), metaRouter);
-  app.use('/api/referrals', referralRouter);
   app.use('/api/admin/auth', authLimiter, adminAuthRouter);
-  // ── WS5: outbound calling + campaigns + provider webhooks ──
+  // ── WS5: outbound calling + provider webhooks ──
   // Mounted before the catch-all adminRouter so its requireAdmin/404 does not
   // swallow these paths.
   app.use('/api/admin/calls', callsRouter);
@@ -182,16 +184,13 @@ export function createApp() {
   app.use('/api/admin/api-errors', adminApiErrorsRouter); // failed API/webhook calls (ApiLog), with payloads
   app.use('/api/admin/timings', adminTimingsRouter); // every admin-editable timing and limit
   app.use('/api/admin/test-numbers', adminTestNumbersRouter); // numbers that may sign in with the shared test code
-  app.use('/api/admin/campaigns', campaignsRouter);
-  app.use('/api/admin/segments', segmentsRouter);
   app.use('/api/admin/agents', agentsRouter);
   app.use('/api/admin/stall-rules', stallRulesRouter);
   app.use('/api/admin/stage-outreach', stageOutreachRouter);
   app.use('/api/admin/ops', adminOpsRouter);
-  app.use('/api/admin/list-actions', adminListActionsRouter); // CSV export + campaign from the Loans, Revasure and Yubi lists
+  app.use('/api/admin/list-actions', adminListActionsRouter); // CSV export of the Loans, Revasure and Yubi lists
   app.use('/api/admin/revasure/mis', adminRevasureMisRouter); // Revasure MIS status-sheet upload (preview/apply/history)
   app.use('/api/admin/support', adminSupportRouter);
-  app.use('/api/admin/referrals', adminReferralsRouter);
   app.use('/api/admin/conversations', adminConversationsRouter);
   app.use('/api/admin/customers', customersRouter);
   app.use('/api/admin/integrations', integrationsRouter);
@@ -206,7 +205,7 @@ export function createApp() {
   app.use('/api/notify', limiter(60_000, 60, 'Too many notify requests'), notifyRouter);
   // PUBLIC — an Upshot journey posts here to place a call. Every guard
   // (calling hours, cooldown, do-not-call) is enforced server-side.
-  app.use('/api/webhooks/whatsapp', webhookLimiter, whatsappStatusRouter); // PUBLIC — the WhatsApp gateway posts delivery status here
+  app.use('/api/webhooks/whatsapp', whatsappStatusLimiter, whatsappStatusRouter); // PUBLIC — the WhatsApp gateway posts delivery status here
   app.use('/api/webhooks/upshot', webhookLimiter, upshotTriggerRouter);
   app.use('/api/webhooks/aurix', webhookLimiter, aurixWebhookRouter); // PUBLIC — Aurix/KFT posts loan status here
   app.use('/api/webhooks/kft', webhookLimiter, aurixWebhookRouter); // PUBLIC — alias for the KFT journey contract
@@ -251,7 +250,6 @@ export function createApp() {
   app.use('/api/website', leadLimiter, websiteRouter);
   app.use('/', limiter(60_000, 60, 'Too many download requests'), dlRouter); // /dl?ref= shareable download link
   app.use('/', downloadsRouter); // /api/downloads/manifest + /d/:token landing pages
-  app.use('/', preapprovedRouter); // /api/preapproved-plans + /api/admin/preapproved-plans
   app.use('/', prequalifyingRouter); // /api/prequalifying-offers + /api/admin/prequalifying-offers
 
   // Allow the admin dashboard (localhost:4001) to call this API in the browser.

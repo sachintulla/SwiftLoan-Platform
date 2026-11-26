@@ -8,9 +8,7 @@
  *   status      one status, or several separated by commas (queued, dialing,
  *               in_progress, completed, failed, no_answer, busy, cancelled)
  *   outcome     one call outcome
- *   purpose     why the call was placed: a callContext.reason value, or
- *               `campaign` for any call that belongs to a campaign
- *   campaignId  one campaign
+ *   purpose     why the call was placed: a callContext.reason value
  *   search      digits search the phone number, anything else searches the
  *               customer's name
  *   from, to    ISO instants, applied to when the call was queued
@@ -32,11 +30,7 @@ export type CallOutcomeValue = (typeof CALL_OUTCOMES)[number];
 /** The channels that are real phone calls. The same table also holds website, app and admin conversations. */
 export const PHONE_CHANNELS = ['phone_outbound', 'phone_inbound'];
 
-/**
- * Every `callContext.reason` value the server writes today. A call without a
- * reason and with a campaignId is a campaign call (the campaign runner sends no
- * reason), so `campaign` is a filter value of its own.
- */
+/** Every `callContext.reason` value the server writes today. */
 export const CALL_PURPOSES = [
   'app_dropoff_followup',
   'daily_status_update',
@@ -65,7 +59,6 @@ export const CALL_LIST_SELECT = {
   queuedAt: true,
   startedAt: true,
   endedAt: true,
-  campaignId: true,
   customer: { select: { id: true, name: true, phone: true } },
 } as const satisfies Prisma.CallAttemptSelect;
 
@@ -103,17 +96,10 @@ export function buildCallWhere(q: Record<string, unknown>, opts: BuildCallWhereO
   if ((CALL_OUTCOMES as readonly string[]).includes(outcome)) where.outcome = outcome as CallOutcomeValue;
 
   const purpose = str(q.purpose);
-  if (purpose === 'campaign') {
-    // Approximation worth knowing: a manual call attached to a campaign also has
-    // a campaignId, so it counts here as well as under "Called by an admin".
-    where.campaignId = { not: null };
-  } else if ((CALL_PURPOSES as readonly string[]).includes(purpose)) {
+  if ((CALL_PURPOSES as readonly string[]).includes(purpose)) {
     // callContext is a JSON column; the reason lives at $.reason.
     and.push({ callContext: { path: ['reason'], equals: purpose } });
   }
-
-  const campaignId = str(q.campaignId);
-  if (campaignId) where.campaignId = campaignId;
 
   const search = str(q.search);
   if (search) {
@@ -144,7 +130,7 @@ export function buildCallWhere(q: Record<string, unknown>, opts: BuildCallWhereO
 /** The filters worth recording in the audit trail of an export (only the ones that were actually set). */
 export function activeCallFilters(q: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of ['status', 'outcome', 'purpose', 'campaignId', 'search', 'from', 'to', 'answered', 'followUp']) {
+  for (const k of ['status', 'outcome', 'purpose', 'search', 'from', 'to', 'answered', 'followUp']) {
     const v = str(q[k]);
     if (v) out[k] = v;
   }
@@ -155,7 +141,7 @@ export function activeCallFilters(q: Record<string, unknown>): Record<string, st
  * "Needs a follow-up" = a call where the customer asked for a callback
  * (outcome callback_requested) or sounded interested (outcome interested), in
  * the last `sinceDays` days, and there has been NO LATER phone call to the same
- * customer. Once anyone rings them again (an agent, a campaign, an automatic
+ * customer. Once anyone rings them again (an agent, an automatic
  * call) they drop off the list, whatever the second call's outcome was.
  *
  * Calls with no customer are never listed: without a customer we cannot tell
@@ -200,7 +186,7 @@ export function toCallListItem(
   row: {
     id: string; phone: string; status: string | null; outcome: string | null; outcomeSource: string | null;
     answered: boolean | null; durationSec: number | null; summary: string | null; callbackAt: Date | null;
-    queuedAt: Date | null; startedAt: Date | null; endedAt: Date | null; campaignId: string | null;
+    queuedAt: Date | null; startedAt: Date | null; endedAt: Date | null;
     customer: { id: string; name: string | null; phone: string } | null;
   },
   reason: string | null | undefined,
@@ -215,13 +201,11 @@ export function toCallListItem(
     answered: row.answered,
     durationSec: row.durationSec,
     summary,
-    // A campaign call carries no reason; show it as a campaign call.
-    purpose: reason || (row.campaignId ? 'campaign' : null),
+    purpose: reason || null,
     callbackAt: row.callbackAt,
     queuedAt: row.queuedAt,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
-    campaignId: row.campaignId,
     customer: row.customer,
   };
 }

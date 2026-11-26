@@ -5,7 +5,6 @@ describe('typeLabel', () => {
   it('names the three types the code creates', () => {
     expect(typeLabel('loan_stale')).toBe('Inactive loan');
     expect(typeLabel('onboarding_stale')).toBe('Stuck onboarding');
-    expect(typeLabel('app_nudge')).toBe('User needs help');
   });
   it('title-cases an unknown type', () => {
     expect(typeLabel('new_lead')).toBe('New Lead');
@@ -45,13 +44,13 @@ describe('targetFor', () => {
   });
   it('links onboarding and help alerts to the customer, not the user', () => {
     expect(targetFor('onboarding_stale', 'U1', { customer: { id: 'C9' } })).toEqual({ kind: 'customer', id: 'C9', href: '/customers/C9', label: 'Open customer' });
-    expect(targetFor('app_nudge', 'U1', { customer: { id: 'C9' } })?.href).toBe('/customers/C9');
+    expect(targetFor('onboarding_stale', 'U2', { customer: { id: 'C9' } })?.href).toBe('/customers/C9');
   });
   it('returns null when the entity is missing or does not resolve', () => {
     expect(targetFor('loan_stale', null, { loan: { id: 'L1' } })).toBeNull();
     expect(targetFor('loan_stale', 'L1', { loan: null })).toBeNull();
     expect(targetFor('loan_stale', 'L1', null)).toBeNull();
-    expect(targetFor('app_nudge', 'U1', { customer: null })).toBeNull();
+    expect(targetFor('onboarding_stale', 'U1', { customer: null })).toBeNull();
     expect(targetFor('loan_stale', 'L1', { customer: { id: 'C1' } })).toBeNull();
   });
   it('returns null for a type with no destination', () => {
@@ -59,7 +58,6 @@ describe('targetFor', () => {
   });
   it('maps each type to the table its entityId points at', () => {
     expect(entityKind('loan_stale')).toBe('loan');
-    expect(entityKind('app_nudge')).toBe('user');
     expect(entityKind('onboarding_stale')).toBe('user');
     expect(entityKind('other')).toBeNull();
   });
@@ -74,7 +72,7 @@ describe('buildNotificationWhere', () => {
   it('filters by type', () => expect(buildNotificationWhere({ type: 'loan_stale' })).toEqual({ type: 'loan_stale' }));
   it('filters by severity', () => expect(buildNotificationWhere({ severity: 'critical' })).toEqual({ severity: 'critical' }));
   it('combines every filter', () => {
-    expect(buildNotificationWhere({ state: 'unread', type: 'app_nudge', severity: 'warning' })).toEqual({ read: false, type: 'app_nudge', severity: 'warning' });
+    expect(buildNotificationWhere({ state: 'unread', type: 'onboarding_stale', severity: 'warning' })).toEqual({ read: false, type: 'onboarding_stale', severity: 'warning' });
   });
   it('ignores a malformed type or unknown severity', () => {
     expect(buildNotificationWhere({ type: "x'; drop table", severity: 'bogus' })).toEqual({});

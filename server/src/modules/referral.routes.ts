@@ -1,14 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
 import { ah } from '../middleware/error.js';
-import { ok, pageParams, paginate } from '../lib/http.js';
-import { requireAuth } from '../middleware/auth.js';
+import { ok } from '../lib/http.js';
 import { validate } from '../middleware/validate.js';
-import { requireAdmin, requireActiveAdmin } from '../middleware/adminAuth.js';
 import { downloads, stores } from '../config/downloads.js';
-import { detectPlatform, formatClipboard, parseClipboard, parsePlayReferrer, storeUrl, maskName } from '../lib/attribution.js';
-import { claimInstall, recordClick, redeemReferral, referralSummary, shareLinkFor } from '../lib/referral.js';
+import { adCampaignFromReferrer, detectPlatform, formatClipboard, MAX_PLAY_REFERRER, parseClipboard, parsePlayReferrer, storeUrl } from '../lib/attribution.js';
+import { claimInstall, recordClick } from '../lib/referral.js';
 import { resumeForToken, resumeToWire } from '../lib/journeyResume.js';
 import { dlContentSecurityPolicy, newNonce, renderDlPage } from '../lib/dlPage.js';
 
@@ -54,7 +51,9 @@ attributionRouter.post(
   validate(
     z.object({
       platform: z.enum(['android', 'ios']),
-      install_referrer: z.string().max(512).nullable().optional(), // Play Install Referrer string
+      // Play Install Referrer string. Meta-ad installs send ~1,100 characters: the old 512 limit refused every one of them
+      // (142 in a day on 23 Nov 2026, so none was recorded). A long one is cut, never refused.
+      install_referrer: z.string().transform((s) => s.slice(0, MAX_PLAY_REFERRER)).nullable().optional(),
       clipboard: z.string().max(256).nullable().optional(), // raw clipboard text (iOS)
       os_version: z.string().max(32).nullable().optional(),
     }),
@@ -70,6 +69,7 @@ attributionRouter.post(
       clickToken,
       via: play.clickId ? 'play_referrer' : 'clipboard',
       osVersion: b.os_version ?? null,
+      adCampaign: adCampaignFromReferrer(b.install_referrer),
     });
     // A website visitor who followed their own link: hand the app what it needs to offer "continue where you
     // left off". Only for a DETERMINISTIC match (Play referrer / clipboard token): a same-IP guess could be a
@@ -86,7 +86,7 @@ attributionRouter.post(
       method: result.method,
       download_id: result.downloadId,
       source: result.source,
-      referral: result.referral && { code: result.referral.code, referrer_name: result.referral.referrerName },
+      referral: null, // friend referrals were removed; the key stays so installed app versions keep parsing the answer
       resume: resumeToWire(resume),
       resume_hint: resumeHint,
       hint_last_step: networkJourney ? networkJourney.lastStep : null,
@@ -106,72 +106,3 @@ attributionRouter.post(
     return ok(res, { resume: resumeToWire(resume) }, resume ? 'Journey found' : 'Nothing to resume');
   }),
 );
-
-// ── /api/referrals — the signed-in user's own referral code + friends ───────
-export const referralRouter = Router();
-referralRouter.use(requireAuth);
-
-referralRouter.get('/me', ah(async (req, res) => {
-  const s = await referralSummary(req.user!.sub);
-  return ok(res, { ...s, shareUrl: shareLinkFor(s.code, downloads.publicBase) }, 'Referral');
-}));
-
-referralRouter.post(
-  '/redeem',
-  validate(z.object({ code: z.string().max(32), download_id: z.string().max(64).nullable().optional(), match_method: z.string().max(32).nullable().optional() })),
-  ah(async (req, res) => {
-    const r = await redeemReferral(req.user!.sub, req.body.code, { downloadId: req.body.download_id, matchMethod: req.body.match_method });
-    if (!r.ok) {
-      // 200 with ok:false for the expected "no" cases — the app treats a refused
-      // code as a quiet no-op, not an error to surface.
-      return ok(res, { redeemed: false, reason: r.reason }, 'Referral not applied');
-    }
-    return ok(res, { redeemed: true, referrer_name: r.referrerName }, 'Referral applied');
-  }),
-);
-
-// ── /api/admin/referrals ────────────────────────────────────────────────────
-export const adminReferralsRouter = Router();
-adminReferralsRouter.use(requireAdmin);
-adminReferralsRouter.use(requireActiveAdmin);
-
-adminReferralsRouter.get('/', ah(async (req, res) => {
-  const { page, pageSize, skip, take } = pageParams(req.query);
-  const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
-  const where = status ? { status } : {};
-
-  const [rows, total, all, byStatus, topRaw, installs, matched] = await Promise.all([
-    prisma.friendReferral.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
-    prisma.friendReferral.count({ where }),
-    prisma.friendReferral.count(),
-    prisma.friendReferral.groupBy({ by: ['status'], _count: { _all: true } }),
-    prisma.friendReferral.groupBy({ by: ['referrerId'], _count: { _all: true }, orderBy: { _count: { referrerId: 'desc' } }, take: 5 }),
-    prisma.appDownload.count(),
-    prisma.appDownload.count({ where: { clickId: { not: null } } }),
-  ]);
-
-  const ids = [...new Set([...rows.flatMap((r) => [r.referrerId, r.refereeId]), ...topRaw.map((t) => t.referrerId)])];
-  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, firstName: true, phone: true } });
-  const u = new Map(users.map((x) => [x.id, x]));
-  const label = (id: string) => ({ id, name: maskName(u.get(id)?.fullName ?? u.get(id)?.firstName, u.get(id)?.phone), phone: u.get(id)?.phone ?? null });
-  const counts = Object.fromEntries(byStatus.map((s) => [s.status, s._count._all]));
-
-  return ok(res, {
-    stats: {
-      total: all,
-      signedUp: counts.signed_up ?? 0,
-      applied: counts.applied ?? 0,
-      disbursed: counts.disbursed ?? 0,
-      installs,
-      attributedInstalls: matched,
-      attributionRate: installs ? Math.round((matched / installs) * 100) : 0,
-    },
-    topReferrers: topRaw.map((t) => ({ ...label(t.referrerId), referrals: t._count._all })),
-    items: rows.map((r) => ({
-      id: r.id, code: r.code, status: r.status, matchMethod: r.matchMethod, rewardStatus: r.rewardStatus,
-      createdAt: r.createdAt, appliedAt: r.appliedAt, disbursedAt: r.disbursedAt,
-      referrer: label(r.referrerId), referee: label(r.refereeId),
-    })),
-  }, 'Referrals', paginate(page, pageSize, total));
-}));
-

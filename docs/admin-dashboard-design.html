@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard design</title>
+<style>
+:root{--brand:#079fa0;--ink:#0a3f41;--bg:#f4f6f8;--surface:#fff;--border:#e6e9ee;--text:#16202a;--dim:#667085;--faint:#98a2b3;
+--green:#12b76a;--green-bg:#e7f8f0;--blue:#2e90fa;--blue-bg:#e8f2fe;--red:#f04438;--red-bg:#fee9e7;--teal:#15b8a6;--teal-bg:#e4f7f4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;-webkit-font-smoothing:antialiased}
+.page{max-width:1240px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0;letter-spacing:-.02em}.sub{color:var(--dim);font-size:13px;margin:4px 0 0}
+.wrap{container-type:inline-size;margin-top:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@container (min-width:620px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@container (min-width:1120px){.grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.lab{color:var(--dim);font-size:12.5px;font-weight:500}
+.ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:14px;flex:none}
+.val{font-size:27px;font-weight:700;letter-spacing:-.02em;margin:10px 0 4px}
+.foot{color:var(--faint);font-size:12px}
+.next{margin-top:22px;border:1.5px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--faint);font-size:13px}
+</style></head><body>
+<div class="page">
+  <h1>Dashboard</h1>
+  <div class="wrap"><div class="grid">
+    <div class="stat"><div class="top"><span class="lab">Total users</span><span class="ic" style="background:var(--teal-bg);color:var(--teal)">◉</span></div><div class="val">1,727</div><div class="foot">People who signed up</div></div>
+    <div class="stat"><div class="top"><span class="lab">Total applications</span><span class="ic" style="background:var(--blue-bg);color:var(--blue)">▤</span></div><div class="val">2,589</div><div class="foot">From 1,344 people who asked for offers</div></div>
+    <div class="stat"><div class="top"><span class="lab">Amount requested</span><span class="ic" style="background:var(--blue-bg);color:var(--blue)">₹</span></div><div class="val">₹38.72Cr</div><div class="foot">Added up across all applications</div></div>
+    <div class="stat"><div class="top"><span class="lab">Amount disbursed</span><span class="ic" style="background:var(--green-bg);color:var(--green)">✓</span></div><div class="val">₹0</div><div class="foot">Lenders do not report payouts to us yet</div></div>
+    <div class="stat"><div class="top"><span class="lab">Got offers</span><span class="ic" style="background:var(--green-bg);color:var(--green)">★</span></div><div class="val">19%</div><div class="foot">254 of 1,344 people who asked</div></div>
+    <div class="stat"><div class="top"><span class="lab">Rejected</span><span class="ic" style="background:var(--red-bg);color:var(--red)">✕</span></div><div class="val">1,122</div><div class="foot">83% of people who asked · no lender offered a loan</div></div>
+  </div></div>
+  <div class="next">The next block goes here. Tell me what to add.</div>
+</div>
+</body></html>

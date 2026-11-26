@@ -34,11 +34,6 @@ interface TimelineEntry {
   id: string; channel: string; name: string; stage?: string | null; stageLabel?: string | null;
   screen?: string | null; metadata?: Record<string, unknown> | null; occurredAt: string;
 }
-interface CampaignRef {
-  id: string; name: string; code?: string; state?: string | null;
-  campaign?: { name?: string | null } | null;
-  attempts?: number | null; answered?: boolean | null; lastAttemptAt?: string | null; nextEligibleAt?: string | null;
-}
 interface LeadRef {
   id: string; name?: string | null; phone?: string | null; city?: string | null;
   productInterest?: string | null; amount?: number | null; source: string;
@@ -70,7 +65,6 @@ interface Detail {
   stageProgress?: StageProgress[];
   dropOff?: { stage: string; label?: string; stalledMinutes?: number; isTerminal?: boolean } | null;
   calls?: CallAttemptDetail[];
-  campaigns?: CampaignRef[];
   user?: LinkedUser | null;
   applicationSummary?: { lenders: number; submitted: number; approved: number; rejected: number; disbursed: number; inProgress: number };
   device?: { os?: string | null; model?: string | null; appVersion?: string | null; lastSeenAt?: string } | null;
@@ -254,7 +248,6 @@ export default function CustomerDetail() {
 
   const calls = d.calls ?? [];
   const leads = d.leads ?? [];
-  const campaigns = d.campaigns ?? [];
   const user = d.user;
   const applications = user?.applications ?? [];
   const loans = user?.loans ?? [];
@@ -711,22 +704,14 @@ export default function CustomerDetail() {
         <Card title="Origin & attribution">
           {[
             ['First source', c.firstSource || '—'],
-            ['Campaign', campaigns.map((x) => x.campaign?.name ?? x.name).join(', ') || c.campaignId || '—'],
+            ['Campaign', c.campaignId || '—'],
             ['UTM source', c.utmSource || '—'],
             ['UTM medium', c.utmMedium || '—'],
             ['UTM campaign', c.utmCampaign || '—'],
             ['Referrer', c.referrer || lead?.referrer || '—'],
           ].map(([k, v], i, arr) => (
-            <div key={k} className="row between" style={{ padding: '7px 0', borderBottom: i < arr.length - 1 || campaigns.length > 0 ? '1px solid var(--border)' : undefined }}>
+            <div key={k} className="row between" style={{ padding: '7px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : undefined }}>
               <span className="muted">{k}</span><b className="mono" style={{ fontSize: 12, textAlign: 'right', wordBreak: 'break-all' }}>{v}</b>
-            </div>
-          ))}
-          {campaigns.map((cc) => (
-            <div key={cc.id} className="row between" style={{ padding: '7px 0' }}>
-              <span className="muted">Campaign attempt</span>
-              <span style={{ fontSize: 12, textAlign: 'right' }}>
-                <StatusBadge status={cc.state ?? undefined} /> {cc.attempts != null ? `· ${cc.attempts} attempt${cc.attempts === 1 ? '' : 's'}` : ''} {cc.answered === false ? '· not answered' : cc.answered ? '· answered' : ''}
-              </span>
             </div>
           ))}
         </Card>

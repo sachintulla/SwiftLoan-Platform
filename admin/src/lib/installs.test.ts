@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_INSTALL_PERIOD, INSTALL_PERIODS, computeInstallRange, rangeError, buildInstallsQuery, hasActiveFilters, EMPTY_INSTALL_FILTERS,
-  loanDetailsText, hasLoanDetails, linkSentText, stageWhenSentNote, matchedByText, followUpDisabledReason, listState, emptyNoneText,
+  loanDetailsText, hasLoanDetails, campaignSourceText, linkSentText, stageWhenSentNote, matchedByText, followUpDisabledReason, listState, emptyNoneText,
   percentOf, barWidth, sentByLabel, platformLabel, channelLabel, type InstallContext, type InstallRow,
 } from './installs';
 
@@ -156,5 +156,16 @@ describe('page state', () => {
     expect(barWidth(1, 1000)).toBe(4);
     expect(barWidth(0, 10)).toBe(0);
     expect(barWidth(3, 0)).toBe(0);
+  });
+});
+
+describe('campaignSourceText (installs from an ad)', () => {
+  it('names the ad when the install carried no loan details', () => {
+    expect(campaignSourceText(ctx({ name: null, amountRupees: null, product: null, sentBy: { type: 'campaign', label: 'Instagram ads' }, origin: 'campaign' }))).toBe('From Instagram ads');
+  });
+  it('says nothing for other installs, or when loan details exist', () => {
+    expect(campaignSourceText(null)).toBeNull();
+    expect(campaignSourceText(ctx({ sentBy: { type: 'organic', label: '' } }))).toBeNull();
+    expect(campaignSourceText(ctx({ amountRupees: 200000, sentBy: { type: 'campaign', label: 'Campaign x' } }))).toBeNull();
   });
 });

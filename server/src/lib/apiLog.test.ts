@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { serialiseBody } from './apiLog.js';
+import { serialiseBody, isFailedCall } from './apiLog.js';
 
 /**
  * The /logs table stores request/response bodies, so PII must be redacted before
@@ -51,4 +51,13 @@ describe('serialiseBody redaction', () => {
     expect(out['x-api-key']).toBe('[redacted]');
     expect(out.accessToken).toBe('[redacted]');
   });
+});
+
+describe('only failed calls are saved (owner, 23 Nov 2026)', () => {
+  it.each([
+    [{ status: 200 }, false], [{ status: 201 }, false], [{ status: 204 }, false], [{ status: 302 }, false], [{ status: 304 }, false],
+    [{ status: 400 }, true], [{ status: 401 }, true], [{ status: 404 }, true], [{ status: 429 }, true], [{ status: 500 }, true], [{ status: 503 }, true],
+    [{ status: 0, error: 'timed out after 30000ms' }, true], [{ status: null }, true], [{}, true],
+    [{ status: 200, error: 'lender said success:false' }, true],
+  ])('%j → %s', (entry, want) => expect(isFailedCall(entry)).toBe(want));
 });

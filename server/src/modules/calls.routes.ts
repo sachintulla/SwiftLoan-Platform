@@ -1,6 +1,6 @@
 /**
  * WS5 — admin-facing outbound call routes. Mounted at /api/admin/calls behind
- * requireAdmin. The actual dialling lives in lib/dialer.ts so the campaign
+ * requireAdmin. The actual dialling lives in lib/dialer.ts so the automatic
  * runner and this ad-hoc trigger share one implementation.
  */
 import { Router } from 'express';
@@ -52,7 +52,6 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
   validate(z.object({
     customerId: z.string().min(1).optional(),
     phone: z.string().min(6).optional(),
-    campaignId: z.string().min(1).optional(),
     assistantId: z.string().min(1).optional(),
     metadata: z.record(z.string(), z.any()).optional(),
     // Optional journey stage the operator called from, so the agent can open
@@ -63,8 +62,8 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
     message: 'customerId or phone is required',
   })),
   ah(async (req, res) => {
-    const { customerId, phone, campaignId, assistantId, metadata } = req.body as {
-      customerId?: string; phone?: string; campaignId?: string; assistantId?: string;
+    const { customerId, phone, assistantId, metadata } = req.body as {
+      customerId?: string; phone?: string; assistantId?: string;
       metadata?: Record<string, any>;
     };
 
@@ -102,11 +101,6 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
       return failCode(res, 403, 'not_on_test_allowlist', 'This number is not on the test allowlist, so the call was not placed.');
     }
 
-    if (campaignId) {
-      const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true } });
-      if (!campaign) return fail(res, 404, 'Campaign not found');
-    }
-
     // Build the same context an automatic call gets — including the
     // cross-channel conversation brief — so a one-click call from the dashboard
     // opens knowing the history rather than as a cold call. Without this the
@@ -142,7 +136,6 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
     const result = await placeCall({
       customerId: customer.id,
       phone: dialPhone,
-      campaignId: campaignId ?? null,
       // Fall back to the configured outbound agent rather than the workspace
       // default, so a manual call uses the same prompt as an automatic one.
       assistantId: assistantId ?? (await agentIdFor('leadCallback')),
@@ -161,7 +154,7 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
     });
 
     log[result.ok ? 'info' : 'warn']('manual trigger', {
-      customerId: customer.id, phone: dialPhone, campaignId: campaignId ?? null,
+      customerId: customer.id, phone: dialPhone,
       triggeredBy: req.admin?.sub ?? 'admin', ok: result.ok, error: result.error ?? null,
     });
 
@@ -171,7 +164,7 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
   }));
 
 // GET /api/admin/calls — paginated, newest first. Filters: status, outcome,
-// purpose, campaignId, search, from, to, answered, followUp (lib/callFilters.ts).
+// purpose, search, from, to, answered, followUp (lib/callFilters.ts).
 // List rows carry only what the list shows: no transcript, raw payload, call
 // context or recording link. The full call is GET /:id.
 callsRouter.get('/', ah(async (req, res) => {
@@ -215,20 +208,19 @@ callsRouter.get('/export.csv', requireRole(...CAN_WRITE), ah(async (req, res) =>
       take: EXPORT_LIMIT,
       select: {
         id: true, phone: true, status: true, outcome: true, answered: true, durationSec: true, attempt: true,
-        queuedAt: true, endedAt: true, error: true, campaignId: true,
+        queuedAt: true, endedAt: true, error: true,
         customer: { select: { name: true, firstSource: true } },
-        campaign: { select: { name: true, code: true } },
       },
     }),
   ]);
   const purposes = await purposesFor(rows.map((r) => r.id));
 
   const csv = toCsv(
-    ['id', 'phone', 'customer', 'source', 'campaign', 'purpose', 'status', 'outcome',
+    ['id', 'phone', 'customer', 'source', 'purpose', 'status', 'outcome',
      'answered', 'durationSec', 'attempt', 'queuedAt', 'endedAt', 'error'],
     rows.map((r) => [
-      r.id, r.phone, r.customer?.name, r.customer?.firstSource, r.campaign?.code ?? r.campaign?.name,
-      purposes.get(r.id) || (r.campaignId ? 'campaign' : ''), r.status, r.outcome,
+      r.id, r.phone, r.customer?.name, r.customer?.firstSource,
+      purposes.get(r.id) || '', r.status, r.outcome,
       r.answered, r.durationSec, r.attempt, r.queuedAt, r.endedAt, r.error,
     ]),
   );

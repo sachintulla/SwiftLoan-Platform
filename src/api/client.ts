@@ -251,31 +251,9 @@ export interface AuthResult {
   priorInquiries: PriorInquiry[];
 }
 
-// Admin-curated catalog of market-available loan offers shown on the dashboard
-// (no PAN, no credit pull) — see server's MarketLoanOffer model. Distinct from
-// the personalised/eligible Offer results returned per application. Amounts in whole rupees.
-export interface MarketLoanOffer {
-  id: string;
-  lenderName: string;
-  logoUrl?: string | null;
-  icon: string;
-  exploreUrl?: string | null;
-  badge?: string | null;
-  maxAmount?: number | null;
-  amountAtApproval: boolean;
-  rateMin?: number | null;
-  rateMax?: number | null;
-  rateAtApproval: boolean;
-  tenureMinMonths?: number | null;
-  tenureMaxMonths?: number | null;
-  tags: string[];
-  displayOrder: number;
-  active: boolean;
-}
-
 // A firm, global "pre-approved for you" offer — shown at the top of Home the
 // moment the user logs in, independent of the application funnel. Distinct from
-// MarketLoanOffer (soft marketing catalog, ranges): firm economics, and its
+// a soft marketing catalog with ranges: firm economics, and its
 // Accept path skips eligibility and hands off to the lender. Amounts in whole rupees.
 export interface PrequalifyingOffer {
   id: string;
@@ -294,8 +272,8 @@ export interface PrequalifyingOffer {
   active: boolean;
 }
 
-// A real per-application lender offer (distinct from MarketLoanOffer above,
-// which is admin-curated marketing data). Amounts are plain rupees, the same
+// A real per-application lender offer (distinct from the admin-curated
+// featured offers above). Amounts are plain rupees, the same
 // as everywhere else in the app. Server-side this is
 // produced by a LenderOfferProvider (mock today) — see server/src/lib/lenderOffers.ts.
 export interface EmiOption {
@@ -706,7 +684,6 @@ export const api = {
   getLoan: (id: string) => request('GET', `/loans/${id}`),
   payEmi: (loanId: string, repaymentId: string) => request('POST', `/loans/${loanId}/repayments/${repaymentId}/pay`),
   partners: () => request('GET', '/catalog/partners'),
-  marketLoanOffers: (): Promise<{ data: MarketLoanOffer[] }> => request('GET', '/market-loan-offers'),
   // Firm "pre-approved for you" offers shown at the top of Home on login. Auth'd,
   // active + unexpired, admin-ordered. Amounts in whole rupees.
   prequalifyingOffers: (): Promise<{ data: PrequalifyingOffer[] }> => request('GET', '/prequalifying-offers'),
@@ -714,10 +691,6 @@ export const api = {
   nudgeConfig: (): Promise<{ data: NudgeConfigDTO }> => request('GET', '/config/nudges'),
   emi: (amount: number, tenureMonths: number, rate: number) =>
     request('POST', '/tools/emi', { amount, tenureMonths, rate }),
-  // Friend referrals — the signed-in user's own code + the people they invited.
-  referralMe: () => request('GET', '/referrals/me'),
-  redeemReferral: (code: string, downloadId?: string | null, matchMethod?: string | null) =>
-    request('POST', '/referrals/redeem', { code, download_id: downloadId ?? null, match_method: matchMethod ?? null }),
   createTicket: (subject: string, type: 'query' | 'grievance' = 'query', body?: string, category?: 'privacy' | 'other') =>
     request('POST', '/support/tickets', { subject, type, body, ...(category ? { category } : {}) }),
 };
@@ -808,7 +781,6 @@ export interface InstallClaim {
   method: 'play_referrer' | 'clipboard' | 'ip_window' | null;
   download_id: string;
   source: string;
-  referral: { code: string; referrer_name: string } | null;
   /** Set when the install matched the link of a website visitor who left their application unfinished. */
   resume?: { token: string; first_name: string | null; phone: string; last_step: string } | null;
   /** A same-network match (not proof): the link probably had a website journey. Carries no personal data. */

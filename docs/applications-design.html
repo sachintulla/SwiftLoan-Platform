@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Applications design</title>
+<style>
+:root{--brand:#079fa0;--ink:#0a3f41;--bg:#f4f6f8;--surface:#fff;--surface-2:#f9fafb;--border:#e6e9ee;--text:#16202a;--dim:#667085;--faint:#98a2b3;
+--green:#12b76a;--green-bg:#e7f8f0;--blue:#2e90fa;--blue-bg:#e8f2fe;--amber:#f79009;--amber-bg:#fef3e6;--red:#f04438;--red-bg:#fee9e7;--grey:#98a2b3;--grey-bg:#f2f4f7;--teal:#15b8a6;--teal-bg:#e4f7f4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;-webkit-font-smoothing:antialiased}
+.note{background:var(--ink);color:#d7efef;padding:10px 20px;font-size:12.5px}.note b{color:#fff}
+.page{max-width:1240px;margin:0 auto;padding:20px 16px 60px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:22px;margin:0;letter-spacing:-.02em}
+.btn{border:1px solid var(--border);background:#fff;border-radius:9px;padding:8px 13px;font:600 13px inherit;color:var(--text);cursor:pointer}
+.btn-brand{background:var(--brand);border-color:var(--brand);color:#fff}
+/* lender tabs */
+.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}
+.tab{text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;color:inherit;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.tab-top{display:flex;justify-content:space-between;align-items:center}
+.tab-name{font-weight:700;font-size:15px}
+.tab-what{color:var(--dim);font-size:12px}
+.tab-num{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:6px 0 2px}
+.tab-split{display:flex;height:6px;border-radius:4px;overflow:hidden;background:var(--grey-bg);gap:1px}
+.tab-split i{display:block}
+.tab-foot{display:flex;gap:12px;margin-top:6px;font-size:11.5px;color:var(--dim);flex-wrap:wrap}
+.tab-foot b{color:var(--text)}
+/* card + table */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-top:14px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:14px 16px 0}
+.input{border:1px solid var(--border);border-radius:9px;padding:8px 11px;font:inherit;font-size:13px;background:#fff;color:var(--text)}
+.search{flex:1 1 260px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:12px 16px 0}
+.chip{border:1px solid var(--border);background:#fff;border-radius:999px;padding:5px 11px;font-size:12.5px;color:var(--dim);cursor:pointer}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip b{color:inherit;margin-left:4px}
+.extra{margin-left:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+th{text-align:left;color:var(--dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+td{padding:12px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:0}
+.r{text-align:right}
+.name{font-weight:600}.sub{color:var(--dim);font-size:11.5px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.t-green{background:var(--green-bg);color:#067647}.t-blue{background:var(--blue-bg);color:#175cd3}.t-amber{background:var(--amber-bg);color:#b54708}
+.t-red{background:var(--red-bg);color:#b42318}.t-grey{background:var(--grey-bg);color:#475467}.t-teal{background:var(--teal-bg);color:#0e7466}
+.pager{display:flex;justify-content:center;align-items:center;gap:8px;padding:14px 16px 16px;font-size:12px;color:var(--dim)}
+.why{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-top:22px;font-size:13px}
+.why h2{font-size:15px;margin:0 0 10px}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.opt{border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.opt.pick{border-color:var(--brand);background:#f3fbfb}
+.opt b{display:block;margin-bottom:4px}.opt p{margin:0;color:var(--dim);font-size:12.5px}
+.pane{display:none}.pane.on{display:block}
+/* lender tabs: a segmented switch. A grey track with the three lenders; the chosen one is a raised white button. */
+.ltabs{display:inline-flex;gap:4px;margin-top:20px;padding:4px;background:#e9edf1;border-radius:12px}
+.ltab{appearance:none;border:0;background:transparent;font:600 14px inherit;color:#475467;padding:9px 18px;cursor:pointer;border-radius:9px;display:flex;align-items:center;gap:9px;transition:background .15s,color .15s,box-shadow .15s}
+.ltab:hover{color:var(--text);background:rgba(255,255,255,.55)}
+.ltab.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.08),0 2px 6px rgba(16,24,40,.08)}
+.ltab .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.ltab .count{font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;background:rgba(16,24,40,.06);color:#475467}
+.ltab.on .count{background:var(--brand);color:#fff}
+@media(max-width:760px){.ltabs{display:flex}.ltab{flex:1;justify-content:center;padding:9px 8px}}
+@media(max-width:760px){.tabs,.opts{grid-template-columns:1fr}.hide-sm{display:none}}
+</style></head><body>
+<div class="note"><b>Design for review, not built yet.</b> Totals and status counts are real (production copy, 23 Nov 2026). Names and numbers in the rows are made-up samples. The cards on top are a summary; the tabs under them switch the table.</div>
+<div class="page">
+  <div class="head">
+    <h1>Applications</h1>
+  </div>
+
+  <!-- Summary only (not clickable): each lender's total, a status bar, and the numbers that matter. -->
+  <div class="tabs">
+    <div class="tab">
+      <div class="tab-top"><span class="tab-name">Aurix</span><span class="tab-what">Offers check</span></div>
+      <div class="tab-num">2,589</div>
+      <div class="tab-split"><i style="flex:172;background:var(--teal)"></i><i style="flex:159;background:var(--blue)"></i><i style="flex:69;background:var(--amber)"></i><i style="flex:2151;background:#f4a29b"></i><i style="flex:38;background:var(--grey)"></i></div>
+      <div class="tab-foot"><span><b>159</b> offers ready</span><span><b>172</b> with a lender</span><span><b>2,151</b> no offers</span></div>
+    </div>
+    <div class="tab">
+      <div class="tab-top"><span class="tab-name">Yubi</span><span class="tab-what">Partner lenders</span></div>
+      <div class="tab-num">2,538</div>
+      <div class="tab-split"><i style="flex:904;background:var(--teal)"></i><i style="flex:7;background:var(--blue)"></i><i style="flex:1556;background:var(--amber)"></i><i style="flex:52;background:#f4a29b"></i><i style="flex:19;background:var(--grey)"></i></div>
+      <div class="tab-foot"><span><b>892</b> new leads</span><span><b>19</b> applied / offer</span><span><b>1,556</b> no update yet</span></div>
+    </div>
+    <div class="tab">
+      <div class="tab-top"><span class="tab-name">Revasure</span><span class="tab-what">Lead sharing</span></div>
+      <div class="tab-num">1,355</div>
+      <div class="tab-split"><i style="flex:1307;background:var(--teal)"></i><i style="flex:32;background:#f4a29b"></i><i style="flex:16;background:var(--grey)"></i></div>
+      <div class="tab-foot"><span><b>1,307</b> accepted</span><span><b>32</b> not eligible</span><span><b>16</b> could not send</span></div>
+    </div>
+  </div>
+
+  <!-- The lender tabs: these switch the table. -->
+  <div class="ltabs" role="tablist" aria-label="Lender">
+    <button class="ltab on" data-pane="aurix" role="tab" aria-selected="true"><span class="dot" style="background:#078089"></span>Aurix <span class="count">2,589</span></button>
+    <button class="ltab" data-pane="yubi" role="tab" aria-selected="false"><span class="dot" style="background:#2e90fa"></span>Yubi <span class="count">2,538</span></button>
+    <button class="ltab" data-pane="revasure" role="tab" aria-selected="false"><span class="dot" style="background:#64748b"></span>Revasure <span class="count">1,355</span></button>
+  </div>
+
+  <!-- AURIX -->
+  <div class="card pane on" id="aurix" role="tabpanel">
+    <div class="bar">
+      <input class="input search" placeholder="Search name, mobile or reference (SL-…)">
+      <input class="input" type="date" title="From"><input class="input" type="date" title="To">
+      <button class="btn extra">Export CSV</button>
+    </div>
+    <div class="chips">
+      <span class="chip on">All <b>2,589</b></span><span class="chip">Offers ready <b>159</b></span><span class="chip">Sent to lender <b>98</b></span>
+      <span class="chip">In review <b>74</b></span><span class="chip">Filling details <b>69</b></span><span class="chip">No offers <b>2,151</b></span><span class="chip">Failed <b>38</b></span>
+    </div>
+    <table>
+      <thead><tr><th>Customer</th><th class="r">Amount</th><th>Status</th><th class="hide-sm">Lender</th><th class="r">Date</th></tr></thead>
+      <tbody>
+        <tr><td><div class="name">Asha Verma</div><div class="sub mono">SL-482910 · 98••••4321</div></td><td class="r">₹1,50,000</td><td><span class="badge t-blue">Offers ready</span><div class="sub">3 offers</div></td><td class="hide-sm">—</td><td class="r">23 Nov, 11:28 am</td></tr>
+        <tr><td><div class="name">Ravi Kumar</div><div class="sub mono">SL-731044 · 70••••1187</div></td><td class="r">₹5,00,000</td><td><span class="badge t-teal">Sent to lender</span></td><td class="hide-sm">Credit Sea</td><td class="r">23 Nov, 11:04 am</td></tr>
+        <tr><td><div class="name">Meena Joshi</div><div class="sub mono">SL-206118 · 91••••5520</div></td><td class="r">₹50,000</td><td><span class="badge t-red">No offers</span><div class="sub">Not eligible</div></td><td class="hide-sm">—</td><td class="r">23 Nov, 10:51 am</td></tr>
+        <tr><td><div class="name">Imran Shaikh</div><div class="sub mono">SL-559302 · 88••••0042</div></td><td class="r">₹2,00,000</td><td><span class="badge t-blue">In review</span></td><td class="hide-sm">Poonawalla Fincorp</td><td class="r">22 Nov, 6:15 pm</td></tr>
+      </tbody>
+    </table>
+    <div class="pager"><button class="btn">Prev</button> Page 1 of 104 <button class="btn">Next</button></div>
+  </div>
+
+  <!-- YUBI -->
+  <div class="card pane" id="yubi" role="tabpanel">
+    <div class="bar">
+      <input class="input search" placeholder="Search name or mobile">
+      <input class="input" type="date" title="From"><input class="input" type="date" title="To">
+      <button class="btn extra">Export CSV</button>
+    </div>
+    <div class="chips">
+      <span class="chip on">All <b>2,538</b></span><span class="chip">No update yet <b>1,556</b></span><span class="chip">New lead <b>892</b></span>
+      <span class="chip">Application started <b>12</b></span><span class="chip">Offer generated <b>7</b></span><span class="chip">Rejected <b>52</b></span><span class="chip">Could not send <b>19</b></span>
+    </div>
+    <table>
+      <thead><tr><th>Customer</th><th class="r">Amount</th><th>Status</th><th class="hide-sm">Lender</th><th class="r">Date</th></tr></thead>
+      <tbody>
+        <tr><td><div class="name">Pooja Nair</div><div class="sub mono">97••••8810</div></td><td class="r">₹1,00,000</td><td><span class="badge t-teal">Application started</span></td><td class="hide-sm">Yubi partner</td><td class="r">23 Nov, 11:50 am</td></tr>
+        <tr><td><div class="name">Sunil Patil</div><div class="sub mono">93••••2276</div></td><td class="r">₹3,00,000</td><td><span class="badge t-teal">New lead</span></td><td class="hide-sm">—</td><td class="r">23 Nov, 9:43 am</td></tr>
+        <tr><td><div class="name">Kavya Reddy</div><div class="sub mono">80••••6401</div></td><td class="r">₹75,000</td><td><span class="badge t-amber">No update yet</span></td><td class="hide-sm">—</td><td class="r">22 Nov, 7:02 pm</td></tr>
+        <tr><td><div class="name">Arjun Das</div><div class="sub mono">99••••3318</div></td><td class="r">₹2,50,000</td><td><span class="badge t-red">Lead rejected</span></td><td class="hide-sm">—</td><td class="r">22 Nov, 4:20 pm</td></tr>
+      </tbody>
+    </table>
+    <div class="pager"><button class="btn">Prev</button> Page 1 of 102 <button class="btn">Next</button></div>
+  </div>
+
+  <!-- REVASURE -->
+  <div class="card pane" id="revasure" role="tabpanel">
+    <div class="bar">
+      <input class="input search" placeholder="Search name, mobile or Revasure lead ID">
+      <input class="input" type="date" title="From"><input class="input" type="date" title="To">
+      <button class="btn">Upload status sheet</button>
+      <button class="btn extra">Export CSV</button>
+    </div>
+    <div class="chips">
+      <span class="chip on">All <b>1,355</b></span><span class="chip">Accepted <b>1,307</b></span><span class="chip">Not eligible <b>31</b></span>
+      <span class="chip">Already registered <b>1</b></span><span class="chip">Could not send <b>16</b></span>
+    </div>
+    <table>
+      <thead><tr><th>Customer</th><th class="r">Amount</th><th>Status</th><th class="hide-sm">Loan status (from sheet)</th><th class="r">Date</th></tr></thead>
+      <tbody>
+        <tr><td><div class="name">Deepak Singh</div><div class="sub mono">96••••7712</div></td><td class="r">₹1,50,000</td><td><span class="badge t-teal">Accepted</span></td><td class="hide-sm"><span class="badge t-green">Disbursed</span></td><td class="r">23 Nov, 11:33 am</td></tr>
+        <tr><td><div class="name">Neha Gupta</div><div class="sub mono">87••••4409</div></td><td class="r">₹50,000</td><td><span class="badge t-teal">Accepted</span></td><td class="hide-sm">No update</td><td class="r">23 Nov, 10:12 am</td></tr>
+        <tr><td><div class="name">Vikram Rao</div><div class="sub mono">90••••1150</div></td><td class="r">₹5,00,000</td><td><span class="badge t-red">Not eligible</span></td><td class="hide-sm">—</td><td class="r">22 Nov, 8:47 pm</td></tr>
+        <tr><td><div class="name">Farah Khan</div><div class="sub mono">78••••9023</div></td><td class="r">₹1,00,000</td><td><span class="badge t-grey">Could not send</span></td><td class="hide-sm">—</td><td class="r">22 Nov, 3:05 pm</td></tr>
+      </tbody>
+    </table>
+    <div class="pager"><button class="btn">Prev</button> Page 1 of 55 <button class="btn">Next</button></div>
+  </div>
+
+  <div class="why">
+    <h2>Why tabs inside Applications</h2>
+    <div class="opts">
+      <div class="opt"><b>Separate sidebar tabs (today)</b><p>Three menu items for one idea, three different-looking pages, and you search for a person in three places.</p></div>
+      <div class="opt pick"><b>Tabs inside Applications (this design)</b><p>One menu item, one look. Summary cards on top, then clear lender tabs that switch the table. Same columns and filters for all three; each lender keeps its own status words and extras (Revasure's sheet upload).</p></div>
+      <div class="opt"><b>One single table</b><p>The same person shows up to three times (6,482 rows for about 1,350 people), and each lender's statuses mean different things, so one status filter would mislead.</p></div>
+    </div>
+  </div>
+</div>
+<script>
+document.querySelectorAll('.ltab').forEach(function(t){t.addEventListener('click',function(){
+  document.querySelectorAll('.ltab').forEach(function(x){x.classList.toggle('on',x===t);x.setAttribute('aria-selected',x===t)});
+  document.querySelectorAll('.pane').forEach(function(p){p.classList.toggle('on',p.id===t.dataset.pane)});
+});});
+</script>
+</body></html>

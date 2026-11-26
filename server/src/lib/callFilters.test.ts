@@ -42,16 +42,6 @@ describe('buildCallWhere', () => {
     expect(buildCallWhere({ purpose: 'something_else' }).AND).toBeUndefined();
   });
 
-  it('treats the campaign purpose as "belongs to a campaign"', () => {
-    const w = buildCallWhere({ purpose: 'campaign' });
-    expect(w.campaignId).toEqual({ not: null });
-    expect(w.AND).toBeUndefined();
-  });
-
-  it('filters by campaign id', () => {
-    expect(buildCallWhere({ campaignId: 'c1' }).campaignId).toBe('c1');
-  });
-
   it('searches the phone number when the search is digits', () => {
     expect(buildCallWhere({ search: '98765' }).phone).toEqual({ contains: '98765' });
     expect(buildCallWhere({ search: '+91 98765-43210' }).phone).toEqual({ contains: '919876543210' });
@@ -100,7 +90,7 @@ describe('buildCallWhere', () => {
 
 describe('activeCallFilters', () => {
   it('lists only the filters that were set', () => {
-    expect(activeCallFilters({ status: 'failed', search: '', page: '3', purpose: 'campaign' })).toEqual({ status: 'failed', purpose: 'campaign' });
+    expect(activeCallFilters({ status: 'failed', search: '', page: '3', purpose: 'daily_status_update' })).toEqual({ status: 'failed', purpose: 'daily_status_update' });
   });
 });
 
@@ -111,7 +101,7 @@ describe('CALL_LIST_SELECT', () => {
   });
 
   it('has the fields the list shows', () => {
-    for (const k of ['id', 'phone', 'status', 'outcome', 'outcomeSource', 'answered', 'durationSec', 'summary', 'callbackAt', 'queuedAt', 'startedAt', 'endedAt', 'campaignId', 'customer']) {
+    for (const k of ['id', 'phone', 'status', 'outcome', 'outcomeSource', 'answered', 'durationSec', 'summary', 'callbackAt', 'queuedAt', 'startedAt', 'endedAt', 'customer']) {
       expect(Object.keys(CALL_LIST_SELECT)).toContain(k);
     }
   });
@@ -121,7 +111,7 @@ describe('toCallListItem', () => {
   const base = {
     id: 'c1', phone: '9876543210', status: 'completed', outcome: 'interested', outcomeSource: 'agent', answered: true,
     durationSec: 42, summary: 'Wants 2 lakh', callbackAt: null, queuedAt: new Date('2026-10-27T05:00:00Z'),
-    startedAt: null, endedAt: null, campaignId: null, customer: { id: 'u1', name: 'Asha', phone: '9876543210' },
+    startedAt: null, endedAt: null, customer: { id: 'u1', name: 'Asha', phone: '9876543210' },
   };
 
   it('clips the summary to 300 characters', () => {
@@ -136,9 +126,8 @@ describe('toCallListItem', () => {
     for (const banned of ['rawPayload', 'transcript', 'callContext', 'recordingUrl']) expect(item).not.toHaveProperty(banned);
   });
 
-  it('takes the purpose from the reason, and falls back to campaign', () => {
+  it('takes the purpose from the reason', () => {
     expect(toCallListItem(base, 'daily_status_update').purpose).toBe('daily_status_update');
-    expect(toCallListItem({ ...base, campaignId: 'k1' }, null).purpose).toBe('campaign');
     expect(toCallListItem(base, undefined).purpose).toBeNull();
   });
 });

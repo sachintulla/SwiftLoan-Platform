@@ -1,4 +1,4 @@
-/* Loan Pipeline, Revasure and Yubi lists: export and campaign actions, filter bar,
+/* Applications, Revasure and Yubi lists: export action, filter bar,
    stat strip, expandable rows and the narrow-screen card layout.
    Classes use the adm- prefix; colours come from the tokens in globals.css. */
 
@@ -11,21 +11,6 @@
 .adm-la-warn { max-width: 440px; width: 100%; }
 .adm-la-warn .callout { margin-top: 4px; }
 .adm-note { font-size: 12px; color: var(--text-dim); margin: 0 0 12px; line-height: 1.5; }
-
-/* ── campaign dialog ── */
-.adm-dlg-backdrop { position: fixed; inset: 0; background: rgba(15,23,32,.55); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.adm-dlg { width: 100%; max-width: 520px; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 22px; outline: none; }
-.adm-dlg-title { font-size: 17px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 10px; }
-.adm-dlg-body { font-size: 13.5px; line-height: 1.6; color: var(--text); display: grid; gap: 10px; }
-.adm-dlg-body p { margin: 0; }
-.adm-dlg-body .callout { margin-top: 0; }
-.adm-dlg-list { margin: 0; padding-left: 18px; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
-.adm-dlg-field { display: grid; gap: 6px; margin-top: 4px; }
-.adm-dlg-field label { font-size: 12.5px; font-weight: 600; }
-.adm-dlg-field .req { color: var(--red); margin-left: 2px; }
-.adm-dlg-err { font-size: 12.5px; color: var(--red); margin: 0; }
-.adm-dlg-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
-.adm-dlg-foot .btn { min-height: 38px; }
 
 /* ── filter bar ── */
 .adm-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; margin-bottom: 12px; }

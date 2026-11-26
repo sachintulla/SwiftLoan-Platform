@@ -5,7 +5,6 @@
  * prompts, voices and (usually) different agents:
  *
  *   leadCallback   — outbound: calls a website lead ~1 min after they submit
- *   campaign       — outbound: bulk campaign dialling from an uploaded sheet
  *   companion      — inbound/in-app: the mobile app's voice copilot
  *   adminNavigator — in-dashboard: drives the admin UI by voice
  *
@@ -21,7 +20,7 @@
 import { getProviderConfig } from './integrations.js';
 
 export const AGENT_ROLES = [
-  'leadCallback', 'campaign', 'companion', 'websiteCompanion', 'adminNavigator', 'statusUpdate',
+  'leadCallback', 'companion', 'websiteCompanion', 'adminNavigator', 'statusUpdate',
 ] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
@@ -31,11 +30,6 @@ export const AGENT_ROLE_INFO: Record<AgentRole, { label: string; direction: stri
     label: 'Website lead callback',
     direction: 'outbound',
     purpose: 'Calls a visitor ~1 minute after they submit the rate form, already knowing what they asked for.',
-  },
-  campaign: {
-    label: 'Campaign dialler',
-    direction: 'outbound',
-    purpose: 'Works an uploaded contact list on the campaign schedule and cadence.',
   },
   companion: {
     label: 'Mobile app companion',
@@ -61,7 +55,6 @@ export const AGENT_ROLE_INFO: Record<AgentRole, { label: string; direction: stri
 
 const ENV_KEY: Record<AgentRole, string> = {
   leadCallback: 'ELLO_AGENT_LEAD_CALLBACK',
-  campaign: 'ELLO_AGENT_CAMPAIGN',
   companion: 'ELLO_AGENT_COMPANION',
   websiteCompanion: 'ELLO_AGENT_WEBSITE_COMPANION',
   adminNavigator: 'ELLO_AGENT_ADMIN_NAVIGATOR',

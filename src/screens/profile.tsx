@@ -36,7 +36,6 @@ function formatDob(dob: string, notSetLabel: string): string {
 }
 
 const LINKS = [
-  { icon: 'group_add', key: 'linkRefer', refer: true },
   { icon: 'help', key: 'linkFaqs', help: true },
   { icon: 'shield_person', key: 'linkPrivacy' },
   { icon: 'description', key: 'linkTerms' },
@@ -505,7 +504,6 @@ export default function Profile() {
           <Pressable
             key={l.key}
             onPress={() => {
-              if (l.refer) return go('referral');
               if (l.help) return go('help');
               if (l.key === 'linkDelete') return deleteAccount();
               const doc =

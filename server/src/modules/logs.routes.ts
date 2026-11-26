@@ -1,8 +1,8 @@
 /**
  * Internal API-traffic viewer — GET /logs renders a self-contained HTML page;
- * GET /logs/data returns the rows as JSON (the page polls it). Shows the last
- * 24 hours of inbound (app ↔ swiftloan-api) and outbound (swiftloan-api ↔
- * Aurix) requests/responses, for internal verification.
+ * GET /logs/data returns the rows as JSON (the page polls it). Shows the FAILED
+ * inbound (app ↔ swiftloan-api) and outbound (swiftloan-api ↔ partners) calls
+ * (only failures are saved, kept 30 days by default; see lib/apiLog.ts).
  *
  * Optional gate: set LOGS_ACCESS_TOKEN and callers must pass ?key=<token>.
  * Bodies are already redacted for sensitive keys (see lib/apiLog.ts).
@@ -80,7 +80,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .empty{padding:40px;text-align:center;color:var(--muted)}
 </style></head><body>
 <header>
-  <div><h1>SwiftLoan · API Logs</h1><div class="sub">Inbound (app ↔ API) &amp; outbound (API ↔ Aurix / Yubi / Revasure) · last 24h</div></div>
+  <div><h1>SwiftLoan · API Logs</h1><div class="sub">Failed calls only · inbound (app ↔ API) &amp; outbound (API ↔ Aurix / Yubi / Revasure)</div></div>
   <div class="controls">
     <select id="direction"><option value="">All directions</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select>
     <select id="target"><option value="">All targets</option><option value="aurix">Aurix</option><option value="yubi">Yubi</option><option value="revasure">Revasure</option><option value="swiftloan-api">SwiftLoan API</option></select>

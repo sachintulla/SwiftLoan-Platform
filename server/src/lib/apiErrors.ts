@@ -20,12 +20,36 @@ export interface ApiErrorFilters {
   q?: string | null;
   from?: Date | null;
   to?: Date | null;
+  /** Also list routine refusals by our own API (see IS_NOISE). Off by default. */
+  includeNoise?: boolean;
 }
 
 /** The base "this row is an error" condition: a 4xx/5xx status, or a captured error string. */
 export const IS_ERROR: Prisma.ApiLogWhereInput = {
   OR: [{ status: { gte: 400 } }, { error: { not: null } }],
 };
+
+/**
+ * Routine refusals by OUR OWN API: an expired or missing login (401) and the rate limit (429). They are most of the
+ * rows (1,038 of 1,301 on 2026-11-23) and hide the failures someone must act on, so the page leaves them out unless
+ * asked. Inbound only: a 401 or 429 that a LENDER sends us on an outbound call is a real failure and always shows.
+ */
+export const NOISE_STATUSES = [401, 429];
+export const IS_NOISE: Prisma.ApiLogWhereInput = { direction: 'inbound', status: { in: NOISE_STATUSES } };
+/** Written as an OR so rows with no status (the call never got one) are kept: `NOT status IN (...)` would drop them. */
+export const NOT_NOISE: Prisma.ApiLogWhereInput = {
+  OR: [{ direction: { not: 'inbound' } }, { status: null }, { status: { notIn: NOISE_STATUSES } }],
+};
+
+/** True for one row that is a routine refusal (same rule as IS_NOISE). */
+export function isNoiseRow(row: { direction?: string | null; status: number | null }): boolean {
+  return row.direction === 'inbound' && row.status != null && NOISE_STATUSES.includes(row.status);
+}
+
+/** The base condition for the page: every error, or every error that is not a routine refusal. */
+export function baseErrorWhere(includeNoise: boolean): Prisma.ApiLogWhereInput {
+  return includeNoise ? IS_ERROR : { AND: [IS_ERROR, NOT_NOISE] };
+}
 
 /** The extra condition a chosen status class adds (narrows IS_ERROR). */
 export function statusClassWhere(sc: StatusClass): Prisma.ApiLogWhereInput {
@@ -41,6 +65,7 @@ export function statusClassWhere(sc: StatusClass): Prisma.ApiLogWhereInput {
 /** Build the Prisma `where` for the error list from the admin's filters. */
 export function buildApiErrorWhere(f: ApiErrorFilters): Prisma.ApiLogWhereInput {
   const and: Prisma.ApiLogWhereInput[] = [IS_ERROR];
+  if (!f.includeNoise) and.push(NOT_NOISE);
   if (f.statusClass) and.push(statusClassWhere(f.statusClass));
   if (f.direction) and.push({ direction: f.direction });
   if (f.target) and.push({ target: f.target });

@@ -7,19 +7,19 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, downloadFile, getAdmin } from '@/lib/api';
-import { Card, Stat, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
+import { Card, StatCard, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo, num, inr } from '@/lib/format';
+import { customerCards } from '@/lib/customerCards';
 import { stageLabel, stalledLabel } from '@/components/journey';
 import { PERIODS, computeRange } from '@/lib/period';
-import ConversionsPanel from '@/components/ConversionsPanel';
 import {
   parseCustomerFilters, serialiseCustomerFilters, hasCustomerFilters, customerListQuery, customerExportQuery, customerFilterParams,
   stalledOptionsFor, canExport, type CustomerFilters,
 } from '@/lib/customerFilters';
 
 const SOURCES = [
-  { key: '', label: 'All sources' }, { key: 'website', label: 'Website' }, { key: 'campaign', label: 'Campaign' },
-  { key: 'app', label: 'App' }, { key: 'voice', label: 'Voice' }, { key: 'referral', label: 'Referral' },
+  { key: '', label: 'All sources' }, { key: 'website', label: 'Website' },
+  { key: 'app', label: 'App' }, { key: 'voice', label: 'Voice' },
 ];
 
 interface CustomerRow {
@@ -73,7 +73,7 @@ function Customers() {
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<CustomerFilters>(() => parseCustomerFilters(searchParams));
   const [page, setPage] = useState(1);
-  const { status, source, campaignId, search, stalledMinutes, period, from: cFrom, to: cTo, unverified } = filters;
+  const { status, source, search, stalledMinutes, period, from: cFrom, to: cTo, unverified } = filters;
   const change = (patch: Partial<CustomerFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
 
   useEffect(() => {
@@ -96,18 +96,11 @@ function Customers() {
   const { data: statusRes } = useSWR(`/api/admin/customers/statuses${statusQuery ? `?${statusQuery}` : ''}`, swrFetcher);
   const statusOptions = asArray<StatusOption>(statusRes?.data);
 
-  // campaign picker options — reuse the campaigns list endpoint
-  const { data: campRes } = useSWR('/api/admin/campaigns?page=1&pageSize=100', swrFetcher);
-  const campaigns = asArray<{ id: string; name: string; code: string }>(campRes?.data);
-  const campaignName = useMemo(() => new Map(campaigns.map((x) => [x.id, x.name])), [campaigns]);
-
   const reset = () => { setFilters(parseCustomerFilters('')); setPage(1); };
 
-  // Page-scoped roll-ups — the labels say "of the N shown" so a total that only
-  // covers this page is never read as a total across every customer.
-  const stalledCount = rows.filter((r) => (r.stalledMinutes ?? 0) > 60).length;
-  const requestedTotal = rows.reduce((sum, r) => sum + (r.loanAmount ?? 0), 0);
-  const callsTotal = rows.reduce((sum, r) => sum + (r.callCount ?? 0), 0);
+  // The cards on top: all customers of the current slice (every filter except the status one), by status.
+  const cards = useMemo(() => customerCards(statusOptions), [statusOptions]);
+  const otherFilters = hasCustomerFilters({ ...filters, status: '' });
 
   // CSV export follows every filter the table is showing: stage, source,
   // campaign, search, inactivity and the joined dates. Same builder as the list
@@ -131,59 +124,28 @@ function Customers() {
 
   return (
     <div className="page">
-      <div className="row between wrap" style={{ gap: 12 }}>
-        <div>
-          <h1 className="page-title">Customers</h1>
-          <p className="page-sub">
-            {unverified
-              ? 'People who typed their mobile number in the app or on the website and never entered the OTP. Nothing else is known about them yet.'
-              : 'Every person across website enquiries, campaigns, voice and the app — one row each, with where they are, how long they have been stuck and everything we have ever said to them.'}
-          </p>
-        </div>
-        <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
-          {/* Off: everyone who verified their number (plus website enquiries and callers). On: only the unverified numbers. */}
-          <label className="row" style={{ gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <button
-              type="button" role="switch" aria-checked={unverified} aria-label="Unverified numbers" className="tm-switch"
-              onClick={() => change({ unverified: !unverified })}
-            />
-            Unverified numbers
-          </label>
-          {exportErr && <span role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
-          {!mayExport && role !== null && (
-            <span id="customers-export-note" className="muted" style={{ fontSize: 12 }}>Exports need an admin or super admin</span>
-          )}
-          <button
-            className="btn"
-            disabled={exporting || (role !== null && !mayExport)}
-            aria-describedby={!mayExport && role !== null ? 'customers-export-note' : undefined}
-            onClick={exportCsv}
-          >
-            {exporting ? 'Exporting…' : 'Export CSV'}
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-16">
-        <ConversionsPanel from={range.from} to={range.to} sub="Conversions are a % of total customers in the date range selected below. Commercials = total loan amount requested across website leads." />
-      </div>
-
-      {/* the numbers an operator acts on, in one card */}
-      <Card className="mt-16">
-        {isLoading ? <div className="skeleton" style={{ height: 58 }} /> : (
-          <div className="stat-strip">
-            <Stat label={unverified ? 'Unverified numbers' : 'Customers'} value={num(pg?.total ?? rows.length)}
-              foot={filtered ? 'matching these filters' : 'known in total'} />
-            <Stat label="Requested" value={requestedTotal ? inr(requestedTotal) : '—'}
-              tone={requestedTotal ? undefined : 'text-faint'}
-              foot={`applied for across the ${num(rows.length)} shown`} />
-            <Stat label="Calls placed" value={num(callsTotal)} tone={callsTotal ? undefined : 'text-faint'}
-              foot={`to the ${num(rows.length)} shown`} />
-            <Stat label="Inactive over an hour" value={num(stalledCount)} tone={stalledCount > 0 ? 'amber' : undefined}
-              foot="no app or website activity — these are the ones to call" />
-          </div>
+      {/* Six cards, worked out from how many customers are in each status (lib/customerCards.ts). Every percentage is
+          out of all the customers in the current slice, and they follow every filter except the status one. */}
+      <div className="dash-cards-wrap" style={{ marginTop: 0 }}><div className="dash-cards">
+        {!statusRes ? (
+          Array.from({ length: 6 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
+        ) : (
+          <>
+            <StatCard label={unverified ? 'Unverified numbers' : 'Total customers'} value={num(cards.total)} icon="◉" tone="teal"
+              foot={otherFilters ? 'Matching these filters' : 'Everyone we know'} />
+            <StatCard label="Applied for offers" value={`${cards.askedOffersPct}%`} icon="▤" tone="blue"
+              foot={`${num(cards.askedOffers)} sent an application`} />
+            <StatCard label="Got offers" value={`${cards.gotOffersPct}%`} icon="★" tone="green"
+              foot={`${num(cards.gotOffers)} got at least one offer`} />
+            <StatCard label="Did not get offers" value={`${cards.noOffersPct}%`} icon="○" tone="amber"
+              foot={`${num(cards.noOffers)} were offered nothing`} />
+            <StatCard label="Applied to a lender" value={`${cards.appliedLenderPct}%`} icon="➜" tone="teal"
+              foot={`${num(cards.appliedLender)} applied on an offer`} />
+            <StatCard label="Rejected customers" value={num(cards.rejected)} icon="✕" tone="red"
+              foot={cards.lenderRejected > 0 ? `${num(cards.noOffers)} no offers · ${num(cards.lenderRejected)} by a lender` : `${cards.rejectedPct}% · no lender offered a loan`} />
+          </>
         )}
-      </Card>
+      </div></div>
 
       <div style={{ marginTop: 16 }}>
       <Card>
@@ -229,13 +191,6 @@ function Customers() {
               options={SOURCES.map((x) => ({ value: x.key, label: x.label }))}
             />
           </div>
-          <div style={{ width: 176 }}>
-            <Select
-              value={campaignId}
-              onChange={(v) => change({ campaignId: v })}
-              options={[{ value: '', label: 'All campaigns' }, ...campaigns.map((x) => ({ value: x.id, label: x.name }))]}
-            />
-          </div>
           <div style={{ width: 190 }}>
             <Select
               value={stalledMinutes}
@@ -258,6 +213,21 @@ function Customers() {
             </span>
           )}
           {filtered && <button className="btn" onClick={reset}>Clear</button>}
+          {/* Export sits with the table it exports: the file follows every filter above. */}
+          <div className="row" style={{ gap: 10, alignItems: 'center', marginLeft: 'auto' }}>
+            {exportErr && <span role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{exportErr}</span>}
+            {!mayExport && role !== null && (
+              <span id="customers-export-note" className="muted" style={{ fontSize: 12 }}>Exports need an admin or super admin</span>
+            )}
+            <button
+              className="btn"
+              disabled={exporting || (role !== null && !mayExport)}
+              aria-describedby={!mayExport && role !== null ? 'customers-export-note' : undefined}
+              onClick={exportCsv}
+            >
+              {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
+          </div>
         </div>
 
         {error ? (
@@ -270,7 +240,7 @@ function Customers() {
             <p>
               {filtered
                 ? 'Nothing in this slice. Widen the status, source or inactivity filter to see more people.'
-                : 'People appear here the moment they enquire on the website, get dialled by a campaign, or open the app.'}
+                : 'People appear here the moment they enquire on the website or open the app.'}
             </p>
             {filtered && <button className="btn" onClick={reset}>Clear filters</button>}
           </div>
@@ -300,13 +270,7 @@ function Customers() {
                         <div className="muted" style={{ fontSize: 11.5 }}>
                           <span className="mono">{c.phone || 'no phone'}</span>
                           {' · '}
-                          {/* a campaign keeps its own casing; only the bare
-                              source word ("app", "website") gets capitalised */}
-                          {c.campaignId ? (
-                            <span>{campaignName.get(c.campaignId) ?? 'Campaign'}</span>
-                          ) : (
-                            <span style={{ textTransform: 'capitalize' }}>{c.firstSource || 'unknown'}</span>
-                          )}
+                          <span style={{ textTransform: 'capitalize' }}>{c.firstSource || 'unknown'}</span>
                         </div>
                       </div>
                     </div>

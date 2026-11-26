@@ -5,7 +5,7 @@ import { StatusBadge, LoanStatusBadge } from '@/components/ui';
 import SendActions from '@/components/SendActions';
 import { dateTimeStr, timeAgo } from '@/lib/format';
 import {
-  type InstallRow, loanDetailsText, hasLoanDetails, linkSentText, stageWhenSentNote, matchedByText, followUpDisabledReason,
+  type InstallRow, loanDetailsText, hasLoanDetails, campaignSourceText, linkSentText, stageWhenSentNote, matchedByText, followUpDisabledReason,
   platformLabel, sentByLabel, channelLabel,
 } from '@/lib/installs';
 import './installs.css';
@@ -83,7 +83,9 @@ export default function InstallsTable({ rows, stageName, onChanged }: Props) {
                   </td>
 
                   <td data-label="Loan details">
-                    <span className={hasLoanDetails(c) ? undefined : 'muted'}>{loanDetailsText(c)}</span>
+                    {campaignSourceText(c)
+                      ? <span>{campaignSourceText(c)}</span>
+                      : <span className={hasLoanDetails(c) ? undefined : 'muted'}>{loanDetailsText(c)}</span>}
                     {r.application && (
                       <div className="adm-inst-note" style={{ marginTop: 4 }}>
                         <LoanStatusBadge status={r.application.status} />

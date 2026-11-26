@@ -17,7 +17,7 @@ import {
   loadTokens, loadLang, saveLang, loadVoiceLang, saveVoiceLang, loadPrivacyAccepted,
   loadPrefillDraft, savePrefillDraft,
   loadIntroPitchHeard,
-  loadInstallClaimed, saveInstallClaimed, loadPendingReferral, savePendingReferral, clearPendingReferral,
+  loadInstallClaimed, saveInstallClaimed,
 } from './session';
 import { readInstallSignals } from '../utils/installSignals';
 import { parseResume, resumePatchFromClaim, agentResumeContext, type Resume, type ResumeStage } from '../utils/resume';
@@ -41,7 +41,7 @@ export const SCREEN_NAMES = [
   'home', 'loans', 'fare', 'help', 'profile', 'legal',
   'basic', 'basicpan', 'moredetails', 'finding', 'offers', 'handoff', 'lenderweb', 'altweb',
   'apply', 'income', 'residence', 'consent', 'prequalify',
-  'status', 'disbursed', 'repay', 'calculator', 'compare', 'referral', 'notifications',
+  'status', 'disbursed', 'repay', 'calculator', 'compare', 'notifications',
 ] as const;
 
 // Friendly/spoken screen names → canonical screen id. The voice agent used to
@@ -59,7 +59,6 @@ const SCREEN_ALIASES: Record<string, Screen> = {
   home: 'home', dashboard: 'home', main: 'home',
   profile: 'profile', account: 'profile', settings: 'profile', myprofile: 'profile',
   help: 'help', support: 'help',
-  referral: 'referral', referrals: 'referral', referafriend: 'referral', invitefriends: 'referral', invite: 'referral',
   notifications: 'notifications', notification: 'notifications', inbox: 'notifications', alerts: 'notifications',
   applyforaloan: 'basicpan', apply: 'basicpan', applyloan: 'basicpan', newloan: 'basicpan',
 };
@@ -187,7 +186,6 @@ const PREV: Partial<Record<Screen, Screen>> = {
   disbursed: 'home', repay: 'home',
   loans: 'home', fare: 'home', calculator: 'home',
   compare: 'fare',
-  referral: 'profile',
   legal: 'profile',
   help: 'profile',
   notifications: 'home',
@@ -327,7 +325,7 @@ export interface AppState {
   // Real API responses for the loan-application lifecycle, keyed by which call
   // produced them (applicationCreated, applicationUpdated, applications,
   // applicationDetail, prequalifyResult, offerApplyResult, offerFailResult,
-  // handoffResult, marketOffers) — pushed to the voice agent as `api_context`
+  // handoffResult) — pushed to the voice agent as `api_context`
   // so it has the actual data, not just whatever happens to be rendered as
   // visible text on the current screen. See store.ts's registerPageContext.
   apiContext: Record<string, unknown>;
@@ -1181,9 +1179,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const claim = await claimInstall(Platform.OS, signals);
         if (!claim) return;
         await saveInstallClaimed();
-        if (claim.referral) {
-          await savePendingReferral({ code: claim.referral.code, downloadId: claim.download_id, method: claim.method });
-        }
         // The install came from a website visitor's own link: offer to continue where they left off.
         // A same-network match (resume_hint) carries only the step reached, never a name or phone; no match = the normal introduction.
         const patch = resumePatchFromClaim(claim);
@@ -1306,24 +1301,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .catch(() => undefined);
   }, [state.authUser]);
 
-  // A friend's invite is redeemed once they have an account (OTP verified). Expected
-  // refusals (own code, already referred, not a new user) are silent; only a real
-  // success tells the user who invited them.
-  const referralRedeemed = useRef(false);
-  useEffect(() => {
-    if (!state.authUser || referralRedeemed.current) return;
-    referralRedeemed.current = true;
-    (async () => {
-      const pending = await loadPendingReferral();
-      if (!pending) return;
-      const r: any = await api.redeemReferral(pending.code, pending.downloadId, pending.method).catch(() => null);
-      if (!r) return; // network error: keep it pending, retry next launch
-      await clearPendingReferral();
-      if (r?.data?.redeemed && r.data.referrer_name) {
-        showToast(`${strings(stateRef.current.lang ?? 'en').refInvitedBy} ${r.data.referrer_name}`, { kind: 'success' });
-      }
-    })().catch(() => undefined);
-  }, [state.authUser, showToast]);
 
   // ── WS4: emit an event on every screen transition (fire-and-forget) ──
   useEffect(() => {

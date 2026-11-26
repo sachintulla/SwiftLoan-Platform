@@ -8,7 +8,6 @@ const OFFERS_CACHE_KEY = 'swiftloan.offers.cache';
 const PREFILL_DRAFT_KEY = 'swiftloan.applicant.prefillDraft';
 const INTRO_PITCH_HEARD_KEY = 'swiftloan.voice.introPitchHeard';
 const INSTALL_CLAIMED_KEY = 'swiftloan.install.claimed';
-const PENDING_REFERRAL_KEY = 'swiftloan.referral.pending';
 
 export interface StoredTokens {
   accessToken: string;
@@ -177,31 +176,6 @@ export async function clearIntroPitchHeard(): Promise<void> {
   await AsyncStorage.removeItem(INTRO_PITCH_HEARD_KEY).catch(() => {});
 }
 
-// ── Market (available) loan offers catalog cache ─────────────────────────────
-// The home "Available offers" list rarely changes, so we cache it locally after
-// the first fetch and reuse it (cache-first) to avoid repeated cloud calls.
-const MARKET_OFFERS_KEY = 'swiftloan.market.offers.cache';
-
-export interface MarketOffersCache {
-  savedAt: number; // epoch ms
-  offers: unknown[];
-}
-
-export async function saveMarketOffersCache(cache: MarketOffersCache): Promise<void> {
-  await AsyncStorage.setItem(MARKET_OFFERS_KEY, JSON.stringify(cache)).catch(() => {});
-}
-
-export async function loadMarketOffersCache(): Promise<MarketOffersCache | null> {
-  const raw = await AsyncStorage.getItem(MARKET_OFFERS_KEY).catch(() => null);
-  if (!raw) return null;
-  try {
-    const c = JSON.parse(raw) as MarketOffersCache;
-    return Array.isArray(c?.offers) ? c : null;
-  } catch {
-    return null;
-  }
-}
-
 // ── Admin-tuned nudge timers cache ───────────────────────────────────────────
 // Cached so the idle detector uses the last-known config instantly on launch
 // (before the network fetch returns), and offline.
@@ -231,30 +205,4 @@ export async function loadInstallClaimed(): Promise<boolean> {
 
 export async function saveInstallClaimed(): Promise<void> {
   await AsyncStorage.setItem(INSTALL_CLAIMED_KEY, '1').catch(() => {});
-}
-
-/** A friend's referral code waiting for the user to sign in, so it can be redeemed. */
-export interface PendingReferral {
-  code: string;
-  downloadId: string | null;
-  method: string | null;
-}
-
-export async function savePendingReferral(p: PendingReferral): Promise<void> {
-  await AsyncStorage.setItem(PENDING_REFERRAL_KEY, JSON.stringify(p)).catch(() => {});
-}
-
-export async function loadPendingReferral(): Promise<PendingReferral | null> {
-  const raw = await AsyncStorage.getItem(PENDING_REFERRAL_KEY).catch(() => null);
-  if (!raw) return null;
-  try {
-    const p = JSON.parse(raw) as PendingReferral;
-    return p && typeof p.code === 'string' ? p : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function clearPendingReferral(): Promise<void> {
-  await AsyncStorage.removeItem(PENDING_REFERRAL_KEY).catch(() => {});
 }

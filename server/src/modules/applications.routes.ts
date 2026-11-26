@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ah, HttpError } from '../middleware/error.js';
-import { makeRef } from '../utils/ref.js';
+import { makeRef, makeRefs, withFreshRef } from '../utils/ref.js';
 import { classifyAurixOutcome } from '../lib/aurixOutcome.js';
 import { getLenderOfferProvider, takeAurixDebug, fetchAurixLeads, generateAurixTokenFromEnv, aurixProductType, aurixTokenForPartner, type RawLenderOffer } from '../lib/lenderOffers.js';
 import { isAurixPartnerUrl, withAurixAuthToken } from '../lib/aurixHandoff.js';
@@ -20,7 +20,6 @@ import { offersInputSignature, pickReusable, reuseWindowMs } from '../lib/offers
 import { loadPan, panFingerprint, applicationPanData } from '../lib/storedPan.js';
 import { copyOffersFrom, storedOffers } from '../lib/offersReuseDb.js';
 import { scoped } from '../lib/log.js';
-import { advanceReferral } from '../lib/referral.js';
 import { isReviewPhone, reviewOffers } from '../lib/reviewLogin.js';
 
 const log = scoped('applications');
@@ -51,9 +50,9 @@ applicationsRouter.post('/',
     residenceType: z.enum(['own', 'rented', 'family', 'company']).optional(),
   })),
   ah(async (req, res) => {
-    const app = await prisma.loanApplication.create({
+    const app = await withFreshRef(() => prisma.loanApplication.create({
       data: { ...req.body, ref: makeRef(), userId: req.user!.sub, status: 'draft' },
-    });
+    }));
     log.info('application created', { userId: req.user!.sub, applicationId: app.id, ref: app.ref, amount: app.amount });
     res.status(201).json({ application: app });
   }));
@@ -543,7 +542,6 @@ applicationsRouter.post('/:id/offers/:offerId/select',
     const offer = await prisma.offer.update({ where: { id: req.params.offerId }, data: { selected: true, ...tenureOverride } });
     // NOTE: we do NOT move the application to 'handoff' here. 'handoff' is a lender-reported
     // stage (Aurix webhook), not something a tap on our side can claim.
-    void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
     // WS5: the real selection, with which offer — the screen-arrival proxy the
     // client used could not say which lender or rate was chosen.
@@ -635,7 +633,6 @@ applicationsRouter.post('/:id/offers/:offerId/apply', ah(async (req, res) => {
   }).catch(() => {});
 
   // The parent application is NOT nudged to 'handoff' here: only the lender's webhook advances it.
-  void advanceReferral(req.user!.sub, 'applied'); // friend-referral milestone (best-effort)
 
   trackJourney(
     { userId: req.user!.sub },
@@ -750,22 +747,24 @@ applicationsRouter.post('/:id/handoff', ah(async (req, res) => {
   if (!offer) throw new HttpError(400, 'Select an offer before handoff');
 
   const firstEmi = new Date(); firstEmi.setMonth(firstEmi.getMonth() + 1);
-  const loan = await prisma.loan.create({
+  const loan = await withFreshRef(() => prisma.loan.create({
     data: {
       ref: makeRef(), userId: req.user!.sub, applicationId: app.id,
       partnerName: offer.partner.name, principal: offer.amount, apr: offer.apr,
       tenureMonths: offer.tenureMonths, emiAmount: offer.emi, outstanding: offer.amount,
       firstEmiDate: firstEmi, status: 'active',
     },
+  }));
+  // Generate the repayment schedule (references all different, and drawn again if one is already taken).
+  await withFreshRef(() => {
+    const refs = makeRefs(offer.tenureMonths, 'PAY');
+    const rows = refs.map((ref, i) => {
+      const due = new Date(firstEmi); due.setMonth(due.getMonth() + i);
+      return { loanId: loan.id, ref, amount: offer.emi, dueDate: due, status: 'scheduled' as const };
+    });
+    return prisma.repayment.createMany({ data: rows });
   });
-  // Generate the repayment schedule.
-  const rows = Array.from({ length: offer.tenureMonths }, (_, i) => {
-    const due = new Date(firstEmi); due.setMonth(due.getMonth() + i);
-    return { loanId: loan.id, ref: makeRef('PAY'), amount: offer.emi, dueDate: due, status: 'scheduled' as const };
-  });
-  await prisma.repayment.createMany({ data: rows });
   await prisma.loanApplication.update({ where: { id: app.id }, data: { status: 'disbursed' } });
-  void advanceReferral(req.user!.sub, 'disbursed'); // friend-referral milestone (best-effort)
 
   // WS5: application submitted then disbursed. Approval/rejection arrives from
   // the lender API later (out of scope per the brief) — when it does, emit

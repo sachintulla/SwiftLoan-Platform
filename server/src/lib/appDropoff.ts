@@ -24,6 +24,7 @@ import { isReviewPhone } from './reviewLogin.js';
 import { withinCallingHours } from './leadCaller.js';
 import { scoped } from './log.js';
 import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
+import { runPool } from './sendRate.js';
 import { dropoffStageOf } from './stageSchedules.js';
 import { alreadyInApp, notOnTestList, reminderSendsWhatsapp, tidyName, type HistoryEntry, type HistoryOutcome } from './installReminder.js';
 import { callNoOffersRun, placeNoOffersCalls } from './noOffersCall.js';
@@ -268,7 +269,11 @@ export async function armAppDropoffs(now: Date = new Date()): Promise<{ created:
 
 /* ───────────────────────────────────── sending ───────────────────────────────────── */
 
-interface DeliverResult { outcome: HistoryOutcome; reason?: string }
+/** `retry`: the provider said "too fast"; the step is handed back and tried again in a minute (nothing was sent). */
+interface DeliverResult { outcome: HistoryOutcome; reason?: string; retry?: boolean }
+
+/** How soon a step the provider refused as "too fast" is tried again. */
+const THROTTLE_RETRY_MS = 60_000;
 
 /**
  * Send one step. Message texts are operator settings on the Voxvalley integration (India SMS must match its registered
@@ -319,11 +324,13 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
   if (!(await whatsappConfigured())) return { outcome: 'skipped', reason: 'whatsapp not configured' };
   const res = await sendWhatsAppTemplate({
     phone: r.phone, templateName: msg.template, language: msg.language, placeholders: msg.placeholders, category: msg.category, referenceId: `${r.id}:${step.index}`,
+    retryIfThrottled: true,
     track: {
       kind: 'app_dropoff', customerId: r.customerId,
       trigger: { by: 'Drop-off messages', stage: stepLabel, since: r.startAt.toISOString(), step: `Message ${step.index + 1} · ${step.label}` },
     },
   });
+  if (res.throttled) return { outcome: 'failed', reason: 'provider said too fast', retry: true };
   return res.ok ? { outcome: 'sent' } : { outcome: 'failed', reason: (res.error ?? 'whatsapp failed').slice(0, 200) };
 }
 
@@ -407,6 +414,15 @@ async function processRow(r: AppDropoff, now: Date, out: AppDropoffTickResult, b
   const withLink = includeAppLink(kind, await alreadyInApp(r.phone));
   const step = action.step;
   const result: DeliverResult = action.kind === 'skip' ? { outcome: 'skipped', reason: action.reason } : await deliver(r, step, kind, withLink, now);
+  if (result.retry) {
+    // Hand the step back (only if nothing else moved the run on) and look again in a minute; no history entry, nothing was sent.
+    await prisma.appDropoff.updateMany({
+      where: { id: r.id, status: 'active', stepsSent: r.stepsSent + 1 },
+      data: { stepsSent: r.stepsSent, nextCheckAt: new Date(now.getTime() + THROTTLE_RETRY_MS) },
+    });
+    log.warn('provider said too fast, retrying', { id: r.id, step: step.index });
+    return;
+  }
   const entry: DropoffHistoryEntry = {
     step: step.index, channel: step.channel, label: step.label, at: now.toISOString(), outcome: result.outcome,
     ...(result.reason ? { reason: result.reason } : {}), message: kind, withLink,
@@ -437,7 +453,9 @@ export async function appDropoffTick(now: Date = new Date()): Promise<AppDropoff
   for (let page = 0; page < MAX_PAGES; page++) {
     const rows = await prisma.appDropoff.findMany({ where: { status: 'active', nextCheckAt: { lte: now } }, orderBy: { nextCheckAt: 'asc' }, take: PAGE_SIZE });
     if (!rows.length) break;
-    for (const r of rows) {
+    // Several runs at once (each is a different person, and each step is claimed before it is sent), so a 7 AM batch goes out
+    // in a minute or two instead of one by one. The WhatsApp sender itself keeps the per-minute limit (whatsapp.ts sendGate).
+    await runPool(rows, timing.num('limits.whatsappParallel'), async (r) => {
       out.scanned++;
       try {
         await processRow(r, now, out, cfg);
@@ -445,7 +463,7 @@ export async function appDropoffTick(now: Date = new Date()): Promise<AppDropoff
         log.error('tick failed for one drop-off', { id: r.id, error: (e as Error).message }); // one bad row never aborts the scan
         await prisma.appDropoff.update({ where: { id: r.id }, data: { nextCheckAt: new Date(now.getTime() + 5 * 60_000) } }).catch(() => undefined);
       }
-    }
+    });
     if (rows.length < PAGE_SIZE) break;
   }
   // The follow-up call for people who got no offers. A problem here must never stop the messages above, so it is isolated.
@@ -470,14 +488,25 @@ export async function appDropoffTick(now: Date = new Date()): Promise<AppDropoff
 }
 
 let lastThrottledRun = 0;
-/** What the scheduler calls every minute: runs the real tick no more often than "Reminder job runs every" (Admin → Timings). */
+let tickRunning = false;
+/**
+ * What the scheduler calls every minute: runs the real tick no more often than "Reminder job runs every" (Admin → Timings), and
+ * never while the previous tick is still working (the scheduler has no overlap guard, and a big 7 AM batch can take over a minute).
+ */
 export async function appDropoffTickThrottled(nowMs: number = Date.now()): Promise<AppDropoffTickResult | null> {
+  if (tickRunning) return null;
   if (nowMs - lastThrottledRun < timing.minutesMs('install.jobEveryMinutes') - 5_000) return null;
   lastThrottledRun = nowMs;
-  return appDropoffTick(new Date(nowMs));
+  tickRunning = true;
+  try {
+    return await appDropoffTick(new Date(nowMs));
+  } finally {
+    tickRunning = false;
+  }
 }
 
 /** Test hook. */
 export function resetAppDropoffThrottle() {
   lastThrottledRun = 0;
+  tickRunning = false;
 }

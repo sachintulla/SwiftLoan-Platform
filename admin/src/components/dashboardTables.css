@@ -1,0 +1,40 @@
+/* Dashboard tables (components/DashboardTables.tsx): "Active today" on the left, "Where users are now" on the right. */
+/* Both cards are the same height and line up top and bottom. The right card (the stage list) sets the height; the left
+   card takes exactly that height and its rows scroll inside it, so a long day never makes the two uneven. */
+.dash-tables { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; align-items: stretch; }
+.dash-tables > .card:first-child { height: 0; min-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.dash-tables > .card:first-child .dt-scroll { flex: 1; min-height: 0; max-height: none; }
+@media (max-width: 1100px) {
+  /* One under the other: each card is as tall as it needs, the long list scrolls after 440px. */
+  .dash-tables { grid-template-columns: 1fr; }
+  .dash-tables > .card:first-child { height: auto; min-height: 0; display: block; }
+  .dash-tables > .card:first-child .dt-scroll { max-height: 440px; }
+}
+.dt-link { font-size: 12.5px; color: var(--brand); font-weight: 600; white-space: nowrap; }
+.dt-scroll { max-height: 440px; overflow: auto; margin: 0 -4px; }
+.dt-table { width: 100%; }
+.dt-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.dt-table td { vertical-align: top; }
+.dt-name { font-weight: 600; }
+.dt-name:hover { color: var(--brand); }
+.dt-sub { color: var(--text-dim); font-size: 11.5px; }
+.dt-empty { padding: 50px 0; text-align: center; color: var(--text-faint); font-size: 13px; }
+
+.dt-stages { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.dt-stages td { padding: 7px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.dt-stages tr:last-child td { border-bottom: 0; }
+.dt-stage a { display: block; }
+.dt-stage a:hover { color: var(--brand); }
+.dt-bar { display: block; height: 6px; border-radius: 4px; background: var(--grey-bg); margin-top: 5px; overflow: hidden; }
+.dt-bar span { display: block; height: 100%; border-radius: 4px; }
+.dt-pct { text-align: right; white-space: nowrap; padding-left: 12px !important; width: 1%; }
+.dt-pct b { display: block; font-size: 13.5px; }
+.dt-pct span { color: var(--text-dim); font-size: 11.5px; }
+.dt-foot { color: var(--text-dim); font-size: 12px; margin: 10px 0 0; }
+/* Bar colours follow the status colours used across the admin. */
+.tone-fill-green { background: var(--green); }
+.tone-fill-blue { background: var(--blue); }
+.tone-fill-amber { background: var(--amber); }
+.tone-fill-red { background: var(--red); }
+.tone-fill-grey { background: var(--grey); }
+.tone-fill-teal { background: var(--teal); }

@@ -6,7 +6,7 @@ import { scoped } from './log.js';
 const log = scoped('app-nudge');
 
 // A stall on these app screens is actionable — worth an outbound follow-up.
-// A plain 'idle' nudge only raises an admin alert (no call/SMS).
+// A plain 'idle' nudge gets no backend follow-up.
 const ACTIONABLE = new Set(['dropoff_apply', 'eligible_no_apply']);
 
 // Never contact the same customer more than once per window (mirrors the
@@ -15,11 +15,13 @@ const NUDGE_COOLDOWN_MINUTES = 30;
 
 /**
  * The mobile app fired a proactive-help nudge (the user stalled — idle, dropped
- * off mid-apply, or eligible but hasn't applied). Backend follow-up:
- *   1. raise an admin-dashboard Notification (deduped while unread), and
- *   2. for actionable stalls, expedite an outbound contact (callback/SMS) via
- *      the dispatch queue — respecting the per-customer nudge cooldown so we
- *      never spam, and skipping terminal (converted/rejected/lost) customers.
+ * off mid-apply, or eligible but hasn't applied). Backend follow-up: for
+ * actionable stalls, expedite an outbound contact (callback/SMS) via the
+ * dispatch queue — respecting the per-customer nudge cooldown so we never spam,
+ * and skipping terminal (converted/rejected/lost) customers.
+ *
+ * It no longer raises an admin Notification ("User needs help"): 1,611 of them
+ * piled up unread on production and nobody acted on one (removed 2026-11-23).
  *
  * Fire-and-forget: this must never throw into the /track/event request path.
  */
@@ -31,21 +33,7 @@ export async function handleAppNudge(
 ): Promise<void> {
   if (/^(1|true|yes)$/i.test(process.env.NUDGES_DISABLED ?? '')) return;
   try {
-    // 1) Admin alert (one open notification per user at a time).
-    const open = await prisma.notification.findFirst({ where: { type: 'app_nudge', entityId: userId, read: false } });
-    if (!open) {
-      await prisma.notification.create({
-        data: {
-          type: 'app_nudge',
-          entityId: userId,
-          title: 'User needs help',
-          body: `Stalled on "${screen ?? 'app'}" (${reason})${label ? ` — “${label}”` : ''}`,
-          severity: 'warning',
-        },
-      });
-    }
-
-    // 2) Expedited outbound follow-up for actionable stalls only.
+    // Expedited outbound follow-up for actionable stalls only.
     if (!ACTIONABLE.has(reason)) return;
 
     const customer = await prisma.customer.findUnique({ where: { userId } });

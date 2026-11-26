@@ -1,18 +1,17 @@
 'use client';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, getToken, getAdmin, clearSession, mustChangePassword } from '@/lib/api';
 import VoiceWidget from '@/components/VoiceWidget';
 import BrandMark from '@/components/BrandMark';
-import { NUDGES_DISABLED } from '@/lib/flags';
 
 interface NavDef { href: string; label: string; icon: string; badgeKey?: 'unreadNotifs' | 'supportOpen'; superAdminOnly?: boolean }
 
 const NAV: { section?: string; items: NavDef[] }[] = [
   { items: [
-    { href: '/overview', label: 'Master Overview', icon: '▚' },
+    { href: '/overview', label: 'Dashboard', icon: '▚' },
     // Leads used to be a separate nav entry for the same people; it is merged in
     // here (and /leads still redirects for old links).
     { href: '/customers', label: 'Customers', icon: '◉' },
@@ -20,13 +19,8 @@ const NAV: { section?: string; items: NavDef[] }[] = [
   {
     section: 'Funnel',
     items: [
-      { href: '/loans', label: 'Loan Pipeline', icon: '₹' },
-      { href: '/revasure', label: 'Revasure', icon: '⇄' },
-      { href: '/yubi', label: 'Yubi', icon: '✦' },
+      { href: '/loans', label: 'Applications', icon: '₹' },
       { href: '/downloads', label: 'App Downloads', icon: '⭳' },
-      { href: '/referrals', label: 'Referrals', icon: '☺' },
-      { href: '/campaigns', label: 'Campaigns', icon: '📣' },
-      { href: '/preapproved', label: 'Pre-Approved Plans', icon: '◆' },
       { href: '/prequalifying', label: 'Pre-Qualifying Offers', icon: '★' },
     ],
   },
@@ -35,10 +29,8 @@ const NAV: { section?: string; items: NavDef[] }[] = [
     items: [
       // All Users folded into Customers (one list; its "Unverified numbers" toggle shows the people who never
       // entered their OTP). /users and /users/:id still open from links on a customer.
-      { href: '/analytics', label: 'Conversions & Commercials', icon: '％' },
       { href: '/support', label: 'Support Tickets', icon: '✉', badgeKey: 'supportOpen' },
-      // Alerts = everything sent to customers (WhatsApp, SMS, push, calls). It replaced the separate Messages and
-      // Calls pages; /messages and /calls redirect to it.
+      // Alerts = everything sent to customers (WhatsApp, SMS, push, calls).
       { href: '/alerts', label: 'Alerts', icon: '✆' },
       { href: '/api-errors', label: 'API & Webhook Errors', icon: '⚠' },
       { href: '/notify', label: 'Send Notification', icon: '➤' },
@@ -52,24 +44,11 @@ const NAV: { section?: string; items: NavDef[] }[] = [
       { href: '/app-config', label: 'App Config', icon: '📱', superAdminOnly: true },
       { href: '/timings', label: 'Timings', icon: '⏲', superAdminOnly: true },
       { href: '/test-numbers', label: 'Test numbers', icon: '☎', superAdminOnly: true },
-      ...(NUDGES_DISABLED ? [] : [{ href: '/notifications-rules', label: 'Notification Rules', icon: '⏱' }]),
       { href: '/account', label: 'Account', icon: '☖' },
       { href: '/audit', label: 'Audit Log', icon: '❑', superAdminOnly: true },
     ],
   },
 ];
-
-const TITLES: Record<string, string> = {
-  '/overview': 'Master Overview', '/loans': 'Loan Pipeline',
-  '/leads': 'Customers', '/downloads': 'App Downloads & Attribution', '/referrals': 'Referrals', '/users': 'All Users',
-  '/analytics': 'Conversions & Commercials', '/notifications': 'Notifications', '/support': 'Support Tickets', '/alerts': 'Alerts', '/messages': 'Alerts', '/api-errors': 'API & Webhook Errors', '/notify': 'Send Notification',
-  // 'Customers' rather than 'Customers 360' — Leads merged into this page, so it
-  // is now the single people surface and /leads maps to the same title.
-  '/customers': 'Customers', '/campaigns': 'Campaigns', '/integrations': 'Configs',
-  '/app-config': 'App Config', '/timings': 'Timings', '/test-numbers': 'Test numbers',
-  '/notifications-rules': 'Notification Rules',
-  '/account': 'Account & Security', '/audit': 'Audit Log', '/preapproved': 'Pre-Approved Plans', '/prequalifying': 'Pre-Qualifying Offers',
-};
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -90,23 +69,26 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Open + in-progress support tickets — what still needs a human.
   const { data: supSummary } = useSWR('/api/admin/support/summary', swrFetcher, { refreshInterval: 15000 });
   const supportOpen = ((supSummary?.data ?? {}) as { needsAction?: number }).needsAction;
-  const admin = getAdmin();
+  // The signed-in admin: shown in the menu's profile block and used to show the super-admin-only items. Read after mount: the signed-in admin lives in localStorage, which the
+  // server render cannot see, so reading it during render would not match the server's HTML.
+  const [profile, setProfile] = useState<{ name?: string; email?: string; role?: string } | null>(null);
+  useEffect(() => { setProfile(getAdmin()); }, [pathname]);
 
-  const title = TITLES[pathname] || (Object.keys(TITLES).find((k) => pathname.startsWith(k)) ? TITLES[Object.keys(TITLES).find((k) => pathname.startsWith(k))!] : 'SwiftLoan Admin');
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <BrandMark size={30} />
-          <div className="brand-name">SwiftLoan</div>
+          <BrandMark size={32} />
+          {/* Wordmark on dark (DS 1.0): "Swift" mint, "Loan" white. */}
+          <div className="brand-name"><span className="bw-swift">Swift</span>Loan</div>
         </div>
         {NAV.map((group, gi) => (
           <React.Fragment key={gi}>
             {group.section && <div className="nav-section">{group.section}</div>}
             {group.items
               // Audit is a super_admin surface — hide it for everyone else (the API 403s anyway).
-              .filter((it) => !it.superAdminOnly || admin?.role === 'super_admin')
+              .filter((it) => !it.superAdminOnly || profile?.role === 'super_admin')
               .map((it) => {
               const active = pathname === it.href || pathname.startsWith(it.href + '/');
               const badge = it.badgeKey === 'supportOpen' ? supportOpen : it.badgeKey ? rt[it.badgeKey] : undefined;
@@ -131,24 +113,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </React.Fragment>
         ))}
         <div className="spacer" />
-        <button className="nav-item nav-signout" style={{ border: 'none', width: '100%' }} onClick={() => { clearSession(); router.replace('/login'); }}>
-          <span className="row" style={{ gap: 10 }}><span style={{ width: 18, textAlign: 'center' }}>⏻</span>Sign out</span>
-        </button>
+        {/* Profile, pinned to the bottom of the menu: who is signed in, a link to their account, and Sign out. */}
+        <div className="nav-profile">
+          <Link href="/account" className="nav-profile-who" title="Account and security">
+            <span className="avatar" aria-hidden>{(profile?.name || profile?.email || 'A').slice(0, 1).toUpperCase()}</span>
+            <span className="nav-profile-text">
+              <b>{profile?.name || 'Admin'}</b>
+              <span>{profile?.email ?? ''}</span>
+            </span>
+          </Link>
+          <button type="button" className="nav-profile-out" title="Sign out" aria-label="Sign out" onClick={() => { clearSession(); router.replace('/login'); }}>⏻</button>
+        </div>
       </aside>
 
       <div className="main">
-        <div className="topbar">
-          <div className="topbar-title">{title}</div>
-          <div className="row" style={{ gap: 14 }}>
-            <Link
-              href="/customers?active=today"
-              className="row"
-              style={{ gap: 7, fontSize: 12.5, color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
-              title="Customers active since 12:00 AM IST today — click to list them"
-            ><span className="dot-live" /> {rt.activeToday ?? 0} active today</Link>
-            <div className="avatar" title={admin?.email}>{(admin?.name || 'A').slice(0, 1).toUpperCase()}</div>
-          </div>
-        </div>
         {children}
       </div>
       <VoiceWidget />

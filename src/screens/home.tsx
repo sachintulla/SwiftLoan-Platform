@@ -6,7 +6,6 @@ import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
 import { LogoMark } from '../components/Logo';
 import { VoiceHidden } from '../voice/screenGraph';
-// import { MarketLoanOffers } from '../components/MarketLoanOffers'; // "Available offers" catalog hidden for now
 import { PrequalifiedOffers } from '../components/PrequalifiedOffers';
 import { colors, font, rupee } from '../theme/tokens';
 import { useStore, useT } from '../state/store';
@@ -215,23 +214,6 @@ export default function Home() {
       {/* ── Featured offers — sponsored lender ads, shown on login ──────── */}
       <PrequalifiedOffers onCheckEligibility={checkEligibility} />
 
-      {/* "Available offers" (the admin-curated market catalog from GET /market-loan-offers) is switched
-          off on Home for now: the screen does not show it and the API is not called. To bring it back,
-          restore the block below and the MarketLoanOffers import above.
-      <Text style={[font(800), styles.sectionTitle]}>{t.availableOffers}</Text>
-      <Text style={[font(400), styles.sectionSub]}>{t.availableOffersSub}</Text>
-      <View style={{ marginTop: 6 }}>
-        <MarketLoanOffers
-          mode="home"
-          showIntro={false}
-          onApply={plan => {
-            if (plan.maxAmount) set({ appAmount: Math.round(plan.maxAmount) });
-            set({ offersReturn: 'home', applicationId: null, offersError: '' });
-            go('basicpan');
-          }}
-        />
-      </View>
-      */}
 
       <VoiceHidden>
         <Text style={[font(400), { fontSize: 10.5, lineHeight: 16, color: colors.muted, marginTop: 24 }]}>{t.disclaimer}</Text>

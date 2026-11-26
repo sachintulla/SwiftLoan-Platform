@@ -61,6 +61,33 @@ export function parsePlayReferrer(raw: string | null | undefined): { clickId: st
   };
 }
 
+/** Longest Play referrer we read. Meta-ad installs send ~1,100 characters; anything past this is cut, never refused. */
+export const MAX_PLAY_REFERRER = 4000;
+
+const AD_SOURCES: Record<string, string> = {
+  'apps.instagram.com': 'meta_instagram',
+  'apps.facebook.com': 'meta_facebook',
+  'apps.whatsapp.com': 'meta_whatsapp',
+  'apps.messenger.com': 'meta_messenger',
+};
+
+/**
+ * The ad an install came from, read from the Play referrer, for installs no SwiftLoan link claims. Meta ads (Instagram,
+ * Facebook, WhatsApp) say `utm_source=apps.<platform>.com`; Google Ads put a `gclid`. A plain Play Store install
+ * (`utm_source=google-play&utm_medium=organic`, or "(not set)") is not an ad. Any other utm_source is kept as it is
+ * (short, letters/digits only), so a new ad network still shows up. Returns the campaign label, or null for organic.
+ */
+export function adCampaignFromReferrer(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const params = new URLSearchParams(raw.slice(0, MAX_PLAY_REFERRER));
+  const src = (params.get('utm_source') ?? '').trim().toLowerCase();
+  if (AD_SOURCES[src]) return AD_SOURCES[src];
+  if (params.get('gclid') || params.get('gbraid') || params.get('wbraid')) return 'google_ads';
+  if (!src || src === 'google-play' || src === '(not set)' || src === '(not%20set)') return null;
+  const clean = src.replace(/[^a-z0-9._-]/g, '').slice(0, 40);
+  return clean || null;
+}
+
 export function formatClipboard(token: string): string {
   return `${CLIPBOARD_PREFIX}${token}`;
 }
@@ -97,25 +124,10 @@ export function pickIpMatch(candidates: IpCandidate[], osVersion?: string | null
   return same.length === 1 ? same[0] : null;
 }
 
-// ── Referral codes ──────────────────────────────────────────────────────────
+// ── Link reference IDs ──────────────────────────────────────────────────────────
 
-/** 8 chars, unambiguous alphabet. Collisions are handled by the caller retrying. */
+/** 8 chars, unambiguous alphabet: the reference ID a visitor's own /dl link carries. */
 export const newReferralCode = () => pick(8);
-
-export const normalizeCode = (raw: unknown): string | null => {
-  const c = String(raw ?? '').trim().toUpperCase();
-  return /^[A-Z0-9]{6,12}$/.test(c) ? c : null;
-};
-
-/** "Rahul Sharma" -> "Rahul S." — a referrer sees who joined, not their full identity. */
-export function maskName(fullName: string | null | undefined, phone?: string | null): string {
-  const n = (fullName ?? '').trim();
-  if (n) {
-    const [first, ...rest] = n.split(/\s+/);
-    return rest.length ? `${first} ${rest[rest.length - 1][0].toUpperCase()}.` : first;
-  }
-  return phone ? `•••• ${phone.slice(-4)}` : 'A friend';
-}
 
 // ── Store redirect ──────────────────────────────────────────────────────────
 

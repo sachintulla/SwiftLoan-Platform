@@ -19,6 +19,8 @@ interface Facets {
   byTarget: { target: string; count: number }[];
   byDirection: { direction: string; count: number }[];
   byClass: { statusClass: Exclude<StatusClass, 'ok'>; count: number }[];
+  /** Our own expired-login (401) and rate-limit (429) rows, hidden unless asked for. */
+  noise?: number;
 }
 interface Payload { rows: Row[]; facets: Facets }
 
@@ -43,6 +45,7 @@ export default function ApiErrorsPage() {
   const [direction, setDirection] = useState('');
   const [target, setTarget] = useState('');
   const [statusClass, setStatusClass] = useState('');
+  const [showNoise, setShowNoise] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<string | null>(null);
@@ -55,8 +58,9 @@ export default function ApiErrorsPage() {
     if (target) p.set('target', target);
     if (statusClass) p.set('statusClass', statusClass);
     if (q) p.set('q', q);
+    if (showNoise) p.set('includeNoise', '1');
     return p.toString();
-  }, [direction, target, statusClass, q, page]);
+  }, [direction, target, statusClass, q, page, showNoise]);
 
   const { data, error, isLoading, mutate } = useSWR(`/api/admin/api-errors?${qs}`, swrFetcher, { refreshInterval: 30_000, keepPreviousData: true });
   const p = data?.data as Payload | undefined;
@@ -72,10 +76,10 @@ export default function ApiErrorsPage() {
   return (
     <div className="page">
       <h1 className="page-title">API &amp; Webhook Errors</h1>
-      <p className="page-sub">Every failed request in the last 24 hours — inbound webhooks (Aurix, Yubi, app) and outbound lender calls — with the exact payloads sent and received. Bodies are redacted for PAN, OTP and other sensitive values.</p>
+      <p className="page-sub">Every failed request, kept for 30 days by default (Admin → Timings) — inbound webhooks (Aurix, Yubi, app) and outbound lender calls — with the exact payloads sent and received. Bodies are redacted for PAN, OTP and other sensitive values.</p>
 
       <div className="row wrap" style={{ gap: 12, marginBottom: 14 }}>
-        <Tile label="Errors (24 h)" value={f?.total} tone="red" />
+        <Tile label="Errors saved" value={f?.total} tone="red" />
         <Tile label="5xx server" value={cls('5xx')} tone="red" />
         <Tile label="4xx client" value={cls('4xx')} tone="amber" />
         <Tile label="No response" value={cls('errored')} tone="red" />
@@ -98,6 +102,13 @@ export default function ApiErrorsPage() {
           {active && <button type="button" className="btn" onClick={clear}>Clear</button>}
         </div>
         <FilterChips options={DIRECTION_OPTS} value={direction} onChange={setFilter(setDirection)} />
+        <label className="row" style={{ gap: 8, marginTop: 12, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={showNoise} onChange={(e) => { setShowNoise(e.target.checked); setPage(1); }} />
+          <span>
+            Also show expired logins (401) and rate-limit refusals (429) from our own API
+            {f?.noise != null && <span className="muted"> · {f.noise.toLocaleString('en-IN')} {showNoise ? 'included' : 'hidden'}</span>}
+          </span>
+        </label>
 
         <div style={{ marginTop: 14 }}>
           {error ? (
@@ -105,7 +116,7 @@ export default function ApiErrorsPage() {
           ) : isLoading && !p ? (
             <div aria-busy="true"><TableSkeleton rows={8} cols={7} /></div>
           ) : rows.length === 0 ? (
-            <Empty label={active ? 'No errors match these filters.' : 'No API or webhook errors in the last 24 hours. 🎉'} />
+            <Empty label={active ? 'No errors match these filters.' : 'No API or webhook errors saved. 🎉'} />
           ) : (
             <div className="table-wrap">
               <table className="data">

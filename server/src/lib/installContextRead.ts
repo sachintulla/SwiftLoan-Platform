@@ -10,8 +10,7 @@
  *   2. an automatic journey reminder (JourneyReminder.token)
  *   3. a lender-application nudge (LenderNudge.token)
  *   4. a lead (Lead.token), from the website form, widget, a call or a campaign
- *   5. a friend referral code (ReferralCode.code)
- *   6. otherwise a campaign link, or an organic install with nothing known
+ *   5. otherwise a campaign link, or an organic install with nothing known
  *
  * Everything here is pure (no database, no clock) so the rules can be unit
  * tested. The route in modules/adminInstalls.routes.ts does the batched reads.
@@ -21,15 +20,15 @@
 
 export type Confidence = 'confirmed' | 'probable' | 'none';
 export type SentVia = 'whatsapp' | 'sms' | 'call' | 'push' | 'website';
-export type SentByType = 'admin' | 'reminder' | 'lender_reminder' | 'website' | 'campaign' | 'referral' | 'organic' | 'unknown';
-export type ContextOrigin = 'install_link' | 'journey_reminder' | 'lender_nudge' | 'lead' | 'campaign' | 'referral';
+export type SentByType = 'admin' | 'reminder' | 'lender_reminder' | 'website' | 'campaign' | 'organic' | 'unknown';
+export type ContextOrigin = 'install_link' | 'journey_reminder' | 'lender_nudge' | 'lead' | 'campaign';
 
-export const SENT_BY_TYPES: SentByType[] = ['admin', 'reminder', 'lender_reminder', 'website', 'campaign', 'referral', 'organic', 'unknown'];
+export const SENT_BY_TYPES: SentByType[] = ['admin', 'reminder', 'lender_reminder', 'website', 'campaign', 'organic', 'unknown'];
 export const SENT_VIA_VALUES: SentVia[] = ['whatsapp', 'sms', 'call', 'push', 'website'];
 /** Filterable channels: how the link reached the customer. */
 export const CHANNEL_FILTER_VALUES = ['whatsapp', 'sms', 'call', 'push'] as const;
 
-/** Origins that name a specific person, as opposed to a generic campaign or referral link. */
+/** Origins that name a specific person, as opposed to a generic campaign link. */
 const PERSONAL_ORIGINS: ContextOrigin[] = ['install_link', 'journey_reminder', 'lender_nudge', 'lead'];
 
 /* ───────────────────────────── small helpers ───────────────────────────── */
@@ -48,7 +47,7 @@ function isoOrNull(v: unknown): string | null {
 
 /**
  * A link `ref` as stored in AppDownload.referrer, made safe to look up.
- * Tokens and referral codes are upper-case letters and digits; anything with
+ * Tokens are upper-case letters and digits; anything with
  * other characters, or nothing at all, cannot be one of ours.
  */
 export function normaliseRef(ref: unknown): string | null {
@@ -161,14 +160,13 @@ export function historyToSend(history: unknown): { channel: SentVia | null; at: 
 export interface ContextSources {
   /** AppDownload.referrer, as stored. */
   ref: string | null;
-  /** AppDownload.source: organic | campaign | referral | partner. */
+  /** AppDownload.source: organic | campaign | partner. */
   source: string;
   campaignId: string | null;
   installLink?: (InstallLinkInfo & { adminLabel?: string | null; recordedAt?: string | null }) | null;
   reminder?: { firstName: string | null; phone: string | null; history: unknown; createdAt?: string | null } | null;
   lenderNudge?: { firstName: string | null; phone: string | null; lenderName: string | null; history: unknown; createdAt?: string | null } | null;
   lead?: { name: string | null; phone: string | null; productInterest: string | null; amountRupees: number | null; source: string | null; createdAt: string | null } | null;
-  referral?: { ownerName: string | null } | null;
   /** The matched user's latest loan application; used only to fill gaps, never to invent a context. */
   loan?: { amountRupees: number | null; loanType: string | null } | null;
 }
@@ -206,6 +204,11 @@ function leadSentBy(source: string | null): { type: SentByType; label: string; v
  *
  * Returns null for an organic install with no ref: there is nothing to show.
  */
+/** Installs from an ad with no SwiftLoan link: the campaign the Play referrer named (attribution.ts adCampaignFromReferrer). */
+export const AD_CAMPAIGN_LABELS: Record<string, string> = {
+  meta_instagram: 'Instagram ads', meta_facebook: 'Facebook ads', meta_whatsapp: 'WhatsApp ads', meta_messenger: 'Messenger ads', google_ads: 'Google Ads',
+};
+
 export function pickContext(s: ContextSources): InstallContext | null {
   const loan = s.loan ?? null;
   const fill = (c: Omit<InstallContext, 'sentBy' | 'origin'>) => ({
@@ -259,25 +262,17 @@ export function pickContext(s: ContextSources): InstallContext | null {
     };
   }
 
-  if (s.referral) {
-    return {
-      ...EMPTY,
-      sentBy: { type: 'referral', label: s.referral.ownerName ? `Friend referral from ${s.referral.ownerName}` : 'Friend referral' },
-      origin: 'referral',
-    };
-  }
-
   if (s.campaignId || s.source === 'campaign' || s.ref) {
     return {
       ...EMPTY,
-      sentBy: { type: 'campaign', label: s.campaignId ? `Campaign ${s.campaignId}` : 'Campaign link' },
+      sentBy: { type: 'campaign', label: s.campaignId ? (AD_CAMPAIGN_LABELS[s.campaignId] ?? `Campaign ${s.campaignId}`) : 'Campaign link' },
       origin: 'campaign',
     };
   }
   return null;
 }
 
-/** True when the context names a specific person, rather than only a campaign or referral. */
+/** True when the context names a specific person, rather than only a campaign. */
 export function hasCustomerDetails(c: InstallContext | null): boolean {
   return !!c && !!c.origin && PERSONAL_ORIGINS.includes(c.origin);
 }
