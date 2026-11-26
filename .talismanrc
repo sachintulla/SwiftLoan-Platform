@@ -174,7 +174,7 @@ fileignoreconfig:
 - filename: admin/src/components/alerts/AlertsTable.tsx
   checksum: af0ec95eb02e4c7ed57d37227dbd9b04807bf4ec7fbce8823348dc9d9809e066
 - filename: CLAUDE.md
-  checksum: afae2097b4db31eeaee48e3f3162467f94276bbf2f1944c19a6048c741db58d9
+  checksum: f007d603fe9747895010432ae1e47c9d1b0df075bc7831d77d38034b9c45ef1f
 - filename: server/src/modules/adminAlerts.routes.ts
   checksum: cb1ca6f0fd427f23991aa80401e524933975b9c551d179c2af1f2b1c6793f1fc
 - filename: server/src/lib/customerStatus.ts
@@ -294,7 +294,7 @@ fileignoreconfig:
 - filename: server/src/modules/adminApiErrors.routes.ts
   checksum: b2bbc64026ddf9dfe79d9b3acf36acc3328a085316a8e8e3982d8ff705f78b40
 - filename: src/components/PrequalifiedOffers.tsx
-  checksum: bfb88bab352b5123f456574b7e97648ad002a39a41314d17f706465ed7e41995
+  checksum: b099ed023721737fdc88b1cb0fd7a783c75b184beafc22b35c248eef9262bc8a
 - filename: server/src/lib/dashboardGraphs.ts
   checksum: f9491098f96a66b238c1201a7b1ba964deaeeba8019f76b0d3978542abca1799
 - filename: admin/src/components/DashboardTables.tsx
