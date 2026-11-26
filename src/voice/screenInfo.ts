@@ -26,7 +26,6 @@ export const SCREEN_INFO: Record<string, ScreenInfo> = {
   loans: { title: 'My Loans', purpose: "The user's loan applications and their status." },
   fare: { title: 'My Offers', purpose: 'Loan offers the user has received from lenders.' },
   help: { title: 'Help & Support', purpose: 'Help, FAQs and ways to contact support.' },
-  referral: { title: 'Refer a Friend', purpose: "The user's referral code and link to invite friends, and the friends who joined." },
   profile: { title: 'Profile', purpose: "The user's profile details, language and notification settings." },
   notifications: { title: 'Notifications', purpose: 'Every notification the user has been sent, with unread ones marked; tapping one opens the related screen.' },
   legal: { title: 'Legal', purpose: 'In-app legal documents: Privacy Policy, Terms of Service, Lending Disclosures, and Grievance & Consent Withdrawal.' },

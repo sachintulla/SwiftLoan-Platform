@@ -2,7 +2,7 @@
 
 // Floating mic button for the SwiftLoan admin dashboard. Mounts the ElloAgent
 // voice client and registers navigation tools so an operator can drive the
-// dashboard by voice ("take me to the loan pipeline", "open loan SL-800042").
+// dashboard by voice ("take me to applications", "open loan SL-800042").
 //
 // Tools are registered once (they're sent at session start); navigation uses
 // refs to the latest Next router/pathname so handlers always act on the current

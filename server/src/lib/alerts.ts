@@ -96,7 +96,6 @@ const CALL_NAME: Record<string, string> = {
   manual_dashboard_call: 'Call by admin',
   immediate_callback_optin: 'Enquiry call',
   lead_followup: 'Enquiry call',
-  campaign: 'Campaign call',
   status_update: 'Status call',
 };
 

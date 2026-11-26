@@ -10,7 +10,7 @@ describe('claimInstall without a session', () => {
 
   it('sends the claim to /attribution/claim even though nobody is signed in', async () => {
     setTokens(null);
-    const fetchMock = jest.fn().mockResolvedValue({ json: async () => ({ success: true, data: { matched: true, method: 'clipboard', download_id: 'd1', source: 'campaign', referral: null, resume: { token: 'AB12CD34', first_name: 'Priya', phone: '9876543210', last_step: 'pan_done' } } }) });
+    const fetchMock = jest.fn().mockResolvedValue({ json: async () => ({ success: true, data: { matched: true, method: 'clipboard', download_id: 'd1', source: 'campaign', resume: { token: 'AB12CD34', first_name: 'Priya', phone: '9876543210', last_step: 'pan_done' } } }) });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const claim = await claimInstall('ios', { clipboard: 'swiftloan-ref:TSTSIM00001', osVersion: '17.5' });

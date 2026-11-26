@@ -77,7 +77,7 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
   const linkKeys = refs.map((r) => `install_link:${r}`);
 
   // Wave 1 — everything keyed by the link's ref token. One query per table, never one per row.
-  const [links, reminders, nudges, leads, referralCodes] = await Promise.all([
+  const [links, reminders, nudges, leads] = await Promise.all([
     linkKeys.length
       ? prisma.outboundRequest.findMany({
           where: { kind: 'install_link', status: 'sent', idempotencyKey: { in: linkKeys } },
@@ -92,9 +92,6 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
       : Promise.resolve([]),
     refs.length
       ? prisma.lead.findMany({ where: { token: { in: refs } }, select: { token: true, name: true, phone: true, productInterest: true, amount: true, source: true, createdAt: true } })
-      : Promise.resolve([]),
-    refs.length
-      ? prisma.referralCode.findMany({ where: { code: { in: refs } }, select: { code: true, userId: true } })
       : Promise.resolve([]),
   ]);
 
@@ -171,7 +168,7 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
   for (const m of messages) noteContact(m.phone, m.createdAt, m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS');
   for (const c of calls) noteContact(c.phone, c.startedAt ?? c.createdAt, 'Call');
 
-  // Second wave: names for the matched users, the admins who pushed links, and referral owners.
+  // Second wave: names for the matched users, and the admins who pushed links.
   const adminIds = new Set<string>();
   const parsedLinks = new Map<string, { info: ReturnType<typeof parseInstallLinkPayload>; recordedAt: string | null }>();
   for (const l of links) {
@@ -181,8 +178,7 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
     if (info.sentById) adminIds.add(info.sentById);
     parsedLinks.set(key, { info, recordedAt: iso(l.sentAt ?? l.createdAt) });
   }
-  const ownerIds = [...new Set(referralCodes.map((r) => r.userId))];
-  const nameUserIds = [...new Set([...userIdsForNames, ...ownerIds])];
+  const nameUserIds = [...new Set(userIdsForNames)];
   const [users, admins] = await Promise.all([
     nameUserIds.length
       ? prisma.user.findMany({ where: { id: { in: nameUserIds } }, select: { id: true, fullName: true, firstName: true, phone: true } })
@@ -201,7 +197,6 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
   const reminderBy = byToken(reminders);
   const nudgeBy = byToken(nudges);
   const leadBy = byToken(leads);
-  const codeOwner = new Map(referralCodes.map((r) => [r.code.toUpperCase(), r.userId]));
   const userById = new Map(users.map((u) => [u.id, u]));
   const adminById = new Map(admins.map((a) => [a.id, a]));
   const custByUser = new Map(customers.map((c) => [c.userId!, c]));
@@ -221,8 +216,6 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
     const reminder = key ? reminderBy.get(key) : undefined;
     const nudge = key ? nudgeBy.get(key) : undefined;
     const lead = key ? leadBy.get(key) : undefined;
-    const ownerId = key ? codeOwner.get(key) : undefined;
-    const owner = ownerId ? userById.get(ownerId) : undefined;
     const admin = link?.info.sentById ? adminById.get(link.info.sentById) : undefined;
 
     const sources: ContextSources = {
@@ -233,7 +226,6 @@ adminInstallsRouter.get('/', ah(async (req, res) => {
       reminder: reminder ? { firstName: reminder.firstName, phone: reminder.phone, history: reminder.history, createdAt: iso(reminder.createdAt) } : null,
       lenderNudge: nudge ? { firstName: nudge.firstName, phone: nudge.phone, lenderName: nudge.lenderName, history: nudge.history, createdAt: iso(nudge.createdAt) } : null,
       lead: lead ? { name: lead.name, phone: lead.phone, productInterest: lead.productInterest, amountRupees: lead.amount, source: lead.source, createdAt: iso(lead.createdAt) } : null,
-      referral: ownerId ? { ownerName: owner?.firstName ?? owner?.fullName ?? null } : null,
       loan: loan ? { amountRupees: loan.amount, loanType: loan.loanType } : null,
     };
 

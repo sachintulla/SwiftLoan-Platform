@@ -2,9 +2,9 @@
  * The SwiftLoan brand mark — the teal→mint rounded tile with the stacked speed
  * lines and the ₹ glyph, matching the public site's logo (website-next
  * /public/assets/swiftloan-mark.svg) and the browser favicon. Inline SVG so it
- * needs no asset file and stays crisp at any size.
+ * needs no asset file and stays crisp at any size. Design System 1.0: minimum 32px.
  */
-export default function BrandMark({ size = 30, className }: { size?: number; className?: string }) {
+export default function BrandMark({ size = 32, className }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 120 120" className={className} role="img" aria-label="SwiftLoan">
       <defs>
@@ -20,7 +20,7 @@ export default function BrandMark({ size = 30, className }: { size?: number; cla
         <line x1="18" y1="77" x2="42" y2="77" strokeWidth="6" opacity=".82" />
       </g>
       <g transform="skewX(-7)">
-        <text x="82" y="87" textAnchor="middle" fill="#fff" fontFamily="'Segoe UI',Arial,sans-serif" fontSize="84" fontWeight="800">₹</text>
+        <text x="82" y="87" textAnchor="middle" fill="#fff" style={{ fontFamily: "var(--font-display), Arial, sans-serif" }} fontSize="84" fontWeight="800">₹</text>
       </g>
     </svg>
   );

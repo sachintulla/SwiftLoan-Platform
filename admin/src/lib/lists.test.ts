@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  EXPORT_LIMIT, CAMPAIGN_CAP, buildListQuery, cleanFilters, describeFilters, resultLine, shouldWarnTruncation,
-  exportBlockedReason, campaignBlockedReason, canWrite, dayBoundIso, dateRangeProblem, dayLabel,
-  yubiStatusLabel, revasureReachedWarning,
+  EXPORT_LIMIT, buildListQuery, cleanFilters, describeFilters, resultLine, shouldWarnTruncation,
+  exportBlockedReason, canWrite, dayBoundIso, dateRangeProblem, dayLabel,
+  yubiStatusLabel,
 } from './lists';
 
 describe('buildListQuery', () => {
@@ -82,7 +82,6 @@ describe('resultLine', () => {
 describe('truncation', () => {
   it('uses the same cap as the server', () => {
     expect(EXPORT_LIMIT).toBe(10_000);
-    expect(CAMPAIGN_CAP).toBe(5_000);
   });
 
   it('warns only above the export limit', () => {
@@ -108,12 +107,6 @@ describe('roles and blocked reasons', () => {
     expect(exportBlockedReason('admin', 0)).toBe('No rows to export');
     expect(exportBlockedReason('admin', 5)).toBeNull();
     expect(exportBlockedReason('admin', undefined)).toBeNull();
-  });
-
-  it('gives a visible reason for campaigns', () => {
-    expect(campaignBlockedReason('analyst', 10)).toBe('Campaigns need an admin or super admin');
-    expect(campaignBlockedReason('super_admin', 0)).toBe('No rows to start a campaign from');
-    expect(campaignBlockedReason('super_admin', 3)).toBeNull();
   });
 });
 
@@ -155,12 +148,5 @@ describe('labels', () => {
     expect(yubiStatusLabel('NEW_LEAD')).toBe('New lead');
     expect(yubiStatusLabel('REJECTED')).toBe('Rejected');
     expect(yubiStatusLabel(null)).toBe('Unknown');
-  });
-
-  it('warns on Revasure Success or Duplicate only', () => {
-    expect(revasureReachedWarning({ status: 'success' })).toBe(true);
-    expect(revasureReachedWarning({ status: 'duplicate' })).toBe(true);
-    expect(revasureReachedWarning({ status: 'failed' })).toBe(false);
-    expect(revasureReachedWarning({})).toBe(false);
   });
 });

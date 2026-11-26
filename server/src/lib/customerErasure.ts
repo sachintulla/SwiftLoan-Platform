@@ -1,7 +1,7 @@
 /**
  * Admin-side full erasure of a Customer. Removes the CRM Customer row and every
  * identifiable record tied to them — journey events (cascade), call attempts,
- * conversation summaries, campaign contacts, outbound requests, lender nudges,
+ * conversation summaries, outbound requests, lender nudges,
  * message-delivery logs, leads and journey reminders — plus the linked User
  * account (which cascades applications → offers → lender applications, loans,
  * KYC, consents and tokens) and the plain-FK partner leads (Yubi/Revasure).
@@ -54,7 +54,7 @@ export async function eraseCustomer(customerId: string): Promise<CustomerErasure
 
 /**
  * The CRM / tracking records tied to one person that no database relation to
- * User cascades: call attempts, conversation summaries, campaign contacts,
+ * User cascades: call attempts, conversation summaries,
  * outbound requests, message-delivery logs, website leads, journey reminders,
  * tracking sessions / activity / onboarding rows, and finally the Customer rows
  * themselves (which cascade JourneyEvent). Run inside the caller's transaction,
@@ -68,7 +68,6 @@ export function crmErasureOps(p: { customerIds: string[]; phone?: string | null;
   return [
     prisma.callAttempt.deleteMany({ where: byCustomerOrPhone }),
     prisma.conversationSummary.deleteMany({ where: byCustomerOrPhone }),
-    prisma.campaignContact.deleteMany({ where: byCustomerOrPhone }),
     prisma.outboundRequest.deleteMany({ where: { customerId: { in: ids } } }),
     prisma.messageDelivery.deleteMany({ where: { OR: [{ customerId: { in: ids } }, { phone: pKey }] } }),
     prisma.lead.deleteMany({ where: { phone } }),

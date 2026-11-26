@@ -91,7 +91,6 @@ await prisma.user.deleteMany({ where: { phone: { startsWith: '93' } } });
 await prisma.user.deleteMany({ where: { phone: { startsWith: '95' } } });
 await prisma.customer.deleteMany({ where: { phone: { startsWith: '93' } } });
 await prisma.appClick.deleteMany({ where: { token: { startsWith: 'TST' } } });
-await prisma.referralCode.deleteMany({ where: { code: 'FRIENDK7' } });
 await prisma.panRecord.deleteMany({ where: { panHash: panHash(PAN) } });
 
 const TM = await import(`${ROOT}/lib/timings.js`);
@@ -361,7 +360,7 @@ await t('S34', 'claim', 'a same-IP guess is attributed but never carries a phone
 });
 await t('S34b', 'claim', 'the "likely journey" hint is only for a same-IP match whose link has a fresh journey', async () => {
   const w = await webLogin(); const ip = '10.55.1.10';
-  // A same-IP match whose link is not a journey link (a friend-referral code, an unknown ref, none at all): no hint.
+  // A same-IP match whose link is not a journey link (an unknown ref, none at all): no hint.
   for (const [n, ref] of [['A', 'FRIENDCODE1'], ['B', null]] as const) {
     await prisma.appClick.create({ data: { token: 'TSTHINT00' + n, ref, kind: 'campaign', platform: 'android', ipHash: hashClient(ip), uaHash: 'b', osVersion: '14', expiresAt: new Date(Date.now() + 3_600_000) } });
     const c = await j('/api/attribution/claim', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ platform: 'android', os_version: '14' }) });
@@ -380,13 +379,10 @@ await t('S35', 'claim', 'unknown or malformed tokens and refs are ignored (no re
   const c = await post('/api/attribution/claim', { platform: 'ios', clipboard: 'swiftloan-ref:TSTCLICK006' }); assert.equal(c.status, 200); assert.equal(c.body.data.resume ?? null, null);
   assert.equal((await post('/api/attribution/claim', { platform: 'windows' })).status, 400);
 });
-await t('S36', 'claim', 'a referral-code link (friend referral) still works and carries no resume block', async () => {
-  const w = await webLogin(); const owner = w.user;
-  await prisma.referralCode.deleteMany({ where: { OR: [{ code: 'FRIENDK7' }, { userId: owner.id }] } });
-  await prisma.referralCode.create({ data: { userId: owner.id, code: 'FRIENDK7' } });
-  await prisma.appClick.create({ data: { token: 'TSTCLICK007', ref: 'FRIENDK7', kind: 'referral', platform: 'ios', ipHash: 'a', uaHash: 'b', expiresAt: new Date(Date.now() + 3_600_000) } });
+await t('S36', 'claim', 'a link whose ref is not a visitor journey still attributes the install and carries no resume block', async () => {
+  await prisma.appClick.create({ data: { token: 'TSTCLICK007', ref: 'FRIENDK7', kind: 'campaign', platform: 'ios', ipHash: 'a', uaHash: 'b', expiresAt: new Date(Date.now() + 3_600_000) } });
   const c = await post('/api/attribution/claim', { platform: 'ios', clipboard: 'swiftloan-ref:TSTCLICK007' });
-  assert.equal(c.body.data.referral.code, 'FRIENDK7'); assert.equal(c.body.data.resume ?? null, null);
+  assert.equal(c.body.data.matched, true); assert.equal(c.body.data.referral, null, 'friend referrals are gone; the key stays for installed apps'); assert.equal(c.body.data.resume ?? null, null);
 });
 await t('S37', 'resume', 'GET /api/journey/resume: needs auth, returns only the caller\'s own visit, and nothing when stale', async () => {
   assert.equal((await get('/api/journey/resume')).status, 401);
@@ -1075,15 +1071,15 @@ await t('S107', 'timings:effect', 'calling hours: a normal window, a changed win
 
 await t('S108', 'timings:effect', 'lead-call timings and the other limits are read live from the settings', async () => {
   await clearTimings(); const { timing } = await import(`${ROOT}/lib/timings.js`); const { isIdleExpired } = await import(`${ROOT}/lib/adminSecurity.js`);
-  const { reuseWindowMs } = await import(`${ROOT}/lib/offersReuse.js`); const { referralEligibleDays } = await import(`${ROOT}/lib/referral.js`); const at = await import(`${ROOT}/lib/attribution.js`);
+  const { reuseWindowMs } = await import(`${ROOT}/lib/offersReuse.js`); const at = await import(`${ROOT}/lib/attribution.js`);
   assert.equal(timing.num('calls.leadFollowupMinutes'), 60);
   assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), false, 'admin idle default 30 min'); assert.equal(reuseWindowMs(), 24 * 3_600_000);
-  assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [7, 48, 30]);
-  await TS.saveTimings({ 'calls.leadFollowupMinutes': 90, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'referral.eligibleDays': 14, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
+  assert.deepEqual([at.clickTtlHours(), at.ipWindowMinutes()], [48, 30]);
+  await TS.saveTimings({ 'calls.leadFollowupMinutes': 90, 'auth.adminIdleMinutes': 5, 'offers.reuseHours': 48, 'tracking.clickTtlHours': 72, 'tracking.ipWindowMinutes': 60 }, 't');
   try {
     assert.equal(timing.num('calls.leadFollowupMinutes'), 90);
     assert.equal(isIdleExpired(new Date(Date.now() - 6 * MIN_MS)), true, 'admin idle now 5 min'); assert.equal(reuseWindowMs(), 48 * 3_600_000);
-    assert.deepEqual([referralEligibleDays(), at.clickTtlHours(), at.ipWindowMinutes()], [14, 72, 60]);
+    assert.deepEqual([at.clickTtlHours(), at.ipWindowMinutes()], [72, 60]);
   } finally { await clearTimings(); }
 });
 
@@ -1116,7 +1112,7 @@ await t('S111', 'timings', 'a stored value that breaks its own rules is ignored;
 await t('S112', 'timings', 'a visitor already on the schedule is unaffected by saving unrelated settings, and the message steps are not re-sent', async () => {
   await isolate(); hits.length = 0; const sup = await adminTok('super_admin'); const w = await webLogin();
   await prisma.journeyReminder.update({ where: { id: w.reminder!.id }, data: { startAt: OPEN, droppedAt: OPEN, lastSeenAt: OPEN, stepsSent: 3, lastSentAt: OPEN, nextCheckAt: new Date(OPEN.getTime() + 5 * 3_600_000) } });
-  await putTimings({ 'pan.dailyLimit': 7, 'referral.eligibleDays': 9 }, sup);
+  await putTimings({ 'pan.dailyLimit': 7, 'tracking.ipWindowMinutes': 45 }, sup);
   const r = await reminderById(w.reminder!.id); assert.equal(r.stepsSent, 3); assert.equal(hits.length, 0); assert.equal(r.status, 'active');
   await clearTimings();
 });

@@ -1,7 +1,7 @@
 // Voice tools for the SwiftLoan admin dashboard.
 //
 // The agent is a NAVIGATION CO-PILOT for operators: it moves between dashboard
-// pages ("take me to the loan pipeline", "open leads") and opens a specific
+// pages ("take me to applications", "open leads") and opens a specific
 // record by name/ref ("open loan SL-800042", "show me Meera's lead"). One
 // registerTool call per action, plus a page context so the model always knows
 // which screen the operator is on and what they can do next.
@@ -13,8 +13,10 @@ import { apiFetch } from './api';
 export const PAGES: { id: string; path: string; label: string; aliases: string[] }[] = [
   // Analytics was merged into Overview's "Trends" section, so its aliases live
   // here now — an operator saying "show analytics" should still land somewhere.
-  { id: 'overview', path: '/overview', label: 'Master Overview', aliases: ['overview', 'home', 'dashboard', 'summary', 'main', 'start', 'analytics', 'charts', 'trends', 'reports', 'graphs'] },
-  { id: 'loans', path: '/loans', label: 'Loan Pipeline', aliases: ['loans', 'loan pipeline', 'pipeline', 'applications', 'loan applications'] },
+  { id: 'overview', path: '/overview', label: 'Dashboard', aliases: ['overview', 'master overview', 'home', 'dashboard', 'summary', 'main', 'start', 'analytics', 'charts', 'trends', 'reports', 'graphs'] },
+  { id: 'loans', path: '/loans', label: 'Applications', aliases: ['applications', 'loan applications', 'loans', 'loan pipeline', 'pipeline'] },
+  { id: 'yubi', path: '/loans?tab=yubi', label: 'Applications (Yubi)', aliases: ['yubi', 'yubi referrals', 'ympl'] },
+  { id: 'revasure', path: '/loans?tab=revasure', label: 'Applications (Revasure)', aliases: ['revasure', 'revasure leads', 'mis', 'status sheet'] },
   { id: 'downloads', path: '/downloads', label: 'App Downloads & Attribution', aliases: ['downloads', 'installs', 'app downloads', 'attribution'] },
   // "customers" deliberately belongs to the 360 view, not /users. Since WS5 an
   // operator saying "customers" means the cross-channel journey record, not the
@@ -26,7 +28,6 @@ export const PAGES: { id: string; path: string; label: string; aliases: string[]
   { id: 'customers', path: '/customers', label: 'Customers', aliases: ['customers', 'customer 360', '360', 'leads', 'contacts', 'enquiries', 'contact us', 'lead list', 'journeys', 'customer journeys', 'journey', 'drop offs', 'drop-offs', 'dropoffs', 'stalled', 'stuck customers', 'onboarding', 'signups', 'sign ups', 'onboarding funnel', 'steps'] },
   // Everything sent to customers. The old Messages and Calls pages were folded into it.
   { id: 'alerts', path: '/alerts', label: 'Alerts', aliases: ['alerts sent', 'sent alerts', 'messages', 'sent messages', 'whatsapp', 'sms', 'push', 'calls', 'call log'] },
-  { id: 'campaigns', path: '/campaigns', label: 'Campaigns', aliases: ['campaigns', 'campaign', 'outbound', 'calling', 'call campaign', 'dialer', 'bulk calls'] },
   { id: 'integrations', path: '/integrations', label: 'Integrations', aliases: ['integrations', 'integration', 'settings', 'config', 'configuration', 'api keys', 'ello', 'upshot', 'providers'] },
 ];
 
@@ -64,7 +65,7 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
           'You are the SwiftLoan admin dashboard voice co-pilot. You help an operator navigate the dashboard hands-free and open specific records.',
         behaviour: [
           "Open by greeting the operator, say which screen they're on, and ask where they'd like to go.",
-          "When they name a screen ('take me to the loan pipeline', 'open leads', 'show analytics'), CALL go_to_page immediately, then briefly confirm.",
+          "When they name a screen ('take me to applications', 'open leads', 'show analytics'), CALL go_to_page immediately, then briefly confirm.",
           "When they name a specific record ('open loan SL-800042', 'show Meera's lead', 'find user Rahul'), CALL the matching open_* tool.",
           'Be concise and operational — this is an internal tool, not a sales pitch.',
           'If a request is ambiguous, ask which of the available screens they mean.',
@@ -77,7 +78,7 @@ export function registerAdminTools(agent: ElloAgent, deps: AdminToolDeps) {
   agent.registerTool<{ page: string }>({
     name: 'go_to_page',
     description:
-      "Navigate the dashboard to a screen the operator asks for — e.g. 'take me to the loan pipeline', 'open leads', 'go to analytics', 'show notifications', 'back to overview'. Use screen names/aliases from the page context's `screens` list.",
+      "Navigate the dashboard to a screen the operator asks for — e.g. 'take me to applications', 'open leads', 'go to analytics', 'show notifications', 'back to overview'. Use screen names/aliases from the page context's `screens` list.",
     schema: {
       type: 'object',
       properties: { page: { type: 'string', description: 'the screen the operator asked for' } },

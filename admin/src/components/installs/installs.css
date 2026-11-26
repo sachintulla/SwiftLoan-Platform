@@ -14,7 +14,7 @@
 .adm-inst-field > label, .adm-inst-label { font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
 .adm-inst-dates { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .adm-inst-dates .adm-inst-field { flex: 0 1 170px; }
-.adm-inst-err { color: #b42318; font-size: 12.5px; margin: 0; }
+.adm-inst-err { color: var(--red); font-size: 12.5px; margin: 0; }
 .adm-inst-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; min-height: 36px; cursor: pointer; }
 .adm-inst-check input { width: 18px; height: 18px; accent-color: var(--brand); }
 .adm-inst-result { font-size: 12.5px; color: var(--text-dim); margin: 0 0 10px; }
@@ -42,7 +42,7 @@ a.adm-inst-name:hover { color: var(--brand); text-decoration: underline; }
   flex: none; width: 28px; height: 28px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
   display: inline-grid; place-items: center; color: var(--text-dim); padding: 0;
 }
-.adm-inst-chevron:hover { color: var(--text); border-color: #c5ccd6; }
+.adm-inst-chevron:hover { color: var(--text); border-color: #c9d6d5; }
 .adm-inst-chevron svg { width: 14px; height: 14px; transition: transform .15s; }
 .adm-inst-chevron[aria-expanded="true"] svg { transform: rotate(90deg); }
 

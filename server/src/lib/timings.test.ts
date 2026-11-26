@@ -23,8 +23,9 @@ describe('registry', () => {
       'calls.leadFollowupMinutes': 60, 'calls.maxPerHour': 60, 'calls.perScan': 25, 'calls.leadAutocallEnabled': true,
       'limits.phoneCooldownHours': 24, 'limits.stallCallsPerPerson': 2, 'limits.noOffersCallsPerPerson': 0, 'limits.dropoffRerunDays': 14,
       'limits.stallWhatsappCooldownHours': 24, 'limits.stallWhatsappPerPerson': 3, 'limits.stallWhatsappMaxAgeHours': 24, 'limits.stallSmsCooldownHours': 24, 'limits.stallSmsPerPerson': 3, 'limits.stallSmsMaxAgeHours': 24,
+      'limits.whatsappPerMinute': 1000, 'limits.whatsappParallel': 10,
       'auth.otpValidityMinutes': 5, 'auth.otpResendWindowMinutes': 10, 'auth.accessTokenMinutes': 15, 'auth.refreshTokenDays': 30, 'auth.websiteSessionMinutes': 120, 'auth.adminIdleMinutes': 30,
-      'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 0, 'referral.eligibleDays': 7,
+      'tracking.apiLogKeepDays': 30, 'tracking.clickTtlHours': 48, 'tracking.ipWindowMinutes': 30, 'offers.reuseHours': 24, 'pan.dailyLimit': 0,
       'install.sendEnabled': false,
       'dropoff.idleMinutes': 5, 'dropoff.dailyAt': 420, 'dropoff.dailyDays': 7, 'calls.stallMinStuckMinutes': 30, 'calls.inactiveEnabled': false, 'calls.inactiveCallAt': 1200, 'calls.inactiveDays': 3, 'calls.inactiveDailyLimit': 50, 'calls.inactiveSameDay': false, 'limits.inactiveCallsPerPerson': 3,
     };
@@ -118,21 +119,21 @@ describe('schedule', () => {
 });
 
 describe('where a value comes from: override > env > default', () => {
-  const key = 'referral.eligibleDays'; // env REFERRAL_ELIGIBLE_DAYS, default 7
+  const key = 'tracking.clickTtlHours'; // env ATTRIBUTION_CLICK_TTL_HOURS, default 48
   const withEnv = (v: string | undefined, fn: () => void) => {
-    const old = process.env.REFERRAL_ELIGIBLE_DAYS;
-    if (v === undefined) delete process.env.REFERRAL_ELIGIBLE_DAYS; else process.env.REFERRAL_ELIGIBLE_DAYS = v;
-    try { fn(); } finally { if (old === undefined) delete process.env.REFERRAL_ELIGIBLE_DAYS; else process.env.REFERRAL_ELIGIBLE_DAYS = old; }
+    const old = process.env.ATTRIBUTION_CLICK_TTL_HOURS;
+    if (v === undefined) delete process.env.ATTRIBUTION_CLICK_TTL_HOURS; else process.env.ATTRIBUTION_CLICK_TTL_HOURS = v;
+    try { fn(); } finally { if (old === undefined) delete process.env.ATTRIBUTION_CLICK_TTL_HOURS; else process.env.ATTRIBUTION_CLICK_TTL_HOURS = old; }
   };
   it('default when nothing is set', () => withEnv(undefined, () => {
-    expect(timing.num(key)).toBe(7); expect(sourceOf(defOf(key))).toBe('default');
+    expect(timing.num(key)).toBe(48); expect(sourceOf(defOf(key))).toBe('default');
   }));
   it('the old env variable still works', () => withEnv('9', () => {
     expect(timing.num(key)).toBe(9); expect(sourceOf(defOf(key))).toBe('env');
   }));
   it('a blank or non-numeric env value is ignored', () => {
-    withEnv('', () => expect(timing.num(key)).toBe(7));
-    withEnv('soon', () => expect(timing.num(key)).toBe(7));
+    withEnv('', () => expect(timing.num(key)).toBe(48));
+    withEnv('soon', () => expect(timing.num(key)).toBe(48));
   });
   it('an admin override beats the env value', () => withEnv('9', () => {
     setOverrides(new Map([[key, 12]]));

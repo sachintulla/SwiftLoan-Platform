@@ -6,7 +6,7 @@
 import type { MessageDelivery, Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
-import { mergeStatus, phoneKey, type DeliveryStatus, type StatusEvent } from './messageStatus.js';
+import { mergeStatus, phoneKey, isRepeatEvent, LINK_BY_PHONE_MS, type DeliveryStatus, type StatusEvent } from './messageStatus.js';
 
 const log = scoped('delivery');
 const MAX_EVENTS = 25;
@@ -100,9 +100,12 @@ export async function applyStatusEvents(events: StatusEvent[]): Promise<ApplyRes
   for (const ev of events) {
     try {
       const existing = ev.providerRef
-        ? await prisma.messageDelivery.findFirst({ where: { OR: [{ providerRef: ev.providerRef }, { gtrid: ev.providerRef }, ...(ev.gtrid ? [{ gtrid: ev.gtrid }] : [])] } })
+        ? (await prisma.messageDelivery.findFirst({ where: { OR: [{ providerRef: ev.providerRef }, { gtrid: ev.providerRef }, ...(ev.gtrid ? [{ gtrid: ev.gtrid }] : [])] } }))
+          ?? (await linkByPhone(ev))
         : null;
       const entry: EventLog = { at: ev.at.toISOString(), status: ev.status, raw: ev.rawStatus, ...(ev.code ? { code: ev.code } : {}), ...(ev.reason ? { reason: ev.reason } : {}) };
+      // Vox sends every report twice: the second copy changes nothing.
+      if (existing && isRepeatEvent(readEvents(existing), ev)) { out.matched++; continue; }
 
       if (!existing) {
         await prisma.messageDelivery.create({
@@ -138,6 +141,29 @@ export async function applyStatusEvents(events: StatusEvent[]): Promise<ApplyRes
     }
   }
   return out;
+}
+
+/**
+ * Vox reports a message by WhatsApp's id ("wamid.…"), which its send reply never gave us (we hold Vox's own id). On the first report
+ * for a message, link it to the newest WhatsApp we sent that number within LINK_BY_PHONE_MS that has no report yet, and keep the wamid
+ * in `gtrid` (Vox fills no gtrid of its own), so the later reports for the same message match it directly.
+ */
+async function linkByPhone(ev: StatusEvent): Promise<MessageDelivery | null> {
+  const phone = phoneKey(ev.recipient);
+  if (!phone || !ev.providerRef) return null;
+  const candidate = await prisma.messageDelivery.findFirst({
+    where: {
+      channel: 'whatsapp', phone, gtrid: null, kind: { notIn: ['unparsed', 'unknown'] },
+      createdAt: { gte: new Date(ev.at.getTime() - LINK_BY_PHONE_MS), lte: new Date(ev.at.getTime() + 60_000) },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!candidate) return null;
+  // Only one report may claim a message (the duplicate copy can arrive in the same millisecond).
+  const claimed = await prisma.messageDelivery.updateMany({ where: { id: candidate.id, gtrid: null }, data: { gtrid: ev.providerRef } });
+  return claimed.count === 1
+    ? { ...candidate, gtrid: ev.providerRef }
+    : prisma.messageDelivery.findFirst({ where: { gtrid: ev.providerRef } });
 }
 
 /** The per-status timestamp columns an event fills in. */

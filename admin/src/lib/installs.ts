@@ -7,7 +7,7 @@ import { inr } from './format';
 /* ───────────────────────────── API shapes ───────────────────────────── */
 
 export type Confidence = 'confirmed' | 'probable' | 'none';
-export type SentByType = 'admin' | 'reminder' | 'lender_reminder' | 'website' | 'campaign' | 'referral' | 'organic' | 'unknown';
+export type SentByType = 'admin' | 'reminder' | 'lender_reminder' | 'website' | 'campaign' | 'organic' | 'unknown';
 export type SentVia = 'whatsapp' | 'sms' | 'call' | 'push' | 'website';
 
 export interface InstallContext {
@@ -19,7 +19,7 @@ export interface InstallContext {
   sentVia: SentVia | null;
   sentAt: string | null;
   sentBy: { type: SentByType; label: string };
-  origin: 'install_link' | 'journey_reminder' | 'lender_nudge' | 'lead' | 'campaign' | 'referral' | null;
+  origin: 'install_link' | 'journey_reminder' | 'lender_nudge' | 'lead' | 'campaign' | null;
 }
 
 export interface InstallRow {
@@ -148,7 +148,6 @@ export const SENT_BY_LABELS: Record<SentByType, string> = {
   lender_reminder: 'Lender reminder',
   website: 'Website',
   campaign: 'Campaign',
-  referral: 'Friend referral',
   organic: 'No link details',
   unknown: 'Not recorded',
 };
@@ -160,7 +159,6 @@ export const SENT_BY_OPTIONS: { value: string; label: string }[] = [
   { value: 'lender_reminder', label: SENT_BY_LABELS.lender_reminder },
   { value: 'website', label: SENT_BY_LABELS.website },
   { value: 'campaign', label: SENT_BY_LABELS.campaign },
-  { value: 'referral', label: SENT_BY_LABELS.referral },
   { value: 'organic', label: SENT_BY_LABELS.organic },
 ];
 
@@ -211,6 +209,15 @@ export function loanDetailsText(c: InstallContext | null): string {
 }
 
 export const hasLoanDetails = (c: InstallContext | null): boolean => loanDetailsText(c) !== 'No details were sent';
+
+/**
+ * "From Instagram ads": an install that came from an ad or a campaign and carried no loan details. Ads send nothing but
+ * the platform (server attribution.ts adCampaignFromReferrer), so this is what the row can say about them. Null otherwise.
+ */
+export function campaignSourceText(c: InstallContext | null): string | null {
+  if (!c || c.sentBy.type !== 'campaign' || hasLoanDetails(c)) return null;
+  return `From ${c.sentBy.label}`;
+}
 
 /**
  * Who sent the link and how. `recorded` is false when nothing is known, so the

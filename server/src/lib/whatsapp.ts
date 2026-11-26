@@ -20,9 +20,19 @@ import { getProviderConfig } from './integrations.js';
 import { defaultCallbackUrl } from './messageCallback.js';
 import { recordSend, type TriggerInfo } from './messageDelivery.js';
 import { headerImageFor } from './templateImages.js';
+import { createRateGate, isThrottled } from './sendRate.js';
+import { timing } from './timings.js';
+
+/**
+ * Every WhatsApp send in this process goes through one gate: at most `limits.whatsappPerMinute` (Admin → Timings, default 1,000;
+ * Vox allows 2,500) in any minute. Over that, a send waits for a free slot instead of going out in a burst.
+ */
+const sendGate = createRateGate({ perMinute: () => timing.num('limits.whatsappPerMinute') });
 
 export interface WhatsAppResult {
   ok: boolean;
+  /** The provider refused it for going too fast (HTTP 429 / Meta 130429). Safe to send again shortly. */
+  throttled?: boolean;
   status: number;
   /** Provider's message id (Voxvalley `id`, Meta `messages[0].id`). */
   messageId?: string;
@@ -112,6 +122,7 @@ function sendUrl(r: Backend): string {
 /* ──────────────────────────────── transport ──────────────────────────────── */
 
 async function post(r: Backend, payload: unknown): Promise<WhatsAppResult> {
+  await sendGate.acquire();
   let res: Response;
   try {
     res = await fetch(sendUrl(r), {
@@ -142,8 +153,9 @@ async function post(r: Backend, payload: unknown): Promise<WhatsAppResult> {
   if (failed) {
     const error: string =
       json?.error?.error_user_msg ?? json?.error?.message ?? json?.message ?? (text.slice(0, 300) || `HTTP ${res.status}`);
-    console.error(`[whatsapp] send failed via ${r.kind} http=${res.status} ${error}`);
-    return { ok: false, status: res.status, providerStatus, error, body: json };
+    const throttled = isThrottled(res.status, json);
+    console.error(`[whatsapp] send ${throttled ? 'throttled' : 'failed'} via ${r.kind} http=${res.status} ${error}`);
+    return { ok: false, ...(throttled ? { throttled: true } : {}), status: res.status, providerStatus, error, body: json };
   }
 
   const messageId = json?.messages?.[0]?.id ?? json?.id ?? json?.gtrid;
@@ -163,8 +175,10 @@ export interface SendTrack {
 /** Remember the send (accepted or refused) so its delivery status can be followed. Never changes the result. */
 async function tracked(
   result: WhatsAppResult,
-  info: { phone: string; template?: string | null; referenceId?: string; track?: SendTrack; language?: string; category?: string | null; placeholders?: string[] },
+  info: { phone: string; template?: string | null; referenceId?: string; track?: SendTrack; language?: string; category?: string | null; placeholders?: string[]; retryIfThrottled?: boolean },
 ): Promise<WhatsAppResult> {
+  // The caller will send this one again shortly: nothing left the server, so there is no message to track yet.
+  if (result.throttled && info.retryIfThrottled) return result;
   await recordSend({
     channel: 'whatsapp',
     providerRef: result.ok ? result.messageId ?? null : null,
@@ -209,6 +223,8 @@ export async function sendWhatsAppTemplate(opts: {
    * the template's own image (Admin → Templates, else templateImages.ts); '' = send no image.
    */
   headerImageUrl?: string;
+  /** The caller retries a send the provider refused as too fast, so such a refusal is not recorded as a failed message. */
+  retryIfThrottled?: boolean;
 }): Promise<WhatsAppResult> {
   const r = await ready();
   if (typeof r === 'string') return { ok: false, status: 0, error: r };
@@ -239,6 +255,7 @@ export async function sendWhatsAppTemplate(opts: {
     language: template.language.code,
     category: r.kind === 'meta' ? null : (cleanCategory(opts.category) ?? cleanCategory(r.settings.messageCategory) ?? null),
     placeholders,
+    retryIfThrottled: opts.retryIfThrottled,
   });
 }
 

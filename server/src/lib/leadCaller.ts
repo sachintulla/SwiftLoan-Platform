@@ -14,7 +14,7 @@ import { timing } from './timings.js';
 import { prisma } from './prisma.js';
 import { placeCall } from './dialer.js';
 import { withinTestAllowlist } from './callGate.js';
-import { localParts } from './campaignSchedule.js';
+import { localParts } from './localTime.js';
 import { buildLeadCallContext, compactContext } from './callContext.js';
 import { agentIdFor } from './agents.js';
 import { hourlyCallBudget, isPhoneInCooldown } from './callThrottle.js';

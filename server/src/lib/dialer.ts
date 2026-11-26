@@ -1,8 +1,8 @@
 /**
  * WS5 — the one place an outbound call is actually placed.
  *
- * Both the ad-hoc admin trigger (`/api/admin/calls/trigger`) and the campaign
- * runner (`/api/admin/campaigns/:id/start`) go through `placeCall()`, so the
+ * The ad-hoc admin trigger (`/api/admin/calls/trigger`) and every automatic
+ * caller go through `placeCall()`, so the
  * CallAttempt lifecycle, the journey event and the provider error handling
  * have exactly one implementation.
  *
@@ -28,7 +28,6 @@ export function normalisePhone(raw: unknown): string | null {
 export interface PlaceCallInput {
   customerId: string;
   phone: string;
-  campaignId?: string | null;
   assistantId?: string | null;
   metadata?: Record<string, any>;
 }
@@ -50,7 +49,6 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   const attempt = await prisma.callAttempt.create({
     data: {
       customerId: input.customerId,
-      campaignId: input.campaignId ?? null,
       phone: input.phone,
       channel: 'phone_outbound',
       status: 'queued',
@@ -69,7 +67,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   await recordJourneyEvent(input.customerId, {
     channel: 'voice',
     name: JOURNEY_EVENTS.CALL_QUEUED,
-    metadata: { callAttemptId: attempt.id, campaignId: input.campaignId ?? null, phone: input.phone },
+    metadata: { callAttemptId: attempt.id, phone: input.phone },
   }).catch(() => undefined);
 
   const res = await triggerElloCall({
@@ -137,13 +135,3 @@ export async function runPool<T>(
   await Promise.all(Array.from({ length: Math.min(width, items.length) }, run));
   return processed;
 }
-
-/* ──────────────────────────────────────────────────────────────────────
-   The old runCampaign() / isCampaignRunning() pair lived here. Both were
-   removed when scheduling landed (see lib/campaignRunner.ts).
-
-   runCampaign() dialled every 'pending' contact immediately, with no awareness
-   of startAt/endAt, the daily calling window, allowed weekdays or the retry
-   cadence. Keeping it meant one stray call could blast a whole list at 3am.
-   Use tickCampaign() / campaignScheduler() instead.
-   ────────────────────────────────────────────────────────────────────── */

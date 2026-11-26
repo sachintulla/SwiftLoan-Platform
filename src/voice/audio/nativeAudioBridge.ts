@@ -25,15 +25,16 @@ async function ensureMicPermission(): Promise<boolean> {
     // BLUETOOTH_CONNECT (Android 12+) gates whether a connected headset shows
     // up in the native module's device list at all — without it granted,
     // VoiceAudioModule's Bluetooth-preferred routing silently falls back to
-    // the speaker even with a real headset connected. Requested alongside
-    // the mic in one prompt rather than a separate ask; declining it is
+    // the speaker even with a real headset connected. Declining it is
     // non-fatal, the call still works over the speaker either way, so only
     // RECORD_AUDIO's result gates whether the call can start at all.
-    const results = await PermissionsAndroid.requestMultiple([
-      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    ]);
-    return results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
+    // Asked one after the other, mic first: asking both together showed the "nearby devices"
+    // prompt even to someone who had just refused the microphone (seen on the Play build), which
+    // looks like the app wants more than it needs. No mic = no call, so nothing else is asked.
+    const mic = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    if (mic !== PermissionsAndroid.RESULTS.GRANTED) return false;
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT).catch(() => undefined);
+    return true;
   }
   if (VoiceAudioModule?.requestMicPermission) {
     try {

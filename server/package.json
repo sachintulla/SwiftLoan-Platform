@@ -13,7 +13,6 @@
     "seed": "tsx prisma/seed.ts",
     "seed:ws4": "tsx prisma/seed.ws4.ts",
     "seed:integrations": "tsx prisma/seed.integrations.ts",
-    "seed:preapproved": "tsx prisma/seed.preapproved.ts",
     "smoke": "tsx src/smoke.ts",
     "pan:encrypt": "tsx scripts/encrypt-existing-pan.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",

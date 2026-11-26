@@ -30,9 +30,9 @@ export function FunnelChart({ stages }: { stages: FunnelStage[] }) {
 }
 
 const PIPE_COLORS: Record<string, string> = {
-  draft: '#f79009', pan_pending: '#f7a53b', prequalifying: '#2e90fa', offers_ready: '#2e90fa',
-  handoff: '#f79009', under_review: '#2e90fa', approved: '#12b76a', rejected: '#f04438',
-  disbursed: '#0a7d4b', closed: '#667085',
+  draft: 'var(--amber)', pan_pending: 'var(--amber)', prequalifying: 'var(--blue)', offers_ready: 'var(--blue)',
+  handoff: 'var(--amber)', under_review: 'var(--blue)', approved: 'var(--green)', rejected: 'var(--red)',
+  disbursed: 'var(--sl-green-600)', closed: 'var(--text-dim)',
   // Campaign contact states (ContactState) — this bar is reused on the
   // campaign detail page for these too. Without entries here every one of
   // them fell through to the '#98a2b3' fallback below, so a campaign's bar
@@ -48,7 +48,7 @@ export function PipelineBar({ byStatus }: { byStatus: Record<string, number> }) 
     <div>
       <div className="pipeline">
         {entries.map(([k, v]) => (
-          <div key={k} className="pipeline-seg" style={{ width: `${(v / total) * 100}%`, background: PIPE_COLORS[k] || '#98a2b3' }} title={`${loanStatusLabel(k)}: ${v}`}>
+          <div key={k} className="pipeline-seg" style={{ width: `${(v / total) * 100}%`, background: PIPE_COLORS[k] || 'var(--grey)' }} title={`${loanStatusLabel(k)}: ${v}`}>
             {v / total > 0.06 ? v : ''}
           </div>
         ))}
@@ -56,7 +56,7 @@ export function PipelineBar({ byStatus }: { byStatus: Record<string, number> }) 
       <div className="row wrap" style={{ gap: 14, marginTop: 12 }}>
         {entries.map(([k, v]) => (
           <span key={k} className="row" style={{ gap: 6, fontSize: 12 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: PIPE_COLORS[k] || '#98a2b3' }} />
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: PIPE_COLORS[k] || 'var(--grey)' }} />
             <span className="muted">{loanStatusLabel(k)}</span><b>{v}</b>
           </span>
         ))}

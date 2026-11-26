@@ -2,7 +2,6 @@
 // Editing one WhatsApp message (template, language, category, variables). Used inside Stage outreach, where each stage lists the messages it sends.
 // The rules (what is allowed, where each message is stored) live on the server: server/src/lib/whatsappCatalog.ts.
 import React, { useState } from 'react';
-import Link from 'next/link';
 import { apiFetch, ApiError } from '@/lib/api';
 import { ConfirmDialog, Select, Chevron } from '@/components/ui';
 import {
@@ -14,7 +13,7 @@ const GROUPS: { key: Group; title: string; sub: string }[] = [
   { key: 'dropoff', title: 'Drop-off messages', sub: 'When someone stops partway through the loan journey, on the website or in the app.' },
   { key: 'install', title: 'Website install reminders', sub: 'Website visitors who left without installing the app.' },
   { key: 'applied', title: 'After applying with a lender', sub: 'Sent after someone taps Apply on a lender offer.' },
-  { key: 'stall', title: 'Stuck-stage nudges', sub: 'A customer sits too long at one stage. Each is switched on or off under Notification Rules.' },
+  { key: 'stall', title: 'Stuck-stage nudges', sub: 'A customer sits too long at one stage. Each is switched on or off on the Stage outreach tab.' },
 ];
 
 /* ─────────────────────────────── the variable list ─────────────────────────────── */
@@ -170,7 +169,7 @@ export function MessageEditor({ item, cardCategory, canEdit, templates, onDone }
 /* ─────────────────────────────── the messages tab ─────────────────────────────── */
 
 export function GroupState({ group, switches }: { group: Group; switches: Catalog['switches'] }) {
-  if (group === 'stall') return <Link href="/notifications-rules" className="muted" style={{ fontSize: 12.5, textDecoration: 'underline' }}>Set per notification rule</Link>;
+  if (group === 'stall') return <span className="muted" style={{ fontSize: 12.5 }}>Set per follow-up on the Stage outreach tab</span>;
   const live = switches[group];
   return (
     <span className="row" style={{ gap: 8 }}>

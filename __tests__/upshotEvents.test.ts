@@ -246,7 +246,7 @@ describe('Upshot stage (the present step)', () => {
   it('screens outside the loan journey leave it unchanged', () => {
     const { up } = harness();
     up.upshotScreen('basic');
-    for (const screen of ['home', 'loans', 'profile', 'help', 'referral', 'calculator']) up.upshotScreen(screen);
+    for (const screen of ['home', 'loans', 'profile', 'help', 'calculator']) up.upshotScreen(screen);
     expect(up.currentUpshotStage()).toBe('Basic Details');
   });
 

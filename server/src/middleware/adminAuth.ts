@@ -37,8 +37,17 @@ export function requireAdmin(req: Request, _res: Response, next: NextFunction) {
  * Kept separate from `requireAdmin` (which only validates the JWT) so the token
  * check stays synchronous, and so a deactivated admin loses access immediately
  * rather than when their 15-minute access token happens to expire.
+ *
+ * Express 4 does not catch a rejected promise from middleware: a throw here used
+ * to leave the request unanswered (the admin page loaded forever) and logged an
+ * "unhandled rejection". Errors are now handed to `next` so the client gets the
+ * 401 / 440 / 428 and can send the admin back to sign in.
  */
-export async function requireActiveAdmin(req: Request, _res: Response, next: NextFunction) {
+export function requireActiveAdmin(req: Request, res: Response, next: NextFunction) {
+  checkActiveAdmin(req, res, next).catch(next);
+}
+
+async function checkActiveAdmin(req: Request, _res: Response, next: NextFunction) {
   if (!req.admin) throw new HttpError(401, 'Not authenticated');
 
   const admin = await prisma.adminUser.findUnique({

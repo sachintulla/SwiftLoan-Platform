@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normaliseStatus, mergeStatus, parseStatusPayload, parseTimestamp, isStuck, phoneKey, STUCK_AFTER_MS } from './messageStatus.js';
+import { normaliseStatus, mergeStatus, parseStatusPayload, parseTimestamp, isStuck, phoneKey, isRepeatEvent, STUCK_AFTER_MS, LINK_BY_PHONE_MS } from './messageStatus.js';
 
 const NOW = new Date('2026-10-19T10:00:00Z');
 
@@ -132,5 +132,45 @@ describe('phoneKey', () => {
     expect(phoneKey('+91 93000 00001')).toBe('9300000001');
     expect(phoneKey('12345')).toBeNull();
     expect(phoneKey(null)).toBeNull();
+  });
+});
+
+describe('Vox WhatsApp callbacks (shape seen on production, 23 Nov 2026)', () => {
+  const vox = (status: string) => ({ from: '919000209457', to: '919876543210', status, timestamp: 1795342927, msgId: 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgS' });
+  it('reads msgId as the message id and "to" as the customer (it used to be stored as unreadable)', () => {
+    const [e] = parseStatusPayload(vox('FAILED'), NOW);
+    expect(e.providerRef).toBe('wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgS');
+    expect(phoneKey(e.recipient)).toBe('9876543210');
+    expect(e.status).toBe('failed');
+    expect(e.at.toISOString()).toBe(new Date(1795342927 * 1000).toISOString());
+  });
+  it.each([['SENT', 'sent'], ['DELIVER', 'delivered'], ['READ', 'read'], ['FAILED', 'failed']])('Vox %s → %s', (raw, want) => {
+    expect(parseStatusPayload(vox(raw), NOW)[0].status).toBe(want);
+  });
+  it('spots the second copy of the same report (Vox sends each one twice), but not a new status', () => {
+    const [e] = parseStatusPayload(vox('FAILED'), NOW);
+    const stored = [{ at: e.at.toISOString(), raw: 'FAILED' }];
+    expect(isRepeatEvent(stored, e)).toBe(true);
+    expect(isRepeatEvent(stored, parseStatusPayload(vox('DELIVER'), NOW)[0])).toBe(false);
+    expect(isRepeatEvent([], e)).toBe(false);
+  });
+  it('links within half an hour', () => expect(LINK_BY_PHONE_MS).toBe(30 * 60_000));
+});
+
+describe('the failure REASON (e.g. Meta 131042 payment issue) reaches the admin once Vox sends it', () => {
+  it('Vox flat report with errorCode / errorMessage added', () => {
+    const [e] = parseStatusPayload({ from: '919000209457', to: '919876543210', status: 'FAILED', timestamp: 1795342927, msgId: 'wamid.X', errorCode: 131042, errorMessage: 'Business eligibility payment issue' }, NOW);
+    expect([e.status, e.code, e.reason]).toEqual(['failed', '131042', 'Business eligibility payment issue']);
+  });
+  it("Meta's own status format (the one Vox's docs describe), with its errors list", () => {
+    const body = { object: 'whatsapp_business_account', entry: [{ changes: [{ value: { statuses: [{ id: 'wamid.Y', status: 'failed', timestamp: '1795342927', recipient_id: '919876543210', errors: [{ code: 131042, title: 'Business eligibility payment issue', error_data: { details: 'Message failed to send because there were one or more errors related to your payment method.' } }] }] } }] }] };
+    const [e] = parseStatusPayload(body, NOW);
+    expect(e.status).toBe('failed');
+    expect(e.code).toBe('131042');
+    expect(e.reason).toContain('Business eligibility payment issue');
+  });
+  it('what Vox sends today has no reason at all', () => {
+    const [e] = parseStatusPayload({ from: '919000209457', to: '919876543210', status: 'FAILED', timestamp: 1795342927, msgId: 'wamid.Z' }, NOW);
+    expect([e.code, e.reason]).toEqual([null, null]);
   });
 });

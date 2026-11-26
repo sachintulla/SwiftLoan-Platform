@@ -849,7 +849,7 @@ function SupportTab() {
         {online ? <View style={[styles.supportDot, { backgroundColor: live ? colors.green : colors.amber }]} /> : null}
       </View>
       )}
-      <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]}>
+      <Text style={[font(700), { fontSize: 10.5, color: colors.primary, marginTop: 3 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
         {connecting
           ? t.navConnecting
           : status === 'speaking'

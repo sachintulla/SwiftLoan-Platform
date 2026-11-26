@@ -70,7 +70,6 @@ event    = swiftloan_offer_not_selected
 | `disbursed` | Loan disbursed | yes |
 | `repay` (also `emi`, `repayments`) | Repayments | yes |
 | `profile` | Profile | yes |
-| `referral` | Refer a friend | yes |
 | `notifications` (also `inbox`) | The Notifications screen | yes |
 | `calculator` | EMI calculator | no |
 | `help` | Help & Support | no |

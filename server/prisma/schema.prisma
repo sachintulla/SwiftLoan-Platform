@@ -338,45 +338,6 @@ model LenderPartner {
   offers Offer[]
 }
 
-// Admin-curated, pre-application eligibility catalog shown on the app's
-// "Explore your loan options" screen (skip-login path) — distinct from Offer,
-// which is computed per-application after a user actually applies.
-/// The static catalog of market-available loan offers shown on the dashboard
-/// after login (no PAN, no credit pull). NOT the personalised/eligible offers —
-/// those are the Offer rows returned per application by the lender (Aurix).
-/// Physical table kept as "PreApprovedPlan" (@@map) so the rename needs no
-/// data migration.
-model MarketLoanOffer {
-  id         String  @id @default(uuid())
-  lenderName String
-  logoUrl    String? // hosted brand logo image URL
-  icon       String  @default("account_balance") // fallback glyph if no logo set
-  exploreUrl String? // opened in-browser from the "Explore Plan" button (demo)
-
-  badge String? // e.g. "Best rate"
-
-  maxAmount        Int? // "Up to ₹X", in whole rupees; null if amountAtApproval
-  amountAtApproval Boolean @default(false) // e.g. MoneyView: no amount shown
-
-  rateMin        Float?
-  rateMax        Float?
-  rateAtApproval Boolean @default(false) // e.g. UnitySFB: "Rate at approval"
-
-  tenureMinMonths Int?
-  tenureMaxMonths Int?
-
-  tags String[] // free-text pills for outlier cards
-
-  displayOrder Int     @default(0)
-  active       Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([active, displayOrder])
-  @@map("PreApprovedPlan")
-}
-
 model Offer {
   id            String          @id @default(uuid())
   applicationId String
@@ -1082,7 +1043,6 @@ model Customer {
 
   events        JourneyEvent[]
   conversations CallAttempt[]
-  campaigns     CampaignContact[]
 
   @@index([currentStage, stageEnteredAt])
   @@index([lastActivityAt])
@@ -1166,7 +1126,7 @@ model CallAttempt {
   /// Which surface this happened on.
   /// phone_outbound | phone_inbound | website_widget | mobile_app | admin | whatsapp
   channel   String
-  /// Which agent role handled it (leadCallback, campaign, companion,
+  /// Which agent role handled it (leadCallback, companion,
   /// websiteCompanion, adminNavigator) — null for non-agent conversations.
   agentRole String?
   /// Ello's conversation id. For a phone call this is the SAME identifier that
@@ -1175,11 +1135,8 @@ model CallAttempt {
 
   // ── Dial mechanics — set only for phone_outbound/phone_inbound; null for
   // every other channel, which never went through a dialling step at all ──
-  campaignId  String?
-  campaign    Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   status      CallStatus?
-  /// Which attempt this is for a retry ladder (immediateCallback.ts) or a
-  /// campaign's retry strategy. Null outside those flows.
+  /// Which attempt this is for a retry ladder. Null outside those flows.
   attempt     Int?
   /// The context_data variables sent to the agent for this call. Kept so an
   /// operator can see exactly what the agent knew when it dialled — the usual
@@ -1227,7 +1184,6 @@ model CallAttempt {
   @@index([phone, startedAt])
   @@index([customerId, startedAt])
   @@index([channel, startedAt])
-  @@index([campaignId, status])
   @@index([status])
   @@index([queuedAt])
 }
@@ -1271,148 +1227,6 @@ enum CallOutcome {
   do_not_call
   installed_app
   other
-}
-
-// ─────────────────────── Campaigns ───────────────────────
-
-enum CampaignStatus {
-  draft
-  running
-  paused
-  completed
-  failed
-  /// Deliberately stopped by an admin, never to be resumed — distinct from
-  /// `paused` (resumable) and `failed` (an error, not a choice).
-  cancelled
-}
-
-/// A bulk outbound-calling campaign, seeded from an uploaded spreadsheet.
-model Campaign {
-  id     String         @id @default(uuid())
-  name   String
-  /// Short human code used for attribution; matches Customer.campaignId.
-  code   String         @unique
-  /// Set when this campaign's contacts were handed to Ello's own batch
-  /// dialler (send-to-ello) instead of our own campaignRunner. Lets the
-  /// campaign.started/campaign.ended webhooks find their way back to this
-  /// row, and per-call webhooks for calls Ello placed itself (which never
-  /// went through our own dialer.ts, so have no CallAttempt yet) find the
-  /// right campaign to attach to.
-  providerCampaignId String? @unique
-  status CampaignStatus @default(draft)
-
-  /// How many calls may be in flight at once for this campaign.
-  concurrency   Int     @default(1)
-  /// Ello agent that runs the calls; falls back to the integration default.
-  assistantId   String?
-  /// Display name of the chosen agent, cached so the UI need not re-query Ello.
-  assistantName String?
-  note          String?
-
-  // ── Schedule ──────────────────────────────────────────────────────────
-  /// When the campaign may begin dialling (date + time).
-  startAt      DateTime?
-  /// When it must stop entirely (date + time).
-  endAt        DateTime?
-  scheduleType CampaignScheduleType @default(one_time)
-
-  /// Daily calling window, stored as minutes from local midnight so it is
-  /// trivially comparable and free of DST/date arithmetic. 540 = 09:00,
-  /// 1140 = 19:00. Interpreted in `timezone`.
-  dailyStartMinute Int    @default(540)
-  dailyEndMinute   Int    @default(1140)
-  /// IANA zone the window and day-of-week are evaluated in.
-  timezone         String @default("Asia/Kolkata")
-  /// Allowed weekdays, 0=Sunday..6=Saturday. Empty means every day.
-  daysOfWeek       Int[]  @default([])
-
-  // ── Retry cadence ─────────────────────────────────────────────────────
-  retryStrategy         RetryStrategy @default(once)
-  /// Hard ceiling on attempts per contact, whatever the strategy.
-  maxAttemptsPerContact Int           @default(1)
-  /// Used by n_per_day / until_answered.
-  attemptsPerDay        Int           @default(1)
-  /// Used by every_n_days.
-  retryIntervalDays     Int           @default(1)
-  /// Minimum gap between two attempts on the same contact.
-  retryIntervalMinutes  Int           @default(60)
-  /// Stop attempting a contact once a call is answered.
-  stopOnAnswer          Boolean       @default(true)
-
-  /// Last time the scheduler processed this campaign (observability).
-  lastRunAt DateTime?
-
-  totalContacts Int @default(0)
-  queuedCount   Int @default(0)
-  calledCount   Int @default(0)
-  failedCount   Int @default(0)
-
-  createdBy   String?
-  startedAt   DateTime?
-  completedAt DateTime?
-  /// Soft delete: set instead of removing the row, so a deleted campaign (and
-  /// its contacts/call history) is recoverable and never actually expires.
-  /// Excluded from the default list; still readable by id, and restorable.
-  deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  contacts CampaignContact[]
-  calls    CallAttempt[]
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-enum ContactState {
-  pending
-  queued
-  called
-  failed
-  skipped
-}
-
-/// One spreadsheet row, deduped per campaign on phone.
-model CampaignContact {
-  id         String    @id @default(uuid())
-  campaignId String
-  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-
-  name    String?
-  phone   String
-  email   String?
-  city    String?
-  product String?
-  amount  Int? // whole rupees
-  /// Any extra spreadsheet columns, preserved as uploaded.
-  extra   Json?
-
-  state ContactState @default(pending)
-  error String?
-
-  // ── Attempt tracking (drives the retry cadence) ───────────────────────
-  /// Total attempts ever made for this contact.
-  attempts       Int       @default(0)
-  /// Attempts made on `attemptDayKey`; reset when the local day rolls over.
-  attemptsToday  Int       @default(0)
-  /// Local (campaign-timezone) YYYY-MM-DD the daily counter belongs to.
-  /// Stored rather than derived so the reset needs no cron and no tz maths.
-  attemptDayKey  String?
-  lastAttemptAt  DateTime?
-  /// Earliest moment the next attempt may be made; null means "eligible now".
-  nextEligibleAt DateTime?
-  /// Set once any call for this contact connects.
-  answered       Boolean   @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([campaignId, phone])
-  @@index([campaignId, state])
-  /// The scheduler's hot path: eligible contacts for a running campaign.
-  @@index([campaignId, state, nextEligibleAt])
 }
 
 // ───────────────── Integration config + outbound dispatch ─────────────────
@@ -1501,34 +1315,6 @@ model OutboundRequest {
   @@index([customerId])
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// WS5b — campaign scheduling
-//
-// Ello's own campaign API accepts only a name, an assistant, a CSV and a
-// single `scheduleTime` — it cannot express a daily calling window, retry
-// cadence or per-contact attempt caps. So the schedule lives here and our
-// scheduler drives Ello one call at a time via POST /api/agents/{id}/calls.
-// ══════════════════════════════════════════════════════════════════════
-
-enum CampaignScheduleType {
-  /// Runs once over the date range; each contact is attempted per the retry rule.
-  one_time
-  /// Repeats across the date range on the configured cadence.
-  recurring
-}
-
-/// How often a contact may be re-attempted until they answer or the caps are hit.
-enum RetryStrategy {
-  /// Exactly one attempt per contact, ever.
-  once
-  /// Up to `attemptsPerDay` attempts each active day.
-  n_per_day
-  /// One attempt every `retryIntervalDays` days.
-  every_n_days
-  /// Keep attempting on every eligible slot until answered or maxAttempts is hit.
-  until_answered
-}
-
 /// WS5d — "did the next step happen?" rules, editable from the dashboard.
 ///
 /// A stage-level stall check was too coarse: "entered a phone number but never
@@ -1612,9 +1398,7 @@ model PlatformSetting {
 // ─────────────────── Pre-qualifying offers (admin-curated) ───────────────────
 // A firm, global "pre-approved for you" offer shown at the TOP of the home
 // screen the moment a user logs in — independent of whether they run the
-// application funnel. Distinct from MarketLoanOffer (the soft marketing
-// catalog under "Available offers", which uses rate/amount RANGES and always
-// starts the full PAN → eligibility funnel): a PrequalifyingOffer carries firm
+// application funnel. A PrequalifyingOffer carries firm
 // economics and its "Accept" path skips the Aurix eligibility step, going PAN +
 // KYC → lender handoff (redirectionUrl). Global (no userId): the same
 // admin-managed list is shown to every logged-in user. Admin CRUD lives at
@@ -1687,7 +1471,7 @@ model PanRecord {
   @@index([ownerUserId, lastAurixCallAt])
 }
 
-// ─────────────────────── Install attribution + friend referrals ───────────────────────
+// ─────────────────────── Install attribution ───────────────────────
 
 // One row per tap on a /dl link. Short-lived by design (purged after
 // ATTRIBUTION_CLICK_TTL_HOURS): it exists only so the first launch of the app
@@ -1696,8 +1480,8 @@ model PanRecord {
 model AppClick {
   id         String    @id @default(uuid())
   token      String    @unique // opaque click id — travels in the Play referrer / clipboard
-  ref        String? // referral code, or a campaign slug
-  kind       String    @default("direct") // referral | campaign | direct
+  ref        String? // a visitor's link reference ID, or a campaign slug
+  kind       String    @default("direct") // campaign | direct
   campaignId String?
   platform   String // android | ios | web
   ipHash     String
@@ -1711,34 +1495,6 @@ model AppClick {
   @@index([ipHash, status, createdAt])
   @@index([expiresAt])
   @@index([ref])
-}
-
-// A user's shareable referral code. Separate table so User stays untouched.
-model ReferralCode {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  code      String   @unique
-  createdAt DateTime @default(now())
-}
-
-// "Priya invited Rahul". One row per referee — a person can only ever be
-// referred once. Tracking only for now: rewardStatus stays "none" until a
-// reward policy is approved.
-model FriendReferral {
-  id           String    @id @default(uuid())
-  referrerId   String
-  refereeId    String    @unique
-  code         String
-  clickId      String?
-  matchMethod  String? // play_referrer | clipboard | ip_window | manual
-  status       String    @default("signed_up") // signed_up | applied | disbursed
-  appliedAt    DateTime?
-  disbursedAt  DateTime?
-  rewardStatus String    @default("none") // none | pending | granted
-  createdAt    DateTime  @default(now())
-
-  @@index([referrerId, createdAt])
-  @@index([status])
 }
 
 // ─────────────────────────── API traffic log ───────────────────────────
@@ -1943,4 +1699,6 @@ model MessageDelivery {
   @@index([status, createdAt])
   @@index([phone])
   @@index([referenceId])
+  // Vox reports carry WhatsApp's id, kept in gtrid once linked (messageDelivery.ts linkByPhone); every report looks it up.
+  @@index([gtrid])
 }

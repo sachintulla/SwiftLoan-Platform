@@ -113,7 +113,6 @@ describe('pickContext', () => {
     reminder: { firstName: 'Reminder', phone: '9000000002', history: [{ channel: 'sms', at: '2026-10-26T08:00:00.000Z', outcome: 'sent' }] },
     lenderNudge: { firstName: 'Lender', phone: '9000000003', lenderName: 'IDFC FIRST', history: [] },
     lead: { name: 'Lead', phone: '9000000004', productInterest: 'Home Loan', amountRupees: 100000, source: 'website', createdAt: '2026-10-20T00:00:00.000Z' },
-    referral: { ownerName: 'Ravi' },
     loan: { amountRupees: 111111, loanType: 'personal' },
   };
 
@@ -126,7 +125,7 @@ describe('pickContext', () => {
     expect(c.stageWhenSent).toBe('app_installed');
     expect(c.amountRupees).toBe(300000);
   });
-  it('falls through the order: reminder, lender nudge, lead, referral, campaign', () => {
+  it('falls through the order: reminder, lender nudge, lead, campaign', () => {
     const { installLink: _a, ...noLink } = all;
     expect(pickContext(noLink)!.origin).toBe('journey_reminder');
     const { reminder: _b, ...noRem } = noLink;
@@ -134,9 +133,7 @@ describe('pickContext', () => {
     const { lenderNudge: _c, ...noNudge } = noRem;
     expect(pickContext(noNudge)!.origin).toBe('lead');
     const { lead: _d, ...noLead } = noNudge;
-    expect(pickContext(noLead)!.origin).toBe('referral');
-    const { referral: _e, ...noRef } = noLead;
-    const c = pickContext(noRef)!;
+    const c = pickContext(noLead)!;
     expect(c.origin).toBe('campaign');
     expect(c.sentBy.type).toBe('campaign');
   });
@@ -315,5 +312,13 @@ describe('download funnel', () => {
     expect(f.contacted).toBe(1);
     expect(f.notContacted).toBe(4);
     expect(f.byStatus).toContainEqual({ status: 'disbursed', count: 1 });
+  });
+});
+
+describe('installs from an ad (no SwiftLoan link)', () => {
+  it('names the ad, not a raw code', () => {
+    expect(pickContext({ ...base, source: 'campaign', campaignId: 'meta_instagram' })!.sentBy).toEqual({ type: 'campaign', label: 'Instagram ads' });
+    expect(pickContext({ ...base, source: 'campaign', campaignId: 'google_ads' })!.sentBy.label).toBe('Google Ads');
+    expect(pickContext({ ...base, source: 'campaign', campaignId: 'diwali-push' })!.sentBy.label).toBe('Campaign diwali-push');
   });
 });

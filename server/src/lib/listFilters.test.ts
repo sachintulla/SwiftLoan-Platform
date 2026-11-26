@@ -290,44 +290,6 @@ describe('pickFilters', () => {
   });
 });
 
-describe('planContacts', () => {
-  const base = { product: null, amount: null, status: 'x' };
-
-  it('normalises numbers, drops unusable ones and keeps the first of a repeated number', () => {
-    const plan = f.planContacts([
-      { ...base, name: 'A', phone: '+91 98765 43210' },
-      { ...base, name: 'A again', phone: '9876543210' },
-      { ...base, name: 'B', phone: '12345' },
-      { ...base, name: 'C', phone: null },
-      { ...base, name: 'D', phone: '09123456789' },
-    ]);
-    expect(plan.contacts.map((c) => [c.name, c.phone])).toEqual([['A', '9876543210'], ['D', '9123456789']]);
-    expect(plan.noPhone).toBe(2);
-    expect(plan.duplicates).toBe(1);
-    expect(plan.withPhone).toBe(3);
-  });
-});
-
-describe('contactAmount', () => {
-  it('keeps whole rupees as they are (no rescaling)', () => {
-    expect(f.contactAmount(50000)).toBe(50000);
-    expect(f.contactAmount(1040000.4)).toBe(1040000);
-  });
-  it('returns null for a missing, zero, negative or too-large amount', () => {
-    expect(f.contactAmount(null)).toBeNull();
-    expect(f.contactAmount(0)).toBeNull();
-    expect(f.contactAmount(-5)).toBeNull();
-    expect(f.contactAmount(2_147_483_648)).toBeNull();
-  });
-});
-
-describe('describeFilterSet', () => {
-  it('describes filters in words', () => {
-    expect(f.describeFilterSet({})).toBe('no filters');
-    expect(f.describeFilterSet({ status: 'rejected', search: '98' })).toBe('status rejected, search "98"');
-  });
-});
-
 describe('findUserIdsBySearch', () => {
   it('does not query when there is no search', async () => {
     expect(await f.findUserIdsBySearch(undefined)).toBeUndefined();

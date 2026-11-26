@@ -2,7 +2,6 @@ import { prisma } from '../lib/prisma.js';
 import type { ApplicationStatus } from '@prisma/client';
 import { TERMINAL_STAGES, recordJourneyEvent, JOURNEY_EVENTS } from '../lib/journey.js';
 import { nudgeCustomer, runDispatchQueue } from '../lib/dispatch.js';
-import { campaignScheduler } from '../lib/campaignRunner.js';
 import { leadAutoCaller } from '../lib/leadCaller.js';
 import { stepStallDetector, seedStallRules } from '../lib/stallRules.js';
 import { reconcileStaleCalls } from '../lib/callReconcile.js';
@@ -30,7 +29,9 @@ const NON_TERMINAL: ApplicationStatus[] = ['draft', 'pan_pending', 'prequalifyin
 
 // De-dupe notifications so the same stall doesn't spam the feed.
 async function notifyOnce(type: string, entityId: string, title: string, body: string, severity: 'info' | 'warning' | 'critical' = 'warning') {
-  const existing = await prisma.notification.findFirst({ where: { type, entityId, read: false } });
+  // One alert per thing, ever: read or unread. Checking only unread rows meant that marking an alert read
+  // brought it straight back on the next tick for as long as the loan or onboarding stayed stuck.
+  const existing = await prisma.notification.findFirst({ where: { type, entityId }, select: { id: true } });
   if (existing) return;
   await prisma.notification.create({ data: { type, entityId, title, body, severity } });
 }
@@ -153,15 +154,12 @@ const JOBS: Array<{ name: string; fn: () => Promise<void>; everyMs: number }> = 
   // WS5
   { name: 'stage-stall', fn: stageStallDetector, everyMs: 5 * 60_000 },
   { name: 'dispatch-worker', fn: dispatchWorker, everyMs: 30_000 },
-  // WS5b — every minute, so a campaign starts within a minute of its window
-  // opening. tickCampaign() guards against overlapping runs itself.
-  { name: 'campaign-scheduler', fn: () => campaignScheduler(), everyMs: 60_000 },
   // WS5c — auto-call a website lead ~1 min after they submit the form.
   { name: 'lead-autocaller', fn: async () => { await leadAutoCaller(); }, everyMs: 60_000 },
   // WS5d — step-level stall rules: "did the next step happen?" -> Upshot event.
   { name: 'step-stall', fn: async () => { await stepStallDetector(); }, everyMs: 2 * 60_000 },
   // ADM-016 — close calls whose terminal webhook never arrived, so a lost
-  // callback cannot pin a contact in `queued` and stall the whole campaign.
+  // callback cannot leave a call open forever.
   { name: 'call-reconcile', fn: async () => { await reconcileStaleCalls(); }, everyMs: 10 * 60_000 },
   // Website drop-off recovery: save where a verified visitor stopped and run the app-link reminder
   // schedule. Log-only unless INSTALL_REMINDER_SEND=true (see lib/installReminder.ts).

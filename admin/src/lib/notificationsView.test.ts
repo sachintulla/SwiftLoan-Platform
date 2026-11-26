@@ -22,13 +22,13 @@ describe('buildNotifQuery', () => {
 describe('type options and counts', () => {
   const byType = [
     { type: 'loan_stale', label: 'Inactive loan', unread: 3, total: 10 },
-    { type: 'app_nudge', label: 'User needs help', unread: 2, total: 4 },
+    { type: 'onboarding_stale', label: 'Stuck onboarding', unread: 2, total: 4 },
   ];
   it('lists every type with its unread count', () => {
     expect(typeOptions(byType)).toEqual([
       { value: '', label: 'All types (5)' },
       { value: 'loan_stale', label: 'Inactive loan (3)' },
-      { value: 'app_nudge', label: 'User needs help (2)' },
+      { value: 'onboarding_stale', label: 'Stuck onboarding (2)' },
     ]);
   });
   it('copes with no counts yet', () => expect(typeOptions(undefined)).toEqual([{ value: '', label: 'All types (0)' }]));
@@ -38,7 +38,7 @@ describe('type options and counts', () => {
     expect(unreadForType(undefined, 'loan_stale')).toBe(0);
   });
   it('writes the subtitle', () => {
-    expect(subtitleText(7)).toBe('7 unread. Alerts about inactive loans, stuck onboarding and users who need help.');
+    expect(subtitleText(7)).toBe('7 unread. Alerts about inactive loans and stuck onboarding.');
   });
   it('maps severities to tones', () => {
     expect(severityTone('critical')).toBe('red');
@@ -90,10 +90,10 @@ describe('bulkAction', () => {
   });
   it('is switched off at zero', () => {
     expect(bulkAction({ unreadTotal: 0, filteredUnread: 0, filters: none })).toMatchObject({ label: 'Mark all as read', count: 0, disabled: true, needsConfirm: false });
-    expect(bulkAction({ unreadTotal: 9, filteredUnread: 0, filters: { type: 'app_nudge', severity: '' } }).disabled).toBe(true);
+    expect(bulkAction({ unreadTotal: 9, filteredUnread: 0, filters: { type: 'onboarding_stale', severity: '' } }).disabled).toBe(true);
   });
   it('treats a server without the filtered count as zero rather than guessing', () => {
-    expect(bulkAction({ unreadTotal: 9, filteredUnread: undefined, filters: { type: 'app_nudge', severity: '' } }).disabled).toBe(true);
+    expect(bulkAction({ unreadTotal: 9, filteredUnread: undefined, filters: { type: 'onboarding_stale', severity: '' } }).disabled).toBe(true);
   });
   it('asks first only above the limit', () => {
     expect(BULK_CONFIRM_ABOVE).toBe(20);
