@@ -10,7 +10,7 @@ import { api, PrequalifyingOffer } from '../api/client';
 import { LENDER_LOGOS } from '../theme/lenderLogos';
 
 /** Local copy of the featured ads (see PrequalifiedOffers). Bump the version to refresh them everywhere. */
-export const FEATURED_OFFERS_CACHE_KEY = 'swiftloan.featuredOffers.v1';
+export const FEATURED_OFFERS_CACHE_KEY = 'swiftloan.featuredOffers.v2';
 
 // These are SPONSORED LENDER ADS — marketing creatives lenders publish in
 // SwiftLoan — deliberately NOT styled like the personalised "eligible offers"

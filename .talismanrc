@@ -174,7 +174,7 @@ fileignoreconfig:
 - filename: admin/src/components/alerts/AlertsTable.tsx
   checksum: af0ec95eb02e4c7ed57d37227dbd9b04807bf4ec7fbce8823348dc9d9809e066
 - filename: CLAUDE.md
-  checksum: bed1d1869604059e5843c2f22be228a3e6a1b3b964678acedc86360582cac435
+  checksum: bd091298e877bded0229f47c0cb63d2ea057d341269dc7517acb10d34940d054
 - filename: server/src/modules/adminAlerts.routes.ts
   checksum: cb1ca6f0fd427f23991aa80401e524933975b9c551d179c2af1f2b1c6793f1fc
 - filename: server/src/lib/customerStatus.ts
@@ -265,6 +265,8 @@ fileignoreconfig:
   checksum: 44a0fc13699bac961e7cbe9ebe94704a7daea0bed271dcbe8fbe831e1ca59076
 - filename: server/prisma/migrations/20261123130000_notifications_backlog_read/migration.sql
   checksum: 56cd09b7f0c9848160ce20984b954ce4a910593af4435c51ce3e90440286adfa
+- filename: server/prisma/migrations/20261123140000_prequalifying_offers_off/migration.sql
+  checksum: fea15b2cd19a3901824842dd3cda278cf61d2ee9b2ae8cdb3ccf015085030266
 - filename: server/prisma/migrations/20261123150000_message_delivery_gtrid_index/migration.sql
   checksum: 17b8117f5b1b64d3a54e5d33eaa27a69e5fc9a300d6d5af310cc0760a37a59b7
 - filename: server/src/lib/attribution.test.ts
@@ -292,7 +294,7 @@ fileignoreconfig:
 - filename: server/src/modules/adminApiErrors.routes.ts
   checksum: b2bbc64026ddf9dfe79d9b3acf36acc3328a085316a8e8e3982d8ff705f78b40
 - filename: src/components/PrequalifiedOffers.tsx
-  checksum: b099ed023721737fdc88b1cb0fd7a783c75b184beafc22b35c248eef9262bc8a
+  checksum: bfb88bab352b5123f456574b7e97648ad002a39a41314d17f706465ed7e41995
 - filename: server/src/lib/dashboardGraphs.ts
   checksum: 799d40ae075e37d9ae698afb1bc124f778e4e6df23863d0fb85604d03a15870e
 - filename: admin/src/components/DashboardTables.tsx
