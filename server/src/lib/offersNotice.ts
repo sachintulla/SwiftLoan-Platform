@@ -8,9 +8,16 @@
  *    is told their details are saved and to try again. Template `eligibility_retry_update`.
  *
  * Same rules as the conversation recap: off until an admin names a template, never to
- * someone who asked us to stop, test mode honours the allowed numbers, one send per
- * application and kind (claimed before sending), and it never breaks the request that
- * triggered it. The lender's own wording is never forwarded to the customer.
+ * someone who asked us to stop, test mode honours the allowed numbers, and it never breaks
+ * the request that triggered it. The lender's own wording is never forwarded to the customer.
+ *
+ * At most ONE notice per person, kind and India day (claimed before sending). It used to be one
+ * per APPLICATION, and every new eligibility check is a new application, so a customer who
+ * retried got it again each time (9 in 13 minutes on 2026-11-20). Only inside calling hours
+ * (Admin → Timings): 270 went out between 21:00 and 07:00 in the week to 2026-11-26. A "no offers"
+ * result at night is not lost: the drop-off journey's "no offers" run is armed at once and its
+ * first WhatsApp waits for the window to open (appDropoff.ts), and it skips a day on which this
+ * notice already went out (noOffersNoticeSentToday).
  */
 import { prisma } from './prisma.js';
 import { getProviderConfig } from './integrations.js';
@@ -19,6 +26,9 @@ import { buildPlaceholders } from './stallWhatsapp.js';
 import { withinTestAllowlist } from './callGate.js';
 import { normalizeSummaryConfig, forWhatsApp, type ConversationSummaryConfig } from './conversationSummary.js';
 import { scoped } from './log.js';
+import { withinCallingHours } from './leadCaller.js';
+import { localParts } from './localTime.js';
+import { phoneKey } from './messageStatus.js';
 
 const log = scoped('offers-notice');
 
@@ -66,11 +76,42 @@ export function buildNoticeVars(i: { name?: string | null; ref: string; siteUrl:
   };
 }
 
+const TIMEZONE = 'Asia/Kolkata';
+
+/** The India day an instant falls on, as YYYY-MM-DD. */
+export function indiaDayKey(at: Date): string {
+  return localParts(at, TIMEZONE).dayKey;
+}
+
+/** Midnight India time at the start of the day `at` falls on. IST has no DST and a whole-minute offset. */
+export function indiaDayStart(at: Date): Date {
+  const { minutes } = localParts(at, TIMEZONE);
+  return new Date(at.getTime() - minutes * 60_000 - at.getUTCSeconds() * 1000 - at.getUTCMilliseconds());
+}
+
+/** The claim key: one notice per person, kind and India day. */
+export function noticeClaimKey(kind: OffersNoticeKind, userId: string, at: Date): string {
+  return `offers-notice:${kind}:user:${userId}:${indiaDayKey(at)}`;
+}
+
+/** True when the "no offers" notice already went out to this number today (India day). Used by the drop-off journey. */
+export async function noOffersNoticeSentToday(phone: string, now: Date = new Date()): Promise<boolean> {
+  const key = phoneKey(phone);
+  if (!key) return false;
+  const hit = await prisma.messageDelivery.findFirst({
+    where: { channel: 'whatsapp', kind: 'offers_notice_no_offers', phone: key, createdAt: { gte: indiaDayStart(now) }, NOT: { status: 'failed' } },
+    select: { id: true },
+  });
+  return !!hit;
+}
+
 /** Never throws: a messaging problem must not fail the eligibility response. */
-export async function sendOffersNotice(i: OffersNoticeInput): Promise<OffersNoticeResult> {
+export async function sendOffersNotice(i: OffersNoticeInput, now: Date = new Date()): Promise<OffersNoticeResult> {
   try {
     const kind = noticeKindFor(i.reason);
     if (!kind) return 'skipped:no_notice_for_reason';
+    // Never at night. Nothing is claimed, so a check made in the morning still sends.
+    if (!withinCallingHours(now)) return 'skipped:outside_calling_hours';
 
     const vox = await getProviderConfig('voxvalley');
     const settings = vox.settings as Record<string, unknown>;
@@ -96,7 +137,7 @@ export async function sendOffersNotice(i: OffersNoticeInput): Promise<OffersNoti
     const placeholders = buildPlaceholders(cfg.placeholders.map((p) => p), { ...vars, guidance: forWhatsApp(vars.guidance, 200) });
     if (!placeholders) return 'skipped:missing_value';
 
-    // Claim BEFORE sending: one notice per application and kind, even if the check is retried.
+    // Claim BEFORE sending: one notice per person, kind and India day, however many times the check is retried.
     let claimId: string;
     try {
       const claim = await prisma.outboundRequest.create({
@@ -104,7 +145,7 @@ export async function sendOffersNotice(i: OffersNoticeInput): Promise<OffersNoti
           customerId: customer?.id ?? null,
           channel: 'whatsapp',
           kind: `offers_notice_${kind}`,
-          idempotencyKey: `offers-notice:${kind}:${i.applicationId}`,
+          idempotencyKey: noticeClaimKey(kind, i.userId, now),
           status: 'pending',
           payload: { template: cfg.template, applicationId: i.applicationId, reason: String(i.reason ?? '') },
         },

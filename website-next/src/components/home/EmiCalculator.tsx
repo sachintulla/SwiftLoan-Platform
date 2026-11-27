@@ -227,7 +227,7 @@ export function EmiCalculator() {
 
             <Link
               href={href('/#lead-form')}
-              className="bg-brand-gradient text-primary-foreground mt-7 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-full px-6 py-3.5 text-center text-sm font-semibold transition-transform hover:-translate-y-0.5"
+              className="bg-brand-gradient text-primary-foreground mt-7 inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-full px-6 py-3.5 text-center text-sm font-semibold transition-transform"
             >
               {t.result.cta} <ArrowRight className="h-4 w-4 shrink-0" />
             </Link>

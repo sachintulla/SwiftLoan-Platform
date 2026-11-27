@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeSituation, pickBestOffer } from './callSituation.js';
+import { describeSituation, manualCallPlan, pickBestOffer } from './callSituation.js';
 
 describe('describeSituation (what the voice agent is told is true now)', () => {
   it('offers, none applied: count and the best offer, in one sentence and as separate values', () => {
@@ -43,5 +43,25 @@ describe('pickBestOffer', () => {
       { lender: 'C', amount: 200000, emi: 9000, tenureMonths: 30 },
     ])?.lender).toBe('C');
     expect(pickBestOffer([])).toBeNull();
+  });
+});
+
+describe('manualCallPlan (the admin Call button: stored data beats the stage it sends)', () => {
+  it('no offers found: the no-offers call, even when the button sent the old "eligibility started" stage', () => {
+    expect(manualCallPlan('rejected', true)).toEqual({ purpose: 'no_offers_followup', stall: 'no_offers' });
+    expect(manualCallPlan('rejected', false)).toEqual({ purpose: 'no_offers_followup', stall: 'no_offers' });
+  });
+  it('stopped part-way (incl. offers not applied, technical failure): a reminder opened from call_situation, no stage wording', () => {
+    for (const s of ['otp_verified', 'pan_verified', 'application_filled', 'offers_not_applied', 'failed'] as const) {
+      expect(manualCallPlan(s, true)).toEqual({ purpose: 'app_dropoff_followup', stall: 'none' });
+    }
+  });
+  it('applied with a lender: a status call', () => {
+    expect(manualCallPlan('applied', true)).toEqual({ purpose: 'daily_status_update', stall: 'none' });
+  });
+  it('nothing stored to go on (website lead, or past the lender decision): the stage decides, as before', () => {
+    expect(manualCallPlan(null, true)).toEqual({ purpose: 'app_dropoff_followup', stall: 'stage' });
+    expect(manualCallPlan(null, false)).toEqual({ purpose: 'manual_dashboard_call', stall: 'none' });
+    expect(manualCallPlan('finished', true)).toEqual({ purpose: 'app_dropoff_followup', stall: 'stage' });
   });
 });

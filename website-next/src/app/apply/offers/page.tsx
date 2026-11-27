@@ -329,7 +329,7 @@ export default function OffersPage() {
                       aria-busy={applying || undefined}
                       data-voice-disabled-reason={applyingId ? (applying ? 'this lender application is being sent right now' : 'another lender application is being sent right now, so the other buttons wait until it finishes') : undefined}
                       data-voice-gate="apply-offer"
-                      className={`bg-brand-gradient text-primary-foreground mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5 active:scale-[0.98] ${applyingId && !applying ? 'opacity-50' : ''}`}
+                      className={`bg-brand-gradient text-primary-foreground mt-auto inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform active:scale-[0.98] ${applyingId && !applying ? 'opacity-50' : ''}`}
                     >
                       {applying ? t.applying : reapply ? t.reapply : offer.redirectionUrl ? t.applyNow : t.selectOffer}
                       {!applying && <ArrowRight className="h-4 w-4" />}

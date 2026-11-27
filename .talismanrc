@@ -160,9 +160,9 @@ fileignoreconfig:
 - filename: admin/src/lib/customerFilters.test.ts
   checksum: d8c9a952f74e84f653f3e8a770d7d2b241573593d53b80031819093f469086dd
 - filename: server/src/lib/customerStatus.test.ts
-  checksum: 065ab4df9ab37628fd0cda6431e8808056fdd8ebd47d19ef5ee97ef0e2f0d5d7
+  checksum: f31cbd7d68f0849ae91aec9800a92d6b52257592d77788610f852da17fb2c690
 - filename: admin/src/app/(dash)/customers/\[id\]/page.tsx
-  checksum: af71891518b86830817de136255a9ff510bfe8a61231aaa8267635049de3772c
+  checksum: 616f1ced23f042f5ffbb5ab25a2131e77729d9814964a62be7cc9e6a34728911
 - filename: admin/src/components/alerts/CustomerAlerts.tsx
   checksum: 9803915151c55a7cf70788fc501de841010e97fa0312079be65dc250d0e8e07c
 - filename: server/src/modules/customers.routes.ts
@@ -174,11 +174,11 @@ fileignoreconfig:
 - filename: admin/src/components/alerts/AlertsTable.tsx
   checksum: af0ec95eb02e4c7ed57d37227dbd9b04807bf4ec7fbce8823348dc9d9809e066
 - filename: CLAUDE.md
-  checksum: a8f82a9f49c45ef121d4eaacf602ff58f49ddb90894a0814fd68b4191c35593b
+  checksum: bed1d1869604059e5843c2f22be228a3e6a1b3b964678acedc86360582cac435
 - filename: server/src/modules/adminAlerts.routes.ts
   checksum: cb1ca6f0fd427f23991aa80401e524933975b9c551d179c2af1f2b1c6793f1fc
 - filename: server/src/lib/customerStatus.ts
-  checksum: ff3595010164abbfdd8ca4f8aeaace5ce31799522e168cabb06b62208bc2c51d
+  checksum: b2a396df388a4193ac3b1ae62ed79b664a652747ad3d84c5b46ffc22af3bde93
 - filename: website-next/src/components/pages/PurposePageContent.tsx
   checksum: e69247a3db96a99c8f33cc047636e1b0208342eb19c62fb689a2d713607374f3
 - filename: website-next/src/components/MetaPixel.test.tsx
@@ -282,7 +282,7 @@ fileignoreconfig:
 - filename: admin/src/components/whatsapp/MessageSetup.tsx
   checksum: 53a73b7f7e889954f8a32fca82ab5a1dbb13a15835574aedc6d5d304915e1da1
 - filename: server/src/lib/dashboardGraphs.test.ts
-  checksum: 397144deb2475ca5441bddf7f356770bca633016792371addfd57401541013f6
+  checksum: fb96531c0e7c3aed65decabd6e26a1ff6d6a999e93c9ac240f8cbf7bfe410586
 - filename: admin/src/components/applications/LenderList.tsx
   checksum: b21b8b5ec6c9e70593a2652c3686359277c3dc4f5d7630e6517b9e6ce5cf21f5
 - filename: server/src/lib/timings.test.ts
@@ -294,7 +294,7 @@ fileignoreconfig:
 - filename: src/components/PrequalifiedOffers.tsx
   checksum: b099ed023721737fdc88b1cb0fd7a783c75b184beafc22b35c248eef9262bc8a
 - filename: server/src/lib/dashboardGraphs.ts
-  checksum: f9491098f96a66b238c1201a7b1ba964deaeeba8019f76b0d3978542abca1799
+  checksum: 799d40ae075e37d9ae698afb1bc124f778e4e6df23863d0fb85604d03a15870e
 - filename: admin/src/components/DashboardTables.tsx
   checksum: f8c04ff48c803137c78827746cc5691eb75fd77abb09d7af31e0bb3ca7bec8c8
 - filename: admin/src/components/LenderBars.tsx
@@ -306,7 +306,7 @@ fileignoreconfig:
 - filename: server/src/lib/messageStatus.test.ts
   checksum: bdc93f6976692aa8a3cdf03dd68f50061e7c89b6f5658164dfe55e942fd5be94
 - filename: admin/src/components/PeopleDailyChart.tsx
-  checksum: 042111bcd64907dc96ed75d8834ffbf5990795f7252947be0ac7081502c3face
+  checksum: 86f351fa06e93c306e655fc5683cfefc7ae75ca5ad52c3813b308000955233a0
 - filename: server/scripts/journey/run-whatsapp-pacing.sh
   checksum: 39bd217cc49a1839d8350bffe56a0e466dda4e4741064b2bb9ba3acde1372802
 - filename: admin/src/components/DashboardGraphs.tsx
@@ -318,5 +318,23 @@ fileignoreconfig:
 - filename: server/scripts/journey/whatsapp-pacing-check.mts
   checksum: 6d0fd3de7c20a4adb9e857503d14adb441afe083ca56bcf0ba6c403803285bbf
 - filename: admin/src/components/applications/lenders.tsx
-  checksum: 930796deadbc158e2bdeb39e6d40ba32eb833e785883d14f808f2d27e96de4ad
+  checksum: 530b93282d76ab79298f3631add5cab510a75075cbd5ae3b09b82c999109c801
+- filename: server/prisma/migrations/20261126120000_revasure_low_income/migration.sql
+  checksum: 1f9de8cf87f4b71e06b69459ed4cee73ede833cc29f7ca1e70a742f6b1fd66d1
+- filename: server/prisma/migrations/20261127120000_partner_referral_status_history/migration.sql
+  checksum: 57476024d3d1d2f7dc5c278d38cb4bcfc20c86476fdf7eb27ea8ec47b3e1dfda
+- filename: server/src/lib/offersNotice.ts
+  checksum: 335d7d69d3ed2889f8e435bee542c06c658460c0aa9c76d8a0d8146272b7dafe
+- filename: admin/src/lib/oneCountingRule.test.ts
+  checksum: d381a43520b1bedb5fb3734a64648edb1644dba583c6a49a64a62693e5444ef2
+- filename: src/screens/basic.tsx
+  checksum: 2b651341c8890bb4bb2349147278522f8340a82fd927dd2149bd9077fe92c487
+- filename: server/src/lib/peopleMetrics.test.ts
+  checksum: 8b6c0e00ebf5d4adcd59f32f69cf098a5dfdc89da172c82d2b02f0140a8c28fc
+- filename: server/src/lib/offersNoticeSend.test.ts
+  checksum: 978bc6894bb8f532e8866d2b6d8a02e0dc2076216fa5ab16beaf8ae65d11f325
+- filename: server/src/lib/peopleMetrics.ts
+  checksum: 204cb706b3570678861b60d5a28b8994d0120801af798ec671d2f64b583fe4ec
+- filename: prompts/ello-ruby-inbound-outbound-prompt.md
+  checksum: 56151b69de30f7d437c711008092792351bc11a78c632706aa63c67c63311c00
 version: "1.0"

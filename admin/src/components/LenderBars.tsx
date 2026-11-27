@@ -1,6 +1,7 @@
 'use client';
-// Dashboard: ONE stacked horizontal bar chart for the three lender partners. A row per status on the Y axis (Sent,
-// Applied / in progress, Offers ready, Approved, Disbursed, No offers / rejected, Failed); each bar is split into the
+// Dashboard: ONE stacked horizontal bar chart for the three lender partners. A row per status on the Y axis (Sent, Lead
+// accepted, Offers ready, Tapped Apply, Applied / in progress, Approved, Disbursed, No offers, Rejected, Failed: the words of
+// the server's shared counting rules, lib/peopleMetrics.ts; Aurix counts PEOPLE once each); each bar is split into the
 // three lenders' counts (Aurix, Yubi, Revasure) along the X axis. Hover a row for the exact numbers and the lenders'
 // own status words; click a lender to hide or show it. Numbers: GET /api/admin/dashboard/partners (all time).
 import React, { useMemo, useState } from 'react';

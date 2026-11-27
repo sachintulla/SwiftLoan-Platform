@@ -4,6 +4,8 @@
  * Every figure counts PEOPLE once (not applications), and nothing claims an approval or a disbursal: lenders do not
  * report those back.
  */
+import { METRIC_STATUSES } from './peopleMetrics.js';
+import { yubiOutcome, yubiStatusLabel } from './yubiStatus.js';
 
 /** The steps of "How far people get", in order. */
 export const FUNNEL_STEPS = [
@@ -145,6 +147,17 @@ export function peopleTotals(rows: PeopleDay[]) {
   return { registered, applied, gotOffers, rejected, gotOffersPct: pct(gotOffers, applied), rejectedPct: pct(rejected, applied) };
 }
 
+/**
+ * Totals for the boxes above the graph. `registered` is the days added up (an account is created once); the other three
+ * are PEOPLE counted once over the whole range (the route reads them that way), with offers / no offers as a share of them.
+ */
+export function peopleRangeTotals(registered: number, people: { applied: number; gotOffers: number; rejected: number }) {
+  const applied = Math.max(0, people.applied || 0);
+  const gotOffers = Math.min(applied, Math.max(0, people.gotOffers || 0));
+  const rejected = Math.min(applied - gotOffers, Math.max(0, people.rejected || 0));
+  return { registered: Math.max(0, registered || 0), applied, gotOffers, rejected, gotOffersPct: pct(gotOffers, applied), rejectedPct: pct(rejected, applied) };
+}
+
 /* ───────────── Lender status graphs: Aurix, Yubi and Revasure ───────────── */
 
 export interface PieSlice { key: string; label: string; count: number; pct: number }
@@ -153,6 +166,7 @@ export interface PieSlice { key: string; label: string; count: number; pct: numb
 const REVASURE_LABELS: Record<string, string> = {
   success: 'Accepted',
   ineligible: 'Not eligible',
+  low_income: 'Not eligible: low income',
   duplicate: 'Already registered',
   failed: 'Could not send',
   pending: 'Waiting for an answer',
@@ -164,39 +178,33 @@ const REVASURE_LABELS: Record<string, string> = {
  */
 export function yubiSliceOf(status: string | null, lastStatus: string | null): { key: string; label: string } {
   if (status === 'failed') return { key: 'failed', label: 'Could not send' };
-  switch ((lastStatus ?? '').toUpperCase()) {
-    case '': return { key: 'sent', label: 'Waiting for Yubi' };
-    case 'NEW_LEAD': return { key: 'new_lead', label: 'New lead' };
-    case 'LEAD_REJECTED': return { key: 'lead_rejected', label: 'Lead rejected' };
-    case 'NO_OFFERS': return { key: 'no_offers', label: 'No offers' };
-    case 'OFFER_GENERATED': return { key: 'offer_generated', label: 'Offer generated' };
-    case 'NEW_APPLICATION': return { key: 'new_application', label: 'Application started' };
-    case 'APPLICATION_REJECTED': return { key: 'application_rejected', label: 'Application rejected' };
-    case 'APPROVED': return { key: 'approved', label: 'Approved' };
-    case 'DISBURSED': return { key: 'disbursed', label: 'Disbursed' };
-    default: {
-      const words = String(lastStatus).replace(/_/g, ' ').trim().toLowerCase();
-      return { key: String(lastStatus).toLowerCase(), label: words.charAt(0).toUpperCase() + words.slice(1) };
-    }
-  }
+  const code = (lastStatus ?? '').toUpperCase();
+  if (!code) return { key: 'sent', label: 'Waiting for Yubi' };
+  // Sanctioned, signing and ready-to-pay-out all mean the lender said yes: one "Approved" slice (lib/yubiStatus.ts).
+  const outcome = yubiOutcome(code);
+  if (outcome === 'approved') return { key: 'approved', label: 'Approved' };
+  if (code === 'READY_FOR_UNDERWRITING') return { key: 'new_application', label: 'Application started' };
+  return { key: code.toLowerCase(), label: yubiStatusLabel(code) };
 }
 
 /**
- * Aurix is the lender network behind the eligibility check, so its "status" is what happened to each application we
- * sent it for offers. Applications that never reached Aurix (still a draft, or waiting for the PAN) are not counted.
+ * Aurix is the lender network behind the eligibility check and the lenders people apply with. Its numbers are PEOPLE,
+ * once each, by their real status (lib/customerStatus.ts), grouped by the shared rules (lib/peopleMetrics.ts), so this
+ * chart shows the same numbers as the Dashboard cards and the Customers page. It used to count applications by their
+ * stored status: one person with five tries was five "no offers", and a tap on Apply looked like a lender application.
+ * People who never asked for offers (no application, or still filling details) are not counted.
  */
-const AURIX_LABELS: Record<string, string> = {
-  rejected: 'No offers',
-  offers_ready: 'Offers ready, not applied',
-  handoff: 'Sent to the lender',
-  under_review: 'In review with the lender',
-  approved: 'Approved',
-  disbursed: 'Disbursed',
-  closed: 'Closed',
-  failed: 'Technical failure',
-  prequalifying: 'Checking now',
-};
-export const AURIX_NOT_SENT = ['draft', 'pan_pending'];
+const AURIX_PEOPLE: { key: string; label: string; statuses: readonly string[] }[] = [
+  { key: 'no_offers', label: 'No offers', statuses: ['no_offers'] },
+  { key: 'offers_ready', label: 'Offers ready, not applied', statuses: ['offers_ready'] },
+  { key: 'tapped', label: 'Tapped Apply, not confirmed', statuses: METRIC_STATUSES.tappedApply },
+  { key: 'under_review', label: 'In review with the lender', statuses: ['under_review'] },
+  { key: 'approved', label: 'Approved', statuses: ['approved'] },
+  { key: 'disbursed', label: 'Disbursed', statuses: ['disbursed'] },
+  { key: 'lender_rejected', label: 'Rejected by the lender', statuses: ['lender_rejected'] },
+  { key: 'failed', label: 'Offers check failed', statuses: ['offers_failed'] },
+  { key: 'checking', label: 'Checking now', statuses: ['checking_offers'] },
+];
 
 /** Slices biggest first, each with its share of the whole. Empty slices are left out. */
 function toSlices(rows: { key: string; label: string; count: number }[]): { total: number; slices: PieSlice[] } {
@@ -211,8 +219,9 @@ function toSlices(rows: { key: string; label: string; count: number }[]): { tota
   return { total, slices: list.map((s) => ({ ...s, pct: total > 0 ? Math.round((s.count / total) * 1000) / 10 : 0 })) };
 }
 
-export function aurixSlices(rows: { status: string; count: number }[]) {
-  return toSlices(rows.filter((r) => !AURIX_NOT_SENT.includes(r.status)).map((r) => ({ key: r.status, label: AURIX_LABELS[r.status] ?? r.status, count: r.count })));
+/** Aurix slices from how many people are in each customer status (the `counts` of customerIdsByStatus). */
+export function aurixPeopleSlices(counts: Record<string, number>) {
+  return toSlices(AURIX_PEOPLE.map((g) => ({ key: g.key, label: g.label, count: g.statuses.reduce((n, k) => n + Math.max(0, counts[k] || 0), 0) })));
 }
 
 export function revasureSlices(rows: { status: string; count: number }[]) {
@@ -226,18 +235,27 @@ export function yubiSlices(rows: { status: string | null; lastStatus: string | n
 /* ───────────── One chart for the three lenders: a row per status, a count per lender ───────────── */
 
 /**
- * Aurix, Yubi and Revasure each use their own status words. For ONE chart they are read as seven statuses that mean
- * the same thing for all three. "Sent" is everything handed to the lender; the other six say what happened to it.
- * Something still waiting for the lender's first word (Yubi "sent, no update yet", Aurix "checking now") is counted
- * in Sent only, so the six do not always add up to Sent.
+ * Aurix, Yubi and Revasure each use their own status words. For ONE chart they are read as statuses that mean the same
+ * thing for all three, in the words of lib/peopleMetrics.ts. "Sent" is everything handed to the lender; the others say
+ * what happened to it. Something still waiting for the lender's first word (Yubi "sent, no update yet", Aurix
+ * "checking now") is counted in Sent only, so the rows do not always add up to Sent.
+ *
+ * Words that must not be mixed (owner, 2026-11-27):
+ *   No offers  = the lender looked and offered nothing, or did not take the person (not eligible, already registered).
+ *   Rejected   = a lender turned down an APPLICATION the customer made. Nothing else.
+ *   Lead accepted = the lender took the lead we sent; nobody has applied for anything yet. Never "applied".
+ *   Tapped Apply  = opened the lender's page; no application confirmed.
  */
 export const LENDER_STATUSES = [
   { key: 'sent', label: 'Sent' },
-  { key: 'progress', label: 'Applied / in progress' },
+  { key: 'accepted', label: 'Lead accepted' },
   { key: 'offers', label: 'Offers ready' },
+  { key: 'tapped', label: 'Tapped Apply' },
+  { key: 'progress', label: 'Applied / in progress' },
   { key: 'approved', label: 'Approved' },
   { key: 'disbursed', label: 'Disbursed' },
-  { key: 'rejected', label: 'No offers / rejected' },
+  { key: 'noOffers', label: 'No offers' },
+  { key: 'rejected', label: 'Rejected' },
   { key: 'failed', label: 'Failed' },
 ] as const;
 export type LenderStatusKey = (typeof LENDER_STATUSES)[number]['key'];
@@ -245,11 +263,11 @@ export type LenderName = 'aurix' | 'yubi' | 'revasure';
 export const LENDER_NAMES: LenderName[] = ['aurix', 'yubi', 'revasure'];
 
 const STATUS_OF: Record<LenderName, Record<string, Exclude<LenderStatusKey, 'sent'>>> = {
-  // Keys are the slice keys produced by aurixSlices / yubiSlices / revasureSlices. A key that is missing here
+  // Keys are the slice keys produced by aurixPeopleSlices / yubiSlices / revasureSlices. A key that is missing here
   // (waiting for the lender's first word, or a code we have never seen) is counted in Sent only.
-  aurix: { rejected: 'rejected', offers_ready: 'offers', handoff: 'progress', under_review: 'progress', approved: 'approved', disbursed: 'disbursed', closed: 'disbursed', failed: 'failed' },
-  yubi: { failed: 'failed', new_lead: 'progress', new_application: 'progress', approved: 'approved', disbursed: 'disbursed', offer_generated: 'offers', lead_rejected: 'rejected', no_offers: 'rejected', application_rejected: 'rejected' },
-  revasure: { success: 'progress', ineligible: 'rejected', duplicate: 'rejected', failed: 'failed' },
+  aurix: { no_offers: 'noOffers', offers_ready: 'offers', tapped: 'tapped', under_review: 'progress', approved: 'approved', disbursed: 'disbursed', lender_rejected: 'rejected', failed: 'failed' },
+  yubi: { failed: 'failed', new_lead: 'accepted', new_application: 'progress', approved: 'approved', disbursed: 'disbursed', offer_generated: 'offers', lead_rejected: 'noOffers', no_offers: 'noOffers', application_rejected: 'rejected' },
+  revasure: { success: 'accepted', ineligible: 'noOffers', low_income: 'noOffers', duplicate: 'noOffers', failed: 'failed' },
 };
 
 /** The status row a lender's own status belongs to, or null when it is only "sent" so far. */
@@ -295,15 +313,16 @@ export type OverallKey = (typeof OVERALL_OUTCOMES)[number]['key'];
 
 /**
  * Which overall outcome a lender's status counts as, or null when it is neither (still waiting, a lead that was only
- * accepted, a technical failure).
+ * accepted, a technical failure). Same words as the chart beside it:
  *   Got offers = a lender made an offer (whether or not the customer has applied since).
- *   No offers  = the lender looked and offered nothing.
- *   Rejected   = the lender turned the person or their application down.
+ *   No offers  = the lender looked and offered nothing, or did not take the person.
+ *   Rejected   = a lender turned down an application the customer made.
+ * Each Aurix person is in exactly one: someone a lender rejected is "Rejected", not also "Got offers".
  */
 const OVERALL_OF: Record<LenderName, Record<string, OverallKey>> = {
-  aurix: { offers_ready: 'gotOffers', handoff: 'gotOffers', under_review: 'gotOffers', approved: 'gotOffers', disbursed: 'gotOffers', closed: 'gotOffers', rejected: 'noOffers' },
-  yubi: { offer_generated: 'gotOffers', new_application: 'gotOffers', approved: 'gotOffers', disbursed: 'gotOffers', no_offers: 'noOffers', lead_rejected: 'rejected', application_rejected: 'rejected' },
-  revasure: { ineligible: 'rejected', duplicate: 'rejected' },
+  aurix: { offers_ready: 'gotOffers', tapped: 'gotOffers', under_review: 'gotOffers', approved: 'gotOffers', disbursed: 'gotOffers', no_offers: 'noOffers', lender_rejected: 'rejected' },
+  yubi: { offer_generated: 'gotOffers', new_application: 'gotOffers', approved: 'gotOffers', disbursed: 'gotOffers', no_offers: 'noOffers', lead_rejected: 'noOffers', application_rejected: 'rejected' },
+  revasure: { ineligible: 'noOffers', low_income: 'noOffers', duplicate: 'noOffers' },
 };
 export function overallOutcomeOf(lender: LenderName, sliceKey: string): OverallKey | null {
   return OVERALL_OF[lender][sliceKey] ?? null;

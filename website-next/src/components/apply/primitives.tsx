@@ -101,7 +101,7 @@ export function PrimaryButton({
       className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3.5 text-base font-bold transition-transform duration-200 ${
         disabled || loading
           ? 'bg-muted text-muted-foreground cursor-not-allowed'
-          : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-float)] hover:-translate-y-0.5 active:scale-[0.98]'
+          : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-float)] active:scale-[0.98]'
       } ${rest.className ?? ''}`}
     >
       <span>{loading ? t.pleaseWait : children}</span>

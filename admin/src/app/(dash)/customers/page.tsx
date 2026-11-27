@@ -9,7 +9,6 @@ import useSWR from 'swr';
 import { swrFetcher, downloadFile, getAdmin } from '@/lib/api';
 import { Card, StatCard, Select, StatusBadge, SearchBox, FilterChips, Pagination, TableSkeleton } from '@/components/ui';
 import { dateTimeStr, timeAgo, num, inr } from '@/lib/format';
-import { customerCards } from '@/lib/customerCards';
 import { stageLabel, stalledLabel } from '@/components/journey';
 import { PERIODS, computeRange } from '@/lib/period';
 import {
@@ -35,6 +34,11 @@ interface CustomerRow {
 }
 
 interface CustomerStatus { key: string; label: string; tone: string; detail?: string | null }
+/** People counted once, by the server's shared rules (lib/peopleMetrics.ts). */
+interface PeopleMetrics {
+  total: number; checked: number; checkedPct: number; gotOffers: number; gotOffersPct: number; noOffers: number; noOffersPct: number;
+  tappedApply: number; tappedApplyPct: number; appliedLender: number; appliedLenderPct: number; rejected: number; rejectedPct: number;
+}
 interface StatusOption { key: string; label: string; count: number }
 
 function asArray<T>(x: unknown): T[] {
@@ -99,7 +103,10 @@ function Customers() {
   const reset = () => { setFilters(parseCustomerFilters('')); setPage(1); };
 
   // The cards on top: all customers of the current slice (every filter except the status one), by status.
-  const cards = useMemo(() => customerCards(statusOptions), [statusOptions]);
+  // The card numbers come from the server's shared counting rules (lib/peopleMetrics.ts): the SAME numbers the Dashboard
+  // shows. This page keeps no rule of its own about what "got offers", "applied" or "rejected" means.
+  const { data: metricsRes } = useSWR(`/api/admin/customers/metrics${statusQuery ? `?${statusQuery}` : ''}`, swrFetcher);
+  const cards = metricsRes?.data as PeopleMetrics | undefined;
   const otherFilters = hasCustomerFilters({ ...filters, status: '' });
 
   // CSV export follows every filter the table is showing: stage, source,
@@ -124,25 +131,26 @@ function Customers() {
 
   return (
     <div className="page">
-      {/* Six cards, worked out from how many customers are in each status (lib/customerCards.ts). Every percentage is
-          out of all the customers in the current slice, and they follow every filter except the status one. */}
+      {/* Six cards from the shared counting rules (server lib/peopleMetrics.ts), people counted once. "Checked eligibility"
+          is a share of everyone here; the other shares are of the people who checked. They follow every filter except
+          the status one. "Rejected" is a lender turning an application down: no offers is its own card. */}
       <div className="dash-cards-wrap" style={{ marginTop: 0 }}><div className="dash-cards">
-        {!statusRes ? (
+        {!cards ? (
           Array.from({ length: 6 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
         ) : (
           <>
             <StatCard label={unverified ? 'Unverified numbers' : 'Total customers'} value={num(cards.total)} icon="◉" tone="teal"
               foot={otherFilters ? 'Matching these filters' : 'Everyone we know'} />
-            <StatCard label="Applied for offers" value={`${cards.askedOffersPct}%`} icon="▤" tone="blue"
-              foot={`${num(cards.askedOffers)} sent an application`} />
+            <StatCard label="Checked eligibility" value={`${cards.checkedPct}%`} icon="▤" tone="blue"
+              foot={`${num(cards.checked)} asked for offers`} />
             <StatCard label="Got offers" value={`${cards.gotOffersPct}%`} icon="★" tone="green"
-              foot={`${num(cards.gotOffers)} got at least one offer`} />
-            <StatCard label="Did not get offers" value={`${cards.noOffersPct}%`} icon="○" tone="amber"
-              foot={`${num(cards.noOffers)} were offered nothing`} />
-            <StatCard label="Applied to a lender" value={`${cards.appliedLenderPct}%`} icon="➜" tone="teal"
-              foot={`${num(cards.appliedLender)} applied on an offer`} />
-            <StatCard label="Rejected customers" value={num(cards.rejected)} icon="✕" tone="red"
-              foot={cards.lenderRejected > 0 ? `${num(cards.noOffers)} no offers · ${num(cards.lenderRejected)} by a lender` : `${cards.rejectedPct}% · no lender offered a loan`} />
+              foot={`${num(cards.gotOffers)} of ${num(cards.checked)} who checked`} />
+            <StatCard label="No offers" value={`${cards.noOffersPct}%`} icon="○" tone="amber"
+              foot={`${num(cards.noOffers)} of ${num(cards.checked)} who checked`} />
+            <StatCard label="Applied with a lender" value={`${cards.appliedLenderPct}%`} icon="➜" tone="teal"
+              foot={`${num(cards.appliedLender)} confirmed by the lender · ${num(cards.tappedApply)} only tapped Apply`} />
+            <StatCard label="Rejected by a lender" value={num(cards.rejected)} icon="✕" tone="red"
+              foot={`Of ${num(cards.appliedLender)} who applied with a lender`} />
           </>
         )}
       </div></div>

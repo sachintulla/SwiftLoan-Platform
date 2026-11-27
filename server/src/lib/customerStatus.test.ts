@@ -47,7 +47,7 @@ describe('deriveCustomerStatus', () => {
 
   it('a lender application wins over the application, and names the lender', () => {
     const s = status({ account: account({ application: app('rejected', 'not_eligible'), lenderApplications: [{ status: 'handoff', lenderName: 'Acme Finance' }] }) });
-    expect(s).toMatchObject({ key: 'applied', label: 'Applied with a lender', detail: 'Acme Finance' });
+    expect(s).toMatchObject({ key: 'applied', label: 'Tapped Apply, not confirmed', detail: 'Acme Finance' });
     // "offers_ready" on a lender application = tapped Apply, the lender has said nothing yet.
     expect(status({ account: account({ lenderApplications: [{ status: 'offers_ready', lenderName: null }] }) })).toMatchObject({ key: 'applied', detail: null });
   });
@@ -110,5 +110,27 @@ describe('the status list', () => {
     expect(noOffersReasonLabel('not_eligible')).toBe('Not eligible');
     expect(noOffersReasonLabel('some_new_reason')).toBe('Some new reason');
     expect(noOffersReasonLabel(null)).toBeNull();
+  });
+});
+
+import { yubiAsLenderFact } from './yubiStatus.js';
+
+describe('a lender reached through Yubi decides the status too', () => {
+  const viaYubi = (code: string) => [yubiAsLenderFact(code, null)!];
+  it('no offers from the eligibility check, then a loan disbursed through Yubi = Disbursed (prod, 26 Nov 2026)', () => {
+    const s = status({ account: account({ panOnFile: true, application: app('rejected', 'not_eligible'), lenderApplications: viaYubi('DISBURSED') }) });
+    expect(s).toMatchObject({ key: 'disbursed', label: 'Disbursed', detail: 'Yubi' });
+  });
+  it('sanctioned / signing = Approved, an application in progress = under review, a rejected application = rejected by lender', () => {
+    expect(status({ account: account({ application: app('rejected', 'not_eligible'), lenderApplications: viaYubi('AGREEMENT_SIGNED') }) }).key).toBe('approved');
+    expect(status({ account: account({ application: app('rejected', 'not_eligible'), lenderApplications: viaYubi('NEW_APPLICATION') }) }).key).toBe('under_review');
+    expect(status({ account: account({ application: app('rejected', 'not_eligible'), lenderApplications: viaYubi('APPLICATION_REJECTED') }) }).key).toBe('lender_rejected');
+  });
+  it('a Yubi lead, offer or "no offers" says nothing about a lender application', () => {
+    for (const code of ['NEW_LEAD', 'OFFER_GENERATED', 'NO_OFFERS', 'LEAD_REJECTED']) expect(yubiAsLenderFact(code, null)).toBeNull();
+  });
+  it('the furthest outcome across Aurix lenders and Yubi wins', () => {
+    const s = status({ account: account({ lenderApplications: [{ status: 'under_review', lenderName: 'Herofin' }, ...viaYubi('DISBURSED')] }) });
+    expect(s).toMatchObject({ key: 'disbursed', detail: 'Yubi +1 more' });
   });
 });

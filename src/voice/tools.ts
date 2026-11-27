@@ -743,7 +743,7 @@ export function registerCoreTools(agent: AgentLike, actions: VoiceActions): void
 
   alias<{ amount: number }>(
     'set_loan_amount',
-    'Set the loan amount slider, in rupees.',
+    'Set the desired loan amount, in rupees (any amount from 25000 to 1500000, in steps of 5000). Ask the customer how much they need and use THEIR figure; never choose an amount for them and never default to the minimum.',
     { amount: { type: 'number' } },
     ['amount'],
     a => ({ action: 'set_value', target: '@role:amount', value: String(a.amount) }),

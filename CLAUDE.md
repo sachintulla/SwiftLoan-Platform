@@ -1253,3 +1253,84 @@ The admin page `/analytics` ("Conversions & Commercials"), its panel `components
 `GET /api/admin/analytics/conversions[/list]` and `server/src/lib/conversions.ts` are gone: everything it showed is on the Dashboard (header
 cards, "Where users are now") and the Customers cards, and its "Approved" tile was always 0. Earlier notes in this file that mention the
 Conversions panel or tab describe the removed page. The voice widget's "show analytics" still lands on the Dashboard.
+
+---
+
+## One counting rule for every admin page (owner, 2026-11-27)
+
+The Dashboard said 1,624 "rejected", Customers 1,548 and the lender chart 3,116 for the same word, and "applied to a lender" was
+272 people against 99 that KFT had confirmed. Every count of people now comes from ONE place: `server/src/lib/peopleMetrics.ts`
+(pure, tested), fed by the customer's real status (`customerStatus.ts`). **No page keeps its own rule; do not add one.**
+- **People, once each.** A count of applications appears only where the label says "applications" (the Applications page).
+- **Words:** *Checked eligibility* = asked for offers (never "applied"). *Got offers*. *No offers* = the check found none (never
+  "rejected"). *Tapped Apply* = opened a lender's page, not confirmed (status `applied`, now labelled "Tapped Apply, not confirmed",
+  and `lender_failed`). *Applied with a lender* = the lender confirmed it (`under_review`, `approved`, `lender_rejected`, `disbursed`).
+  *Rejected* = a lender turned down an application the customer made (`lender_rejected`), nothing else. *Lead accepted* = Revasure /
+  Yubi took the lead; never "applied".
+- **Percentages** are out of the people who checked eligibility; only "Checked eligibility %" is out of everyone in the slice.
+- **Who reads it:** `GET /api/admin/dashboard/overview` → `stats.people` (Dashboard cards; `requestedAmountPeople` = each person's
+  latest request), `GET /api/admin/customers/metrics` (Customers cards, follows the page's filters), `GET /api/admin/dashboard/partners`
+  (lender chart and pie: the Aurix column is `aurixPeopleSlices`, people by status; rows are now Sent, Lead accepted, Offers ready,
+  Tapped Apply, Applied / in progress, Approved, Disbursed, No offers, Rejected, Failed; Revasure not-eligible and Yubi lead-rejected
+  are "No offers"), and the daily Slack message ("People who got offers", approvals). All use the default Customers slice (numbers
+  that asked for an OTP and never entered it are left out), so the totals are equal.
+- **Applications page:** an application a lender rejected is stored as `rejected`, the same as "no offers". They are split by
+  `LENDER_REJECTED_OFFER` (`listFilters.ts`: an applied offer with `lenderStatus = rejected`): chip "No offers" excludes them, chip
+  "Rejected by lender" (`status=lender_rejected`) lists them. Aurix chips: `handoff` = "Tapped Apply", `under_review` = "Applied, in review".
+- **People per day** keeps its data keys (`applied`, `rejected`) but the lines are labelled "Checked eligibility" and "No offers".
+- Lender decisions reach us only from KFT's status sheet for now (their webhook and `fetch_leads` carry none): 9 were written to prod
+  by hand on 2026-11-27 from the 23 Nov sheet. "Rejected" stays small until KFT sends decisions.
+- Tests: `server/src/lib/peopleMetrics.test.ts`, `dashboardGraphs.test.ts`, `listFilters.test.ts`, and
+  `admin/src/lib/oneCountingRule.test.ts` (fails if an admin file groups customer statuses into its own count again, or adds no offers
+  to rejected). `admin/src/lib/customerCards.ts` was removed.
+- **Whole-admin count audit (2026-11-27), also fixed:** the Dashboard's first card is "Total customers" = `stats.people.total` (the
+  Customers page total; `User` rows also hold numbers that never entered their OTP). People per day: the boxes above the graph count
+  each person ONCE over the range (`peopleRangeTotals`; the days added up counted a person once per day). `GET /api/admin/messages/summary`
+  and `?stuck=1` leave out `unparsed` rows (provider callbacks we could not match, not sends: 22,491 of 34,907 "stuck"), so the number
+  equals the Alerts page's WhatsApp "Sent". App Downloads: "Not signed in yet" is now "Not linked to an account" (an install is tied
+  to a person only when it came from our link: 2 of 1,173 on prod), and its funnel says "No offers" and "Tapped Apply or applied".
+  Checked and correct: Applications chips vs lists, Yubi, Revasure, Support, Alerts totals, API errors, Users, Leads.
+
+---
+
+## Loan amount step: typed, not the slider minimum (2026-11-27)
+
+46% of applications were exactly ₹25,000 (and half the Revasure leads): the amount starts empty and is required, the app had ONLY the
+slider, and its smallest touch chose the 25,000 minimum. The app's Basic details screen (`src/screens/basic.tsx`) now has a box to TYPE
+the amount (like the website's step 2), quick picks (₹50,000 / 1,00,000 / 2,00,000 / 5,00,000: never the minimum) and the slider under them.
+- Rules in `src/utils/inputLimits.ts` (pure, tested): `LOAN_AMOUNT_STEP` 5,000 (was 25,000 in app and website), `parseAmountInput`,
+  `sliderAmountChoice` (while NO amount is chosen the slider cannot choose the minimum; typing 25,000 is allowed), `LOAN_AMOUNT_QUICK_PICKS`.
+- `Slider` has `ignoreTap`: a touch alone sets nothing, only a sideways drag does (on while the amount is empty).
+- A typed amount outside ₹25,000–₹15,00,000 shows the range in red and Continue stays blocked (`missingBasicRequired`, unchanged).
+- Voice: the slider is still the `@role:amount` target (`set_loan_amount`). The typed box's accessibility label is the placeholder, NOT
+  "Desired loan amount", so the agent's label lookup keeps landing on the slider. Tool text and the in-app prompt now say: ask how much,
+  never pick the minimum (prompt edited locally; paste into Ello by hand).
+- Tracking: `loan_amount_chosen` (`source`: typed | quick_pick | slider | agent | prefilled, `amount`) when the application is created,
+  to see whether the share at 25,000 falls. Min, max, "no default amount" and the backend are unchanged. Needs a new app release.
+
+---
+
+## Yubi outcomes count everywhere (2026-11-27)
+
+Yubi (YMPL) DOES report the lender's decision by webhook (KFT/Aurix does not). On 26 Nov 2026 referral SL-502614 went NEW_APPLICATION →
+READY_FOR_UNDERWRITING → APPLICATION_SANCTIONED → SANCTION_GENERATED → SIGNING_INITIATED → AGREEMENT_SIGNED → READY_FOR_DISBURSEMENT →
+DISBURSED in one evening (Aurix had said "not eligible"; the customer came through the no-offers fallback), and the admin still showed
+"No offers found" and ₹0 disbursed, because only the status WORD was kept and nothing read it.
+- **Rules: `server/src/lib/yubiStatus.ts`** (pure, tested): plain words for every code, `yubiOutcome` (disbursed / approved / in_progress /
+  rejected / offer / no_offers / lead), `yubiStatusAdvances` (forward only: a late webhook or poll for an older step never undoes a later
+  one, and disbursed stays disbursed), the history helpers, and `yubiAsLenderFact`.
+- **Stored:** `PartnerReferral.rawStatus` (the latest full webhook body / Get Status answer, as it came) and `statusHistory`
+  (`[{status, at, source}]`), migration `20261127120000_partner_referral_status_history` (additive, idempotent; apply with
+  `prisma migrate deploy`). Written by the webhook (`yubiWebhook.routes.ts`) and the poll (`yubiReferral.ts getReferralStatus`).
+  Steps from before this shipped were not recorded. **Yubi's webhook carries no amount and no lender** (event id, the two referral ids,
+  status, sequence); look at `rawStatus` after deploy to see whether Get Status does, and ask Yubi if not.
+- **Customer status:** a referral the person WENT to (`appliedAt` set) counts as a lender application (`customerStatusDb.ts`): disbursed →
+  Disbursed, sanctioned/signing/ready → Approved, application started → under review, application rejected → Rejected by lender; a lead,
+  an offer or "no offers" says nothing. The furthest outcome across Aurix lenders and Yubi wins; detail reads "Yubi". So the shared numbers
+  (`peopleMetrics`: new `approved`, `disbursed`) include it on every page. The lender chart's Aurix column is read with `{ yubi: false }`
+  so the person is counted once, in the Yubi column.
+- **Dashboard:** the fourth card is "Loans disbursed" (people; rupees only when a lender reported an amount). No `Loan` row or repayment
+  schedule is created for a Yubi disbursal: we do not have the EMI schedule.
+- **Admin:** customer page → Applications shows a "Through Yubi" block with the timeline; Yubi statuses in plain words and colours
+  (`admin/src/lib/lists.ts`, same words as the server). The customer page's application table says "No offers", not "Rejected".
+- **App:** My Loans shows "Disbursed" for a paid-out Yubi loan (`statusDisbursed`; it said "Approved"). Needs an app release.

@@ -72,6 +72,7 @@ adminMessagesRouter.get('/', ah(async (req, res) => {
   if (q.stuck === '1') {
     where.channel = 'whatsapp';
     where.status = { in: ['queued', 'sent'] };
+    if (!q.kind) where.kind = { not: 'unparsed' };
     // "No report" can be combined with a date range: both bounds apply.
     where.createdAt = { ...((where.createdAt as object | undefined) ?? {}), lt: new Date(Date.now() - STUCK_AFTER_MS) };
   }
@@ -101,11 +102,12 @@ adminMessagesRouter.get('/facets', ah(async (req, res) => {
 // GET /api/admin/messages/summary — last 24 h by status, how many are stuck, and whether reports can arrive at all.
 adminMessagesRouter.get('/summary', ah(async (_req, res) => {
   const since = new Date(Date.now() - 24 * 3_600_000);
-  const grouped = await prisma.messageDelivery.groupBy({ by: ['channel', 'status'], where: { createdAt: { gte: since } }, _count: { _all: true } });
+  const grouped = await prisma.messageDelivery.groupBy({ by: ['channel', 'status'], where: { createdAt: { gte: since }, kind: { not: 'unparsed' } }, _count: { _all: true } });
   const counts: Record<string, Record<string, number>> = { whatsapp: {}, sms: {} };
   for (const g of grouped) (counts[g.channel] ??= {})[g.status] = g._count._all;
   const stuck = await prisma.messageDelivery.count({
-    where: { channel: 'whatsapp', status: { in: ['queued', 'sent'] }, createdAt: { lt: new Date(Date.now() - STUCK_AFTER_MS) } },
+    // `unparsed` rows are provider callbacks we could not match, not messages we sent: never counted (they were 22,491 of 34,907 "stuck").
+    where: { channel: 'whatsapp', kind: { not: 'unparsed' }, status: { in: ['queued', 'sent'] }, createdAt: { lt: new Date(Date.now() - STUCK_AFTER_MS) } },
   });
   const cfg = await getProviderConfig('voxvalley').catch(() => null);
   const explicitCallback = String(cfg?.settings?.callbackUrl ?? '').trim();

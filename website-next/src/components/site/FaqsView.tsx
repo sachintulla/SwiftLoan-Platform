@@ -85,7 +85,7 @@ export function FaqsView({ ctaHref = '/#lead-form', inDashboard = false }: { cta
         <div className="mt-12 text-center">
           <Link
             href={href(ctaHref)}
-            className="bg-brand-gradient inline-flex min-h-10 flex-wrap items-center justify-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-float)] transition-transform hover:-translate-y-0.5"
+            className="bg-brand-gradient inline-flex min-h-10 flex-wrap items-center justify-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-float)] transition-transform"
           >
             {t.cta} <ArrowRight className="h-4 w-4 shrink-0" />
           </Link>

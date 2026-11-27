@@ -9,7 +9,7 @@
  */
 import { prisma } from './prisma.js';
 import { rupeesDigits, rupeesInWords } from './rupees.js';
-import { deriveDropoff, type DropoffStatus } from './dropoffSteps.js';
+import { deriveDropoff, type DropoffState, type DropoffStatus } from './dropoffSteps.js';
 
 export interface BestOffer { lender: string; amount: number; emi: number; tenureMonths: number }
 export interface SituationInput {
@@ -76,6 +76,45 @@ export function describeSituation(i: SituationInput): Situation | null {
     default:
       return null;
   }
+}
+
+/**
+ * Which call the admin's "Call" button places (`POST /api/admin/calls/trigger`). The button sends the customer's journey STAGE
+ * (`Customer.currentStage`), which can be behind the truth: on 2026-11-26 a person whose offer check had found no offers was called
+ * as "started the application form but did not finish it", and Ruby opened with "you recently checked on our website… no
+ * application has been started". When stored data says where the person really is, that decides the call and the stage is ignored.
+ *
+ * `stall`: 'no_offers' = the no-offers briefing (as the automatic no-offers call), 'stage' = the old stage-based drop-off wording,
+ * 'none' = no stall fields (the agent opens from `call_situation`).
+ */
+export interface ManualCallPlan {
+  purpose: 'no_offers_followup' | 'app_dropoff_followup' | 'daily_status_update' | 'manual_dashboard_call';
+  stall: 'no_offers' | 'stage' | 'none';
+}
+
+export function manualCallPlan(status: DropoffStatus | null, stageAware: boolean): ManualCallPlan {
+  switch (status) {
+    case 'rejected':
+      return { purpose: 'no_offers_followup', stall: 'no_offers' };
+    case 'applied':
+      return { purpose: 'daily_status_update', stall: 'none' };
+    case 'otp_verified':
+    case 'pan_verified':
+    case 'application_filled':
+    case 'offers_not_applied':
+    case 'failed':
+      return { purpose: 'app_dropoff_followup', stall: 'none' };
+    default:
+      // No account step we can describe (a website lead without an account, or past the lender's decision): the stage is all we have.
+      return stageAware ? { purpose: 'app_dropoff_followup', stall: 'stage' } : { purpose: 'manual_dashboard_call', stall: 'none' };
+  }
+}
+
+/** Where a signed-in person really is (status + the no-offers reason), from stored data. Null when there is no such account. */
+export async function loadCallState(userId: string): Promise<DropoffState | null> {
+  const { loadSnapshot } = await import('./appDropoff.js');
+  const loaded = await loadSnapshot(userId);
+  return loaded ? deriveDropoff(loaded.snapshot) : null;
 }
 
 /** The highest-amount offer (ties: lower EMI first). */

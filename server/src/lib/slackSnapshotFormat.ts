@@ -17,7 +17,9 @@ export interface SnapshotMetrics {
   leads: { total: number; today: number };
   applications: { total: number; today: number };
   applicationWorth: { total: number; today: number };
+  /** PEOPLE who got at least one offer (lib/peopleMetrics.ts gotOffers), not applications. */
   offers: { total: number; today: number };
+  /** PEOPLE with an approved or disbursed application. */
   approvals: { total: number; today: number };
   disbursals: { total: number; today: number };
   disbursedAmount: { total: number; today: number };
@@ -81,7 +83,7 @@ export function snapshotLines(m: SnapshotMetrics): SnapshotLine[] {
     row('📞', 'Leads captured', count(m.leads.total), m.leads.today ? `+${count(m.leads.today)}` : ''),
     row('📝', 'Applications', count(m.applications.total), m.applications.today ? `+${count(m.applications.today)}` : ''),
     row('💰', 'Application worth', rupeeCompact(m.applicationWorth.total), m.applicationWorth.today ? `+${rupeeCompact(m.applicationWorth.today)}` : ''),
-    row('🎯', 'Offers received', count(m.offers.total), m.offers.today ? `+${count(m.offers.today)}` : ''),
+    row('🎯', 'People who got offers', count(m.offers.total), m.offers.today ? `+${count(m.offers.today)}` : ''),
     row('✅', 'Approvals', count(m.approvals.total), m.approvals.today ? `+${count(m.approvals.today)}` : ''),
     row('🏦', 'Disbursements', count(m.disbursals.total), m.disbursals.today ? `+${count(m.disbursals.today)}` : ''),
     row('💸', 'Disbursed amount', rupeeCompact(m.disbursedAmount.total), m.disbursedAmount.today ? `+${rupeeCompact(m.disbursedAmount.today)}` : ''),

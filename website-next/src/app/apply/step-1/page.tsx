@@ -337,7 +337,7 @@ export default function Step1PanPage() {
           className={`rounded-full px-6 py-3 text-sm font-bold transition-all ${
             !valid || loading
               ? 'bg-muted text-muted-foreground'
-              : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5'
+              : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)]'
           }`}
         >
           {loading ? t.verifying : t.verifyCta}

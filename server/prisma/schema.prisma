@@ -488,6 +488,8 @@ model PartnerReferral {
   appliedLender        String? // lender the applicant proceeded with, if known
   lastStatus           String? // latest journeyStatus from Get Status (NEW_LEAD…)
   lastStatusCheckedAt  DateTime? // last time the status poller pulled this from YMPL (throttle)
+  rawStatus            Json? // the latest full webhook body / Get Status answer from YMPL, as it came (lib/yubiStatus.ts)
+  statusHistory        Json? // every status it went through: [{ status, at, source: 'webhook' | 'poll' }], oldest first
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -510,7 +512,8 @@ model RevasureLead {
   // it's our idempotent handle; unique here too.
   sourceLeadId  String   @unique
   basketId      String?
-  // pending | success | duplicate | ineligible | failed
+  // pending | success | duplicate | ineligible | low_income | failed
+  // low_income = stated monthly income below Revasure's 10,000 minimum: saved, never sent
   status        String   @default("pending")
   httpStatus    Int? // HTTP status from Revasure
   leadId        String? // Revasure's own lead_id (from the 201 response)

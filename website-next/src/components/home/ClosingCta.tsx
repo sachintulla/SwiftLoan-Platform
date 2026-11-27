@@ -24,7 +24,7 @@ export function ClosingCta() {
             <p className="mx-auto mt-4 max-w-xl text-sm opacity-85 sm:text-base">{t.body}</p>
             <Link
               href={href('/#lead-form')}
-              className="glass-dark mt-9 inline-flex min-h-10 flex-wrap items-center justify-center gap-2 rounded-full px-8 py-4 text-sm font-semibold transition-transform hover:-translate-y-0.5"
+              className="glass-dark mt-9 inline-flex min-h-10 flex-wrap items-center justify-center gap-2 rounded-full px-8 py-4 text-sm font-semibold transition-transform"
             >
               {t.cta} <ArrowRight className="h-4 w-4 shrink-0" />
             </Link>

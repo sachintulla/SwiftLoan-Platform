@@ -8,12 +8,14 @@ import LenderBars from '@/components/LenderBars';
 import OutcomePie from '@/components/OutcomePie';
 import DashboardTables from '@/components/DashboardTables';
 
+/** People counted once, by the shared rules (server lib/peopleMetrics.ts). The Customers page shows the same numbers. */
+interface People {
+  total: number; checked: number; gotOffers: number; gotOffersPct: number; noOffers: number; noOffersPct: number;
+  tappedApply: number; appliedLender: number; appliedLenderPct: number; rejected: number; rejectedPct: number;
+  approved: number; disbursed: number;
+}
 interface Overview {
-  stats: {
-    totalUsers: number; totalApplications: number; requestedAmount: number; totalDisbursed: number;
-    /** People who asked for offers, and of them how many got one / were turned down (each person once). */
-    peopleChecked: number; peopleWithOffers: number; offersPct: number; peopleRejected: number; rejectedPct: number;
-  };
+  stats: { totalUsers: number; totalApplications: number; requestedAmountPeople: number; totalDisbursed: number; people: People };
 }
 
 export default function OverviewPage() {
@@ -30,12 +32,19 @@ export default function OverviewPage() {
           Array.from({ length: 6 }).map((_, i) => <div key={i} className="stat"><div className="skeleton" style={{ height: 46 }} /></div>)
         ) : (
           <>
-            <StatCard label="Total users" value={num(o.stats.totalUsers)} icon="◉" tone="teal" foot="People who signed up" />
-            <StatCard label="Total applications" value={num(o.stats.totalApplications)} icon="▤" tone="blue" foot={`From ${num(o.stats.peopleChecked)} people who asked for offers`} />
-            <StatCard label="Amount requested" value={inrCompact(o.stats.requestedAmount)} icon="₹" tone="blue" foot="Added up across all applications" />
-            <StatCard label="Amount disbursed" value={inrCompact(o.stats.totalDisbursed)} icon="✓" tone="green" foot={o.stats.totalDisbursed > 0 ? 'Paid out by lenders' : 'Lenders do not report payouts to us yet'} />
-            <StatCard label="Got offers" value={`${o.stats.offersPct}%`} icon="★" tone="green" foot={`${num(o.stats.peopleWithOffers)} of ${num(o.stats.peopleChecked)} people who asked`} />
-            <StatCard label="Rejected" value={num(o.stats.peopleRejected)} icon="✕" tone="red" foot={`${o.stats.rejectedPct}% of people who asked · no lender offered a loan`} />
+            <StatCard label="Total customers" value={num(o.stats.people.total)} icon="◉" tone="teal" foot="Same count as the Customers page" />
+            <StatCard label="Total applications" value={num(o.stats.totalApplications)} icon="▤" tone="blue" foot={`From ${num(o.stats.people.checked)} people who checked eligibility`} />
+            <StatCard label="Amount requested" value={inrCompact(o.stats.requestedAmountPeople)} icon="₹" tone="blue" foot="Each person once: their latest request" />
+            {/* Lenders reached through Yubi report a disbursal but not its amount; the Aurix lenders report neither yet.
+                So the card counts LOANS, and shows rupees only when a lender gave an amount. */}
+            <StatCard label="Loans disbursed" value={num(o.stats.people.disbursed)} icon="✓" tone="green"
+              foot={o.stats.totalDisbursed > 0
+                ? `${inrCompact(o.stats.totalDisbursed)} paid out · ${num(o.stats.people.approved)} more approved`
+                : o.stats.people.disbursed > 0
+                  ? `Amount not reported by the lender · ${num(o.stats.people.approved)} more approved`
+                  : `${num(o.stats.people.approved)} approved · lenders have reported no payout yet`} />
+            <StatCard label="Got offers" value={`${o.stats.people.gotOffersPct}%`} icon="★" tone="green" foot={`${num(o.stats.people.gotOffers)} of ${num(o.stats.people.checked)} people who checked · ${num(o.stats.people.noOffers)} got no offers`} />
+            <StatCard label="Rejected by a lender" value={num(o.stats.people.rejected)} icon="✕" tone="red" foot={`Of ${num(o.stats.people.appliedLender)} who applied with a lender · no offers is not counted here`} />
           </>
         )}
       </div></div>

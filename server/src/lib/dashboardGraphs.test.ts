@@ -94,6 +94,19 @@ describe('peopleTotals', () => {
   });
 });
 
+import { peopleRangeTotals } from './dashboardGraphs.js';
+
+describe('peopleRangeTotals', () => {
+  it('counts people once over the range, with offers / no offers as a share of those who checked', () => {
+    expect(peopleRangeTotals(931, { applied: 841, gotOffers: 150, rejected: 680 })).toEqual({ registered: 931, applied: 841, gotOffers: 150, rejected: 680, gotOffersPct: 18, rejectedPct: 81 });
+  });
+  it('got offers and no offers together never pass the people who checked', () => {
+    const t = peopleRangeTotals(0, { applied: 10, gotOffers: 8, rejected: 9 });
+    expect([t.gotOffers, t.rejected]).toEqual([8, 2]);
+    expect(peopleRangeTotals(0, { applied: 0, gotOffers: 0, rejected: 0 }).gotOffersPct).toBe(0);
+  });
+});
+
 import { revasureSlices, yubiSliceOf, yubiSlices } from './dashboardGraphs.js';
 
 describe('partner pies', () => {
@@ -120,85 +133,99 @@ describe('partner pies', () => {
   });
 });
 
-import { aurixSlices } from './dashboardGraphs.js';
+import { aurixPeopleSlices } from './dashboardGraphs.js';
 
-describe('aurixSlices', () => {
-  it('counts only applications that reached Aurix, in plain words, biggest first', () => {
-    const a = aurixSlices([
-      { status: 'rejected', count: 2151 }, { status: 'offers_ready', count: 159 }, { status: 'handoff', count: 98 }, { status: 'under_review', count: 74 },
-      { status: 'pan_pending', count: 56 }, { status: 'failed', count: 38 }, { status: 'draft', count: 12 }, { status: 'prequalifying', count: 1 },
-    ]);
-    expect(a.total).toBe(2521);
+// People in each customer status (lib/customerStatus.ts), live prod on 27 Nov 2026.
+const PEOPLE = { no_offers: 1540, otp_verified: 288, applied: 162, under_review: 97, offers_ready: 70, filling_details: 43, pan_verified: 36, lender_rejected: 8, lender_failed: 6, offers_failed: 2, checking_offers: 1 };
+
+describe('aurixPeopleSlices', () => {
+  it('counts people who asked for offers, once each, in the shared words, biggest first', () => {
+    const a = aurixPeopleSlices(PEOPLE);
+    // 1,886 people checked eligibility; the 367 who never asked (verified only, PAN only, filling details) are left out.
+    expect(a.total).toBe(1886);
     expect(a.slices.map((s) => [s.label, s.count])).toEqual([
-      ['No offers', 2151], ['Offers ready, not applied', 159], ['Sent to the lender', 98], ['In review with the lender', 74], ['Technical failure', 38], ['Checking now', 1],
+      ['No offers', 1540], ['Tapped Apply, not confirmed', 168], ['In review with the lender', 97], ['Offers ready, not applied', 70],
+      ['Rejected by the lender', 8], ['Offers check failed', 2], ['Checking now', 1],
     ]);
-    expect(a.slices[0].pct).toBe(85.3);
+    expect(a.slices[0].pct).toBe(81.7);
   });
 });
 
 import { lenderStatusRows, lenderStatusOf, LENDER_STATUSES } from './dashboardGraphs.js';
 
+const YUBI = yubiSlices([{ status: 'token_issued', lastStatus: null, count: 10 }, { status: 'token_issued', lastStatus: 'NEW_LEAD', count: 12 }, { status: 'token_issued', lastStatus: 'LEAD_REJECTED', count: 3 },
+  { status: 'failed', lastStatus: null, count: 1 }, { status: 'token_issued', lastStatus: 'NEW_APPLICATION', count: 4 }, { status: 'token_issued', lastStatus: 'OFFER_GENERATED', count: 2 },
+  { status: 'token_issued', lastStatus: 'NO_OFFERS', count: 1 }, { status: 'token_issued', lastStatus: 'APPLICATION_REJECTED', count: 1 }]);
+const REVASURE = revasureSlices([{ status: 'success', count: 1869 }, { status: 'ineligible', count: 35 }, { status: 'failed', count: 26 }, { status: 'duplicate', count: 1 }]);
+
 describe('one chart for the three lenders', () => {
   it('reads each lender status as one of the shared statuses, or as only "sent"', () => {
-    expect(lenderStatusOf('aurix', 'rejected')).toBe('rejected');
+    expect(lenderStatusOf('aurix', 'no_offers')).toBe('noOffers');
+    expect(lenderStatusOf('aurix', 'lender_rejected')).toBe('rejected');
     expect(lenderStatusOf('aurix', 'offers_ready')).toBe('offers');
+    expect(lenderStatusOf('aurix', 'tapped')).toBe('tapped');
     expect(lenderStatusOf('aurix', 'under_review')).toBe('progress');
     expect(lenderStatusOf('aurix', 'approved')).toBe('approved');
-    expect(lenderStatusOf('aurix', 'closed')).toBe('disbursed');
-    expect(lenderStatusOf('aurix', 'prequalifying')).toBeNull();
+    expect(lenderStatusOf('aurix', 'checking')).toBeNull();
     expect(lenderStatusOf('yubi', 'sent')).toBeNull();
-    expect(lenderStatusOf('yubi', 'new_lead')).toBe('progress');
-    expect(lenderStatusOf('yubi', 'no_offers')).toBe('rejected');
-    expect(lenderStatusOf('revasure', 'success')).toBe('progress');
-    expect(lenderStatusOf('revasure', 'duplicate')).toBe('rejected');
     expect(lenderStatusOf('yubi', 'some_new_code')).toBeNull();
   });
-  it('gives a row per status with each lender\'s count (production, 23 Nov 2026)', () => {
-    const rows = lenderStatusRows({
-      aurix: aurixSlices([{ status: 'rejected', count: 2151 }, { status: 'offers_ready', count: 159 }, { status: 'handoff', count: 98 }, { status: 'under_review', count: 74 }, { status: 'failed', count: 38 }, { status: 'prequalifying', count: 1 }]),
-      yubi: yubiSlices([{ status: 'token_issued', lastStatus: null, count: 1556 }, { status: 'token_issued', lastStatus: 'NEW_LEAD', count: 892 }, { status: 'token_issued', lastStatus: 'LEAD_REJECTED', count: 39 },
-        { status: 'failed', lastStatus: null, count: 19 }, { status: 'token_issued', lastStatus: 'NEW_APPLICATION', count: 12 }, { status: 'token_issued', lastStatus: 'OFFER_GENERATED', count: 7 },
-        { status: 'token_issued', lastStatus: 'NO_OFFERS', count: 7 }, { status: 'token_issued', lastStatus: 'APPLICATION_REJECTED', count: 6 }]),
-      revasure: revasureSlices([{ status: 'success', count: 1307 }, { status: 'ineligible', count: 31 }, { status: 'failed', count: 16 }, { status: 'duplicate', count: 1 }]),
-    });
+  it('"rejected" is only a lender turning down an application; everything else that ended with nothing is "no offers"', () => {
+    expect(lenderStatusOf('yubi', 'application_rejected')).toBe('rejected');
+    expect(lenderStatusOf('yubi', 'lead_rejected')).toBe('noOffers');
+    expect(lenderStatusOf('yubi', 'no_offers')).toBe('noOffers');
+    expect(lenderStatusOf('revasure', 'ineligible')).toBe('noOffers');
+    expect(lenderStatusOf('revasure', 'low_income')).toBe('noOffers');
+    expect(lenderStatusOf('revasure', 'duplicate')).toBe('noOffers');
+  });
+  it('an accepted lead is "lead accepted", never "applied"', () => {
+    expect(lenderStatusOf('revasure', 'success')).toBe('accepted');
+    expect(lenderStatusOf('yubi', 'new_lead')).toBe('accepted');
+    expect(lenderStatusOf('yubi', 'new_application')).toBe('progress');
+  });
+  it('gives a row per status with each lender\'s count (live prod, 27 Nov 2026)', () => {
+    const rows = lenderStatusRows({ aurix: aurixPeopleSlices(PEOPLE), yubi: YUBI, revasure: REVASURE });
     expect(rows.map((r) => r.key)).toEqual(LENDER_STATUSES.map((s) => s.key));
     const by = Object.fromEntries(rows.map((r) => [r.key, [r.aurix, r.yubi, r.revasure]]));
     expect(by).toEqual({
-      sent: [2521, 2538, 1355], progress: [172, 904, 1307], offers: [159, 7, 0], approved: [0, 0, 0], disbursed: [0, 0, 0],
-      rejected: [2151, 52, 32], failed: [38, 19, 16],
+      sent: [1886, 34, 1931], accepted: [0, 12, 1869], offers: [70, 2, 0], tapped: [168, 0, 0], progress: [97, 4, 0], approved: [0, 0, 0], disbursed: [0, 0, 0],
+      noOffers: [1540, 4, 36], rejected: [8, 1, 0], failed: [2, 1, 26],
     });
-    expect(rows[0].total).toBe(6414);
     // What is still waiting is named under Sent.
-    expect(rows[0].detail.yubi).toEqual([{ label: 'Waiting for Yubi', count: 1556 }]);
-    expect(rows.find((r) => r.key === 'rejected')!.detail.revasure.map((d) => d.label)).toEqual(['Not eligible', 'Already registered']);
+    expect(rows[0].detail.yubi).toEqual([{ label: 'Waiting for Yubi', count: 10 }]);
+    expect(rows.find((r) => r.key === 'noOffers')!.detail.revasure.map((d) => d.label)).toEqual(['Not eligible', 'Already registered']);
   });
 });
 
 import { overallOutcomes, overallOutcomeOf } from './dashboardGraphs.js';
+import { peopleMetrics } from './peopleMetrics.js';
 
 describe('overall outcome pie', () => {
   it('reads each lender status as got offers, no offers, rejected, or neither', () => {
     expect(overallOutcomeOf('aurix', 'offers_ready')).toBe('gotOffers');
+    expect(overallOutcomeOf('aurix', 'tapped')).toBe('gotOffers');
     expect(overallOutcomeOf('aurix', 'under_review')).toBe('gotOffers');
-    expect(overallOutcomeOf('aurix', 'rejected')).toBe('noOffers');
+    expect(overallOutcomeOf('aurix', 'no_offers')).toBe('noOffers');
+    expect(overallOutcomeOf('aurix', 'lender_rejected')).toBe('rejected');
     expect(overallOutcomeOf('aurix', 'failed')).toBeNull();
     expect(overallOutcomeOf('yubi', 'no_offers')).toBe('noOffers');
-    expect(overallOutcomeOf('yubi', 'lead_rejected')).toBe('rejected');
+    expect(overallOutcomeOf('yubi', 'lead_rejected')).toBe('noOffers');
+    expect(overallOutcomeOf('yubi', 'application_rejected')).toBe('rejected');
     expect(overallOutcomeOf('yubi', 'sent')).toBeNull();
     expect(overallOutcomeOf('revasure', 'success')).toBeNull();
-    expect(overallOutcomeOf('revasure', 'ineligible')).toBe('rejected');
+    expect(overallOutcomeOf('revasure', 'ineligible')).toBe('noOffers');
+    expect(overallOutcomeOf('revasure', 'low_income')).toBe('noOffers');
+    expect(revasureSlices([{ status: 'low_income', count: 8 }]).slices[0].label).toBe('Not eligible: low income');
   });
-  it('adds the three lenders up (production, 23 Nov 2026)', () => {
-    const o = overallOutcomes({
-      aurix: aurixSlices([{ status: 'rejected', count: 2151 }, { status: 'offers_ready', count: 159 }, { status: 'handoff', count: 98 }, { status: 'under_review', count: 74 }, { status: 'failed', count: 38 }]),
-      yubi: yubiSlices([{ status: 'token_issued', lastStatus: null, count: 1556 }, { status: 'token_issued', lastStatus: 'NEW_LEAD', count: 892 }, { status: 'token_issued', lastStatus: 'LEAD_REJECTED', count: 39 },
-        { status: 'token_issued', lastStatus: 'NEW_APPLICATION', count: 12 }, { status: 'token_issued', lastStatus: 'OFFER_GENERATED', count: 7 }, { status: 'token_issued', lastStatus: 'NO_OFFERS', count: 7 },
-        { status: 'token_issued', lastStatus: 'APPLICATION_REJECTED', count: 6 }]),
-      revasure: revasureSlices([{ status: 'success', count: 1307 }, { status: 'ineligible', count: 31 }, { status: 'duplicate', count: 1 }]),
-    });
-    expect(o.slices.map((s) => [s.key, s.count])).toEqual([['gotOffers', 350], ['noOffers', 2158], ['rejected', 77]]);
-    expect(o.total).toBe(2585);
-    expect(o.slices[0].byLender).toEqual({ aurix: 331, yubi: 19, revasure: 0 });
-    expect(o.slices.map((s) => s.pct)).toEqual([13.5, 83.5, 3]);
+  it('adds the three lenders up, and the Aurix part is the same people the cards count', () => {
+    const o = overallOutcomes({ aurix: aurixPeopleSlices(PEOPLE), yubi: YUBI, revasure: REVASURE });
+    const m = peopleMetrics(PEOPLE);
+    const [got, none, rejected] = o.slices;
+    // Aurix: got offers minus the people a lender rejected (each person is in one slice only).
+    expect(got.byLender.aurix).toBe(m.gotOffers - m.rejected);
+    expect(none.byLender.aurix).toBe(m.noOffers);
+    expect(rejected.byLender.aurix).toBe(m.rejected);
+    expect(o.slices.map((s) => [s.key, s.count])).toEqual([['gotOffers', 341], ['noOffers', 1580], ['rejected', 9]]);
+    expect(o.total).toBe(1930);
   });
 });
