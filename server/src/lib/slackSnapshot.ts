@@ -17,16 +17,15 @@
  */
 import { prisma } from './prisma.js';
 import { scoped } from './log.js';
+import { customerIdsByStatus } from './customerStatusDb.js';
+import { customerOtpWhere } from './listFilters.js';
+import { peopleMetrics } from './peopleMetrics.js';
 import {
   SnapshotMetrics, snapshotBlocks, snapshotText, snapshotDue, istDay,
 } from './slackSnapshotFormat.js';
 
 const log = scoped('slack-snapshot');
 const LAST_SENT_KEY = 'slack.snapshot.lastSentDay';
-
-const APPROVED_STATUSES = ['approved', 'disbursed', 'closed'];
-// Applications that have reached (at least) the offers stage — "offers received".
-const OFFERS_STATUSES = ['offers_ready', 'handoff', 'under_review', 'approved', 'disbursed', 'closed'];
 
 const IST_OFFSET_MS = 5.5 * 3_600_000;
 const DAY_MS = 86_400_000;
@@ -46,8 +45,8 @@ export async function gatherSnapshot(now: Date = new Date()): Promise<SnapshotMe
 
   const [
     dl, dlT, users, usersT, leads, leadsT, apps, appsT,
-    worth, worthT, statusAll, statusToday,
-    loans, loansT, disbAmt, disbAmtT,
+    worth, worthT, statusAll,
+    loans, loansT, disbAmt, disbAmtT, people, peopleToday,
   ] = await Promise.all([
     prisma.appDownload.count(),
     prisma.appDownload.count({ where: { installedAt: { gte: since } } }),
@@ -60,12 +59,21 @@ export async function gatherSnapshot(now: Date = new Date()): Promise<SnapshotMe
     prisma.loanApplication.aggregate({ _sum: { amount: true } }),
     prisma.loanApplication.aggregate({ _sum: { amount: true }, where: createdToday }),
     prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
-    prisma.loanApplication.groupBy({ by: ['status'], where: createdToday, _count: { _all: true } }),
     prisma.loan.count(),
     prisma.loan.count({ where: disbursedToday }),
     prisma.loan.aggregate({ _sum: { principal: true } }),
     prisma.loan.aggregate({ _sum: { principal: true }, where: disbursedToday }),
+    // PEOPLE, once each, by their real status: the same read and rules as the Dashboard and the Customers page
+    // (lib/peopleMetrics.ts), so this message cannot disagree with the admin.
+    customerIdsByStatus({ AND: [customerOtpWhere(undefined)] }, null),
+    // Today, in people: who got at least one offer / an approval on an application they sent today.
+    prisma.$queryRaw<{ offers: bigint; approvals: bigint }[]>`
+      SELECT count(DISTINCT a."userId") FILTER (WHERE EXISTS (SELECT 1 FROM "Offer" o WHERE o."applicationId" = a."id")) AS "offers",
+             count(DISTINCT a."userId") FILTER (WHERE a."status"::text IN ('approved', 'disbursed', 'closed')) AS "approvals"
+      FROM "LoanApplication" a WHERE a."createdAt" >= ${since}`,
   ]);
+  const m = peopleMetrics(people.counts);
+  const approvedPeople = (people.counts.approved ?? 0) + (people.counts.disbursed ?? 0);
 
   const apps10 = apps; // base for the conversion %
   const disbursedCount = sumStatuses(statusAll, ['disbursed', 'closed']);
@@ -76,8 +84,9 @@ export async function gatherSnapshot(now: Date = new Date()): Promise<SnapshotMe
     leads: { total: leads, today: leadsT },
     applications: { total: apps, today: appsT },
     applicationWorth: { total: worth._sum.amount ?? 0, today: worthT._sum.amount ?? 0 },
-    offers: { total: sumStatuses(statusAll, OFFERS_STATUSES), today: sumStatuses(statusToday, OFFERS_STATUSES) },
-    approvals: { total: sumStatuses(statusAll, APPROVED_STATUSES), today: sumStatuses(statusToday, APPROVED_STATUSES) },
+    // People, not applications (one person with five tries is one).
+    offers: { total: m.gotOffers, today: Number(peopleToday[0]?.offers ?? 0) },
+    approvals: { total: approvedPeople, today: Number(peopleToday[0]?.approvals ?? 0) },
     disbursals: { total: loans, today: loansT },
     disbursedAmount: { total: disbAmt._sum.principal ?? 0, today: disbAmtT._sum.principal ?? 0 },
     // Meta spend is not yet pulled from the Meta API (we only SEND events to Meta,

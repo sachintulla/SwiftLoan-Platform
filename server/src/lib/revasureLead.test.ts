@@ -20,7 +20,7 @@ vi.mock('./prisma.js', () => ({
     },
   },
 }));
-const { buildRevasureBody, createRevasureLead, maskedRevasureBody, revasureConfig, revasureEnabled } = await import('./revasureLead.js');
+const { buildRevasureBody, createRevasureLead, isRevasureIncomeRefusal, maskedRevasureBody, REVASURE_SENT, revasureConfig, revasureEnabled } = await import('./revasureLead.js');
 
 const ENV_KEYS = ['REVASURE_TOKEN', 'REVASURE_BASE_URL', 'REVASURE_BASKET_ID', 'REVASURE_ENABLED', 'REVASURE_ALLOW_INSECURE', 'REVASURE_PRODUCT'];
 function setEnv(env: Record<string, string>) {
@@ -144,7 +144,8 @@ describe('buildRevasureBody — what the website funnel (same as the app) suppli
   it('clamps out-of-range income and amount', () => {
     const b = buildRevasureBody({ ...app, amount: 1 }, { ...user, monthlyIncome: 5 }, undefined, cfg);
     expect(b.loan_amount).toBe(1000);
-    expect(b.monthly_income).toBe(1000);
+    // Revasure's own minimum (createRevasureLead does not send a stated income this low at all)
+    expect(b.monthly_income).toBe(10_000);
   });
 });
 
@@ -286,6 +287,79 @@ describe('one Revasure lead per phone number', () => {
     const statuses = JSON.stringify(db.findFirst.mock.calls[0][0].where);
     expect(statuses).not.toContain('"failed"');
     expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([5000, 5886, 9999])('stated income %i (below 10,000) → saved as low_income, not sent', async (income) => {
+    on();
+    const saved = db.user;
+    db.user = { ...saved, monthlyIncome: income };
+    try {
+      const f = spyFetch();
+      const r = await createRevasureLead('app-1', 'user-1');
+      expect(r).toMatchObject({ ok: false, status: 'low_income', httpStatus: null, message: 'Not eligible: monthly income below ₹10,000' });
+      expect(f).not.toHaveBeenCalled();
+      // the outcome is recorded on the lead row (create and update both carry it)
+      expect(db.upsert).toHaveBeenCalledTimes(1);
+      const arg = db.upsert.mock.calls[0][0];
+      for (const d of [arg.create, arg.update]) {
+        expect(d).toMatchObject({ status: 'low_income', message: 'Not eligible: monthly income below ₹10,000', lastError: null });
+      }
+      expect(arg.create).toMatchObject({ applicationId: 'app-1', userId: 'user-1', sourceLeadId: 'app-1' });
+      expect(db.update).not.toHaveBeenCalled();
+    } finally {
+      db.user = saved;
+    }
+  });
+
+  it('a low_income row does not block a later send (corrected income is sent)', () => {
+    expect(REVASURE_SENT).not.toContain('low_income');
+  });
+
+  it('a lead already decided for the number still wins over low income (no new row)', async () => {
+    on();
+    const saved = db.user;
+    db.user = { ...saved, monthlyIncome: 5000 };
+    db.findFirst.mockResolvedValue({ sourceLeadId: 'app-0', status: 'success', httpStatus: 201, leadId: 'L-0' });
+    try {
+      const r = await createRevasureLead('app-2', 'user-1');
+      expect(r.status).toBe('skipped');
+      expect(db.upsert).not.toHaveBeenCalled();
+    } finally {
+      db.user = saved;
+    }
+  });
+
+  it("Revasure's own income refusal (400) is stored as low_income, not failed", async () => {
+    on();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 400, text: async () => JSON.stringify({ status: false, message: 'Invalid monthly_income: must be a number from 10000 to 9999999' }),
+    }));
+    const r = await createRevasureLead('app-1', 'user-1');
+    expect(r.status).toBe('low_income');
+    expect(db.update.mock.calls[0][0].data.status).toBe('low_income');
+  });
+
+  it('isRevasureIncomeRefusal only matches a 400 about monthly_income', () => {
+    expect(isRevasureIncomeRefusal(400, 'Invalid monthly_income: must be a number from 10000 to 9999999')).toBe(true);
+    expect(isRevasureIncomeRefusal(400, 'Invalid pancard')).toBe(false);
+    expect(isRevasureIncomeRefusal(409, 'monthly_income')).toBe(false);
+  });
+
+  it('income of exactly 10,000, or unknown, is still sent', async () => {
+    on();
+    const saved = db.user;
+    try {
+      for (const monthlyIncome of [10_000, null]) {
+        db.user = { ...saved, monthlyIncome };
+        const f = spyFetch();
+        expect((await createRevasureLead('app-1', 'user-1')).status).toBe('success');
+        const sent = JSON.parse(f.mock.calls[0][1].body);
+        expect(sent.monthly_income).toBe(monthlyIncome ?? 50_000);
+        vi.unstubAllGlobals();
+      }
+    } finally {
+      db.user = saved;
+    }
   });
 
   it('an in-flight claim (two prequalify runs at once) also blocks the second', async () => {

@@ -101,7 +101,7 @@ export default function Step3MoreDetailsPage() {
         <button
           onClick={continueNext}
           disabled={loading}
-          className="bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] rounded-full px-6 py-3 text-sm font-bold transition-all hover:-translate-y-0.5"
+          className="bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] rounded-full px-6 py-3 text-sm font-bold transition-all"
         >
           {loading ? t.saving : t.seeOffers}
         </button>

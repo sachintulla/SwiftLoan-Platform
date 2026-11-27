@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { languageOptions, useCopy, useLang, useLanguageLinks, useLocalizedHref } from "@/lib/i18n";
 import { LOCALE_TAGS } from "@/lib/locale";
 import { siteHeaderCopy } from "@/i18n/site-header";
+import { BrandLogo } from '@/components/site/BrandLogo';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,19 +67,14 @@ export function SiteHeader() {
       <div className="px-3 pt-3 transition-all duration-500">
         <nav
           className={cn(
-            "relative mx-auto flex max-w-6xl items-center gap-4 rounded-3xl border px-4 py-2.5 shadow-[var(--shadow-glass)] backdrop-blur-md transition-all duration-500",
+            "relative mx-auto flex max-w-6xl items-center gap-4 rounded-3xl border px-4 py-2.5 backdrop-blur-md transition-all duration-500",
             scrolled
-              ? "bg-card/70 border-border/70 shadow-[var(--shadow-float)]"
+              ? "bg-card/90 border-border"
               : "bg-card border-border",
           )}
         >
-          <Link href={href("/")} className="flex min-w-0 items-center gap-2.5">
-            <span className="bg-brand-gradient grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-bold text-primary-foreground shadow-[var(--shadow-soft)]">
-              S
-            </span>
-            <span className="font-display truncate text-lg font-bold tracking-tight">
-              SwiftLoan<span className="text-gradient">.ai</span>
-            </span>
+          <Link href={href("/")} className="flex min-w-0 items-center">
+            <BrandLogo size={36} />
           </Link>
 
           {/* A normal flex sibling (not an absolute overlay centered on the
@@ -153,7 +149,7 @@ export function SiteHeader() {
             </Link>
             <Link
               href="/apply"
-              className="bg-brand-gradient inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
+              className="bg-brand-gradient inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform"
             >
               {t.applyNow} <ArrowRight className="h-4 w-4" />
             </Link>

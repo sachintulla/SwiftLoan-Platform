@@ -6,6 +6,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { deriveCustomerStatus, type CustomerFacts, type CustomerStatus, type CustomerStatusKey, type LenderApplicationFact } from './customerStatus.js';
+import { yubiAsLenderFact } from './yubiStatus.js';
 
 export interface StatusSubject {
   id: string;
@@ -17,9 +18,13 @@ export interface StatusSubject {
 interface UserRow { id: string; phone: string | null; phoneVerified: boolean; panOnFile: boolean }
 interface ApplicationRow { userId: string; status: string; prequalifyReason: string | null; offerCount: number }
 interface LenderRow { userId: string; status: string; lenderName: string | null }
+interface YubiRow { userId: string; lastStatus: string | null; appliedLender: string | null }
+
+/** `yubi: false` reads the Aurix side only (the lender chart shows Yubi in its own column, so it must not be counted twice). */
+export interface StatusOptions { yubi?: boolean }
 
 /** The stored facts behind each customer's status, keyed by customer id. */
-export async function loadCustomerFacts(customers: StatusSubject[]): Promise<Map<string, CustomerFacts>> {
+export async function loadCustomerFacts(customers: StatusSubject[], opts: StatusOptions = {}): Promise<Map<string, CustomerFacts>> {
   const out = new Map<string, CustomerFacts>();
   if (!customers.length) return out;
 
@@ -36,7 +41,7 @@ export async function loadCustomerFacts(customers: StatusSubject[]): Promise<Map
     : [];
   const ids = users.map((u) => u.id);
 
-  const [applications, lenderApps] = ids.length
+  const [applications, lenderApps, yubiRows] = ids.length
     ? await Promise.all([
         // Each person's most recent application, with how many offers it holds.
         prisma.$queryRaw<ApplicationRow[]>(Prisma.sql`
@@ -51,8 +56,16 @@ export async function loadCustomerFacts(customers: StatusSubject[]): Promise<Map
           JOIN "LoanApplication" a ON a.id = la."applicationId"
           WHERE a."userId" = ANY(${ids}::text[])
           ORDER BY la."appliedAt" DESC`),
+        // Yubi referrals of people who WENT to Yubi (appliedAt set; the background pre-check rows are not journeys).
+        // Yubi reports the lender's decision, so a disbursed / approved / rejected referral is a lender outcome too.
+        opts.yubi === false
+          ? Promise.resolve([] as YubiRow[])
+          : prisma.$queryRaw<YubiRow[]>(Prisma.sql`
+              SELECT r."userId", r."lastStatus", r."appliedLender"
+              FROM "PartnerReferral" r
+              WHERE r."userId" = ANY(${ids}::text[]) AND r."appliedAt" IS NOT NULL AND r."lastStatus" IS NOT NULL`),
       ])
-    : [[], []];
+    : [[], [], []];
 
   const userById = new Map(users.map((u) => [u.id, u]));
   const userByPhone = new Map(users.filter((u) => u.phone).map((u) => [u.phone as string, u]));
@@ -62,6 +75,13 @@ export async function loadCustomerFacts(customers: StatusSubject[]): Promise<Map
     const list = lenderByUser.get(la.userId) ?? [];
     list.push({ status: la.status, lenderName: la.lenderName });
     lenderByUser.set(la.userId, list);
+  }
+  for (const y of yubiRows) {
+    const fact = yubiAsLenderFact(y.lastStatus, y.appliedLender);
+    if (!fact) continue;
+    const list = lenderByUser.get(y.userId) ?? [];
+    list.push(fact);
+    lenderByUser.set(y.userId, list);
   }
 
   for (const c of customers) {
@@ -85,8 +105,8 @@ export async function loadCustomerFacts(customers: StatusSubject[]): Promise<Map
 }
 
 /** Each customer's real status, keyed by customer id. */
-export async function loadCustomerStatuses(customers: StatusSubject[]): Promise<Map<string, CustomerStatus>> {
-  const facts = await loadCustomerFacts(customers);
+export async function loadCustomerStatuses(customers: StatusSubject[], opts: StatusOptions = {}): Promise<Map<string, CustomerStatus>> {
+  const facts = await loadCustomerFacts(customers, opts);
   const out = new Map<string, CustomerStatus>();
   for (const [id, f] of facts) out.set(id, deriveCustomerStatus(f));
   return out;
@@ -100,13 +120,14 @@ export async function loadCustomerStatuses(customers: StatusSubject[]): Promise<
 export async function customerIdsByStatus(
   where: Prisma.CustomerWhereInput,
   key: CustomerStatusKey | null,
+  opts: StatusOptions = {},
 ): Promise<{ ids: string[]; counts: Record<string, number> }> {
   const all = await prisma.customer.findMany({
     where,
     orderBy: { lastActivityAt: 'desc' },
     select: { id: true, userId: true, phone: true, currentStage: true },
   });
-  const statuses = await loadCustomerStatuses(all);
+  const statuses = await loadCustomerStatuses(all, opts);
   const counts: Record<string, number> = {};
   const ids: string[] = [];
   for (const c of all) {

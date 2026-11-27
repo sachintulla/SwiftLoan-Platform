@@ -83,7 +83,7 @@ export function Offers() {
 
                 <Link
                   href={href('/#lead-form')}
-                  className="bg-brand-gradient mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-6 py-3 text-center text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5"
+                  className="bg-brand-gradient mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-6 py-3 text-center text-sm font-semibold text-primary-foreground transition-transform"
                 >
                   <span>{o.cta}</span> <ArrowRight className="h-4 w-4 shrink-0" />
                 </Link>

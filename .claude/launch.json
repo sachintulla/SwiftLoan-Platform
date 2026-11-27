@@ -49,6 +49,42 @@
       "port": 4000
     },
     {
+      "name": "counts-server-prod-copy",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PORT=4021",
+        "DATABASE_URL=postgresql://charan.rallabandi@localhost:5432/swiftloan_prod_copy?schema=public",
+        "NUDGES_DISABLED=true",
+        "SMS_PROVIDER=none",
+        "DEV_MASTER_OTP=123456",
+        "AURIX_AUTH_BASE_URL=http://localhost:4010",
+        "AURIX_OFFERS_BASE_URL=http://localhost:4010",
+        "AURIX_PAN_BASE_URL=http://localhost:4010",
+        "npm",
+        "run",
+        "dev",
+        "--prefix",
+        "server"
+      ],
+      "port": 4021
+    },
+    {
+      "name": "counts-admin",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "NEXT_PUBLIC_API_BASE=http://localhost:4021",
+        "npx",
+        "--prefix",
+        "admin",
+        "next",
+        "dev",
+        "admin",
+        "-p",
+        "4003"
+      ],
+      "port": 4003
+    },
+    {
       "name": "status-fix-server-prod-copy",
       "runtimeExecutable": "env",
       "runtimeArgs": [
@@ -130,6 +166,19 @@
       "name": "website-next",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "website-next"
+      ],
+      "port": 4002
+    },
+    {
+      "name": "website-next-lan",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "NEXT_PUBLIC_API_BASE=http://172.18.7.199:4000",
+        "npm",
         "run",
         "dev",
         "--prefix",

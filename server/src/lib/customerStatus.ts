@@ -39,8 +39,8 @@ export const CUSTOMER_STATUSES: ReadonlyArray<{ key: CustomerStatusKey; label: s
   { key: 'no_offers', label: 'No offers found', tone: 'red' },
   { key: 'offers_failed', label: 'Offers check failed', tone: 'red' },
   { key: 'offers_ready', label: 'Offers ready, not applied', tone: 'blue' },
-  { key: 'applied', label: 'Applied with a lender', tone: 'teal' },
-  { key: 'under_review', label: 'Under review at lender', tone: 'blue' },
+  { key: 'applied', label: 'Tapped Apply, not confirmed', tone: 'teal' },
+  { key: 'under_review', label: 'Applied, under review at lender', tone: 'blue' },
   { key: 'approved', label: 'Approved', tone: 'green' },
   { key: 'lender_rejected', label: 'Rejected by lender', tone: 'red' },
   { key: 'lender_failed', label: 'Lender application failed', tone: 'red' },
@@ -99,7 +99,8 @@ const LENDER_RANK: Record<string, { key: CustomerStatusKey; rank: number }> = {
   rejected: { key: 'lender_rejected', rank: 2 },
   failed: { key: 'lender_failed', rank: 1 },
 };
-/** Any other state (handoff, offers_ready, …) means "they tapped Apply and the lender has not said more". */
+/** Any other state (handoff, offers_ready, …) means "they tapped Apply and the lender has not confirmed an application":
+ *  shown as "Tapped Apply, not confirmed", and NOT counted as applied with a lender (lib/peopleMetrics.ts). */
 const JUST_APPLIED = { key: 'applied' as CustomerStatusKey, rank: 3 };
 
 function fromLenderApplications(list: LenderApplicationFact[]): CustomerStatus | null {

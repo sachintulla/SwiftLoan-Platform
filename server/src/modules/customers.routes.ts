@@ -23,6 +23,8 @@ import { attachLenderNotes } from '../lib/lenderNote.js';
 import { customerOtpWhere } from '../lib/listFilters.js';
 import { CUSTOMER_STATUSES, isCustomerStatusKey } from '../lib/customerStatus.js';
 import { customerIdsByStatus, loadCustomerStatuses } from '../lib/customerStatusDb.js';
+import { peopleMetrics } from '../lib/peopleMetrics.js';
+import { readYubiHistory, yubiOutcome, yubiStatusLabel } from '../lib/yubiStatus.js';
 
 const log = scoped('customers');
 
@@ -93,6 +95,15 @@ customersRouter.get('/statuses', ah(async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const { counts } = await customerIdsByStatus(customerListWhere(q), null);
   return ok(res, CUSTOMER_STATUSES.map((s) => ({ ...s, count: counts[s.key] ?? 0 })), 'Customer statuses');
+}));
+
+// GET /api/admin/customers/metrics?<the list's filters>
+// The numbers on the cards (checked eligibility, got offers, no offers, applied with a lender, rejected), for the
+// current slice. Worked out by lib/peopleMetrics.ts, the SAME rules the Dashboard uses, so the two pages agree.
+customersRouter.get('/metrics', ah(async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  const { counts } = await customerIdsByStatus(customerListWhere(q), null);
+  return ok(res, peopleMetrics(counts), 'Customer metrics');
 }));
 
 // GET /api/admin/customers?status=&stage=&source=&campaignId=&search=&stalledMinutes=&otp=  (otp: default verified | unverified | all)
@@ -410,9 +421,25 @@ customersRouter.get('/:id', ah(async (req, res) => {
   // Where they really are, from stored data (lib/customerStatus.ts): the same status the list shows.
   const status = (await loadCustomerStatuses([customer])).get(customer.id) ?? null;
 
+  // Yubi referrals this person went to (not the background pre-check rows), each with its status in plain words and
+  // every step Yubi reported. Yubi tells us the lender's decision, so this is where an approval or a disbursal shows.
+  const yubiRows = appUserId
+    ? await prisma.partnerReferral.findMany({
+        where: { userId: appUserId, provider: 'ympl', appliedAt: { not: null } },
+        orderBy: { appliedAt: 'desc' },
+        select: { id: true, applicationId: true, lastStatus: true, appliedAt: true, appliedLender: true, statusHistory: true, updatedAt: true },
+      }).catch(() => [])
+    : [];
+  const yubiReferrals = yubiRows.map((r) => ({
+    id: r.id, applicationId: r.applicationId, appliedAt: r.appliedAt, appliedLender: r.appliedLender, updatedAt: r.updatedAt,
+    status: r.lastStatus, label: yubiStatusLabel(r.lastStatus), outcome: yubiOutcome(r.lastStatus),
+    history: readYubiHistory(r.statusHistory).map((h) => ({ ...h, label: yubiStatusLabel(h.status) })),
+  }));
+
   return ok(res, {
     customer,
     status,
+    yubiReferrals,
     timeline,
     stageProgress,
     dropOff,

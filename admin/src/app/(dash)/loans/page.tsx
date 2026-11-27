@@ -25,32 +25,35 @@ function cardParts(key: LenderKey, s: Summary) {
   const c = (k: string) => s.counts[k] ?? 0;
   const sum = (ks: string[]) => ks.reduce((t, k) => t + c(k), 0);
   if (key === 'aurix') {
-    const withLender = sum(['handoff', 'under_review', 'approved', 'disbursed', 'closed']);
+    // A tap on Apply (handoff) is not an application with a lender until the lender confirms it (in review or further).
+    const withLender = sum(['under_review', 'approved', 'disbursed', 'closed']);
     return {
       bar: [
-        { n: withLender, color: 'var(--teal)' }, { n: c('offers_ready'), color: 'var(--blue)' }, { n: c('filling'), color: 'var(--amber)' },
-        { n: c('rejected'), color: DS.errorSoft }, { n: c('failed'), color: 'var(--grey)' },
+        { n: withLender, color: 'var(--teal)' }, { n: c('handoff'), color: 'var(--sl-teal-300, var(--teal))' }, { n: c('offers_ready'), color: 'var(--blue)' }, { n: c('filling'), color: 'var(--amber)' },
+        { n: c('rejected') + c('lender_rejected'), color: DS.errorSoft }, { n: c('failed'), color: 'var(--grey)' },
       ],
-      foot: [[c('offers_ready'), 'offers ready'], [withLender, 'with a lender'], [c('rejected'), 'no offers']] as [number, string][],
+      foot: [[withLender, 'applied with a lender'], [c('handoff'), 'tapped Apply'], [c('rejected'), 'no offers']] as [number, string][],
     };
   }
   if (key === 'yubi') {
     const codes = Object.keys(s.counts);
     const pick = (test: (k: string) => boolean) => codes.filter(test).reduce((t, k) => t + c(k), 0);
     const rejected = pick((k) => /REJECT|NO_OFFER/.test(k));
-    const offer = pick((k) => /OFFER_GENERATED|APPROV|DISBURS/.test(k));
+    // The lender said yes (sanctioned, signing, ready to pay out) or paid the loan out.
+    const won = pick((k) => /APPROV|SANCTION|SIGN|DISBURS/.test(k));
+    const offer = pick((k) => /OFFER_GENERATED/.test(k));
     const waiting = c('waiting');
-    const started = s.total - rejected - offer - waiting;
+    const started = s.total - rejected - offer - won - waiting;
     return {
-      bar: [{ n: started, color: 'var(--teal)' }, { n: offer, color: 'var(--blue)' }, { n: waiting, color: 'var(--amber)' }, { n: rejected, color: DS.errorSoft }],
-      foot: [[started, 'in progress'], [offer, 'got an offer'], [rejected, 'rejected']] as [number, string][],
+      bar: [{ n: won, color: 'var(--green, var(--teal))' }, { n: started, color: 'var(--teal)' }, { n: offer, color: 'var(--blue)' }, { n: waiting, color: 'var(--amber)' }, { n: rejected, color: DS.errorSoft }],
+      foot: [[won, 'approved or disbursed'], [started, 'in progress'], [rejected, 'no offers / rejected']] as [number, string][],
     };
   }
-  const notEligible = sum(['ineligible', 'duplicate']);
+  const notEligible = sum(['ineligible', 'low_income', 'duplicate']);
   const notSent = sum(['failed', 'pending']);
   return {
     bar: [{ n: c('success'), color: 'var(--teal)' }, { n: notEligible, color: DS.errorSoft }, { n: notSent, color: 'var(--grey)' }],
-    foot: [[c('success'), 'accepted'], [notEligible, 'not eligible'], [notSent, 'could not send']] as [number, string][],
+    foot: [[c('success'), 'leads accepted'], [notEligible, 'not eligible'], [notSent, 'could not send']] as [number, string][],
   };
 }
 

@@ -80,6 +80,8 @@ const STATUS_TONE: Record<string, StatusTone> = {
   answered: 'green', queued: 'amber', no_answer: 'amber', busy: 'amber', retrying: 'amber',
   paused: 'amber', on_hold: 'amber', pending: 'amber', pan_pending: 'amber', handoff: 'amber', draft: 'amber', scheduled: 'amber', late: 'amber', contacted: 'amber',
   abandoned: 'red', rejected: 'red', failed: 'red', defaulted: 'red', lost: 'red',
+  // lender says not eligible (Revasure)
+  ineligible: 'red', low_income: 'red',
   anonymous: 'grey', not_started: 'grey', new: 'grey', skipped: 'grey', cancelled: 'grey',
   converted: 'teal', qualified: 'teal',
   // support tickets (in_progress is blue above)
@@ -113,6 +115,9 @@ export const LOAN_STATUS_LABEL: Record<string, string> = {
   rejected: 'Rejected',
   failed: 'Failed',
   closed: 'Closed',
+  // Revasure lead outcomes (shown on the user profile's lender list)
+  ineligible: 'Not eligible',
+  low_income: 'Not eligible: low income',
 };
 
 export function loanStatusLabel(status: string | null | undefined): string {

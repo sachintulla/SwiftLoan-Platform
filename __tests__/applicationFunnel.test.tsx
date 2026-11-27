@@ -207,3 +207,36 @@ describe('UC-N12 entry points open on the PAN step', () => {
     unmount();
   });
 });
+
+// ── Amount step (2026-11-27): the amount is typed or picked; it is never the slider minimum by accident.
+describe('Basic details: loan amount is typed or picked', () => {
+  it('starts empty, takes a typed amount and shows it formatted', () => {
+    const { getByTestId, queryByText, unmount } = renderWithProviders(<Basic />);
+    const input = getByTestId('loan-amount-input');
+    expect(input.props.value).toBe('');
+    expect(input.props.placeholder).toBe('Enter amount');
+    fireEvent.changeText(input, '80000');
+    expect(getByTestId('loan-amount-input').props.value).toBe('80,000');
+    expect(queryByText('Enter an amount from ₹25,000 to ₹15,00,000')).toBeNull();
+    unmount();
+  });
+
+  it('says the range when the typed amount is too small or too big', () => {
+    const { getByTestId, getByText, queryByText, unmount } = renderWithProviders(<Basic />);
+    fireEvent.changeText(getByTestId('loan-amount-input'), '8000');
+    expect(getByText('Enter an amount from ₹25,000 to ₹15,00,000')).toBeTruthy();
+    fireEvent.changeText(getByTestId('loan-amount-input'), '2000000');
+    expect(getByText('Enter an amount from ₹25,000 to ₹15,00,000')).toBeTruthy();
+    fireEvent.changeText(getByTestId('loan-amount-input'), '150000');
+    expect(queryByText('Enter an amount from ₹25,000 to ₹15,00,000')).toBeNull();
+    unmount();
+  });
+
+  it('a quick pick fills the amount, and the minimum is not offered as one', () => {
+    const { getByTestId, getByText, queryByLabelText, unmount } = renderWithProviders(<Basic />);
+    fireEvent.press(getByText('₹ 2,00,000'));
+    expect(getByTestId('loan-amount-input').props.value).toBe('2,00,000');
+    expect(queryByLabelText('₹ 25,000')).toBeNull();
+    unmount();
+  });
+});

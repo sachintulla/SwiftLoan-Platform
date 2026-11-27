@@ -8,18 +8,33 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * SwiftLoan.ai design system — liquid glass fintech.
- * Primary teal #079FA0, secondary green #2FB183.
+ * SwiftLoan.ai Design System 1.0 (designer team, 3 Nov 2026) — minimal and flat:
+ * 1px borders, flat buttons, teal and green only, never pure black type.
+ * Brand teal #079FA0 is for LARGE accents; fills and small teal text use the
+ * AA-safe action teal #057C7D (teal-600). The --sl-* names below are the
+ * PDF's token names; the shadcn-style names (--primary, --border …) map to them.
  */
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  /* Radius (DS 1.0): sm 4 · md 8 (inputs) · lg 12 (cards) · xl 16 (modals) · pill.
+     The Tailwind steps the pages already use are folded onto that scale:
+     rounded-lg → 8, rounded-xl / 2xl → 12 (cards, tiles), 3xl / 4xl → 16 (panels, modals). */
+  --radius-sm: var(--sl-radius-sm);
+  --radius-md: var(--sl-radius-md);
+  --radius-lg: var(--sl-radius-md);
+  --radius-xl: var(--sl-radius-lg);
+  --radius-2xl: var(--sl-radius-lg);
+  --radius-3xl: var(--sl-radius-xl);
+  --radius-4xl: var(--sl-radius-xl);
+  /* Type scale (DS 1.0): 52 / 40 / 32 / 24 / 20 / 18 / 16 / 14. Tailwind's 2xl, xl,
+     lg, base and sm already equal 24 / 20 / 18 / 16 / 14; the three larger steps move
+     to the PDF's sizes (were 30 / 36 / 48). */
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 1.2;
+  --text-4xl: 2.5rem;
+  --text-4xl--line-height: 1.12;
+  --text-5xl: 3.25rem;
+  --text-5xl--line-height: 1.06;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -72,87 +87,156 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* Manrope (headlines) is not in the repo yet: the stack falls through to the
+     self-hosted Inter until its files are added in app/fonts + layout.tsx. */
+  --font-display: "Manrope", var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-float: float 9s ease-in-out infinite;
   --animate-drift: drift 18s ease-in-out infinite;
   --animate-shimmer: shimmer 2.6s linear infinite;
 }
 
 :root {
-  --radius: 1rem;
-  --background: oklch(0.99 0.003 220);
-  --foreground: oklch(0.14 0.038 220);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.155 0.035 220);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.155 0.035 220);
+  /* ── DS 1.0 raw tokens ─────────────────────────────────────────── */
+  --sl-teal-50: #E8F8F8;
+  --sl-teal-100: #C5EEEE;
+  --sl-teal-200: #8FDCDB;
+  --sl-teal-300: #54C5C4;
+  --sl-teal-400: #26B0AF;
+  --sl-teal-500: #079FA0; /* brand primary — large accents only */
+  --sl-teal-600: #057C7D; /* action fill, AA with white 14px text */
+  --sl-teal-700: #0B6E6F; /* deep */
+  --sl-teal-800: #0A4F50;
+  --sl-teal-900: #0A3F41; /* dark, themeColor */
+  --sl-teal-950: #0C2B2C;
+  --sl-teal-bright: #0CB6A6;
+  --sl-green-50: #E3F6EE;
+  --sl-green-100: #C5EBD9;
+  --sl-green-400: #2FB183; /* brand secondary — fills and gradients only */
+  --sl-green-600: #0E8A66;
+  --sl-green-700: #1E7D5A; /* verify / success text */
+  --sl-mint: #6FEBBE;
+  --sl-mint-word: #7DEBC0;
+  --sl-bg: #F5F9F8;
+  --sl-card: #FFFFFF;
+  --sl-border: #E4EEED;
+  --sl-ink: #0F2A2B;
+  --sl-ink-2: #5C6E6E; /* secondary text */
+  --sl-success: #1E7D5A;
+  --sl-warning: #B4740A;
+  --sl-error: #C0392B;
+  --sl-color-primary: var(--sl-teal-500);
+  --sl-color-action: var(--sl-teal-600);
+  /* Owner feedback (23 Nov 2026): teal-600 / green-600 read too dark on the site.
+     The lighter pair below sits at the same contrast level as the PDF's own button
+     green #0E8A66 (≈4.3:1 with white), so 14px bold white labels stay readable,
+     while being visibly brighter than #057C7D (5.0:1). */
+  --sl-action-light: #078A8B; /* white text 4.19:1 */
+  --sl-action-light-2: #109070; /* white text 4.0:1 */
 
-  /* Brand */
-  --primary: oklch(0.628 0.098 194.5); /* #079FA0 */
-  --primary-foreground: oklch(0.99 0.01 190);
-  --brand: oklch(0.628 0.098 194.5);
-  --brand-deep: oklch(0.44 0.075 196);
-  --mint: oklch(0.72 0.126 163.5); /* #2FB183 */
-  --ink: oklch(0.24 0.035 220);
+  --sl-radius-sm: 4px;
+  --sl-radius-md: 8px;
+  --sl-radius-lg: 12px;
+  --sl-radius-xl: 16px;
+  --sl-radius-pill: 9999px;
 
-  --secondary: oklch(0.72 0.126 163.5);
-  --secondary-foreground: oklch(0.18 0.03 200);
-  --muted: oklch(0.965 0.008 220);
-  --muted-foreground: oklch(0.395 0.028 215);
-  --accent: oklch(0.955 0.028 180);
-  --accent-foreground: oklch(0.32 0.06 196);
-  --destructive: oklch(0.565 0.2 22);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.918 0.014 195);
-  --input: oklch(0.918 0.014 195);
-  --ring: oklch(0.628 0.098 194.5);
+  /* Elevation: flat. Cards = 1px border (+ optional xs); buttons never at rest
+     or on press; only the primary button may take the hover shadow. */
+  --sl-shadow-none: none;
+  --sl-shadow-xs: 0 1px 2px rgba(10, 63, 65, 0.06);
+  --sl-shadow-button-hover: 0 2px 6px rgba(10, 63, 65, 0.12);
+  --sl-shadow-focus: 0 0 0 3px rgb(7 159 160 / 0.22);
+  --sl-shadow-cta: none;
 
-  --glass: oklch(1 0 0 / 86%);
-  --glass-border: oklch(1 0 0 / 82%);
+  --sl-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --sl-dur-fast: 180ms;
+  --sl-dur-base: 200ms;
+  --sl-dur-medium: 250ms;
+  --sl-dur-slow: 450ms;
 
-  /* Semantic status colours */
-  --success: oklch(0.6 0.15 150);
-  --success-foreground: oklch(0.99 0.01 150);
-  --success-soft: oklch(0.955 0.045 152);
-  --warning: oklch(0.72 0.16 72);
-  --warning-foreground: oklch(0.26 0.07 60);
-  --warning-soft: oklch(0.96 0.06 85);
-  --info: oklch(0.575 0.16 253);
-  --info-foreground: oklch(0.99 0.01 253);
-  --info-soft: oklch(0.955 0.035 255);
-  --danger: oklch(0.565 0.2 22);
-  --danger-foreground: oklch(0.99 0.01 20);
-  --danger-soft: oklch(0.955 0.04 22);
-  --violet: oklch(0.58 0.19 296);
+  /* ── shadcn-style names used by the components ─────────────────── */
+  --radius: var(--sl-radius-lg);
+  --background: var(--sl-bg);
+  --foreground: var(--sl-ink);
+  --card: var(--sl-card);
+  --card-foreground: var(--sl-ink);
+  --popover: var(--sl-card);
+  --popover-foreground: var(--sl-ink);
 
-  --chart-1: oklch(0.588 0.104 194.5);
-  --chart-2: oklch(0.65 0.15 155);
-  --chart-3: oklch(0.72 0.16 72);
-  --chart-4: oklch(0.58 0.19 296);
-  --chart-5: oklch(0.575 0.16 253);
+  /* Brand. --primary is used both as a fill under white text and as teal text,
+     so it is the AA-safe action teal; --brand keeps #079FA0 for large accents. */
+  --primary: var(--sl-action-light);
+  --primary-foreground: #FFFFFF;
+  --brand: var(--sl-color-primary);
+  --brand-deep: var(--sl-teal-700);
+  --mint: var(--sl-green-400);
+  --ink: var(--sl-ink);
 
-  --sidebar: oklch(0.984 0.006 190);
-  --sidebar-foreground: oklch(0.155 0.035 220);
-  --sidebar-primary: oklch(0.628 0.098 194.5);
-  --sidebar-primary-foreground: oklch(0.99 0.01 190);
-  --sidebar-accent: oklch(0.955 0.028 180);
-  --sidebar-accent-foreground: oklch(0.32 0.06 196);
-  --sidebar-border: oklch(0.918 0.014 195);
-  --sidebar-ring: oklch(0.628 0.098 194.5);
+  --secondary: var(--sl-green-400);
+  --secondary-foreground: var(--sl-ink);
+  --muted: var(--sl-bg);
+  --muted-foreground: var(--sl-ink-2);
+  --accent: var(--sl-teal-50);
+  --accent-foreground: var(--sl-teal-700);
+  --destructive: var(--sl-error);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--sl-border);
+  --input: var(--sl-border);
+  --ring: var(--sl-color-primary);
 
-  --gradient-brand: linear-gradient(120deg, oklch(0.628 0.098 194.5), oklch(0.72 0.126 163.5));
-  --gradient-heading: linear-gradient(115deg, oklch(0.46 0.09 205), oklch(0.5 0.105 186) 55%, oklch(0.55 0.13 158));
-  --gradient-deep: linear-gradient(150deg, oklch(0.28 0.05 210), oklch(0.4 0.08 190) 55%, oklch(0.52 0.1 168));
-  --gradient-sheen: linear-gradient(
-    135deg,
-    oklch(1 0 0 / 92%),
-    oklch(1 0 0 / 66%) 40%,
-    oklch(0.98 0.018 190 / 60%)
-  );
-  --shadow-glass: 0 24px 60px -28px oklch(0.44 0.075 196 / 24%);
-  --shadow-float: 0 40px 90px -40px oklch(0.44 0.075 196 / 34%);
-  --shadow-soft: 0 10px 30px -18px oklch(0.44 0.075 196 / 32%);
+  --glass: #FFFFFF;
+  --glass-border: var(--sl-border);
+
+  /* Semantic status colours (DS 1.0). Info is teal-600: blue is retired. */
+  --success: var(--sl-success);
+  --success-foreground: #FFFFFF;
+  --success-soft: var(--sl-green-50);
+  --warning: var(--sl-warning);
+  --warning-foreground: var(--sl-ink);
+  --warning-soft: #FBF1E0;
+  --info: var(--sl-action-light);
+  --info-foreground: #FFFFFF;
+  --info-soft: var(--sl-teal-50);
+  --danger: var(--sl-error);
+  --danger-foreground: #FFFFFF;
+  --danger-soft: #FBEAE8;
+  /* Violet is retired (DS 1.0 "Don't"); the name stays so existing classes keep
+     working, mapped to the bright teal chart hue. */
+  --violet: var(--sl-teal-bright);
+
+  /* Charts (DS 1.0): action teal, green, dark teal, bright teal, amber (interest/caution only). */
+  --chart-1: #079FA0; /* graphics only (3:1 rule): the brighter brand teal */
+  --chart-2: #2FB183;
+  --chart-3: #0A3F41;
+  --chart-4: #0CB6A6;
+  --chart-5: #B4740A;
+
+  --sidebar: var(--sl-bg);
+  --sidebar-foreground: var(--sl-ink);
+  --sidebar-primary: var(--sl-color-action);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--sl-teal-50);
+  --sidebar-accent-foreground: var(--sl-teal-700);
+  --sidebar-border: var(--sl-border);
+  --sidebar-ring: var(--sl-color-primary);
+
+  /* bg-brand-gradient is the primary-button fill on ~70 CTAs: DS 1.0's AA-safe
+     action gradient (was #079FA0 → #2FB183, which fails AA at 14px). */
+  --gradient-brand: linear-gradient(120deg, var(--sl-action-light), var(--sl-action-light-2));
+  /* Large headline text only (3:1 needed): brand teal into green. */
+  --gradient-heading: linear-gradient(115deg, var(--sl-teal-600), var(--sl-teal-500) 55%, var(--sl-green-600));
+  /* Dark panels (closing CTA, apply sidebar): lifted from near-black #0C2B2C to the
+     brand dark #0A3F41 → deep teal → green, as the original site had. White text
+     stays ≥ 6:1 over the whole panel. */
+  --gradient-deep: linear-gradient(150deg, var(--sl-teal-800) 0%, var(--sl-teal-700) 50%, var(--sl-green-600) 110%);
+  --gradient-sheen: #FFFFFF;
+  /* The old glass / float / soft umbras: flat now (DS 1.0 keeps them only as
+     "-original" references). Cards get at most the hairline xs shadow. */
+  --shadow-glass: var(--sl-shadow-xs);
+  --shadow-float: var(--sl-shadow-xs);
+  --shadow-soft: none;
 }
 
 .dark {
@@ -200,15 +284,42 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    font-size: 1rem; /* DS 1.0 body: Inter 400 · 16px */
     -webkit-font-smoothing: antialiased;
   }
 
+  /* DS 1.0 headlines: Manrope (Inter until Manrope is added), 800 for the two
+     largest, 700 below; tight tracking only on the big ones. Utility classes on
+     an element still win over these defaults. */
   h1,
   h2,
   h3,
-  h4 {
+  h4,
+  h5,
+  h6 {
     font-family: var(--font-display);
+    /* colour is inherited (body is ink), so headings on dark panels stay white */
+  }
+  h1,
+  h2 {
+    font-weight: 800;
     letter-spacing: -0.03em;
+  }
+  h3,
+  h4 {
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+  h5,
+  h6 {
+    font-weight: 600;
+  }
+
+  /* DS 1.0: a visible focus ring on every control (was on inputs only). A ring,
+     not a drop shadow. */
+  :where(a, button, [role="button"], input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: none;
+    box-shadow: var(--sl-shadow-focus);
   }
 }
 
@@ -241,11 +352,11 @@
   }
 }
 
+/* "glass" surfaces are flat cards in DS 1.0: white, 1px border, hairline shadow. */
 @utility glass {
-  background: var(--gradient-sheen);
-  backdrop-filter: blur(22px) saturate(160%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-glass);
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--sl-shadow-xs);
 }
 
 @utility glass-dark {
@@ -255,10 +366,9 @@
 }
 
 @utility glass-panel {
-  background: var(--gradient-sheen);
-  backdrop-filter: blur(28px) saturate(170%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-float);
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--sl-shadow-xs);
   border-radius: var(--radius-3xl);
 }
 
@@ -271,19 +381,26 @@
 
 @utility bg-brand-gradient {
   background: var(--gradient-brand);
+  /* DS 1.0 primary button: flat at rest and on press; soft shadow on hover only. */
+  &:is(a, button):hover:not(:disabled) {
+    background: linear-gradient(120deg, var(--sl-teal-600), var(--sl-green-600));
+    box-shadow: var(--sl-shadow-button-hover);
+  }
+  &:is(a, button):active {
+    box-shadow: none;
+  }
 }
 
 @utility bg-deep-gradient {
   background: var(--gradient-deep);
 }
 
+/* DS 1.0: cards do not lift (was translateY(-6px) + float glow). Hover only
+   firms up the border. */
 @utility lift {
-  transition:
-    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: border-color var(--sl-dur-base) var(--sl-ease);
   &:hover {
-    transform: translateY(-6px);
-    box-shadow: var(--shadow-float);
+    border-color: var(--sl-teal-200);
   }
 }
 
@@ -295,11 +412,15 @@
   pointer-events: none;
 }
 
+/* DS 1.0 content shell: 1280px, 20px gutters, 32px from 768px. */
 @utility shell {
   width: 100%;
   margin-inline: auto;
   max-width: 80rem;
   padding-inline: 1.25rem;
+  @media (min-width: 768px) {
+    padding-inline: 2rem;
+  }
 }
 
 @utility eyebrow {
@@ -307,15 +428,15 @@
   align-items: center;
   gap: 0.5rem;
   border-radius: 9999px;
-  border: 1px solid var(--glass-border);
-  background: var(--gradient-sheen);
-  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  background: var(--sl-teal-50);
   padding: 0.4rem 0.9rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  /* DS 1.0 micro-label: Inter 700 · 11px · 0.08em */
+  font-size: 0.6875rem;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--brand-deep);
+  color: var(--sl-teal-700);
 }
 
 @keyframes marquee-slide {
@@ -413,12 +534,12 @@
 
 @keyframes input-invite {
   0%, 100% {
-    box-shadow: 0 0 0 0 oklch(0.628 0.098 194.5 / 0);
+    box-shadow: 0 0 0 0 rgb(7 159 160 / 0);
     border-color: var(--border);
   }
   50% {
-    box-shadow: 0 0 0 3px oklch(0.628 0.098 194.5 / 0.18);
-    border-color: oklch(0.628 0.098 194.5 / 0.55);
+    box-shadow: var(--sl-shadow-focus);
+    border-color: var(--sl-teal-300);
   }
 }
 
@@ -544,10 +665,13 @@
   animation: pop-check 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
+/* DS 1.0 inputs: 1px #E4EEED border (was slate #CBD5E1), 8px radius, white,
+   teal border + 3px focus ring. */
 @utility input-interactive {
   position: relative;
-  border: 1.5px solid oklch(0.869 0.022 252.9); /* ~#CBD5E1 */
-  background: oklch(0.984 0.003 247.9); /* ~#F8FAFC */
+  border: 1px solid var(--sl-border);
+  border-radius: var(--sl-radius-md);
+  background: var(--card);
   transition:
     border-color 0.2s ease,
     background-color 0.2s ease,
@@ -555,21 +679,20 @@
     transform 0.2s ease;
 
   &:hover {
-    border-color: oklch(0.628 0.098 194.5 / 0.65);
-    box-shadow: 0 0 0 3px oklch(0.628 0.098 194.5 / 0.12), 0 6px 18px -8px oklch(0.44 0.075 196 / 0.22);
+    border-color: var(--sl-teal-300);
   }
 
   &:focus-within {
-    border-color: var(--primary);
-    background: var(--background);
-    box-shadow: 0 0 0 3px rgb(7 159 160 / 0.15), 0 8px 24px -10px oklch(0.44 0.075 196 / 0.28);
+    border-color: var(--sl-color-primary);
+    background: var(--card);
+    box-shadow: var(--sl-shadow-focus);
   }
 }
 
 @utility field-input {
   background: transparent;
   &::placeholder {
-    color: oklch(0.704 0.026 256.8); /* slate-400 */
+    color: var(--sl-ink-2);
     font-weight: 600;
     font-size: 0.6875rem;
     letter-spacing: 0.01em;
@@ -579,7 +702,7 @@
 
 @utility select-chevron {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23079FA0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23057C7D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   padding-right: 2rem;

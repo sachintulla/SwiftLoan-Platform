@@ -117,7 +117,7 @@ export function QuickCheckModal() {
               disabled={!formValid || isSubmitting}
               className={`inline-flex items-center justify-center gap-2 rounded-full px-6 py-4 text-base font-bold transition-transform duration-200 ${
                 formValid && !isSubmitting
-                  ? "bg-brand-gradient text-primary-foreground cta-pulse shadow-[var(--shadow-float)] hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.96]"
+                  ? "bg-brand-gradient text-primary-foreground cta-pulse shadow-[var(--shadow-float)] hover:scale-[1.02] active:scale-[0.96]"
                   : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >

@@ -22,6 +22,7 @@
  * the Aurix flow or the funnel. Callers fire create/token in parallel
  * (fire-and-forget) and the on-tap endpoint re-mints a fresh token.
  */
+import { nextYubiHistory, yubiStatusAdvances } from './yubiStatus.js';
 import { randomUUID } from 'node:crypto';
 import type { User } from '@prisma/client';
 import { prisma } from './prisma.js';
@@ -128,15 +129,44 @@ export function extractRedirectUrl(raw: any): string | null {
   return null;
 }
 
-/** Best-effort applicant name split for YMPL's first/middle/last fields. */
-function splitName(user: Pick<User, 'firstName' | 'lastName' | 'fullName'>): { firstName: string; middleName?: string; lastName: string } {
-  if (user.firstName || user.lastName) {
-    return { firstName: user.firstName || user.lastName || 'Applicant', lastName: user.lastName || user.firstName || '' };
+/**
+ * YMPL only accepts names matching ^[a-zA-Z\s\-']*$ and 400s otherwise (seen on prod
+ * 2026-11-25: a dot or a non-Latin letter in the surname). Keep the allowed characters,
+ * drop the rest, and collapse the spaces left behind.
+ */
+export function yubiCleanName(s: string | null | undefined): string {
+  return (s || '').replace(/[^a-zA-Z\s\-']/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Best-effort applicant name split for YMPL's first/middle/last fields, every part
+ * cleaned to the characters YMPL accepts.
+ */
+export function splitName(user: Pick<User, 'firstName' | 'lastName' | 'fullName'>): { firstName: string; middleName?: string; lastName: string } {
+  const first = yubiCleanName(user.firstName);
+  const last = yubiCleanName(user.lastName);
+  if (first || last) {
+    return { firstName: first || last, lastName: last || first };
   }
-  const parts = (user.fullName || '').trim().split(/\s+/).filter(Boolean);
+  const parts = yubiCleanName(user.fullName).split(' ').filter(Boolean);
   if (parts.length === 0) return { firstName: 'Applicant', lastName: '' };
   if (parts.length === 1) return { firstName: parts[0], lastName: '' };
   return { firstName: parts[0], middleName: parts.length > 2 ? parts.slice(1, -1).join(' ') : undefined, lastName: parts[parts.length - 1] };
+}
+
+/** The lead-domain address used when the applicant's own email is missing or refused by YMPL. */
+export function yubiFallbackEmail(mobile: string): string {
+  return `u${mobile || 'x'}@${LEAD_EMAIL_DOMAIN}`;
+}
+
+/**
+ * True when a YMPL 400 names `field` among its errors, e.g.
+ * {"errors":[{"field":"individualDetails.email", "description":"… RFC 5321 …"}]}.
+ */
+export function yubiRejectedField(body: unknown, field: string): boolean {
+  const errors = (body as any)?.errors;
+  if (!Array.isArray(errors)) return false;
+  return errors.some((e) => e && typeof e === 'object' && (e.field === field || String(e.description ?? '').includes(`$.${field}:`)));
 }
 
 type Referral = Awaited<ReturnType<typeof prisma.partnerReferral.findFirst>>;
@@ -172,7 +202,7 @@ export async function ensureReferral(applicationId: string, userId: string): Pro
   // 'pending_data', no API call, no 'failed'); the on-tap / prequalify retry
   // fires once the funnel has collected it. Email: use the real one when valid,
   // else a deterministic lead-domain fallback so the referral can still proceed.
-  const email = EMAIL_RE.test(rawEmail) ? rawEmail : `u${mobile || 'x'}@${LEAD_EMAIL_DOMAIN}`;
+  const email = EMAIL_RE.test(rawEmail) ? rawEmail : yubiFallbackEmail(mobile);
   const pincode = user.pincode || '';
   if (!PIN_RE.test(pincode) || mobile.length !== 10) {
     log.info('referral deferred — awaiting valid pincode/mobile', { applicationId, hasPincode: !!pincode, mobileLen: mobile.length });
@@ -198,7 +228,19 @@ export async function ensureReferral(applicationId: string, userId: string): Pro
     ],
   };
 
-  const res = await httpJson(`${cfg.baseUrl}/referral`, authHeaders(cfg), payload);
+  let res = await httpJson(`${cfg.baseUrl}/referral`, authHeaders(cfg), payload);
+  // YMPL's email check is stricter than a format check: it refused typos such as
+  // "…@gmail.comj" / "….con" (prod, 2026-11-25), so those customers never reached Yubi.
+  // The email is not what YMPL matches the person on (that is the mobile), so retry ONCE
+  // with the lead-domain address instead of failing the referral.
+  const fallbackEmail = yubiFallbackEmail(mobile);
+  if (!res.ok && res.status === 400 && email !== fallbackEmail && yubiRejectedField(res.body, 'individualDetails.email')) {
+    log.info('create referral: email refused, retrying with the lead-domain address', { applicationId });
+    res = await httpJson(`${cfg.baseUrl}/referral`, authHeaders(cfg), {
+      ...payload,
+      individualDetails: { ...payload.individualDetails, email: fallbackEmail },
+    });
+  }
   if (!res.ok) {
     log.warn('create referral failed', { applicationId, status: res.status, error: res.error });
     return prisma.partnerReferral.update({
@@ -280,11 +322,24 @@ export function kickoffRedirect(applicationId: string, userId: string): void {
 export async function getReferralStatus(applicationId: string, userId: string): Promise<{ journeyStatus: string | null; raw: unknown }> {
   const cfg = yubiConfig();
   const ref = await prisma.partnerReferral.findFirst({ where: { applicationId, userId, provider: 'ympl' } });
-  if (!cfg.enabled || !ref?.clientReferralId) return { journeyStatus: ref?.lastStatus ?? null, raw: null };
+  // No ymplReferralId = YMPL never created this referral (its create failed or was deferred),
+  // so asking for its status can only answer 404 "Referral not found". Don't ask.
+  if (!cfg.enabled || !ref?.clientReferralId || !ref.ymplReferralId) return { journeyStatus: ref?.lastStatus ?? null, raw: null };
   const res = await httpJson(`${cfg.baseUrl}/referral/status`, authHeaders(cfg), { clientReferralId: ref.clientReferralId });
   const journeyStatus: string | null = res.ok ? (res.body?.journeyStatus ?? null) : null;
   if (journeyStatus) {
-    await prisma.partnerReferral.update({ where: { id: ref.id }, data: { lastStatus: journeyStatus } }).catch(() => {});
+    // Same rules as the webhook (lib/yubiStatus.ts): keep the full answer and the step, and never move the status
+    // backwards (this poll answered an older step after a webhook had already said "disbursed").
+    const moves = yubiStatusAdvances(ref.lastStatus, journeyStatus);
+    await prisma.partnerReferral.update({
+      where: { id: ref.id },
+      data: {
+        rawStatus: (res.body ?? {}) as object,
+        statusHistory: nextYubiHistory(ref, journeyStatus, new Date(), 'poll') as object[],
+        ...(moves ? { lastStatus: journeyStatus } : {}),
+      },
+    }).catch(() => {});
+    if (!moves) return { journeyStatus: ref.lastStatus ?? journeyStatus, raw: res.body };
   }
   return { journeyStatus, raw: res.body };
 }

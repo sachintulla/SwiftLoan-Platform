@@ -102,6 +102,9 @@ export function lenderResultWhere(result: string | undefined): Prisma.LoanApplic
 /** Application statuses that mean the customer is still filling in their details. */
 export const FILLING_STATUSES = ['draft', 'pan_pending', 'prequalifying'] as const satisfies readonly ApplicationStatus[];
 
+/** An application that has an applied offer its lender rejected: "Rejected by lender", as opposed to "No offers". */
+export const LENDER_REJECTED_OFFER = { offers: { some: { applied: true, lenderStatus: 'rejected' } } } as const satisfies Prisma.LoanApplicationWhereInput;
+
 export function buildLoanWhere(q: Query): Prisma.LoanApplicationWhereInput {
   const where: Prisma.LoanApplicationWhereInput = {};
   const status = qStr(q.status);
@@ -113,6 +116,15 @@ export function buildLoanWhere(q: Query): Prisma.LoanApplicationWhereInput {
     // not a genuine lead — shown only when the Failed chip is picked, like Revasure's
     // Failed filter. (It isn't in APP_STATUSES, so it needs its own branch.)
     where.status = 'failed';
+  } else if (status === 'rejected') {
+    // "No offers": the eligibility check found none. An application a LENDER rejected is stored with the same status,
+    // so it is taken out here and has its own chip below (the two must never be counted together).
+    where.status = 'rejected';
+    where.NOT = [LENDER_REJECTED_OFFER];
+  } else if (status === 'lender_rejected') {
+    // "Rejected by lender": the customer applied on an offer and that lender turned the application down.
+    where.status = 'rejected';
+    where.offers = LENDER_REJECTED_OFFER.offers;
   } else if (status && (APP_STATUSES as readonly string[]).includes(status)) {
     where.status = status as ApplicationStatus;
   } else if (!status && qStr(q.allStatuses) !== '1') {
@@ -220,9 +232,10 @@ export async function personsByUserId(userIds: (string | null | undefined)[]): P
 // A RevasureLead counts as a genuine lead once Revasure has actually responded
 // about it — accepted (success), already had it (duplicate), or decided it
 // doesn't qualify (ineligible). failed / pending / disabled / skipped never
-// reached Revasure, so they are attempts, not leads. Mirrors REVASURE_SENT in
-// lib/revasureLead.ts (kept in sync).
-export const REVASURE_GENUINE = ['success', 'duplicate', 'ineligible'] as const;
+// reached Revasure, so they are attempts, not leads. REVASURE_SENT in
+// lib/revasureLead.ts plus `low_income`: not sent (income below Revasure's minimum),
+// but a real "not eligible" outcome for that customer, so it is listed too.
+export const REVASURE_GENUINE = ['success', 'duplicate', 'ineligible', 'low_income'] as const;
 
 export function buildRevasureWhere(q: Query, matchedUserIds?: string[]): Prisma.RevasureLeadWhereInput {
   const where: Prisma.RevasureLeadWhereInput = {};

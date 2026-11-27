@@ -1,5 +1,5 @@
 'use client';
-// Dashboard: people per day (registered, applied, got offers, rejected) as ONE line graph, each line with its colour
+// Dashboard: people per day (registered, checked eligibility, got offers, no offers; the data keys are still `applied` / `rejected`) as ONE line graph, each line with its colour
 // filled underneath up to its value. A range picker (7 days, 1 month, 3 months, custom dates). Hover a day to read all
 // four; click a name to hide or show its line. Numbers: GET /api/admin/dashboard/people-daily (India days, people
 // counted once per day).
@@ -22,9 +22,9 @@ interface Payload {
 const SERIES: { key: SeriesKey; label: string; hint: string; color: string }[] = [
   // Strong, clearly different colours (the first set was too pale): deep teal, blue, green, slate.
   { key: 'registered', label: 'Registered', hint: 'New accounts', color: DS.teal600 },
-  { key: 'applied', label: 'Applied', hint: 'Asked for offers', color: DS.teal900 },
+  { key: 'applied', label: 'Checked eligibility', hint: 'Asked for offers', color: DS.teal900 },
   { key: 'gotOffers', label: 'Got offers', hint: 'A lender offered a loan', color: DS.green400 },
-  { key: 'rejected', label: 'Rejected', hint: 'No lender offered a loan', color: DS.muted },
+  { key: 'rejected', label: 'No offers', hint: 'The check found no offer', color: DS.muted },
 ];
 
 const RANGES = [
@@ -58,7 +58,7 @@ export default function PeopleDailyChart() {
   const [range, setRange] = useState('7');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  // The graph opens with Registered and Got offers only; Applied and Rejected are one click away on their boxes.
+  // The graph opens with Registered and Got offers only; Checked eligibility and No offers are one click away on their boxes.
   const [hidden, setHidden] = useState<Set<SeriesKey>>(new Set<SeriesKey>(['applied', 'rejected']));
 
   const customReady = range === 'custom' && Boolean(from && to);
@@ -108,7 +108,7 @@ export default function PeopleDailyChart() {
             <button key={s.key} type="button" className={`pdc-key ${on ? '' : 'off'}`} onClick={() => toggle(s.key)} aria-pressed={on} title={on ? 'Click to hide this line' : 'Click to show this line'}>
               <span className="pdc-key-top"><span className="pdc-dot" style={{ background: s.color }} />{s.label}</span>
               <b>{total != null ? num(total) : '—'}</b>
-              <span className="pdc-key-hint">{s.hint}{share != null && p && p.totals.applied > 0 ? ` · ${share}% of applied` : ''}</span>
+              <span className="pdc-key-hint">{s.hint}{share != null && p && p.totals.applied > 0 ? ` · ${share}% of those who checked` : ''}</span>
             </button>
           );
         })}

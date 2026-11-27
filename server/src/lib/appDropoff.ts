@@ -22,6 +22,7 @@ import { getProviderConfig } from './integrations.js';
 import { sendWhatsAppTemplate, whatsappConfigured } from './whatsapp.js';
 import { isReviewPhone } from './reviewLogin.js';
 import { withinCallingHours } from './leadCaller.js';
+import { noOffersNoticeSentToday } from './offersNotice.js';
 import { scoped } from './log.js';
 import { timing, hasStageSchedule, stageScheduleRows } from './timings.js';
 import { runPool } from './sendRate.js';
@@ -321,6 +322,10 @@ async function deliver(r: AppDropoff, step: ScheduleStep, kind: DropoffMessageKi
     name: r.firstName ?? 'there', step: stepLabel, link, ref: app?.ref ?? null, offerCount: app?._count.offers ?? null,
   });
   if (!msg.ok) return { outcome: 'skipped', reason: msg.reason };
+  // The eligibility check already told them "no offers" today (offersNotice.ts): the same news twice in a day is noise.
+  if (kind === 'no_offers' && (await noOffersNoticeSentToday(r.phone, now))) {
+    return { outcome: 'skipped', reason: 'no-offers notice already sent today' };
+  }
   if (!(await whatsappConfigured())) return { outcome: 'skipped', reason: 'whatsapp not configured' };
   const res = await sendWhatsAppTemplate({
     phone: r.phone, templateName: msg.template, language: msg.language, placeholders: msg.placeholders, category: msg.category, referenceId: `${r.id}:${step.index}`,

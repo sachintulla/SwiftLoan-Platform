@@ -1,16 +1,19 @@
 /* Font variable plumbing only.
  *
- * The site's visual system now lives in design.css (the Tailwind v4 design
- * package). theme.css / styles.css / glass.css are the PREVIOUS design and are
- * deliberately no longer imported — loading them alongside design.css produced
+ * The site's visual system lives in design.css (Tailwind v4 + SwiftLoan Design
+ * System 1.0 tokens). theme.css / styles.css / glass.css are the PREVIOUS design and
+ * are deliberately no longer imported — loading them alongside design.css produced
  * competing resets and background layers. They remain in the repo so the old
  * look can be diffed or restored, rather than being recovered from git history.
+ *
+ * Design System 1.0: Manrope headlines, Inter body/UI, JetBrains Mono figures.
+ * Manrope is not in the repo yet, so the heading stack falls through to Inter.
  */
 :root {
-  --sl-font-head: var(--font-open-sans), system-ui, sans-serif;
-  --sl-font-body: var(--font-open-sans), system-ui, sans-serif;
+  --sl-font-head: "Manrope", var(--font-inter), system-ui, sans-serif;
+  --sl-font-body: var(--font-inter), system-ui, sans-serif;
   --sl-font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
-  --font-head: var(--font-open-sans), system-ui, sans-serif;
-  --font-body: var(--font-open-sans), system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), monospace;
+  --font-head: var(--sl-font-head);
+  --font-body: var(--sl-font-body);
+  --font-mono: var(--sl-font-mono);
 }

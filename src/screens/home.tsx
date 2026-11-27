@@ -14,6 +14,7 @@ import { api, isAuthed, Offer, PrequalifyingOffer } from '../api/client';
 import { displayLenderName } from './offers';
 import { useUnreadCount } from './notifications';
 import { pickOffersApplication, unappliedOffers } from '../utils/pastApplication';
+import { clampLoanAmount } from '../utils/inputLimits';
 
 // Fallback highlights when a lender didn't return its own feature list.
 const DEFAULT_FEATURES = ['Low interest rates', 'Flexible tenure', 'Minimal documents', 'Quick approval'];
@@ -97,7 +98,8 @@ export default function Home() {
   // advertised amount and drops the user into the normal application funnel.
   // (These ads are marketing, not firm offers, so there is no "accept".)
   const checkEligibility = (o: PrequalifyingOffer) => {
-    set({ appAmount: Math.round(o.amount), offersReturn: 'home', applicationId: null, offersError: '' });
+    // Brought into the range the application accepts: a featured offer can advertise more (₹1 crore was live).
+    set({ appAmount: clampLoanAmount(o.amount), offersReturn: 'home', applicationId: null, offersError: '' });
     go('basicpan');
   };
 

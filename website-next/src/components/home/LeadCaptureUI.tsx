@@ -339,7 +339,7 @@ export function OtpModal({
             disabled={otp.length !== 6 || otpVerifying}
             className={`inline-flex items-center justify-center gap-2 rounded-full px-4 py-3.5 text-base font-bold transition-transform duration-200 ${
               otp.length === 6 && !otpVerifying
-                ? "bg-brand-gradient text-primary-foreground shadow-[var(--shadow-float)] hover:-translate-y-0.5 active:scale-[0.97]"
+                ? "bg-brand-gradient text-primary-foreground shadow-[var(--shadow-float)] active:scale-[0.97]"
                 : "bg-muted text-muted-foreground cursor-not-allowed"
             }`}
           >

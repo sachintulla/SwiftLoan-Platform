@@ -132,7 +132,7 @@ export function Hero() {
                 disabled={!formValid || isSubmitting}
                 className={`group inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl px-6 text-base font-bold transition-transform ${
                   formValid && !isSubmitting
-                    ? "bg-brand-gradient cta-pulse text-primary-foreground shadow-[var(--shadow-float)] hover:-translate-y-0.5 active:scale-[0.97]"
+                    ? "bg-brand-gradient cta-pulse text-primary-foreground shadow-[var(--shadow-float)] active:scale-[0.97]"
                     : "bg-muted text-muted-foreground cursor-not-allowed"
                 }`}
               >
