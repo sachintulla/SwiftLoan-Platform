@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { Screen } from '../components/Frame';
 import Icon from '../components/Icon';
@@ -9,7 +9,7 @@ import { Calendar, formatDob, useDobVoiceTarget, isAtLeastAge } from '../compone
 import { StepDots } from '../components/StepDots';
 import { colors, font, inr } from '../theme/tokens';
 import { useStore, useT, type AppState as AppStateT } from '../state/store';
-import { api, isAuthed } from '../api/client';
+import { api, isAuthed, trackEvent } from '../api/client';
 import { serverErrorText } from '../utils/serverErrors';
 import { isMaskedPan } from '../utils/resume';
 import { setScreenHint, requestContextRefresh } from '../voice/actionRegistry';
@@ -18,8 +18,10 @@ import { revealTarget, emitFx } from '../feedback/agentFx';
 import { useAgentFx, AgentRing } from '../feedback/useAgentFx';
 import {
   NAME_MAX, MID_MAX, ADDR_MAX, EMAIL_MAX, MONEY_DIGITS, MONTHLY_INCOME_MIN,
-  PINCODE_RE, sanitizeNameInput, cleanName,
+  PINCODE_RE, sanitizeNameInput, cleanName, LOAN_AMOUNT_MIN, LOAN_AMOUNT_MAX, clampLoanAmount,
+  LOAN_AMOUNT_STEP, LOAN_AMOUNT_QUICK_PICKS, parseAmountInput, sliderAmountChoice, type LoanAmountSource,
 } from '../utils/inputLimits';
+import { isAgentActive } from '../feedback/sounds';
 
 const RES_TYPES = ['Own', 'Rented', 'Family', 'Company'];
 const RES_TYPE_SLUG: Record<string, string> = { Own: 'own', Rented: 'rented', Family: 'family', Company: 'company' };
@@ -125,7 +127,7 @@ export default function Basic() {
       if (!state.basicCompany && user.company) set({ basicCompany: user.company });
       // The amount starts at 0 (not chosen). A returning applicant's own saved
       // choice (draftLoanAmount) fills it back in; otherwise they must pick one.
-      if (!state.appAmount && user.draftLoanAmount) set({ appAmount: user.draftLoanAmount });
+      if (!state.appAmount && user.draftLoanAmount) set({ appAmount: clampLoanAmount(user.draftLoanAmount) });
       // Returning-user prefill for the Aurix-required fields so they don't
       // re-enter what they already gave us last time.
       if (!state.basicQualification && user.qualification) set({ basicQualification: user.qualification });
@@ -156,6 +158,14 @@ export default function Basic() {
   // profile values. Only fields the PAN actually returned are touched, and
   // only once per verification — coming back to this step keeps any edits.
   const [fromPan, setFromPan] = useState(!!state.panPrefill?.applied);
+  // How the amount was chosen, reported once the application is saved (typed / quick pick / slider / agent / prefilled).
+  const amountSource = useRef<LoanAmountSource>('prefilled');
+  const chooseAmount = (amount: number, source: LoanAmountSource) => {
+    amountSource.current = source;
+    set({ appAmount: amount });
+  };
+  const amountOutOfRange = state.appAmount > 0 && (state.appAmount < LOAN_AMOUNT_MIN || state.appAmount > LOAN_AMOUNT_MAX);
+
   function applyPan() {
     const hand = state.panPrefill;
     if (!hand || hand.applied) return;
@@ -363,6 +373,8 @@ export default function Basic() {
         });
         application = created;
         mergeApiContext({ applicationCreated: application });
+        // Fire-and-forget: lets us see whether applicants now give a real amount instead of the 25,000 minimum.
+        trackEvent('action', 'loan_amount_chosen', 'basic', { source: amountSource.current, amount: state.appAmount });
         const { application: withPan }: any = await api.updateApplication(created.id, panPatch);
         application = withPan ?? created;
       }
@@ -418,15 +430,58 @@ export default function Basic() {
         {/* Amount */}
         <RequiredBlock fkey="loan amount" style={{ marginTop: 22 }}>
           <FieldLabel text={t.basicAmountLabel} required />
-          <Text style={[font(800), { fontSize: 26, color: colors.primary, marginVertical: 4 }]}>₹ {inr(state.appAmount)}</Text>
+          {/* The amount is TYPED (or picked below); the slider is a second way to set it. It used to be the slider
+              alone, and its smallest touch chose the 25,000 minimum: 46% of applications (prod, Nov 2026). */}
+          <View style={styles.amountRow}>
+            <Text style={[font(800), { fontSize: 26, color: colors.primary }]}>₹</Text>
+            <TextInput
+              value={state.appAmount ? inr(state.appAmount) : ''}
+              onChangeText={txt => chooseAmount(parseAmountInput(txt), isAgentActive() ? 'agent' : 'typed')}
+              keyboardType="number-pad"
+              inputMode="numeric"
+              maxLength={9}
+              placeholder={t.basicAmountPlaceholder}
+              placeholderTextColor={colors.muted}
+              // Not the slider's label: the voice agent finds "loan amount" by label and must keep landing on the
+              // slider target (set_loan_amount); this box is the same amount, typed.
+              accessibilityLabel={t.basicAmountPlaceholder}
+              testID="loan-amount-input"
+              style={[font(800), styles.amountInput, !state.appAmount && styles.amountInputEmpty]}
+            />
+          </View>
+          {amountOutOfRange ? (
+            <Text style={[font(600), { fontSize: 12, color: colors.redDeep, marginBottom: 4 }]}>{t.basicAmountRange}</Text>
+          ) : null}
+          <View style={styles.quickRow}>
+            {LOAN_AMOUNT_QUICK_PICKS.map(v => {
+              const on = state.appAmount === v;
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() => chooseAmount(v, 'quick_pick')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`₹ ${inr(v)}`}
+                  style={[styles.quickChip, on && styles.quickChipOn]}
+                >
+                  <Text style={[font(600), { fontSize: 12.5, color: on ? colors.surface : colors.primary }]}>₹ {inr(v)}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <Slider
             label="Desired loan amount"
             role="amount"
             value={state.appAmount}
-            min={25000}
-            max={1500000}
-            step={25000}
-            onChange={v => set({ appAmount: v })}
+            min={LOAN_AMOUNT_MIN}
+            max={LOAN_AMOUNT_MAX}
+            step={LOAN_AMOUNT_STEP}
+            // Nothing chosen yet: a touch alone must not choose an amount for them (the agent sets it directly).
+            ignoreTap={!state.appAmount}
+            onChange={v => {
+              if (isAgentActive()) return chooseAmount(v, 'agent');
+              const picked = sliderAmountChoice(state.appAmount, v);
+              if (picked != null) chooseAmount(picked, 'slider');
+            }}
           />
           <RangeLabels min="₹25,000" max="₹15,00,000" />
         </RequiredBlock>
@@ -631,6 +686,12 @@ function RangeLabels({ min, max }: { min: string; max: string }) {
 }
 
 const styles = StyleSheet.create({
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 4 },
+  amountInput: { flex: 1, fontSize: 26, color: colors.primary, paddingVertical: 2, paddingHorizontal: 0 },
+  amountInputEmpty: { fontSize: 17 },
+  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2, marginBottom: 10 },
+  quickChip: { borderWidth: 1, borderColor: colors.primary, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 6 },
+  quickChipOn: { backgroundColor: colors.primary },
   panCard: { marginTop: 18, borderWidth: 1, borderColor: 'rgba(47,177,131,0.4)', backgroundColor: 'rgba(225,243,243,0.6)', borderRadius: 16, padding: 14 },
   panTick: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
   panChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.line },

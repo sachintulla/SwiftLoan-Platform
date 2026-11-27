@@ -25,6 +25,8 @@ const EMPLOYMENT = ['Salaried', 'Self-employed', 'Business owner', 'Gig worker',
 const SALARY_MODE = ['Bank transfer', 'Cheque', 'Cash'];
 
 const AMOUNT_MIN = 25000;
+// Slider step. It was 25,000 (the minimum itself), so the slider could only say 25k, 50k, 75k…; the box above takes any amount.
+const AMOUNT_STEP = 5000;
 const AMOUNT_MAX = 1500000;
 // Same limits the server enforces on a profile save (users.routes.ts).
 const NAME_MAX = 60;
@@ -322,7 +324,7 @@ export default function Step2BasicsPage() {
               />
             </label>
             <p className={`mt-2 text-xs ${amount && (amount < AMOUNT_MIN || amount > AMOUNT_MAX) ? 'text-danger font-semibold' : 'text-muted-foreground'}`}>{t.amountRange}</p>
-            <Slider className="mt-4" aria-label={t.loanAmountAria} min={AMOUNT_MIN} max={AMOUNT_MAX} step={25000} value={[Math.min(AMOUNT_MAX, Math.max(AMOUNT_MIN, amount))]} onValueChange={([v]) => v != null && setAmount(v)} />
+            <Slider className="mt-4" aria-label={t.loanAmountAria} min={AMOUNT_MIN} max={AMOUNT_MAX} step={AMOUNT_STEP} value={[Math.min(AMOUNT_MAX, Math.max(AMOUNT_MIN, amount))]} onValueChange={([v]) => v != null && setAmount(v)} />
             <div className="text-muted-foreground mt-2 flex justify-between text-xs font-bold">
               <span>{fmtINR(AMOUNT_MIN)}</span>
               <span>{fmtINR(AMOUNT_MAX)}</span>
@@ -391,7 +393,7 @@ export default function Step2BasicsPage() {
           className={`rounded-full px-6 py-3 text-sm font-bold transition-all ${
             !valid || loading
               ? 'bg-muted text-muted-foreground'
-              : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5'
+              : 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)]'
           }`}
         >
           {loading ? t.saving : t.continue}

@@ -4,6 +4,7 @@ import { ArrowRight, AtSign, Hash, Users } from "lucide-react";
 import { languageOptions, useCopy, useLang, useLanguageLinks, useLocalizedHref } from "@/lib/i18n";
 import { LOCALE_TAGS } from "@/lib/locale";
 import { siteFooterCopy } from "@/i18n/site-footer";
+import { BrandLogo } from '@/components/site/BrandLogo';
 
 /** Routes per column item, matched by index (null = non-navigating label). */
 type FooterRoute = "/" | "/faqs" | "/account" | "/privacy-policy" | null;
@@ -32,12 +33,7 @@ export function SiteFooter() {
       <div className="shell relative py-12 sm:py-16">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1.2fr]">
           <div className="min-w-0 sm:col-span-2 lg:col-span-1">
-            <div className="flex items-center gap-2.5">
-              <span className="bg-brand-gradient grid h-9 w-9 place-items-center rounded-xl text-sm font-bold text-primary-foreground shadow-[var(--shadow-soft)]">
-                S
-              </span>
-              <span className="font-display text-lg font-bold">SwiftLoan.ai</span>
-            </div>
+            <BrandLogo size={36} />
             <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">
               {t.tagline}
             </p>
@@ -45,7 +41,7 @@ export function SiteFooter() {
               {[Users, Hash, AtSign].map((Icon, i) => (
                 <span
                   key={i}
-                  className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-muted text-muted-foreground transition-transform hover:-translate-y-1 hover:bg-primary/10 hover:text-primary"
+                  className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-muted text-muted-foreground transition-transform hover:bg-primary/10 hover:text-primary"
                 >
                   <Icon className="h-4.5 w-4.5" />
                 </span>
@@ -65,7 +61,7 @@ export function SiteFooter() {
           </div>
           <Link
             href="/account"
-            className="bg-brand-gradient inline-flex shrink-0 items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
+            className="bg-brand-gradient inline-flex shrink-0 items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-soft)] transition-transform"
           >
             {t.trackCta.button} <ArrowRight className="h-4 w-4" />
           </Link>

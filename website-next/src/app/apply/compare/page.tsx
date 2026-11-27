@@ -832,7 +832,7 @@ function ApplyButton({
       onClick={() => onApply(offer)}
       disabled={!!applyingId}
       data-voice-gate="apply-offer"
-      className={`bg-brand-gradient text-primary-foreground inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-6 py-3 text-sm font-bold whitespace-nowrap shadow-[var(--shadow-float)] transition-transform hover:-translate-y-0.5 disabled:opacity-60 ${
+      className={`bg-brand-gradient text-primary-foreground inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-6 py-3 text-sm font-bold whitespace-nowrap shadow-[var(--shadow-float)] transition-transform disabled:opacity-60 ${
         block ? 'w-full sm:w-auto sm:max-w-xs' : 'max-w-sm'
       }`}
     >

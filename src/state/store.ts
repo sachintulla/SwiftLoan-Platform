@@ -32,6 +32,7 @@ import { callNameFor, resetCallName } from '../voice/callName';
 import { offersErrorText } from '../utils/offersError';
 import { setCurrentScreen, buildPageContext } from '../voice/actionRegistry';
 import { pickOffersApplication } from '../utils/pastApplication';
+import { clampLoanAmount } from '../utils/inputLimits';
 
 // The full list of screens, mirroring the design's state machine. Kept as a
 // const array (rather than a hand-written union) so the voice agent's
@@ -1387,7 +1388,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       done = true;
 
       const [first, ...rest] = (ctx.name ?? '').trim().split(/\s+/);
-      const rupees = ctx.amount ? Math.round(ctx.amount) : undefined;
+      const rupees = clampLoanAmount(ctx.amount) || undefined;
       dispatch({
         type: 'set',
         patch: {

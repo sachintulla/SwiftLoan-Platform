@@ -12,6 +12,7 @@ import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { swrFetcher, apiFetch } from '@/lib/api';
 import { Card, Stat, StatusBadge, LoanStatusBadge, TableSkeleton, Empty, Callout } from '@/components/ui';
+import { yubiStatusTone } from '@/lib/lists';
 import { JourneyTracker, stageLabel, stalledLabel, StageProgress, LenderTrack, LenderRollup, LenderOffer } from '@/components/journey';
 import CustomerAlerts, { useCustomerAlertCounts } from '@/components/alerts/CustomerAlerts';
 import { countsLine, totalCounts } from '@/lib/alerts';
@@ -61,6 +62,8 @@ interface Detail {
   customer?: Customer;
   /** Where they really are, read from stored data by the server (lib/customerStatus.ts). */
   status?: { key: string; label: string; tone: string; detail?: string | null } | null;
+  /** Yubi referrals this person went to, with every step Yubi reported (server lib/yubiStatus.ts). */
+  yubiReferrals?: { id: string; applicationId: string; appliedAt?: string | null; appliedLender?: string | null; status?: string | null; label: string; outcome?: string | null; history: { status: string; label: string; at: string; source: string }[] }[];
   timeline?: TimelineEntry[];
   stageProgress?: StageProgress[];
   dropOff?: { stage: string; label?: string; stalledMinutes?: number; isTerminal?: boolean } | null;
@@ -500,6 +503,33 @@ export default function CustomerDetail() {
                 <div style={{ marginBottom: 14 }}><LenderRollup s={d.applicationSummary} /></div>
               )}
               {withLender.map((a) => (a.offers ?? []).filter((o) => o.applied).map((o) => <LenderTrack key={o.id} offer={{ ...o, applicationId: a.id }} />))}
+              {/* Through Yubi: the lender's decision arrives here (sanction, signing, disbursal), each step with its time. */}
+              {(d.yubiReferrals ?? []).map((y) => {
+                const appRef = applications.find((a) => a.id === y.applicationId)?.ref;
+                return (
+                  <div key={y.id} className="yubi-track" style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div>
+                        <b>{y.appliedLender ? `${y.appliedLender} (through Yubi)` : 'Through Yubi'}</b>
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {appRef ? `${appRef} · ` : ''}{y.appliedAt ? `Went to Yubi ${dateTimeStr(y.appliedAt)}` : ''}
+                        </div>
+                      </div>
+                      <StatusBadge status={yubiStatusTone(y.status)} label={y.label} />
+                    </div>
+                    {y.history.length > 0 ? (
+                      <ol style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+                        {y.history.map((h) => (
+                          <li key={`${h.status}-${h.at}`}><b>{h.label}</b> <span className="muted">· {dateTimeStr(h.at)}</span></li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Steps before 27 Nov 2026 were not recorded; only the latest status is known.</div>
+                    )}
+                    {y.outcome === 'disbursed' && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Yubi does not report the amount or the lender with this status.</div>}
+                  </div>
+                );
+              })}
               {plain.length > 0 && (
                 <div className="table-wrap">
                   <table className="data">
@@ -517,7 +547,11 @@ export default function CustomerDetail() {
                             <td className="mono">{a.ref}</td>
                             <td className="mono">{inr(a.amount)}</td>
                             <td>{a.tenureMonths ? `${a.tenureMonths} mo` : '—'}</td>
-                            <td>{isSubmitted || !submittedAppId ? <LoanStatusBadge status={a.status} /> : <span className="badge tone-grey">Abandoned</span>}</td>
+                            {/* These rows have no lender application, so the stored status "rejected" means the offers check found
+                                nothing: "No offers", never "Rejected" (that word is only for a lender turning an application down). */}
+                            <td>{isSubmitted || !submittedAppId
+                              ? (a.status === 'rejected' ? <StatusBadge status="rejected" label="No offers" /> : <LoanStatusBadge status={a.status} />)
+                              : <span className="badge tone-grey">Abandoned</span>}</td>
                             <td className="muted" style={{ fontSize: 12 }}>{note}</td>
                           </tr>
                         );

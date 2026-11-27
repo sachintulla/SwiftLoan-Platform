@@ -114,7 +114,7 @@ export function AlertDialog({
             <button
               ref={okRef}
               onClick={onConfirm}
-              className="bg-brand-gradient text-primary-foreground w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
+              className="bg-brand-gradient text-primary-foreground w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
             >
               {confirmLabel ?? content.okLabel ?? copy.ok}
             </button>
@@ -129,7 +129,7 @@ export function AlertDialog({
           <button
             ref={okRef}
             onClick={onClose}
-            className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
+            className="bg-brand-gradient text-primary-foreground mt-6 w-full rounded-full px-6 py-3.5 text-base font-bold shadow-[var(--shadow-soft)] transition-transform duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98]"
           >
             {content.okLabel ?? copy.ok}
           </button>

@@ -283,7 +283,7 @@ export default function SupportPage() {
         </div>
         <button
           onClick={() => startTicket('other')}
-          className="bg-brand-gradient text-primary-foreground mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
+          className="bg-brand-gradient text-primary-foreground mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold shadow-[var(--shadow-soft)] transition-transform"
         >
           <Send className="h-4 w-4" /> {t.raiseTicket}
         </button>
@@ -498,7 +498,7 @@ export default function SupportPage() {
                 disabled={!canSubmit}
                 data-voice-gate="submit-ticket"
                 className={`inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold transition-transform ${
-                  canSubmit ? 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)] hover:-translate-y-0.5' : 'bg-muted text-muted-foreground cursor-not-allowed'
+                  canSubmit ? 'bg-brand-gradient text-primary-foreground shadow-[var(--shadow-soft)]' : 'bg-muted text-muted-foreground cursor-not-allowed'
                 }`}
               >
                 {submitting ? t.submitting : (<><Send className="h-4 w-4" /> {grievance ? t.submitGrievance : t.submitTicket}</>)}

@@ -8,6 +8,7 @@ import { AccountRail, MobileTopBar, type AccountRailUser } from './AccountRail';
 import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
 import { useCopy } from '@/lib/i18n';
 import { applyShellCopy } from '@/i18n/apply-shell';
+import { BrandLogo } from '@/components/site/BrandLogo';
 
 const BRAND_ICONS = [ShieldCheck, FileCheck, Clock3];
 
@@ -73,10 +74,7 @@ export function ApplyShell({
       ) : (
         <aside className="bg-deep-gradient relative hidden h-screen w-[280px] shrink-0 flex-col gap-6 self-start overflow-hidden p-7 text-white lg:sticky lg:top-0 lg:flex">
           <div className="absolute -right-24 -bottom-24 h-72 w-72 rounded-full bg-[var(--mint)]/25 blur-3xl" aria-hidden />
-          <div className="relative z-10 flex items-center gap-2.5 text-lg font-extrabold">
-            <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
-            SwiftLoan
-          </div>
+          <BrandLogo size={36} tone="dark" className="relative z-10" />
           <div className="relative z-10">
             <h2 className="text-2xl leading-tight font-extrabold">{t.brandHeading}</h2>
             <p className="mt-2 text-sm leading-relaxed text-white/70">

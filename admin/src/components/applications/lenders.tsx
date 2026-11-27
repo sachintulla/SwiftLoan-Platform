@@ -8,7 +8,7 @@ import useSWR from 'swr';
 import { swrFetcher } from '@/lib/api';
 import { StatusBadge } from '@/components/ui';
 import { inr, num, dateTimeStr } from '@/lib/format';
-import { yubiStatusLabel, REVASURE_STATUS_LABEL } from '@/lib/lists';
+import { yubiStatusLabel, yubiStatusTone, REVASURE_STATUS_LABEL } from '@/lib/lists';
 
 export type LenderKey = 'aurix' | 'yubi' | 'revasure';
 
@@ -51,21 +51,30 @@ export interface AurixRow {
 export const AURIX_CHIPS: ChipDef[] = [
   { key: '', label: 'All' },
   { key: 'offers_ready', label: 'Offers ready' },
-  { key: 'handoff', label: 'Sent to lender' },
-  { key: 'under_review', label: 'In review' },
+  { key: 'handoff', label: 'Tapped Apply' },
+  { key: 'under_review', label: 'Applied, in review' },
   { key: 'filling', label: 'Filling details' },
   { key: 'rejected', label: 'No offers' },
+  { key: 'lender_rejected', label: 'Rejected by lender' },
   { key: 'failed', label: 'Failed' },
 ];
 
+/**
+ * "No offers" and "Rejected by lender" are stored as the same application status. It is a lender rejection when the
+ * customer applied on an offer and that lender turned it down (same rule as the server: listFilters LENDER_REJECTED_OFFER).
+ */
+export function aurixStatusKey(r: { status: string; offers?: { lenderStatus?: string | null }[] }): string {
+  return r.status === 'rejected' && (r.offers ?? []).some((o) => o.lenderStatus === 'rejected') ? 'lender_rejected' : r.status;
+}
+
 /** An application's status in the same words as the chips above the table (the chips and the badges must agree). */
 const AURIX_LABEL: Record<string, string> = {
-  offers_ready: 'Offers ready', handoff: 'Sent to lender', under_review: 'In review', approved: 'Approved', disbursed: 'Disbursed',
+  offers_ready: 'Offers ready', handoff: 'Tapped Apply', under_review: 'Applied, in review', approved: 'Approved', disbursed: 'Disbursed', lender_rejected: 'Rejected by lender',
   closed: 'Closed', draft: 'Filling details', pan_pending: 'Filling details', prequalifying: 'Filling details', rejected: 'No offers', failed: 'Failed',
 };
 const AURIX_TONE: Record<string, string> = {
   offers_ready: 'in_progress', handoff: 'converted', under_review: 'in_progress', approved: 'approved', disbursed: 'disbursed', closed: 'completed',
-  draft: 'pending', pan_pending: 'pending', prequalifying: 'pending', rejected: 'rejected', failed: 'failed',
+  draft: 'pending', pan_pending: 'pending', prequalifying: 'pending', rejected: 'rejected', lender_rejected: 'rejected', failed: 'failed',
 };
 
 /** The lenders a customer applied to from this application, e.g. "Credit Sea" or "Credit Sea +1". */
@@ -82,7 +91,7 @@ export function AurixRowView({ r, onOpen }: { r: AurixRow; onOpen: () => void })
       <CustomerCell name={r.user?.fullName} phone={r.user?.phone} appId={r.id} appRef={r.ref} />
       {amountCell(r.amount)}
       <td data-label="Status">
-        <StatusBadge status={AURIX_TONE[r.status] ?? r.status} label={AURIX_LABEL[r.status] ?? r.status} />
+        <StatusBadge status={AURIX_TONE[aurixStatusKey(r)] ?? r.status} label={AURIX_LABEL[aurixStatusKey(r)] ?? r.status} />
         {r._count?.offers ? <div className="ap-sub">{r._count.offers} offer{r._count.offers === 1 ? '' : 's'}</div> : null}
       </td>
       <td data-label="Lender">{lenderNames(r.offers)}</td>
@@ -105,16 +114,8 @@ export function yubiChipLabel(code: string): string {
   return code === 'waiting' ? 'Waiting for Yubi' : yubiStatusLabel(code);
 }
 
-// Yubi's raw codes → the admin's status colours (approved/disbursed green, new lead / offer blue, rejected red).
-function yubiTone(code: string): string {
-  const s = code.toUpperCase();
-  if (s.includes('DISBURS')) return 'disbursed';
-  if (s.includes('APPROV')) return 'approved';
-  if (s.includes('REJECT') || s.includes('NO_OFFER')) return 'rejected';
-  if (s.includes('FAIL')) return 'failed';
-  if (s === 'WAITING') return 'pending';
-  return 'in_progress';
-}
+// Yubi's raw codes → the admin's status colours (lib/lists.ts yubiStatusTone, shared with the customer page).
+const yubiTone = yubiStatusTone;
 
 export function YubiRowView({ r }: { r: YubiRow }) {
   const code = r.lastStatus || 'waiting';
@@ -142,12 +143,13 @@ export const REVASURE_CHIPS: ChipDef[] = [
   { key: '', label: 'All' },
   { key: 'success', label: 'Accepted' },
   { key: 'ineligible', label: 'Not eligible' },
+  { key: 'low_income', label: 'Not eligible: low income' },
   { key: 'duplicate', label: 'Already registered' },
   { key: 'failed', label: 'Could not send' },
   { key: 'pending', label: 'Pending' },
 ];
 const REVASURE_LABEL: Record<string, string> = Object.fromEntries(REVASURE_CHIPS.filter((c) => c.key).map((c) => [c.key, c.label]));
-const REVASURE_TONE: Record<string, string> = { success: 'approved', duplicate: 'converted', ineligible: 'rejected', failed: 'failed', pending: 'pending' };
+const REVASURE_TONE: Record<string, string> = { success: 'approved', duplicate: 'converted', ineligible: 'rejected', low_income: 'rejected', failed: 'failed', pending: 'pending' };
 // The loan status from Revasure's uploaded sheet → status colours.
 const MIS_TONE: Record<string, string> = {
   disbursed: 'disbursed', approved: 'approved', rejected: 'rejected', ineligible: 'rejected', cancelled: 'failed',

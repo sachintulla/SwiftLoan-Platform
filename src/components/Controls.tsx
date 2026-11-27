@@ -584,6 +584,9 @@ export function Select({
  * than left to the element-tree walk because sliders live inside EmiCalculator,
  * and that walk cannot see inside child components. Values are clamped to
  * min/max/step so a spoken "set tenure to 500" can't push state out of range. */
+/** How far (px) a finger must travel sideways before a drag-only slider sets its first value. */
+const DRAG_START_PX = 12;
+
 export function Slider({
   value,
   min,
@@ -592,6 +595,7 @@ export function Slider({
   onChange,
   label,
   role,
+  ignoreTap = false,
 }: {
   value: number;
   min: number;
@@ -599,6 +603,11 @@ export function Slider({
   step?: number;
   onChange?: (v: number) => void;
   label?: string;
+  /**
+   * When true a plain touch does not set a value: only a real sideways drag does. Used by the loan amount while
+   * nothing is chosen yet, so brushing the slider cannot pick an amount for the applicant.
+   */
+  ignoreTap?: boolean;
   /** What this slider controls, so set_loan_amount / set_tenure / set_interest_rate find it in any language. */
   role?: 'amount' | 'tenure' | 'rate';
 }) {
@@ -644,8 +653,8 @@ export function Slider({
 
   // Latest props for the (created-once) PanResponder — otherwise it keeps the
   // first render's value/onChange forever.
-  const live = useRef({ min, max, step, onChange, value });
-  live.current = { min, max, step, onChange, value };
+  const live = useRef({ min, max, step, onChange, value, ignoreTap });
+  live.current = { min, max, step, onChange, value, ignoreTap };
   const lastSent = useRef<number | null>(null);
 
   const commit = (x: number) => {
@@ -668,6 +677,7 @@ export function Slider({
   // it's only read once, on the track itself (children are pointerEvents
   // none); the drag then follows gesture dx, which is stable.
   const startX = useRef(0);
+  const dragOnly = useRef(false);
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -679,9 +689,15 @@ export function Slider({
       onPanResponderGrant: e => {
         startX.current = e.nativeEvent.locationX;
         lastSent.current = live.current.value;
-        commit(startX.current);
+        dragOnly.current = live.current.ignoreTap;
+        if (!dragOnly.current) commit(startX.current);
       },
-      onPanResponderMove: (_e, g) => commit(startX.current + g.dx),
+      onPanResponderMove: (_e, g) => {
+        // Drag-only mode: wait for a deliberate sideways move before the first value is set.
+        if (dragOnly.current && Math.abs(g.dx) < DRAG_START_PX) return;
+        dragOnly.current = false;
+        commit(startX.current + g.dx);
+      },
     }),
   ).current;
 

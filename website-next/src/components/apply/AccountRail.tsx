@@ -9,6 +9,7 @@ import { logout as logoutSession } from '@/lib/session';
 import { LanguageSwitcher } from '@/components/site/LanguageSwitcher';
 import { useCopy } from '@/lib/i18n';
 import { applyShellCopy } from '@/i18n/apply-shell';
+import { BrandLogo } from '@/components/site/BrandLogo';
 
 const NAV = [
   { href: '/account', labelKey: 'navApplications', icon: LayoutList },
@@ -84,10 +85,7 @@ export function AccountRail({ user }: { user?: AccountRailUser | null }) {
         }`}
       >
         <div className={`flex items-center ${collapsed ? 'flex-col gap-4' : 'justify-between gap-2.5'}`}>
-          <div className="flex items-center gap-2.5 text-lg font-extrabold">
-            <span className="bg-brand-gradient grid h-8 w-8 place-items-center rounded-xl text-sm">S</span>
-            {!collapsed && 'SwiftLoan'}
-          </div>
+          <BrandLogo size={collapsed ? 32 : 36} tone="dark" wordmark={!collapsed} />
           {/* Top-right of the sidebar: closes it to a slim icon strip, and opens it again from there. */}
           <button
             type="button"
@@ -178,10 +176,7 @@ export function MobileTopBar({ user }: { user?: AccountRailUser | null }) {
   return (
     <div className="lg:hidden">
       <div className="border-border bg-background/95 sticky top-0 z-40 flex h-14 items-center justify-between border-b px-4 backdrop-blur sm:px-6">
-        <div className="flex items-center gap-2 text-base font-extrabold">
-          <span className="bg-brand-gradient grid h-7 w-7 place-items-center rounded-lg text-xs text-white">S</span>
-          SwiftLoan
-        </div>
+        <BrandLogo size={32} wordmarkClassName="text-base" />
         <div className="flex items-center gap-2">
           <LanguageSwitcher />
         {user && (

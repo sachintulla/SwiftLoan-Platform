@@ -8,6 +8,8 @@
  * can collect everything BEFORE the user presses Continue. Mirrors the checks in basic.tsx's
  * onContinue; keep the two in step.
  */
+import { LOAN_AMOUNT_MAX, LOAN_AMOUNT_MIN } from './inputLimits';
+
 export interface BasicRequiredInput {
   /** Desired loan amount in rupees; 0 = not chosen yet (there is no default — the applicant must pick one). */
   amount?: number;
@@ -46,7 +48,8 @@ export function missingBasicRequired(
   opts: { pincodeRe: RegExp; incomeMin: number },
 ): string[] {
   const out: string[] = [];
-  if (v.amount !== undefined && !(v.amount > 0)) out.push('loan amount');
+  // Not chosen (0) or outside what the server accepts (25,000 to 15,00,000).
+  if (v.amount !== undefined && !(v.amount >= LOAN_AMOUNT_MIN && v.amount <= LOAN_AMOUNT_MAX)) out.push('loan amount');
   if (!v.first.trim()) out.push('first name');
   if (!v.last.trim()) out.push('last name');
   if (!v.dobSet) out.push('date of birth');

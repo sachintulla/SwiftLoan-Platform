@@ -94,7 +94,7 @@ export default function DownloadsPage() {
             <Stat label="With customer details" value={stats ? num(stats.withContext) : '-'} foot={pctFoot(stats?.withContext ?? 0)} />
             <Stat label="Without details" value={stats ? num(stats.withoutContext) : '-'} foot={pctFoot(stats?.withoutContext ?? 0)} />
             <Stat label="Reached the next step since install" value={stats ? num(stats.reachedNextStep) : '-'} foot={pctFoot(stats?.reachedNextStep ?? 0)} />
-            <Stat label="Not signed in yet" value={stats ? num(stats.notSignedIn) : '-'} foot={pctFoot(stats?.notSignedIn ?? 0)} />
+            <Stat label="Not linked to an account" value={stats ? num(stats.notSignedIn) : '-'} foot="An install is tied to a person only when it came from our link" />
           </div>
         </Card>
 
@@ -106,9 +106,9 @@ export default function DownloadsPage() {
                 <Stat label="Identified" value={num(funnel.identified)} foot="Tied to a customer" />
                 <Stat label="Started an application" value={num(funnel.withApplication)} foot={pctFoot(funnel.withApplication)} />
                 <Stat label="Got offers" value={num(funnel.gotOffers)} foot={pctFoot(funnel.gotOffers)} tone="teal" />
-                <Stat label="No offer (rejected / failed)" value={num(funnel.noOffers)} foot={pctFoot(funnel.noOffers)} tone={funnel.noOffers > 0 ? 'red' : undefined} />
+                <Stat label="No offers" value={num(funnel.noOffers)} foot={pctFoot(funnel.noOffers)} tone={funnel.noOffers > 0 ? 'red' : undefined} />
                 <Stat label="Stopped before offers" value={num(funnel.stoppedBeforeOffers)} foot="Started, stuck pre-offers" tone={funnel.stoppedBeforeOffers > 0 ? 'amber' : undefined} />
-                <Stat label="Applied to a lender" value={num(funnel.applied)} foot={pctFoot(funnel.applied)} tone="blue" />
+                <Stat label="Tapped Apply or applied" value={num(funnel.applied)} foot={pctFoot(funnel.applied)} tone="blue" />
                 <Stat label="Disbursed" value={num(funnel.disbursed)} foot={pctFoot(funnel.disbursed)} tone="green" />
                 <Stat label="Contacted since install" value={num(funnel.contacted)} foot={`${num(funnel.notContacted)} not yet reached`} />
               </div>

@@ -4,19 +4,20 @@ import { ah, HttpError } from '../middleware/error.js';
 import { ok, pageParams, paginate } from '../lib/http.js';
 import { requireAdmin, requireActiveAdmin, auditAdmin, requireRole, CAN_WRITE, CAN_ADMINISTER } from '../middleware/adminAuth.js';
 import { normalisePhone } from '../lib/dialer.js';
-import { loadCustomerStatuses } from '../lib/customerStatusDb.js';
+import { loadCustomerStatuses, customerIdsByStatus } from '../lib/customerStatusDb.js';
+import { peopleMetrics } from '../lib/peopleMetrics.js';
 import { istDayStart } from '../lib/stallCallLimits.js';
 import { CHANNEL_LABELS } from '../lib/conversations.js';
 import { getNudgeConfig, setNudgeConfig } from '../lib/appConfig.js';
 import { refreshApplicationStatus } from '../lib/statusRefresh.js';
 import { getReferralStatus, yubiEnabled } from '../lib/yubiReferral.js';
 import {
-  buildLoanWhere, buildRevasureWhere, buildYubiWhere, findUserIdsBySearch, personsByUserId, redactRevasurePayload, searchTerm, FILLING_STATUSES,
+  buildLoanWhere, buildRevasureWhere, buildYubiWhere, customerOtpWhere, findUserIdsBySearch, personsByUserId, redactRevasurePayload, searchTerm, FILLING_STATUSES,
 } from '../lib/listFilters.js';
 import { scoped } from '../lib/log.js';
 import { attachLenderNotes } from '../lib/lenderNote.js';
 import { gatherSnapshot, sendSnapshotNow } from '../lib/slackSnapshot.js';
-import { amountRows, clampDays, dailyWindow, funnelRows, outcomeRows, peopleTotals, aurixSlices, revasureSlices, yubiSlices, lenderStatusRows, overallOutcomes } from '../lib/dashboardGraphs.js';
+import { amountRows, clampDays, dailyWindow, funnelRows, outcomeRows, peopleRangeTotals, aurixPeopleSlices, revasureSlices, yubiSlices, lenderStatusRows, overallOutcomes } from '../lib/dashboardGraphs.js';
 import type { ApplicationStatus } from '@prisma/client';
 
 const log = scoped('admin');
@@ -107,7 +108,7 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
   const cr = range ? { createdAt: range } : {};
   const pFrom = range?.gte ?? new Date(0);
   const pTo = range?.lte ?? new Date('9999-12-31T00:00:00Z');
-  const [users, apps, appsAgg, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups, people] = await Promise.all([
+  const [users, apps, appsAgg, loans, leads, downloads, disbursedAgg, funnel, statusGroups, lenderGroups, people, latestAmount] = await Promise.all([
     prisma.user.count({ where: cr }),
     prisma.loanApplication.count({ where: cr }),
     // Total loan amount requested across applications in the range (whole rupees).
@@ -121,24 +122,17 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
     // Per-lender application pipeline: one applied offer = one lender application,
     // bucketed by that lender's own status (matches the app's My Loans).
     prisma.offer.groupBy({ by: ['lenderStatus'], where: { ...cr, applied: true }, _count: { _all: true } }),
-    // PEOPLE (each counted once) behind the Offers and Rejected cards, from applications created in the range:
-    // who asked for offers, who got at least one, and whose LATEST application ended with no offer.
-    prisma.$queryRaw<{ checked: bigint; withOffers: bigint; rejected: bigint }[]>`
-      SELECT
-        (SELECT count(DISTINCT a."userId") FROM "LoanApplication" a
-          WHERE a."createdAt" >= ${pFrom} AND a."createdAt" <= ${pTo} AND a."status"::text NOT IN ('draft', 'pan_pending')) AS "checked",
-        (SELECT count(DISTINCT a."userId") FROM "LoanApplication" a
-          WHERE a."createdAt" >= ${pFrom} AND a."createdAt" <= ${pTo}
-            AND EXISTS (SELECT 1 FROM "Offer" o WHERE o."applicationId" = a."id")) AS "withOffers",
-        (SELECT count(*) FROM (
-           SELECT DISTINCT ON (a."userId") a."status"::text AS "status" FROM "LoanApplication" a
-           WHERE a."createdAt" >= ${pFrom} AND a."createdAt" <= ${pTo}
-           ORDER BY a."userId", a."createdAt" DESC) x WHERE x."status" = 'rejected') AS "rejected"`,
+    // PEOPLE, once each, by their real status: the same read and the same rules (lib/peopleMetrics.ts) as the Customers
+    // page, so the two pages show the same numbers. With a date range it is the customers who joined in that range.
+    customerIdsByStatus({ AND: [customerOtpWhere(undefined)], ...(range ? { createdAt: range } : {}) }, null),
+    // Amount requested, each person once: the amount on their LATEST application (repeat attempts are not added up).
+    prisma.$queryRaw<{ total: bigint | null }[]>`
+      SELECT sum(x."amount") AS "total" FROM (
+        SELECT DISTINCT ON (a."userId") a."amount" FROM "LoanApplication" a
+        WHERE a."createdAt" >= ${pFrom} AND a."createdAt" <= ${pTo} AND a."status"::text NOT IN ('draft', 'pan_pending')
+        ORDER BY a."userId", a."createdAt" DESC) x`,
   ]);
-  const peopleChecked = Number(people[0]?.checked ?? 0);
-  const peopleWithOffers = Math.min(peopleChecked, Number(people[0]?.withOffers ?? 0));
-  const peopleRejected = Math.min(peopleChecked, Number(people[0]?.rejected ?? 0));
-  const share = (n: number) => (peopleChecked > 0 ? Math.round((n / peopleChecked) * 100) : 0);
+  const peopleStats = peopleMetrics(people.counts);
 
   const byStatus = Object.fromEntries(APP_STATUSES.map((s) => [s, 0]));
   statusGroups.forEach((g) => { byStatus[g.status] = g._count._all; });
@@ -163,12 +157,11 @@ adminRouter.get('/dashboard/overview', ah(async (req, res) => {
       outstanding: disbursedAgg._sum.outstanding ?? 0,
       approvedCount: approved,
       applicationToDisbursalPct: appToDisbursal,
-      // People who asked for offers, and of them how many got one / were turned down (each person once).
-      peopleChecked,
-      peopleWithOffers,
-      offersPct: share(peopleWithOffers),
-      peopleRejected,
-      rejectedPct: share(peopleRejected),
+      /** Amount on each person's latest application, added up (people once). `requestedAmount` adds every application. */
+      requestedAmountPeople: Number(latestAmount[0]?.total ?? 0),
+      // People, once each, by the shared rules (lib/peopleMetrics.ts): checked eligibility, got offers, no offers,
+      // tapped Apply, applied with a lender (confirmed), rejected by a lender. Percentages are of people who checked.
+      people: peopleStats,
     },
     funnel,
     applicationsByStatus: byStatus,
@@ -334,17 +327,28 @@ adminRouter.get('/dashboard/people-daily', ah(async (req, res) => {
     FROM d LEFT JOIN u ON u.day = d.day LEFT JOIN a ON a.day = d.day
     ORDER BY d.day`;
   const days = rows.map((r) => ({ day: r.day, registered: Number(r.registered), applied: Number(r.applied), gotOffers: Number(r.gotOffers), rejected: Number(r.rejected) }));
-  return ok(res, { from: w.from, to: w.to, today, days, totals: peopleTotals(days) }, 'People per day');
+  // The boxes above the graph are for the WHOLE range, so each person is counted once in it. Adding the days up counted
+  // someone who checked on three days three times (7 days on 27 Nov 2026: 913 added up, 841 people).
+  const [range] = await prisma.$queryRaw<{ applied: bigint; gotOffers: bigint; rejected: bigint }[]>`
+    SELECT count(*) AS "applied", count(*) FILTER (WHERE p.offered) AS "gotOffers", count(*) FILTER (WHERE p.rejected AND NOT p.offered) AS "rejected"
+    FROM (
+      SELECT a."userId", bool_or(EXISTS (SELECT 1 FROM "Offer" o WHERE o."applicationId" = a."id")) AS offered, bool_or(a."status"::text = 'rejected') AS rejected
+      FROM "LoanApplication" a
+      WHERE (a."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date BETWEEN ${w.from}::date AND ${w.to}::date
+        AND a."status"::text NOT IN ('draft', 'pan_pending')
+      GROUP BY 1) p`;
+  const totals = peopleRangeTotals(days.reduce((n, d) => n + d.registered, 0), { applied: Number(range?.applied ?? 0), gotOffers: Number(range?.gotOffers ?? 0), rejected: Number(range?.rejected ?? 0) });
+  return ok(res, { from: w.from, to: w.to, today, days, totals }, 'People per day');
 }));
 
 // GET /api/admin/dashboard/partners
-// The Dashboard's lender status graphs: what happened to the applications sent to Aurix for offers, where each Yubi
-// referral stands, and what Revasure answered to the leads we sent.
-// All time. One slice per plain-words state (lib/dashboardGraphs.ts); `people` is how many different customers.
+// The Dashboard's lender status graphs. Aurix = PEOPLE, once each, by their real status (the same read and rules as
+// the Dashboard cards and the Customers page: lib/peopleMetrics.ts); Yubi = customers who went to Yubi; Revasure =
+// what it answered to the leads we sent. All time.
 adminRouter.get('/dashboard/partners', ah(async (_req, res) => {
-  const [aurix, aurixPeople, rev, revPeople, yubi, yubiPeople] = await Promise.all([
-    prisma.loanApplication.groupBy({ by: ['status'], _count: { _all: true } }),
-    prisma.loanApplication.findMany({ where: { status: { notIn: ['draft', 'pan_pending'] } }, distinct: ['userId'], select: { userId: true } }),
+  const [aurixPeople, rev, revPeople, yubi, yubiPeople] = await Promise.all([
+    // Aurix side only: Yubi has its own column in this chart, so its outcomes must not be counted in both.
+    customerIdsByStatus({ AND: [customerOtpWhere(undefined)] }, null, { yubi: false }),
     prisma.revasureLead.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.revasureLead.findMany({ distinct: ['userId'], select: { userId: true } }),
     // Yubi = only customers who went to Yubi (same rule as the Applications page, buildYubiWhere). A referral is also
@@ -352,8 +356,9 @@ adminRouter.get('/dashboard/partners', ah(async (_req, res) => {
     prisma.partnerReferral.groupBy({ by: ['status', 'lastStatus'], where: buildYubiWhere({}), _count: { _all: true } }),
     prisma.partnerReferral.findMany({ where: buildYubiWhere({}), distinct: ['userId'], select: { userId: true } }),
   ]);
+  const aurix = aurixPeopleSlices(aurixPeople.counts);
   const parts = {
-    aurix: { ...aurixSlices(aurix.map((r) => ({ status: String(r.status), count: r._count._all }))), people: aurixPeople.length },
+    aurix: { ...aurix, people: aurix.total },
     yubi: { ...yubiSlices(yubi.map((r) => ({ status: r.status == null ? null : String(r.status), lastStatus: r.lastStatus, count: r._count._all }))), people: yubiPeople.length },
     revasure: { ...revasureSlices(rev.map((r) => ({ status: String(r.status), count: r._count._all }))), people: revPeople.length },
   };
@@ -425,20 +430,24 @@ adminRouter.get('/dashboard/active-today', ah(async (req, res) => {
 // GET /api/admin/applications/summary?search=&from=&to=
 // The Applications page: for each lender, how many records there are and how many are in each status chip, following
 // the page's search and dates (never its status chip). The cards on top call it with no filters.
-//   aurix    = SwiftLoan applications (the offers check). Chips: offers_ready, handoff, under_review, filling, rejected, failed.
+//   aurix    = SwiftLoan applications (the offers check). Chips: offers_ready, handoff, under_review, filling, rejected (= no offers),
+//              lender_rejected (a lender turned the application down), failed.
 //   yubi     = customers who went to Yubi (same rule as the Yubi list: appliedAt set). Chips: Yubi's own latest status, or "waiting".
-//   revasure = leads sent to Revasure. Chips: success, ineligible, duplicate, failed, pending.
+//   revasure = leads sent to Revasure. Chips: success, ineligible, low_income (saved, not sent: income below 10,000), duplicate, failed, pending.
 adminRouter.get('/applications/summary', ah(async (req, res) => {
   const q = { ...(req.query as Record<string, unknown>), status: undefined, allStatuses: '1' };
   const matchedUserIds = await findUserIdsBySearch(searchTerm(q));
-  const [aurix, yubi, revasure] = await Promise.all([
+  const [aurix, lenderRejected, yubi, revasure] = await Promise.all([
     prisma.loanApplication.groupBy({ by: ['status'], where: buildLoanWhere(q), _count: { _all: true } }),
+    // Applications a lender rejected are stored as `rejected` too: counted apart, so "No offers" is only no offers.
+    prisma.loanApplication.count({ where: { AND: [buildLoanWhere(q), buildLoanWhere({ status: 'lender_rejected' })] } }),
     prisma.partnerReferral.groupBy({ by: ['lastStatus'], where: buildYubiWhere(q, matchedUserIds), _count: { _all: true } }),
     prisma.revasureLead.groupBy({ by: ['status'], where: buildRevasureWhere(q, matchedUserIds), _count: { _all: true } }),
   ]);
   const add = (m: Record<string, number>, k: string, n: number) => { m[k] = (m[k] ?? 0) + n; };
   const a: Record<string, number> = {};
   for (const g of aurix) add(a, (FILLING_STATUSES as readonly string[]).includes(g.status) ? 'filling' : g.status, g._count._all);
+  if (lenderRejected > 0) { a.rejected = Math.max(0, (a.rejected ?? 0) - lenderRejected); a.lender_rejected = lenderRejected; }
   const y: Record<string, number> = {};
   for (const g of yubi) add(y, g.lastStatus || 'waiting', g._count._all);
   const r: Record<string, number> = {};

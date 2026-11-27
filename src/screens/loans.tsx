@@ -129,7 +129,9 @@ export default function Loans() {
   const yubiStatus = (pr: any): { text: string; color: string } => {
     const T = t as any;
     const s = String(pr.lastStatus || '').toUpperCase();
-    if (/DISBURS|APPROV|COMPLETE|SUCCESS|SANCTION/.test(s)) return { text: T.statusApproved || 'Approved', color: colors.green };
+    // Yubi reports each step: sanction, signing and "ready for disbursement" mean approved; DISBURSED means paid out.
+    if (/^DISBURS/.test(s)) return { text: T.statusDisbursed || 'Disbursed', color: colors.green };
+    if (/APPROV|COMPLETE|SUCCESS|SANCTION|SIGN|READY_FOR_DISBURSEMENT/.test(s)) return { text: T.statusApproved || 'Approved', color: colors.green };
     if (/REJECT|FAIL|DECLIN|EXPIR/.test(s)) return { text: T.statusRejected || 'Rejected', color: colors.red };
     return { text: T.statusInProgress || 'In progress', color: colors.amber }; // NEW_LEAD / mid-journey
   };

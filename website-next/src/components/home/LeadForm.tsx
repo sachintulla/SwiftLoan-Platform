@@ -212,7 +212,7 @@ export function LeadForm() {
                       disabled={!formValid || isSubmitting}
                       className={`inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-6 py-4 text-center text-base font-bold transition-transform duration-200 ${
                         formValid && !isSubmitting
-                          ? "bg-brand-gradient text-primary-foreground cta-pulse shadow-[var(--shadow-float)] hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.96]"
+                          ? "bg-brand-gradient text-primary-foreground cta-pulse shadow-[var(--shadow-float)] hover:scale-[1.02] active:scale-[0.96]"
                           : "bg-muted text-muted-foreground cursor-not-allowed"
                       }`}
                     >
@@ -341,7 +341,7 @@ function SuccessView({
 
         <a
           href={target}
-          className={`bg-brand-gradient text-primary-foreground inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-bold shadow-[var(--shadow-float)] transition-transform duration-200 hover:-translate-y-0.5 active:scale-[0.97] ${cls}`}
+          className={`bg-brand-gradient text-primary-foreground inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-bold shadow-[var(--shadow-float)] transition-transform duration-200 active:scale-[0.97] ${cls}`}
           style={step(5)}
         >
           <span className="min-w-0 leading-snug">{t.openAppStore}</span>

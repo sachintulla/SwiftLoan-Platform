@@ -26,7 +26,9 @@ describe('buildLoanWhere', () => {
   });
 
   it('keeps a valid status, shows failed only when its chip is picked', () => {
-    expect(f.buildLoanWhere({ status: 'rejected' })).toEqual({ status: 'rejected' });
+    // "No offers" and "Rejected by lender" share one stored status and must never be counted together.
+    expect(f.buildLoanWhere({ status: 'rejected' })).toEqual({ status: 'rejected', NOT: [f.LENDER_REJECTED_OFFER] });
+    expect(f.buildLoanWhere({ status: 'lender_rejected' })).toEqual({ status: 'rejected', offers: { some: { applied: true, lenderStatus: 'rejected' } } });
     expect(f.buildLoanWhere({ status: 'nonsense' })).toEqual({});
     // failed is now a real, explicit list filter (the Failed chip).
     expect(f.buildLoanWhere({ status: 'failed' })).toEqual({ status: 'failed' });
@@ -104,7 +106,7 @@ describe('loanLenderSummary', () => {
 
 describe('buildRevasureWhere', () => {
   it('defaults to genuine leads only (Revasure actually responded)', () => {
-    expect(f.buildRevasureWhere({})).toEqual({ status: { in: ['success', 'duplicate', 'ineligible'] } });
+    expect(f.buildRevasureWhere({})).toEqual({ status: { in: ['success', 'duplicate', 'ineligible', 'low_income'] } });
   });
 
   it('counts every status when allStatuses is set (for the stat tiles)', () => {

@@ -71,7 +71,7 @@ describe('snapshotLines', () => {
     expect(lines).toHaveLength(10);
     expect(lines.map((l) => l.label)).toEqual([
       'App downloads', 'Users onboarded', 'Leads captured', 'Applications',
-      'Application worth', 'Offers received', 'Approvals', 'Disbursements',
+      'Application worth', 'People who got offers', 'Approvals', 'Disbursements',
       'Disbursed amount', 'Meta ad spend',
     ]);
   });

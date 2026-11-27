@@ -15,6 +15,9 @@ import { resolveCustomer } from '../lib/journey.js';
 import { placeCall, normalisePhone } from '../lib/dialer.js';
 import { buildLeadCallContext, compactContext, stallReasonFor, stallHelpFor } from '../lib/callContext.js';
 import { agentIdFor } from '../lib/agents.js';
+import { loadCallState, manualCallPlan } from '../lib/callSituation.js';
+import { noOffersCallBrief } from '../lib/dropoffSteps.js';
+import { alreadyInApp } from '../lib/installReminder.js';
 import { getJobHeartbeats } from '../jobs/tracking.jobs.js';
 import { scoped } from '../lib/log.js';
 import { toCsv } from '../lib/csv.js';
@@ -115,22 +118,31 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
     const expectedStep = String(b.expectedStep ?? '').trim();
     const stageAware = !!(lastStep && expectedStep);
 
+    // The stage the button sends can be behind the truth (a no-offers person was called as "did not finish the form"), so
+    // for a signed-in person the stored data decides which call this is (callSituation.ts manualCallPlan).
+    const accountId = customer.userId
+      ?? (await prisma.user.findUnique({ where: { phone: dialPhone }, select: { id: true } }).catch(() => null))?.id
+      ?? null;
+    const state = accountId ? await loadCallState(accountId).catch(() => null) : null;
+    const plan = manualCallPlan(state?.status ?? null, stageAware);
+    const noOffers = plan.stall === 'no_offers' ? noOffersCallBrief(state?.reason, await alreadyInApp(dialPhone).catch(() => false)) : null;
+
+    const stall = noOffers
+      ? { reason: noOffers.reason, help: noOffers.help, lastStep: noOffers.lastStep, expectedStep: noOffers.expectedStep, minutes: 0, channel: noOffers.channel }
+      : plan.stall === 'stage'
+        ? {
+            reason: stallReasonFor(lastStep, expectedStep),
+            help: stallHelpFor(lastStep, expectedStep),
+            lastStep: lastStep.replace(/_/g, ' '),
+            expectedStep: expectedStep.replace(/_/g, ' '),
+            minutes: 0,
+            channel: lastStep.startsWith('lead_') ? 'the website' : 'the app',
+          }
+        : undefined;
+
     const context = compactContext(
-      await buildLeadCallContext(customer, {
-        purpose: stageAware ? 'app_dropoff_followup' : 'manual_dashboard_call',
-        ...(stageAware
-          ? {
-              stall: {
-                reason: stallReasonFor(lastStep, expectedStep),
-                help: stallHelpFor(lastStep, expectedStep),
-                lastStep: lastStep.replace(/_/g, ' '),
-                expectedStep: expectedStep.replace(/_/g, ' '),
-                minutes: 0,
-                channel: lastStep.startsWith('lead_') ? 'the website' : 'the app',
-              },
-            }
-          : {}),
-      }).catch(() => ({}) as Record<string, string>),
+      await buildLeadCallContext(customer, { purpose: plan.purpose, ...(stall ? { stall } : {}) })
+        .catch(() => ({}) as Record<string, string>),
     );
 
     const result = await placeCall({
@@ -142,6 +154,7 @@ callsRouter.post('/trigger', requireRole(...CAN_ADMINISTER),
       metadata: {
         ...context,
         ...(metadata ?? {}),
+        ...(noOffers ? { no_offers_reason: noOffers.noOffersReason } : {}),
         name: customer.name ?? undefined,
         reason: 'manual_dashboard_call',
         triggeredBy: req.admin?.sub ?? 'admin',

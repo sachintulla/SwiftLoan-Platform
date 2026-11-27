@@ -12,8 +12,9 @@
  *  - Match: clientReferralId (ours, unique) → ymplReferralId.
  *  - Never 4xx on a well-authenticated body we can't match: the sender would
  *    retry forever — return 200 { matched:false }.
- *  - Updates PartnerReferral.lastStatus (+ appliedLender when sent). It does not
- *    stamp appliedAt: that is set when the applicant taps Proceed in the app.
+ *  - Updates PartnerReferral.lastStatus (forward only) + appliedLender when sent, keeps the full body in rawStatus
+ *    and every step in statusHistory (lib/yubiStatus.ts). It does not stamp appliedAt: that is set when the
+ *    applicant taps Proceed in the app.
  */
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
@@ -22,6 +23,7 @@ import { ok, fail } from '../lib/http.js';
 import { scoped } from '../lib/log.js';
 import { webhookEnvTag } from '../lib/webhookEnv.js';
 import { yubiAuthOk, parseYubiEvent } from '../lib/yubiWebhook.js';
+import { nextYubiHistory, yubiStatusAdvances } from '../lib/yubiStatus.js';
 
 const log = scoped('yubi-webhook');
 
@@ -59,10 +61,15 @@ yubiWebhookRouter.post('/', ah(async (req, res) => {
     return ok(res, { matched: false }, 'No matching referral');
   }
 
+  // Keep what Yubi sent as it came, and every step with its time; the status itself only moves forward (a late
+  // webhook or poll for an earlier step must not undo "disbursed"). Rules: lib/yubiStatus.ts.
+  const moves = yubiStatusAdvances(referral.lastStatus, ev.status);
   await prisma.partnerReferral.update({
     where: { id: referral.id },
     data: {
-      ...(ev.status ? { lastStatus: ev.status } : {}),
+      rawStatus: (req.body ?? {}) as object,
+      statusHistory: nextYubiHistory(referral, ev.status, new Date(), 'webhook') as object[],
+      ...(moves && ev.status ? { lastStatus: ev.status } : {}),
       ...(ev.lender ? { appliedLender: ev.lender } : {}),
       ...(!referral.ymplReferralId && ev.ymplReferralId ? { ymplReferralId: ev.ymplReferralId } : {}),
     },

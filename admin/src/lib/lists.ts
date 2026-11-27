@@ -99,10 +99,31 @@ export function dayLabel(v: string): string {
 }
 
 /** Yubi sends raw codes in capitals (OFFER_GENERATED). Shown as "Offer generated". */
+/** Yubi's status codes in plain words (the same words as the server's lib/yubiStatus.ts). An unknown code is shown readable. */
+export const YUBI_STATUS_LABELS: Record<string, string> = {
+  NEW_LEAD: 'New lead', LEAD_REJECTED: 'Lead rejected', NO_OFFERS: 'No offers', OFFER_GENERATED: 'Offer generated',
+  NEW_APPLICATION: 'Application started', READY_FOR_UNDERWRITING: 'With the lender for a decision',
+  APPLICATION_SANCTIONED: 'Sanctioned', SANCTION_GENERATED: 'Sanction letter issued', SIGNING_INITIATED: 'Agreement sent for signing',
+  AGREEMENT_SIGNED: 'Agreement signed', READY_FOR_DISBURSEMENT: 'Ready for disbursement', APPROVED: 'Approved',
+  APPLICATION_REJECTED: 'Application rejected', DISBURSED: 'Disbursed',
+};
 export function yubiStatusLabel(status: string | null | undefined): string {
   if (!status) return 'Unknown';
+  const known = YUBI_STATUS_LABELS[status.trim().toUpperCase()];
+  if (known) return known;
   const s = status.replace(/_/g, ' ').trim().toLowerCase();
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** The admin status colour for a Yubi code: paid out / approved green, in progress blue, turned down red. */
+export function yubiStatusTone(code: string | null | undefined): string {
+  const s = String(code ?? '').toUpperCase();
+  if (s.includes('DISBURS') && !s.startsWith('READY')) return 'disbursed';
+  if (/APPROV|SANCTION|SIGN|READY_FOR_DISBURSEMENT/.test(s)) return 'approved';
+  if (s.includes('REJECT') || s.includes('NO_OFFER')) return 'rejected';
+  if (s.includes('FAIL')) return 'failed';
+  if (!s || s === 'WAITING') return 'pending';
+  return 'in_progress';
 }
 
 /** Revasure status words. An unknown status is shown as it came. */
@@ -110,6 +131,7 @@ export const REVASURE_STATUS_LABEL: Record<string, string> = {
   success: 'Success',
   duplicate: 'Duplicate',
   ineligible: 'Ineligible',
+  low_income: 'Not eligible: low income',
   failed: 'Failed',
   pending: 'Pending',
 };

@@ -77,8 +77,10 @@ export interface RevasureResult {
   ok: boolean;
   // success = 201 created; duplicate = 409 already-received (benign);
   // ineligible = 409 business decline; failed = validation/auth/server/network;
+  // low_income = not eligible: the applicant's stated monthly income is below Revasure's
+  // minimum, so the lead is saved with this status and not sent (Revasure would refuse it);
   // skipped = a lead was already sent for this number, so we did not send another.
-  status: 'success' | 'duplicate' | 'ineligible' | 'failed' | 'disabled' | 'skipped';
+  status: 'success' | 'duplicate' | 'ineligible' | 'low_income' | 'failed' | 'disabled' | 'skipped';
   httpStatus: number | null;
   leadId: string | null;
   message: string | null;
@@ -180,6 +182,26 @@ export function maskedRevasureBody(body: Record<string, unknown>): Record<string
   };
 }
 
+/**
+ * Revasure refuses a lead whose monthly_income is below this ("Invalid monthly_income: must be a
+ * number from 10000 to 9999999"). An applicant who TOLD us a lower income is not sent: their lead
+ * row is saved with status `low_income` (shown in admin as "Not eligible: low income") instead of
+ * a failed call. Raising their number to the minimum would give the lender a false income. An
+ * unknown income still gets the 50,000 placeholder, as before.
+ */
+export const REVASURE_MIN_MONTHLY_INCOME = 10_000;
+export const REVASURE_LOW_INCOME_MESSAGE = 'Not eligible: monthly income below ₹10,000';
+
+/** True for Revasure's own refusal of the income field (kept for a lead sent before this rule). */
+export function isRevasureIncomeRefusal(httpStatus: number, message: string | null): boolean {
+  return httpStatus === 400 && /monthly_income/i.test(message || '');
+}
+
+/** True when the applicant's own stated income is below what Revasure accepts. */
+export function incomeBelowRevasureMinimum(monthlyIncome: number | null | undefined): boolean {
+  return typeof monthlyIncome === 'number' && Number.isFinite(monthlyIncome) && monthlyIncome < REVASURE_MIN_MONTHLY_INCOME;
+}
+
 /** Build the flat Create-Lead body. Required fields are always present/valid. */
 export function buildRevasureBody(
   app: SafeApplication,
@@ -203,7 +225,7 @@ export function buildRevasureBody(
     pancard,
     date_of_birth: isoDate(user?.dob ?? null),
     occupation: occupationCode(user?.employment),
-    monthly_income: clamp(user?.monthlyIncome ?? null, 1000, 9_999_999, 50_000),
+    monthly_income: clamp(user?.monthlyIncome ?? null, REVASURE_MIN_MONTHLY_INCOME, 9_999_999, 50_000),
     loan_amount: clamp(app.amount ?? null, 1000, 999_999_999, 100_000), // app.amount is rupees
     is_mobile_verified: 'yes',
     otp: process.env.REVASURE_SEED_OTP || '123456', // verified in our own OTP flow; seeded value
@@ -243,6 +265,11 @@ export async function createRevasureLead(
     if (!app) return { provider: 'revasure', ok: false, status: 'failed', httpStatus: null, leadId: null, message: 'application not found' };
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
+    // Revasure refuses an income below its minimum (HTTP 400). Such a lead is SAVED as
+    // `low_income` (admin: "Not eligible: low income") and not sent. The status is not in
+    // REVASURE_SENT, so if the applicant later corrects their income the lead is sent then.
+    const lowIncome = incomeBelowRevasureMinimum(user?.monthlyIncome);
+
     const body = buildRevasureBody(app, user, ip, cfg, await loadPan(userId, applicationId));
     // Masked copy for storage — never persist the real PAN / OTP.
     const storedBody = { ...body, pancard: maskPan(String(body.pancard)), otp: '******' };
@@ -268,10 +295,14 @@ export async function createRevasureLead(
           select: { sourceLeadId: true, status: true, httpStatus: true, leadId: true },
         });
         if (prior) return prior;
+        // Low income: record the decision instead of claiming a send.
+        const claim = lowIncome
+          ? { status: 'low_income', httpStatus: null, leadId: null, message: REVASURE_LOW_INCOME_MESSAGE, lastError: null }
+          : { status: 'pending', lastError: null };
         await tx.revasureLead.upsert({
           where: { sourceLeadId: app.id },
-          update: { status: 'pending', basketId: cfg.basketId, requestBody: storedBody, lastError: null },
-          create: { applicationId: app.id, userId, sourceLeadId: app.id, basketId: cfg.basketId, status: 'pending', requestBody: storedBody },
+          update: { ...claim, basketId: cfg.basketId, requestBody: storedBody },
+          create: { ...claim, applicationId: app.id, userId, sourceLeadId: app.id, basketId: cfg.basketId, requestBody: storedBody },
         });
         return null;
       });
@@ -287,6 +318,10 @@ export async function createRevasureLead(
         message: 'already sent for this number; not sent again',
       };
     }
+    if (lowIncome) {
+      log.info('not eligible — stated monthly income is below the Revasure minimum; saved, not sent', { applicationId });
+      return { provider: 'revasure', ok: false, status: 'low_income', httpStatus: null, leadId: null, message: REVASURE_LOW_INCOME_MESSAGE };
+    }
 
     console.log(`[revasure-req] POST ${cfg.baseUrl}/api/inbound/leads app=${app.id} body=${JSON.stringify(maskedRevasureBody(body))}`);
     const res = await postLead(cfg, body);
@@ -298,8 +333,10 @@ export async function createRevasureLead(
     // decline. Distinguish on the message so a decline isn't counted as success.
     const duplicate = res.status === 409 && /duplicate/i.test(msg || '');
     const ineligible = res.status === 409 && !duplicate;
+    // Revasure refusing the income field is a "not eligible: low income", not a technical failure.
+    const incomeRefused = isRevasureIncomeRefusal(res.status, msg);
     const ok = res.ok || duplicate;
-    const status: RevasureResult['status'] = res.ok ? 'success' : duplicate ? 'duplicate' : ineligible ? 'ineligible' : 'failed';
+    const status: RevasureResult['status'] = res.ok ? 'success' : duplicate ? 'duplicate' : ineligible ? 'ineligible' : incomeRefused ? 'low_income' : 'failed';
 
     await prisma.revasureLead.update({
       where: { sourceLeadId: app.id },
